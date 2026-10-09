@@ -4,11 +4,11 @@ Status: accepted as direction, details open (grill session, 2026-10-09). Numbers
 
 ## Context
 
-After decisions 0001 to 0003 the maintainer clarified that the product is larger than a story delivery tool. It is an orchestration product in which the maintainer and a model together run **all** of the maintainer's software products, like an office or development team.
+After decisions 0001 to 0003 the maintainer clarified that the product is larger than a story delivery tool. It is an orchestration product in which the maintainer and a model together run the maintainer's software products, like an office or development team.
 
 ## Decisions
 
-1. **Scope is the office.** The product covers planning, refinement, agent hiring, execution, review and product testing for all of the maintainer's products, in one environment.
+1. **Scope is the office.** The product covers planning, refinement, agent hiring, execution, review and product testing. It is initialized per project. A cross-project overview is undecided.
 2. **Code drives, AI fills the gaps.** What code can know (backlog structure, ids, branches, state, dependencies, gates) is never delegated to a model. AI drafts content (stories, milestones, acceptance criteria, test scripts), interviews the maintainer, and does the work of agents. Planning content is written by the maintainer and AI together.
 3. **An orchestrator helper** assists with setup: planning new items, creating and hiring agents, and starting runs. It combines software and AI.
 4. **A roster of roles.** Agents are created from roles with their own instructions, tools, default model and default effort. Roles can be code and non-code.
@@ -17,7 +17,7 @@ After decisions 0001 to 0003 the maintainer clarified that the product is larger
 
 ## Effects on earlier decisions
 
-- **0001, "local database is per project":** under review. Cross-product state suggests a workspace-level store, possibly with per-product detail. Resolved in the state database spike (DIPO-4). Until then, treat the per-project statement as provisional.
+- **0001, "local database is per project":** still valid. If a cross-project overview is added later, its storage is decided then.
 - **0001, ritual commands and lifecycle:** still valid. They become the first capabilities of the office, not the whole product.
 - **0001, worker adapter:** still valid, and the roster of roles sits on top of it.
 - **0002, review and testing:** still valid. The reviewer is one role in the roster.
@@ -25,5 +25,5 @@ After decisions 0001 to 0003 the maintainer clarified that the product is larger
 
 ## Consequences
 
-- New architecture questions beyond DIPO-1 to DIPO-7: the product and workspace model, the role and roster model, the effort policy, and the orchestrator helper interaction. These become new spikes once the maintainer confirms the open questions.
+- New architecture questions beyond DIPO-1 to DIPO-7: a possible cross-project view, the role and roster model, the effort policy, and the orchestrator helper interaction. These become new spikes once the maintainer confirms the open questions.
 - The vision is the reference document. Disagreements are resolved by editing `docs/vision.md`, then recording the change here.

@@ -5,8 +5,8 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | Term | Meaning |
 |---|---|
 | **Office** | The metaphor for the whole product: the maintainer, the orchestrator, the roster, and all products, managed in one place |
-| **Workspace** **[proposed]** | The software representation of the office: the set of registered products plus workspace-level state |
-| **Product** **[proposed]** | One software product the maintainer builds, usually one repository with its own Backlog.md |
+| **Project** | One repository in which the orchestrator is initialized, with its own Backlog.md, configuration and local state |
+| **Workspace** **[undecided]** | A possible cross-project overview of all the maintainer's projects. Not decided |
 | **Maintainer** | The human: visionary, manager, tester. Decides direction and approves gates |
 | **Orchestrator** | The code-driven core, plus the AI-assisted helper that sets things up for the maintainer. Code first, AI to fill gaps |
 | **Engine** | The headless part of the orchestrator: state, gates, scheduling, workers, git. Exposes commands in and events out |
@@ -27,6 +27,6 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Reviewer** | A separate agent that checks a PR against the story goal. Does not see the implementer's reasoning |
 | **Acceptance test** | The maintainer testing behavior of a flagged story by running it |
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances |
-| **State database** | Local, gitignored store of orchestration state and machine insights. Scope per product versus workspace is open |
+| **State database** | Local, gitignored, per-project store of orchestration state and machine insights |
 | **Triage list** | The morning view of parked stories with reasons and actions |
 | **ADR** | Architecture decision record in `docs/decisions/` |

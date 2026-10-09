@@ -4,7 +4,7 @@
 
 ## In one sentence
 
-dipsaus-orchestrator is a code-driven orchestration product in which one person and an AI model run all of that person's software products together, the way a small office or development team would, with AI filling in the work that code cannot do.
+dipsaus-orchestrator is a code-driven orchestration product in which one person and an AI model run that person's software products together, the way a small office or development team would, with AI filling in the work that code cannot do.
 
 ## The picture: an office
 
@@ -14,7 +14,7 @@ The product represents the maintainer's office, mirroring how the maintainer act
 - The maintainer cannot do everything alone, so they work with an **orchestrator** (a helper that sets things up and coordinates) and a **roster of agents** that can be hired for specific jobs.
 - Like a real team, the roster can hold different roles: developers, testers, reviewers, UX designers, visual designers, and more. Each role has its own instructions, and each job gets a fitting amount of effort.
 - The maintainer can **test the products** from within the same environment.
-- Everything runs inside this one software, across **all** the maintainer's products, not one repository at a time **[assumption: "products" means multiple repositories or projects]**.
+- The orchestrator is initialized **per project**. Whether one environment should also give an overview across several projects is not decided (open question 1).
 
 The result is a stricter overview of what needs to be done and how, like the board and standup of a real team, but always current and always actionable.
 
@@ -44,8 +44,8 @@ A useful test: **if the orchestrator already knows the answer from the backlog, 
 
 ## What the product does
 
-### 1. One workspace across all products
-A single environment in which the maintainer sees and manages all products: their backlogs, running work, parked work, and what needs testing. State that spans products belongs to the workspace, not to a single repository **[assumption: this replaces the earlier "per project" database decision, see decision 0011]**.
+### 1. Initialized per project
+The orchestrator is set up per project, with its own backlog, configuration and local state. A cross-project overview of all the maintainer's products is a possible later capability and is not decided.
 
 ### 2. An orchestrator that helps set things up
 The orchestrator is the helper the maintainer talks to. It sets up planning, new items, new agents and runs. It combines software and AI: it uses code for everything it can know or do directly, and AI to draft and discuss. The exact interaction style (conversation versus commands) is an open question.
@@ -93,11 +93,11 @@ The maintainer visions the whole plan and micromanages it **[assumption: microma
 
 These are not decided and should be resolved before or during the architecture spikes.
 
-1. **Products:** is a product one repository, or can it span several? How does the workspace register them?
+1. **Cross-project view:** the orchestrator is initialized per project. Should there also be one overview across all projects, and if so, what does it show and where does its state live? Undecided.
 2. **Orchestrator interaction:** is the orchestrator a persistent conversational assistant inside the TUI, a set of commands that open AI sessions, or both?
 3. **Roles and artifacts:** what do non-code roles (UX, visual design) produce, and where does that output live (in the repo, in Backlog.md, elsewhere)?
 4. **Hiring:** is a hired agent a stored role definition reused across jobs, or a one-off configuration? Who may edit its instructions?
 5. **Difficulty to effort mapping:** who defines difficulty (estimate at refine, the orchestrator's proposal, or the maintainer), and what are the default tiers?
 6. **Testing products:** how does the tool help run and test products with different stacks (launch commands, test scripts per product)?
-7. **State scope:** what lives per product and what lives in the workspace? Does the database split?
+7. **State scope:** per project is the default. If a cross-project view is added, does it need its own store?
 8. **Milestones:** the current M0 to M3 plan was drawn before this scope. Which parts of the office model belong in which milestone?
