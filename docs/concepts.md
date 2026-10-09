@@ -22,7 +22,8 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Spike** | A story that ends in a decision record rather than product code |
 | **Ready** | A story whose unknowns are resolved and which meets the story standard. Only Ready stories run |
 | **Unknown** | An open question about a story that must be resolved before it is Ready |
-| **Effort** **[proposed]** | The model and token budget assigned to a job, chosen by its difficulty |
+| **Tier** | A story's difficulty (S, M, L to start), set at refine time and confirmed by the maintainer |
+| **Effort** | The model, budget and loop cap a tier maps to, from office configuration |
 | **Park** | Stopping a story that needs a human, with a structured reason, while other work continues |
 | **Reviewer** | A separate agent that checks a PR against the story goal. Does not see the implementer's reasoning |
 | **Acceptance test** | The maintainer testing behavior of a flagged story by running it |

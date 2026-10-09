@@ -4,6 +4,7 @@ title: Define the worker adapter contract
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
+updated_date: '2026-10-09 19:35'
 labels:
   - architecture
 milestone: m-0
@@ -27,3 +28,9 @@ Outcome: an ADR defining the Worker interface (start with prompt and workdir, st
 - [ ] #3 ADR states how another adapter would plug in
 - [ ] #4 Maintainer approved the decision
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope addition (decision 0011): verify which per-job caps the Claude CLI supports on a Max login (tokens, turns, time, model selection). Tiers S, M, L map to model, budget and loop cap.
+<!-- SECTION:NOTES:END -->
