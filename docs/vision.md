@@ -92,12 +92,21 @@ How to run a product:
 - **Testing a story is a command.** Code checks out the story branch in its worktree, installs, starts the product, and shows the story's manual test script. The maintainer records pass, or fail with a note. A failure sends the story back, and the note becomes structured input for the next worker.
 - Open for DIPO-7: git worktrees contain only tracked files, so gitignored environment files present in the main checkout are absent in a fresh worktree. Port clashes between parallel worktrees also need a rule.
 
-### 8. A visual overview and feedback loop
+### 8. A manager's overview and feedback loop
+The maintainer is a manager who is present along the way, not only at planning time. At any moment the overview answers:
+
+- **Who is working on what:** which agent, in which role, on which story, in which phase (implementing, verifying, in review, parked).
+- **How it is going:** progress against acceptance criteria, loop count, verify results, reviewer verdicts, time running, and signs of trouble such as repeated failures or a stalled agent.
+- **What needs to be done:** the queue by lifecycle state, what is Ready, what is blocked and why, and what is waiting for the maintainer.
+- **Whether it is cost efficient:** usage per story, per role and per tier compared to its budget, and trends over time, so the maintainer can see which kinds of work, roles or preparation are worth it.
+
+The manager helps along the way. While work runs, the maintainer can answer an agent's question, give direction, pause, resume, reassign or stop a story, without waiting for it to park. These are commands like any other, so every client can offer them.
+
 The headless engine runs as a daemon so work survives closing the UI. A TUI is the first client. A local web UI or desktop app can follow. Clients only send commands and read events.
 
 ## The maintainer's role
 
-The maintainer visions the whole plan and micromanages it **[assumption: micromanaging means full visibility and control over direction, plans, roles, budgets and gates, while execution of prepared work may run without presence]**. The most important work is preparing jobs well, because fixing afterwards is expensive. Agents do the hard work. The maintainer is the mastermind.
+The maintainer visions the whole plan and micromanages it, like a good manager: they plan, and they also help along the way. Micromanaging means full visibility and control over direction, plans, roles, budgets and gates, and the ability to step into running work at any time. Prepared work can also run without the maintainer present, for example overnight. The most important work is preparing jobs well, because fixing afterwards is expensive. Agents do the hard work. The maintainer is the mastermind.
 
 ## Principles
 

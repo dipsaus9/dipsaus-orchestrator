@@ -4,7 +4,7 @@ title: Design engine command and event model
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-09 19:33'
+updated_date: '2026-10-09 19:44'
 labels:
   - architecture
 milestone: m-0
@@ -33,4 +33,6 @@ Outcome: an ADR defining the engine's public boundary: the commands clients send
 
 <!-- SECTION:NOTES:BEGIN -->
 Scope addition (decision 0011): commands are the single entry point for every client: CLI, conversation layer, TUI and future web or desktop UI. The conversation layer may only issue existing commands, with confirmation.
+
+Scope addition (decision 0011 item 10): commands for intervening in running work (answer, steer, pause, resume, reassign, stop). Events must carry enough to show who works on what, phase, progress and usage.
 <!-- SECTION:NOTES:END -->

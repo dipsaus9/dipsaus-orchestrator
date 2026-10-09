@@ -4,6 +4,7 @@ title: Design local state database and schema
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
+updated_date: '2026-10-09 19:44'
 labels:
   - architecture
 milestone: m-0
@@ -26,3 +27,9 @@ Outcome: an ADR choosing the local database (per project, gitignored) and defini
 - [ ] #2 ADR defines the reconcile procedure and which side wins per field
 - [ ] #3 Maintainer approved the decision
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope addition (decision 0011 item 10): store usage per story, role and tier with budgets, so cost efficiency and trends can be reported.
+<!-- SECTION:NOTES:END -->
