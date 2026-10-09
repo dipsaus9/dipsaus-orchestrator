@@ -1,7 +1,7 @@
 # dipsaus-orchestrator
 
-Software that orchestrates AI coding agents like a team lead: plan, refine, run, review. Engine-first, TUI first, human in the loop.
+A code-driven orchestration product where you and an AI model run all your software products together, like an office or development team: plan, refine, hire agents for roles, run work, review and test. Code drives, AI fills the gaps.
 
-Status: pre-code, design phase. See [docs/vision.md](docs/vision.md) and [docs/decisions](docs/decisions).
+Status: pre-code, design phase. Start with [docs/vision.md](docs/vision.md), then [docs/concepts.md](docs/concepts.md) and [docs/decisions](docs/decisions).
 
 License: MIT.

@@ -1,6 +1,6 @@
 # dipsaus-orchestrator
 
-Open source software that orchestrates AI coding agents like a team lead. Read `docs/vision.md` and `docs/decisions/` before making design choices.
+Open source, code-driven orchestration product: the maintainer and a model run all the maintainer's software products together, like an office or dev team, with AI filling the gaps code cannot. Read `docs/vision.md`, `docs/concepts.md` and `docs/decisions/` before making design choices.
 
 ## Status
 
@@ -8,6 +8,7 @@ Pre-code. Stack not chosen. Vision, decisions and architecture spikes (DIPO-1 to
 
 ## Rules
 
+- Code drives, AI fills the gaps. If the orchestrator already knows an answer from the backlog, git or its own state, it must not ask a model.
 - Anything deterministic is code, never prose for a model to follow.
 - Engine is headless. UIs are clients that send commands and read events. No UI imports engine internals.
 - Backlog.md/CLI is the source of truth for stories. Never edit task files by hand when the CLI can do it.
