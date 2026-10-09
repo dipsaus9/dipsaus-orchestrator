@@ -83,6 +83,15 @@ The maintainer drives planning. Execution can run unattended, including overnigh
 ### 7. Review and testing
 A reviewer agent checks every PR against the story goal. The maintainer reviews by **testing behavior**, only for stories they choose to flag, and not by reading code except by exception. The product makes testing cheap by showing what to test and providing a runnable checkout.
 
+How to run a product:
+
+- **Each repository is self-sufficient.** It contains what it needs to install, start and test itself, including environment files. The orchestrator does not manage a project's secrets or setup.
+- **The orchestrator learns how to run a product from context.** It scans the repository for install, start and test scripts and stores the result in its local database, not in a configuration file.
+- **Standards first, AI for gaps.** A standard set of script names is defined for the maintainer's projects. A repository that follows it is understood by code alone. AI only infers what a non-standard repository does, and the maintainer confirms.
+- **Rescan on change.** When scripts change, a rescan command refreshes the stored knowledge.
+- **Testing a story is a command.** Code checks out the story branch in its worktree, installs, starts the product, and shows the story's manual test script. The maintainer records pass, or fail with a note. A failure sends the story back, and the note becomes structured input for the next worker.
+- Open for DIPO-7: git worktrees contain only tracked files, so gitignored environment files present in the main checkout are absent in a fresh worktree. Port clashes between parallel worktrees also need a rule.
+
 ### 8. A visual overview and feedback loop
 The headless engine runs as a daemon so work survives closing the UI. A TUI is the first client. A local web UI or desktop app can follow. Clients only send commands and read events.
 
@@ -113,6 +122,6 @@ These are not decided and should be resolved before or during the architecture s
 
 1. **Office switching:** how are offices registered (explicit `open`, or discovered on first use), and does one engine process serve all offices or does each office run its own? Part of the daemon spike (DIPO-3).
 2. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template?
-3. **Testing products:** how does the tool help run and test products with different stacks (launch commands, test scripts per product)?
+3. **Script standard:** which script names and behaviors form the standard (for example install, setup, dev, test, verify), and how strict is it?
 4. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
 5. **Milestones:** the current M0 to M3 plan was drawn before this scope. Which parts of the office model belong in which milestone?

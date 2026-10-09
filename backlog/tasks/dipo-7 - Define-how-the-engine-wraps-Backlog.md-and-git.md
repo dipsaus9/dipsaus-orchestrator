@@ -4,6 +4,7 @@ title: Define how the engine wraps Backlog.md and git
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
+updated_date: '2026-10-09 19:40'
 labels:
   - architecture
 milestone: m-0
@@ -26,3 +27,9 @@ Outcome: an ADR defining the engine's integration layer: reading and writing sto
 - [ ] #2 ADR specifies the git contract and its failure cases
 - [ ] #3 Maintainer approved the decision
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope addition (decision 0011): worktrees lack gitignored files such as .env that exist in the main checkout; decide how a worktree gets them. Decide port allocation for parallel worktrees. Product run knowledge (install, start, test scripts) is scanned and stored in the local database with a rescan command.
+<!-- SECTION:NOTES:END -->
