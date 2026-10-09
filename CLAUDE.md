@@ -18,7 +18,7 @@ Pre-code. Stack not chosen. Vision, decisions and architecture spikes (DIPO-1 to
 
 ## Backlog
 
-- Prefix `DIPO`. Milestones `m-0` to `m-3` are M0 to M3 (see `docs/decisions/0003-milestones-and-quality-bar.md`). Backlog.md has no epic type, so milestones play that role.
+- Prefix `DIPO`. Milestones `m-0` to `m-5` are M0 to M5 (see `docs/decisions/0003-milestones-and-quality-bar.md`). Backlog.md has no epic type, so milestones play that role.
 - Architecture spikes (`--type spike`) each end in an ADR in `docs/decisions/`. Implementation stories are written after the spikes resolve.
 - `auto_commit` is off. Commit backlog changes yourself.
 

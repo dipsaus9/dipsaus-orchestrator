@@ -124,4 +124,3 @@ These are not decided and should be resolved before or during the architecture s
 2. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template?
 3. **Script standard:** which script names and behaviors form the standard (for example install, setup, dev, test, verify), and how strict is it?
 4. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
-5. **Milestones:** the current M0 to M3 plan was drawn before this scope. Which parts of the office model belong in which milestone?

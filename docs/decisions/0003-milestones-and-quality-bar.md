@@ -14,12 +14,16 @@ This is a long-lived project, not a proof of concept. Fast results are not expec
 
 ## Milestones
 
-- **M0, walking skeleton.** Engine, daemon, local database, Claude CLI adapter and a minimal TUI. Takes one Ready story from Backlog.md, creates the worktree and branch, runs a worker, runs verify and shows live output. No planning, review or parallelism. Proves the core loop and the engine/UI boundary.
-- **M1, review and park.** Reviewer bot, structured park reasons, morning triage view, caps.
+- **M0, walking skeleton.** Engine, daemon, local database, Claude CLI adapter and a minimal TUI. Office init and switching (the office list). Repository scan and rescan for run knowledge. Takes one Ready story from Backlog.md, creates the worktree and branch, runs a worker, runs verify and shows live output. No planning, review or parallelism. Proves the core loop and the engine/UI boundary.
+- **M1, review and park.** Reviewer bot, structured park reasons, morning triage view, caps. Difficulty tiers mapped to model and budget. The test-story command with pass or fail feedback.
 - **M2, parallel runs.** Batch selection, collision checks, worktree locking, push serialization.
-- **M3, rituals.** `plan`, `refine` and `ready` with Claude interview sessions.
+- **M3, rituals.** `plan`, `refine`, `ready` and `estimate` (with tier proposal) with Claude interview sessions.
+- **M4, roster.** Roles as stored definitions, hiring, role chosen per story, non-code roles.
+- **M5, conversation.** Conversation layer that maps the maintainer's words to commands, with confirmation.
 
-Until M3, stories are written by hand or with the existing `dipsaus-ai` skills.
+Until M3, stories are written by hand or with the existing `dipsaus-ai` skills. Until M4 there is one built-in developer role.
+
+Amended 2026-10-09 after decision 0011 (office model): office basics added to M0, tiers and test command to M1, estimate to M3, and new milestones M4 and M5.
 
 ## Rationale
 

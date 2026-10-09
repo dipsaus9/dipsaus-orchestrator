@@ -5,4 +5,4 @@ title: "M3 Rituals"
 
 ## Description
 
-plan, refine and ready commands with Claude interview sessions.
+plan, refine, ready and estimate (with tier proposal) commands with Claude interview sessions.
