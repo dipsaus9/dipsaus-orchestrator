@@ -4,7 +4,7 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 
 | Term | Meaning |
 |---|---|
-| **Office** | The metaphor for the whole product: the maintainer, the orchestrator, the roster, and all products, managed in one place |
+| **Office** | The metaphor for the whole product: the maintainer, the orchestrator, the roster and the work of a project, managed in one place |
 | **Project** | One repository in which the orchestrator is initialized, with its own Backlog.md, configuration and local state |
 | **Workspace** **[undecided]** | A possible cross-project overview of all the maintainer's projects. Not decided |
 | **Maintainer** | The human: visionary, manager, tester. Decides direction and approves gates |
