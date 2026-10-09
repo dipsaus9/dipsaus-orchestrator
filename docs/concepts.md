@@ -13,9 +13,9 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Client** | A UI on top of the engine: the TUI first, later maybe a web or desktop app |
 | **Daemon** | The engine running detached so work survives closing a client |
 | **Agent** | An AI worker doing a job. Created from a role |
-| **Role** **[proposed]** | A stored definition of a kind of agent: purpose, instructions, tools, default model and effort. Examples: developer, tester, reviewer, UX designer, visual designer |
-| **Hiring** **[proposed]** | Adding a role to the roster, or assigning a configured agent to a job |
-| **Roster** **[proposed]** | The set of roles currently available |
+| **Role** | A stored, versioned definition of a kind of agent inside an office: purpose, instructions, allowed tools, default model and effort. Examples: developer, tester, reviewer, UX designer, visual designer |
+| **Hiring** | Adding a role to an office's roster |
+| **Roster** | The roles available in one office |
 | **Worker adapter** | The interface through which the engine runs an agent. Claude Code CLI is the first adapter |
 | **Story** | A unit of work in Backlog.md with outcome, acceptance criteria, dependencies, scope and status |
 | **Milestone** | A group of stories in Backlog.md. Used in place of epics |

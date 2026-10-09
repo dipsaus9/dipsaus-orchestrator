@@ -57,7 +57,7 @@ Interaction has two layers. **Commands** are the deterministic core and the only
 Plan, refine, find unknowns, estimate, mark Ready, run, review, retro. Each is a physical command connected to Backlog.md and to interview sessions with the model. The engine refuses to run a story that is not Ready. Work flows continuously with no sprints.
 
 ### 4. A roster of agents with roles
-The maintainer can "hire" an agent for a specific job and give it specific instructions. A role defines its purpose, instructions, tools, default model and default effort. Roles can include developer, tester, reviewer, UX designer and visual designer **[assumption: non-code roles produce artifacts that are tracked as stories in the same backlog]**.
+The maintainer can "hire" an agent for a specific job and give it specific instructions. A role is a stored, versioned definition inside the office's repository: purpose, instructions, allowed tools, default model and default effort. Hiring adds a role to the office's roster. When work is picked up, code chooses the role for each story (from a story label or type, or the maintainer's choice) without asking a model. A story may add extra instructions on top of its role. Tuning a role once improves every later job, and its history lives in git. Roles can include developer, tester, reviewer, UX designer and visual designer **[assumption: non-code roles produce artifacts that are tracked as stories in the same backlog]**.
 
 ### 5. Effort and model chosen by difficulty
 Each job's size and difficulty decide how many tokens may be spent on it and which model does it. Easy jobs get a cheaper model and a small budget. Hard jobs get a stronger model and a larger budget. The orchestrator proposes, the maintainer can override, and hard caps always apply. This also keeps shared subscription limits from being exhausted by one job.
@@ -98,7 +98,7 @@ These are not decided and should be resolved before or during the architecture s
 
 1. **Office switching:** how are offices registered (explicit `open`, or discovered on first use), and does one engine process serve all offices or does each office run its own? Part of the daemon spike (DIPO-3).
 2. **Roles and artifacts:** what do non-code roles (UX, visual design) produce, and where does that output live (in the repo, in Backlog.md, elsewhere)?
-3. **Hiring:** is a hired agent a stored role definition reused across jobs, or a one-off configuration? Who may edit its instructions?
+3. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template?
 4. **Difficulty to effort mapping:** who defines difficulty (estimate at refine, the orchestrator's proposal, or the maintainer), and what are the default tiers?
 5. **Testing products:** how does the tool help run and test products with different stacks (launch commands, test scripts per product)?
 6. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
