@@ -4,7 +4,7 @@ title: Decide daemon lifecycle and IPC transport
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-09 19:31'
+updated_date: '2026-10-09 19:59'
 labels:
   - architecture
 milestone: m-0
@@ -27,6 +27,8 @@ Outcome: an ADR for how the engine runs detached and how clients connect. Cover:
 - [ ] #2 ADR specifies lifecycle states and crash recovery
 - [ ] #3 ADR specifies local security model for the transport
 - [ ] #4 Maintainer approved the decision
+- [ ] #5 ADR decides whether one engine process serves all offices or each office runs its own, and where the office list lives
+- [ ] #6 ADR defines how an office is opened, registered and switched to
 <!-- AC:END -->
 
 ## Implementation Notes

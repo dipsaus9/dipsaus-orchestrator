@@ -4,7 +4,7 @@ Open source, code-driven orchestration product: the maintainer and a model run t
 
 ## Status
 
-Pre-code. Stack not chosen. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-9) exist.
+Pre-code. Stack not chosen. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10) exist.
 
 ## Rules
 
