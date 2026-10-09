@@ -4,7 +4,7 @@ Open source software that orchestrates AI coding agents like a team lead. Read `
 
 ## Status
 
-Pre-code. Stack not chosen. Only vision and decisions exist.
+Pre-code. Stack not chosen. Vision, decisions and architecture spikes (DIPO-1 to DIPO-7) exist.
 
 ## Rules
 
@@ -14,6 +14,12 @@ Pre-code. Stack not chosen. Only vision and decisions exist.
 - Local state database is per project, gitignored, and never the only copy of a story fact.
 - Claude is reached only through the worker adapter. Keep Claude specifics out of the engine.
 - Decisions that change `docs/decisions/` need the user's explicit approval. Ask when unsure.
+
+## Backlog
+
+- Prefix `DIPO`. Milestones `m-0` to `m-3` are M0 to M3 (see `docs/decisions/0003-milestones-and-quality-bar.md`). Backlog.md has no epic type, so milestones play that role.
+- Architecture spikes (`--type spike`) each end in an ADR in `docs/decisions/`. Implementation stories are written after the spikes resolve.
+- `auto_commit` is off. Commit backlog changes yourself.
 
 ## Review
 
