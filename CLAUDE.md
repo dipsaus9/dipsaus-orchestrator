@@ -15,6 +15,10 @@ Pre-code. Stack not chosen. Only vision and decisions exist.
 - Claude is reached only through the worker adapter. Keep Claude specifics out of the engine.
 - Decisions that change `docs/decisions/` need the user's explicit approval. Ask when unsure.
 
+## Review
+
+- Every PR is reviewed by a separate agent against the story goal before merge. Fix its feedback, then merge. The maintainer tests behavior and does not review code. See `docs/decisions/0002-review-and-testing.md`.
+
 ## Git
 
 - Early bootstrap commits may go to `main`. After the initial backlog exists, work on `<ID>/<slug>` branches and merge by PR.
