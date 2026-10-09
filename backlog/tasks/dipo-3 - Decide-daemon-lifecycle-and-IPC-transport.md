@@ -4,6 +4,7 @@ title: Decide daemon lifecycle and IPC transport
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
+updated_date: '2026-10-09 19:31'
 labels:
   - architecture
 milestone: m-0
@@ -27,3 +28,9 @@ Outcome: an ADR for how the engine runs detached and how clients connect. Cover:
 - [ ] #3 ADR specifies local security model for the transport
 - [ ] #4 Maintainer approved the decision
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope addition (decision 0011): decide whether one engine process serves all offices or each office runs its own, and where the software-level office list lives.
+<!-- SECTION:NOTES:END -->

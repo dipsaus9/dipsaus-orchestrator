@@ -14,7 +14,8 @@ The product represents the maintainer's office, mirroring how the maintainer act
 - The maintainer cannot do everything alone, so they work with an **orchestrator** (a helper that sets things up and coordinates) and a **roster of agents** that can be hired for specific jobs.
 - Like a real team, the roster can hold different roles: developers, testers, reviewers, UX designers, visual designers, and more. Each role has its own instructions, and each job gets a fitting amount of effort.
 - The maintainer can **test the products** from within the same environment.
-- The orchestrator is initialized **per project**. Whether one environment should also give an overview across several projects is not decided (open question 1).
+- **Each project is its own office.** Every project is a development project with its own Backlog.md. Agents, planning, refinement and state belong to one project, and projects do not know about each other.
+- **The software sits above the offices.** It knows all the maintainer's projects. The maintainer can open a new repository as a new office, see the status of any office, and switch between offices the way they would navigate to a folder.
 
 The result is a stricter overview of what needs to be done and how, like the board and standup of a real team, but always current and always actionable.
 
@@ -44,8 +45,8 @@ A useful test: **if the orchestrator already knows the answer from the backlog, 
 
 ## What the product does
 
-### 1. Initialized per project
-The orchestrator is set up per project, with its own backlog, configuration and local state. A cross-project overview of all the maintainer's products is a possible later capability and is not decided.
+### 1. Offices per project, one software above them
+Each project is initialized as an office with its own backlog, configuration and local state. Offices are isolated: work, agents and planning never cross between projects. The software above them keeps a list of known offices, lets the maintainer open a new one, see each one's status, and switch between them.
 
 ### 2. An orchestrator that helps set things up
 The orchestrator is the helper the maintainer talks to. It sets up planning, new items, new agents and runs. It combines software and AI: it uses code for everything it can know or do directly, and AI to draft and discuss. The exact interaction style (conversation versus commands) is an open question.
@@ -93,11 +94,11 @@ The maintainer visions the whole plan and micromanages it **[assumption: microma
 
 These are not decided and should be resolved before or during the architecture spikes.
 
-1. **Cross-project view:** the orchestrator is initialized per project. Should there also be one overview across all projects, and if so, what does it show and where does its state live? Undecided.
+1. **Office switching:** how are offices registered (explicit `open`, or discovered on first use), and does one engine process serve all offices or does each office run its own? Part of the daemon spike (DIPO-3).
 2. **Orchestrator interaction:** is the orchestrator a persistent conversational assistant inside the TUI, a set of commands that open AI sessions, or both?
 3. **Roles and artifacts:** what do non-code roles (UX, visual design) produce, and where does that output live (in the repo, in Backlog.md, elsewhere)?
 4. **Hiring:** is a hired agent a stored role definition reused across jobs, or a one-off configuration? Who may edit its instructions?
 5. **Difficulty to effort mapping:** who defines difficulty (estimate at refine, the orchestrator's proposal, or the maintainer), and what are the default tiers?
 6. **Testing products:** how does the tool help run and test products with different stacks (launch commands, test scripts per product)?
-7. **State scope:** per project is the default. If a cross-project view is added, does it need its own store?
+7. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
 8. **Milestones:** the current M0 to M3 plan was drawn before this scope. Which parts of the office model belong in which milestone?

@@ -8,16 +8,19 @@ After decisions 0001 to 0003 the maintainer clarified that the product is larger
 
 ## Decisions
 
-1. **Scope is the office.** The product covers planning, refinement, agent hiring, execution, review and product testing. It is initialized per project. A cross-project overview is undecided.
-2. **Code drives, AI fills the gaps.** What code can know (backlog structure, ids, branches, state, dependencies, gates) is never delegated to a model. AI drafts content (stories, milestones, acceptance criteria, test scripts), interviews the maintainer, and does the work of agents. Planning content is written by the maintainer and AI together.
-3. **An orchestrator helper** assists with setup: planning new items, creating and hiring agents, and starting runs. It combines software and AI.
-4. **A roster of roles.** Agents are created from roles with their own instructions, tools, default model and default effort. Roles can be code and non-code.
-5. **Effort follows difficulty.** Model and token budget are chosen per job by its size and difficulty, proposed by the orchestrator, overridable by the maintainer, always capped.
-6. **The maintainer visions and micromanages.** Full visibility and control over direction, plans, roles, budgets and gates. Prepared work may execute without the maintainer present.
+1. **Scope is the office.** The product covers planning, refinement, agent hiring, execution, review and product testing.
+2. **One office per project, isolated.** Every project is a development project with Backlog.md. Agents run per project. Planning, refinement and state never cross projects, and projects do not know about each other.
+3. **The software sits above the offices.** It knows all offices, lets the maintainer open a new repository as an office, view any office's status, and switch between offices like navigating folders. It holds only the list of offices, not their work state.
+4. **Code drives, AI fills the gaps.** What code can know (backlog structure, ids, branches, state, dependencies, gates) is never delegated to a model. AI drafts content (stories, milestones, acceptance criteria, test scripts), interviews the maintainer, and does the work of agents. Planning content is written by the maintainer and AI together.
+5. **An orchestrator helper** assists with setup: planning new items, creating and hiring agents, and starting runs. It combines software and AI.
+6. **A roster of roles.** Agents are created from roles with their own instructions, tools, default model and default effort. Roles can be code and non-code.
+7. **Effort follows difficulty.** Model and token budget are chosen per job by its size and difficulty, proposed by the orchestrator, overridable by the maintainer, always capped.
+8. **The maintainer visions and micromanages.** Full visibility and control over direction, plans, roles, budgets and gates. Prepared work may execute without the maintainer present.
 
 ## Effects on earlier decisions
 
-- **0001, "local database is per project":** still valid. If a cross-project overview is added later, its storage is decided then.
+- **0001, "local database is per project":** still valid. Each office has its own state. The office list is the only software-level data.
+- **0001, "daemon from the start":** still valid, but whether one engine serves all offices or each office runs its own is open (DIPO-3).
 - **0001, ritual commands and lifecycle:** still valid. They become the first capabilities of the office, not the whole product.
 - **0001, worker adapter:** still valid, and the roster of roles sits on top of it.
 - **0002, review and testing:** still valid. The reviewer is one role in the roster.
@@ -25,5 +28,5 @@ After decisions 0001 to 0003 the maintainer clarified that the product is larger
 
 ## Consequences
 
-- New architecture questions beyond DIPO-1 to DIPO-7: a possible cross-project view, the role and roster model, the effort policy, and the orchestrator helper interaction. These become new spikes once the maintainer confirms the open questions.
+- New architecture questions beyond DIPO-1 to DIPO-7: the role and roster model, the effort policy, and the orchestrator helper interaction. These become new spikes once the maintainer confirms the open questions.
 - The vision is the reference document. Disagreements are resolved by editing `docs/vision.md`, then recording the change here.

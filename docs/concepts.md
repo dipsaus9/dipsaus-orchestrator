@@ -4,9 +4,9 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 
 | Term | Meaning |
 |---|---|
-| **Office** | The metaphor for the whole product: the maintainer, the orchestrator, the roster and the work of a project, managed in one place |
-| **Project** | One repository in which the orchestrator is initialized, with its own Backlog.md, configuration and local state |
-| **Workspace** **[undecided]** | A possible cross-project overview of all the maintainer's projects. Not decided |
+| **Office** | One project as seen in the orchestrator: its backlog, roster, running work and state. Offices are isolated from each other |
+| **Project** | A development repository with Backlog.md in which an office is initialized |
+| **Office list** | The software-level list of known offices that the maintainer switches between. Holds no work state |
 | **Maintainer** | The human: visionary, manager, tester. Decides direction and approves gates |
 | **Orchestrator** | The code-driven core, plus the AI-assisted helper that sets things up for the maintainer. Code first, AI to fill gaps |
 | **Engine** | The headless part of the orchestrator: state, gates, scheduling, workers, git. Exposes commands in and events out |
