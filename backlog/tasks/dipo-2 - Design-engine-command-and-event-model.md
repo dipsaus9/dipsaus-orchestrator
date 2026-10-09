@@ -4,7 +4,7 @@ title: Design engine command and event model
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-09 19:17'
+updated_date: '2026-10-09 19:33'
 labels:
   - architecture
 milestone: m-0
@@ -28,3 +28,9 @@ Outcome: an ADR defining the engine's public boundary: the commands clients send
 - [ ] #3 ADR confirms no client needs engine internals
 - [ ] #4 Maintainer approved the decision
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope addition (decision 0011): commands are the single entry point for every client: CLI, conversation layer, TUI and future web or desktop UI. The conversation layer may only issue existing commands, with confirmation.
+<!-- SECTION:NOTES:END -->

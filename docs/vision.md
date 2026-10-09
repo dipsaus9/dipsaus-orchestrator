@@ -49,7 +49,9 @@ A useful test: **if the orchestrator already knows the answer from the backlog, 
 Each project is initialized as an office with its own backlog, configuration and local state. Offices are isolated: work, agents and planning never cross between projects. The software above them keeps a list of known offices, lets the maintainer open a new one, see each one's status, and switch between them.
 
 ### 2. An orchestrator that helps set things up
-The orchestrator is the helper the maintainer talks to. It sets up planning, new items, new agents and runs. It combines software and AI: it uses code for everything it can know or do directly, and AI to draft and discuss. The exact interaction style (conversation versus commands) is an open question.
+The orchestrator is the helper the maintainer talks to. It sets up planning, new items, new agents and runs. It combines software and AI: it uses code for everything it can know or do directly, and AI to draft and discuss.
+
+Interaction has two layers. **Commands** are the deterministic core and the only way to act on the engine. A **conversation layer** sits on top: the maintainer says what they want, the orchestrator maps it to commands and asks for confirmation. The conversation can never do something no command can. The CLI, the conversation, the TUI and any future web or desktop UI all trigger the same commands. Commands are built first, and the conversation layer follows.
 
 ### 3. Team-lead rituals
 Plan, refine, find unknowns, estimate, mark Ready, run, review, retro. Each is a physical command connected to Backlog.md and to interview sessions with the model. The engine refuses to run a story that is not Ready. Work flows continuously with no sprints.
@@ -95,10 +97,9 @@ The maintainer visions the whole plan and micromanages it **[assumption: microma
 These are not decided and should be resolved before or during the architecture spikes.
 
 1. **Office switching:** how are offices registered (explicit `open`, or discovered on first use), and does one engine process serve all offices or does each office run its own? Part of the daemon spike (DIPO-3).
-2. **Orchestrator interaction:** is the orchestrator a persistent conversational assistant inside the TUI, a set of commands that open AI sessions, or both?
-3. **Roles and artifacts:** what do non-code roles (UX, visual design) produce, and where does that output live (in the repo, in Backlog.md, elsewhere)?
-4. **Hiring:** is a hired agent a stored role definition reused across jobs, or a one-off configuration? Who may edit its instructions?
-5. **Difficulty to effort mapping:** who defines difficulty (estimate at refine, the orchestrator's proposal, or the maintainer), and what are the default tiers?
-6. **Testing products:** how does the tool help run and test products with different stacks (launch commands, test scripts per product)?
-7. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
-8. **Milestones:** the current M0 to M3 plan was drawn before this scope. Which parts of the office model belong in which milestone?
+2. **Roles and artifacts:** what do non-code roles (UX, visual design) produce, and where does that output live (in the repo, in Backlog.md, elsewhere)?
+3. **Hiring:** is a hired agent a stored role definition reused across jobs, or a one-off configuration? Who may edit its instructions?
+4. **Difficulty to effort mapping:** who defines difficulty (estimate at refine, the orchestrator's proposal, or the maintainer), and what are the default tiers?
+5. **Testing products:** how does the tool help run and test products with different stacks (launch commands, test scripts per product)?
+6. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
+7. **Milestones:** the current M0 to M3 plan was drawn before this scope. Which parts of the office model belong in which milestone?
