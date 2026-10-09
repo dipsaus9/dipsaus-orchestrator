@@ -7,8 +7,7 @@ created_date: '2026-10-09 19:46'
 labels:
   - architecture
 milestone: m-0
-dependencies:
-  - DIPO-1
+dependencies: []
 priority: high
 type: spike
 ordinal: 8000

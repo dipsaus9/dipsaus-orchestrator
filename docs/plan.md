@@ -4,7 +4,7 @@ How the vision in [vision.md](vision.md) becomes software. Milestones are define
 
 ## Steps
 
-1. **Architecture spikes for M0** (DIPO-1 to DIPO-9). DIPO-1 (language, runtime, structure) goes first because the others depend on it. The rest can then run in parallel, with research done by agents. Each spike ends in an ADR in `docs/decisions/` that the maintainer approves.
+1. **Architecture spikes for M0** (DIPO-1 to DIPO-9). DIPO-1 (language, runtime, structure), DIPO-8 (story standard) and DIPO-9 (repo scanning) can start right away. The other spikes depend on DIPO-1 and then run in parallel, with research done by agents. Each spike ends in an ADR in `docs/decisions/` that the maintainer approves.
 2. **M0 implementation stories.** Written from the approved ADRs, with real acceptance criteria and declared scopes, following the story standard (DIPO-8).
 3. **Build M0** on `<ID>/<slug>` branches. One agent implements, a separate agent reviews against the story goal, feedback is fixed, then the PR is merged.
 4. **Cutover.** Once the orchestrator can deliver one story end to end, it delivers its own next stories. From then on the project is built with itself.
