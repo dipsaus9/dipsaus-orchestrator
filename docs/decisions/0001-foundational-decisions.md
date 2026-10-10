@@ -9,7 +9,7 @@ Status: accepted (grill session, 2026-10-09). Technical stack is deliberately un
 
   | Ritual | Command | Code does | Model does |
   |---|---|---|---|
-  | Plan | `plan` | Creates epic and stories, branch names, collision check | Interviews the user, decomposes the goal |
+  | Plan | `plan` | Creates draft stories (temporary ids; real ids and branch names are assigned at refine, see 0012), collision check | Interviews the user, decomposes the goal |
   | Refine | `refine <id>` | Checks completeness against the story standard | Finds gaps and unknowns, asks the user |
   | Estimate | `estimate <id>` | Stores the size | Proposes a size, the user confirms |
   | Ready gate | `ready <id>` | Hard checks: acceptance criteria, scope, dependencies, no open unknowns | Nothing |
@@ -35,7 +35,7 @@ Status: accepted (grill session, 2026-10-09). Technical stack is deliberately un
 ## Unattended behavior
 
 - A worker that needs a human **parks** its story and the run continues. The story keeps its branch and worktree.
-- Park reasons are structured: `ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`.
+- Park reasons are structured: `ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`, plus `on-hold` when the maintainer puts a Refined or Ready story aside by hand (0012).
 - Stories depending on a parked story stay blocked. Independent stories continue.
 - Hard caps per story: loop count, review rounds, token or time budget.
 - The morning view is a triage list of parked stories with reason, last good commit, and actions (answer and resume, amend the story, drop).
@@ -55,3 +55,10 @@ Status: accepted (grill session, 2026-10-09). Technical stack is deliberately un
 - The existing `dipsaus-ai` backlog skills are inspiration only and are not a dependency.
 - The first commits go directly to `main`. Once a proper initial backlog exists, work moves to `<ID>/<slug>` branches with parallel delivery.
 - Cutover to self-hosting happens when `run` can deliver one story end to end.
+
+## Amendments
+
+- 2026-10-10, decision 0012 (story standard): `plan` creates Backlog.md drafts with temporary ids; real ids and branch names are assigned at `refine`. New park reason `on-hold` for stories the maintainer puts aside by hand. Lifecycle state names are defined in 0012.
+- 2026-10-10, decision 0005: park reasons `stopped` (maintainer ended a worker) and `interrupted` (worker lost while the daemon was down).
+- 2026-10-10, decision 0008 (maintainer): park reasons `needs-permission` (worker cannot finish without a denied action) and `worker-failed` (worker crashed again after one resume, or failed its init checks: `apiKeySource`, model).
+- 2026-10-10, decision 0007 (maintainer): "local database per project" becomes local work state per project, kept in one central local database keyed by office; never in the repository and never the only copy of a story fact.
