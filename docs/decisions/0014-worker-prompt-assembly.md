@@ -305,7 +305,7 @@ The first report states the effects found; no target is promised before it.
 Changes to accepted ADRs, each with a dated line under its "Amendments":
 
 - **0012:** new Ready gate rule **R26**, the story contract (title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions) is at most `prompt.contractMax` characters (default 12,000), evaluated in both gate modes (section 4).
-- **0010:** the verify-and-commit row gains lockfile pairing: a lockfile next to an in-scope package manifest (for example `bun.lock` beside an in-scope `package.json`) counts as in scope for the scope check and is staged and committed with the code; the workspace root lockfile pairs with any in-scope workspace package manifest; lockfile names come from the run profile (0013), default `bun.lock`, `bun.lockb`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` (section 3). Pending maintainer approval together with 0014; the dated line goes into 0010 on acceptance.
+- **0010:** the verify-and-commit row gains lockfile pairing: a lockfile next to an in-scope package manifest (for example `bun.lock` beside an in-scope `package.json`) counts as in scope for the scope check and is staged and committed with the code; the workspace root lockfile pairs with any in-scope workspace package manifest; lockfile names come from the run profile (0013), default `bun.lock`, `bun.lockb`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` (section 3). Approved 2026-10-10 with 0014; dated line added to 0010.
 
 ## Open questions for the maintainer
 
