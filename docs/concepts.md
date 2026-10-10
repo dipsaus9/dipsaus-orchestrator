@@ -29,6 +29,11 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Reviewer** | A separate agent that checks a PR against the story goal. Does not see the implementer's reasoning |
 | **Acceptance test** | The maintainer testing behavior of a flagged story by running it |
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances |
-| **State database** | Local, gitignored, per-project store of orchestration state and machine insights |
+| **State database** | Local store of orchestration state and machine insights: one central database outside every repository, keyed by office (0007) |
 | **Triage list** | The morning view of parked stories with reasons and actions |
+| **Your desk** | Everything waiting on the maintainer: open questions, gates, flagged tests, parked stories. Contains the triage list; on-hold stories are listed apart as "Held by you" (0009) |
+| **Evidence label** | How a shown value is known: `checked` (engine measured it), `claimed` (worker, CLI or reviewer said so), `estimated` (computed by a rule), `none` (no fact) (0009) |
+| **Health** | Engine-derived state of a running agent from facts and timeouts: `lost`, `asking`, `limited`, `paused`, `looping`, `stuck`, `quiet`, `busy` (0009) |
+| **Phase** | Step of a run: `setup`, `build`, `verify`, `review`, `test`, `merge` (0009) |
+| **Signal** | A watchdog fact about a run: `quiet`, `no-output`, `same-failure`, `input-wait`, `plan-limit`, `host-lost`, `follow-only` (0009) |
 | **ADR** | Architecture decision record in `docs/decisions/` |

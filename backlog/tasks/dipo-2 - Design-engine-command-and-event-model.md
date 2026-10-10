@@ -1,10 +1,10 @@
 ---
 id: DIPO-2
 title: Design engine command and event model
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 10:16'
+updated_date: '2026-10-10 11:58'
 labels:
   - architecture
 milestone: m-0
@@ -23,15 +23,15 @@ Outcome: an ADR defining the engine's public boundary. Commands are the single e
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ADR docs/decisions/0005-command-and-event-model.md lists commands, events and their payload shapes
-- [ ] #2 ADR defines versioning and how a late-attaching client catches up
-- [ ] #3 ADR confirms no client needs engine internals
-- [ ] #4 Maintainer approved the decision
-- [ ] #5 ADR lists every command above with its payload, including intervention commands (answer, steer, pause, resume, reassign, stop) and test pass or fail
-- [ ] #6 ADR shows events carry agent, role, story, phase, progress and usage for the manager overview
-- [ ] #7 Facts in, status derived: events come from a change log of stored facts, and a reconnecting client replays missed events (research idea 1)
-- [ ] #8 Clients discover engine capabilities through a small read surface and capability flags (research idea 10)
-- [ ] #9 Event stream sends debounced deltas, not full state (research idea 21)
+- [x] #1 ADR docs/decisions/0005-command-and-event-model.md lists commands, events and their payload shapes
+- [x] #2 ADR defines versioning and how a late-attaching client catches up
+- [x] #3 ADR confirms no client needs engine internals
+- [x] #4 Maintainer approved the decision
+- [x] #5 ADR lists every command above with its payload, including intervention commands (answer, steer, pause, resume, reassign, stop) and test pass or fail
+- [x] #6 ADR shows events carry agent, role, story, phase, progress and usage for the manager overview
+- [x] #7 Facts in, status derived: events come from a change log of stored facts, and a reconnecting client replays missed events (research idea 1)
+- [x] #8 Clients discover engine capabilities through a small read surface and capability flags (research idea 10)
+- [x] #9 Event stream sends debounced deltas, not full state (research idea 21)
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -40,4 +40,12 @@ Outcome: an ADR defining the engine's public boundary. Commands are the single e
 Scope addition (decision 0011): commands are the single entry point for every client: CLI, conversation layer, TUI and future web or desktop UI. The conversation layer may only issue existing commands, with confirmation.
 
 Scope addition (decision 0011 item 10): commands for intervening in running work (answer, steer, pause, resume, reassign, stop). Events must carry enough to show who works on what, phase, progress and usage.
+
+Draft ADR 0005 by research agent. Review 1: block (stable story ids vs DRAFT-n). Review 2: block (story.drop to Ready). Joint review with 0006: pass, advisories applied. Final joint check: pass, 3 advisories applied. Waiting for maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0005 accepted: commands, reads and events as the engine's only boundary; facts stored, status derived in the engine; change log with replay; StoryKey with renumbering; daemon namespace and frames aligned with 0006; new park reasons stopped and interrupted, work.discard (amending 0001 and 0012); tiered retention with run summaries; reconcile automatic with a notice.
+<!-- SECTION:FINAL_SUMMARY:END -->
