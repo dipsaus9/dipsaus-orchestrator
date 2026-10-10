@@ -46,7 +46,7 @@ RequestId   = "<ulid>"             // client-made, one per command or read (idem
 Cursor      = { stream: "office:<OfficeId>" | "software", epoch: string, seq: number }
 ```
 
-`epoch` is random per change log. If an office database is recreated, its epoch changes and old cursors are rejected instead of silently matching new positions.
+`epoch` is random per change log. If an office's state is recreated or restored, its epoch changes and old cursors are rejected instead of silently matching new positions.
 
 **Provisional story ids.** A draft uses Backlog.md's draft feature and has a temporary `DRAFT-n` id. `refine` promotes it to a real `DIPO-n` id, rewrites `DRAFT-n` references and assigns the branch (0012 section 2). A `StoryId` is stable only from Refined on.
 

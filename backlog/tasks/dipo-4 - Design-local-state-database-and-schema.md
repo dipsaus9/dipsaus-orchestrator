@@ -1,10 +1,10 @@
 ---
 id: DIPO-4
 title: Design local state database and schema
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 12:42'
+updated_date: '2026-10-10 18:08'
 labels:
   - architecture
 milestone: m-0
@@ -25,7 +25,7 @@ Outcome: an ADR choosing the local database (per office, gitignored) and definin
 <!-- AC:BEGIN -->
 - [x] #1 ADR docs/decisions/0007-state-database.md records database choice, schema outline and migration strategy
 - [x] #2 ADR defines the reconcile procedure and which side wins per field
-- [ ] #3 Maintainer approved the decision
+- [x] #3 Maintainer approved the decision
 - [x] #4 Schema stores usage per story, role and tier against budget so cost efficiency and trends can be reported
 - [x] #5 Schema stores product run knowledge from repository scans and when it was last scanned
 - [x] #6 Schema stores facts only; displayed status is derived when read, and a change log feeds the event stream (research idea 1)
@@ -42,3 +42,9 @@ Scope addition (decision 0011 item 10): store usage per story, role and tier wit
 
 Draft ADR 0007 by research agent. Review: pass (SQLite and Bun facts verified), 11 advisories applied. Waiting for maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0007 accepted: one central SQLite database <state>/dipo.db for all offices (rows keyed by office_id, offices table, single daemon writer, PID lock, migrations once per file), WAL with synchronous=FULL, tiered retention with usage_daily kept forever, 3 daily + 2 pre-migration backups, privacy and retention settings machine-local in .dipo/office.local.yaml, new .dipo/.gitignore via the office-init backlog PR, raw worker stream deleted at run end. Amends 0001, 0004, 0005, 0006, 0010 and 0011.
+<!-- SECTION:FINAL_SUMMARY:END -->

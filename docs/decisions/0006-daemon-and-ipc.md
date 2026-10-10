@@ -121,7 +121,7 @@ On clean exit the daemon removes `dipo.sock`, then `dipo.pid`.
 
 Every minute the daemon checks that `<state>/dipo.pid` still holds its own PID and start time. If the file is missing, it recreates it with `O_EXCL`. If it holds another live daemon, the lock was broken: it logs an error, drains and exits, leaving worker hosts running.
 
-**Second guard, per office**: an engine instance takes an office-level lock when it loads an office (an `O_EXCL` record with PID and start time in the office's local state, stale handling as above) and refuses to load the office while another live process holds it. This protects the office database even if two daemons ever run. Location and form go to DIPO-4.
+**Second guard, per office** (dropped by 0007, see Amendments): an engine instance takes an office-level lock when it loads an office (an `O_EXCL` record with PID and start time in the office's local state, stale handling as above) and refuses to load the office while another live process holds it. This protects the office database even if two daemons ever run. Location and form go to DIPO-4.
 
 ### 7. Daemon lifecycle states and crash recovery
 

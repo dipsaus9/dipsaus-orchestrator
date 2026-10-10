@@ -1,6 +1,6 @@
 # 0007 State database
 
-Status: Proposed (spike DIPO-4, 2026-10-10). All open questions answered by the maintainer 2026-10-10 (one central database). Amends 0001, 0005, 0006, 0010 and 0011 (see "Amends").
+Status: Accepted (spike DIPO-4, maintainer approval 2026-10-10). Amends 0001, 0005, 0006, 0010 and 0011 (see "Amends").
 
 ## Context
 
