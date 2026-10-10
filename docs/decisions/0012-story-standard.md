@@ -28,7 +28,7 @@ Facts about Backlog.md CLI 1.48 that shape this decision (checked in a scratch p
 |---|---|---|---|---|
 | F1 | Id | Native id, `DIPO-n`, stable from Refined on. A draft has a temporary `DRAFT-n` id (section 2) | Yes | Native id |
 | F2 | Title | Short name of the story | Yes | Native title |
-| F3 | Outcome | The one result the story delivers, in plain sentences | Yes | Native description (the text outside the field block, see F10) |
+| F3 | Outcome | The one result the story delivers, in plain sentences | Yes | Native description: one line starting with `Outcome:`. Everything else in the description outside the field block is free context and is not checked |
 | F4 | Acceptance criteria | Done-when list, one checkable statement each. Workers check them off | Yes, at least one | Native acceptance criteria |
 | F5 | Type | `feature`, `bug`, `enhancement`, `task`, `chore`, `docs`, `spike` | Yes | Native type |
 | F6 | Milestone | The milestone the story belongs to (milestones replace epics) | Yes | Native milestone |
@@ -73,6 +73,7 @@ States and their Backlog.md mapping. Office init sets `statuses: ["Refined", "Re
 | In Review | Status `In Review` | PR open. Reviewer, and the maintainer if flagged |
 | Parked | Status `Parked` plus park record (F16) | Needs a human. Other work continues |
 | Done | Status `Done` | Merged. Terminal |
+| Removed | Archived (not an active task) | Engine-only terminal state for a dropped story, or a story whose identity was lost in reconcile. Not a Backlog.md status. Agreed jointly with DIPO-2 (contract) |
 
 Transitions. Anything not listed is refused by the engine.
 
@@ -80,7 +81,7 @@ Transitions. Anything not listed is refused by the engine.
 |---|---|---|---|
 | (none) | Draft | `plan` or a new-story command. Code creates a Backlog.md draft (`DRAFT-n`) | Maintainer, content drafted with AI |
 | Draft | Refined | `refine <id>`: needs R04 and R05 to pass. Code promotes the draft, rewrites `DRAFT-n` references to the new `DIPO-n` id, writes the branch (F15), and writes an empty unknowns list if absent | Maintainer command |
-| Draft | (archived) | Drop: archive the draft. Refused while another draft depends on it | Maintainer |
+| Draft | Removed | Drop: archive the draft. Refused while another draft depends on it | Maintainer |
 | Refined | Ready | `ready <id>`: rules R01a and R02 to R25 pass | Maintainer command, decided by code only |
 | Ready | Refined | Any edit to a gated field through the engine, a failed pickup re-check in `run`, or `unready <id>` | Engine automatically, or maintainer |
 | Ready | In Progress | `run` selects it. Code runs the pickup re-check (R01b and R02 to R25), then checks every dependency is Done and no scope collision with in-flight work (M2) | Engine |
@@ -91,7 +92,7 @@ Transitions. Anything not listed is refused by the engine.
 | Refined, Ready | Parked | `hold <id> <note>`: the maintainer puts the story aside; park reason `on-hold`, the note is required. `run` skips it and it shows in the triage list | Maintainer |
 | Parked | In Progress, In Review, Refined or Ready | `resume <id>` after the maintainer answers or ends the hold; returns to `park.from`. A story returning to Ready goes through the pickup re-check before it runs | Maintainer |
 | Parked | Refined | `amend <id>`: the story itself must change. Code unchecks every criterion, then the story must pass the gate again | Maintainer |
-| Refined, Ready, Parked | (archived) | Drop: `backlog task archive`. Refused while another active story depends on it | Maintainer |
+| Refined, Ready, Parked | Removed | Drop: `backlog task archive`. Refused while another active story depends on it | Maintainer |
 
 Rules around the lifecycle:
 
@@ -124,7 +125,7 @@ Each message is prefixed with `ready <ID> failed <rule>:`. `<…>` is filled by 
 | R02 | The structured field data stored in the parsed field block (under the current suggestion F10, F14, F15, F16) parses and has no unknown fields. Fields stored as labels are validated only by their own rules (R16, R17, R21) | `structured fields are invalid: <parser error>` |
 | R03 | Story has no subtasks (`task list -p <ID>` is empty) | `story has subtasks <ids>; milestones group work, subtasks are not used` |
 | R04 | Title, trimmed, is 1 to 100 characters | `title is empty or longer than 100 characters` |
-| R05 | Outcome (F3) is at least 20 characters | `outcome is missing or shorter than 20 characters` |
+| R05 | The description has exactly one line starting with `Outcome:`, and its text after the prefix is at least 20 characters | `outcome line is missing, duplicated, or shorter than 20 characters` |
 | R06 | Type is set and is in the configured type list | `type is missing or not one of <types>` |
 | R07 | Milestone is set and exists | `milestone is missing or does not exist` |
 | R08 | At least one acceptance criterion | `no acceptance criteria; add at least one with --ac` |
@@ -192,8 +193,8 @@ What the gate deliberately does not check: whether paths exist (new files do not
 
 1. **Draft storage — answered 2026-10-10: option A**, the Backlog.md draft feature (section 2). Amends decision 0001.
 2. **Hold by hand — answered 2026-10-10: yes.** `hold <id> <note>` parks a Refined or Ready story with the new park reason `on-hold`; `resume` returns it to where it was. Adds `on-hold` to the park reasons of decision 0001.
-3. Is tier required for every story from M0, or only from M1 when tiers take effect? This ADR requires it from the start so stories do not need a second pass.
-4. Should the outcome be an `Outcome:` line, as the current DIPO tasks use, or the whole description outside the field block? This ADR takes the latter.
+3. **Tier from M0 — answered 2026-10-10: yes**, required on every story from the start (R16), so stories need no second pass when tiers take effect in M1.
+4. **Outcome — answered 2026-10-10: an `Outcome:` line** in the description (F3, R05), as current stories use. The rest of the description is free context; the prompt (DIPO-10) can use the outcome on its own.
 5. Thresholds (title at most 100, outcome at least 20, criterion at least 10, slug at most 40) and the default banned phrases: accept as defaults, or change?
 6. **Test plan — answered 2026-10-10:** the manual test script became a test plan (F14) with automated and manual entries, required on every non-spike story where applicable; where it does not apply, the story says so explicitly with a reason (R20). A flagged story needs at least one manual entry (R21).
 7. Should a new Backlog.md type `design` mark design stories, instead of the role's kind?
