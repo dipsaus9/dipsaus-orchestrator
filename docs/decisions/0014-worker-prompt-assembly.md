@@ -6,7 +6,7 @@ Status: Proposed (spike DIPO-10, 2026-10-10). All seven open questions answered 
 
 The project's core token claim (vision, "The problem with the current approach") is that a worker should get a short prompt built by code from structured data, not a process manual it reads and re-executes. Decisions this builds on: 0001 (code decides, park reasons, worker adapter), 0002 (independent reviewer, test plan), 0004 (TypeScript on Bun, `claude -p --output-format stream-json`), 0011 (roles as versioned files, tiers), 0012 (story fields F1 to F18), 0015 (inspired, not dependent), the draft 0017 (`.dipo/office.yaml`, `.dipo/roles/<name>.md` with YAML frontmatter, recordings keep usage fields for this ADR) and research sections 6 and 7 (ideas 13 to 16, 19, 23 to 27, the codegraph decision in 7.7).
 
-Ownership: DIPO-5 owns the Worker contract, transport and flags (draft 0008); DIPO-4 the state tables and budget units; DIPO-7 the field block and the component map file; M4 the role file fields. This ADR owns what goes into a prompt, in which order and size, what never does, the context provider, and how savings are measured.
+Ownership: DIPO-5 owns the Worker contract, transport and flags (0008, accepted); DIPO-4 the state tables and budget units; DIPO-7 the field block and the component map file; M4 the role file fields. This ADR owns what goes into a prompt, in which order and size, what never does, the context provider, and how savings are measured.
 
 ### The baseline: what a worker reads today
 
@@ -89,7 +89,7 @@ The task message (L4) for the `implement` kind, in this order: long reference ma
 
 Precedence, stated once in L1: the contract (scope, no git, report format) beats story instructions, story instructions beat role defaults, and project rules (L3) apply throughout. A conflict between project rules and the contract makes the worker report `blocked`, which parks the story with `ambiguous-spec`.
 
-The worker ends a turn with a structured report: status (`done` or `blocked`), per criterion met or not with evidence, a one-paragraph summary, a proposed commit subject, an optional question (becomes the park note) and notes for a next session (at most 1,500 characters). Draft 0008 adds `needsPermission` (tool and action) for a worker blocked on a denied call, which parks the story `needs-permission`, and picks the transport: `--json-schema`, with a fenced block as fallback.
+The worker ends a turn with a structured report: status (`done` or `blocked`), per criterion met or not with evidence, a one-paragraph summary, a proposed commit subject, an optional question (becomes the park note) and notes for a next session (at most 1,500 characters). 0008 adds `needsPermission` (tool and action) for a worker blocked on a denied call, which parks the story `needs-permission`. The transport is `--json-schema` only (0008). On `error_max_structured_output_retries` or no valid report after a turn, the engine sends one feedback turn "report in the schema", then parks `ambiguous-spec` (0008 section 7).
 
 The `review` kind receives: outcome, criteria, scope, test plan, the changed-path list and the diff relative to the merge base (`git diff <base>...HEAD`) without the story's own task file (budgeted, section 4). A re-review additionally gets only the previous findings. The reviewer always starts a fresh session and is never resumed (0002, research 6.9). It never receives the implementer's handoff, notes, reasoning or transcript.
 
@@ -101,13 +101,13 @@ Left out of every prompt: process rules (gate, lifecycle, git contract), Backlog
 
 Selection, Ready and pickup re-check, dependency and collision checks, branch name and slug, worktree creation, install and gitignored-file setup (DIPO-7), base sync, every Backlog.md write (status, criteria check-off, notes, final summary), running verify and judging it, staging only scope paths and committing, push, PR, spawning the reviewer and parsing its verdict, round, loop and budget caps, parking, teardown, model, effort and tool choice per tier and role, context selection and index freshness, resume or new session, usage capture.
 
-**Verify and commit happen at the In Review transition** (maintainer, open question 1). When the worker reports `done`, the engine first runs the scope check over every modified, staged and untracked path (0010); a path outside the declared scope parks the story `scope-violation` with the paths as evidence. This check is the scope gate; inside the session an out-of-scope write only gets a nudge (section 8). Then the engine runs verify inside the sandbox runtime `srt` with the run's policy (0008: network closed, no writes outside the worktree and temp, secret paths unreadable); without `srt` the run refuses to start and verify never runs unsandboxed. Green: it checks off the criteria the report marks met, stages only scope paths, commits (subject from the worker's proposal plus the story id) and moves the story to In Review. Red: the failure becomes feedback and the worker continues. The same gate runs on re-entry after a fix round. Verify does not run per worker turn.
+**Verify and commit happen at the In Review transition** (maintainer, open question 1). When the worker reports `done`, the engine first runs the scope check over every modified, staged and untracked path (0010); a path outside the declared scope parks the story `scope-violation` with the paths as evidence. Paths the engine itself wrote, taken from its journal (for example a lockfile from an engine install after a dependency was added mid-story), are excluded. This check is the scope gate; inside the session an out-of-scope write only gets a nudge (section 8). Then the engine runs verify inside the sandbox runtime `srt` with the run's policy (0008: network closed, no writes outside the worktree and temp, secret paths unreadable); without `srt` the run refuses to start and verify never runs unsandboxed. Green: it checks off the criteria the report marks met, stages only scope paths, commits (subject from the worker's proposal plus the story id) and moves the story to In Review. Red: the failure becomes feedback and the worker continues. The same gate runs on re-entry after a fix round. Verify does not run per worker turn.
 
 **No mid-implementation commits.** Work between turns lives in the worktree, which survives a worker or daemon crash (DIPO-7 keeps it until teardown). A handoff captures it with `git diff --stat HEAD` and the untracked-file list from `git status --porcelain`. Chosen over unverified checkpoint commits per turn because every commit on a story branch then stays green, history needs no squash, and there are fewer git operations. The cost: one commit per In Review round instead of one per slice.
 
 **Base sync only when needed.** The engine syncs the story branch with the base only when a conflict with the base is detected (for example with `git merge-tree --write-tree`, which leaves the worktree alone) or when the story counts as riskier; code decides, DIPO-7 defines "riskier". Conflict feedback (section 7) only arises from such a sync. Diffs and logs are relative to the merge base (`git diff <base>...HEAD`, `git log <base>..HEAD`), so an unsynced branch still shows only its own work.
 
-**Requirements handed to DIPO-5** (the flags are its decision, made in draft 0008 with deny rules, the Bash sandbox and a backstop; these are the effects needed): the worker never runs git write commands (`commit`, `push`, `checkout`, `switch`, `merge`, `rebase`, `reset`, `stash`, `worktree`), `backlog` or `gh`; nobody answers permission prompts (`--permission-prompts none`); Claude Code's own commit guidance and trailers are off (`includeGitInstructions: false`, empty `attribution`) [2]. L1 holds one boundary sentence ("the engine handles git, Backlog.md, verify and review; report instead"), so a worker does not waste a turn on a denied call. The worker may run tests and read-only git (`git diff`, `git log`, `git status`).
+**Requirements met by 0008** (the flags are its decision, made with deny rules, the Bash sandbox and a backstop; these are the effects needed): the worker never runs git write commands (`commit`, `push`, `checkout`, `switch`, `merge`, `rebase`, `reset`, `stash`, `worktree`), `backlog` or `gh`; no Claude prompt is ever shown to a human inside the session (`--permission-prompts none`), and permissions follow 0008 section 5: the `PermissionRequest` hook asks the maintainer through the engine when present, otherwise the call is denied, and a worker that cannot finish without it parks `needs-permission`; Claude Code's own commit guidance and trailers are off (`includeGitInstructions: false`, empty `attribution`) [2]. L1 holds one boundary sentence ("the engine handles git, Backlog.md, verify and review; report instead"), so a worker does not waste a turn on a denied call. The worker may run tests and read-only git (`git diff`, `git log`, `git status`).
 
 **Backstop in code.** After every worker turn the engine checks that HEAD and the checked-out branch are unchanged. If not, it parks the story with `scope-violation`, whatever the tool rules said.
 
@@ -237,14 +237,23 @@ Sources: [7][9][10][11][12].
 
 Goal: show, on real stories, that dipo delivers a story cheaper, faster, more efficiently and more clearly than the dipsaus-ai baseline without lower success, and decide whether a context backend may become a default (idea 25). The claim is broader than tokens (open question 4).
 
-**Arms.** A: baseline, `claude -p "/backlog-deliver <id>"` with the dipsaus-ai plugin pinned at a recorded commit. B: engine with the default provider. C: B plus codegraph through the CLI. D: C plus codegraph MCP for the worker.
+**Arms.** A: baseline, `claude -p "/backlog-deliver <id>"`. B: engine with the default provider. C: B plus codegraph through the CLI. D: C plus codegraph MCP for the worker.
+
+Arm A's launch is fixed so it runs unattended and reproducibly:
+
+- The plugin is loaded explicitly from a checkout of dipsaus-ai at the pinned, recorded commit (`--plugin-dir <dipsaus-ai@commit>`), never from the maintainer's installed plugins.
+- A measurement `--settings` file holds the allow rules the skill needs: git, `backlog`, `bun`, and `gh` only against the local bare remote.
+- The repository gets a baseline `backlog-workflow.json` with autonomous gates (no require-approval step), so the skill never waits for a human.
+- One pilot run of A on a story outside the set checks the launch before the round; it is not counted.
+
+User-scope settings stay out for all arms. Arms B, C and D run with dipo's production flags (0008: `--setting-sources project,local` with the filtered copy of `settings.local.json`), not a measurement-only setup. Arm A uses `--setting-sources project` plus its measurement settings file.
 
 **Stories.** At least 8 non-spike stories, mixed tiers (at least 2 each of S, M, L), each with a known good outcome, from two repositories (open question 5): dipsaus-orchestrator after the M0 cutover, and one of slaydoku, cadeauko or couchcade, namely the one with the most finished stories of mixed tier, chosen when the measurement is set up. Each story is mirrored into the baseline's format (`To Do`, `Branch:` line, References) with the same text.
 
 **Fairness.**
 
-- Same base commit, same model, effort and Claude Code version, same project `CLAUDE.md`, `--setting-sources project`, the same MCP servers apart from the arm's own, and `--permission-prompts none` for all arms. Questions to the maintainer are counted in every arm; a run that ends on an unanswered question counts as not successful.
-- Each run starts in a fresh worktree from the same commit. Each arm runs 3 times per story, order randomised. All arms run with `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` [3], and runs of the same story are at least one hour apart so no arm reads another's cache. Each run records `ephemeral_1h_input_tokens` and `ephemeral_5m_input_tokens` from `usage.cache_creation`, so a different TTL shows up. Cache reads are reported anyway.
+- Same base commit, same model, effort and Claude Code version, same project `CLAUDE.md`, no user-scope settings, the same MCP servers apart from the arm's own, and `--permission-prompts none` for all arms. Questions to the maintainer are counted in every arm; a run that ends on an unanswered question counts as not successful.
+- Each run starts in a fresh worktree from the same commit. Each arm runs 3 times per story, order randomised. All arms run with `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` [3], and runs of the same story start at least one hour after the previous run's last request, so no arm reads another's cache. Every run therefore starts cold; this is conservative for B, which in production would often find the static L1+L2 prefix still cached. Each run records `ephemeral_1h_input_tokens` and `ephemeral_5m_input_tokens` from `usage.cache_creation`, so a different TTL shows up. Cache reads are reported anyway.
 - The baseline pushes to a local bare remote with `pr.mode: link` (the PR link is printed, never opened), so no real pushes or PRs happen.
 - A run hit by a rate limit (`system/api_retry` with `rate_limit`) or by spend on usage credits instead of plan usage is discarded and rerun.
 - The baseline does its own git, review and PR, which is exactly the overhead the claim is about, so whole-delivery totals are compared. Totals without the review step are also reported for both arms, so a difference in reviewer design cannot hide in the result.
@@ -253,10 +262,10 @@ Goal: show, on real stories, that dipo delivers a story cheaper, faster, more ef
 **Metrics per run**, from stream-json, the result message and engine facts (0017 lists the stream fields). Per story the median of 3 runs is used.
 
 - Tokens (headline for "cheaper"): input + output + cache creation, the same unit as the tier budget (0008), deduplicated by message id and including subagents. Cache reads are reported beside it but do not count.
-- Time (for "faster"): wall time from run start to In Review (for the baseline, to its printed PR link).
-- Efficiency: turns and review rounds (decisive); tool calls by kind, file reads before the first edit and verify loops (reported).
+- Time (for "faster"): wall time from run start to equivalent points: for B, the In Review transition; for A, its green commit before its own review step, taken from stream timestamps. Wall time including review is also reported for both arms.
+- Efficiency: turns and review rounds (decisive); tool calls by kind, file reads before the first edit and verify loops (reported). Turns are summed over all sessions and subagents of a story in both arms: a session's turns are its result's `num_turns`, and a subagent's turns are its assistant messages with distinct message ids (from `parent_tool_use_id` or its transcript).
 - Clarity for the maintainer: questions to the maintainer, parks as `ambiguous-spec` or another unclear-story reason, and on measured runs a maintainer rating of the run summary from 1 to 5 (the arm is not shown when rating).
-- Clarity in the agent's work: files written outside the declared scope, reviewer findings (blocking and advisory), and diff focus (changed lines in scope paths as a share of all changed lines).
+- Clarity in the agent's work: files written outside the declared scope, reviewer findings (blocking and advisory) from one fixed reviewer (pinned prompt, model and effort) run over both arms' final diffs, and diff focus (changed lines in scope paths as a share of all changed lines).
 - Success: verify green, criteria met, not parked.
 - Reported secondary only: the price-weighted figure (uncached input + 1.25 x five-minute writes or 2 x one-hour writes + the model's read rate x reads, plus output) from 0008's pricing catalog, `total_cost_usd`, and the assembled prompt size per section (characters and estimated tokens).
 
@@ -269,10 +278,10 @@ Goal: show, on real stories, that dipo delivers a story cheaper, faster, more ef
 All comparisons are paired per story, B against A. The claim holds only if every one of these holds:
 
 - **Cheaper:** B's tokens are lower on at least 75% of stories.
-- **Faster:** B's wall time to In Review is lower on at least 75% of stories.
+- **Faster:** B's wall time to the equivalent point (In Review against A's green commit before review) is lower on at least 75% of stories.
 - **More efficient:** on at least 75% of stories B needs fewer turns and no more review rounds.
-- **Clearer for the maintainer:** across the stories B has fewer questions to the maintainer and fewer ambiguous or unclear parks, and its median run summary rating is higher than A's.
-- **Clearer work:** across the stories B writes fewer out-of-scope files, gets fewer reviewer findings and has a higher diff focus.
+- **Clearer for the maintainer:** totalled across the stories, B's questions to the maintainer and its ambiguous or unclear parks are each not more than A's, and fewer where either arm's total is non-zero. For the 1 to 5 run summary rating, B's median is not lower than A's, and B's mean is higher or B wins more paired comparisons than A.
+- **Clearer work:** totalled across the stories, B's out-of-scope files and reviewer findings are each not more than A's, and fewer where either arm's total is non-zero; B's diff focus is not lower.
 - **Success** is never lower than A's, per story.
 
 The first report states the effects found; no target is promised before it.
@@ -286,7 +295,7 @@ The first report states the effects found; no target is promised before it.
 - The worker no longer commits. Code commits only at the In Review transition after a green verify, so every commit on a story branch is green. The cost: one commit per review round instead of one per slice, and work in progress lives only in the worktree until then.
 - Prompt changes are code changes with golden tests; role changes are git commits in the office.
 - Truncation can hide something a worker needs. The marker gives the path and line so it can read on, at a cost the measurement will show.
-- Tool restrictions and settings depend on Claude Code flag behaviour (DIPO-5 recordings catch drift).
+- Tool restrictions and settings depend on Claude Code flag behaviour (0008 recordings catch drift).
 - The measurement asks the maintainer to rate each measured run summary from 1 to 5, a small manual step per run.
 - codegraph adds an index per worktree (time and disk), a pinned external binary and an opt-out telemetry setting to manage.
 
