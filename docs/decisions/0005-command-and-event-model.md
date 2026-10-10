@@ -224,7 +224,7 @@ There is no budget gate: a budget overrun parks the story with `budget-exceeded`
 - Each fact write appends one **change-log entry** in the same SQLite transaction: stream, seq (gap-free, monotonic), fact delta, and the derived `view` at that moment. The log is an outbox: disposable, never read back for decisions. Table layout and retention are DIPO-4's.
 - Events are change-log entries rendered into the current contract at send time. A contract change rewrites the renderer, not the stored log.
 - **Debounce before the log, batch after it.** High-rate sources are coalesced before they become facts: worker output flushes per run every 250 ms or 16 KiB; progress and usage at most once per second per run (defaults; DIPO-4 confirms them). State changes, gates, questions and parks are written at once, after flushing pending output for the same run, so order stays causal. The transport may pack several events into one `events` frame. The stream carries deltas for the subject that changed, never full state, and seq stays gap-free for loss detection (idea 21).
-- **Software stream.** Office list and daemon events are not office facts. The daemon keeps them in an in-memory ring buffer (owner DIPO-3, 0006) with a new epoch at every daemon start. A client reconnecting after a restart gets `stream.resetRequired` and re-reads `engine.hello`. Losing this history is harmless: the office list itself lives in `offices.json` (0006).
+- **Software stream.** Office list and daemon events are not office facts. The daemon keeps them in an in-memory ring buffer (owner DIPO-3, 0006) with a new epoch at every daemon start. A client reconnecting after a restart gets `stream.resetRequired` and re-reads `engine.hello`. Losing this history is harmless: the office list itself is the `offices` table in the central database (0007).
 
 ### 7. Read surface and capability flags
 
@@ -320,3 +320,4 @@ A client needs only `@dipsaus-orchestrator/contract` (schemas, frames, types, JS
 ## Amendments
 
 - 2026-10-10, decision 0010 (maintainer): the StoryKey lives only in the state database, never in the repository; identity after a database loss falls back to the frozen branch, then the created date.
+- 2026-10-10, decision 0007 (maintainer): the office list is the `offices` table in the central state database, not `offices.json`.

@@ -117,7 +117,7 @@ Everything in state, runtime and logs (office list, crash counter, PID file, web
 
 On clean exit the daemon removes `dipo.sock`, then `dipo.pid`.
 
-**Stale-break window**: in a rare interleaving of two breakers, the rename-and-verify step can still let two starters each create a record in turn. So right after binding, and before loading any office, the daemon re-reads `<state>/dipo.pid`; if it does not hold its own PID and start time, the daemon unbinds and exits without touching any office. The office lock below covers what remains.
+**Stale-break window**: in a rare interleaving of two breakers, the rename-and-verify step can still let two starters each create a record in turn. So right after binding, and before loading any office, the daemon re-reads `<state>/dipo.pid`; if it does not hold its own PID and start time, the daemon unbinds and exits without touching any office. The central database has no further lock; this check is the last guard (0007).
 
 Every minute the daemon checks that `<state>/dipo.pid` still holds its own PID and start time. If the file is missing, it recreates it with `O_EXCL`. If it holds another live daemon, the lock was broken: it logs an error, drains and exits, leaving worker hosts running.
 
@@ -268,7 +268,7 @@ with:
 - Worker hosts add a process per run and a second small protocol, the cost of research idea 8 and of restarting or upgrading the daemon during an overnight run.
 - No FFI: lock by `O_EXCL` PID file, keep-awake by child processes. Platform specifics live in `engine/src/platform` and, for start and signalling, in `client`'s `lifecycle` module.
 - Non-JS clients need WebSocket over a Unix socket, or the token-protected loopback listener. The web UI is served by the daemon; no extra package or process until remote access is a goal.
-- M0 stories that follow: daemon entry and states; lock and stale handling (anchor lock, plus the office lock with DIPO-4); transport, frame mapping and the software stream ring buffer (with DIPO-2); office list and `office open/forget`; worker host and re-attach (with DIPO-4 and DIPO-5); keep-awake; logging; `daemon install`. The loopback listener can wait until a browser client exists.
+- M0 stories that follow: daemon entry and states; lock and stale handling (anchor lock; no office lock, 0007); transport, frame mapping and the software stream ring buffer (with DIPO-2); office list and `office open/forget`; worker host and re-attach (with DIPO-4 and DIPO-5); keep-awake; logging; `daemon install`. The loopback listener can wait until a browser client exists.
 - Prototype in the first implementation story, on Bun 1.4.2 inside the compiled binary, on both platforms: WebSocket upgrade on a `Bun.serve` unix socket with a `ws+unix://` client; `Bun.serve` unix bind on an existing path (seen succeeding on 1.3.5); a detached worker host surviving SIGKILL of the daemon; whether compiled binaries read `BUN_OPTIONS`; `systemd-run --user --scope` from a daemon under a user unit; `systemd-inhibit --mode=block` acceptance by polkit over SSH and with lingering; the `file://` redirect on snap Firefox and on Safari.
 
 ## Open questions for the maintainer
