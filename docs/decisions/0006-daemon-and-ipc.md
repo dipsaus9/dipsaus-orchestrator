@@ -1,6 +1,6 @@
 # 0006 Daemon lifecycle and IPC transport
 
-Status: Proposed (spike DIPO-3, 2026-10-10). Needs the maintainer's approval.
+Status: Accepted (maintainer, 2026-10-10). Proposed in spike DIPO-3; amends 0004 (applied).
 
 ## Context
 
