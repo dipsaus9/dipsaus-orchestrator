@@ -29,7 +29,7 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Reviewer** | A separate agent that checks a PR against the story goal. Does not see the implementer's reasoning |
 | **Acceptance test** | The maintainer testing behavior of a flagged story by running it |
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances |
-| **State database** | Local, gitignored, per-project store of orchestration state and machine insights |
+| **State database** | Local store of orchestration state and machine insights: one central database outside every repository, keyed by office (0007) |
 | **Triage list** | The morning view of parked stories with reasons and actions |
 | **Your desk** [proposed] | Everything waiting on the maintainer: open questions, gates, flagged tests, parked stories. Contains the triage list; on-hold stories are listed apart as "Held by you" (0009) |
 | **Evidence label** [proposed] | How a shown value is known: `checked` (engine measured it), `claimed` (worker, CLI or reviewer said so), `estimated` (computed by a rule), `none` (no fact) (0009) |

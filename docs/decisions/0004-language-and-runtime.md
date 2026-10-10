@@ -9,7 +9,7 @@ The orchestrator is a long-lived open source program with these parts (decisions
 - A headless **engine** that runs as a detached **daemon**, so workers survive closing a client and overnight runs work.
 - Workers are **long-running subprocesses**. The first adapter runs the Claude Code CLI (`claude -p --output-format stream-json`), which writes newline-delimited JSON events until a final `result` message [12]. The engine must spawn, stream, steer, signal (SIGINT to end a turn, SIGTERM to stop) and reap them, plus run `git`, `backlog` and project scripts.
 - **Local IPC** between daemon and clients. Commands in, events out (transport is DIPO-2/DIPO-3).
-- An embedded **SQLite** database per office (schema is DIPO-4).
+- One embedded **SQLite** database for all offices, keyed by office (0007).
 - A **TUI** as the first client. A local web UI or desktop app may follow and must share the same command and event contract.
 - Ships as **one installable CLI** on macOS and Linux.
 
@@ -209,3 +209,4 @@ bun run verify
 ## Amendments
 
 - 2026-10-10, decision 0006 (approved by the maintainer): hidden `runDaemon(argv)` forms and client-side daemon lifecycle subcommands; `--no-orphans` replaced by `ws+unix://` as a reason for Bun 1.4 and forbidden for the daemon chain; `client` lifecycle and transport modules added as Bun touchpoints.
+- 2026-10-10, decision 0007 (maintainer): one central SQLite database for all offices instead of one per office.
