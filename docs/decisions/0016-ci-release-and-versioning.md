@@ -1,6 +1,6 @@
 # 0016 CI, release and versioning
 
-Status: Proposed (spike DIPO-13, 2026-10-10). All open questions were answered by the maintainer on 2026-10-10; awaiting acceptance.
+Status: Accepted (spike DIPO-13, maintainer approval 2026-10-10). Amends 0002, 0010, 0012 and 0014 (see "Amends").
 
 ## Context
 

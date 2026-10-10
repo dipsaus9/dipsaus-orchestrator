@@ -1,10 +1,10 @@
 ---
 id: DIPO-13
 title: 'Decide CI, release and versioning'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-10 11:03'
-updated_date: '2026-10-10 20:26'
+updated_date: '2026-10-10 20:35'
 labels:
   - architecture
 milestone: m-0
@@ -26,7 +26,7 @@ Outcome: an ADR defining how the project is built, checked and released, on the 
 - [x] #1 ADR docs/decisions/0016-ci-release-and-versioning.md records the CI workflow, required checks and their place in branch protection
 - [x] #2 ADR defines the release flow: versioning, changelog, building binaries for every target, checksums, publishing to GitHub Releases, and the later Homebrew tap
 - [x] #3 ADR defines dependency update and security scanning tooling and how their PRs are reviewed and merged
-- [ ] #4 Maintainer approved the decision
+- [x] #4 Maintainer approved the decision
 - [x] #5 ADR decides macOS code signing and notarization (or documents the Gatekeeper workaround), the install path from GitHub Releases (install script or manual), version and commit embedding for dipo --version, and glibc versus musl Linux targets
 <!-- AC:END -->
 
@@ -37,3 +37,9 @@ Draft ADR 0016 by research agent. Review 1: block (release App key location) plu
 
 Maintainer answered questions 1 to 9 on 2026-10-10. Workflow PRs follow the normal flow (reviewer agent pass, then auto-merge allowed); this replaces the earlier 'workflow PRs maintainer-merged pending approval' note. strict on, no merge queue: merge-time sync through a per-office merge slot, with amendments to 0002, 0010, 0012 and 0014. Review round 1 of the answers: block (merge-time sync vs 0012/0014, merge slot) fixed. Status stays Proposed until accepted.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0016 accepted: GitHub Actions CI with ci-ok and pr-title required checks, strict up-to-date branches without a merge queue (engine syncs at merge time through a per-office merge slot), release-please with Conventional Commit titles type(DIPO-n) derived from story type, first release v0.1.0 when M0 delivers a story, two release gates, unnotarized macOS binaries until 1.0, glibc Linux only, Homebrew after the first stable minor, Renovate with automerge only for devDependency minor/patch and lockfile maintenance. Amends 0002, 0010, 0012, 0014. Two review rounds.
+<!-- SECTION:FINAL_SUMMARY:END -->
