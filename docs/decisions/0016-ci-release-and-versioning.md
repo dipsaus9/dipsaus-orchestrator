@@ -311,3 +311,4 @@ Changes to accepted ADRs, each with a dated line under its "Amendments" (maintai
 ## Amendments
 
 - 2026-10-10, decision 0017 (maintainer): a live smoke run by the maintainer is required before every release. Before merging the release PR (the first gate of rule 12), the maintainer builds `dipo` from the release PR's head with `scripts/build.ts`, does one live run against real Claude and confirms it on the release PR; the release waits for that confirmation. The run is never automated.
+- 2026-10-10, decision 0017 (maintainer): the CI `verify` job sets `DIPO_TEST_CI=1` and runs the same `bun run verify` command, so CI-only test files (`*.ci.test.ts`) run in CI. The command is unchanged; only the environment differs from a local run.
