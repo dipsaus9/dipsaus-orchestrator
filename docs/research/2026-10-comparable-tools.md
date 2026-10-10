@@ -1,8 +1,8 @@
 # Comparable tools (research, October 2026)
 
-Research done 2026-10-09 and 2026-10-10 by research agents reading the public repositories through the GitHub API. No code from these tools was run or installed. Claims are tied to file paths in each repository; items marked **[unverified]** could not be confirmed. Decision: [0015](../decisions/0015-build-own-inspired-not-dependent.md), build our own, inspiration not imitation.
+Research done 2026-10-09 and 2026-10-10 by research agents reading the public repositories through the GitHub API. Tools: agent-orchestrator, agenttrail, hermes3d (sections 1 to 6) and codegraph (section 7, added after the maintainer pointed to it as the kind of code graph meant). No code from these tools was run or installed. Claims are tied to file paths in each repository; items marked **[unverified]** could not be confirmed. Decision: [0015](../decisions/0015-build-own-inspired-not-dependent.md), build our own, inspiration not imitation.
 
-How to read this document: section 1 describes each tool, section 2 compares their model with ours, sections 3 to 6 list what we take, what we avoid, what a future GUI can learn, and which context and token optimizations are relevant. Every adopted idea names the spike or milestone that owns it.
+How to read this document: section 1 describes each tool, section 2 compares their model with ours, sections 3 to 6 list what we take, what we avoid, what a future GUI can learn, and which context and token optimizations are relevant. Section 7 covers codegraph and the context provider decision. Every adopted idea names the spike or milestone that owns it.
 
 ## 1. The tools
 
@@ -111,7 +111,7 @@ A dedicated research pass looked at code graphs, context shaping, work avoidance
 What this means for us:
 
 - A **declared component map** (components, file globs, dependencies), versioned in the repository, gives cheap scope checks, collision checks and "which part of the system is this story touching" without parsing code. It fits "code drives": the map is data, checks are code.
-- A **real code graph** (symbols, imports, call edges) that gives a worker the relevant slice of the codebase instead of letting it explore is not done by any of these tools. It is a promising way to cut tokens, and an open question for DIPO-10: build one (for example with tree-sitter), reuse an existing repo-map approach from other tools **[to research]**, or rely on the declared map plus the story's scope.
+- A **real code graph** (symbols, imports, call edges) that gives a worker the relevant slice of the codebase instead of letting it explore is not done by any of these tools. Section 7 covers codegraph, a dedicated tool for exactly this, and the decision on how we use it.
 - Any map injected into a prompt must be capped, as AT does.
 
 ### 6.2 Context shaping for workers
@@ -166,7 +166,7 @@ What this means for us:
 | 16 | Conditional short context nudges through hooks, only when a fact makes them relevant | DIPO-10 |
 | 17 | Send-once signatures and review keyed on commit, persisted across restarts | M1 |
 | 18 | A declared component map (components, globs, dependencies) in the repository for scope and collision checks | DIPO-7, M2 |
-| 19 | Evaluate a code graph or repo map that gives a worker the relevant slice of code | DIPO-10 |
+| 19 | Evaluate a code graph or repo map that gives a worker the relevant slice of code. Narrowed by the decision in 7.7 to comparing optional backends | DIPO-10 |
 | 20 | Overview, triage list and digests built by code from facts, no model | DIPO-6 |
 | 21 | Event stream sends deltas, debounced; usage tailing resumes from a stored offset | DIPO-2, DIPO-4 |
 | 22 | Prepare worktrees (create and install) while a batch is being confirmed | M2 |
@@ -179,7 +179,78 @@ Some words in this document come straight from the tools: the evidence labels (r
 
 - **A warm, reused reviewer session** (6.2) saves tokens but could weaken reviewer independence (decision 0002: the reviewer never sees the implementer's reasoning). If it is ever proposed, it must be checked against 0002 first.
 
-## 7. Maintaining this document
+## 7. codegraph: a code graph for agents
+
+Research done 2026-10-10 through the GitHub API; nothing was installed or run.
+
+### 7.1 What it is
+
+- **Repository:** [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph). MIT.
+- **Maturity (2026-10-10):** about 73.6k stars, 4.7k forks, about 48 contributors, created 2026-01-18, many commits per day, v1.6.2 released 2026-10-03.
+- **What it does:** a local code graph indexer with an MCP server and a CLI for coding agents. TypeScript with a Rust kernel, about 35 languages (20 parsed natively in Rust). Ships a bundled Node runtime (`package.json` engines `node >=20 <25`).
+- **Telemetry** is on by default; the installer asks first (`TELEMETRY.md`). The author is also building a hosted product.
+
+### 7.2 How the graph is built
+
+- **Parser:** tree-sitter grammars compiled into the Rust kernel, no LSP.
+- **Nodes and edges:** files, functions, classes, methods, routes, components; calls, imports, extends, implements, references; a pass that resolves references it could not link at first (`src/db/schema.sql`).
+- **Storage:** SQLite in WAL mode at `.codegraph/codegraph.db` through `node:sqlite` (`src/db/sqlite-adapter.ts`), with full-text search. No embeddings.
+- **Updates:** incremental, from a file watcher with a 2 second debounce, and a content-hash reconcile when a client connects.
+- **Cost (claimed, not measured by us):** a 27k-file repository indexes in about 100 seconds; a one-file update takes about 0.3 to 0.4 seconds. One user reports a 2 GB database for 19.8k files (issue #1236).
+
+### 7.3 How agents use it
+
+- **MCP:** by default one tool, `codegraph_explore`, which returns source grouped by file with call paths and a blast-radius summary. Other tools (search, callers, callees, impact, files, status) can be switched on.
+- **Output budget by project size:** about 13k characters under 150 files, 18k under 500, 24k above (`src/mcp/tools.ts`).
+- **CLI with `--json`:** `query`, `explore`, `node`, `callers`, `callees`, `impact`, `affected --stdin`.
+- **Library:** `CodeGraph.open()`, `searchNodes`, `getCallers`, `getImpactRadius`, `buildContext(task, …)`; needs Node 22.5 or later.
+- **Claude Code setup:** `codegraph install` writes the MCP config, a marked section in `CLAUDE.md` or `AGENTS.md`, and an allow rule; `codegraph init` per project.
+
+### 7.4 Claimed savings and their limits
+
+- Claimed: 62% fewer tokens, 44% lower cost, 88% fewer tool calls, measured on 7 repositories with `claude -p`, median of 4 runs per arm.
+- Limits: the benchmark is run by the author; it measures one architecture question per repository, not implementing a change; savings are close to zero on small repositories; by its own documentation more retrieved context stays in the window (`docs/benchmarks/residual-context-occupancy.md`).
+- **The gain for our workload (implementing a prepared story) is unverified.**
+
+### 7.5 Limitations
+
+- Static analysis only: dependency injection, reflection and dynamic dispatch are missed. Coverage 74 to 100% depending on language.
+- **One index per worktree.** A nested worktree used to borrow the parent's index silently (`src/sync/worktree.ts`, issues #155, #848). A shared index across branches is an open request; the author says one graph cannot represent several branches.
+- Copying an index into a new worktree may work because paths look relative to the repository root, with the reconcile catching up **[unverified]**.
+- One writer per project through a shared daemon; separate worktrees mean a daemon and watcher per worktree.
+
+### 7.6 Fit with our design
+
+| Use | Realistic? | Notes |
+|---|---|---|
+| The engine queries it in code and puts the relevant code into the prompt | **Yes** | Call the CLI with `--json` as a subprocess, cap the result, tell the worker not to re-fetch. Fits "code drives". In-process use is not realistic because the library needs `node:sqlite` |
+| Enable it as an MCP tool for workers, per office | Yes, with cost | Index and daemon per worktree; indexing time and disk |
+| Scope and collision checks between stories | Partly | `impact` and `affected` on declared files against the base index; approximate |
+| Feed the overview | Weak | Symbol level is too fine; the declared component map (idea 18) fits better |
+
+Alternatives that exist and can be compared during DIPO-10: Aider's repo map (tree-sitter plus ranking, [Aider-AI/aider](https://github.com/Aider-AI/aider), Apache-2.0), Serena (language-server based MCP server, [oraios/serena](https://github.com/oraios/serena), licence **[unverified]**), code-graph-rag ([vitali87/code-graph-rag](https://github.com/vitali87/code-graph-rag), MIT).
+
+### 7.7 Decision (maintainer, 2026-10-10)
+
+Optional integration, not a dependency:
+
+1. The engine gets a **context provider** interface: the part that decides which code a worker sees.
+2. The **default provider** uses the story's scope and inputs plus the declared component map when present (idea 18). No external tool needed.
+3. **codegraph is an optional backend.** The engine calls its CLI and places a size-capped result in the prompt with a "do not re-fetch" note; optionally it is also enabled as an MCP tool for workers. Telemetry is switched off (`CODEGRAPH_TELEMETRY=0`) and the version is pinned.
+4. codegraph becomes a default only after **measurement on real stories** against the dipsaus-ai baseline (DIPO-10 defines the measurement).
+
+### 7.8 Ideas adopted from codegraph
+
+| # | Idea | Owner |
+|---|---|---|
+| 23 | Context provider interface with a default provider (scope, inputs, component map) and optional backends | DIPO-10, M0 |
+| 24 | codegraph as an optional context backend through its CLI, telemetry off, version pinned | DIPO-10, M1 |
+| 25 | Measure any context backend on real stories against the dipsaus-ai baseline before making it a default | DIPO-10, M1 |
+| 26 | Context output budgets that grow with project size (codegraph also caps characters per file and the number of explore calls) | DIPO-10, M0 |
+| 27 | Warn when a context index is stale; reconcile from content hashes after a restart (run knowledge staleness is already covered by the fingerprint in ADR 0013, DIPO-9) | DIPO-10, M1 |
+| 28 | When a context backend offers an affected-files query, use it to choose which tests run first; otherwise run all tests | M1 |
+
+## 8. Maintaining this document
 
 - New comparable tools are added with the same structure: what it is, maturity, model compared with ours, adopt, avoid, GUI and optimization notes.
 - When an adopted idea is implemented or rejected, update its row with the outcome.
