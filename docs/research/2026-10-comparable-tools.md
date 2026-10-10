@@ -203,6 +203,7 @@ Research done 2026-10-10 through the GitHub API; nothing was installed or run.
 - **MCP:** by default one tool, `codegraph_explore`, which returns source grouped by file with call paths and a blast-radius summary. Other tools (search, callers, callees, impact, files, status) can be switched on.
 - **Output budget by project size:** about 13k characters under 150 files, 18k under 500, 24k above (`src/mcp/tools.ts`).
 - **CLI with `--json`:** `query`, `explore`, `node`, `callers`, `callees`, `impact`, `affected --stdin`.
+- **Correction (2026-10-10, DIPO-10):** in v1.6.2 `explore` has no `--json` flag; it takes only `--path` and `--max-files` (`src/bin/codegraph.ts`). `--json` exists on `query`, `callers`, `callees`, `impact`, `affected`, `files` and `status`, and `context` has `--format json`. ADR 0014 uses `context --format json`.
 - **Library:** `CodeGraph.open()`, `searchNodes`, `getCallers`, `getImpactRadius`, `buildContext(task, …)`; needs Node 22.5 or later.
 - **Claude Code setup:** `codegraph install` writes the MCP config, a marked section in `CLAUDE.md` or `AGENTS.md`, and an allow rule; `codegraph init` per project.
 
