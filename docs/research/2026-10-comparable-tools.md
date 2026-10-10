@@ -166,7 +166,7 @@ What this means for us:
 | 16 | Conditional short context nudges through hooks, only when a fact makes them relevant | DIPO-10 |
 | 17 | Send-once signatures and review keyed on commit, persisted across restarts | M1 |
 | 18 | A declared component map (components, globs, dependencies) in the repository for scope and collision checks | DIPO-7, M2 |
-| 19 | Evaluate a code graph or repo map that gives a worker the relevant slice of code | DIPO-10 |
+| 19 | Evaluate a code graph or repo map that gives a worker the relevant slice of code. Narrowed by the decision in 7.7 to comparing optional backends | DIPO-10 |
 | 20 | Overview, triage list and digests built by code from facts, no model | DIPO-6 |
 | 21 | Event stream sends deltas, debounced; usage tailing resumes from a stored offset | DIPO-2, DIPO-4 |
 | 22 | Prepare worktrees (create and install) while a batch is being confirmed | M2 |
@@ -235,7 +235,7 @@ Alternatives that exist and can be compared during DIPO-10: Aider's repo map (tr
 Optional integration, not a dependency:
 
 1. The engine gets a **context provider** interface: the part that decides which code a worker sees.
-2. The **default provider** uses the story's scope and inputs plus the declared component map (idea 18). No external tool needed.
+2. The **default provider** uses the story's scope and inputs plus the declared component map when present (idea 18). No external tool needed.
 3. **codegraph is an optional backend.** The engine calls its CLI and places a size-capped result in the prompt with a "do not re-fetch" note; optionally it is also enabled as an MCP tool for workers. Telemetry is switched off (`CODEGRAPH_TELEMETRY=0`) and the version is pinned.
 4. codegraph becomes a default only after **measurement on real stories** against the dipsaus-ai baseline (DIPO-10 defines the measurement).
 
@@ -246,9 +246,9 @@ Optional integration, not a dependency:
 | 23 | Context provider interface with a default provider (scope, inputs, component map) and optional backends | DIPO-10, M0 |
 | 24 | codegraph as an optional context backend through its CLI, telemetry off, version pinned | DIPO-10, M1 |
 | 25 | Measure any context backend on real stories against the dipsaus-ai baseline before making it a default | DIPO-10, M1 |
-| 26 | Context output budgets that grow with project size | DIPO-10 |
-| 27 | Warn when a context index is stale; reconcile from content hashes after a restart (run knowledge staleness is already covered by the fingerprint in ADR 0013, DIPO-9) | DIPO-10 |
-| 28 | Use the graph's affected-files query to choose which tests to run first | M1 |
+| 26 | Context output budgets that grow with project size (codegraph also caps characters per file and the number of explore calls) | DIPO-10, M0 |
+| 27 | Warn when a context index is stale; reconcile from content hashes after a restart (run knowledge staleness is already covered by the fingerprint in ADR 0013, DIPO-9) | DIPO-10, M1 |
+| 28 | When a context backend offers an affected-files query, use it to choose which tests run first; otherwise run all tests | M1 |
 
 ## 8. Maintaining this document
 

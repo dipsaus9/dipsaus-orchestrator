@@ -1,9 +1,10 @@
 ---
 id: DIPO-12
 title: Document codegraph research and plan the context provider
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-10 10:27'
+updated_date: '2026-10-10 10:30'
 labels:
   - research
 milestone: m-0
@@ -21,7 +22,13 @@ Outcome: codegraph (colbymchenry/codegraph) is documented as a fourth comparable
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/research/2026-10-comparable-tools.md has a codegraph section: what it is, how the graph is built, how agents use it, claimed savings and their limits, fit with our design, alternatives, and adopted ideas with owners
-- [ ] #2 DIPO-10 has criteria for the context provider interface, the default provider, the optional codegraph backend and its measurement
-- [ ] #3 docs/plan.md and the milestones show when the context provider and the codegraph backend are built and measured
+- [x] #1 docs/research/2026-10-comparable-tools.md has a codegraph section: what it is, how the graph is built, how agents use it, claimed savings and their limits, fit with our design, alternatives, and adopted ideas with owners
+- [x] #2 DIPO-10 has criteria for the context provider interface, the default provider, the optional codegraph backend and its measurement
+- [x] #3 docs/plan.md and the milestones show when the context provider and the codegraph backend are built and measured
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+codegraph documented as research section 7 with ideas 23-28. Context provider planned: DIPO-10 designs it, M0 builds interface and default provider, M1 adds the optional codegraph backend with measurement. Review: pass, advisories applied.
+<!-- SECTION:FINAL_SUMMARY:END -->
