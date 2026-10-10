@@ -31,4 +31,9 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances |
 | **State database** | Local, gitignored, per-project store of orchestration state and machine insights |
 | **Triage list** | The morning view of parked stories with reasons and actions |
+| **Your desk** [proposed] | Everything waiting on the maintainer: open questions, gates, flagged tests, parked stories. Contains the triage list; on-hold stories are listed apart as "Held by you" (0009) |
+| **Evidence label** [proposed] | How a shown value is known: `checked` (engine measured it), `claimed` (worker, CLI or reviewer said so), `estimated` (computed by a rule), `none` (no fact) (0009) |
+| **Health** [proposed] | Engine-derived state of a running agent from facts and timeouts: `lost`, `asking`, `limited`, `paused`, `looping`, `stuck`, `quiet`, `busy` (0009) |
+| **Phase** [proposed] | Step of a run: `setup`, `build`, `verify`, `review`, `test`, `merge` (0009) |
+| **Signal** [proposed] | A watchdog fact about a run: `no-output`, `same-failure`, `input-wait`, `plan-limit`, `host-lost`, `follow-only` (0009) |
 | **ADR** | Architecture decision record in `docs/decisions/` |

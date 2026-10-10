@@ -1,10 +1,10 @@
 ---
 id: DIPO-6
 title: Choose the TUI framework and interaction model
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 10:16'
+updated_date: '2026-10-10 12:42'
 labels:
   - architecture
 milestone: m-0
@@ -23,12 +23,18 @@ Outcome: an ADR choosing the TUI technology (constrained by DIPO-1) and defining
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ADR docs/decisions/0009-tui.md records options, choice and why
-- [ ] #2 ADR sketches the views: office switcher, office overview (who, what, health, cost), live agent detail, queue, parked triage, testing checklist
-- [ ] #3 ADR maps every intervention (answer, steer, pause, resume, reassign, stop) to a command from DIPO-2
-- [ ] #4 ADR confirms the TUI uses only the public command and event interface
+- [x] #1 ADR docs/decisions/0009-tui.md records options, choice and why
+- [x] #2 ADR sketches the views: office switcher, office overview (who, what, health, cost), live agent detail, queue, parked triage, testing checklist
+- [x] #3 ADR maps every intervention (answer, steer, pause, resume, reassign, stop) to a command from DIPO-2
+- [x] #4 ADR confirms the TUI uses only the public command and event interface
 - [ ] #5 Maintainer approved the decision
-- [ ] #6 Every overview value carries an evidence label (for example reported, observed, inferred, unknown; final names chosen in this ADR) (research idea 2)
-- [ ] #7 ADR defines a fixed set of health states derived from facts and timeouts (research idea 9)
-- [ ] #8 Overview, triage list and digests are built by code from facts, with no model call (research idea 20)
+- [x] #6 Every overview value carries an evidence label (for example reported, observed, inferred, unknown; final names chosen in this ADR) (research idea 2)
+- [x] #7 ADR defines a fixed set of health states derived from facts and timeouts (research idea 9)
+- [x] #8 Overview, triage list and digests are built by code from facts, with no model call (research idea 20)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Draft ADR 0009 by research agent. Review: pass, 10 advisories applied (aligned with 0008 signals, plan-limit health, evidence optional, budget share engine-derived). Ink prototype not yet run. Waiting for maintainer approval.
+<!-- SECTION:NOTES:END -->
