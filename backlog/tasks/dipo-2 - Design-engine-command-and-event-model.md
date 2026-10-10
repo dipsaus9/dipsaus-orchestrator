@@ -4,7 +4,7 @@ title: Design engine command and event model
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-09 19:59'
+updated_date: '2026-10-10 10:16'
 labels:
   - architecture
 milestone: m-0
@@ -29,6 +29,9 @@ Outcome: an ADR defining the engine's public boundary. Commands are the single e
 - [ ] #4 Maintainer approved the decision
 - [ ] #5 ADR lists every command above with its payload, including intervention commands (answer, steer, pause, resume, reassign, stop) and test pass or fail
 - [ ] #6 ADR shows events carry agent, role, story, phase, progress and usage for the manager overview
+- [ ] #7 Facts in, status derived: events come from a change log of stored facts, and a reconnecting client replays missed events (research idea 1)
+- [ ] #8 Clients discover engine capabilities through a small read surface and capability flags (research idea 10)
+- [ ] #9 Event stream sends debounced deltas, not full state (research idea 21)
 <!-- AC:END -->
 
 ## Implementation Notes

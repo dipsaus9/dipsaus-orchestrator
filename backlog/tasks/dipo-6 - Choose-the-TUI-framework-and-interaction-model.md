@@ -4,7 +4,7 @@ title: Choose the TUI framework and interaction model
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-09 19:46'
+updated_date: '2026-10-10 10:16'
 labels:
   - architecture
 milestone: m-0
@@ -28,4 +28,7 @@ Outcome: an ADR choosing the TUI technology (constrained by DIPO-1) and defining
 - [ ] #3 ADR maps every intervention (answer, steer, pause, resume, reassign, stop) to a command from DIPO-2
 - [ ] #4 ADR confirms the TUI uses only the public command and event interface
 - [ ] #5 Maintainer approved the decision
+- [ ] #6 Every overview value carries an evidence label (for example reported, observed, inferred, unknown; final names chosen in this ADR) (research idea 2)
+- [ ] #7 ADR defines a fixed set of health states derived from facts and timeouts (research idea 9)
+- [ ] #8 Overview, triage list and digests are built by code from facts, with no model call (research idea 20)
 <!-- AC:END -->
