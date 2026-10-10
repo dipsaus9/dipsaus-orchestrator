@@ -1,10 +1,10 @@
 ---
 id: DIPO-1
 title: 'Decide language, runtime and project structure'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-09 19:16'
-updated_date: '2026-10-09 20:12'
+updated_date: '2026-10-10 11:00'
 labels:
   - architecture
 milestone: m-0
@@ -24,7 +24,7 @@ Outcome: an ADR choosing the implementation language, runtime, package layout an
 <!-- AC:BEGIN -->
 - [x] #1 ADR docs/decisions/0004-language-and-runtime.md records the options compared, the choice and why
 - [x] #2 ADR states the repo layout (engine, clients, shared types) and the verify command (lint, typecheck, test)
-- [ ] #3 Maintainer approved the decision
+- [x] #3 Maintainer approved the decision
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -32,3 +32,9 @@ Outcome: an ADR choosing the implementation language, runtime, package layout an
 <!-- SECTION:NOTES:BEGIN -->
 Draft ADR 0004 written by research agent, reviewed by independent reviewer agent (verdict: pass, 9 advisory findings, all applied; OpenTUI version kept per npm registry). Waiting for maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0004 accepted: TypeScript on Bun 1.4, Bun workspace monorepo (contract, engine, daemon, client, tui, cli), single binary via bun build --compile, command dipo, GitHub Releases first then Homebrew, Ink for the TUI (prototype in DIPO-6), oxfmt pinned, macOS and Linux only. Future visual client uses web technology (React Three Fiber).
+<!-- SECTION:FINAL_SUMMARY:END -->

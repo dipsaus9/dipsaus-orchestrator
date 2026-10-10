@@ -1,6 +1,6 @@
 # 0004 Language, runtime and project structure
 
-Status: Proposed (DIPO-1 spike, 2026-10-09). Needs the maintainer's approval.
+Status: Accepted (maintainer, 2026-10-10). Proposed in spike DIPO-1, 2026-10-09.
 
 ## Context
 
