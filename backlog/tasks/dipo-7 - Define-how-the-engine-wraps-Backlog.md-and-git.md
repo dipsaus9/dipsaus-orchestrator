@@ -4,7 +4,7 @@ title: Define how the engine wraps Backlog.md and git
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 10:16'
+updated_date: '2026-10-10 10:18'
 labels:
   - architecture
 milestone: m-0
@@ -30,6 +30,7 @@ Outcome: an ADR defining the engine's integration layer: reading and writing sto
 - [ ] #5 ADR defines port allocation so parallel worktrees can run the product at the same time
 - [ ] #6 ADR defines the per-office worktree setup contract: post-create steps, files to link or copy, environment overrides such as a port offset (research idea 7)
 - [ ] #7 ADR defines an optional declared component map in the repository (components, file globs, dependencies) usable for scope and collision checks (research idea 18)
+- [ ] #8 Anything the engine writes into the repository or worktrees (setup steps, links, component map scaffolding) is additive and removable (research idea 12)
 <!-- AC:END -->
 
 ## Implementation Notes

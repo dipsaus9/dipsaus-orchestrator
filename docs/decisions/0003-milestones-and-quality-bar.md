@@ -15,8 +15,8 @@ This is a long-lived project, not a proof of concept. Fast results are not expec
 ## Milestones
 
 - **M0, walking skeleton.** Engine, daemon, local database, Claude CLI adapter and a minimal TUI. Office init and switching (the office list). Repository scan and rescan for run knowledge. Takes one Ready story from Backlog.md, creates the worktree and branch, runs a worker, runs verify and shows live output. No planning, review or parallelism. Proves the core loop and the engine/UI boundary.
-- **M1, review and park.** Reviewer bot, structured park reasons, morning triage view, caps. Difficulty tiers mapped to model and budget. The test-story command with pass or fail feedback. A mechanical feedback loop for CI, review and conflicts, and daily and monthly spend alerts (research ideas 5 and 6, see `docs/research/2026-10-comparable-tools.md`).
-- **M2, parallel runs.** Batch selection, collision checks, worktree locking, push serialization.
+- **M1, review and park.** Reviewer bot, structured park reasons, morning triage view, caps. Difficulty tiers mapped to model and budget. The test-story command with pass or fail feedback. A mechanical feedback loop for CI, review and conflicts, daily and monthly spend alerts, feedback that carries evidence, and send-once signatures with review keyed on commit (research ideas 5, 6, 14 and 17, see `docs/research/2026-10-comparable-tools.md`).
+- **M2, parallel runs.** Batch selection, collision checks (using the declared component map when present, research idea 18), worktree locking, push serialization, worktrees prepared while a batch is being confirmed (idea 22).
 - **M3, rituals.** `plan`, `refine`, `ready` and `estimate` (with tier proposal) with Claude interview sessions. `retro` and insights: park reasons, loops, usage and cost efficiency aggregated from the local database, with suggestions for better preparation.
 - **M4, roster.** Roles as stored definitions, hiring, role chosen per story, non-code roles.
 - **M5, conversation.** Conversation layer that maps the maintainer's words to commands, with confirmation.

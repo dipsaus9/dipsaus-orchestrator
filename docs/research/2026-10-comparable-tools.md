@@ -25,7 +25,7 @@ How to read this document: section 1 describes each tool, section 2 compares the
 - **Maturity:** about 800 stars, one author, created 2026-08-21, last push 2026-09-09. No GitHub releases; npm `agenttrail@0.2.0` and an experimental `agenttrail-kitchen`. Open issue #1: recursive file watching exhausts inotify and crashes the daemon.
 - **What it is:** local, read-only observability for coding agents (Claude Code, Codex, Cursor). It does not run agents or decide when work is done.
 - **Two views:** *Map* parses a `PLAN.md` convention (components with ids, status markers, `needs:` dependencies, `files:` globs, owners) and shows it next to file activity. *Kitchen* is a 3D view where roles are chefs and the agent's own todo items are dishes.
-- **Capture:** a hook relay installed additively in `.claude/settings.local.json` for 11 events, incremental tailing of Claude and Codex transcript files (`packages/kitchen/src/connectors/logs.mjs`), and file watching. It records session start and end, the current and recent tools, todo lists, subagents, permission waits, files touched mapped to components, and inferred handoffs. It deliberately strips prompts and command bodies (`docs/OBSERVABILITY.md`).
+- **Capture:** a hook relay installed additively in `.claude/settings.local.json` for 11 events, incremental tailing of Claude and Codex transcript files (`packages/kitchen/src/connectors/logs.mjs`), and file watching. It records session start and end, the current and recent tools, todo lists, subagents, permission waits, files touched mapped to components, and inferred handoffs. It excludes prompts and command bodies from what it sends to the browser (`docs/OBSERVABILITY.md`).
 - **Evidence model:** every fact is labelled as reported, observed, inferred or unknown.
 - **Cost:** none; explicitly out of scope.
 
@@ -104,7 +104,7 @@ A dedicated research pass looked at code graphs, context shaping, work avoidance
 
 ### 6.1 Code graphs and repo maps
 
-- **None of the three builds a real code graph.** No static parsing, tree-sitter, LSP or symbol index was found in AO or H3, and AT does not parse code either.
+- **No code graph was found in any of the three.** Reading the repositories through the API found no static parsing, tree-sitter, LSP or symbol index in AO or H3, and AT does not parse code either.
 - **AT declares a component map by hand** in `PLAN.md`: components with ids, `files:` globs, `needs:` and `links:` edges, and a status marker (`bin/agenttrail.mjs`: `parsePlan`, `globToRe`, `touchComponents`). Glob regexes map every written file to a component, which drives the UI and handoff detection. A linter warns about edges to unknown ids, components without globs, done items without evidence, and more than nine components.
 - **AT caps its file tree** (breadth-first, 4000 nodes, 250 per directory, depth 8, ignore list) (`buildTree`).
 
@@ -169,6 +169,15 @@ What this means for us:
 | 19 | Evaluate a code graph or repo map that gives a worker the relevant slice of code | DIPO-10 |
 | 20 | Overview, triage list and digests built by code from facts, no model | DIPO-6 |
 | 21 | Event stream sends deltas, debounced; usage tailing resumes from a stored offset | DIPO-2, DIPO-4 |
+| 22 | Prepare worktrees (create and install) while a batch is being confirmed | M2 |
+
+### 6.8 Terms are placeholders
+
+Some words in this document come straight from the tools: the evidence labels (reported, observed, inferred, unknown), health state names (waiting, blocked, error), the column name "Needs you", and "send-once". They are used here only to describe the idea. The owning spike or milestone (DIPO-6, M1) chooses our own vocabulary, per decision 0015.
+
+### 6.9 Not adopted on purpose
+
+- **A warm, reused reviewer session** (6.2) saves tokens but could weaken reviewer independence (decision 0002: the reviewer never sees the implementer's reasoning). If it is ever proposed, it must be checked against 0002 first.
 
 ## 7. Maintaining this document
 

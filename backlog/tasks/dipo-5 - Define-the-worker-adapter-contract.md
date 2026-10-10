@@ -4,7 +4,7 @@ title: Define the worker adapter contract
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 10:13'
+updated_date: '2026-10-10 10:18'
 labels:
   - architecture
 milestone: m-0
@@ -30,8 +30,9 @@ Outcome: an ADR defining the Worker interface (start with prompt and workdir, st
 - [ ] #5 ADR documents which per-job caps the Claude CLI supports on a Max login (tokens, turns, time, model selection) and how tiers S, M, L map onto them
 - [ ] #6 ADR documents what usage data the CLI reports per run
 - [ ] #7 ADR defines Claude telemetry from hooks (live state; input or permission wait means needs-you) and transcript tailing (token usage per session and subagent), bound to the story by the engine (research idea 3)
-- [ ] #8 ADR defines resuming a native Claude session instead of starting over (research idea 8)
+- [ ] #8 ADR defines resuming a native Claude session instead of starting over (research ideas 8 and 15)
 - [ ] #9 Anything installed into the repository or agent config (such as hooks) is additive and removable (research idea 12)
+- [ ] #10 ADR defines how per-run token usage maps to the pricing catalog for an estimated cost (research idea 4)
 <!-- AC:END -->
 
 ## Implementation Notes
