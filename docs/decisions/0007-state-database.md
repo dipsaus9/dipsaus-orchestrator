@@ -1,6 +1,6 @@
 # 0007 State database
 
-Status: Proposed (spike DIPO-4, 2026-10-10). Open question 1 answered by the maintainer 2026-10-10: one central database. Amends 0001, 0006 and 0011 (see "Amends").
+Status: Proposed (spike DIPO-4, 2026-10-10). All open questions answered by the maintainer 2026-10-10 (one central database). Amends 0001, 0005, 0006, 0010 and 0011 (see "Amends").
 
 ## Context
 
@@ -9,7 +9,7 @@ Each office keeps its orchestration state locally, never in the repository's tra
 - 0005: fact tables, an office change log with `epoch` and gap-free `seq` written in the same transaction as the facts, the idempotency request table (24 h), StoryKeys with an alias table, tiered retention (state events 1 year, usage and progress and worker output 7 days, run summaries kept as long as state), and derived views computed only in the engine.
 - 0006: one daemon serves all offices, each office has its own engine instance, the daemon's PID lock in `<state>` keeps out a second daemon, migrations run in the `recovering` state, and each worker host's processed offset advances in the same transaction as the facts derived from its events. 0006 also planned a per-office database handle and lock and an `offices.json` office list; this ADR replaces those (see "Amends").
 - 0013: one run profile per office, with fingerprint and scan time, stored in the database.
-- Drafts still in review: 0010 (lane-b journal, released-branch records, claims), 0014 (worker notes deleted at teardown, prompt hashes and sizes, measurement results), 0017 (config hash per run; `.dipo/` gitignore rules handed here).
+- 0010 (accepted): lane-b journal, released-branch records, claims. Drafts still in review: 0014 (worker notes deleted at teardown, prompt hashes and sizes, measurement results), 0017 (config hash per run; `.dipo/` gitignore rules handed here).
 - Research ideas 1 (facts stored, status derived), 4 (estimated cost from a versioned pricing catalog), 11 (no prompts or command bodies by default) and 21 (usage tailing resumes from a stored offset).
 
 `bun:sqlite` facts, checked 2026-10-10 against the Bun and SQLite docs and a local test on Bun 1.3.5, macOS arm64:
@@ -278,17 +278,18 @@ Decided by the maintainer 2026-10-10 (open question 1) and recorded under "Amend
 
 - **0006 decisions 1, 3, 4, 6, 7 and 9:** the office list is the `offices` table in `<state>/dipo.db`, not `<state>/offices.json`; engine instances share the daemon's one connection through office-scoped handles instead of a database handle each; the per-office lock (decision 6, "Second guard, per office") is dropped because the PID lock covers the one file; migrations run once for the file in `recovering`, before any office. Decision 3's sentence "Work state stays in each office" becomes "work state is kept per office in `dipo.db`, keyed by `OfficeId`". A dated line is added under "Amendments" in 0006.
 - **0001 "Data ownership" and 0011 "Effects on earlier decisions":** "local database per project" becomes "local work state per project, kept in one central local database keyed by office; never in the repository and never the only copy of a story fact". Dated lines are added under "Amendments" in both.
-- **Follow-up wording, not yet amended:** 0005 section 6 says the office list lives in `offices.json`; 0010's worktree table names "the office lock (0006)" as the guard against a second engine, which is now the daemon's PID lock. Both are left for the maintainer.
+- **0005 section 6:** the office list is the `offices` table, not `offices.json`. Amended in 0005.
+- **0010 worktree table and section 11:** the daemon PID lock, not an office lock, keeps out a second engine; and office init may add the new file `.dipo/.gitignore` (open question 4), while existing ignore files are still never edited. Amended in 0010.
 
 ## Open questions for the maintainer
 
 1. **Location — answered 2026-10-10: one central database.** All offices share `<state>/dipo.db`, every office-scoped row keyed by `office_id`, with backups in `<state>/backups/`. The repository keeps only `<git-common-dir>/dipo/` with the marker and run directories.
-2. **Durability.** `synchronous=FULL` (chosen), or `NORMAL` for fewer fsyncs at the risk of losing the last commits on power loss?
-3. **Privacy opt-ins in `office.local.yaml`.** 0017 allowlists only `timeouts.*`. Add `privacy.*` and `retention.*` to that allowlist, or keep them in the committed `office.yaml`?
-4. **`.dipo/.gitignore`.** 0017 needs `office.local.yaml` ignored; 0010 says no `.gitignore` edits. A new `.dipo/.gitignore`, committed through the office-init backlog PR (chosen), adds a file rather than editing one. Accept, and amend 0010 section 11 wording?
-5. **Long-term usage.** `usage_daily` is kept forever per office (a few KB a year each), also for cross-office totals. Fine, or give it a period?
-6. **Backup count.** 3 daily plus 2 pre-migration copies of the whole `dipo.db`, so 5 times the size of all offices together. Enough, or fewer when the file is large?
-7. **Raw worker stream.** Delete `events.ndjson` at run end by default (chosen), or keep it 7 days for debugging?
+2. **Durability — answered 2026-10-10: `synchronous=FULL`.** Every commit waits for the disk; write volume is small.
+3. **Privacy opt-ins — answered 2026-10-10: machine-local.** `privacy.*` and `retention.*` live in `.dipo/office.local.yaml`; 0017's local allowlist gains both prefixes next to `timeouts.*`.
+4. **`.dipo/.gitignore` — answered 2026-10-10: accepted.** Office init adds a new `.dipo/.gitignore` with `office.local.yaml` through the office-init backlog PR; existing ignore files are never edited. 0010 is amended accordingly.
+5. **Long-term usage — answered 2026-10-10: kept forever.** `usage_daily` has no retention period.
+6. **Backup count — answered 2026-10-10: 3 daily plus 2 pre-migration copies** as the default; the counts are configuration.
+7. **Raw worker stream — answered 2026-10-10: deleted at run end** by default; `privacy.keepRawEvents` keeps it for tier R.
 
 ## Sources
 

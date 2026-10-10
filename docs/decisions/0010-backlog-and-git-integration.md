@@ -235,7 +235,7 @@ components:
 | Story and `dipo/backlog-*` branches | refs | deleted after merge (section 7); the rest kept and listed |
 | Slot table, journal, office state | `<state>`, office state | `office forget`, deleting state |
 
-No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Command names are placeholders until DIPO-2.
+No git hooks, no edits to existing `.gitignore` files or `info/exclude`, no git config changes. The one ignore file the engine adds is the new `.dipo/.gitignore` (0007), through the office-init backlog PR. Command names are placeholders until DIPO-2.
 
 ## Amends 0012 and 0002 (approved 2026-10-10)
 
@@ -284,3 +284,4 @@ No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Co
 ## Amendments
 
 - 2026-10-10, decision 0007 (maintainer): one central state database; the daemon PID lock replaces the per-office lock as the guard against a second engine.
+- 2026-10-10, decision 0007 (maintainer): office init adds a new `.dipo/.gitignore` with `office.local.yaml` through the office-init backlog PR; existing ignore files are still never edited.
