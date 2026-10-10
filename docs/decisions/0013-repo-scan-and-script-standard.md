@@ -1,6 +1,6 @@
 # 0013 Repository scan and script standard
 
-Status: Proposed (spike DIPO-9, 2026-10-09). Needs the maintainer's approval.
+Status: Accepted (maintainer, 2026-10-10). Proposed in spike DIPO-9, 2026-10-09.
 
 ## Context
 
@@ -47,12 +47,13 @@ Install is not a script. `install` is an npm lifecycle hook name, so the orchest
 | Script | Required | Behavior | Exit code |
 |---|---|---|---|
 | `setup` | optional | Preparation after install: generate data, download browsers, create local files from examples if missing. Idempotent, safe to run twice. Never overwrites an existing env file. The engine runs it after every install in a fresh checkout or worktree | 0 done, non-zero failed |
-| `dev` | required if the product has something to start | Starts the product for the maintainer to test. Stays in the foreground until stopped. Prints the URL it serves; the engine takes the first `http://` or `https://` URL on stdout or stderr within the start timeout as the product URL. Should honour a `PORT` environment variable when one is set. Stops cleanly on SIGTERM | non-zero if it fails to start. Exit after SIGTERM is not judged |
+| `dev` | required if the product has something to start | Starts the product for the maintainer to test. Stays in the foreground until stopped. Prints the URL it serves; the engine takes the first `http://` or `https://` URL on stdout or stderr within the start timeout as the product URL. Must use the `PORT` environment variable when one is set (a repo with fixed ports is Partial). Stops cleanly on SIGTERM | non-zero if it fails to start. Exit after SIGTERM is not judged |
 | `test` | required | The fast automated suite. Runs once, never in watch mode. No prompts. Works without a TTY and with `CI=1` | 0 pass, non-zero fail |
 | `lint` | recommended | Static checks. Read-only, never rewrites files | 0 clean, non-zero findings |
 | `typecheck` | recommended | Type checking without emitting output | 0 clean, non-zero errors |
 | `verify` | recommended | The full gate a worker must pass before review. No arguments. Typically `lint`, `typecheck` and `test` in sequence, stopping at the first failure | 0 ready for review, non-zero not ready |
-| `build` | optional | Production build. Not part of verify by default | 0 built, non-zero failed |
+| `build` | optional | Production build. Never part of composed verify | 0 built, non-zero failed |
+| `format` | optional | Formatting check only, never rewrites files. `format:fix` is the writing variant | 0 formatted, non-zero not formatted |
 
 Rules for all of them:
 
@@ -163,9 +164,9 @@ The orchestrator does not manage secrets or setup. The scan only records facts D
 
 ## Open questions for the maintainer
 
-1. Should `verify` be required instead of recommended, given that every surveyed repo composes it from `lint`, `typecheck`, `test` anyway?
-2. Should `build` be part of composed verify? The predecessor includes it, the repos' CI does not.
-3. Rename the puzzle checker in slaydoku and cadeauko to free the name `verify`? Or pick a different standard name, for example `check`, which couchcade uses with a similar meaning?
-4. Keep reading `.claude/backlog-workflow.json` long term, or only until the repos conform?
-5. Should `dev` be required to honour `PORT`? Vite and wrangler do not read it by default, so most repos would need a small config change. This depends on DIPO-7's port rule.
-6. Should `format` be standardised as "check only", given that it writes in two repos and checks in one?
+1. **`verify` — answered 2026-10-10: stays recommended.** When a repo has no `verify` script, the orchestrator composes it from `lint`, `typecheck` and `test` (section 3). The engine runs verify as the gate before In Review; CI runs it on every PR.
+2. **`build` — answered 2026-10-10: not part of verify.** A project that wants a build in its gate puts it in its own `verify` script.
+3. **Name clash — answered 2026-10-10: rename** the puzzle checker in slaydoku and cadeauko to `verify:puzzle`, freeing `verify` for the standard.
+4. **`.claude/backlog-workflow.json` — answered 2026-10-10: temporary bridge only.** The scan reads it until a repo conforms and reports "still relies on backlog-workflow.json" as a deviation. Long term, what a project is comes from the scan of the repo itself (this ADR) and what the maintainer wants for an office lives in `.dipo/office.yaml` (DIPO-14); the old file can then be removed.
+5. **`PORT` — answered 2026-10-10: required.** A `dev` script must use the `PORT` environment variable when it is set, so parallel worktrees get their own ports. A repo whose `dev` uses fixed ports does not conform (level Partial) and the scan reports the one-line fix; such a repo can still be tested one story at a time (DIPO-7 port fallback).
+6. **`format` — answered 2026-10-10: standardised as check only.** `format` never rewrites files; `format:fix` writes. The engine may run `format` as a check.
