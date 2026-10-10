@@ -4,7 +4,7 @@ title: Design local state database and schema
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-09 19:59'
+updated_date: '2026-10-10 10:16'
 labels:
   - architecture
 milestone: m-0
@@ -28,6 +28,10 @@ Outcome: an ADR choosing the local database (per office, gitignored) and definin
 - [ ] #3 Maintainer approved the decision
 - [ ] #4 Schema stores usage per story, role and tier against budget so cost efficiency and trends can be reported
 - [ ] #5 Schema stores product run knowledge from repository scans and when it was last scanned
+- [ ] #6 Schema stores facts only; displayed status is derived when read, and a change log feeds the event stream (research idea 1)
+- [ ] #7 Usage is stored as tokens plus an estimated cost from a versioned pricing catalog (research idea 4)
+- [ ] #8 Telemetry stores no prompts or command bodies unless the maintainer opts in (research idea 11)
+- [ ] #9 Transcript usage ingestion resumes from a stored byte offset after a restart (research idea 21)
 <!-- AC:END -->
 
 ## Implementation Notes

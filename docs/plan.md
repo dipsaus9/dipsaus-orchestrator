@@ -22,7 +22,8 @@ How the vision in [vision.md](vision.md) becomes software. Milestones are define
 | Backlog.md and git contract, worktrees, environment files, ports | DIPO-7 |
 | Story standard and deterministic Ready gate | DIPO-8 |
 | Repository scanning, script standard, rescan | DIPO-9 |
-| Worker prompts from templates plus story data, measured token savings | DIPO-10 |
+| Worker prompts from templates plus story data, measured token savings, code graph evaluation | DIPO-10 |
+| Ideas adopted from comparable tools (`docs/research/`), each tracked as a criterion | DIPO-2 to DIPO-7, DIPO-10, M1, M2 |
 | Review, parking, triage, tiers, test command | M1 |
 | Parallel runs | M2 |
 | Plan, refine, ready, estimate with AI interviews; retro and insights | M3 |

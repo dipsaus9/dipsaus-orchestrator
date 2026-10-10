@@ -4,6 +4,7 @@ title: Design worker prompt assembly
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:59'
+updated_date: '2026-10-10 10:16'
 labels:
   - architecture
 milestone: m-0
@@ -26,4 +27,9 @@ Outcome: an ADR defining how the engine builds each worker's prompt from templat
 - [ ] #2 ADR lists which steps stay in code and never appear in a prompt
 - [ ] #3 ADR defines how token use is measured and compared with the dipsaus-ai backlog-deliver baseline
 - [ ] #4 Maintainer approved the decision
+- [ ] #5 Prompts carry pre-fetched facts, every section has a size budget with a truncation marker, and the worker is told not to re-fetch (research idea 13)
+- [ ] #6 Feedback to a worker (CI, review, test notes) carries the evidence: log tails, file and line, comment text (research idea 14)
+- [ ] #7 ADR defines a budgeted handoff between sessions or roles, and resuming a native session before starting a new one (research idea 15)
+- [ ] #8 ADR defines conditional short context nudges through hooks, only when a fact makes them relevant (research idea 16)
+- [ ] #9 ADR evaluates a code graph or repo map that gives a worker the relevant slice of code (build, reuse an existing approach, or rely on scope plus a declared component map), with a recommendation (research idea 19)
 <!-- AC:END -->

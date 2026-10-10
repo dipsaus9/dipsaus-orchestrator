@@ -1,6 +1,6 @@
 # dipsaus-orchestrator
 
-Open source, code-driven orchestration product: the maintainer and a model run the maintainer's software products together, like an office or dev team, with AI filling the gaps code cannot. Read `docs/vision.md`, `docs/concepts.md` and `docs/decisions/` before making design choices.
+Open source, code-driven orchestration product: the maintainer and a model run the maintainer's software products together, like an office or dev team, with AI filling the gaps code cannot. Read `docs/vision.md`, `docs/concepts.md`, `docs/decisions/` and `docs/research/` before making design choices. Ideas from other tools are inspiration only, never copied (decision 0015).
 
 ## Status
 
