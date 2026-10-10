@@ -4,7 +4,7 @@ title: Design local state database and schema
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 10:16'
+updated_date: '2026-10-10 11:04'
 labels:
   - architecture
 milestone: m-0
@@ -32,6 +32,7 @@ Outcome: an ADR choosing the local database (per office, gitignored) and definin
 - [ ] #7 Usage is stored as tokens plus an estimated cost from a versioned pricing catalog (research idea 4)
 - [ ] #8 Telemetry stores no prompts or command bodies unless the maintainer opts in (research idea 11)
 - [ ] #9 Transcript usage ingestion resumes from a stored byte offset after a restart (research idea 21)
+- [ ] #10 ADR defines the office directory layout on disk: where an office's database, logs and runtime files live, and what is gitignored
 <!-- AC:END -->
 
 ## Implementation Notes

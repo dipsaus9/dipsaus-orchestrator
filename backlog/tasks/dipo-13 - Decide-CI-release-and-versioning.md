@@ -4,6 +4,7 @@ title: 'Decide CI, release and versioning'
 status: To Do
 assignee: []
 created_date: '2026-10-10 11:03'
+updated_date: '2026-10-10 11:04'
 labels:
   - architecture
 milestone: m-0
@@ -26,4 +27,5 @@ Outcome: an ADR defining how the project is built, checked and released, on the 
 - [ ] #2 ADR defines the release flow: versioning, changelog, building binaries for every target, checksums, publishing to GitHub Releases, and the later Homebrew tap
 - [ ] #3 ADR defines dependency update and security scanning tooling and how their PRs are reviewed and merged
 - [ ] #4 Maintainer approved the decision
+- [ ] #5 ADR decides macOS code signing and notarization (or documents the Gatekeeper workaround), the install path from GitHub Releases (install script or manual), version and commit embedding for dipo --version, and glibc versus musl Linux targets
 <!-- AC:END -->
