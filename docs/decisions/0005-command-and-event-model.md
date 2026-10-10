@@ -158,7 +158,8 @@ const Lifecycle  = z.enum(["Draft", "Refined", "Ready", "In Progress", "In Revie
   // the terminal state of an archived or deleted story. Joint decision with DIPO-8: 0012 records it as
   // an engine-only terminal state. Closed enum
 const ParkReason = z.enum(["ambiguous-spec", "verify-failing", "conflict", "scope-violation",
-                           "review-blocked", "budget-exceeded", "on-hold", "stopped", "interrupted"]);   // 0001, 0012, plus stopped (maintainer ended the worker) and interrupted (worker lost while the daemon was down, 0006). Closed enum
+                           "review-blocked", "budget-exceeded", "on-hold", "stopped", "interrupted",
+                           "needs-permission", "worker-failed"]);   // 0001, 0012, plus stopped (maintainer ended the worker), interrupted (worker lost while the daemon was down, 0006), needs-permission and worker-failed (0008). Closed enum
 const Tier       = z.enum(["S", "M", "L"]);                                    // 0012 F11 (office config). Closed enum
 const DaemonState = z.enum(["starting", "recovering", "running", "draining", "safe"]);   // 0006 section 7
 
@@ -167,11 +168,13 @@ const Phase    = z.string();  // provisional open enum: "preparing", "implementi
                               // "awaiting-test", "merging". DIPO-6 sets the final names
 const Progress = z.object({ criteriaMet: z.int(), criteriaTotal: z.int(), loop: z.int(), loopCap: z.int(),
                             verify: z.enum(["none", "passing", "failing"]), reviewRound: z.int() });
-const UsageTotals = z.object({ inputTokens: z.int(), outputTokens: z.int(), cacheTokens: z.int(), turns: z.int(),
+const UsageTotals = z.object({ inputTokens: z.int(), outputTokens: z.int(),
+                               cacheCreateTokens: z.int(), cacheReadTokens: z.int(), turns: z.int(),
                                elapsedMs: z.int(), estimatedCost: z.number().optional() });
 const Usage    = z.object({ agent: UsageTotals,  // cumulative for this agent within this run
                             run: UsageTotals,    // cumulative for the run across all its agents
                             budget: z.object({ unit: z.string(), limit: z.number(), used: z.number() }) });
+                            // unit "tokens": used = input + output + cache creation; cache reads do not count (0008)
 
 const StoryView = z.object({ key: StoryKey, story: StoryId, provisional: z.boolean(), title: z.string(),
                              lifecycle: Lifecycle, tier: Tier.optional(), column: z.string(),   // derived
@@ -320,3 +323,4 @@ A client needs only `@dipsaus-orchestrator/contract` (schemas, frames, types, JS
 ## Amendments
 
 - 2026-10-10, decision 0010 (maintainer): the StoryKey lives only in the state database, never in the repository; identity after a database loss falls back to the frozen branch, then the created date.
+- 2026-10-10, decision 0008 (maintainer): two new park reasons, `needs-permission` (the worker cannot finish without an action that was denied; worktree, branch and session are kept) and `worker-failed` (the worker crashed again after one resume, or failed its start checks; detail is the last error). `Usage.budget` uses unit `"tokens"` (input + output + cache creation); `UsageTotals.cacheTokens` splits into `cacheCreateTokens` and `cacheReadTokens`. Minor additions: `QuestionView.kind` (`question` or `permission`) and `work.answer` `decision: "allow" | "deny"` for permission questions.

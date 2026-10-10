@@ -105,7 +105,7 @@ park: { reason: "on-hold", from: "Ready", note: "Waiting for Bun 1.4.3" }
 | `branch` | F15 | R18 pattern |
 | `unknowns` | F10 | list of `{q, status: open \| resolved, answer?}` |
 | `test_plan` | F14 | `{entries: [{kind: automated \| manual, check, expect?}]}` or `{not_applicable: <reason>}` |
-| `park` | F16 | `{reason, from, note}`, only while Parked; `reason` is 0005's `ParkReason` enum (includes `on-hold`, `stopped`, `interrupted`) |
+| `park` | F16 | `{reason, from, note}`, only while Parked; `reason` is 0005's `ParkReason` enum (includes `on-hold`, `stopped`, `interrupted`, `needs-permission`, `worker-failed`) |
 Parser: zero or one block; a line exactly ```` ```dipo ```` opens it, the next line exactly ```` ``` ```` closes it; a second block, an unclosed block or text after it fails R02. Content goes through `Bun.YAML.parse` behind the platform module, then a strict zod schema shared from `contract`: unknown keys fail, and every text value must be a YAML string, so `answer: 5173` fails with "quote this value" (fact 11). The StoryKey (0005) is never written to the repository; it lives only in the state database (open question 7).
 
 Single write path, the same in both lanes: `task view` (or `draft view`), parse, change the typed value, emit canonically (fixed key order, double-quoted strings, two-space indent), splice so every byte outside the block is unchanged, write with `task edit --description` (or `draft edit`), read back and compare. Just before writing the engine re-reads; if the description changed, it parses again and reapplies the target-state operation. One serial write queue per worktree.
@@ -152,7 +152,7 @@ After a crash the engine replays an open promotion entry before any other queue 
 | Base sync | Not by default. Only on a conflict, or for a riskier story (open question 3). `git merge origin/<base>` into the branch by the engine, never a rebase; conflicts go to the worker as feedback within caps, else park `conflict`. After a sync: reinstall if the lockfile changed, verify again before In Review |
 | Push and PR | Engine pushes after the In Review commit, never force, never the base. The PR opens in M1. CI runs verify on the PR merge ref [8] |
 | Merge and Done | Offices with linear history use squash merge. Done is detected from the host's PR state, or without it when `git merge-tree --write-tree origin/<base> <branch>` returns the tree of `origin/<base>` (the branch adds nothing new), never by ancestry |
-| Teardown | After Done or drop: unlock, `git worktree remove <path>` without `--force`. Parked stories keep worktree and branch. The local branch is deleted (`-D`) only after Done is detected as above; the remote branch is left to the host |
+| Teardown | After Done or drop: unlock, `git worktree remove <path>` without `--force`. Parked stories keep worktree and branch. The local branch is deleted (`-D`) only after Done is detected as above; then the engine also deletes the remote branch (`git push origin --delete <branch>`, open question 8). The host's auto-delete may already have removed it; a missing remote branch is fine |
 
 **Failure cases.**
 
@@ -280,3 +280,7 @@ No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Co
 8. GitHub Docs, `pull_request` event: `GITHUB_REF` is `refs/pull/<n>/merge`. https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request
 9. Research `docs/research/2026-10-comparable-tools.md`: agent-orchestrator `postCreate`, `symlinks`, `env` (section 1); codegraph nested-worktree issues (7.5); ideas 7, 12, 18.
 10. Local experiments 2026-10-10 with Backlog.md 1.48.0 and 1.53.0 (installed in the scratchpad), git 2.50.1, Bun 1.3.5 (facts 1 to 11).
+
+## Amendments
+
+- 2026-10-10, decision 0008 (maintainer): setup step 1 also copies the main checkout's `.claude/settings.local.json` into the worktree when present, under the same rules as other copied files (it must be gitignored). The first time the engine copies env files for an office it shows the rule "worktree env files hold development secrets only" once as a notice and lists the files copied. Install (setup step 2, and reinstall after a sync) runs inside the sandbox runtime `srt` with the run's policy; if `srt` is unavailable the run refuses. The `park` field accepts 0008's new park reasons `needs-permission` and `worker-failed`.
