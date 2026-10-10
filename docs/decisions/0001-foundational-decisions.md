@@ -59,3 +59,4 @@ Status: accepted (grill session, 2026-10-09). Technical stack is deliberately un
 ## Amendments
 
 - 2026-10-10, decision 0012 (story standard): `plan` creates Backlog.md drafts with temporary ids; real ids and branch names are assigned at `refine`. New park reason `on-hold` for stories the maintainer puts aside by hand. Lifecycle state names are defined in 0012.
+- 2026-10-10, decision 0005: park reasons `stopped` (maintainer ended a worker) and `interrupted` (worker lost while the daemon was down).

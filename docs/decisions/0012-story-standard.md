@@ -198,3 +198,7 @@ What the gate deliberately does not check: whether paths exist (new files do not
 5. **Thresholds — answered 2026-10-10: accepted as defaults** (title at most 100, outcome at least 20, criterion at least 10, slug at most 40, and the default banned phrases). All are office configuration and can be tuned.
 6. **Test plan — answered 2026-10-10:** the manual test script became a test plan (F14) with automated and manual entries, required on every non-spike story where applicable; where it does not apply, the story says so explicitly with a reason (R20). A flagged story needs at least one manual entry (R21).
 7. **Design stories — answered 2026-10-10: recognised by the role** (the roster says a role is non-code), not by a separate `design` type.
+
+## Amendments
+
+- 2026-10-10, decision 0005 (maintainer): two new park reasons, `stopped` (the maintainer ended a worker with `work.stop`) and `interrupted` (a worker was lost while the daemon was down, 0006). Both are allowed on the In Progress or In Review to Parked transition; `resume` returns to `park.from`.

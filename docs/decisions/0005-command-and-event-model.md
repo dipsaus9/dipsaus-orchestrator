@@ -133,7 +133,7 @@ Every command below is in contract 1.0. `StoryRef = { story: StoryId | StoryKey 
 | `work.resume` | `StoryRef & { note?: string }` | `{ story, key, to: Lifecycle, run?: RunId }`. A paused run continues. A parked story returns to `park.from`: to In Progress or In Review it starts or re-attaches a run, returns `run` and emits `work.assigned`; to Refined or Ready (for example after `on-hold`) no run starts, and a story back in Ready is re-checked at pickup (R01b) by `work.run` | `story.notPausedOrParked`, `run.hostAlive` (retryable), `scheduling.off` (retryable) |
 | `story.hold` | `StoryRef & { note: string }` | `{ story, key }` parks a Refined or Ready story with reason `on-hold` (0012); `work.run` skips it; it shows in the triage list | `story.notHoldable` |
 | `work.reassign` | `StoryRef & { role?: RoleId, tier?: Tier }` | `{ run, agent: AgentId }` new agent, bounded handoff (idea 15). Reassign first stops the old agent through the adapter; if the old worker host has not exited (exit file written, 0006 decision 8) within 30 s (proposed default; 0006 states the same timeout) the command fails with `run.hostAlive` and the new agent is not started | `role.unknown`, `story.notRunning`, `run.hostAlive` (retryable) |
-| `work.stop` | `StoryRef & { note?: string }` | `{ run }` worker ends; branch and worktree kept. The resulting state needs a joint decision with DIPO-8 before contract 1.0; no implementation story for `work.stop` can be Ready until `stopped`/`interrupted` is decided (open question 1) | `story.notRunning` |
+| `work.stop` | `StoryRef & { note?: string }` | `{ run }` worker ends; branch and worktree kept; the story parks with reason `stopped` and `park.from` In Progress or In Review. `work.resume` continues it (open question 1, answered) | `story.notRunning` |
 | `story.drop` | `StoryRef & { deleteBranch: boolean }` | `{ story, key }` archives a Draft, Refined, Ready or Parked story (`backlog task archive`, or archive the draft), removes its worktree if any, deletes the branch only when asked; `story.state` to `Removed` | `story.hasDependents`, `story.active` (In Progress or In Review: stop first) |
 | `test.start` | `StoryRef` | `{ test: TestId, checkout: string, script: string[] }` | `story.notTestable` (no manual test plan entry, 0002, 0012 F14) |
 | `test.record` | `{ test: TestId, result: "pass" \| "fail", note?: string }` (note required on fail) | `{ test, result }`; a fail sends the story from In Review back to In Progress with the note as worker input | `test.closed` |
@@ -157,7 +157,7 @@ const Lifecycle  = z.enum(["Draft", "Refined", "Ready", "In Progress", "In Revie
   // the terminal state of an archived or deleted story. Joint decision with DIPO-8: 0012 records it as
   // an engine-only terminal state. Closed enum
 const ParkReason = z.enum(["ambiguous-spec", "verify-failing", "conflict", "scope-violation",
-                           "review-blocked", "budget-exceeded", "on-hold"]);   // 0001 plus 0012. Closed enum
+                           "review-blocked", "budget-exceeded", "on-hold", "stopped", "interrupted"]);   // 0001, 0012, plus stopped (maintainer ended the worker) and interrupted (worker lost while the daemon was down, 0006). Closed enum
 const Tier       = z.enum(["S", "M", "L"]);                                    // 0012 F11 (office config). Closed enum
 const DaemonState = z.enum(["starting", "recovering", "running", "draining", "safe"]);   // 0006 section 7
 
@@ -297,7 +297,7 @@ A client needs only `@dipsaus-orchestrator/contract` (schemas, frames, types, JS
 
 ## Open questions for the maintainer
 
-1. **`work.stop` outcome (blocks contract 1.0).** 0012 has no maintainer transition out of In Progress except through Parked, and the park reasons are a closed list. Proposed: a joint decision with DIPO-8 adding `stopped` (maintainer ended the worker), together with `interrupted` (worker died while the daemon was down, 0006 open question 3). Alternative: stop parks with an existing reason, none of which fits.
+1. **`work.stop` outcome — answered 2026-10-10: two new park reasons.** `stopped` when the maintainer ends a worker, `interrupted` when a worker was lost while the daemon was down (0006 open question 3). Both park the story with `park.from` In Progress or In Review, show in the triage list, and `work.resume` continues or restarts the run. Amends the park reasons of 0001 and 0012.
 2. **Discard the run but keep the story.** `story.drop` now archives, as in 0012. Is a separate `work.discard` wanted (remove worktree, keep the story, return it to Refined so it passes the gate again)? It would need a new 0012 transition.
 3. **Change-log retention.** Proposed default: 7 days or 100k entries per office, whichever is larger; older cursors get a reset. DIPO-4 confirms it against storage size.
 4. **Derived views in the engine only**, rather than shared pure functions in `contract` (0004 keeps `contract` schemas-only). Agree?
