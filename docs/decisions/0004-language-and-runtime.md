@@ -134,7 +134,7 @@ Boundary rules, enforced in code, not prose:
 - TypeScript 7 has no stable programmatic API until about 7.1 [23], which is why lint and boundary rules use oxlint, not typescript-eslint.
 - Worker adapters live under `engine/src/workers/`. Claude specifics stay there (CLAUDE.md rule).
 
-A future web UI is `packages/web` depending on `contract` and `client`. A desktop shell wraps that.
+A future web UI is `packages/web` depending on `contract` and `client`. A desktop shell wraps that. A future 3D or 2D visual client (for example a hermes3d-style office) is built with web technology, React Three Fiber for 3D, in that same package, served by the daemon as a local page; see research section 8 (`docs/research/2026-10-comparable-tools.md`) for the comparison with game engines. Non-TypeScript clients, such as a game engine, use the contract's JSON Schema export (`z.toJSONSchema`). Browsers cannot use Unix sockets, so how browser clients connect is decided in DIPO-3.
 
 ## Tooling and the verify command
 
@@ -172,7 +172,7 @@ bun run verify
 
 ## Open questions for the maintainer
 
-1. **Bun over Node:** accept Bun's single-vendor governance and the fresh 1.4 Rust port in exchange for built-in SQLite and single-binary builds? With Bun, Anthropic owns the runtime, the worker CLI and the subscription terms; the platform module and Worker adapter keep runtime and worker separately swappable. The alternative is Node 24 with `better-sqlite3` and `npm i -g` distribution.
+1. **Bun over Node — answered 2026-10-10: Bun.** The maintainer accepts the risks below. Original question: accept Bun's single-vendor governance and the fresh 1.4 Rust port in exchange for built-in SQLite and single-binary builds? With Bun, Anthropic owns the runtime, the worker CLI and the subscription terms; the platform module and Worker adapter keep runtime and worker separately swappable. The alternative is Node 24 with `better-sqlite3` and `npm i -g` distribution.
 2. **TUI library:** confirm Ink as default with the final choice in DIPO-6, or decide now (Ink or OpenTUI)?
 3. **Binary and package name:** what is the command called (for example `dipo`)? Published to npm as well as GitHub Releases, or binaries only? Homebrew tap later?
 4. **Formatter:** accept oxfmt (0.x), or use Prettier for stability?

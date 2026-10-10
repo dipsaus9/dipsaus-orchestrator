@@ -4,7 +4,7 @@ title: Decide daemon lifecycle and IPC transport
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 10:13'
+updated_date: '2026-10-10 10:48'
 labels:
   - architecture
 milestone: m-0
@@ -30,6 +30,7 @@ Outcome: an ADR for how the engine runs detached and how clients connect. Cover:
 - [ ] #5 ADR decides whether one engine process serves all offices or each office runs its own, and where the office list lives
 - [ ] #6 ADR defines how an office is opened, registered and switched to
 - [ ] #7 ADR defines how running workers survive a daemon restart and are re-attached (research idea 8)
+- [ ] #8 ADR defines how browser clients (a future web or 3D UI) connect: a local WebSocket or HTTP endpoint on 127.0.0.1 with a token, or a gateway package (research section 8)
 <!-- AC:END -->
 
 ## Implementation Notes

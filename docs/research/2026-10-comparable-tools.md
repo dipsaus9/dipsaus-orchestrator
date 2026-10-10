@@ -2,7 +2,7 @@
 
 Research done 2026-10-09 and 2026-10-10 by research agents reading the public repositories through the GitHub API. Tools: agent-orchestrator, agenttrail, hermes3d (sections 1 to 6) and codegraph (section 7, added after the maintainer pointed to it as the kind of code graph meant). No code from these tools was run or installed. Claims are tied to file paths in each repository; items marked **[unverified]** could not be confirmed. Decision: [0015](../decisions/0015-build-own-inspired-not-dependent.md), build our own, inspiration not imitation.
 
-How to read this document: section 1 describes each tool, section 2 compares their model with ours, sections 3 to 6 list what we take, what we avoid, what a future GUI can learn, and which context and token optimizations are relevant. Section 7 covers codegraph and the context provider decision. Every adopted idea names the spike or milestone that owns it.
+How to read this document: section 1 describes each tool, section 2 compares their model with ours, sections 3 to 6 list what we take, what we avoid, what a future GUI can learn, and which context and token optimizations are relevant. Section 7 covers codegraph and the context provider decision. Section 8 compares web 3D with game engines for a future visual client. Every adopted idea names the spike or milestone that owns it.
 
 ## 1. The tools
 
@@ -250,7 +250,54 @@ Optional integration, not a dependency:
 | 27 | Warn when a context index is stale; reconcile from content hashes after a restart (run knowledge staleness is already covered by the fingerprint in ADR 0013, DIPO-9) | DIPO-10, M1 |
 | 28 | When a context backend offers an affected-files query, use it to choose which tests run first; otherwise run all tests | M1 |
 
-## 8. Maintaining this document
+## 8. Future visual client: web 3D or a game engine
+
+Research done 2026-10-10 with web search; nothing installed or run. Question: if we build a visual client like hermes3d (a 2D or 3D office where agents appear as characters), do we use web 3D or a game engine? The maintainer's first instinct was a game engine.
+
+### 8.1 Comparison
+
+| | React Three Fiber (Three.js) | Babylon.js / PlayCanvas | Godot 4 | Unity 6 | Unreal 5 | Bevy |
+|---|---|---|---|---|---|---|
+| Office with 5 to 50 animated characters | Good | Good | Very good (editor, animation tools) | Very good | Overkill | Workable, more manual work |
+| Text-heavy panels (story, health, cost) | HTML and CSS, the same React as the rest of the GUI | HTML overlay or engine UI | A second UI system | Engine UI | Engine UI | Young UI crate |
+| Our command and event contract | Imports the TypeScript types directly | Same | JSON Schema to GDScript; no mature generator found **[unverified]** | C# generators exist **[unverified for our schemas]** | C++ generation | Rust generation **[unverified]** |
+| In the browser | Native, small bundle | Native | GDScript web export works (about 5 MB compressed); **C# projects cannot export to web** | Web export, about 8 to 11 MB empty | **No official web export**; streaming only | WASM, size not measured |
+| Written and reviewed by AI agents | Best: plain TSX, much training data, readable diffs, testable | Good | Medium: text scene files, but the editor rewrites them | Poor: YAML scenes with ids, editor-centric | Poor: binary assets | Medium: code only, API changes every release |
+| Licence | MIT | Apache-2.0 / MIT | MIT | Proprietary (runtime fee cancelled 2024) | 5% royalty above $1M | MIT / Apache-2.0 |
+
+Sources: Godot web export docs (https://docs.godotengine.org/en/4.2/tutorials/export/exporting_for_web.html), Godot scene format (https://docs.godotengine.org/en/4.6/engine_details/file_formats/tscn.html), Unreal web export status (https://forums.unrealengine.com/t/html5-support/1172997), Unreal licence (https://www.unrealengine.com/en-US/license), Unity runtime fee cancellation (https://unity.com/blog/unity-is-canceling-the-runtime-fee), drei `Html` performance (https://discourse.threejs.org/t/many-html-elements-from-three-js-fiber-drei-causes-low-framerate-in-chrome/28540).
+
+### 8.2 Existing agent offices and their technology
+
+- hermes3d: React Three Fiber and Phaser (section 1).
+- Claw3D, same author: React Three Fiber, WebSocket proxy, runtime adapters. https://github.com/iamlukethedev/Claw3D
+- pixel-agents (about 9.6k stars): React and Canvas 2D, one character per Claude Code session. https://github.com/pablodelucca/pixel-agents
+- AI Town by a16z (about 10.6k stars): PixiJS. https://github.com/a16z-infra/ai-town
+- No agent office built on a game engine was found.
+
+### 8.3 Decision (maintainer, 2026-10-10)
+
+**A future visual client uses web technology: React Three Fiber for 3D, plain React with Canvas 2D or PixiJS for a 2D view.** It lives in `packages/web` on `contract` and `client` (ADR 0004), served by the daemon as a local page, with a desktop shell (Tauri or Electron) only if a desktop app is wanted.
+
+Why:
+
+1. Every comparable agent office found is built on the web.
+2. Most code is written by AI agents and checked by a reviewer agent. Engine scenes in editor formats are hard to write and to review as diffs; React Three Fiber is all code.
+3. The contract stays shared: a change to a command or event is a type error in the visual client at once. An engine would need code generation and a drift check, the same cost that made Go lose in ADR 0004.
+4. It is the shortest step from React, which the maintainer knows.
+
+Risks and mitigations:
+
+- No prior experience with complex Three.js scenes: animation, instancing and model pipelines take learning. Start from ready-made low-poly asset packs and keep the scene a pure function of events, as hermes3d does.
+- Creating characters and models is the real cost with any technology.
+- Many live HTML labels in 3D slow down beyond about 50; use one projected overlay layer or signed-distance-field text.
+- Test the derived scene state, not pixels.
+
+**When to revisit:** if the office grows into a real game (pathfinding, physics, rich interaction, designed levels), or a desktop-only build is acceptable, Godot 4 with GDScript becomes the better choice, with contract code generation and a drift check in `verify`. Also revisit if the engine ever moves off TypeScript.
+
+The research section 4 rule still applies: the visual office is an optional, secondary view. The information-dense overview stays primary.
+
+## 9. Maintaining this document
 
 - New comparable tools are added with the same structure: what it is, maturity, model compared with ours, adopt, avoid, GUI and optimization notes.
 - When an adopted idea is implemented or rejected, update its row with the outcome.
