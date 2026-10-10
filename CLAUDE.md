@@ -30,3 +30,4 @@ Pre-code. Stack chosen in ADR 0004: TypeScript on Bun, Bun workspaces, single bi
 
 - Early bootstrap commits may go to `main`. After the initial backlog exists, work on `<ID>/<slug>` branches and merge by PR.
 - Commits are small and scoped. Never `git add -A`. Never skip hooks.
+- PR titles use Conventional Commits with the story as scope: `type(DIPO-n): title`, for example `feat(DIPO-21): stream worker events to the TUI` (decision 0016).
