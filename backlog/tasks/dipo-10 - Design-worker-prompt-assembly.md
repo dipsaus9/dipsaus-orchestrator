@@ -4,7 +4,7 @@ title: Design worker prompt assembly
 status: To Do
 assignee: []
 created_date: '2026-10-09 19:59'
-updated_date: '2026-10-10 10:16'
+updated_date: '2026-10-10 10:28'
 labels:
   - architecture
 milestone: m-0
@@ -32,4 +32,9 @@ Outcome: an ADR defining how the engine builds each worker's prompt from templat
 - [ ] #7 ADR defines a budgeted handoff between sessions or roles, and resuming a native session before starting a new one (research idea 15)
 - [ ] #8 ADR defines conditional short context nudges through hooks, only when a fact makes them relevant (research idea 16)
 - [ ] #9 ADR evaluates a code graph or repo map that gives a worker the relevant slice of code (build, reuse an existing approach, or rely on scope plus a declared component map), with a recommendation (research idea 19)
+- [ ] #10 ADR defines a context provider interface that decides which code a worker sees, with a default provider using the story's scope, inputs and the declared component map (research idea 23)
+- [ ] #11 ADR defines codegraph as an optional context backend called through its CLI with --json, result size-capped, telemetry off, version pinned, optionally enabled as MCP for workers (research idea 24)
+- [ ] #12 ADR defines how a context backend is measured on real stories against the dipsaus-ai baseline before it may become a default (research idea 25)
+- [ ] #13 Context output budgets grow with project size (research idea 26)
+- [ ] #14 A stale context index is detected and reported; reconcile from content hashes after a restart (research idea 27)
 <!-- AC:END -->
