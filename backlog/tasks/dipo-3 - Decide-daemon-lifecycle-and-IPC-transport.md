@@ -1,10 +1,10 @@
 ---
 id: DIPO-3
 title: Decide daemon lifecycle and IPC transport
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 11:04'
+updated_date: '2026-10-10 11:05'
 labels:
   - architecture
 milestone: m-0
