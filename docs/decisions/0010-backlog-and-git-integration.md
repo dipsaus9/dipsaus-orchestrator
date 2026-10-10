@@ -1,6 +1,6 @@
 # 0010 Backlog.md and git integration
 
-Status: Proposed (spike DIPO-7, 2026-10-10). Needs the maintainer's approval. Amends accepted 0012 and 0002 (see "Amends 0012 and 0002").
+Status: Accepted (spike DIPO-7, maintainer approval 2026-10-10). Amends accepted 0012 and 0002 (see "Amends 0012 and 0002").
 
 ## Context
 
@@ -47,7 +47,7 @@ Maintainer rules added during this spike (2026-10-10): the engine's verify runs 
 
 **(a) Story lane.** From the claim until the claim is released, every change to the story is committed by the engine on that story's branch and travels in the story PR: status `In Progress` (claim commit), criterion check-offs, implementation notes, park record (F16) and status `Parked`, `In Review`, and the close-out (final summary, modified files, status `Done`) in the last commit before merge. The engine runs the CLI inside the story worktree and commits only the story's own task file in separate commits (`<ID>: status <state>`), which change no code and need no verify. The engine pushes the story branch (no PR yet) right after the claim commit and after each park commit, so the claim is visible to `ls-remote` from other clones and in-flight facts survive the loss of the machine; before that push they are durable only locally. **The story's own task file is the only `backlog/` path a story branch may change**; any other `backlog/` change is a scope violation. The base shows the story's lifecycle exactly when the PR merges, so `Done` and "merged" coincide.
 
-**(b) Planning lane.** Changes that belong to no story PR, namely `plan` (drafts), `refine` (promotion, field edits), `ready` and `unready`, `hold` and `resume` of a story that is not running, `amend`, drop, office init and migrations, go on an engine branch `dipo/backlog-<UTC yyyymmddThhmmss>` in the engine's backlog worktree (`<root>/_backlog`). Each operation is journaled (DIPO-4), applied through the CLI, and committed (`backlog: <op> <ID>`). The engine pushes the branch and opens or updates one backlog-only PR per office; further operations append to the open branch until it merges. It is merged under the normal review rules (0002). **The reviewer contract for a backlog-only PR is a structural check by code**, no model: only `backlog/` paths change; every changed task parses (R02); each status change is an allowed 0012 transition; each new `Ready` matches a passing gate decision stored for that task's content; no task with a live claim is touched. The check runs when the PR is opened or updated and again immediately before the engine merges it. When the maintainer merges by hand, it runs again right after the merge; a failure becomes a notice and the affected stories are not run until a new backlog PR fixes them (until M1 adds it as a required status check). Auto-merge after a passing check extends 0002 and needs approval (Amends 0002, item 7; open question 1).
+**(b) Planning lane.** Changes that belong to no story PR, namely `plan` (drafts), `refine` (promotion, field edits), `ready` and `unready`, `hold` and `resume` of a story that is not running, `amend`, drop, office init and migrations, go on an engine branch `dipo/backlog-<UTC yyyymmddThhmmss>` in the engine's backlog worktree (`<root>/_backlog`). Each operation is journaled (DIPO-4), applied through the CLI, and committed (`backlog: <op> <ID>`). The engine pushes the branch and opens or updates one backlog-only PR per office; further operations append to the open branch until it merges. It is merged under the normal review rules (0002). **The reviewer contract for a backlog-only PR is a structural check by code**, no model: only `backlog/` paths change; every changed task parses (R02); each status change is an allowed 0012 transition; each new `Ready` matches a passing gate decision stored for that task's content; no task with a live claim is touched. The check runs when the PR is opened or updated and again immediately before the engine merges it. When the maintainer merges by hand, it runs again right after the merge; a failure becomes a notice and the affected stories are not run until a new backlog PR fixes them (until M1 adds it as a required status check). Auto-merge after a passing check extends 0002 (Amends 0002, item 3; open question 1).
 
 Consequences of the two lanes:
 
@@ -86,7 +86,6 @@ A later claim of a story with a released branch reuses it (`git worktree add <pa
 Outcome: the daemon restarts without losing running workers.
 
 ```dipo
-key: "sto_01JA8X3Q9W2M7F5K4V6N8B1C0D"
 branch: "DIPO-12/daemon-restart-keeps-workers"
 unknowns:
   - q: "Does the host survive SIGKILL of the daemon?"
@@ -98,20 +97,16 @@ test_plan:
       check: "Kill the daemon during a run, start it again"
       expect: "The run continues and the TUI shows it"
 park: { reason: "on-hold", from: "Ready", note: "Waiting for Bun 1.4.3" }
-draft_deps: []
 ```
 ````
 
 | Key | Field | Schema |
 |---|---|---|
-| `key` | StoryKey (0005) | `sto_<ULID>`, written by the engine |
 | `branch` | F15 | R18 pattern |
 | `unknowns` | F10 | list of `{q, status: open \| resolved, answer?}` |
 | `test_plan` | F14 | `{entries: [{kind: automated \| manual, check, expect?}]}` or `{not_applicable: <reason>}` |
 | `park` | F16 | `{reason, from, note}`, only while Parked; `reason` is 0005's `ParkReason` enum (includes `on-hold`, `stopped`, `interrupted`) |
-| `draft_deps` | dependencies on drafts (section 5) | list of StoryKeys |
-
-Parser: zero or one block; a line exactly ```` ```dipo ```` opens it, the next line exactly ```` ``` ```` closes it; a second block, an unclosed block or text after it fails R02. Content goes through `Bun.YAML.parse` behind the platform module, then a strict zod schema shared from `contract`: unknown keys fail, and every text value must be a YAML string, so `answer: 5173` fails with "quote this value" (fact 11). Hand-written stories may omit `key`; the engine adds it on its next write.
+Parser: zero or one block; a line exactly ```` ```dipo ```` opens it, the next line exactly ```` ``` ```` closes it; a second block, an unclosed block or text after it fails R02. Content goes through `Bun.YAML.parse` behind the platform module, then a strict zod schema shared from `contract`: unknown keys fail, and every text value must be a YAML string, so `answer: 5173` fails with "quote this value" (fact 11). The StoryKey (0005) is never written to the repository; it lives only in the state database (open question 7).
 
 Single write path, the same in both lanes: `task view` (or `draft view`), parse, change the typed value, emit canonically (fixed key order, double-quoted strings, two-space indent), splice so every byte outside the block is unchanged, write with `task edit --description` (or `draft edit`), read back and compare. Just before writing the engine re-reads; if the description changed, it parses again and reapplies the target-state operation. One serial write queue per worktree.
 
@@ -121,22 +116,22 @@ Computed once when the story gets its real id, from the title at that moment, th
 
 ### 5. Draft promotion, retry-safe
 
-Drafts carry the field block with `key` from creation. Dependencies on other drafts are StoryKeys in `draft_deps`, never native `DRAFT-n` ids, because those numbers are reused (fact 5) and a reused number would silently point at another draft. Native dependencies on active tasks are allowed on drafts.
+Dependencies on drafts are native `DRAFT-n` dependencies (`draft edit --dep`, `task edit --dep`), as 0012 describes. `DRAFT-n` numbers are reused once freed (fact 5), so the promotion and the rewrite of every reference to the old number run as **one item in the office git queue** (section 2a), and no other backlog write, in particular no draft creation, can run until its journal entry is closed. A Refined story with a `DRAFT-n` dependency fails R13, since a draft is not an active task.
 
-`refine <id>` on a draft runs, in lane b, with the operation journaled under the StoryKey:
+`refine <id>` on a draft runs in lane b:
 
-1. A keyless hand-made draft first gets a key through `draft edit` (same `DRAFT-n`, no renumbering). Journal the set of active task ids (pre-promote snapshot).
-2. If an active task already holds this `key`, promotion happened: go to step 4.
-3. Find the draft holding this `key`; refuse if none or more than one live draft holds it. `backlog draft promote DRAFT-n`.
-4. The new id is the active task holding the `key`. Check it is the only id absent from the snapshot that holds a key; otherwise stop with a notice.
-5. For each key in the new story's `draft_deps` now held by an active task, add that id to the native dependencies and remove the key. Keys of unpromoted drafts stay; R13 fails on them.
-6. For each active task and draft whose `draft_deps` holds this key, add the new id natively and remove the key.
-7. Write `branch` (section 4) and `unknowns: []` if absent. Status is `Refined` via `default_status`.
-8. Record `story.renumbered` (0005) and close the journal entry.
+1. **Journal** in one database transaction: the StoryKey, the `DRAFT-n`, a hash of the draft's `draft view --plain` output, and the set of active task ids (pre-promote snapshot).
+2. **Promote.** If the active ids already differ from the snapshot, promotion happened before a crash: go to step 3. Otherwise check that `DRAFT-n` still exists and its view hashes to the journaled value (refuse with a notice if not), then `backlog draft promote DRAFT-n`.
+3. **Identify the new id**: the active ids minus the snapshot must be **exactly one** id, guaranteed by the serial queue. Zero or several new ids is an error with a notice; the engine never guesses (no title or content matching).
+4. **Rewrite references**: in every draft and active task, replace the dependency `DRAFT-n` with the new id (`--dep` with the full list, fact 4).
+5. Write `branch` (section 4) and `unknowns: []` if absent. Status is `Refined` via `default_status`.
+6. Record `story.renumbered` (0005), map the StoryKey to the new id in the database, and close the journal entry.
+
+After a crash the engine replays an open promotion entry before any other queue item.
 
 ### 6. Removed, completed, archived; status list and migration
 
-- Drop runs `task archive` or `draft archive` (lane b). Archived tasks are not active and their ids are reused, so identity is checked in this order: `key`, frozen branch, created date (minute precision, a last resort). This amends 0005's reconcile check, which uses created date plus frozen branch, by putting `key` first; flagged for 0005.
+- Drop runs `task archive` or `draft archive` (lane b). Archived tasks are not active and their ids are reused, so the engine tracks identity by StoryKey in its database. After a database loss, reconcile rebuilds identity from the frozen branch, then the created date (minute precision, a last resort), as 0005 describes. 0005's wording "StoryKey stored in the field block when present" no longer applies, because the key is never in the repository; 0005 needs a one-line amendment on acceptance.
 - Tasks moved to `completed/` by hand are not active; a dependency on one fails R13 and the notice suggests moving it back.
 - **Office init and the cutover migration** run as one backlog-only PR, each step target-state: (1) rewrite only the `statuses:` line of `backlog/config.yml` to include both old and 0012 statuses, check with `config get statuses`; (2) `config set defaultStatus Refined`; (3) every `To Do` task gets `task edit -s Refined`; tasks `In Progress` on their own branches are left alone and listed; (4) a later backlog PR, once no task uses `To Do`, sets the 0012 list. The previous values are stored in office state for removal.
 - **Office checks at load:** `check_active_branches: true`, `remote_operations: true` and `auto_commit: false` (the engine makes its own commits). Office init sets any that differ through the backlog PR and records the previous values. With lanes a and b, other branches carry task edits, and `check_active_branches` makes Backlog.md skip ids already used there (fact 7). The skip only sees branches with commits within `active_branch_days` (default 30), and remote branches only with `remote_operations`; a story branch idle longer falls out of the window, so promotion also checks the new id against the engine's record of claimed and released branches and stops with a notice on a clash. The engine fetches before any create or promotion. Because 1.53's CLI reads only the local working copy, the flag no longer changes what the engine reads. At cutover this repository keeps its current setting; stories already in progress on their branches continue as lane-a stories once claimed by reconcile.
@@ -242,20 +237,16 @@ components:
 
 No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Command names are placeholders until DIPO-2.
 
-## Amends 0012 and 0002 (needs maintainer approval)
+## Amends 0012 and 0002 (approved 2026-10-10)
 
 ### 0012
 
-1. **Promotion** keeps draft-to-draft dependencies as StoryKeys in `draft_deps` and writes native ids at promotion (section 5), instead of rewriting `DRAFT-n` references.
-2. **Field block keys** `key` and `draft_deps` are added to F10, F14, F15, F16; R02's schema includes them.
-3. **R13** evaluates native dependencies plus `draft_deps`; a key is never an active task, so a story with an unpromoted draft dependency cannot be Ready.
-4. **Where transitions are written:** lane a while a claim is held (In Progress onward), lane b for the rest; Refined to Ready takes effect for `run` when its backlog PR merges, and any pending lane-b operation blocks pickup.
-5. **Leaving a claim** (section 2a): `amend` of a parked story (Parked to Refined, branch kept, its task file restored to the merge-base version) and 0005's `work.discard` (branch deleted; this part depends on 0005 being accepted) are journaled first, release the claim, and are then written in lane b. A later claim on a kept branch merges `origin/<base>` first.
-6. **Identity**: `key`, then frozen branch, then created date. Also amends 0005's reconcile check (flagged for 0005).
+1. **Where transitions are written:** lane a while a claim is held (In Progress onward), lane b for the rest; Refined to Ready takes effect for `run` when its backlog PR merges, and any pending lane-b operation blocks pickup.
+2. **Leaving a claim** (section 2a): `amend` of a parked story (Parked to Refined, branch kept, its task file restored to the merge-base version) and 0005's `work.discard` (branch deleted; this part depends on 0005 being accepted) are journaled first, release the claim, and are then written in lane b. A later claim on a kept branch merges `origin/<base>` first.
 
 ### 0002
 
-7. **Auto-merge of backlog-only PRs** after the engine's structural check extends 0002's auto-merge rule (reviewer pass on unflagged stories) to a code-only check on PRs that change only `backlog/`.
+3. **Auto-merge of backlog-only PRs** after the engine's structural check extends 0002's auto-merge rule (reviewer pass on unflagged stories) to a code-only check on PRs that change only `backlog/`.
 
 ## Consequences
 
@@ -268,14 +259,14 @@ No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Co
 
 ## Open questions for the maintainer
 
-1. **Backlog PRs.** One open backlog PR per office, auto-merged after the structural check (proposed; amends 0002, item 7), or always merged by hand?
-2. **Ready latency.** Accept that `run` only picks stories whose Ready transition is merged?
-3. **Riskier stories.** Sync before In Review without a conflict when tier `L`, when flagged `test-before-merge`, either, or never?
-4. **Worktree root** default `../<repo>.worktrees`?
-5. **Env files**: copy by default, or link?
-6. **Ports**: stride 10 and 20 slots; ask repositories to read `PORT` or `DIPO_PORT_OFFSET` (0013)?
-7. **StoryKey in the repository**, used first for identity?
-8. **Branch deletion** after a detected merge, or keep?
+1. **Backlog PRs — answered 2026-10-10: auto-merged after the structural check** (one open backlog PR per office). Approved as an extension of 0002.
+2. **Ready latency — answered 2026-10-10: accepted.** `run` only picks stories whose Ready transition is merged on the base; clients show "Ready, waiting for backlog PR" meanwhile.
+3. **Riskier stories — answered 2026-10-10: tier `L` or flagged `test-before-merge`.** Such stories sync with the base before In Review even without a conflict; all others sync only on a conflict.
+4. **Worktree root — answered 2026-10-10: `../<repo>.worktrees`**, next to the repository, configurable per office.
+5. **Env files — answered 2026-10-10: copy** by default (agents can never change the maintainer's file; contents are never read by the engine or shown to the model, see 0008).
+6. **Ports — answered 2026-10-10: stride 10, 20 slots** as defaults; repositories read `PORT` (required for `dev`, 0013) and optionally `DIPO_PORT_OFFSET`; the bind check is the guarantee.
+7. **StoryKey in the repository — answered 2026-10-10: no.** The key lives only in the state database. Promotion identifies the new id from the journaled pre-promote snapshot; after a database loss identity is the frozen branch, then the created date.
+8. **Branch deletion — answered 2026-10-10: delete** the story branch locally and remotely, and remove the worktree, after a detected merge.
 
 ## Sources
 

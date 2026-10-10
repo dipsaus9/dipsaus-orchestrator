@@ -1,10 +1,10 @@
 ---
 id: DIPO-7
 title: Define how the engine wraps Backlog.md and git
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 11:57'
+updated_date: '2026-10-10 17:38'
 labels:
   - architecture
 milestone: m-0
@@ -25,7 +25,7 @@ Outcome: an ADR defining the engine's integration layer: reading and writing sto
 <!-- AC:BEGIN -->
 - [x] #1 ADR docs/decisions/0010-backlog-and-git-integration.md records the conventions for non-native fields
 - [x] #2 ADR specifies the git contract and its failure cases
-- [ ] #3 Maintainer approved the decision
+- [x] #3 Maintainer approved the decision
 - [x] #4 ADR defines how a worktree gets gitignored files such as .env that exist in the main checkout
 - [x] #5 ADR defines port allocation so parallel worktrees can run the product at the same time
 - [x] #6 ADR defines the per-office worktree setup contract: post-create steps, files to link or copy, environment overrides such as a port offset (research idea 7)
@@ -40,3 +40,9 @@ Scope addition (decision 0011): worktrees lack gitignored files such as .env tha
 
 Draft ADR 0010 by research agent. Reviews: block (backlog edits never reach protected main), block (lane races, claim release), block (release window); all fixed with journal-first and a serial git queue. Contains Amends 0012 and 0002 (needs maintainer approval). Waiting for maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0010 accepted: all backlog writes go through PRs (story lane a, auto-merged backlog-only lane b), YAML field block, branch ref as claim, worktrees at ../<repo>.worktrees, env files copied, ports stride 10 x 20 slots, StoryKey only in the state database, base sync only on conflict or for tier L / test-before-merge stories, branches and worktrees deleted after merge. Amends 0012 (transition lanes, leaving a claim), 0002 (backlog PR auto-merge) and 0005 (identity fallback).
+<!-- SECTION:FINAL_SUMMARY:END -->
