@@ -1,6 +1,6 @@
 # 0014 Worker prompt assembly and the context provider
 
-Status: Proposed (spike DIPO-10, 2026-10-10). All seven open questions answered by the maintainer on 2026-10-10; the body follows the answers.
+Status: Accepted (spike DIPO-10, maintainer approval 2026-10-10). Amends 0012 (R26) and 0010 (lockfile pairing); see "Amends".
 
 ## Context
 

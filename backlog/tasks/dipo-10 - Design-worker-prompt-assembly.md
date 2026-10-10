@@ -1,10 +1,10 @@
 ---
 id: DIPO-10
 title: Design worker prompt assembly
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-09 19:59'
-updated_date: '2026-10-10 11:42'
+updated_date: '2026-10-10 20:16'
 labels:
   - architecture
 milestone: m-0
@@ -26,7 +26,7 @@ Outcome: an ADR defining how the engine builds each worker's prompt from templat
 - [x] #1 ADR docs/decisions/0014-worker-prompt-assembly.md defines the template structure and the data each prompt receives
 - [x] #2 ADR lists which steps stay in code and never appear in a prompt
 - [x] #3 ADR defines how token use is measured and compared with the dipsaus-ai backlog-deliver baseline
-- [ ] #4 Maintainer approved the decision
+- [x] #4 Maintainer approved the decision
 - [x] #5 Prompts carry pre-fetched facts, every section has a size budget with a truncation marker, and the worker is told not to re-fetch (research idea 13)
 - [x] #6 Feedback to a worker (CI, review, test notes) carries the evidence: log tails, file and line, comment text (research idea 14)
 - [x] #7 ADR defines a budgeted handoff between sessions or roles, and resuming a native session before starting a new one (research idea 15)
@@ -44,3 +44,9 @@ Outcome: an ADR defining how the engine builds each worker's prompt from templat
 <!-- SECTION:NOTES:BEGIN -->
 Draft ADR 0014 by research agent. Review: pass, 10 advisories applied (verify and commit only at In Review, base sync on conflict or riskier, reviewer never resumed, measurement schedule on Max, privacy, research 7.3 correction). Waiting for maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0014 accepted: layered worker prompt assembled by code (stable role and project layers first for caching, story contract never cut, budgeted context pack, inputs, background and handoff), engine commits only at In Review after green verify in srt, scope nudge plus done-time scope gate with lockfile pairing, resume under 60% context and 3x handoff cost, conditional hook nudges, codegraph as optional context backend, and a paired measurement against the dipsaus-ai baseline on tokens, speed, efficiency and clarity. Amends 0012 (R26) and 0010 (lockfile pairing). Three review rounds.
+<!-- SECTION:FINAL_SUMMARY:END -->
