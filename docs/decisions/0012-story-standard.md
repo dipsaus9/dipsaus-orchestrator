@@ -41,7 +41,7 @@ Facts about Backlog.md CLI 1.48 that shape this decision (checked in a scratch p
 | F13 | Test-before-merge flag | The maintainer tests the branch before merge (0002). Set only by the maintainer, never by refine | Optional, default off | **DIPO-7.** Suggest label `test-before-merge` |
 | F14 | Test plan | How the story is proven. Either a list of entries, each `automated` (a test the worker must write: what it proves) or `manual` (a step the maintainer follows: action and expected result), or an explicit "not applicable" with a reason. Decided at refine by the maintainer and AI | Required for every non-spike story: entries or not-applicable-with-reason. At least one manual entry when F13 is set. Absent for spikes | **DIPO-7.** Suggest key `test_plan: {entries: [{kind, check, expect?}]}` or `test_plan: {not_applicable: <reason>}` in the field block |
 | F15 | Branch | `<ID>/<slug>`, frozen when the story gets its id so a later title change cannot move it | Yes | **DIPO-7.** Suggest key `branch` in the field block. DIPO-7 owns the slug algorithm |
-| F16 | Park record | Why and from where a story is parked: reason (0001 list), state it left, note | Only while Parked | **DIPO-7.** Suggest key `park: {reason, from, note}` in the field block |
+| F16 | Park record | Why and from where a story is parked: reason (0001 list plus `on-hold`), state it left, note | Only while Parked | **DIPO-7.** Suggest key `park: {reason, from, note}` in the field block |
 | F17 | Extra instructions | Text added on top of the role's instructions (0011) | Optional | Native implementation plan. DIPO-10 decides how it enters the prompt |
 | F18 | Priority, ordinal | Order inside the Ready queue | Optional | Native priority and ordinal |
 
@@ -88,7 +88,8 @@ Transitions. Anything not listed is refused by the engine.
 | In Review | In Progress | Reviewer blocking finding under the round cap, or maintainer test fail with a note | Engine |
 | In Review | Done | Reviewer pass and, if flagged, maintainer test pass; then merge (0002) | Engine, merge authority stays with the maintainer |
 | In Progress, In Review | Parked | A park reason from 0001 (`ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`) | Engine |
-| Parked | In Progress or In Review | `resume <id>` after the maintainer answers; returns to `park.from` | Maintainer |
+| Refined, Ready | Parked | `hold <id> <note>`: the maintainer puts the story aside; park reason `on-hold`, the note is required. `run` skips it and it shows in the triage list | Maintainer |
+| Parked | In Progress, In Review, Refined or Ready | `resume <id>` after the maintainer answers or ends the hold; returns to `park.from`. A story returning to Ready goes through the pickup re-check before it runs | Maintainer |
 | Parked | Refined | `amend <id>`: the story itself must change. Code unchecks every criterion, then the story must pass the gate again | Maintainer |
 | Refined, Ready, Parked | (archived) | Drop: `backlog task archive`. Refused while another active story depends on it | Maintainer |
 
@@ -190,7 +191,7 @@ What the gate deliberately does not check: whether paths exist (new files do not
 ## Open questions for the maintainer
 
 1. **Draft storage — answered 2026-10-10: option A**, the Backlog.md draft feature (section 2). Amends decision 0001.
-2. Should the maintainer be able to park a Ready or Refined story by hand? That needs a new park reason such as `on-hold`. This ADR allows parking only from In Progress and In Review.
+2. **Hold by hand — answered 2026-10-10: yes.** `hold <id> <note>` parks a Refined or Ready story with the new park reason `on-hold`; `resume` returns it to where it was. Adds `on-hold` to the park reasons of decision 0001.
 3. Is tier required for every story from M0, or only from M1 when tiers take effect? This ADR requires it from the start so stories do not need a second pass.
 4. Should the outcome be an `Outcome:` line, as the current DIPO tasks use, or the whole description outside the field block? This ADR takes the latter.
 5. Thresholds (title at most 100, outcome at least 20, criterion at least 10, slug at most 40) and the default banned phrases: accept as defaults, or change?
