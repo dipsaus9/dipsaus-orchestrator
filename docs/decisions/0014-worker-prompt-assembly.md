@@ -332,3 +332,7 @@ Changes to accepted ADRs, each with a dated line under its "Amendments":
 11. Serena README and `LICENSE` (language servers, MCP, GPL-3.0 app and MIT SolidLSP). https://github.com/oraios/serena
 12. code-graph-rag README (Memgraph, Docker, Cypher generation by a model). https://github.com/vitali87/code-graph-rag
 13. dipsaus-ai `skills/backlog-deliver/` at 388f940, measured locally with `wc` (baseline table).
+
+## Amendments
+
+- 2026-10-10, decision 0016 (maintainer): section 3's "base sync only when needed" applies while the worker builds. At merge time the engine always merges the base into the story branch when the base requires up-to-date branches (this repository does), through 0010's merge slot. Conflict feedback (section 7) also arises from that merge-time sync, and red required checks return the failing check's log as feedback.

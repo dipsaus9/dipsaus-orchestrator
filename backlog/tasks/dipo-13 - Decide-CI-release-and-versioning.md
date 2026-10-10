@@ -4,7 +4,7 @@ title: 'Decide CI, release and versioning'
 status: In Progress
 assignee: []
 created_date: '2026-10-10 11:03'
-updated_date: '2026-10-10 11:21'
+updated_date: '2026-10-10 20:26'
 labels:
   - architecture
 milestone: m-0
@@ -34,4 +34,6 @@ Outcome: an ADR defining how the project is built, checked and released, on the 
 
 <!-- SECTION:NOTES:BEGIN -->
 Draft ADR 0016 by research agent. Review 1: block (release App key location) plus 7 advisories, fixed. Review 2: pass, 5 security advisories applied (pinned attestation verification, no admin bypass, workflow PRs maintainer-merged pending approval). Waiting for maintainer approval.
+
+Maintainer answered questions 1 to 9 on 2026-10-10. Workflow PRs follow the normal flow (reviewer agent pass, then auto-merge allowed); this replaces the earlier 'workflow PRs maintainer-merged pending approval' note. strict on, no merge queue: merge-time sync through a per-office merge slot, with amendments to 0002, 0010, 0012 and 0014. Review round 1 of the answers: block (merge-time sync vs 0012/0014, merge slot) fixed. Status stays Proposed until accepted.
 <!-- SECTION:NOTES:END -->
