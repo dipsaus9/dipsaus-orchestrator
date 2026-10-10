@@ -321,3 +321,4 @@ A client needs only `@dipsaus-orchestrator/contract` (schemas, frames, types, JS
 
 - 2026-10-10, decision 0010 (maintainer): the StoryKey lives only in the state database, never in the repository; identity after a database loss falls back to the frozen branch, then the created date.
 - 2026-10-10, decision 0007 (maintainer): the office list is the `offices` table in the central state database, not `offices.json`.
+- 2026-10-10, decision 0009 (maintainer): minor contract additions (0009 section 8): `Evidence` labels and an optional `evidence` map [`evidence`]; final phase, watchdog signal and `Health` names as open enums; `WorkView.signals` and `lastOutputAt`; `Usage.budgetShare`; `OfficeSummary.dayUsage` in tokens [`usage.alerts`]; `work.discard` in `story.parked.actions`; `StoryView.waitingOn` and `gateMessages`; reads `office.usage` [`usage.report`] and `office.digest` [`digest`]; `irreversible` in `commands.describe`.
