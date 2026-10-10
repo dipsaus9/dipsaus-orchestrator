@@ -101,7 +101,7 @@ Left out of every prompt: process rules (gate, lifecycle, git contract), Backlog
 
 Selection, Ready and pickup re-check, dependency and collision checks, branch name and slug, worktree creation, install and gitignored-file setup (DIPO-7), base sync, every Backlog.md write (status, criteria check-off, notes, final summary), running verify and judging it, staging only scope paths and committing, push, PR, spawning the reviewer and parsing its verdict, round, loop and budget caps, parking, teardown, model, effort and tool choice per tier and role, context selection and index freshness, resume or new session, usage capture.
 
-**Verify and commit happen at the In Review transition** (maintainer, open question 1). When the worker reports `done`, the engine first runs the scope check over every modified, staged and untracked path (0010); a path outside the declared scope parks the story `scope-violation` with the paths as evidence. Paths the engine itself wrote, taken from its journal (for example a lockfile from an engine install after a dependency was added mid-story), are excluded. This check is the scope gate; inside the session an out-of-scope write only gets a nudge (section 8). Then the engine runs verify inside the sandbox runtime `srt` with the run's policy (0008: network closed, no writes outside the worktree and temp, secret paths unreadable); without `srt` the run refuses to start and verify never runs unsandboxed. Green: it checks off the criteria the report marks met, stages only scope paths, commits (subject from the worker's proposal plus the story id) and moves the story to In Review. Red: the failure becomes feedback and the worker continues. The same gate runs on re-entry after a fix round. Verify does not run per worker turn.
+**Verify and commit happen at the In Review transition** (maintainer, open question 1). When the worker reports `done`, the engine first runs the scope check over every modified, staged and untracked path (0010); a path outside the declared scope parks the story `scope-violation` with the paths as evidence. Lockfile pairing (amends 0010, see Amends): a lockfile next to an in-scope package manifest (for example `bun.lock` beside an in-scope `package.json`) counts as in scope for this check and is staged and committed with the code, because the engine installs a dependency the worker added mid-story (0008). This check is the scope gate; inside the session an out-of-scope write only gets a nudge (section 8). Then the engine runs verify inside the sandbox runtime `srt` with the run's policy (0008: network closed, no writes outside the worktree and temp, secret paths unreadable); without `srt` the run refuses to start and verify never runs unsandboxed. Green: it checks off the criteria the report marks met, stages only scope paths, commits (subject from the worker's proposal plus the story id) and moves the story to In Review. Red: the failure becomes feedback and the worker continues. The same gate runs on re-entry after a fix round. Verify does not run per worker turn.
 
 **No mid-implementation commits.** Work between turns lives in the worktree, which survives a worker or daemon crash (DIPO-7 keeps it until teardown). A handoff captures it with `git diff --stat HEAD` and the untracked-file list from `git status --porcelain`. Chosen over unverified checkpoint commits per turn because every commit on a story branch then stays green, history needs no squash, and there are fewer git operations. The cost: one commit per In Review round instead of one per slice.
 
@@ -242,7 +242,7 @@ Goal: show, on real stories, that dipo delivers a story cheaper, faster, more ef
 Arm A's launch is fixed so it runs unattended and reproducibly:
 
 - The plugin is loaded explicitly from a checkout of dipsaus-ai at the pinned, recorded commit (`--plugin-dir <dipsaus-ai@commit>`), never from the maintainer's installed plugins.
-- A measurement `--settings` file holds the allow rules the skill needs: git, `backlog`, `bun`, and `gh` only against the local bare remote.
+- A measurement `--settings` file holds the allow rules the skill needs: git, `backlog` and `bun`. There is no `gh` allow: the baseline uses `pr.mode: link` against the local bare remote, and the pilot run confirms nothing else is needed.
 - The repository gets a baseline `backlog-workflow.json` with autonomous gates (no require-approval step), so the skill never waits for a human.
 - One pilot run of A on a story outside the set checks the launch before the round; it is not counted.
 
@@ -253,6 +253,7 @@ User-scope settings stay out for all arms. Arms B, C and D run with dipo's produ
 **Fairness.**
 
 - Same base commit, same model, effort and Claude Code version, same project `CLAUDE.md`, no user-scope settings, the same MCP servers apart from the arm's own, and `--permission-prompts none` for all arms. Questions to the maintainer are counted in every arm; a run that ends on an unanswered question counts as not successful.
+- B, C and D get the filtered copy of the main checkout's `settings.local.json` (0008) and A does not. The effect is expected to be small, and the report states which local keys were present.
 - Each run starts in a fresh worktree from the same commit. Each arm runs 3 times per story, order randomised. All arms run with `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` [3], and runs of the same story start at least one hour after the previous run's last request, so no arm reads another's cache. Every run therefore starts cold; this is conservative for B, which in production would often find the static L1+L2 prefix still cached. Each run records `ephemeral_1h_input_tokens` and `ephemeral_5m_input_tokens` from `usage.cache_creation`, so a different TTL shows up. Cache reads are reported anyway.
 - The baseline pushes to a local bare remote with `pr.mode: link` (the PR link is printed, never opened), so no real pushes or PRs happen.
 - A run hit by a rate limit (`system/api_retry` with `rate_limit`) or by spend on usage credits instead of plan usage is discarded and rerun.
@@ -262,10 +263,10 @@ User-scope settings stay out for all arms. Arms B, C and D run with dipo's produ
 **Metrics per run**, from stream-json, the result message and engine facts (0017 lists the stream fields). Per story the median of 3 runs is used.
 
 - Tokens (headline for "cheaper"): input + output + cache creation, the same unit as the tier budget (0008), deduplicated by message id and including subagents. Cache reads are reported beside it but do not count.
-- Time (for "faster"): wall time from run start to equivalent points: for B, the In Review transition; for A, its green commit before its own review step, taken from stream timestamps. Wall time including review is also reported for both arms.
-- Efficiency: turns and review rounds (decisive); tool calls by kind, file reads before the first edit and verify loops (reported). Turns are summed over all sessions and subagents of a story in both arms: a session's turns are its result's `num_turns`, and a subagent's turns are its assistant messages with distinct message ids (from `parent_tool_use_id` or its transcript).
+- Time (for "faster"): wall time from run start to equivalent points: for B, the In Review transition; for A, its last commit before the reviewer subagent starts, taken from stream timestamps. Wall time including review is also reported for both arms.
+- Efficiency: turns and review rounds (decisive); tool calls by kind, file reads before the first edit and verify loops (reported). Turns are summed over all sessions and subagents of a story in both arms: a session's turns are its result's `num_turns`, and a subagent's turns are its assistant messages with distinct message ids (from `parent_tool_use_id` or its transcript). The two are treated as the same unit in the sum, and session and subagent turns are also reported separately.
 - Clarity for the maintainer: questions to the maintainer, parks as `ambiguous-spec` or another unclear-story reason, and on measured runs a maintainer rating of the run summary from 1 to 5 (the arm is not shown when rating).
-- Clarity in the agent's work: files written outside the declared scope, reviewer findings (blocking and advisory) from one fixed reviewer (pinned prompt, model and effort) run over both arms' final diffs, and diff focus (changed lines in scope paths as a share of all changed lines).
+- Clarity in the agent's work: files written outside the declared scope, reviewer findings (blocking and advisory) from one fixed reviewer run over both arms' final diffs (a neutral pinned prompt, model and effort, not the engine's own reviewer, so A is not judged by B's conventions), and diff focus (changed lines in scope paths as a share of all changed lines).
 - Success: verify green, criteria met, not parked.
 - Reported secondary only: the price-weighted figure (uncached input + 1.25 x five-minute writes or 2 x one-hour writes + the model's read rate x reads, plus output) from 0008's pricing catalog, `total_cost_usd`, and the assembled prompt size per section (characters and estimated tokens).
 
@@ -278,7 +279,7 @@ User-scope settings stay out for all arms. Arms B, C and D run with dipo's produ
 All comparisons are paired per story, B against A. The claim holds only if every one of these holds:
 
 - **Cheaper:** B's tokens are lower on at least 75% of stories.
-- **Faster:** B's wall time to the equivalent point (In Review against A's green commit before review) is lower on at least 75% of stories.
+- **Faster:** B's wall time to the equivalent point (In Review against A's last commit before its reviewer subagent starts) is lower on at least 75% of stories.
 - **More efficient:** on at least 75% of stories B needs fewer turns and no more review rounds.
 - **Clearer for the maintainer:** totalled across the stories, B's questions to the maintainer and its ambiguous or unclear parks are each not more than A's, and fewer where either arm's total is non-zero. For the 1 to 5 run summary rating, B's median is not lower than A's, and B's mean is higher or B wins more paired comparisons than A.
 - **Clearer work:** totalled across the stories, B's out-of-scope files and reviewer findings are each not more than A's, and fewer where either arm's total is non-zero; B's diff focus is not lower.
@@ -304,6 +305,7 @@ The first report states the effects found; no target is promised before it.
 Changes to accepted ADRs, each with a dated line under its "Amendments":
 
 - **0012:** new Ready gate rule **R26**, the story contract (title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions) is at most `prompt.contractMax` characters (default 12,000), evaluated in both gate modes (section 4).
+- **0010:** the verify-and-commit row gains lockfile pairing: a lockfile next to an in-scope package manifest (for example `bun.lock` beside an in-scope `package.json`) counts as in scope for the scope check and is staged and committed with the code (section 3). Pending maintainer approval together with 0014; the dated line goes into 0010 on acceptance.
 
 ## Open questions for the maintainer
 
