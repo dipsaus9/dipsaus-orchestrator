@@ -1,6 +1,6 @@
 # 0008 Worker adapter and the Claude Code CLI adapter
 
-Status: Proposed (spike DIPO-5, 2026-10-10). All ten open questions answered by the maintainer on 2026-10-10; the body follows the answers.
+Status: Accepted (spike DIPO-5, maintainer approval 2026-10-10). Amends 0001, 0005, 0010 and 0012 (see "Amends").
 
 ## Context
 

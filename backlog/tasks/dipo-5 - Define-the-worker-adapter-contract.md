@@ -1,10 +1,10 @@
 ---
 id: DIPO-5
 title: Define the worker adapter contract
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 19:39'
+updated_date: '2026-10-10 20:05'
 labels:
   - architecture
 milestone: m-0
@@ -26,7 +26,7 @@ Outcome: an ADR defining the Worker interface (start with prompt and workdir, st
 - [x] #1 ADR docs/decisions/0008-worker-adapter.md defines the interface and event mapping
 - [x] #2 ADR documents verified Claude CLI headless behavior with sources, including unattended permission handling and limit errors
 - [x] #3 ADR states how another adapter would plug in
-- [ ] #4 Maintainer approved the decision
+- [x] #4 Maintainer approved the decision
 - [x] #5 ADR documents which per-job caps the Claude CLI supports on a Max login (tokens, turns, time, model selection) and how tiers S, M, L map onto them
 - [x] #6 ADR documents what usage data the CLI reports per run
 - [x] #7 ADR defines Claude telemetry from hooks (live state; an input or permission wait means the maintainer is needed, final state name chosen in DIPO-6) and transcript tailing (token usage per session and subagent), bound to the story by the engine (research idea 3)
@@ -46,3 +46,9 @@ Review: two rounds on PR #15. Round 1: absolute Edit/Write denies on the main ch
 
 Review round 3: project and local settings checked against a key allowlist (unknown keys fail closed, plugins refused), worker-failed wording aligned in 0001, 0005, 0012.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0008 accepted: one long-lived claude -p per run on the Max login, token budgets per tier (S 300k, M 800k, L 2M; cache reads not counted), permissions asked when the maintainer is present else denied, park needs-permission when blocked, plan limits always wait for reset, second crash or init rejection parks worker-failed, setting sources project,local with a safe-key allowlist and stripped local permission keys, OS-level deny of .git/gh/main checkout/secrets with a fail-closed self-test, install and verify inside srt. Four review rounds. Amends 0001, 0005, 0010, 0012.
+<!-- SECTION:FINAL_SUMMARY:END -->
