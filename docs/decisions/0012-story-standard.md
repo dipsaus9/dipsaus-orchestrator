@@ -202,3 +202,4 @@ What the gate deliberately does not check: whether paths exist (new files do not
 ## Amendments
 
 - 2026-10-10, decision 0005 (maintainer): two new park reasons, `stopped` (the maintainer ended a worker with `work.stop`) and `interrupted` (a worker was lost while the daemon was down, 0006). Both are allowed on the In Progress or In Review to Parked transition; `resume` returns to `park.from`.
+- 2026-10-10, decision 0005 (maintainer): `discard <id>` throws away a story's run, worktree and branch and returns the story from In Progress, In Review or Parked to Refined.

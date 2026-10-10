@@ -134,6 +134,7 @@ Every command below is in contract 1.0. `StoryRef = { story: StoryId | StoryKey 
 | `story.hold` | `StoryRef & { note: string }` | `{ story, key }` parks a Refined or Ready story with reason `on-hold` (0012); `work.run` skips it; it shows in the triage list | `story.notHoldable` |
 | `work.reassign` | `StoryRef & { role?: RoleId, tier?: Tier }` | `{ run, agent: AgentId }` new agent, bounded handoff (idea 15). Reassign first stops the old agent through the adapter; if the old worker host has not exited (exit file written, 0006 decision 8) within 30 s (proposed default; 0006 states the same timeout) the command fails with `run.hostAlive` and the new agent is not started | `role.unknown`, `story.notRunning`, `run.hostAlive` (retryable) |
 | `work.stop` | `StoryRef & { note?: string }` | `{ run }` worker ends; branch and worktree kept; the story parks with reason `stopped` and `park.from` In Progress or In Review. `work.resume` continues it (open question 1, answered) | `story.notRunning` |
+| `work.discard` | `StoryRef & { note: string }` | `{ story, key }`: ends the run if one is active (as `work.stop`), removes the worktree and deletes the story branch, keeps the story and returns it to Refined, so it must pass the Ready gate again. Allowed from In Progress, In Review and Parked | `story.notDiscardable`, `run.hostAlive` |
 | `story.drop` | `StoryRef & { deleteBranch: boolean }` | `{ story, key }` archives a Draft, Refined, Ready or Parked story (`backlog task archive`, or archive the draft), removes its worktree if any, deletes the branch only when asked; `story.state` to `Removed` | `story.hasDependents`, `story.active` (In Progress or In Review: stop first) |
 | `test.start` | `StoryRef` | `{ test: TestId, checkout: string, script: string[] }` | `story.notTestable` (no manual test plan entry, 0002, 0012 F14) |
 | `test.record` | `{ test: TestId, result: "pass" \| "fail", note?: string }` (note required on fail) | `{ test, result }`; a fail sends the story from In Review back to In Progress with the note as worker input | `test.closed` |
@@ -144,7 +145,7 @@ Every command below is in contract 1.0. `StoryRef = { story: StoryId | StoryKey 
 
 `SkipReason = "parked" | "notReady" | "notRunnable" | "dependency" | "collision" | "capacity" | "pickupCheckFailed"` (closed enum; `notRunnable` covers states run never picks, such as Draft, In Progress or Done; `capacity` means `maxAgents` or the office cap was reached). An unknown story in `stories` is `story.unknown` for the whole command.
 
-Commands marked `confirm: true` in `commands.describe`, so every client asks first: `gate.reject`, `work.stop`, `story.drop`, `work.reassign`, `office.forget`, `daemon.stop`. Later minor additions under the same envelope: in M3 `plan`, `refine`, `ready`, `unready`, `amend`, `estimate`, `review`, `retro` (0001, 0012), in M4 roster commands. Once `story.amend` exists, `story.parked.actions` includes it.
+Commands marked `confirm: true` in `commands.describe`, so every client asks first: `gate.reject`, `work.stop`, `work.discard`, `story.drop`, `work.reassign`, `office.forget`, `daemon.stop`. Later minor additions under the same envelope: in M3 `plan`, `refine`, `ready`, `unready`, `amend`, `estimate`, `review`, `retro` (0001, 0012), in M4 roster commands. Once `story.amend` exists, `story.parked.actions` includes it.
 
 ### 5. Events
 
@@ -298,7 +299,7 @@ A client needs only `@dipsaus-orchestrator/contract` (schemas, frames, types, JS
 ## Open questions for the maintainer
 
 1. **`work.stop` outcome — answered 2026-10-10: two new park reasons.** `stopped` when the maintainer ends a worker, `interrupted` when a worker was lost while the daemon was down (0006 open question 3). Both park the story with `park.from` In Progress or In Review, show in the triage list, and `work.resume` continues or restarts the run. Amends the park reasons of 0001 and 0012.
-2. **Discard the run but keep the story.** `story.drop` now archives, as in 0012. Is a separate `work.discard` wanted (remove worktree, keep the story, return it to Refined so it passes the gate again)? It would need a new 0012 transition.
+2. **Discard the run — answered 2026-10-10: yes, `work.discard`.** Throws away the work (worktree and branch) and returns the story to Refined; it goes through the Ready gate again. Adds a transition In Progress, In Review or Parked to Refined in 0012.
 3. **Change-log retention.** Proposed default: 7 days or 100k entries per office, whichever is larger; older cursors get a reset. DIPO-4 confirms it against storage size.
 4. **Derived views in the engine only**, rather than shared pure functions in `contract` (0004 keeps `contract` schemas-only). Agree?
 5. **Debounce numbers** (250 ms / 16 KiB output, 1 s usage and progress): defaults confirmed in DIPO-4 and tunable in office configuration?
