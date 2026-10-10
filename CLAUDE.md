@@ -4,7 +4,7 @@ Open source, code-driven orchestration product: the maintainer and a model run t
 
 ## Status
 
-Pre-code. Stack not chosen. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10) exist.
+Pre-code. Stack chosen in ADR 0004: TypeScript on Bun, Bun workspaces, single binary `dipo`. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10, DIPO-13, DIPO-14) exist.
 
 ## Rules
 
