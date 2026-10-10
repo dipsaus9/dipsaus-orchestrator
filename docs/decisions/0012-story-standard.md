@@ -26,7 +26,7 @@ Facts about Backlog.md CLI 1.48 that shape this decision (checked in a scratch p
 
 | # | Field | Meaning | Required | Storage |
 |---|---|---|---|---|
-| F1 | Id | Native id, `DIPO-n`. Stable from creation under option B, from Refined under option A (section 2) | Yes | Native id |
+| F1 | Id | Native id, `DIPO-n`, stable from Refined on. A draft has a temporary `DRAFT-n` id (section 2) | Yes | Native id |
 | F2 | Title | Short name of the story | Yes | Native title |
 | F3 | Outcome | The one result the story delivers, in plain sentences | Yes | Native description (the text outside the field block, see F10) |
 | F4 | Acceptance criteria | Done-when list, one checkable statement each. Workers check them off | Yes, at least one | Native acceptance criteria |
@@ -39,7 +39,7 @@ Facts about Backlog.md CLI 1.48 that shape this decision (checked in a scratch p
 | F11 | Difficulty tier | `S`, `M` or `L` (the set comes from office config). Chooses model, budget and loop cap | Yes | **DIPO-7.** Suggest label `tier:S`, `tier:M`, `tier:L`: native, and filterable with `task list -l tier:M` |
 | F12 | Role | Roster role that does the work. Until M4 the only role is the built-in `developer` | Optional. Absent means `developer` | **DIPO-7.** Suggest label `role:<name>` |
 | F13 | Test-before-merge flag | The maintainer tests the branch before merge (0002). Set only by the maintainer, never by refine | Optional, default off | **DIPO-7.** Suggest label `test-before-merge` |
-| F14 | Manual test script | Numbered steps, each with an action and an expected result | Required when F13 is set. Recommended for every non-spike story | **DIPO-7.** Suggest key `test_script: [{do, expect}]` in the field block |
+| F14 | Test plan | How the story is proven. Either a list of entries, each `automated` (a test the worker must write: what it proves) or `manual` (a step the maintainer follows: action and expected result), or an explicit "not applicable" with a reason. Decided at refine by the maintainer and AI | Required for every non-spike story: entries or not-applicable-with-reason. At least one manual entry when F13 is set. Absent for spikes | **DIPO-7.** Suggest key `test_plan: {entries: [{kind, check, expect?}]}` or `test_plan: {not_applicable: <reason>}` in the field block |
 | F15 | Branch | `<ID>/<slug>`, frozen when the story gets its id so a later title change cannot move it | Yes | **DIPO-7.** Suggest key `branch` in the field block. DIPO-7 owns the slug algorithm |
 | F16 | Park record | Why and from where a story is parked: reason (0001 list), state it left, note | Only while Parked | **DIPO-7.** Suggest key `park: {reason, from, note}` in the field block |
 | F17 | Extra instructions | Text added on top of the role's instructions (0011) | Optional | Native implementation plan. DIPO-10 decides how it enters the prompt |
@@ -47,22 +47,26 @@ Facts about Backlog.md CLI 1.48 that shape this decision (checked in a scratch p
 
 Not used by the engine: assignee (the claim is the branch ref, DIPO-7), parent and subtasks (milestones replace epics), definition of done (office defaults may exist, the gate ignores them), modified files and final summary (written by the engine on close, not inputs).
 
-The non-native fields split in two groups. Enumerations and booleans (tier, role, flag) suit labels because the CLI filters on them. Structured or multi-line data (unknowns, test script, branch, park record) needs one block that code parses. Keeping them in one block in the description means a single parser and a single write path through `task edit --description`.
+The non-native fields split in two groups. Enumerations and booleans (tier, role, flag) suit labels because the CLI filters on them. Structured or multi-line data (unknowns, test plan, branch, park record) needs one block that code parses. Keeping them in one block in the description means a single parser and a single write path through `task edit --description`.
 
 ### 2. Lifecycle
 
-**Where Draft lives is open (question 1).** Two options:
+**Draft uses the Backlog.md draft feature (option A, chosen by the maintainer on 2026-10-10).** Two options were considered:
 
-- **Option A, Backlog.md draft feature.** A draft has a `DRAFT-n` id until `refine` promotes it. Promotion must rewrite every other story's `DRAFT-n` dependency to the new `DIPO-n` id, and branch naming moves from `plan` to `refine`. That amends 0001 and the vision, where `plan` assigns ids, branches and dependencies. A multi-story plan has no stable dependency graph until every story is promoted.
-- **Option B, a regular status `Drafted`.** `plan` creates normal tasks, so ids, dependencies and branches are stable from the start, as 0001 says. The name cannot be `Draft`, because the CLI reserves it (see Context). Cost: abandoned ideas consume ids (they are archived, not deleted), and the Backlog.md drafts view is unused.
+- **Option A, Backlog.md draft feature (chosen).** A draft has a temporary `DRAFT-n` id until `refine` promotes it. Promotion rewrites every `DRAFT-n` dependency on other drafts and tasks to the new `DIPO-n` id, and the branch name is assigned at `refine`, not at `plan`. This amends decision 0001 and the vision, where `plan` assigns ids, branches and dependencies. Dropped ideas never consume a real id, and the Backlog.md drafts view stays usable.
+- **Option B, a regular status `Drafted`.** Ids, dependencies and branches stable from `plan` on; dropped ideas consume ids. Not chosen.
 
-**Recommendation: option B.** It keeps 0001 intact and removes the id rewrite, the most fragile step in option A. The tables below assume B. Under A, the Draft row maps to the draft feature and Draft to Refined runs `draft promote` plus the dependency rewrite.
+Consequences of A that code must handle (DIPO-7 owns the mechanics):
 
-States and their Backlog.md mapping. Office init sets `statuses: ["Drafted", "Refined", "Ready", "In Progress", "In Review", "Parked", "Done"]` and `default_status: "Drafted"`. Existing `To Do` tasks migrate to `Refined` (DIPO-7 owns the migration).
+- **Promotion is one engine operation:** `backlog draft promote`, then rewrite every `DRAFT-n` reference to the new id in all drafts and active tasks, then write the branch (F15). It must be safe to retry if interrupted.
+- **Dependencies between drafts are allowed** and are rewritten on promotion. A Refined story may not depend on a draft: R13 fails, because a draft is not an active task. Promote the dependency first.
+- **The engine never renumbers a promoted story:** it never runs `backlog task demote` or sets status `Draft`.
+
+States and their Backlog.md mapping. Office init sets `statuses: ["Refined", "Ready", "In Progress", "In Review", "Parked", "Done"]` and `default_status: "Refined"`. Existing `To Do` tasks migrate to `Refined` (DIPO-7 owns the migration).
 
 | State | Backlog.md | Meaning |
 |---|---|---|
-| Draft | Status `Drafted` (option B) | An idea being shaped. Has an id and branch, but fields may be missing |
+| Draft | Draft feature: `backlog/drafts/`, id `DRAFT-n` | An idea being shaped. No real id or branch yet, fields may be missing |
 | Refined | Status `Refined` | Title and outcome present, unknowns list exists. Other fields being completed. Unknowns may be open |
 | Ready | Status `Ready` | Passed the gate. Eligible for `run` |
 | In Progress | Status `In Progress` | Claimed by a worker (the machine claim is the branch ref, DIPO-7) |
@@ -74,9 +78,9 @@ Transitions. Anything not listed is refused by the engine.
 
 | From | To | Trigger | Who |
 |---|---|---|---|
-| (none) | Draft | `plan` or a new-story command. Code runs `backlog task create -s Drafted`, then writes the branch (F15) once the id exists | Maintainer, content drafted with AI |
-| Draft | Refined | `refine <id>`: code writes an empty unknowns list if absent. Needs R04 and R05 to pass | Maintainer command |
-| Draft | (archived) | Drop: `backlog task archive`. Refused while another active story depends on it | Maintainer |
+| (none) | Draft | `plan` or a new-story command. Code creates a Backlog.md draft (`DRAFT-n`) | Maintainer, content drafted with AI |
+| Draft | Refined | `refine <id>`: needs R04 and R05 to pass. Code promotes the draft, rewrites `DRAFT-n` references to the new `DIPO-n` id, writes the branch (F15), and writes an empty unknowns list if absent | Maintainer command |
+| Draft | (archived) | Drop: archive the draft. Refused while another draft depends on it | Maintainer |
 | Refined | Ready | `ready <id>`: rules R01a and R02 to R25 pass | Maintainer command, decided by code only |
 | Ready | Refined | Any edit to a gated field through the engine, a failed pickup re-check in `run`, or `unready <id>` | Engine automatically, or maintainer |
 | Ready | In Progress | `run` selects it. Code runs the pickup re-check (R01b and R02 to R25), then checks every dependency is Done and no scope collision with in-flight work (M2) | Engine |
@@ -106,7 +110,7 @@ The gate runs in two modes. The `ready` command evaluates R01a and R02 to R25. T
 
 Definitions used by the rules:
 
-- **Active task:** any task returned by `backlog task list --plain`, in any status. Drafts in `backlog/drafts/` (option A), archived and completed tasks are not active.
+- **Active task:** any task returned by `backlog task list --plain`, in any status. Drafts in `backlog/drafts/`, archived and completed tasks are not active.
 - **Character:** a Unicode code point after NFC normalisation. Text is trimmed of leading and trailing whitespace before counting.
 - **Word match:** a case-insensitive match whose start and end are each the text start, the text end, or a character that is not a Unicode letter or number (outside `\p{L}\p{N}`).
 
@@ -134,10 +138,10 @@ Each message is prefixed with `ready <ID> failed <rule>:`. `<…>` is filled by 
 | R17 | At most one role, naming a roster role (until M4: `developer`) | `role <role> is not in the roster` |
 | R18 | Branch is set, matches `^<ID>/[a-z0-9]+(-[a-z0-9]+)*$`, `<ID>` equals the story's id, slug at most 40 characters | `branch "<branch>" must be <ID>/<slug> with a lowercase hyphenated slug` |
 | R19 | No other active task has the same branch | `branch "<branch>" is already used by <other-id>` |
-| R20 | If a test script exists: at least one step, every step has a non-empty action and a non-empty expected result | `test script step <n> is missing its action or expected result` |
-| R21 | If the test-before-merge flag is set: a test script exists (0002) | `flagged test-before-merge but has no manual test script` |
+| R20 | Non-spike story: a test plan is present and is exactly one of: at least one entry, where every entry has kind `automated` or `manual`, a `check` of at least 10 characters, and (for `manual`) a non-empty expected result; or `not_applicable` with a reason of at least 10 characters | `test plan is missing, empty, or entry <n> is incomplete; add entries or not_applicable with a reason` |
+| R21 | If the test-before-merge flag is set: the test plan has at least one `manual` entry (0002) | `flagged test-before-merge but the test plan has no manual entry` |
 | R22 | Spike (type `spike`): at least one criterion contains a match of `docs/decisions/[0-9]{4}-[a-z0-9-]+\.md`, and scope covers that path. A scope path covers it when it equals the path or ends in `/` and is a prefix of it | `spike must name its ADR (docs/decisions/NNNN-name.md) in a criterion and cover it in scope` |
-| R23 | Spike: the test-before-merge flag is not set | `spike cannot be flagged test-before-merge; it ships no behavior` |
+| R23 | Spike: the test-before-merge flag is not set and there is no test plan | `spike cannot have a test plan or be flagged test-before-merge; it ships no behavior` |
 | R24 | Design story (role kind non-code, M4): every scope path is under `docs/design/<ID>/` and that directory is in scope | `design story scope must be docs/design/<ID>/ only` |
 | R25 | Every input (documentation) path under `docs/design/<X>/` has `<X>` in dependencies | `input docs/design/<X>/ needs <X> as a dependency` |
 
@@ -150,7 +154,7 @@ What the gate deliberately does not check: whether paths exist (new files do not
 - Type `spike`. Output is an ADR in `docs/decisions/`, not product code (concepts.md).
 - Same fields as any story. Tier is required, because spikes cost model time too. Role is `developer` until research roles exist.
 - Acceptance criteria name the ADR path (R22), and usually include "Maintainer approved the decision". That criterion is checked by the maintainer, never by a worker. The reviewer treats it as not applicable.
-- No test script and no flag (R23).
+- No test plan and no flag (R23).
 - Unlike dipsaus-ai, a spike needs no written justification. This project uses spikes on purpose for architecture decisions.
 
 ### 5. Design stories (from M4)
@@ -159,7 +163,7 @@ What the gate deliberately does not check: whether paths exist (new files do not
 - It writes only under `docs/design/<ID>/` (R24), for example flows, specs, and SVG or HTML mockups, on its own branch, reviewed against its own criteria, merged like code.
 - Stories that build on it list it in dependencies and list `docs/design/<ID>/` as an input (F9, R25). Code knows the order without a model.
 - Design files go in inputs (F9, documentation), not in scope (F8). Scope is what a story writes and feeds the collision check; listing a read-only design folder there would make every consumer collide with every other. This deviates from vision.md section 4, which says consumers "reference those files in their scope". The vision should be updated to say "inputs" when this ADR is accepted.
-- The test-before-merge flag is allowed. The test script then lists what the maintainer opens and what it should show.
+- The test-before-merge flag is allowed. The test plan's manual entries then list what the maintainer opens and what it should show.
 - Before M4 no non-code role exists, so R17 rejects any design story.
 
 ## Consequences
@@ -167,9 +171,8 @@ What the gate deliberately does not check: whether paths exist (new files do not
 - Readiness becomes a pure function of the story, the backlog and office config. Code can evaluate it, the TUI can show each failed rule, and retro can count failures per rule.
 - Office init must change `backlog/config.yml` statuses. This repo's own backlog (`To Do`) needs a one-time migration when the orchestrator takes over (cutover).
 - Every story that reaches Refined carries structured field data. If DIPO-7 picks a block in the description, hand-written stories (until M3) must include it, so the format must stay readable and simple to type.
-- Under option B every idea gets a `DIPO-n` id at `plan` time and dropped ideas stay in the archive. Under option A, drafts cannot be depended on until promotion rewrites their ids.
+- Ideas get a real `DIPO-n` id only at `refine`; dropped drafts never consume one. Refined stories cannot depend on drafts until those are promoted, and promotion must rewrite `DRAFT-n` references (decision 0001 is amended accordingly).
 - Stories never go back to Draft once they have an id that others may reference.
-- Under option B the lifecycle state `Draft` from decision 0001 appears on the board as status `Drafted`, because Backlog.md reserves the name `Draft` for its draft feature.
 - Done tasks stay in `backlog/tasks/` forever unless the office later handles `completed/` in dependency resolution. The board grows over time.
 - Backlog.md tools (board, browser) show the new statuses and labels with no plugin. They show the field block as raw text.
 - The banned-phrase list is a blunt tool. It catches the common vague phrases and nothing more. It is office config so it can be tuned.
@@ -179,17 +182,17 @@ What the gate deliberately does not check: whether paths exist (new files do not
 - Final storage of F10, F11, F12, F13, F14, F15 and F16 (suggestions above), and the field block format and parser.
 - The slug algorithm for F15.
 - Parsing `--plain` output, since the CLI has no JSON.
-- Migration from `To Do` to `Refined` and writing the office status list (including `Drafted` under option B).
-- Under option A: rewriting `DRAFT-n` dependencies on promotion.
+- Migration from `To Do` to `Refined` and writing the office status list.
+- Promotion as one retry-safe operation: `draft promote`, rewriting `DRAFT-n` references, writing the branch.
 - How `completed/` and archived tasks are treated, and confirming the engine never runs `task complete`.
 - Scope collision check (prefix overlap) at pickup, used by `run` (M2).
 
 ## Open questions for the maintainer
 
-1. Draft storage: option A (Backlog.md draft feature, ids assigned at `refine`, amends 0001) or option B (status `Drafted`, ids, dependencies and branches stable from `plan`)? Recommendation: B. See section 2.
+1. **Draft storage — answered 2026-10-10: option A**, the Backlog.md draft feature (section 2). Amends decision 0001.
 2. Should the maintainer be able to park a Ready or Refined story by hand? That needs a new park reason such as `on-hold`. This ADR allows parking only from In Progress and In Review.
 3. Is tier required for every story from M0, or only from M1 when tiers take effect? This ADR requires it from the start so stories do not need a second pass.
 4. Should the outcome be an `Outcome:` line, as the current DIPO tasks use, or the whole description outside the field block? This ADR takes the latter.
 5. Thresholds (title at most 100, outcome at least 20, criterion at least 10, slug at most 40) and the default banned phrases: accept as defaults, or change?
-6. Should a manual test script be required for every non-spike story, not only flagged ones? 0002 says every story that may be tested carries one. This ADR requires it only when flagged and recommends it otherwise.
+6. **Test plan — answered 2026-10-10:** the manual test script became a test plan (F14) with automated and manual entries, required on every non-spike story where applicable; where it does not apply, the story says so explicitly with a reason (R20). A flagged story needs at least one manual entry (R21).
 7. Should a new Backlog.md type `design` mark design stories, instead of the role's kind?
