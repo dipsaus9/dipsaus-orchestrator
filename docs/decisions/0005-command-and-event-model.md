@@ -1,6 +1,6 @@
 # 0005 Command and event model
 
-Status: Proposed (spike DIPO-2, 2026-10-10).
+Status: Accepted (maintainer, 2026-10-10). Proposed in spike DIPO-2.
 
 ## Context
 
