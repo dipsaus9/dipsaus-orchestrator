@@ -4,7 +4,7 @@ title: Decide testing strategy and configuration format
 status: In Progress
 assignee: []
 created_date: '2026-10-10 11:03'
-updated_date: '2026-10-10 11:18'
+updated_date: '2026-10-10 21:38'
 labels:
   - architecture
 milestone: m-0
@@ -34,5 +34,5 @@ Outcome: an ADR defining how the engine is tested without calling Claude, and th
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Draft ADR 0017 written by research agent, reviewed by independent reviewer (pass, 9 advisories, all applied; Bun 1.4.2 probes re-run from a scratch copy). Waiting for maintainer approval.
+Maintainer answered the six open questions on 2026-10-10; answers recorded in ADR 0017 (YAML; .dipo/ folder; office.local.yaml limited to timeouts.*, privacy.*, retention.*; recording refresh on demand only; live smoke run by the maintainer required before every release, with a matching amendment line in ADR 0016; local bun test budget about 60 s). ADR 0017 aligned with accepted ADRs 0007, 0008, 0013, 0014 and 0016 (central dipo.db, token budgets and 0008 tier defaults, no --max-budget-usd, setting sources project,local, permission-wait hook, .dipo/.gitignore). Draft stays Proposed and awaits review and maintainer approval.
 <!-- SECTION:NOTES:END -->

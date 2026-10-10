@@ -307,3 +307,7 @@ Changes to accepted ADRs, each with a dated line under its "Amendments" (maintai
 23. actions/attest-build-provenance (v4.2.2). https://github.com/actions/attest-build-provenance
 24. Homebrew Gatekeeper cask deprecation, as reported in hluk/CopyQ issue #3498 (cask disabled 2026-09-01). https://github.com/hluk/CopyQ/issues/3498
 25. actions/create-github-app-token (installation token for a GitHub App in workflows). https://github.com/actions/create-github-app-token
+
+## Amendments
+
+- 2026-10-10, decision 0017 (maintainer): a live smoke run by the maintainer is required before every release. Before merging the release PR (the first gate of rule 12), the maintainer builds `dipo` from the release PR's head with `scripts/build.ts`, does one live run against real Claude and confirms it on the release PR; the release waits for that confirmation. The run is never automated.
