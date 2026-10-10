@@ -32,3 +32,7 @@ After decisions 0001 to 0003 the maintainer clarified that the product is larger
 
 - New architecture questions beyond DIPO-1 to DIPO-7: the role and roster model, the effort policy, and the orchestrator helper interaction. These become new spikes once the maintainer confirms the open questions.
 - The vision is the reference document. Disagreements are resolved by editing `docs/vision.md`, then recording the change here.
+
+## Amendments
+
+- 2026-10-10, decision 0007 (maintainer): "local database is per project" becomes local work state per project, kept in one central local database keyed by office; never in the repository and never the only copy of a story fact. The office list is a table in that database. Offices stay isolated by key.

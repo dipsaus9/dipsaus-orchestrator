@@ -12,7 +12,7 @@ Pre-code. Stack chosen in ADR 0004: TypeScript on Bun, Bun workspaces, single bi
 - Anything deterministic is code, never prose for a model to follow.
 - Engine is headless. UIs are clients that send commands and read events. No UI imports engine internals.
 - Backlog.md/CLI is the source of truth for stories. Never edit task files by hand when the CLI can do it.
-- Local state database is per project, gitignored, and never the only copy of a story fact.
+- Local work state is per project, kept in one central local database keyed by office (0007), never in the repository, and never the only copy of a story fact.
 - Claude is reached only through the worker adapter. Keep Claude specifics out of the engine.
 - Decisions that change `docs/decisions/` need the user's explicit approval. Ask when unsure.
 
