@@ -13,7 +13,7 @@ Status: accepted (grill session, 2026-10-09).
 - The author fixes reviewer feedback, up to a capped number of rounds. When the cap is reached the story parks with reason `review-blocked`.
 - A story can be flagged **test before merge**. Flagged stories wait in `In Review` until the human has tested the branch. Unflagged stories merge when the reviewer passes.
 - The flag is set by the human. Refine may suggest it, for example when other stories depend on the story, but never sets it.
-- Every story that may be tested carries a short manual test script (steps and expected result), produced during refine. `ready` fails for a flagged story without one.
+- Every non-spike story carries a test plan, produced during refine: automated entries (tests the worker writes) and manual entries (steps with expected results), or an explicit "not applicable" with a reason. A flagged story needs at least one manual entry; `ready` fails without it (0012, R20 and R21).
 - The tool makes testing cheap: it shows what to test and provides a runnable checkout of the story branch.
 - The human always keeps merge authority over what ships. Automatic merge is allowed only after reviewer pass on unflagged stories.
 
@@ -21,3 +21,7 @@ Status: accepted (grill session, 2026-10-09).
 
 - Code is written by one agent, reviewed by another agent against the story goal, and fixed until the review passes. The maintainer does not review code.
 - Merging, including auto-merge, is allowed after the review passes.
+
+## Amendments
+
+- 2026-10-10, decision 0012: the manual test script became the test plan field.
