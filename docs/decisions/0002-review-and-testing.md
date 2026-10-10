@@ -26,3 +26,4 @@ Status: accepted (grill session, 2026-10-09).
 
 - 2026-10-10, decision 0012: the manual test script became the test plan field.
 - 2026-10-10, decision 0010 (maintainer): PRs that change only `backlog/` auto-merge after the engine's structural check, without the reviewer agent. One open backlog PR per office.
+- 2026-10-10, decision 0016 (maintainer): Renovate PRs for devDependency minor and patch updates and lockfile maintenance auto-merge on green required checks (`ci-ok`, `pr-title`) without the reviewer agent. GitHub Actions updates, runtime dependencies, majors, the Bun version and security fixes always get the reviewer agent.

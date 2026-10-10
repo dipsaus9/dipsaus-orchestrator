@@ -1,6 +1,6 @@
 # 0016 CI, release and versioning
 
-Status: Proposed (spike DIPO-13, 2026-10-10).
+Status: Proposed (spike DIPO-13, 2026-10-10). All open questions were answered by the maintainer on 2026-10-10; awaiting acceptance.
 
 ## Context
 
@@ -68,7 +68,7 @@ Facts checked for this ADR:
 
 ### 1. CI workflow (`.github/workflows/ci.yml`)
 
-Runs on `pull_request` and on `push` to `main`. `concurrency` per ref, cancel in progress for PRs. Top-level `permissions: {}`; each job asks only for what it needs (`contents: read` by default). Every action is pinned by full commit SHA; Renovate updates the SHAs. `actions/checkout` uses `persist-credentials: false`. No `pull_request_target`.
+Runs on `pull_request` and on `push` to `main`, so `main` itself is checked after every merge. `concurrency` per ref, cancel in progress for PRs. Top-level `permissions: {}`; each job asks only for what it needs (`contents: read` by default). Every action is pinned by full commit SHA; Renovate updates the SHAs. `actions/checkout` uses `persist-credentials: false`. No `pull_request_target`.
 
 Bun setup in every job: `oven-sh/setup-bun` with `bun-version-file: .bun-version`. The repo gets a `.bun-version` file with one exact version (1.4.2 or newer when the first workflow lands), which is also the floor in `engines`. Dependencies: `actions/cache` on `~/.bun/install/cache`, key `bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}`, then `bun install --frozen-lockfile`. No cache for `tsc` build info; correctness over seconds.
 
@@ -123,7 +123,9 @@ subject = 1 to 100 characters, no trailing period
 
 `main` keeps: PR required, 0 approvals, linear history, `enforce_admins: true`. Added:
 
-- Required status checks: **`ci-ok`** and **`pr-title`**, app GitHub Actions. One aggregate check for `ci.yml` means adding or renaming jobs there never touches branch protection. `strict` (branch up to date) stays **off**: with squash merges and parallel worktrees it would force constant rebases, and `ci` also runs on every push to `main`. A red `main` is fixed before anything else merges.
+- Required status checks: **`ci-ok`** and **`pr-title`**, app GitHub Actions. One aggregate check for `ci.yml` means adding or renaming jobs there never touches branch protection.
+- **`strict` on** for the required checks (require branches to be up to date before merging): a PR must contain the latest `main` before it merges, so `ci-ok` always ran on what `main` becomes. No merge queue; the repository stays under the personal account. `ci` also runs on every push to `main`, and a red `main` is fixed before anything else merges.
+- **Merging under `strict` (amends 0010's Base sync row).** While the worker builds, nothing changes: the branch syncs with the base only on a conflict or for a riskier story (0010). At merge time the **engine** always brings the branch up to date: it merges `origin/<base>` into the branch (never a rebase, never a force push), pushes, waits for the required checks, and merges when they are green. A merge conflict goes to the worker as feedback like any other conflict (within caps, else park `conflict`); red CI returns the story for a fix round. Merges run one at a time per office through the engine's git queue (0010), so a merge cannot make the next branch stale between its update and its merge. Until cutover, the agent that merges a PR in this repository follows the same steps. Bot PRs keep themselves current: Renovate's default `rebaseWhen: auto` rebases its own branches when the base requires up-to-date branches, and release-please rewrites its release PR on every push to `main`.
 - Squash commit title set to `PR_TITLE`, so the checked PR title is always the commit subject on `main`. Squash commit message set to `BLANK`, so stray `BREAKING CHANGE:` or `Release-As:` lines in branch commits cannot change the version; the title alone decides.
 - Immutable releases on. Private vulnerability reporting on, with a `SECURITY.md`.
 - A tag ruleset on `v*`: no updates or deletions; creation only by the release GitHub App (bypass list).
@@ -132,9 +134,10 @@ These are repo-setting changes, applied by the maintainer or by the implementati
 
 ### 3. Versioning and changelog: release-please (option A)
 
-- Semantic Versioning. Start at `0.1.0`. Until `1.0.0`, `bump-minor-pre-major: true`: breaking changes and features bump minor, fixes bump patch. `1.0.0` is a maintainer decision, not a commit type.
+- Semantic Versioning, 0.x. Until `1.0.0`, `bump-minor-pre-major: true`: breaking changes and features bump minor, fixes bump patch. `1.0.0` is the maintainer's call, not a commit type.
+- **First release `v0.1.0`** when M0's walking skeleton delivers one story end to end. Until then release-please and the build run as **dry runs**: release-please runs with the CLI's `--dry-run` (it reports the version and changelog it would propose and writes nothing), and the build matrix runs on `main` and keeps its archives as workflow artifacts; no tag, release or upload is made. This proves the pipeline before anything ships. The switch to real releases is one change to `release.yml`, made with the maintainer's approval.
 - One version for the whole product, stored in the root `package.json` (`release-type: node`, manifest config at the root only). Workspace packages are `private` and stay at `0.0.0`; nothing is published to npm.
-- PR titles follow the grammar in rule 1, e.g. `feat(DIPO-21): stream worker events to the TUI`. This replaces the current `DIPO-1: Title` style, pending maintainer approval (open question 8). The changelog shows `feat`, `fix`, `perf` and breaking changes; the scope makes each line traceable to its story.
+- PR titles follow the grammar in rule 1, e.g. `feat(DIPO-21): stream worker events to the TUI`. This replaces the current `DIPO-1: Title` style (open question 8). The engine derives the type from the story's type (0012 F5), in code, never by asking a model: `feature` and `enhancement` to `feat`, `bug` to `fix`, `docs` and `spike` to `docs`, `task` and `chore` to `chore`. The engine adds `!` only from an explicit story fact, never from a model's reading of the diff; until `1.0.0` a breaking change bumps minor like a feature anyway. The changelog shows `feat`, `fix`, `perf` and breaking changes; the scope makes each line traceable to its story.
 - release-please needs a token other than `GITHUB_TOKEN` so the release PR triggers `ci` and `pr-title` and can pass the required checks [14]. The release-please README documents a PAT for this [12]; using a GitHub App installation token (`actions/create-github-app-token` [25]) instead is our choice, also allowed by GitHub's docs [14]. A fine-grained PAT was rejected: it expires, is tied to the maintainer's account and reaches every repo it is granted.
 
 **The release GitHub App** (`dipo-release`, owned by `dipsaus9`):
@@ -168,7 +171,7 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
   --source-ref refs/heads/main
 ```
 
-which accepts only attestations signed by `release.yml` running on `main`. Rule 11 also routes every workflow change through the maintainer.
+which accepts only attestations signed by `release.yml` running on `main`. Rule 11 lists what the reviewer agent looks at in a workflow change.
 
 A `workflow_dispatch` input `tag` reruns steps 2 and 3 for a draft that failed before publishing. Option A (tag-push trigger) was rejected because tags created with `GITHUB_TOKEN` do not start workflows, and with an App token it still splits one release over two runs.
 
@@ -190,7 +193,7 @@ Darwin binaries ship ad-hoc signed, which Apple silicon requires to run. `bun bu
 xattr -d com.apple.quarantine ./dipo
 ```
 
-or approving it once under System Settings > Privacy & Security. Notarization is revisited before `1.0.0` or when the maintainer chooses to pay for the Apple Developer Program. If adopted: sign with `--options runtime --timestamp` and Bun's JIT entitlements, notarize a zip with `notarytool submit --wait` in the publish job, secrets in the `release` environment. No stapling is possible for a bare binary.
+or approving it once under System Settings > Privacy & Security. The maintainer accepted this until `1.0.0` (open question 1). Notarization is revisited before `1.0.0` or when the maintainer chooses to pay for the Apple Developer Program. If adopted: sign with `--options runtime --timestamp` and Bun's JIT entitlements, notarize a zip with `notarytool submit --wait` in the publish job, secrets in the `release` environment. No stapling is possible for a bare binary.
 
 ### 7. Install path: script plus manual
 
@@ -211,7 +214,7 @@ When the maintainer asks for it (not before the first stable minor): repository 
 
 ### 10. Dependency updates and security scanning
 
-- **Renovate** via the Mend-hosted app, config in `renovate.json`: `config:recommended`, `helpers:pinGitHubActionDigests`, semantic commits (`chore(deps): ...`), weekly schedule, `minimumReleaseAge: 3 days` (supply chain), groups for TypeScript tooling (oxlint, oxfmt, typescript), Bun (`.bun-version`, `@types/bun`) and GitHub Actions, `vulnerabilityAlerts` and `osvVulnerabilityAlerts` on, lockfile maintenance monthly. Dependabot was rejected because it cannot raise Bun security PRs or update `.bun-version`. Dependabot alerts stay on as a free second signal.
+- **Renovate** via the Mend-hosted app, config in `renovate.json`: `config:recommended`, `helpers:pinGitHubActionDigests`, semantic commits (`chore(deps): ...`), weekly schedule, `minimumReleaseAge: 3 days` (supply chain), groups for TypeScript tooling (oxlint, oxfmt, typescript), Bun (`.bun-version`, `@types/bun`) and GitHub Actions, `vulnerabilityAlerts` and `osvVulnerabilityAlerts` on, lockfile maintenance monthly. Dependabot was rejected because it cannot raise Bun security PRs or update `.bun-version`. Dependabot security updates stay off; Dependabot alerts stay on as a free second signal.
 - **CodeQL** default setup (no workflow file) for `javascript-typescript` and `actions`, on PRs and weekly. Not a required check at first: TypeScript 7 is newer than CodeQL's documented support [21]. Alerts are triaged as stories. If extraction fails on TypeScript 7 code, CodeQL for `javascript-typescript` is paused and noted here; `actions` scanning stays.
 - **Dependency review** and **`bun audit`** as in rule 1. Secret scanning and push protection stay on.
 
@@ -219,24 +222,26 @@ When the maintainer asks for it (not before the first stable minor): repository 
 
 Bot PRs have no story, so the reviewer agent reviews them against a fixed contract instead: the update is what its title says, release notes and changelog between the versions show no breaking change that touches our usage (or the PR adapts to it), `verify` and the smoke test pass, no unrelated files change.
 
-**Workflow and release config PRs.** Any PR, bot or story, that touches `.github/workflows/**`, `.github/actions/**`, `release-please-config.json` or `.release-please-manifest.json` is flagged **test before merge** (0002): the reviewer contract checks for these paths and sets the flag, the maintainer merges, and auto-merge is never enabled on it. Proposed `CLAUDE.md` line: "A PR that changes `.github/workflows/`, `.github/actions/` or release-please config is test-before-merge: never auto-merge it; the maintainer merges." This narrows 0002's merge rule (here the reviewer, not the human, sets the flag) and needs maintainer approval (open question 9); until then it is the proposed default.
+**Workflow and release config PRs** follow the normal flow (open question 9): a PR, bot or story, that touches `.github/workflows/**`, `.github/actions/**`, `release-please-config.json` or `.release-please-manifest.json` is not test-before-merge; it merges after the reviewer agent passes, and auto-merge is allowed. The reviewer looks in particular at these points, as advisory findings unless they break an acceptance criterion: top-level `permissions: {}` and per-job permissions as in the table in rule 1; actions pinned by full SHA; no `pull_request_target`; `persist-credentials: false`; PR-controlled text reaches the shell only through environment variables; the `release-please` and `release` environments are used only by the jobs listed; required check names (`ci-ok`, `pr-title`) unchanged.
 
 | PR | Review | Merge |
 |---|---|---|
-| Renovate: devDependency minor and patch; lockfile maintenance | None beyond `ci-ok` and `pr-title`. **Pending maintainer approval (open question 3)**; until approved, this row follows the next one | Renovate automerge (GitHub auto-merge) when the required checks pass |
+| Renovate: devDependency minor and patch; lockfile maintenance | None beyond `ci-ok` and `pr-title` (maintainer, 2026-10-10; amends 0002) | Renovate automerge (GitHub auto-merge) when the required checks pass |
 | Renovate: every GitHub Actions update (digest, minor, major); runtime `dependencies` (compiled into `dipo`); any major; Bun version; security fixes | Reviewer agent with the contract above | Merge after the reviewer passes, auto-merge allowed |
 | release-please release PR | Reviewer agent checks version bump and changelog against merged PRs | **Maintainer only.** Never auto-merged |
 
-The first row would be an explicit, narrow exception to "every PR is reviewed by a bot" in 0002. These updates do not ship inside `dipo`, but they do change what CI checks and how it builds (TypeScript, oxlint, oxfmt, test helpers), so the risk is real. It is limited by: `minimumReleaseAge: 3 days`, so a compromised or broken release is usually pulled before Renovate proposes it; the required checks; and, if oxlint supports it, an import rule that `packages/*/src` may not import devDependencies, so a devDependency cannot slip into the binary. Actions are excluded from automerge because they run with the workflow's permissions, and the release workflow's actions handle tokens and assets. Until cutover the maintainer starts reviewer runs for bot PRs as for stories; after cutover the orchestrator does.
+The first row is an explicit, narrow exception to "every PR is reviewed by a bot" in 0002. These updates do not ship inside `dipo`, but they do change what CI checks and how it builds (TypeScript, oxlint, oxfmt, test helpers), so the risk is real. It is limited by: `minimumReleaseAge: 3 days`, so a compromised or broken release is usually pulled before Renovate proposes it; the required checks; and, if oxlint supports it, an import rule that `packages/*/src` may not import devDependencies, so a devDependency cannot slip into the binary. Actions are excluded from automerge because they run with the workflow's permissions, and the release workflow's actions handle tokens and assets. Until cutover the maintainer starts reviewer runs for bot PRs as for stories; after cutover the orchestrator does.
 
 ### 12. Who may publish a release
 
-Only the maintainer. Publishing happens by merging the release PR, and the publish job waits for the maintainer's approval in the `release` environment. Agents, the orchestrator and bots never merge a PR labelled `autorelease: pending` and never approve a deployment; the implementation story adds this rule to `CLAUDE.md`, and the orchestrator's merge code enforces it later. GitHub cannot tell an agent using the maintainer's `gh` login from the maintainer, so this is a rule plus friction, not a hard wall. The tag ruleset, immutable releases and attestations make an unauthorised or altered release visible and unchangeable rather than silent. Attestations count only when verified with the pinned command from rule 4 (`--signer-workflow .../release.yml`, `--source-ref refs/heads/main`); an attestation minted by a branch workflow fails that check.
+Only the maintainer, through both gates: merging the release PR, and approving the publish job in the `release` environment. Both gates are revisited after the first few releases; removing the environment approval is a settings change only. Agents, the orchestrator and bots never merge a PR labelled `autorelease: pending` and never approve a deployment; the implementation story adds this rule to `CLAUDE.md`, and the orchestrator's merge code enforces it later. GitHub cannot tell an agent using the maintainer's `gh` login from the maintainer, so this is a rule plus friction, not a hard wall. The tag ruleset, immutable releases and attestations make an unauthorised or altered release visible and unchangeable rather than silent. Attestations count only when verified with the pinned command from rule 4 (`--signer-workflow .../release.yml`, `--source-ref refs/heads/main`); an attestation minted by a branch workflow fails that check.
 
 ## Consequences
 
 - Every PR waits for two required checks: `pr-title` (seconds) and `ci-ok`, roughly the slowest of `verify` and four smoke builds. macOS runners are free on public repos; on a private fork they would cost minutes.
-- PR titles change from `DIPO-1: Title` to `feat(DIPO-1): title`. Agents and the `dipsaus-ai` delivery skill must produce this format; the `pr-title` check enforces it.
+- PR titles change from `DIPO-1: Title` to `feat(DIPO-1): title`. Agents and the `dipsaus-ai` delivery skill used to build this repository must produce this format; the `pr-title` check enforces it. Changing the skill is a follow-up outside this repository.
+- With `strict` on, every PR is brought up to date with `main` and CI runs again before it merges, and merges are serial per office. Parallel stories wait for each other at merge time instead of risking a red `main`.
+- Until M0's walking skeleton delivers a story, the release pipeline runs dry and ships nothing.
 - A GitHub App, two environments (`release-please`, `release`), a tag ruleset, Renovate and repo-setting changes must be set up once. The App key exists only as an environment secret limited to `main`. The implementation story lists them as steps for the maintainer.
 - Unnotarized macOS binaries: browser downloads need one extra command. Recorded as accepted debt until notarization is revisited.
 - No musl build: Alpine users cannot run `dipo` until musl assets are added.
@@ -247,15 +252,15 @@ Only the maintainer. Publishing happens by merging the release PR, and the publi
 
 ## Open questions for the maintainer
 
-1. **Notarization.** Accept unnotarized macOS binaries with the `curl`-based install and documented workaround until `1.0.0`, or join the Apple Developer Program (99 USD a year) now?
-2. **First release.** Cut `v0.1.0` as soon as the pipeline works (empty skeleton), or when M0's walking skeleton delivers one story?
-3. **Automerge exception.** Accept that devDependency minor/patch and lockfile-maintenance PRs merge on green required checks without a reviewer agent (an amendment to 0002)? Actions updates always get the reviewer.
-4. **Renovate or Dependabot.** Accept a third-party app (Renovate) for Bun security PRs and `.bun-version` updates, or prefer native Dependabot and handle Bun advisories through `bun audit` alone?
-5. **Up-to-date branches.** Keep `strict` off for `ci-ok` (faster parallel merges, red `main` possible), or turn it on?
-6. **Release approval.** Keep both gates (merging the release PR and approving the `release` environment), or only the merge?
-7. **musl and Homebrew timing.** Confirm glibc-only for now and the tap after the first stable minor.
-8. **PR title format.** Change PR titles (and so squash commit subjects on `main`) from `DIPO-n: Title` to `feat(DIPO-n): title`, enforced by `pr-title`? This also changes what the `dipsaus-ai` delivery skill produces. Without it, release-please cannot derive versions and changesets or manual tags (Options) would be needed instead.
-9. **Workflow PRs are test-before-merge.** Accept that PRs touching `.github/workflows/**`, `.github/actions/**` or release-please config are always flagged test-before-merge by the reviewer and merged only by the maintainer (narrows 0002), with the proposed `CLAUDE.md` line in rule 11?
+1. **Notarization — answered 2026-10-10: no.** macOS binaries ship unnotarized, with the `curl`-based install and the documented workaround, until `1.0.0` (rule 6).
+2. **First release — answered 2026-10-10: `v0.1.0` when M0's walking skeleton delivers one story end to end.** Until then release-please and the build run as dry runs that publish nothing; versions are SemVer 0.x with `bump-minor-pre-major`, and `1.0.0` is the maintainer's call (rule 3).
+3. **Automerge exception — answered 2026-10-10: accepted.** devDependency minor/patch and lockfile-maintenance PRs merge on green required checks without the reviewer agent; Actions updates, runtime dependencies, majors, the Bun version and security fixes always get the reviewer (rule 11, amendment in 0002).
+4. **Renovate or Dependabot — answered 2026-10-10: Renovate (Mend-hosted app), as drafted.** Dependabot security updates stay off (rule 10).
+5. **Up-to-date branches — answered 2026-10-10: `strict` on, no merge queue.** The repository stays under the personal account; at merge time the engine merges the base into the branch, waits for green CI and merges, one at a time per office (rule 2, amendment in 0010).
+6. **Release approval — answered 2026-10-10: both gates.** Merge of the release PR and approval of the `release` environment; revisit after the first few releases, since removing the environment approval is a settings change only (rule 12).
+7. **musl and Homebrew timing — answered 2026-10-10: glibc-only Linux builds for now; Homebrew tap after the first stable minor.** As in rules 8 and 9.
+8. **PR title format — answered 2026-10-10: Conventional Commits `type(DIPO-n): title`, enforced by `pr-title`.** The engine derives the type from the story type in code (rule 3); `CLAUDE.md` states the format, and the `dipsaus-ai` delivery skill used to build this repository must produce it (follow-up outside this repository).
+9. **Workflow PRs — answered 2026-10-10: not test-before-merge.** PRs touching `.github/workflows/**`, `.github/actions/**` or release-please config follow the normal flow: reviewer agent pass, then auto-merge allowed; the reviewer's attention points in rule 11 are advisory.
 
 ## Sources
 
