@@ -1,10 +1,10 @@
 ---
 id: DIPO-6
 title: Choose the TUI framework and interaction model
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 12:42'
+updated_date: '2026-10-10 20:06'
 labels:
   - architecture
 milestone: m-0
@@ -27,7 +27,7 @@ Outcome: an ADR choosing the TUI technology (constrained by DIPO-1) and defining
 - [x] #2 ADR sketches the views: office switcher, office overview (who, what, health, cost), live agent detail, queue, parked triage, testing checklist
 - [x] #3 ADR maps every intervention (answer, steer, pause, resume, reassign, stop) to a command from DIPO-2
 - [x] #4 ADR confirms the TUI uses only the public command and event interface
-- [ ] #5 Maintainer approved the decision
+- [x] #5 Maintainer approved the decision
 - [x] #6 Every overview value carries an evidence label (for example reported, observed, inferred, unknown; final names chosen in this ADR) (research idea 2)
 - [x] #7 ADR defines a fixed set of health states derived from facts and timeouts (research idea 9)
 - [x] #8 Overview, triage list and digests are built by code from facts, with no model call (research idea 20)
@@ -38,3 +38,9 @@ Outcome: an ADR choosing the TUI technology (constrained by DIPO-1) and defining
 <!-- SECTION:NOTES:BEGIN -->
 Draft ADR 0009 by research agent. Review: pass, 10 advisories applied (aligned with 0008 signals, plan-limit health, evidence optional, budget share engine-derived). Ink prototype not yet run. Waiting for maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0009 accepted: Ink TUI as a pure client over the 0005 contract, six views (overview, queue, Your desk, detail, offices, usage), evidence labels checked/claimed/estimated/none, eight engine-derived health states (quiet 3 min, stuck 20 min, looping on same failure or last loop), phases setup/build/verify/review/test/merge, typed confirmation for irreversible commands, tokens first with estimated dollars secondary, alternate screen by default. Amends 0005 with minor contract additions.
+<!-- SECTION:FINAL_SUMMARY:END -->
