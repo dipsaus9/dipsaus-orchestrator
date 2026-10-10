@@ -1,12 +1,12 @@
 # 0014 Worker prompt assembly and the context provider
 
-Status: Proposed (spike DIPO-10, 2026-10-10).
+Status: Proposed (spike DIPO-10, 2026-10-10). All seven open questions answered by the maintainer on 2026-10-10; the body follows the answers.
 
 ## Context
 
 The project's core token claim (vision, "The problem with the current approach") is that a worker should get a short prompt built by code from structured data, not a process manual it reads and re-executes. Decisions this builds on: 0001 (code decides, park reasons, worker adapter), 0002 (independent reviewer, test plan), 0004 (TypeScript on Bun, `claude -p --output-format stream-json`), 0011 (roles as versioned files, tiers), 0012 (story fields F1 to F18), 0015 (inspired, not dependent), the draft 0017 (`.dipo/office.yaml`, `.dipo/roles/<name>.md` with YAML frontmatter, recordings keep usage fields for this ADR) and research sections 6 and 7 (ideas 13 to 16, 19, 23 to 27, the codegraph decision in 7.7).
 
-Ownership: DIPO-5 owns the Worker contract, transport and flags; DIPO-4 the state tables and budget units; DIPO-7 the field block and the component map file; M4 the role file fields. This ADR owns what goes into a prompt, in which order and size, what never does, the context provider, and how savings are measured.
+Ownership: DIPO-5 owns the Worker contract, transport and flags (draft 0008); DIPO-4 the state tables and budget units; DIPO-7 the field block and the component map file; M4 the role file fields. This ADR owns what goes into a prompt, in which order and size, what never does, the context provider, and how savings are measured.
 
 ### The baseline: what a worker reads today
 
@@ -76,7 +76,7 @@ The task message (L4) for the `implement` kind, in this order: long reference ma
 | 1 | `context` | Context provider pack (section 9) | Always (may be small) |
 | 2 | `inputs` | F9 paths; file content pre-fetched within budget, URLs listed only | Story has inputs |
 | 3 | `dependencies` | Title and outcome line of each F7 dependency, one line each | Story has dependencies |
-| 4 | `background` | Free text in the description outside the `Outcome:` line and field block | Non-empty |
+| 4 | `background` | Free text in the description outside the `Outcome:` line and field block, within its budget (section 4); a cut leaves a marker naming the task file, which the worker may read in full | Non-empty |
 | 5 | `handoff` | Section 6 | New session for a story with earlier work |
 | 6 | `story` | F1 id, F2 title, F5 type, F11 tier | Always |
 | 7 | `outcome` | F3 | Always |
@@ -89,7 +89,7 @@ The task message (L4) for the `implement` kind, in this order: long reference ma
 
 Precedence, stated once in L1: the contract (scope, no git, report format) beats story instructions, story instructions beat role defaults, and project rules (L3) apply throughout. A conflict between project rules and the contract makes the worker report `blocked`, which parks the story with `ambiguous-spec`.
 
-The worker ends a turn with a structured report: status (`done` or `blocked`), per criterion met or not with evidence, a one-paragraph summary, a proposed commit subject, an optional question (becomes the park note) and notes for a next session (at most 1,500 characters). The transport (`--json-schema` or a fenced block) is DIPO-5's choice.
+The worker ends a turn with a structured report: status (`done` or `blocked`), per criterion met or not with evidence, a one-paragraph summary, a proposed commit subject, an optional question (becomes the park note) and notes for a next session (at most 1,500 characters). Draft 0008 adds `needsPermission` (tool and action) for a worker blocked on a denied call, which parks the story `needs-permission`, and picks the transport: `--json-schema`, with a fenced block as fallback.
 
 The `review` kind receives: outcome, criteria, scope, test plan, the changed-path list and the diff relative to the merge base (`git diff <base>...HEAD`) without the story's own task file (budgeted, section 4). A re-review additionally gets only the previous findings. The reviewer always starts a fresh session and is never resumed (0002, research 6.9). It never receives the implementer's handoff, notes, reasoning or transcript.
 
@@ -101,19 +101,19 @@ Left out of every prompt: process rules (gate, lifecycle, git contract), Backlog
 
 Selection, Ready and pickup re-check, dependency and collision checks, branch name and slug, worktree creation, install and gitignored-file setup (DIPO-7), base sync, every Backlog.md write (status, criteria check-off, notes, final summary), running verify and judging it, staging only scope paths and committing, push, PR, spawning the reviewer and parsing its verdict, round, loop and budget caps, parking, teardown, model, effort and tool choice per tier and role, context selection and index freshness, resume or new session, usage capture.
 
-**Verify and commit happen at the In Review transition.** When the worker reports `done`, the engine runs verify. Green: it checks off the criteria the report marks met, stages only scope paths, commits (subject from the worker's proposal plus the story id) and moves the story to In Review. Red: the failure becomes feedback and the worker continues. The same gate runs on re-entry after a fix round. Verify does not run per worker turn.
+**Verify and commit happen at the In Review transition** (maintainer, open question 1). When the worker reports `done`, the engine first runs the scope check over every modified, staged and untracked path (0010); a path outside the declared scope parks the story `scope-violation` with the paths as evidence. This check is the scope gate; inside the session an out-of-scope write only gets a nudge (section 8). Then the engine runs verify inside the sandbox runtime `srt` with the run's policy (0008: network closed, no writes outside the worktree and temp, secret paths unreadable); without `srt` the run refuses to start and verify never runs unsandboxed. Green: it checks off the criteria the report marks met, stages only scope paths, commits (subject from the worker's proposal plus the story id) and moves the story to In Review. Red: the failure becomes feedback and the worker continues. The same gate runs on re-entry after a fix round. Verify does not run per worker turn.
 
 **No mid-implementation commits.** Work between turns lives in the worktree, which survives a worker or daemon crash (DIPO-7 keeps it until teardown). A handoff captures it with `git diff --stat HEAD` and the untracked-file list from `git status --porcelain`. Chosen over unverified checkpoint commits per turn because every commit on a story branch then stays green, history needs no squash, and there are fewer git operations. The cost: one commit per In Review round instead of one per slice.
 
 **Base sync only when needed.** The engine syncs the story branch with the base only when a conflict with the base is detected (for example with `git merge-tree --write-tree`, which leaves the worktree alone) or when the story counts as riskier; code decides, DIPO-7 defines "riskier". Conflict feedback (section 7) only arises from such a sync. Diffs and logs are relative to the merge base (`git diff <base>...HEAD`, `git log <base>..HEAD`), so an unsynced branch still shows only its own work.
 
-**Requirements handed to DIPO-5** (the flags are its decision; these are the effects needed): git write commands (`commit`, `push`, `checkout`, `switch`, `merge`, `rebase`, `reset`, `stash`, `worktree`), `backlog` and `gh` are unavailable to the worker, for example via `--disallowedTools`; nobody answers permission prompts (`--permission-prompts none`); Claude Code's own commit guidance and trailers are off (`includeGitInstructions: false`, empty `attribution`) [2]. L1 holds one boundary sentence ("the engine handles git, Backlog.md, verify and review; report instead"), so a worker does not waste a turn on a denied call. The worker may run tests and read-only git (`git diff`, `git log`, `git status`).
+**Requirements handed to DIPO-5** (the flags are its decision, made in draft 0008 with deny rules, the Bash sandbox and a backstop; these are the effects needed): the worker never runs git write commands (`commit`, `push`, `checkout`, `switch`, `merge`, `rebase`, `reset`, `stash`, `worktree`), `backlog` or `gh`; nobody answers permission prompts (`--permission-prompts none`); Claude Code's own commit guidance and trailers are off (`includeGitInstructions: false`, empty `attribution`) [2]. L1 holds one boundary sentence ("the engine handles git, Backlog.md, verify and review; report instead"), so a worker does not waste a turn on a denied call. The worker may run tests and read-only git (`git diff`, `git log`, `git status`).
 
 **Backstop in code.** After every worker turn the engine checks that HEAD and the checked-out branch are unchanged. If not, it parks the story with `scope-violation`, whatever the tool rules said.
 
 ### 4. Size budgets and truncation
 
-Budgets are in characters, because code can count them without a tokenizer; reports show both characters and an estimated token count. Every section has a budget. Truncation is deterministic and cuts on line boundaries; logs keep the tail, everything else the head. Every cut leaves a marker:
+Prompt section budgets are in characters, because code can count them without a tokenizer; reports show both characters and an estimated token count. They are separate from the tier budget, which 0008 sets in raw tokens (input, output and cache creation) and the engine enforces per run. The budgets and size classes below are accepted as tunable starting defaults (open question 3). Every section has a budget. Truncation is deterministic and cuts on line boundaries; logs keep the tail, everything else the head. Every cut leaves a marker:
 
 ```
 [dipo: truncated, showing 4,000 of 18,240 characters. The rest is in docs/spec.md from line 112; read it only if the shown part is not enough.]
@@ -132,7 +132,7 @@ Project size class comes from `git ls-files | wc -l` at pickup (code, no model):
 | `diff` (review kind) | 40,000 | 60,000 | 80,000 | 80,000 | Over budget: per-file stat plus the largest hunks; the reviewer reads the rest from the worktree |
 | Nudge | 300 | 300 | 300 | 300 | One per fact signature |
 
-Story contract sections (`story`, `outcome`, `criteria`, `scope`, `test_plan`, `answers`, `instructions`) are never truncated. Their total is capped at 12,000 characters. Proposed Ready gate rule for an amendment of 0012 (field storage via DIPO-7): **R26**, the characters of title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions together are at most the office's `prompt.contractMax` (default 12,000); message `story contract is <n> characters; the limit is <max>`. `ready` then catches it before any run. Backstop: if assembly still finds the contract over the cap, the run does not start and the story returns to Refined with the assembly error, like a failed pickup re-check.
+Story contract sections (`story`, `outcome`, `criteria`, `scope`, `test_plan`, `answers`, `instructions`) are never truncated. Their total is capped at 12,000 characters. New Ready gate rule, added to 0012 by amendment (see Amends; field storage via DIPO-7): **R26**, the characters of title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions together are at most the office's `prompt.contractMax` (default 12,000); message `story contract is <n> characters; the limit is <max>`. `ready` then catches it before any run. Backstop: if assembly still finds the contract over the cap, the run does not start and the story returns to Refined with the assembly error, like a failed pickup re-check.
 
 Total cap for the task message (L4): S 40,000, M 50,000, L 60,000, XL 70,000 characters (about 10k to 18k tokens). Over the total cap, sections are dropped in this order with a marker: dependencies, background, context tail, inputs content (the list stays). Budgets live in `office.yaml` under a `prompt.budgets` key (shell from 0017), may be overridden per tier, and are tuned from measured data, not guesses.
 
@@ -147,7 +147,7 @@ Total cap for the task message (L4): S 40,000, M 50,000, L 60,000, XL 70,000 cha
 
 ### 6. Budgeted handoff and native resume
 
-Resume first, for workers only. The reviewer always gets a fresh session (section 2). For the same story and role, the engine resumes the native session (`--resume <id>`, the id set at start with `--session-id`) and sends only the delta (feedback, answer, nudge) when all hold: the transcript exists, the Claude Code version and L1+L2 hash are unchanged (a recorded system prompt would hide a role change [1]), the last known context use is under 60% of the window, and the expected cost of re-reading the history is not more than three times the cost of a handoff. The last check uses the session's last usage numbers and whether the cache is still warm (time since last request against the TTL). A parked story resumed the next morning has a cold cache, so a long session usually gets a handoff instead.
+Resume first, for workers only. The reviewer always gets a fresh session (section 2). For the same story and role, the engine resumes the native session (`--resume <id>`, the id set at start with `--session-id`) and sends only the delta (feedback, answer, nudge) when all hold: the transcript exists, the Claude Code version and L1+L2 hash are unchanged (a recorded system prompt would hide a role change [1]), the last known context use is under 60% of the window, and the expected cost of re-reading the history is not more than three times the cost of a handoff. The last check uses the session's last usage numbers and whether the cache is still warm (time since last request against the TTL). A parked story resumed the next morning has a cold cache, so a long session usually gets a handoff instead. The 60% and three-times thresholds are tunable defaults in `office.yaml` (open question 6), tuned from measured runs.
 
 Otherwise a new session gets a handoff (the `handoff` section of the task message), assembled by code: commits on the branch since the merge base (`git log --oneline <base>..HEAD`), uncommitted work (`git diff --stat HEAD` and untracked files), criteria status from the last report, the last verify result, open feedback, and the previous worker's notes for a next session (the only model-written part, at most 1,500 characters). Never a transcript. A handoff to another role (for example developer to tester) uses the same block. The reviewer never gets one.
 
@@ -161,7 +161,7 @@ Each feedback item is built by code from the failing fact, with a signature for 
 | Reviewer | Criterion number and text, finding text, `file:line` and the quoted code line, blocking or advisory |
 | Maintainer test | The test plan entry, its expected result and the maintainer's note, verbatim |
 | Conflict (only after a base sync, section 3) | Conflicted paths and the conflict hunks, within budget |
-| Scope | The paths written outside scope and the declared scope |
+| Scope | The paths written outside scope and the declared scope. At `done` this is not a fix turn: it is the evidence in the `scope-violation` park note (section 3) |
 | CI (M1) | Job name, failing step and log tail, same format as verify |
 
 ### 8. Conditional nudges through hooks
@@ -172,10 +172,10 @@ The engine passes session-scoped hooks in `--settings` (nothing is written to th
 |---|---|---|
 | `PostToolUse` on Edit or Write | Path outside scope | "`<path>` is outside the declared scope; the engine will reject it." |
 | `PostToolUse` on Edit or Write | File was in the context pack | "The context shown for `<path>` predates your edit." |
-| `PostToolUse` (any) | Usage passed 80% of the tier budget | "80% of this story's budget is used; finish the current criterion and report." |
+| `PostToolUse` (any) | Budget tokens (input + output + cache creation, 0008) passed 80% of the tier's `budgetTokens` | "80% of this story's budget is used; finish the current criterion and report." |
 | `SessionStart` on resume | An input file changed on the base since the last turn | "Input `<path>` changed on the base at `<sha>`." |
 
-Nudges are counted per run, so their effect can be measured like any other prompt part. Blocking an out-of-scope write with a `PreToolUse` deny is possible with the same mechanism; it is an open question below.
+Nudges are counted per run, so their effect can be measured like any other prompt part. An out-of-scope write is nudged, not blocked: there is no `PreToolUse` deny for scope (open question 2). The scope check when the worker reports `done` is the gate and parks `scope-violation` (section 3).
 
 ### 9. Context provider
 
@@ -235,31 +235,49 @@ Sources: [7][9][10][11][12].
 
 ## Measurement
 
-Goal: show, on real stories, how many tokens the assembled prompt saves against the dipsaus-ai baseline, and decide whether a context backend may become a default (idea 25).
+Goal: show, on real stories, that dipo delivers a story cheaper, faster, more efficiently and more clearly than the dipsaus-ai baseline without lower success, and decide whether a context backend may become a default (idea 25). The claim is broader than tokens (open question 4).
 
 **Arms.** A: baseline, `claude -p "/backlog-deliver <id>"` with the dipsaus-ai plugin pinned at a recorded commit. B: engine with the default provider. C: B plus codegraph through the CLI. D: C plus codegraph MCP for the worker.
 
-**Stories.** At least 8 non-spike stories, mixed tiers (at least 2 each of S, M, L), from at least two repositories (this one after cutover and one dipsaus-ai project), each with a known good outcome. Each story is mirrored into the baseline's format (`To Do`, `Branch:` line, References) with the same text.
+**Stories.** At least 8 non-spike stories, mixed tiers (at least 2 each of S, M, L), each with a known good outcome, from two repositories (open question 5): dipsaus-orchestrator after the M0 cutover, and one of slaydoku, cadeauko or couchcade, namely the one with the most finished stories of mixed tier, chosen when the measurement is set up. Each story is mirrored into the baseline's format (`To Do`, `Branch:` line, References) with the same text.
 
 **Fairness.**
 
-- Same base commit, same model, effort and Claude Code version, same project `CLAUDE.md`, `--setting-sources project`, the same MCP servers apart from the arm's own, and `--permission-prompts none` for all arms. The baseline's questions to a human count as a failure.
+- Same base commit, same model, effort and Claude Code version, same project `CLAUDE.md`, `--setting-sources project`, the same MCP servers apart from the arm's own, and `--permission-prompts none` for all arms. Questions to the maintainer are counted in every arm; a run that ends on an unanswered question counts as not successful.
 - Each run starts in a fresh worktree from the same commit. Each arm runs 3 times per story, order randomised. All arms run with `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` [3], and runs of the same story are at least one hour apart so no arm reads another's cache. Each run records `ephemeral_1h_input_tokens` and `ephemeral_5m_input_tokens` from `usage.cache_creation`, so a different TTL shows up. Cache reads are reported anyway.
 - The baseline pushes to a local bare remote with `pr.mode: link` (the PR link is printed, never opened), so no real pushes or PRs happen.
 - A run hit by a rate limit (`system/api_retry` with `rate_limit`) or by spend on usage credits instead of plan usage is discarded and rerun.
 - The baseline does its own git, review and PR, which is exactly the overhead the claim is about, so whole-delivery totals are compared. Totals without the review step are also reported for both arms, so a difference in reviewer design cannot hide in the result.
 - The comparison is per story (paired), not of pooled averages.
 
-**Metrics per run**, from stream-json and the result message (0017 lists the fields): input, cache creation, cache read and output tokens, deduplicated by message id; `modelUsage` and `total_cost_usd` including subagents; turns; tool calls by kind, file reads before the first edit; the assembled prompt size per section (characters and estimated tokens); wall time. Outcome: verify green, reviewer rounds, criteria met, parked or not. Headline number: price-weighted input (uncached + 1.25 x five-minute writes or 2 x one-hour writes + the model's read rate x reads) plus output, per story, median of 3.
+**Metrics per run**, from stream-json, the result message and engine facts (0017 lists the stream fields). Per story the median of 3 runs is used.
 
-**Volume and schedule on the Max plan.** One full round is 4 arms x 8 stories x 3 runs = 96 runs (24 per arm), plus reruns. At most 12 runs per day, started overnight by the daemon, so a round takes about 8 to 9 days and leaves daytime plan usage to the maintainer. Arms A and B run first (48 runs, about 4 days); C and D run only when codegraph is ready (M1).
+- Tokens (headline for "cheaper"): input + output + cache creation, the same unit as the tier budget (0008), deduplicated by message id and including subagents. Cache reads are reported beside it but do not count.
+- Time (for "faster"): wall time from run start to In Review (for the baseline, to its printed PR link).
+- Efficiency: turns and review rounds (decisive); tool calls by kind, file reads before the first edit and verify loops (reported).
+- Clarity for the maintainer: questions to the maintainer, parks as `ambiguous-spec` or another unclear-story reason, and on measured runs a maintainer rating of the run summary from 1 to 5 (the arm is not shown when rating).
+- Clarity in the agent's work: files written outside the declared scope, reviewer findings (blocking and advisory), and diff focus (changed lines in scope paths as a share of all changed lines).
+- Success: verify green, criteria met, not parked.
+- Reported secondary only: the price-weighted figure (uncached input + 1.25 x five-minute writes or 2 x one-hour writes + the model's read rate x reads, plus output) from 0008's pricing catalog, `total_cost_usd`, and the assembled prompt size per section (characters and estimated tokens).
+
+**Volume and schedule on the Max plan.** All arms, the baseline included, run on the maintainer's Max subscription (open question 5). One full round is 4 arms x 8 stories x 3 runs = 96 runs (24 per arm), plus reruns. At most 12 runs per day, started overnight by the daemon, so a round takes about 8 to 9 days and leaves daytime plan usage to the maintainer. Arms A and B run first (48 runs, about 4 days); C and D run only when codegraph is ready (M1).
 
 **Where.** A `dipo measure` dev command runs arms and stores results in the state database (DIPO-4) and a Markdown report under `docs/research/` per round. The measurement code is tested on recordings (0017); the measurement itself is never part of `verify`.
 
 **Decision rules.**
 
-- The token claim holds if B's median cost is lower than A's on at least 75% of stories with no lower success rate. The first report states the reduction found; no target is promised before it.
-- A backend becomes the default only if it lowers median cost against B by at least 15% across the stories, with no drop in success rate and no story more than 25% worse. Otherwise it stays optional. Re-measured on a codegraph minor version or a notable Claude Code release.
+All comparisons are paired per story, B against A. The claim holds only if every one of these holds:
+
+- **Cheaper:** B's tokens are lower on at least 75% of stories.
+- **Faster:** B's wall time to In Review is lower on at least 75% of stories.
+- **More efficient:** on at least 75% of stories B needs fewer turns and no more review rounds.
+- **Clearer for the maintainer:** across the stories B has fewer questions to the maintainer and fewer ambiguous or unclear parks, and its median run summary rating is higher than A's.
+- **Clearer work:** across the stories B writes fewer out-of-scope files, gets fewer reviewer findings and has a higher diff focus.
+- **Success** is never lower than A's, per story.
+
+The first report states the effects found; no target is promised before it.
+
+**Backend default.** A backend becomes the default only if it lowers median tokens against B by at least 15% across the stories, with no drop in success rate and no story more than 25% worse. Otherwise it stays optional. Re-measured on a codegraph minor version or a notable Claude Code release.
 
 ## Consequences
 
@@ -269,17 +287,24 @@ Goal: show, on real stories, how many tokens the assembled prompt saves against 
 - Prompt changes are code changes with golden tests; role changes are git commits in the office.
 - Truncation can hide something a worker needs. The marker gives the path and line so it can read on, at a cost the measurement will show.
 - Tool restrictions and settings depend on Claude Code flag behaviour (DIPO-5 recordings catch drift).
+- The measurement asks the maintainer to rate each measured run summary from 1 to 5, a small manual step per run.
 - codegraph adds an index per worktree (time and disk), a pinned external binary and an opt-out telemetry setting to manage.
+
+## Amends
+
+Changes to accepted ADRs, each with a dated line under its "Amendments":
+
+- **0012:** new Ready gate rule **R26**, the story contract (title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions) is at most `prompt.contractMax` characters (default 12,000), evaluated in both gate modes (section 4).
 
 ## Open questions for the maintainer
 
-1. **Commits by code.** Accept that the engine commits only at the In Review transition (after a green verify), with no mid-implementation commits and work in progress captured by `git diff --stat HEAD` in the handoff? Alternative: unverified checkpoint commits by the engine after each worker turn.
-2. **Scope enforcement in the session.** Nudge on an out-of-scope write (proposed), or deny it with a `PreToolUse` hook?
-3. **Budgets.** Accept the starting character budgets and size classes as defaults until the first measurement?
-4. **Measurement thresholds.** 75% of stories for the token claim; 15% median gain and at most 25% worse on one story for a backend default. Right bars?
-5. **Measurement stories.** Which repositories and stories form the first set, and may the baseline runs use the subscription (96 runs per full round, at most 12 per day overnight)?
-6. **Resume rule.** Resume under 60% context use and when re-reading costs at most three times a handoff. Keep these as tunable defaults?
-7. **Background text.** Include the free description text (budgeted), or only the Outcome line and fields?
+1. **Commits by code — answered 2026-10-10: the engine commits only at In Review after a green verify.** No checkpoint commits; work in progress reaches a handoff through `git diff --stat HEAD` and the untracked-file list (sections 3 and 6).
+2. **Scope enforcement in the session — answered 2026-10-10: nudge, no `PreToolUse` deny.** An out-of-scope write gets a `PostToolUse` nudge; the scope check at `done` is the gate and parks `scope-violation` (sections 3 and 8).
+3. **Budgets — answered 2026-10-10: accepted as tunable defaults, R26 included.** The character budgets and size classes start as in section 4, and R26 (story contract at most `prompt.contractMax`, default 12,000) amends 0012.
+4. **Measurement thresholds — answered 2026-10-10: the claim is broader than tokens.** Per story against the baseline, dipo must be cheaper in tokens, faster to In Review and more efficient (fewer turns, no more review rounds) on at least 75% of stories, clearer for the maintainer and in its work, and never lower in success; the codegraph default rule stays, and the price-weighted figure is reported as a secondary number only (Measurement).
+5. **Measurement stories — answered 2026-10-10: dipsaus-orchestrator after the M0 cutover plus one of slaydoku, cadeauko or couchcade.** The one with the most finished stories of mixed tier is chosen at setup; runs use the Max subscription, overnight, at most 12 per day.
+6. **Resume rule — answered 2026-10-10: keep it as tunable defaults in `office.yaml`.** Resume under 60% context use and when re-reading costs at most three times a handoff (section 6).
+7. **Background text — answered 2026-10-10: include it as a budgeted `background` section.** A cut leaves a marker, and the worker can read the full task file (sections 2 and 4).
 
 ## Sources
 
