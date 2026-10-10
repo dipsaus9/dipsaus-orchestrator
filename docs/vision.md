@@ -29,6 +29,20 @@ The existing `dipsaus-ai` skills (`backlog-plan`, `backlog-deliver`, `backlog-ru
 - Human in the loop is limited to chat prompts, with no visual overview of the whole operation.
 - A skill file cannot carry state, supervise processes, or give a live overview. Orchestration with a human in the loop needs real software.
 
+## What makes this different
+
+Comparable tools exist (see [research on comparable tools](research/2026-10-comparable-tools.md)). The closest runs many coding agents in parallel from a local daemon, but lets an LLM decide what to spawn, takes unprepared prompts or issues as work, measures cost without capping it, and assumes the user is watching. Others only observe or visualise agents.
+
+dipsaus-orchestrator differs on purpose:
+
+- **Prepare first.** Work comes from a Backlog.md backlog and only runs after it passes a Ready gate.
+- **Code decides.** Selection, gates, git and budgets are code, not a model.
+- **Budgets are enforced.** Each story has a tier budget; overrun parks the story with a reason.
+- **Unattended by design.** Stuck work parks and waits in a triage list; the rest continues.
+- **Roles live in the repository.** Hired, versioned, reviewed like code.
+
+We take ideas from these tools but do not copy them, and do not depend on them ([decision 0015](decisions/0015-build-own-inspired-not-dependent.md)). The research is also the reference for a future GUI and for context and token optimizations.
+
 ## Core principle: code drives, AI fills the gaps
 
 This is the central design rule. The orchestrator is a **code-driven project**. AI is used where judgment or content is needed, and never for things code can know.
