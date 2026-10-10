@@ -300,3 +300,7 @@ with:
 14. Local tests on Bun 1.3.5, macOS arm64, 2026-10-10: `ws+unix://` rejected; second `Bun.serve({ unix })` on a live path succeeds; socket created `0755` and left after `stop()`; long path fails with `ENAMETOOLONG`.
 15. ADR 0005 (DIPO-2), command and event model: envelopes, ids, replay, versioning. Research ideas 1, 6, 8, 10, 11; sections 4 and 8: `docs/research/2026-10-comparable-tools.md`.
 16. jupyter/jupyter_core#191: the browser cannot open Jupyter's redirect file (snap Firefox, WSL, Crostini); workaround `use_redirect_file=False`. https://github.com/jupyter/jupyter_core/issues/191
+
+## Amendments
+
+- 2026-10-10, decision 0007 (maintainer): one central state database `<state>/dipo.db` for all offices, every office-scoped row keyed by `OfficeId`. The office list is a table in it and `<state>/offices.json` is dropped (decisions 3, 4 and 9). Engine instances share the daemon's one connection through office-scoped handles (decision 1). The per-office lock is dropped; the PID lock covers the file (decision 6). Migrations run once for the file in `recovering`, before any office (decision 7). The repository keeps only `<git-common-dir>/dipo/` with the `office.json` marker and run directories.
