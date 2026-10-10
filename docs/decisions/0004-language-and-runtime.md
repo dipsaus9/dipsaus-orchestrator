@@ -129,7 +129,7 @@ Boundary rules, enforced in code, not prose:
 - `contract` depends on nothing but zod. Every other package may depend on it.
 - `engine` depends on `contract`. It never imports a client package.
 - `tui`, `client` and any future `web` or `desktop` package never import `engine` or `daemon`. Enforced by an oxlint `no-restricted-imports` rule (fails `verify`), backed by each package's declared `dependencies` and TypeScript project references.
-- `cli` is the only package that imports both `daemon` and `tui`, because the single binary contains both. It has exactly one daemon entry: `<bin> daemon` calls `runDaemon`, the only export of `daemon`. Every other subcommand, including `<bin> tui`, goes through `client` over IPC. `cli` never imports `engine`; the oxlint rule forbids it.
+- `cli` is the only package that imports both `daemon` and `tui`, because the single binary contains both. Every form that runs daemon-side code (`<bin> daemon --foreground`, `<bin> daemon worker-host <run-id>`, `<bin> daemon wait-pid <pid>`) calls `runDaemon(argv)`, the only export of `daemon`, which dispatches internally. Every other subcommand, including `<bin> tui` and the lifecycle subcommands `<bin> daemon start|stop|restart|status|logs|...`, goes through `client`; process-level steps (spawning the daemon, signalling a verified PID, `launchctl`/`systemctl`) live in `client`'s `lifecycle` module (0006). `cli` never imports `engine`; the oxlint rule forbids it.
 - Every package's `package.json` has an `exports` map exposing only its public entry. Deep imports (`@dipsaus-orchestrator/*/src/*`) are banned by the oxlint rule.
 - TypeScript 7 has no stable programmatic API until about 7.1 [23], which is why lint and boundary rules use oxlint, not typescript-eslint.
 - Worker adapters live under `engine/src/workers/`. Claude specifics stay there (CLAUDE.md rule).
@@ -140,7 +140,7 @@ A future web UI is `packages/web` depending on `contract` and `client`. A deskto
 
 | Concern | Tool | Notes |
 |---|---|---|
-| Runtime and package manager | Bun, pinned `>=1.4.2` in `engines`; CI pins the exact version | Bun workspaces, `bun.lock` committed. The maintainer has 1.3.5 and must upgrade (`bun upgrade`): 1.4 is needed for child-process stream backpressure, the `Bun.spawn` `terminal` (PTY) option and `--no-orphans` [6] |
+| Runtime and package manager | Bun, pinned `>=1.4.2` in `engines`; CI pins the exact version | Bun workspaces, `bun.lock` committed. The maintainer has 1.3.5 and must upgrade (`bun upgrade`): 1.4 is needed for child-process stream backpressure, the `Bun.spawn` `terminal` (PTY) option and the WebSocket client's `ws+unix://` support [6]. `--no-orphans` must not be active for the daemon or worker hosts: it exits when the original parent dies and SIGKILLs all descendants on clean exit (0006) |
 | Language | TypeScript 7 (`tsc`, native compiler) [23] | `strict`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`, same as dipsaus-ai |
 | Typecheck | `tsc -b` over project references | One pass over all packages |
 | Lint | oxlint 1.x [24] | `--deny-warnings`; boundary rules live here |
@@ -163,7 +163,7 @@ bun run verify
 - One language for engine, contract and every client. Contract changes are type errors in all packages at once.
 - Releases are per-platform binaries of roughly 60 to 100 MB, mostly the Bun runtime. Acceptable for a developer tool; noted as a known cost.
 - The project depends on a young Bun 1.4 line. Mitigations: pin Bun in CI, keep runtime-specific code in `engine/src/platform`, and track Bun releases before upgrading.
-- Bun touchpoints outside the platform module: `bun:test`, Bun workspaces and `bun.lock`, and `bun build --compile`. A move to Node replaces these three plus the platform module.
+- Bun touchpoints outside the platform module: `bun:test`, Bun workspaces and `bun.lock`, `bun build --compile`, and `client`'s `lifecycle` and transport modules (`Bun.spawn`, signals, `ws+unix://`; 0006). The daemon's `Bun.serve` listeners and worker-host spawns go through `engine/src/platform`. A move to Node replaces these plus the platform module; Node's `ws` package supports `ws+unix://`, so the transport change stays small.
 - Vendor concentration: Anthropic owns the runtime (Bun), the worker CLI (Claude Code) and the subscription terms. Mitigation: the platform module and the Worker adapter keep runtime and worker vendor separately swappable.
 - On macOS `bun:sqlite` uses the system SQLite, so SQLite extensions are out unless `setCustomSQLite` is used. The schema (DIPO-4) should not depend on extensions.
 - Contributors need Bun installed. Node-only contributors cannot run the test suite without it.
@@ -205,3 +205,7 @@ bun run verify
 23. Visual Studio Magazine, "TypeScript 7 arrives", 2026-07-08; npm `typescript` latest 7.0.2. https://visualstudiomagazine.com/articles/2026/07/08/typescript-7-arrives-to-rock-vs-code-with-go-powered-speed.aspx
 24. npm registry, `oxlint` latest 1.87.0. https://registry.npmjs.org/oxlint/latest
 25. npm registry, `oxfmt` latest 0.72.0. https://registry.npmjs.org/oxfmt/latest
+
+## Amendments
+
+- 2026-10-10, decision 0006 (approved by the maintainer): hidden `runDaemon(argv)` forms and client-side daemon lifecycle subcommands; `--no-orphans` replaced by `ws+unix://` as a reason for Bun 1.4 and forbidden for the daemon chain; `client` lifecycle and transport modules added as Bun touchpoints.

@@ -242,9 +242,9 @@ Replacing the binary on disk does not affect running processes; they keep the ol
 - When installed, `dipo daemon start/stop/restart` go through `launchctl` or `systemctl --user`, so the supervisor and the CLI never fight.
 - `install` writes the binary's absolute path; after moving the binary, run `install` again (`status` warns when the path is gone).
 
-## Amends 0004 (needs maintainer approval)
+## Amends 0004 (approved 2026-10-10, applied)
 
-This ADR changes accepted decisions in 0004. It does not edit 0004; on approval these replacements are applied there.
+This ADR changes accepted decisions in 0004. The maintainer approved these replacements on 2026-10-10 and they are applied in 0004.
 
 **(a) Entry points.** `runDaemon(argv)` gets three hidden forms, and lifecycle subcommands under `dipo daemon` become client subcommands. Replace 0004's boundary bullet:
 
@@ -273,14 +273,14 @@ with:
 
 ## Open questions for the maintainer
 
-1. **One daemon for all offices** (Decision 1)? The alternative is a supervisor with one engine process per office, for crash isolation at the cost of a second IPC layer.
-2. **Explicit `dipo office open`** with no auto-discovery (Decision 4)?
-3. **Interrupted runs**: when a worker died while the daemon was down and cannot be resumed, park with an existing reason or add one such as `interrupted`? 0001 fixes the list, and 0005 open question 1 already proposes `stopped`.
-4. **Client autostart**: any client command starts the daemon when it is not running (proposed), or only `dipo daemon start`?
-5. **Keep-awake scope**: idle sleep only (proposed), or also lid closed on AC (`caffeinate -s`) and Linux lid-switch?
-6. **Auto-restart on upgrade**: off by default (proposed) or on?
-7. **Browser listener**: off by default, started by `dipo web` (proposed), or on whenever the daemon runs?
-8. **Amendments to 0004** (section "Amends 0004"): approve the entry-point change, the `--no-orphans` and `ws+unix://` change to the Bun 1.4 rationale, and the wider Node-fallback bound?
+1. **One daemon for all offices — answered 2026-10-10: yes** (Decision 1).
+2. **Opening offices — answered 2026-10-10: both.** `dipo office open <path>` works from anywhere; running `dipo` inside a Backlog.md project that is not yet an office asks once to open it (interactive clients only, never in scripts). No background scanning or auto-registration.
+3. **Interrupted runs — answered 2026-10-10 (via 0005): new park reason `interrupted`**, alongside `stopped`; `resume` continues or restarts the run.
+4. **Client autostart — answered 2026-10-10: yes.** Any client command starts the daemon when it is not running; `dipo daemon stop` stops it.
+5. **Keep-awake scope — answered 2026-10-10: idle sleep only, as Claude Code does** (`caffeinate -i` tied to the daemon with `-w <pid>`, held only while work is active; `systemd-inhibit --what=idle:sleep` on Linux). Closing the lid still sleeps the machine. Unlike the behaviour reported in anthropics/claude-code#64522, the assertion is released as soon as no work is active.
+6. **Auto-restart on upgrade — answered 2026-10-10: off.** Clients show that a new version is ready; the maintainer restarts with `dipo daemon restart` when it suits.
+7. **Browser listener — answered 2026-10-10: off by default for now**, started by `dipo web`. To be revisited when a web or 3D client exists (an office setting could keep it on).
+8. **Amendments to 0004 — approved 2026-10-10** and applied to 0004.
 
 ## Sources
 
