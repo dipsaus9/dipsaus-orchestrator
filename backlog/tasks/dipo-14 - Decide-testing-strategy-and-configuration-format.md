@@ -1,10 +1,10 @@
 ---
 id: DIPO-14
 title: Decide testing strategy and configuration format
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-10 11:03'
-updated_date: '2026-10-10 11:04'
+updated_date: '2026-10-10 11:18'
 labels:
   - architecture
 milestone: m-0
@@ -23,10 +23,16 @@ Outcome: an ADR defining how the engine is tested without calling Claude, and th
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ADR docs/decisions/0017-testing-strategy-and-configuration.md defines the test layers, what each covers, and which run in verify versus CI only
-- [ ] #2 ADR defines the fake worker: recorded Claude Code sessions, how they are captured and refreshed, and how they cover parking, budget overruns and failures
-- [ ] #3 ADR defines integration tests on real temporary git repositories, worktrees and Backlog.md projects
-- [ ] #4 ADR chooses one configuration format with zod validation, schema versioning and migration, and where office and role configuration files live
+- [x] #1 ADR docs/decisions/0017-testing-strategy-and-configuration.md defines the test layers, what each covers, and which run in verify versus CI only
+- [x] #2 ADR defines the fake worker: recorded Claude Code sessions, how they are captured and refreshed, and how they cover parking, budget overruns and failures
+- [x] #3 ADR defines integration tests on real temporary git repositories, worktrees and Backlog.md projects
+- [x] #4 ADR chooses one configuration format with zod validation, schema versioning and migration, and where office and role configuration files live
 - [ ] #5 Maintainer approved the decision
-- [ ] #6 Fake-worker recordings keep the usage fields DIPO-10's measurement needs
+- [x] #6 Fake-worker recordings keep the usage fields DIPO-10's measurement needs
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Draft ADR 0017 written by research agent, reviewed by independent reviewer (pass, 9 advisories, all applied; Bun 1.4.2 probes re-run from a scratch copy). Waiting for maintainer approval.
+<!-- SECTION:NOTES:END -->
