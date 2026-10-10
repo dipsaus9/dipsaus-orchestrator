@@ -145,7 +145,7 @@ After a crash the engine replays an open promotion entry before any other queue 
 | Worktree root | `worktree.root`, default `../<repo>.worktrees`; story worktree `<root>/<ID>`, backlog worktree `<root>/_backlog`, base read worktree `<root>/_base` (detached). Tests set it to a temporary directory |
 | Start point | `git fetch origin <base>`, then `origin/<base>` (local `<base>` without remote). Start SHA recorded |
 | Claim | Exact local ref absent, `git ls-remote --heads origin <branch>` empty, no worktree at the path; then `git worktree add -b <branch> <path> <start>`, atomic (fact 8). A lost race is a skip. Then setup (section 8), the claim commit (lane a) and a push. A released branch is reused as in section 2a |
-| Lock | `git worktree lock --reason "dipo <run-id>"` while the worktree exists; one git queue per office serialises refs, worktrees and pushes; the office lock (0006) keeps out a second engine |
+| Lock | `git worktree lock --reason "dipo <run-id>"` while the worktree exists; one git queue per office serialises refs, worktrees and pushes; the daemon PID lock (0006, one central database per 0007) keeps out a second engine |
 | Who runs git | Only the engine (0014). The worker gets read-only git, no `backlog`, no `gh` |
 | Verify and commit | When the worker reports done: scope check on every modified, staged and untracked path (`git status --porcelain=v1 -z --untracked-files=all`); a path outside declared scope and outside the story's own task file is `scope-violation`. Then verify on the worktree state. Green, in this order: stage exactly the code paths and commit them; record the verify result against a **code tree key**, the hash of `git ls-tree -r HEAD` without the story's own task file; then the CLI writes check-offs and `In Review`, committed alone as `<ID>: status In Review`. Red: feedback to the worker. Task-file-only commits keep the result; any other change to the code tree invalidates it |
 | Conflict check | `git rev-parse --verify` both `origin/<base>` and the branch first; then `git merge-tree --write-tree`. Exit 0: clean. Exit 1 with stdout starting with a tree OID and conflict lines: conflict. Anything else: an error, not a conflict. Runs before In Review and on each fetch while In Review |
@@ -235,7 +235,7 @@ components:
 | Story and `dipo/backlog-*` branches | refs | deleted after merge (section 7); the rest kept and listed |
 | Slot table, journal, office state | `<state>`, office state | `office forget`, deleting state |
 
-No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Command names are placeholders until DIPO-2.
+No git hooks, no edits to existing `.gitignore` files or `info/exclude`, no git config changes. The one ignore file the engine adds is the new `.dipo/.gitignore` (0007), through the office-init backlog PR. Command names are placeholders until DIPO-2.
 
 ## Amends 0012 and 0002 (approved 2026-10-10)
 
@@ -284,3 +284,5 @@ No git hooks, no `.gitignore` or `info/exclude` edits, no git config changes. Co
 ## Amendments
 
 - 2026-10-10, decision 0008 (maintainer): setup step 1 also copies the main checkout's `.claude/settings.local.json` into the worktree when present, under the same rules as other copied files (it must be gitignored). The first time the engine copies env files for an office it shows the rule "worktree env files hold development secrets only" once as a notice and lists the files copied. Install (setup step 2, and reinstall after a sync) runs inside the sandbox runtime `srt` with the run's policy; if `srt` is unavailable the run refuses. The `park` field accepts 0008's new park reasons `needs-permission` and `worker-failed`.
+- 2026-10-10, decision 0007 (maintainer): one central state database; the daemon PID lock replaces the per-office lock as the guard against a second engine.
+- 2026-10-10, decision 0007 (maintainer): office init adds a new `.dipo/.gitignore` with `office.local.yaml` through the office-init backlog PR; existing ignore files are still never edited.

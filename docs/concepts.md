@@ -29,6 +29,6 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Reviewer** | A separate agent that checks a PR against the story goal. Does not see the implementer's reasoning |
 | **Acceptance test** | The maintainer testing behavior of a flagged story by running it |
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances |
-| **State database** | Local, gitignored, per-project store of orchestration state and machine insights |
+| **State database** | Local store of orchestration state and machine insights: one central database outside every repository, keyed by office (0007) |
 | **Triage list** | The morning view of parked stories with reasons and actions |
 | **ADR** | Architecture decision record in `docs/decisions/` |
