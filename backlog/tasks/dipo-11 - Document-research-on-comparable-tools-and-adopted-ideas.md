@@ -1,9 +1,10 @@
 ---
 id: DIPO-11
 title: Document research on comparable tools and adopted ideas
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-10 10:12'
+updated_date: '2026-10-10 10:20'
 labels:
   - research
 milestone: m-0
@@ -21,8 +22,14 @@ Outcome: a research document recording what dipsaus-orchestrator takes as inspir
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/research/2026-10-comparable-tools.md describes each tool, the comparison with our model, adopted ideas with source references, ideas to avoid, GUI inspiration and context optimizations
-- [ ] #2 docs/decisions/0015-build-own-inspired-not-dependent.md records the build-our-own decision and the inspiration-not-copy rule
-- [ ] #3 docs/vision.md references the research and states the differentiator
-- [ ] #4 Each adopted idea is an acceptance criterion on the spike or milestone that owns it
+- [x] #1 docs/research/2026-10-comparable-tools.md describes each tool, the comparison with our model, adopted ideas with source references, ideas to avoid, GUI inspiration and context optimizations
+- [x] #2 docs/decisions/0015-build-own-inspired-not-dependent.md records the build-our-own decision and the inspiration-not-copy rule
+- [x] #3 docs/vision.md references the research and states the differentiator
+- [x] #4 Each adopted idea is an acceptance criterion on the spike or milestone that owns it
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Research on agent-orchestrator, agenttrail and hermes3d documented in docs/research/2026-10-comparable-tools.md with 22 adopted ideas, each tracked as a criterion on its owning spike or milestone. Decision 0015 (build our own, inspiration not imitation). Vision states the differentiator. Two review rounds: first blocked on two missing owner criteria, fixed; second passed, advisories applied.
+<!-- SECTION:FINAL_SUMMARY:END -->

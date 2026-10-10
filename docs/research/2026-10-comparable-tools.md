@@ -121,7 +121,7 @@ What this means for us:
 | Pre-fetch facts in code and tell the worker not to re-fetch them | AO `backend/internal/session_manager/prompt.go` | The prompt carries the story, scope, inputs and run knowledge. The worker starts working instead of exploring. |
 | Cap every injected text, with a truncation marker | AO `backend/internal/service/session/issue_context.go` (12,000 characters) | Every section of an assembled prompt has a size budget. |
 | Feedback carries the evidence | AO `backend/internal/lifecycle/reactions.go` (log tails, `file:line`, comment bodies) | CI, review and test feedback to a worker includes the failing output and locations, so it does not need to investigate. |
-| Keep a reviewer warm | AO `backend/internal/review/prompt.go` | One standing reviewer session per office, given each new review as a task, instead of re-priming a new reviewer every time. |
+| Keep a reviewer warm | AO `backend/internal/review/prompt.go` | Not adopted, see 6.9. (It would mean one standing reviewer session per office instead of a new reviewer each time.) |
 | Budgeted handoff, not the whole transcript | AO `handoff_artifact.go`, `source_semantic_handoff.go` (600 lines or 64 KB) | When work moves to another session or role, pass a bounded summary. |
 | Resume instead of re-prime | AO `backend/internal/service/chat/hibernate.go`, H3 `server/hermes-agent/bridge.js` | Resume the native agent session for a parked or returning story. |
 | Record compaction as an event | AO `migrations/0069_conversation_compaction.sql` | Usage and health data stay correct across context compaction. |
