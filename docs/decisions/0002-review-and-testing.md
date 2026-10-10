@@ -25,3 +25,4 @@ Status: accepted (grill session, 2026-10-09).
 ## Amendments
 
 - 2026-10-10, decision 0012: the manual test script became the test plan field.
+- 2026-10-10, decision 0010 (maintainer): PRs that change only `backlog/` auto-merge after the engine's structural check, without the reviewer agent. One open backlog PR per office.

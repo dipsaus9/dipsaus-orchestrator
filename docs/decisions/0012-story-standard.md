@@ -198,3 +198,10 @@ What the gate deliberately does not check: whether paths exist (new files do not
 5. **Thresholds — answered 2026-10-10: accepted as defaults** (title at most 100, outcome at least 20, criterion at least 10, slug at most 40, and the default banned phrases). All are office configuration and can be tuned.
 6. **Test plan — answered 2026-10-10:** the manual test script became a test plan (F14) with automated and manual entries, required on every non-spike story where applicable; where it does not apply, the story says so explicitly with a reason (R20). A flagged story needs at least one manual entry (R21).
 7. **Design stories — answered 2026-10-10: recognised by the role** (the roster says a role is non-code), not by a separate `design` type.
+
+## Amendments
+
+- 2026-10-10, decision 0005 (maintainer): two new park reasons, `stopped` (the maintainer ended a worker with `work.stop`) and `interrupted` (a worker was lost while the daemon was down, 0006). Both are allowed on the In Progress or In Review to Parked transition; `resume` returns to `park.from`.
+- 2026-10-10, decision 0005 (maintainer): `discard <id>` throws away a story's run, worktree and branch and returns the story from In Progress, In Review or Parked to Refined.
+- 2026-10-10, decision 0010 (maintainer): transitions are written in the story PR (lane a) while a claim is held, In Progress onward, and in a backlog-only PR (lane b) otherwise; Refined to Ready counts for `run` only once its backlog PR merges, and a pending lane-b operation blocks pickup.
+- 2026-10-10, decision 0010 (maintainer): leaving a claim. `amend` of a parked story (Parked to Refined, branch kept, task file restored to the merge-base version) and `work.discard` (branch deleted) are journaled first, release the claim, then are written in lane b. A later claim on a kept branch merges `origin/<base>` first.
