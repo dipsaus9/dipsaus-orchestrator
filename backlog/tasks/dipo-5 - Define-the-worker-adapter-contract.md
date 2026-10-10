@@ -4,7 +4,7 @@ title: Define the worker adapter contract
 status: In Progress
 assignee: []
 created_date: '2026-10-09 19:17'
-updated_date: '2026-10-10 19:36'
+updated_date: '2026-10-10 19:39'
 labels:
   - architecture
 milestone: m-0
@@ -43,4 +43,6 @@ Scope addition (decision 0011): verify which per-job caps the Claude CLI support
 Draft ADR 0008 by research agent. Reviews: block (permission model outside worktree), block (shared .git writes, unsandboxed engine verify, min version), block (engine git on worker-writable metadata); all fixed: strict Bash sandbox from --settings, full .git write deny, hardened engine git, srt for engine install/verify, Claude Code >= 2.1.285. Waiting for maintainer approval.
 
 Review: two rounds on PR #15. Round 1: absolute Edit/Write denies on the main checkout and its .git, what binds, live recordings, advisories (model switch, startFailed holds, credits hold, exact allow-once); maintainer chose to strip permission-widening keys from the copied local settings. Round 2: project settings.json permission keys refused unless allowlisted, re-check of stripped keys at every launch, initRejected outcome, no --add-dir, allow once cannot lift sandbox blocks, 0010 amendments (stripping, worktree root outside main checkout, teardown remote delete). All findings fixed.
+
+Review round 3: project and local settings checked against a key allowlist (unknown keys fail closed, plugins refused), worker-failed wording aligned in 0001, 0005, 0012.
 <!-- SECTION:NOTES:END -->
