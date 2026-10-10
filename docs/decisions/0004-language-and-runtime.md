@@ -173,10 +173,10 @@ bun run verify
 ## Open questions for the maintainer
 
 1. **Bun over Node — answered 2026-10-10: Bun.** The maintainer accepts the risks below. Original question: accept Bun's single-vendor governance and the fresh 1.4 Rust port in exchange for built-in SQLite and single-binary builds? With Bun, Anthropic owns the runtime, the worker CLI and the subscription terms; the platform module and Worker adapter keep runtime and worker separately swappable. The alternative is Node 24 with `better-sqlite3` and `npm i -g` distribution.
-2. **TUI library:** confirm Ink as default with the final choice in DIPO-6, or decide now (Ink or OpenTUI)?
-3. **Binary and package name:** what is the command called (for example `dipo`)? Published to npm as well as GitHub Releases, or binaries only? Homebrew tap later?
-4. **Formatter:** accept oxfmt (0.x), or use Prettier for stability?
-5. **Windows:** out of scope for now (macOS and Linux only), as assumed here?
+2. **TUI library — answered 2026-10-10: Ink.** DIPO-6 confirms with a small prototype that Ink runs on Bun and inside the compiled binary; OpenTUI is the fallback only if that fails. Original question: confirm Ink as default with the final choice in DIPO-6, or decide now (Ink or OpenTUI)?
+3. **Binary and package name — distribution answered 2026-10-10:** binaries on GitHub Releases first, a Homebrew tap later; npm not planned. Command name: **`dipo`** (free on npm and Homebrew on 2026-10-10). Original question: what is the command called (for example `dipo`)? Published to npm as well as GitHub Releases, or binaries only? Homebrew tap later?
+4. **Formatter — answered 2026-10-10: oxfmt, version pinned**, Prettier as fallback. Original question: accept oxfmt (0.x), or use Prettier for stability?
+5. **Windows — answered 2026-10-10: out of scope for now.** Windows users are pointed to WSL; runtime-specific code stays in the platform module so native Windows support can be added later. Original question: out of scope for now (macOS and Linux only), as assumed here?
 
 ## Sources
 
