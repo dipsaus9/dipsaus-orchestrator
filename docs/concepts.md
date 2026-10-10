@@ -17,6 +17,7 @@ Shared vocabulary. Terms marked **[proposed]** are not yet confirmed by the main
 | **Hiring** | Adding a role to an office's roster |
 | **Roster** | The roles available in one office |
 | **Worker adapter** | The interface through which the engine runs an agent. Claude Code CLI is the first adapter |
+| **Context provider** | The part of the engine that decides which code and facts a worker sees. The default uses the story scope, inputs and the declared component map; codegraph is an optional backend (research section 7) |
 | **Story** | A unit of work in Backlog.md with outcome, acceptance criteria, dependencies, scope and status |
 | **Milestone** | A group of stories in Backlog.md. Used in place of epics |
 | **Spike** | A story that ends in a decision record rather than product code |

@@ -1,10 +1,10 @@
 # dipsaus-orchestrator
 
-Open source, code-driven orchestration product: the maintainer and a model run the maintainer's software products together, like an office or dev team, with AI filling the gaps code cannot. Read `docs/vision.md`, `docs/concepts.md` and `docs/decisions/` before making design choices.
+Open source, code-driven orchestration product: the maintainer and a model run the maintainer's software products together, like an office or dev team, with AI filling the gaps code cannot. Read `docs/vision.md`, `docs/concepts.md`, `docs/decisions/` and `docs/research/` before making design choices. Ideas from other tools are inspiration only, never copied (decision 0015).
 
 ## Status
 
-Pre-code. Stack not chosen. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10) exist.
+Pre-code. Stack chosen in ADR 0004: TypeScript on Bun, Bun workspaces, single binary `dipo`. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10, DIPO-13, DIPO-14) exist.
 
 ## Rules
 

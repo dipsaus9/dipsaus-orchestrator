@@ -29,6 +29,20 @@ The existing `dipsaus-ai` skills (`backlog-plan`, `backlog-deliver`, `backlog-ru
 - Human in the loop is limited to chat prompts, with no visual overview of the whole operation.
 - A skill file cannot carry state, supervise processes, or give a live overview. Orchestration with a human in the loop needs real software.
 
+## What makes this different
+
+Comparable tools exist (see [research on comparable tools](research/2026-10-comparable-tools.md)). The closest runs many coding agents in parallel from a local daemon, but lets an LLM decide what to spawn, takes unprepared prompts or issues as work, measures cost without capping it, and assumes the user is watching. Others only observe or visualise agents.
+
+dipsaus-orchestrator differs on purpose:
+
+- **Prepare first.** Work comes from a Backlog.md backlog and only runs after it passes a Ready gate.
+- **Code decides.** Selection, gates, git and budgets are code, not a model.
+- **Budgets are enforced.** Each story has a tier budget; overrun parks the story with a reason.
+- **Unattended by design.** Stuck work parks and waits in a triage list; the rest continues.
+- **Roles live in the repository.** Hired, versioned, reviewed like code.
+
+We take ideas from these tools but do not copy them, and do not depend on them ([decision 0015](decisions/0015-build-own-inspired-not-dependent.md)). The research is also the reference for a future GUI and for context and token optimizations.
+
 ## Core principle: code drives, AI fills the gaps
 
 This is the central design rule. The orchestrator is a **code-driven project**. AI is used where judgment or content is needed, and never for things code can know.
@@ -59,7 +73,7 @@ Plan, refine, find unknowns, estimate, mark Ready, run, review, retro. Each is a
 ### 4. A roster of agents with roles
 The maintainer can "hire" an agent for a specific job and give it specific instructions. A role is a stored, versioned definition inside the office's repository: purpose, instructions, allowed tools, default model and default effort. Hiring adds a role to the office's roster. When work is picked up, code chooses the role for each story (from a story label or type, or the maintainer's choice) without asking a model. A story may add extra instructions on top of its role. Tuning a role once improves every later job, and its history lives in git. Roles can include developer, tester, reviewer, UX designer and visual designer.
 
-Every role works through the same flow: **all work is a story, and all output lives in the repository.** A design story produces files in the project (for example `docs/design/<story-id>/` with flows, specs, and SVG or HTML mockups) on a branch, is reviewed against its own acceptance criteria, and is merged like code. Stories that build on it depend on it and reference those files in their scope, so the engine knows the order without a model. External design tools may later be given to a role as a tool, without changing this flow.
+Every role works through the same flow: **all work is a story, and all output lives in the repository.** A design story produces files in the project (for example `docs/design/<story-id>/` with flows, specs, and SVG or HTML mockups) on a branch, is reviewed against its own acceptance criteria, and is merged like code. Stories that build on it depend on it and list those files as inputs (not scope, which is only what a story writes), so the engine knows the order without a model (0012). External design tools may later be given to a role as a tool, without changing this flow.
 
 ### 5. Effort and model chosen by difficulty
 Each job's size and difficulty decide how much may be spent on it and which model does it. Easy jobs get a cheaper model and a small budget. Hard jobs get a stronger model and a larger budget. This also keeps shared subscription limits from being exhausted by one job.

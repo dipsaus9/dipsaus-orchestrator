@@ -4,7 +4,7 @@ How the vision in [vision.md](vision.md) becomes software. Milestones are define
 
 ## Steps
 
-1. **Architecture spikes for M0** (DIPO-1 to DIPO-10). DIPO-10 (prompt assembly) follows DIPO-8. DIPO-1 (language, runtime, structure), DIPO-8 (story standard) and DIPO-9 (repo scanning) can start right away. The other spikes depend on DIPO-1 and then run in parallel, with research done by agents. Each spike ends in an ADR in `docs/decisions/` that the maintainer approves.
+1. **Architecture spikes for M0** (DIPO-1 to DIPO-10, DIPO-13, DIPO-14). DIPO-10 (prompt assembly) follows DIPO-8. DIPO-1 (language, runtime, structure), DIPO-8 (story standard) and DIPO-9 (repo scanning) can start right away. The other spikes (DIPO-2 to DIPO-7, DIPO-13, DIPO-14) depend on DIPO-1 and then run in parallel, with research done by agents. Each spike ends in an ADR in `docs/decisions/` that the maintainer approves.
 2. **M0 implementation stories.** Written from the approved ADRs, with real acceptance criteria and declared scopes, following the story standard (DIPO-8).
 3. **Build M0** on `<ID>/<slug>` branches. One agent implements, a separate agent reviews against the story goal, feedback is fixed, then the PR is merged.
 4. **Cutover.** Once the orchestrator can deliver one story end to end, it delivers its own next stories. From then on the project is built with itself.
@@ -22,7 +22,10 @@ How the vision in [vision.md](vision.md) becomes software. Milestones are define
 | Backlog.md and git contract, worktrees, environment files, ports | DIPO-7 |
 | Story standard and deterministic Ready gate | DIPO-8 |
 | Repository scanning, script standard, rescan | DIPO-9 |
-| Worker prompts from templates plus story data, measured token savings | DIPO-10 |
+| CI, release pipeline, versioning, dependency updates | DIPO-13 |
+| Testing strategy (fake worker, integration tests), configuration format | DIPO-14 |
+| Worker prompts from templates plus story data, measured token savings, context provider (default plus optional codegraph backend) | DIPO-10 (design), M0 (interface and default), M1 (codegraph backend and measurement) |
+| Ideas adopted from comparable tools (`docs/research/`), each tracked as a criterion | DIPO-2 to DIPO-7, DIPO-10, M0, M1, M2 |
 | Review, parking, triage, tiers, test command | M1 |
 | Parallel runs | M2 |
 | Plan, refine, ready, estimate with AI interviews; retro and insights | M3 |
