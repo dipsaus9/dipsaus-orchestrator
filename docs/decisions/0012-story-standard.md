@@ -1,6 +1,6 @@
 # 0012 Story standard and the Ready gate
 
-Status: Proposed (DIPO-8, 2026-10-09). Needs the maintainer's approval.
+Status: Accepted (maintainer, 2026-10-10). Proposed in spike DIPO-8, 2026-10-09.
 
 ## Context
 
@@ -164,7 +164,7 @@ What the gate deliberately does not check: whether paths exist (new files do not
 - A design story is a story whose role is a non-code role in the roster (for example UX designer). The roster definition, not the story, says a role is non-code.
 - It writes only under `docs/design/<ID>/` (R24), for example flows, specs, and SVG or HTML mockups, on its own branch, reviewed against its own criteria, merged like code.
 - Stories that build on it list it in dependencies and list `docs/design/<ID>/` as an input (F9, R25). Code knows the order without a model.
-- Design files go in inputs (F9, documentation), not in scope (F8). Scope is what a story writes and feeds the collision check; listing a read-only design folder there would make every consumer collide with every other. This deviates from vision.md section 4, which says consumers "reference those files in their scope". The vision should be updated to say "inputs" when this ADR is accepted.
+- Design files go in inputs (F9, documentation), not in scope (F8). Scope is what a story writes and feeds the collision check; listing a read-only design folder there would make every consumer collide with every other. vision.md was updated accordingly on acceptance.
 - The test-before-merge flag is allowed. The test plan's manual entries then list what the maintainer opens and what it should show.
 - Before M4 no non-code role exists, so R17 rejects any design story.
 
@@ -195,6 +195,6 @@ What the gate deliberately does not check: whether paths exist (new files do not
 2. **Hold by hand — answered 2026-10-10: yes.** `hold <id> <note>` parks a Refined or Ready story with the new park reason `on-hold`; `resume` returns it to where it was. Adds `on-hold` to the park reasons of decision 0001.
 3. **Tier from M0 — answered 2026-10-10: yes**, required on every story from the start (R16), so stories need no second pass when tiers take effect in M1.
 4. **Outcome — answered 2026-10-10: an `Outcome:` line** in the description (F3, R05), as current stories use. The rest of the description is free context; the prompt (DIPO-10) can use the outcome on its own.
-5. Thresholds (title at most 100, outcome at least 20, criterion at least 10, slug at most 40) and the default banned phrases: accept as defaults, or change?
+5. **Thresholds — answered 2026-10-10: accepted as defaults** (title at most 100, outcome at least 20, criterion at least 10, slug at most 40, and the default banned phrases). All are office configuration and can be tuned.
 6. **Test plan — answered 2026-10-10:** the manual test script became a test plan (F14) with automated and manual entries, required on every non-spike story where applicable; where it does not apply, the story says so explicitly with a reason (R20). A flagged story needs at least one manual entry (R21).
-7. Should a new Backlog.md type `design` mark design stories, instead of the role's kind?
+7. **Design stories — answered 2026-10-10: recognised by the role** (the roster says a role is non-code), not by a separate `design` type.
