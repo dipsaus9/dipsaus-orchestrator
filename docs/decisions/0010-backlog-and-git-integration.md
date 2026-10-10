@@ -105,7 +105,7 @@ park: { reason: "on-hold", from: "Ready", note: "Waiting for Bun 1.4.3" }
 | `branch` | F15 | R18 pattern |
 | `unknowns` | F10 | list of `{q, status: open \| resolved, answer?}` |
 | `test_plan` | F14 | `{entries: [{kind: automated \| manual, check, expect?}]}` or `{not_applicable: <reason>}` |
-| `park` | F16 | `{reason, from, note}`, only while Parked; `reason` is 0005's `ParkReason` enum (includes `on-hold`, `stopped`, `interrupted`) |
+| `park` | F16 | `{reason, from, note}`, only while Parked; `reason` is 0005's `ParkReason` enum (includes `on-hold`, `stopped`, `interrupted`, `needs-permission`, `worker-failed`) |
 Parser: zero or one block; a line exactly ```` ```dipo ```` opens it, the next line exactly ```` ``` ```` closes it; a second block, an unclosed block or text after it fails R02. Content goes through `Bun.YAML.parse` behind the platform module, then a strict zod schema shared from `contract`: unknown keys fail, and every text value must be a YAML string, so `answer: 5173` fails with "quote this value" (fact 11). The StoryKey (0005) is never written to the repository; it lives only in the state database (open question 7).
 
 Single write path, the same in both lanes: `task view` (or `draft view`), parse, change the typed value, emit canonically (fixed key order, double-quoted strings, two-space indent), splice so every byte outside the block is unchanged, write with `task edit --description` (or `draft edit`), read back and compare. Just before writing the engine re-reads; if the description changed, it parses again and reapplies the target-state operation. One serial write queue per worktree.
@@ -142,7 +142,7 @@ After a crash the engine replays an open promotion entry before any other queue 
 |---|---|
 | Base, remote | `base` in `.dipo/office.yaml`; else `refs/remotes/origin/HEAD`; else `run` is refused. Remote `origin` unless configured |
 | Branch | F15, frozen, one story one branch, never reused for another story (a branch released for the same StoryKey is reused, section 2a) |
-| Worktree root | `worktree.root`, default `../<repo>.worktrees`; story worktree `<root>/<ID>`, backlog worktree `<root>/_backlog`, base read worktree `<root>/_base` (detached). Tests set it to a temporary directory |
+| Worktree root | `worktree.root`, default `../<repo>.worktrees`; story worktree `<root>/<ID>`, backlog worktree `<root>/_backlog`, base read worktree `<root>/_base` (detached). The root must resolve outside the main checkout (0008); setup refuses otherwise. Tests set it to a temporary directory |
 | Start point | `git fetch origin <base>`, then `origin/<base>` (local `<base>` without remote). Start SHA recorded |
 | Claim | Exact local ref absent, `git ls-remote --heads origin <branch>` empty, no worktree at the path; then `git worktree add -b <branch> <path> <start>`, atomic (fact 8). A lost race is a skip. Then setup (section 8), the claim commit (lane a) and a push. A released branch is reused as in section 2a |
 | Lock | `git worktree lock --reason "dipo <run-id>"` while the worktree exists; one git queue per office serialises refs, worktrees and pushes; the daemon PID lock (0006, one central database per 0007) keeps out a second engine |
@@ -152,7 +152,7 @@ After a crash the engine replays an open promotion entry before any other queue 
 | Base sync | Not by default. Only on a conflict, or for a riskier story (open question 3). `git merge origin/<base>` into the branch by the engine, never a rebase; conflicts go to the worker as feedback within caps, else park `conflict`. After a sync: reinstall if the lockfile changed, verify again before In Review |
 | Push and PR | Engine pushes after the In Review commit, never force, never the base. The PR opens in M1. CI runs verify on the PR merge ref [8] |
 | Merge and Done | Offices with linear history use squash merge. Done is detected from the host's PR state, or without it when `git merge-tree --write-tree origin/<base> <branch>` returns the tree of `origin/<base>` (the branch adds nothing new), never by ancestry |
-| Teardown | After Done or drop: unlock, `git worktree remove <path>` without `--force`. Parked stories keep worktree and branch. The local branch is deleted (`-D`) only after Done is detected as above; the remote branch is left to the host |
+| Teardown | After Done or drop: unlock, `git worktree remove <path>` without `--force`. Parked stories keep worktree and branch. The local branch is deleted (`-D`) only after Done is detected as above; then the engine also deletes the remote branch (`git push origin --delete <branch>`, open question 8). The host's auto-delete may already have removed it; a missing remote branch is fine |
 
 **Failure cases.**
 
@@ -283,5 +283,7 @@ No git hooks, no edits to existing `.gitignore` files or `info/exclude`, no git 
 
 ## Amendments
 
+- 2026-10-10, decision 0008 (maintainer): setup step 1 also copies the main checkout's `.claude/settings.local.json` into the worktree when present, under the same rules as other copied files (it must be gitignored), and drops `permissions.allow`, `permissions.ask`, `permissions.additionalDirectories` and `permissions.defaultMode` from the copy. The worktree root must resolve outside the main checkout; setup refuses otherwise. The first time the engine copies env files for an office it shows the rule "worktree env files hold development secrets only" once as a notice and lists the files copied. Install (setup step 2, and reinstall after a sync) runs inside the sandbox runtime `srt` with the run's policy; if `srt` is unavailable the run refuses. The `park` field accepts 0008's new park reasons `needs-permission` and `worker-failed`.
+- 2026-10-10, consistency with open question 8 (maintainer): the Teardown row now has the engine delete the remote branch after Done (`git push origin --delete <branch>`); a branch the host already removed is fine.
 - 2026-10-10, decision 0007 (maintainer): one central state database; the daemon PID lock replaces the per-office lock as the guard against a second engine.
 - 2026-10-10, decision 0007 (maintainer): office init adds a new `.dipo/.gitignore` with `office.local.yaml` through the office-init backlog PR; existing ignore files are still never edited.
