@@ -210,3 +210,4 @@ bun run verify
 
 - 2026-10-10, decision 0006 (approved by the maintainer): hidden `runDaemon(argv)` forms and client-side daemon lifecycle subcommands; `--no-orphans` replaced by `ws+unix://` as a reason for Bun 1.4 and forbidden for the daemon chain; `client` lifecycle and transport modules added as Bun touchpoints.
 - 2026-10-10, decision 0007 (maintainer): one central SQLite database for all offices instead of one per office.
+- 2026-10-11, M0 story breakdown (maintainer): a private workspace package `packages/testkit` holds shared test helpers (clock, ids, temporary repositories, fake process). Other packages use it as a devDependency only.

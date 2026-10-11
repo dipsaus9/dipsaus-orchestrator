@@ -28,3 +28,10 @@ Amended 2026-10-09 after decision 0011 (office model): office basics added to M0
 ## Rationale
 
 The riskiest unknowns are in the execution engine: the daemon, the worker adapter and the UI/engine boundary. Proving those first avoids building ritual UI on an engine that does not hold up. The TUI in M0 addresses the visual gap early.
+
+## Amendments
+
+- 2026-10-11, M0 story breakdown (maintainer): caps (token budget, turns, time) and parking a story with a reason move from M1 to M0. The triage view and resuming parked stories stay in M1.
+- 2026-10-11, M0 story breakdown (maintainer): draft promotion moves to M3.
+- 2026-10-11, M0 story breakdown (maintainer): the M0 repository scan is code only, and `run` refuses an office whose verify is unresolved, with a message naming the script to add. The scan's AI fallback and the confirm command move to M1.
+- 2026-10-11, M0 story breakdown (maintainer): cutover comes after DIPO-55; dipo delivers the remaining M0 stories, DIPO-56 to DIPO-67, itself. `v0.1.0` follows once DIPO-66 (release pipeline) lands and the maintainer's live smoke run passes.
