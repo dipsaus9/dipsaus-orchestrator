@@ -301,3 +301,7 @@ Decided by the maintainer 2026-10-10 (open question 1) and recorded under "Amend
 6. Local test, Bun 1.3.5 on macOS arm64, 2026-10-10: system SQLite 3.51.0; `busy_timeout` 0 and `foreign_keys` 0 by default; second `BEGIN IMMEDIATE` fails with `database is locked` after the busy timeout; `VACUUM INTO` and `serialize` work; JSON and FTS5 available.
 7. OpenClaw docs, Bun compatibility (Linux Bun 1.4.2 statically links SQLite 3.53.2; macOS uses the system SQLite). Secondary source, to confirm in M0. https://docs2.openclaw.ai/install/bun-compatibility.md
 8. ADRs 0001, 0004, 0005, 0006, 0011, 0012, 0013, 0017 (draft), 0010, 0014 (draft); research ideas 1, 4, 11, 21 in `docs/research/2026-10-comparable-tools.md`.
+
+## Amendments
+
+- 2026-10-11, decision 0017 (maintainer): `privacy.*` and `retention.*` are accepted only in `.dipo/office.local.yaml`. In the committed `.dipo/office.yaml` they are a validation error that names the key and points to the local file. This makes "periods are office configuration" (section 7) mean machine-local office configuration only.

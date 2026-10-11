@@ -227,7 +227,7 @@ A role file has frontmatter with `version`, `name`, `purpose`, `tools`, `model`,
 - `.dipo/.gitignore` holds one line, `office.local.yaml`. Office init adds it only if absent, through the office-init backlog PR, and `office uninstall` removes it the same way (0007, 0010), additively and removably (research idea 12).
 - Each run stores a hash of its effective configuration (`runs.config_hash`, content in `config_snapshots`) plus which local override keys were active (0007), so a run can be traced to the configuration it used.
 
-**Precedence.** The committed `office.yaml` describes the office. `office.local.yaml` stays, limited to an allowlisted set of machine-specific keys (maintainer decision): `timeouts.*`, `privacy.*` and `retention.*`. `privacy.*` (opt-ins, off by default) and `retention.*` (periods) are machine-local by 0007. Any other key in `office.local.yaml` is a validation error. Order, lowest to highest: built-in defaults < `.dipo/office.yaml` < allowlisted keys from `.dipo/office.local.yaml` < flags on a single command. Objects merge per key; lists and scalars replace. There is no user-level layer for office settings, because offices are isolated (0011). The overview shows when a local override is active.
+**Precedence.** The committed `office.yaml` describes the office. `office.local.yaml` stays, limited to an allowlisted set of machine-specific keys (maintainer decision): `timeouts.*`, `privacy.*` and `retention.*`. `privacy.*` (opt-ins, off by default) and `retention.*` (periods) are machine-local by 0007 and are accepted **only** in `office.local.yaml` (maintainer decision 2026-10-11): in the committed `office.yaml` either prefix is a validation error that names the key and points to `.dipo/office.local.yaml`. `timeouts.*` may appear in both files. Any other key in `office.local.yaml` is a validation error. Order, lowest to highest: built-in defaults < `.dipo/office.yaml` < allowlisted keys from `.dipo/office.local.yaml` < flags on a single command; for `privacy.*` and `retention.*` it is built-in defaults < `.dipo/office.local.yaml`. Objects merge per key; lists and scalars replace. There is no user-level layer for office settings, because offices are isolated (0011). The overview shows when a local override is active.
 
 **Validation.** Every file is validated with `z.strictObject` schemas, so unknown keys (typos) are errors. Errors name the file, the key path and the expected type. An office with invalid configuration refuses to start new runs and shows the error; other offices are unaffected; running workers keep the configuration they started with. Configuration is read at daemon start and on an explicit reload command, never mid-run. The reload command is a minor addition to 0005's command model (a new command under 0005 section 11); the CLI story names it.
 
@@ -260,6 +260,8 @@ Changes to accepted ADRs, each with a dated line under its "Amendments" (maintai
 
 - **0016:** the live smoke run by the maintainer (section 1, "Live smoke run before every release") is a required gate before the release PR is merged, next to the two gates of rule 12.
 - **0016:** the CI `verify` job sets `DIPO_TEST_CI=1` and runs the same `bun run verify` command as local runs and workers, so CI-only test files (`*.ci.test.ts`, section 1) run there. The command and its composition are unchanged; only the environment differs.
+- **0005 (2026-10-11):** a config reload command and `dipo config migrate` (section 5) are minor additions to the command model; the CLI story sets their final names.
+- **0007 (2026-10-11):** `privacy.*` and `retention.*` are accepted only in `.dipo/office.local.yaml`; in the committed `.dipo/office.yaml` they are a validation error (section 5, "Precedence").
 
 ## Maintainer decisions (2026-10-10)
 
@@ -269,6 +271,7 @@ Changes to accepted ADRs, each with a dated line under its "Amendments" (maintai
 4. **Recording refresh:** on demand only (Claude Code minor update, adapter parse warning in production, Worker contract change); `recordings:status` lists stale ones; no fixed schedule.
 5. **Live smoke before release:** required before every release; the release waits until the maintainer confirms one live run worked. Never automated.
 6. **Verify budget:** about 60 seconds for local `bun test`; slower tests go CI only (`*.ci.test.ts`).
+7. **Privacy and retention local only (2026-10-11):** `privacy.*` and `retention.*` are accepted only in `.dipo/office.local.yaml`; in the committed `.dipo/office.yaml` they are a validation error that names the key and points to the local file.
 
 ## Sources
 
