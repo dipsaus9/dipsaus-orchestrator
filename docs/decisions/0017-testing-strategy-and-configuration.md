@@ -1,6 +1,6 @@
 # 0017 Testing strategy and configuration format
 
-Status: Proposed (spike DIPO-14, 2026-10-10). Maintainer answers recorded 2026-10-10; awaiting approval. Amends 0016 (see "Amends").
+Status: accepted (spike DIPO-14, maintainer approval 2026-10-10, privacy keys decided 2026-10-11). Amends 0005, 0007 and 0016 (see "Amends").
 
 ## Context
 

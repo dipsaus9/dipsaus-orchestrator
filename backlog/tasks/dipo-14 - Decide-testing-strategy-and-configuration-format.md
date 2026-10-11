@@ -1,10 +1,10 @@
 ---
 id: DIPO-14
 title: Decide testing strategy and configuration format
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-10 11:03'
-updated_date: '2026-10-10 21:38'
+updated_date: '2026-10-11 08:51'
 labels:
   - architecture
 milestone: m-0
@@ -27,7 +27,7 @@ Outcome: an ADR defining how the engine is tested without calling Claude, and th
 - [x] #2 ADR defines the fake worker: recorded Claude Code sessions, how they are captured and refreshed, and how they cover parking, budget overruns and failures
 - [x] #3 ADR defines integration tests on real temporary git repositories, worktrees and Backlog.md projects
 - [x] #4 ADR chooses one configuration format with zod validation, schema versioning and migration, and where office and role configuration files live
-- [ ] #5 Maintainer approved the decision
+- [x] #5 Maintainer approved the decision
 - [x] #6 Fake-worker recordings keep the usage fields DIPO-10's measurement needs
 <!-- AC:END -->
 
@@ -36,3 +36,9 @@ Outcome: an ADR defining how the engine is tested without calling Claude, and th
 <!-- SECTION:NOTES:BEGIN -->
 Maintainer answered the six open questions on 2026-10-10; answers recorded in ADR 0017 (YAML; .dipo/ folder; office.local.yaml limited to timeouts.*, privacy.*, retention.*; recording refresh on demand only; live smoke run by the maintainer required before every release, with a matching amendment line in ADR 0016; local bun test budget about 60 s). ADR 0017 aligned with accepted ADRs 0007, 0008, 0013, 0014 and 0016 (central dipo.db, token budgets and 0008 tier defaults, no --max-budget-usd, setting sources project,local, permission-wait hook, .dipo/.gitignore). Draft stays Proposed and awaits review and maintainer approval.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR 0017 accepted: test layers (unit, contract, engine on real temp git and Backlog.md, TUI, live) with local verify under about 60 s and slower tests CI only via *.ci.test.ts and DIPO_TEST_CI=1. Fake worker replays scrubbed stream-json recordings through the real adapter; decision fields are never redacted; recordings refreshed on demand only. A live smoke run by the maintainer is required before every release. Configuration is YAML in .dipo/ with zod validation, schema versioning and migration; office.local.yaml allows only timeouts.*, privacy.* and retention.*, and privacy and retention are local only. Amends 0005, 0007 and 0016.
+<!-- SECTION:FINAL_SUMMARY:END -->
