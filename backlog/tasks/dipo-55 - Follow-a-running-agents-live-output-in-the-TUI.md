@@ -4,12 +4,14 @@ title: Follow a running agent's live output in the TUI
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-11 18:59'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
   - DIPO-54
+  - DIPO-49
+  - DIPO-51
 references:
   - packages/tui/src/
   - packages/tui/test/

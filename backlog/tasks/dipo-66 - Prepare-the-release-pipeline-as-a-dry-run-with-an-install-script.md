@@ -4,7 +4,7 @@ title: Prepare the release pipeline as a dry run with an install script
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-11 18:59'
 labels:
   - 'tier:M'
   - after-cutover
@@ -19,6 +19,7 @@ references:
   - install.sh
   - README.md
   - CLAUDE.md
+  - docs/release.md
 documentation:
   - docs/decisions/0016-ci-release-and-versioning.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -60,7 +61,7 @@ test_plan:
 - [ ] #5 CI job `shellcheck` checks `install.sh` and is needed by `ci-ok`.
 - [ ] #6 `CLAUDE.md` states that agents and the orchestrator never merge a PR labelled `autorelease: pending` and never approve a deployment, and that each release waits for the maintainer's live smoke run.
 - [ ] #7 `README.md` documents both install forms, asset names, the attestation command and the Gatekeeper workaround.
-- [ ] #8 A list of one-time maintainer steps (GitHub App, environments, tag ruleset, immutable releases, private vulnerability reporting) is in the PR description.
+- [ ] #8 `docs/release.md` lists the one-time maintainer steps (GitHub App, environments, tag ruleset, immutable releases, private vulnerability reporting).
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -4,7 +4,7 @@ title: Write the M0 implementation stories
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:43'
-updated_date: '2026-10-11 18:50'
+updated_date: '2026-10-11 18:59'
 labels: []
 milestone: m-0
 dependencies: []
@@ -24,7 +24,7 @@ Context: docs/plan.md step 2 (M0 implementation stories). Stories follow ADR 001
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 All M0 stories exist in milestone m-0 following ADR 0012, with dependencies between them
-- [x] #2 Decisions D1 to D9 are recorded as dated amendment lines in the affected ADRs
+- [x] #2 Decisions that change an ADR (D2, D4–D8) are recorded as dated amendment lines in 0003, 0004, 0010 and 0013; D1, D3 and D9 need no ADR change and are recorded in this story's notes.
 - [ ] #3 A separate reviewer agent checked the stories and amendments and its findings are fixed
 - [ ] #4 Maintainer approved the M0 stories
 <!-- AC:END -->
@@ -52,4 +52,6 @@ Amendment lines dated 2026-10-11 added to ADRs 0003, 0004, 0010 and 0013. docs/p
 Open unknown kept on purpose: DIPO-42 has one open unknown (report channel per turn) that the DIPO-41 live check answers; it blocks Ready until then.
 
 Suggested test-before-merge (not set; maintainer decides): DIPO-23, DIPO-25, DIPO-27, DIPO-35, DIPO-36, DIPO-37, DIPO-41, DIPO-43, DIPO-48, DIPO-49, DIPO-50, DIPO-53, DIPO-54, DIPO-55, DIPO-57, DIPO-59, DIPO-63.
+
+Review fixes (PR #16): cutover needs DIPO-16 to DIPO-55 Done; DIPO-55 now also depends on DIPO-49 (verify and commit) and DIPO-51 (worker outcomes) so the end-to-end loop is in place before cutover. ADR 0016 needed no amendment for D6: cutting v0.1.0 after DIPO-66 and the live smoke run is stricter than, and consistent with, 0016's 'v0.1.0 when the skeleton delivers a story end to end'. The Clock and IdSource interfaces live in packages/contract (DIPO-18). DIPO-66's one-time maintainer steps go into docs/release.md. DIPO-50 parks needs-permission for calls denied by the launch plan until DIPO-59 adds the PermissionRequest hook.
 <!-- SECTION:NOTES:END -->
