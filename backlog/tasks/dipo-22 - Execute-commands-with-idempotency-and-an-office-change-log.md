@@ -4,7 +4,7 @@ title: Execute commands with idempotency and an office change log
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:15'
+updated_date: '2026-10-12 12:19'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -23,6 +23,7 @@ references:
   - packages/engine/src/index.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/test/db/migrations.test.ts
+  - packages/engine/src/platform/ids.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -90,4 +91,6 @@ Implementation (DIPO-22):
 - Registry: FeatureModule { name, register(registry) } with addOfficeCommand, addSoftwareCommand and addRead; checkVersioning and the command level are checked at registration; features.ts lists the modules (today reads/describe, which serves commands.describe from the registry, provisional ones left out).
 
 After merging DIPO-26: the request args hash uses the one canonicalJson in packages/engine/src/config/merge.ts (same behaviour: sorted keys, undefined dropped), so commands/requests.ts no longer has its own; config/ is only imported, not edited. With zod now a direct engine dependency, the registry uses z.output/z.input and story reference fields are found with zod classes instead of structural types. Migration numbering unchanged (2); DIPO-26 added none.
+
+Review advisories: the executor reads the requests record before resolving story references, so a retry of a command that succeeded gets its stored reply even if a story it named was since removed (a different command name still fails request.reused; when resolution fails with a record present the stored reply wins). Software-level requests still running are kept in flight in MemoryRequestTable, so a concurrent duplicate shares the first reply instead of running twice. packages/engine/src/platform/ids.ts now exports cryptoFill, which changelog/log.ts uses for the epoch instead of its own copy (scope addition for that export).
 <!-- SECTION:NOTES:END -->
