@@ -7,7 +7,11 @@
 // Two values are the same when their canonical emits are the same, so an absent key and a key set
 // to `undefined` compare equal.
 //
-// Callers serialise writes per worktree (one write queue per worktree); this module does not queue.
+// The splice works on the description as the CLI printed it; NFC normalisation is only for parsing
+// and comparing, so text outside the block (NFD included) is written back byte for byte.
+//
+// Every `writeFields` and `editLabels` call must go through the per-worktree serial git queue
+// (DIPO-31). The caller (DIPO-34) owns that; this module does not queue.
 
 import { FieldBlock } from "@dipsaus-orchestrator/contract";
 
@@ -39,20 +43,20 @@ export class FieldWriteError extends Error {
   }
 }
 
-/** `<kind> view <id> --plain`, parsed. */
-export async function viewStory(target: StoryTarget): Promise<PlainTask> {
+/** `<kind> view <id> --plain`, parsed; NFC-normalised unless `normalize` is false. */
+export async function viewStory(target: StoryTarget, normalize = true): Promise<PlainTask> {
   const { stdout } = await runBacklog(target.cli, target.cwd, [
     target.kind ?? "task",
     "view",
     target.id,
     "--plain",
   ]);
-  return parseView(stdout);
+  return parseView(stdout, { normalize });
 }
 
-/** The CLI stores the description trimmed; the parser NFC-normalises it. */
+/** The CLI stores the description trimmed and with LF line endings; comparing also NFC-normalises. */
 function comparable(description: string): string {
-  return description.normalize("NFC").trim();
+  return description.replace(/\r\n/g, "\n").normalize("NFC").trim();
 }
 
 /**
@@ -65,14 +69,14 @@ export async function writeFields(
   target: StoryTarget,
   change: (fields: FieldBlock) => FieldBlock,
 ): Promise<FieldBlock> {
-  let read = (await viewStory(target)).description;
+  let read = (await viewStory(target, false)).description;
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
     const { fields } = parseFieldBlock(read);
     const next = FieldBlock.parse(change(fields));
     if (emitFieldBlock(next) === emitFieldBlock(fields)) return fields;
     const description = spliceFieldBlock(read, next);
 
-    const latest = (await viewStory(target)).description;
+    const latest = (await viewStory(target, false)).description;
     if (latest !== read) {
       read = latest;
       continue;
@@ -86,7 +90,7 @@ export async function writeFields(
       description,
     ]);
 
-    const back = (await viewStory(target)).description;
+    const back = (await viewStory(target, false)).description;
     if (comparable(back) !== comparable(description)) {
       throw new FieldWriteError(
         target.id,

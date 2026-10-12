@@ -10,6 +10,7 @@ import {
   editLabels,
   locateBlock,
   parseFieldBlock,
+  runBacklog,
   viewStory,
   writeFields,
   type BacklogCli,
@@ -57,6 +58,25 @@ describe("the field write path with the pinned Backlog.md CLI", () => {
           remove: ["tier:S"],
         });
         expect(labels).toMatchObject({ tiers: ["M"], testBeforeMerge: true, invalid: [] });
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("writes NFD text outside the block back byte for byte", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await repo.commitAll("fixture");
+        const cli: BacklogCli = { spawn: systemSpawn, command: BACKLOG_CLI, env: repo.env };
+        const target: StoryTarget = { cli, cwd: repo.dir, id: "TASK-2" };
+        const nfd = "Outcome: the café export keeps every röw as written.";
+        await runBacklog(cli, repo.dir, ["task", "edit", "TASK-2", "--description", nfd]);
+
+        await writeFields(target, (fields) => ({ ...fields, unknowns: [] }));
+
+        const raw = (await viewStory(target, false)).description;
+        expect(raw).toBe(`${nfd}\n\n\`\`\`dipo\nunknowns: []\n\`\`\``);
+        expect(raw).not.toBe(raw.normalize("NFC"));
       },
       { fixture: BACKLOG_FIXTURE },
     );

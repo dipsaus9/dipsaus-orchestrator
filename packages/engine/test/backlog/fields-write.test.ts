@@ -80,6 +80,17 @@ describe("writeFields", () => {
     expect(parseFieldBlock(cli.store.description).fields).toEqual(stored);
   });
 
+  it("writes NFD text outside the block back unchanged", async () => {
+    const nfd = `Outcome: the café export writes every röw.\n\n${BLOCK}`;
+    const cli = fakeCli(nfd);
+    await writeFields(cli.target, park);
+    const written = cli.commands[2]?.[4] ?? "";
+    expect(written.startsWith("Outcome: the café export writes every röw.\n\n```dipo\n")).toBe(
+      true,
+    );
+    expect(written).toBe(spliceFieldBlock(nfd, { ...parseFieldBlock(nfd).fields, park: PARK }));
+  });
+
   it("appends a block to a description without one", async () => {
     const cli = fakeCli(BEFORE.trim());
     await writeFields(cli.target, park);
