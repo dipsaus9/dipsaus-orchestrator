@@ -4,7 +4,7 @@ title: Start the TUI with the office store and the office switcher
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:58'
+updated_date: '2026-10-12 12:02'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -67,7 +67,7 @@ test_plan:
 - [ ] #6 `q` twice within 2 s quits and restores the terminal; Ctrl+C and SIGTERM restore it too.
 - [ ] #7 Below 60 columns or 16 rows a single list with "widen for detail" is shown; `NO_COLOR`, `--no-color`, `--ascii` and `--inline` are honoured.
 - [ ] #8 `packages/tui` imports only `contract` and `client`, and render tests use `render`, `press` and `frame` helpers with ANSI stripped.
-- [ ] #9 Enter in the office switcher sends the read `office.switch` (DIPO-52) and the store replaces its state with the returned snapshot; a render test shows it.
+- [ ] #9 Enter in the office switcher sends the read `office.switch` (DIPO-52); the store replaces its state with the returned snapshot, unsubscribes from the previous office stream and subscribes to `office:<id>` after the returned cursor (0005 section 8); a render test shows it.
 <!-- AC:END -->
 
 ## Implementation Notes
