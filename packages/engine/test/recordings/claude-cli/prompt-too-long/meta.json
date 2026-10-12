@@ -1,0 +1,11 @@
+{
+  "scenario": "prompt-too-long",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "No outcome yet: one new session with a 0014 handoff; a second hit parks budget-exceeded (0008 section 7).",
+  "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
+  "derivedFrom": "success-single",
+  "transform": "The result becomes error_during_execution with terminal_reason \"prompt_too_long\" and no report.",
+  "cites": ["Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)"]
+}

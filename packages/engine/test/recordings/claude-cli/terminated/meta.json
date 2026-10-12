@@ -1,0 +1,10 @@
+{
+  "scenario": "terminated",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "With no intent recorded the outcome is crashed; usage recovered from assistant messages; one resume if budget remains, else park worker-failed (0008 section 7).",
+  "usage_checksum": "ac38d680dbe27d697d7f3281f65cc98f3ba2c4c5f3e72e6c61772fd683d73c25",
+  "derivedFrom": "success-tools-subagent",
+  "transform": "Cut after the last assistant message before the first result; exit 143 with no result (SIGTERM)."
+}

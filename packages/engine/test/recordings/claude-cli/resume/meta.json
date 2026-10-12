@@ -1,0 +1,79 @@
+{
+  "scenario": "resume",
+  "source": "live",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Live pair: run, then --resume on the same session id. Resumed totals include earlier spend and must not be double counted.",
+  "usage_checksum": "bbf0874488ecb550a9ca16ab89d7c342d378b86b813ff98cbea0652fa8fa6be9",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "5",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 623,
+  "prompt_sha256": "5e79487b1fe0fe384701e0dc20d90124b0ea7c5f56de8efc0db20b06184146f5",
+  "processes": 2,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 306
+    },
+    {
+      "t": 6281,
+      "op": "closeStdin"
+    },
+    {
+      "t": 6796,
+      "op": "spawn",
+      "resume": true
+    },
+    {
+      "t": 6796,
+      "op": "user",
+      "bytes": 285
+    },
+    {
+      "t": 11908,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": []
+}

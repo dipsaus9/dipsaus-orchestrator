@@ -1,0 +1,10 @@
+{
+  "scenario": "report-invalid-missing",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "A turn that ends without a valid report: the same feedback turn, then park ambiguous-spec.",
+  "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
+  "derivedFrom": "success-single",
+  "transform": "The successful result loses its structured_output."
+}
