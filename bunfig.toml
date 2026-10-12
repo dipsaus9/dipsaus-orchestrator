@@ -1,0 +1,4 @@
+[test]
+# 0017 section 4: tests may not depend on order, and a flaky test is a bug, not something to retry.
+randomize = true
+retry = 0

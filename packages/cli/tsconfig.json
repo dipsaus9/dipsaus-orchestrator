@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": ".tsbuild",
+    "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../client"
+    },
+    {
+      "path": "../contract"
+    },
+    {
+      "path": "../daemon"
+    },
+    {
+      "path": "../tui"
+    }
+  ]
+}

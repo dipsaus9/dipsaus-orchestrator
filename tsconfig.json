@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": ".tsbuild",
+    "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo"
+  },
+  "include": ["scripts", "test"],
+  "exclude": ["test/lint-boundaries/fixtures"],
+  "references": [
+    { "path": "packages/contract" },
+    { "path": "packages/engine" },
+    { "path": "packages/daemon" },
+    { "path": "packages/client" },
+    { "path": "packages/tui" },
+    { "path": "packages/cli" },
+    { "path": "packages/testkit" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@dipsaus-orchestrator/tui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dipsaus-orchestrator/client": "workspace:*",
+    "@dipsaus-orchestrator/contract": "workspace:*"
+  }
+}

@@ -4,7 +4,48 @@ Open source, code-driven orchestration product: the maintainer and a model run t
 
 ## Status
 
-Pre-code. Stack chosen in ADR 0004: TypeScript on Bun, Bun workspaces, single binary `dipo`. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10, DIPO-13, DIPO-14) exist.
+M0 has started. Stack chosen in ADR 0004: TypeScript on Bun, single binary `dipo`. Vision, plan (`docs/plan.md`), decisions and architecture spikes (DIPO-1 to DIPO-10, DIPO-13, DIPO-14) exist.
+
+The repository is a Bun workspace (`packages/*`) with the packages `contract`, `engine`, `daemon`, `client`, `tui`, `cli` and the private test helpers `testkit`, all scoped `@dipsaus-orchestrator/*`. Import boundaries (0004) are oxlint rules in `.oxlintrc.json`, proven by `test/lint-boundaries/`.
+
+One command checks everything, locally, in workers and in CI:
+
+```sh
+bun run verify   # oxfmt --check, oxlint --deny-warnings, tsc -b, bun test; stops at the first failure
+```
+
+`bun run format:fix` rewrites formatting. Tests that only run in CI are named `*.ci.test.ts` and register only when `DIPO_TEST_CI=1`; local `bun test` stays under about 60 seconds. Tests write temp files and sockets only under `DIPO_TMP` (fallback `/tmp`) (0017).
+
+CI (0016): `.github/workflows/ci.yml` (jobs `verify`, `dependency-review`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
+
+Repository settings the maintainer applies by hand on `main` (0016 rule 2):
+
+- Required status checks: `ci-ok` and `pr-title` (app GitHub Actions).
+- `strict` on (require branches to be up to date before merging).
+- Squash merge commit title `PR_TITLE`, squash merge commit message `BLANK`.
+
+## Prerequisites
+
+- Bun at exactly the version in `.bun-version` (1.4.2). `engines.bun` in `package.json` is the same floor.
+- The Backlog CLI installed globally at the pinned version: `bun add -g backlog.md@1.53.0`.
+- `git` and `gh`.
+
+## Pinned versions
+
+Dependencies are pinned exactly in `package.json`. Later stories add the packages below that are not installed yet, at these versions.
+
+| Package | Version | Where |
+|---|---|---|
+| Bun | 1.4.2 (exact, `.bun-version`; 0004) | runtime, CI |
+| `@types/bun` | 1.4.2 (follows Bun) | root devDependency |
+| `zod` | 4.6 (4.x minor; pinned 4.6.5) | `contract` dependency |
+| `typescript` | 7.0.2 | root devDependency |
+| `oxlint` | 1.87.0 | root devDependency |
+| `oxfmt` | 0.72.0 | root devDependency |
+| `react` | 19.3.0 | `tui` (later story, 0009) |
+| `ink` | 8.0.0 | `tui` (later story, 0009) |
+| `@anthropic-ai/sandbox-runtime` | 0.0.79 | `engine` (later story, 0004 amendment) |
+| `backlog.md` | 1.53.0 (stays on 1.53.x) | global CLI; repository devDependency from DIPO-18 |
 
 ## Rules
 

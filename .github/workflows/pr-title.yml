@@ -1,0 +1,31 @@
+# Decision 0016 rule 1. Required check: `pr-title` (rule 2). Kept out of ci.yml so a retitle
+# reruns only this check.
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      # The title reaches the script only through the environment, never the shell.
+      - run: bun scripts/check-pr-title.ts
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
