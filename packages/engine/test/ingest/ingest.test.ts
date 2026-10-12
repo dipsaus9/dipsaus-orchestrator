@@ -14,7 +14,12 @@ import {
   Ingestor,
 } from "../../src/ingest/ingestor";
 import { toolLine } from "../../src/ingest/output";
-import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
+import {
+  type ClaudeParseState,
+  currentTotals,
+  initialState,
+  interpret,
+} from "../../src/workers/claude-cli/interpret";
 import type { HostLine, ParseState, UsageTotalsByModel } from "../../src/workers/types";
 import { loadRecording, plannedModel } from "../workers/replay";
 import { SCRIPTS, scriptedWorker } from "../workers/scripts";
@@ -233,6 +238,54 @@ describe("replaying success-tools-subagent", () => {
         "select sum(cache_create_1h) as h from usage_daily where office_id = $office_id",
       );
       expect(daily?.h).toBe(oneHour);
+    }));
+});
+
+describe("cache-creation parts add up to the total", () => {
+  for (const name of ["success-tools-subagent", "pause-now"]) {
+    it(`${name}: in usage_messages, usage_totals and usage_daily after replay`, () =>
+      withTempDir(async (dir) => {
+        const f = await ingestFixture(dir);
+        writeFileSync(f.eventFile, eventFileText(loadRecording(name)));
+        expect(
+          new Ingestor({ office: f.office, clock: f.t.clock }).track(
+            target(f, claude, claudeState(name)),
+          ).status,
+        ).toBe("ended");
+        for (const table of ["usage_messages", "usage_totals", "usage_daily"]) {
+          const rows = f.office.all<{ c: number; m5: number; h1: number }>(
+            `select cache_create as c, cache_create_5m as m5, cache_create_1h as h1
+             from ${table} where office_id = $office_id`,
+          );
+          expect(rows.length).toBeGreaterThan(0);
+          for (const row of rows) {
+            expect(row.m5 + row.h1).toBe(row.c);
+            expect(Math.min(row.m5, row.h1)).toBeGreaterThanOrEqual(0);
+          }
+        }
+        // The adapter's own run totals (pause-now keeps the aborted turn's spend, DIPO-42).
+        let state = claudeState(name) as unknown as ClaudeParseState;
+        for (const line of hostLines(loadRecording(name))) state = interpret(line, state).state;
+        const want = currentTotals(state);
+        for (const row of totalsOf(f.office, f.run)) {
+          expect(row.cache_create).toBe(want[row.model]?.cacheCreate ?? -1);
+          expect(row.input).toBe(want[row.model]?.input ?? -1);
+        }
+      }));
+  }
+
+  it("the database refuses a totals row whose parts do not add up", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      writeFileSync(f.eventFile, eventFileText(loadRecording("success-single")));
+      new Ingestor({ office: f.office, clock: f.t.clock }).track(
+        target(f, claude, claudeState("success-single")),
+      );
+      expect(() =>
+        f.office.run(
+          "update usage_totals set cache_create = cache_create + 1 where office_id = $office_id",
+        ),
+      ).toThrow("CHECK constraint failed");
     }));
 });
 

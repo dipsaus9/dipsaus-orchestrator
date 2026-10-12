@@ -4,9 +4,12 @@
 //
 // Cache creation is stored as its total and its 5 minute and 1 hour parts (0007 section 4).
 // Per-message `output` is what the message reports, which may be a placeholder until the turn
-// ends; run totals take output from the turn end. In `usage_totals` the two parts are the sum over
-// counted messages, while `cache_create` is replaced by the adapter's cumulative total at each
-// turn end. Estimated cost columns stay null until pricing (DIPO-62).
+// ends; run totals take output from the turn end. Every usage table keeps
+// `cache_create = cache_create_5m + cache_create_1h` (a CHECK). In `usage_totals` the parts are sums
+// over counted messages until a turn end replaces `cache_create` with the adapter's cumulative
+// total; then the 1 hour part is capped at that total and the 5 minute part is the rest, the same
+// rule the adapter applies per message. Pricing (DIPO-62) reads the two parts directly, never a
+// split of the total. Estimated cost columns stay null until then.
 
 import type { SqlMigration } from "../migrations";
 
@@ -46,6 +49,7 @@ create table usage_messages (
   cache_create_1h integer not null,
   cache_read integer not null,
   at integer not null,
+  check (cache_create = cache_create_5m + cache_create_1h),
   primary key (office_id, agent_id, message_id),
   foreign key (office_id, agent_id) references agents (office_id, agent_id)
 ) strict;
@@ -72,6 +76,7 @@ create table usage_totals (
   pricing_version text,
   final integer not null default 0 check (final in (0, 1)),
   updated_at integer not null,
+  check (cache_create = cache_create_5m + cache_create_1h),
   primary key (office_id, run_id, agent_id, model),
   foreign key (office_id, agent_id) references agents (office_id, agent_id)
 ) strict;
@@ -93,6 +98,7 @@ create table usage_daily (
   est_cost_micros integer,
   budget_used integer not null default 0,
   budget_limit_sum integer not null default 0,
+  check (cache_create = cache_create_5m + cache_create_1h),
   primary key (office_id, day, role, tier, model)
 ) strict;
 

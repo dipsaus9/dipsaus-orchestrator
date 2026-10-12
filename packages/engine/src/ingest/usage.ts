@@ -135,7 +135,10 @@ export function applyTurnTotals(
   for (const { model } of models) {
     const usage = totals[model] ?? { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
     office.run(
+      // The 1 hour part is what messages reported, capped at the new total; 5 minute is the rest.
       `update usage_totals set input = $input, output = $output, cache_create = $create,
+         cache_create_1h = min(cache_create_1h, $create),
+         cache_create_5m = $create - min(cache_create_1h, $create),
          cache_read = $read, turns = turns + $turns, updated_at = $at
        where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
       {
