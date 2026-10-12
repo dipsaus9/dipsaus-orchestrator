@@ -29,6 +29,7 @@ export const ROOT = "packages";
 export const ENTRYPOINTS = [
   "packages/cli/src/main.ts",
   "packages/engine/src/platform/self-check-worker.ts",
+  "packages/engine/src/platform/sqlite-worker.ts",
 ] as const;
 
 /**
