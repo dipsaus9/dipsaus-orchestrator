@@ -1,10 +1,10 @@
 ---
 id: DIPO-44
 title: Host each worker in a detached process with an event file
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:05'
+updated_date: '2026-10-12 14:07'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -90,3 +90,9 @@ CI follow-up: on Linux a parent that runs with --no-orphans kills its detached c
 
 Review follow-up: launch.json is removed whenever a host does not start (launchWorkerHost on a spawn error or HostStartError; the worker-host form before every refusal when DIPO_RUN_DIR is absolute). Plan files may not use the run files the engine or host writes (RESERVED_RUN_FILES). LineSplitter holds at most 4 MiB of a line and emits a longer one in pieces, each its own event. The host fixes the hosts directory to 0700 with ensurePrivateDir. A failure while preparing or binding the host socket ends in exit.json with a startError. Retention of events.ndjson belongs to DIPO-4 and DIPO-45. DIPO-70 must strip both BUN_OPTIONS and BUN_FEATURE_FLAG_NO_ORPHANS when it starts the daemon. An ADR 0006 amendment about BUN_FEATURE_FLAG_NO_ORPHANS and the Linux behaviour will be proposed to the maintainer.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Detached worker hosts: host/ (launch.json read and removed at once, plan files 0600 in a 0700 run dir, private hosts dir, worker spawned detached, events.ndjson {t,ch,data} lines with a capped line buffer, host protocol v1 with hello run id + versions and ops write/signal(afterMs)/closeStdin/status/watch, delayed signals cancelled on exit, process-group SIGKILL, exit.json always written, host.log capped at 5 MB); engine runs/worker-hosts.ts (launch.json, detached host start stripping BUN_OPTIONS and BUN_FEATURE_FLAG_NO_ORPHANS, worker_hosts table migration 3, hostAlive by pid + start time); platform systemSpawn/systemSpawnDetached/signalGroup/line socket; daemon worker-host form; host/ lint boundary. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
