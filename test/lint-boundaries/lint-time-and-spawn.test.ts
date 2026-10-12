@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { lintTree, type Diagnostic } from "./lint-tree";
+import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 
 const GLOBALS = "eslint(no-restricted-globals)";
 const PROPERTIES = "eslint(no-restricted-properties)";
@@ -60,21 +60,29 @@ function lintViolations() {
 
 describe("oxlint time and synchronous process bans", () => {
   violations.forEach((c, i) => {
-    it(`reports ${c.fixture} in ${c.dir} with ${c.rule}`, () => {
-      const { exitCode, diagnostics } = lintViolations();
-      expect(exitCode).not.toBe(0);
-      const hits = diagnostics.filter(
-        (d) => d.code === c.rule && d.severity === "error" && d.filename === target(c, i),
-      );
-      expect(hits.length).toBeGreaterThan(0);
-    });
+    it(
+      `reports ${c.fixture} in ${c.dir} with ${c.rule}`,
+      () => {
+        const { exitCode, diagnostics } = lintViolations();
+        expect(exitCode).not.toBe(0);
+        const hits = diagnostics.filter(
+          (d) => d.code === c.rule && d.severity === "error" && d.filename === target(c, i),
+        );
+        expect(hits.length).toBeGreaterThan(0);
+      },
+      LINT_TIMEOUT_MS,
+    );
   });
 
-  it("allows the real clock in the platform module and testkit, and new Date(value)", () => {
-    const { exitCode, diagnostics } = lintTree(
-      allowed.map((c, i) => ({ fixture: c.fixture, target: target(c, i) })),
-    );
-    expect(diagnostics).toEqual([]);
-    expect(exitCode).toBe(0);
-  });
+  it(
+    "allows the real clock in the platform module and testkit, and new Date(value)",
+    () => {
+      const { exitCode, diagnostics } = lintTree(
+        allowed.map((c, i) => ({ fixture: c.fixture, target: target(c, i) })),
+      );
+      expect(diagnostics).toEqual([]);
+      expect(exitCode).toBe(0);
+    },
+    LINT_TIMEOUT_MS,
+  );
 });

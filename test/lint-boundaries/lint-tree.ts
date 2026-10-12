@@ -13,6 +13,13 @@ const CONFIG_FILES = [".oxlintrc.json", "tools/lint/oxlint-plugin.js"];
 // Temp files only under DIPO_TMP (0017), falling back to /tmp.
 const TMP_ROOT = process.env["DIPO_TMP"] || "/tmp";
 
+/**
+ * Per-test timeout for the lint boundary tests. One oxlint run over a scratch tree takes about a
+ * second, but under a loaded machine (CI, parallel agents) it has taken close to a minute, and a
+ * shared run is paid by whichever test runs first in random order.
+ */
+export const LINT_TIMEOUT_MS = 180_000;
+
 export type Placement = { fixture: string; target: string };
 export type Diagnostic = { code: string; severity: string; filename: string };
 
