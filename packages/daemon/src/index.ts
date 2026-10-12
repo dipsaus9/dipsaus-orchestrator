@@ -1,41 +1,90 @@
-// The daemon package's public surface is `runDaemon(argv)` (0004): every form of the binary that runs
-// daemon-side code calls it, and it dispatches on the first argument. Later stories add
-// `--foreground`, `worker-host`, `wait-pid`, `sandbox-exec` and `hook`.
+// The daemon package's only export is `runDaemon(argv)` (0004, 0006 decision 2): every form of the
+// binary that runs daemon-side code calls it with the arguments after `daemon` (or `self-check`),
+// and it dispatches on the first one. The table below is the one place a form is added; later
+// stories add `sandbox-exec` (DIPO-37), `hook` (DIPO-59) and `restore` (DIPO-76).
 
 import { tmpdir } from "node:os";
 
 import { platformSelfChecks } from "@dipsaus-orchestrator/engine";
 
+import { FOREGROUND_USAGE, runForeground } from "./foreground";
+import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
 
-export const packageName = "@dipsaus-orchestrator/daemon";
-
-export type DaemonIo = {
-  readonly writeLine: (line: string) => void;
-  readonly writeError: (line: string) => void;
-  readonly env: Readonly<Record<string, string | undefined>>;
+type Form = {
+  /** Shown in the usage message; hidden forms have none. */
+  readonly usage: string | null;
+  readonly run: (args: readonly string[], io: DaemonIo) => Promise<number>;
 };
 
-const defaultIo: DaemonIo = {
-  writeLine: (line) => process.stdout.write(`${line}\n`),
-  writeError: (line) => process.stderr.write(`${line}\n`),
-  env: process.env,
-};
+const RUN_ID = /^run_[0-9A-HJKMNP-TV-Z]{26}$/;
+
+const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
+  ["--foreground", { usage: FOREGROUND_USAGE, run: runForeground }],
+  [
+    "worker-host",
+    {
+      usage: "dipo daemon worker-host <run-id>",
+      run: async (args, io) => {
+        const [runId, ...rest] = args;
+        if (runId === undefined || !RUN_ID.test(runId) || rest.length > 0) {
+          return usageError(io, "worker-host needs one run id (run_<ulid>)");
+        }
+        // The host itself is DIPO-44.
+        io.writeError("dipo: daemon worker-host is not available in this build yet");
+        return 1;
+      },
+    },
+  ],
+  [
+    "wait-pid",
+    {
+      usage: "dipo daemon wait-pid <pid>",
+      run: async (args, io) => {
+        const [pid, ...rest] = args;
+        if (pid === undefined || !/^[1-9]\d*$/.test(pid) || rest.length > 0) {
+          return usageError(io, "wait-pid needs one process id");
+        }
+        // Keep-awake's wait-pid is DIPO-63.
+        io.writeError("dipo: daemon wait-pid is not available in this build yet");
+        return 1;
+      },
+    },
+  ],
+  // Hidden: the daemon side of `dipo self-check` (DIPO-17).
+  [
+    "self-check",
+    {
+      usage: null,
+      run: async (_args, io) => {
+        // Temporary files only under DIPO_TMP when it is set (0017).
+        const tmpRoot = io.env["DIPO_TMP"] || tmpdir();
+        return runSelfChecks(platformSelfChecks(tmpRoot), io.writeLine);
+      },
+    },
+  ],
+]);
+
+function usage(): string {
+  const lines = [...FORMS.values()]
+    .map((form) => form.usage)
+    .filter((line): line is string => line !== null);
+  return `usage:\n${lines.map((line) => `  ${line}`).join("\n")}`;
+}
+
+function usageError(io: DaemonIo, message: string): number {
+  io.writeError(`dipo: ${message}\n${usage()}`);
+  return 2;
+}
 
 /** Runs one daemon-side form and resolves to its exit code. */
 export async function runDaemon(
   argv: readonly string[],
-  io: DaemonIo = defaultIo,
+  io: Partial<DaemonIo> = {},
 ): Promise<number> {
-  const [form] = argv;
-  switch (form) {
-    case "self-check": {
-      // Temporary files only under DIPO_TMP when it is set (0017).
-      const tmpRoot = io.env["DIPO_TMP"] || tmpdir();
-      return runSelfChecks(platformSelfChecks(tmpRoot), io.writeLine);
-    }
-    default:
-      io.writeError(`dipo: unknown daemon form ${JSON.stringify(form ?? "")}`);
-      return 2;
-  }
+  const full: DaemonIo = { ...defaultIo, ...io };
+  const [name = "", ...args] = argv;
+  const form = FORMS.get(name);
+  if (form === undefined) return usageError(full, `unknown daemon form ${JSON.stringify(name)}`);
+  return form.run(args, full);
 }
