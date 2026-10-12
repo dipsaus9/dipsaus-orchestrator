@@ -46,11 +46,38 @@ import {
   softwareEvents,
   softwareReads,
 } from "./software";
+import { FieldBlock } from "./fieldblock";
+import { officeCommands, officeEvents, officeReads, OfficeSnapshot } from "./office";
 import { CONTRACT_VERSION, ContractVersion } from "./version";
+import {
+  Evidence,
+  GateKind,
+  GateView,
+  Health,
+  Lifecycle,
+  ParkReason,
+  Phase,
+  Progress,
+  QueueColumn,
+  QuestionView,
+  Signal,
+  SkipReason,
+  StoryRef,
+  StoryView,
+  TestView,
+  Tier,
+  Usage,
+  UsageTotals,
+  WorkRef,
+  WorkView,
+} from "./work";
 
-export const contractCommands: readonly CommandDefinition[] = [...softwareCommands];
-export const contractReads: readonly ReadDefinition[] = [...softwareReads];
-export const contractEvents: readonly EventDefinition[] = [...softwareEvents];
+export const contractCommands: readonly CommandDefinition[] = [
+  ...softwareCommands,
+  ...officeCommands,
+];
+export const contractReads: readonly ReadDefinition[] = [...softwareReads, ...officeReads];
+export const contractEvents: readonly EventDefinition[] = [...softwareEvents, ...officeEvents];
 
 export function findCommand(name: string): CommandDefinition | undefined {
   return contractCommands.find((definition) => definition.name === name);
@@ -109,6 +136,32 @@ const sharedSchemas: Record<string, z.ZodType> = {
   ServerFrame,
 };
 
+// The story and work model, its views and the field block.
+const workSchemas: Record<string, z.ZodType> = {
+  Lifecycle,
+  Tier,
+  ParkReason,
+  SkipReason,
+  Phase,
+  Signal,
+  Health,
+  QueueColumn,
+  GateKind,
+  Evidence,
+  StoryRef,
+  WorkRef,
+  Progress,
+  UsageTotals,
+  Usage,
+  StoryView,
+  WorkView,
+  GateView,
+  QuestionView,
+  TestView,
+  OfficeSnapshot,
+  FieldBlock,
+};
+
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
 function document(title: string, defs: Record<string, JsonSchema>): JsonSchema {
@@ -127,6 +180,11 @@ export function contractJsonSchemas(): Record<string, JsonSchema> {
   const shared: Record<string, JsonSchema> = {};
   for (const [name, schema] of Object.entries(sharedSchemas)) {
     shared[name] = jsonSchemaOf(schema);
+  }
+
+  const work: Record<string, JsonSchema> = {};
+  for (const [name, schema] of Object.entries(workSchemas)) {
+    work[name] = jsonSchemaOf(schema);
   }
 
   const commands: Record<string, JsonSchema> = {};
@@ -148,6 +206,7 @@ export function contractJsonSchemas(): Record<string, JsonSchema> {
 
   return {
     "shared.schema.json": document("ids, frames, envelopes and errors", shared),
+    "work.schema.json": document("story and work model, views and the field block", work),
     "commands.schema.json": document("command args and results", commands),
     "reads.schema.json": document("read args and results", reads),
     "events.schema.json": document("event data", events),

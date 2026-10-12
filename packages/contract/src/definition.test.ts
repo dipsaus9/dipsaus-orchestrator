@@ -47,7 +47,18 @@ describe("command and read definitions", () => {
 
   it("marks the commands of 0005 section 4 that ask first", () => {
     const confirmed = contractCommands.filter((d) => d.confirm).map((d) => d.name);
-    expect(confirmed.toSorted()).toEqual(["daemon.stop", "office.forget", "office.purge"]);
+    expect(confirmed.toSorted()).toEqual(
+      [
+        "daemon.stop",
+        "office.forget",
+        "office.purge",
+        "gate.reject",
+        "work.stop",
+        "work.discard",
+        "story.drop",
+        "work.reassign",
+      ].toSorted(),
+    );
   });
 });
 
