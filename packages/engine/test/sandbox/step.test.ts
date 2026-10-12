@@ -108,7 +108,7 @@ const REQUEST: StepRequest = {
   mainCheckout: "/src/p",
   home: "/home/m",
   uid: 501,
-  sandbox: { toolchainPaths: ["~/.bun/install/cache"], registryHosts: ["registry.npmjs.org"] },
+  sandbox: { installCachePaths: ["~/.bun/install/cache"], registryHosts: ["registry.npmjs.org"] },
   scriptMinutes: { install: 15, verify: 20 },
   env: {
     PATH: "/usr/bin:/bin",
@@ -391,7 +391,7 @@ describe("runSandboxedStep", () => {
         ...REQUEST,
         kind: "install",
         script: "install",
-        sandbox: { toolchainPaths: ["~/.cache/*"], registryHosts: [] },
+        sandbox: { installCachePaths: ["~/.cache/*"], registryHosts: [] },
       },
     );
     await settleMany();

@@ -706,13 +706,23 @@
     "sandbox": {
       "type": "object",
       "properties": {
-        "toolchainPaths": {
+        "toolchainReadPaths": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1,
             "pattern": "^(?:~\\/|\\/)"
-          }
+          },
+          "description": "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too."
+        },
+        "installCachePaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?:~\\/|\\/)"
+          },
+          "description": "Package caches an install step may write (0008 section 2, 2026-10-12 amendment). A cache that holds a PATH directory or the dipo or bun binary refuses the step."
         },
         "registryHosts": {
           "type": "array",

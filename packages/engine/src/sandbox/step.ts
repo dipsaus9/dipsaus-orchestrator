@@ -96,7 +96,7 @@ export interface StepRequest {
   /** The user id, for `/run/user/<uid>`. */
   readonly uid: number;
   readonly sandbox: {
-    readonly toolchainPaths: readonly string[];
+    readonly installCachePaths: readonly string[];
     readonly registryHosts: readonly string[];
   };
   readonly scriptMinutes: Readonly<Record<string, number>>;
@@ -157,7 +157,7 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
       tempRoot,
       dipoDirs,
       sshAuthSock: request.env["SSH_AUTH_SOCK"],
-      toolchainPaths: request.sandbox.toolchainPaths,
+      installCachePaths: request.sandbox.installCachePaths,
       registryHosts: request.sandbox.registryHosts,
     };
 

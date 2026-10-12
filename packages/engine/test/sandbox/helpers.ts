@@ -80,7 +80,7 @@ export function request(
     mainCheckout: layout.main,
     home: layout.home,
     uid: process.getuid?.() ?? 0,
-    sandbox: { toolchainPaths: [], registryHosts: [] },
+    sandbox: { installCachePaths: [], registryHosts: [] },
     scriptMinutes: { install: 2, verify: 2 },
     // dipo's own directories are derived from these (DIPO-23 path rules).
     env: {

@@ -49,8 +49,8 @@ const PromptBudgets = z
     `Prompt section budgets per project size class (0014 section 4), in characters unless the name says lines. ${SIZE_CLASSES}`,
   );
 
-// 0008 section 2: a toolchain path is absolute or starts at the home directory (`~/`). The
-// sandbox stories (DIPO-37, DIPO-40) expand `~` against the injected home.
+// 0008 section 2: a toolchain read path or install cache is absolute or starts at the home
+// directory (`~/`). The sandbox stories (DIPO-37, DIPO-40) expand `~` against the injected home.
 const ToolchainPath = text().regex(/^(?:~\/|\/)/, "must start with ~/ or /");
 
 // 0010 section 8.
@@ -120,7 +120,16 @@ const officeShape = {
     contractMax: count(),
   }),
   sandbox: z.strictObject({
-    toolchainPaths: z.array(ToolchainPath),
+    toolchainReadPaths: z
+      .array(ToolchainPath)
+      .describe(
+        "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too.",
+      ),
+    installCachePaths: z
+      .array(ToolchainPath)
+      .describe(
+        "Package caches an install step may write (0008 section 2, 2026-10-12 amendment). A cache that holds a PATH directory or the dipo or bun binary refuses the step.",
+      ),
     registryHosts: z.array(text()),
     allowRead: z.array(text()),
     allowedDomains: z.array(text()),
@@ -297,11 +306,13 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     },
     contractMax: 12_000,
   },
-  // 0008 section 2. `~` is the maintainer's home directory. The toolchain defaults are the package
-  // caches only (DIPO-37 review): an install step may write them, so no default may hold a PATH
-  // directory or the bun and dipo binaries (`~/.bun/bin`).
+  // 0008 section 2 and its 2026-10-12 amendment. `~` is the maintainer's home directory. The read
+  // list keeps `bun` and `npm` runnable for the worker. The install caches are the package
+  // caches only: an install step writes them, so no default may hold a PATH directory or the bun
+  // and dipo binaries (`~/.bun/bin`), and `~/.cache` is not written by default.
   sandbox: {
-    toolchainPaths: ["~/.bun/install/cache", "~/.npm/_cacache", "~/.cache"],
+    toolchainReadPaths: ["~/.bun", "~/.npm", "~/.cache"],
+    installCachePaths: ["~/.bun/install/cache", "~/.npm/_cacache"],
     registryHosts: [],
     allowRead: [],
     allowedDomains: [],

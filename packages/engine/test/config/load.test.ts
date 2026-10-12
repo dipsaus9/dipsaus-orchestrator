@@ -282,15 +282,25 @@ describe("precedence and merge", () => {
     expect(result.config.worktree.ports).toEqual({ stride: 10, named: { PORT: 3000 } });
   });
 
-  it("refuses a toolchain path that is neither absolute nor under ~/", () => {
-    const [error, ...rest] = errors(
-      resolveOfficeConfig({
-        office: "version: 1\nsandbox: { toolchainPaths: [~/.bun, /opt/tools, .cache] }\n",
-      }),
+  for (const key of ["toolchainReadPaths", "installCachePaths"]) {
+    it(`refuses a ${key} entry that is neither absolute nor under ~/`, () => {
+      const [error, ...rest] = errors(
+        resolveOfficeConfig({
+          office: `version: 1\nsandbox: { ${key}: [~/.bun, /opt/tools, .cache] }\n`,
+        }),
+      );
+      expect(rest).toEqual([]);
+      expect(error?.path).toBe(`sandbox.${key}.2`);
+      expect(error?.message).toContain("must start with ~/ or /");
+    });
+  }
+
+  it("refuses the old single toolchainPaths key", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 1\nsandbox: { toolchainPaths: [~/.bun] }\n" }),
     );
-    expect(rest).toEqual([]);
-    expect(error?.path).toBe("sandbox.toolchainPaths.2");
-    expect(error?.message).toContain("must start with ~/ or /");
+    expect(error?.path).toBe("sandbox.toolchainPaths");
+    expect(error?.expected).toContain("toolchainReadPaths, installCachePaths");
   });
 
   it("sets base only when a file names it", () => {

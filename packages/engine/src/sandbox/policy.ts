@@ -4,8 +4,9 @@
 //
 // The policy: writes to the worktree and the step temp root, `denyWrite` on `<main>/.git` and
 // `<worktree>/.git`, `denyRead` on the secret paths, Unix sockets under the temp root, network
-// closed for verify. Install adds `allowWrite` on the office's toolchain paths and network to its
-// registry hosts only. On Linux `srt` takes literal write paths: a trailing `/**` is dropped and
+// closed for verify. Install adds `allowWrite` on the office's install caches and network to its
+// registry hosts only. The office's toolchain read paths need no entry: srt has no home-wide read
+// block, so `bun` and `npm` stay readable for every step (0008 amendment of 2026-10-12). On Linux `srt` takes literal write paths: a trailing `/**` is dropped and
 // other globs are skipped with a warning.
 //
 // Beyond 0008's list (DIPO-37 review): more secret files, dipo's own state and runtime
@@ -32,7 +33,7 @@ export interface SandboxTools {
 export interface SandboxRun {
   readonly platform: DipoPlatform;
   readonly kind: StepPolicyKind;
-  /** The home directory the secret paths and `~/` toolchain paths are resolved against. */
+  /** The home directory the secret paths and `~/` install caches are resolved against. */
   readonly home: string;
   /** The user id, for `/run/user/<uid>`. */
   readonly uid: number;
@@ -46,8 +47,11 @@ export interface SandboxRun {
   readonly dipoDirs: readonly string[];
   /** `SSH_AUTH_SOCK` of the daemon, when set; its directory is read-denied. */
   readonly sshAuthSock?: string | undefined;
-  /** `sandbox.toolchainPaths` of the office: absolute or starting with `~/`. */
-  readonly toolchainPaths: readonly string[];
+  /**
+   * `sandbox.installCachePaths` of the office: absolute or starting with `~/`. Install writes them;
+   * one that holds a PATH directory or the dipo or bun binary refuses the step (`trustViolations`).
+   */
+  readonly installCachePaths: readonly string[];
   /** `sandbox.registryHosts` of the office. */
   readonly registryHosts: readonly string[];
   /** Pinned host programs; when given they go into the settings file. */
@@ -159,9 +163,9 @@ export function translatePolicy(run: SandboxRun): TranslatedPolicy {
     return unique(kept);
   };
 
-  const toolchain =
-    run.kind === "install" ? run.toolchainPaths.map((path) => expandHome(path, run.home)) : [];
-  const allowWrite = literal("allowWrite", [run.worktree, run.tempRoot, ...toolchain]);
+  const caches =
+    run.kind === "install" ? run.installCachePaths.map((path) => expandHome(path, run.home)) : [];
+  const allowWrite = literal("allowWrite", [run.worktree, run.tempRoot, ...caches]);
   const denyWrite = literal("denyWrite", [
     joinPath(run.mainCheckout, ".git"),
     joinPath(run.worktree, ".git"),
