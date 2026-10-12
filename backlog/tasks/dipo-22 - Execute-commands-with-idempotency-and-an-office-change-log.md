@@ -4,7 +4,7 @@ title: Execute commands with idempotency and an office change log
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:11'
+updated_date: '2026-10-12 12:15'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -88,4 +88,6 @@ Implementation (DIPO-22):
 - replay(office, after) also asks for a reset when the cursor names another office's stream or a seq past the head.
 - Renderer: the default rendering is the delta, with the stored view filling a data field named view (story.state); per-type overrides; every rendered event is parsed with its contract schema and a RenderError is thrown otherwise.
 - Registry: FeatureModule { name, register(registry) } with addOfficeCommand, addSoftwareCommand and addRead; checkVersioning and the command level are checked at registration; features.ts lists the modules (today reads/describe, which serves commands.describe from the registry, provisional ones left out).
+
+After merging DIPO-26: the request args hash uses the one canonicalJson in packages/engine/src/config/merge.ts (same behaviour: sorted keys, undefined dropped), so commands/requests.ts no longer has its own; config/ is only imported, not edited. With zod now a direct engine dependency, the registry uses z.output/z.input and story reference fields are found with zod classes instead of structural types. Migration numbering unchanged (2); DIPO-26 added none.
 <!-- SECTION:NOTES:END -->
