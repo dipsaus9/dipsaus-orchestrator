@@ -349,3 +349,18 @@ describe("allowlist", () => {
     expect(valuesAt({ a: [{ b: 1 }, { b: 2 }] }, "a.*.b")).toEqual([1, 2]);
   });
 });
+
+describe("normaliser on keys", () => {
+  it("normalises object keys that are ids, consistently with the same id as a value", () => {
+    const scrubber = new Scrubber(ROOTS);
+    const assistant = scrubber.stdout({
+      type: "assistant",
+      message: {
+        content: [{ type: "tool_use", id: "toolu_01KEYabcdefghij", name: "StructuredOutput" }],
+      },
+      wire_tool_inputs: { toolu_01KEYabcdefghij: { status: "done" } },
+    }) as Record<string, any>;
+    expect(assistant.message.content[0].id).toBe("toolu-1");
+    expect(Object.keys(assistant.wire_tool_inputs)).toEqual(["toolu-1"]);
+  });
+});

@@ -39,6 +39,7 @@ const COMMON: readonly PathRule[] = [
   ["tool_use_id", "id"],
   ["agent_id", "id"],
   ["task_id", "id"],
+  ["api_message_id", "id"],
   ["is_error", "keep"],
   ["model", "keep"],
   ["stop_reason", "keep"],
@@ -54,6 +55,7 @@ const CONTENT_BLOCKS = (prefix: string): PathRule[] => [
   [`${prefix}.*.id`, "id"],
   [`${prefix}.*.tool_use_id`, "id"],
   [`${prefix}.*.is_error`, "keep"],
+  [`${prefix}.*.caller.type`, "keep"],
 ];
 
 /**
@@ -102,9 +104,24 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     ["hook_event_name", "keep"],
     ["outcome", "keep"],
   ],
-  "system/task_started": [["task_type", "keep"]],
-  "system/task_progress": [["last_tool_name", "keep"], USAGE("usage")],
-  "system/task_notification": [["status", "keep"], USAGE("usage")],
+  "system/task_started": [
+    ["task_type", "keep"],
+    ["subagent_type", "keep"],
+    ["run_id", "id"],
+  ],
+  "system/task_progress": [
+    ["last_tool_name", "keep"],
+    ["subagent_type", "keep"],
+    ["run_id", "id"],
+    USAGE("usage"),
+  ],
+  "system/task_notification": [["status", "keep"], ["run_id", "id"], USAGE("usage")],
+  "system/task_updated": [
+    ["patch.status", "keep"],
+    ["status", "keep"],
+  ],
+  "system/background_tasks_changed": [],
+  "system/thinking_tokens": [],
   "system/files_persisted": [],
   assistant: [
     ["error", "keep"],
@@ -114,9 +131,19 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     ["message.model", "keep"],
     ["message.stop_reason", "keep"],
     ...CONTENT_BLOCKS("message.content"),
+    ["subagent_type", "keep"],
     USAGE("message.usage"),
   ],
-  user: [["message.role", "keep"], ...CONTENT_BLOCKS("message.content")],
+  user: [
+    ["message.role", "keep"],
+    ...CONTENT_BLOCKS("message.content"),
+    ["tool_result_meta.*.id", "id"],
+    ["tool_result_meta.*.permission_decision.decision", "keep"],
+    ["tool_result_meta.*.permission_decision.source", "keep"],
+    ["tool_result_meta.*.permission_decision.reason_type", "keep"],
+    ["tool_result_meta.*.non_execution_kind", "keep"],
+    ["subagent_type", "keep"],
+  ],
   stream_event: [
     ["event.type", "keep"],
     ["event.message.id", "id"],
@@ -129,6 +156,7 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     ["event.content_block.name", "keep"],
     ["event.content_block.id", "id"],
     ["event.content_block.tool_use_id", "id"],
+    ["event.content_block.caller.type", "keep"],
     ["event.delta.type", "keep"],
     ["event.delta.stop_reason", "keep"],
     USAGE("event.usage"),
@@ -292,6 +320,10 @@ const ID_PREFIXES: readonly [RegExp, string][] = [
   [/^srvtoolu_/, "srvtoolu"],
 ];
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An API id such as `toolu_01...`, as a whole string (not a word like `msg_lifecycle_v1`). */
+const RAW_ID = /^(?:msg|toolu|req|srvtoolu)_0[0-9A-Za-z]{10,}$/;
+
 const ID_KEY_PREFIX: Readonly<Record<string, string>> = {
   session_id: "session",
   uuid: "uuid",
@@ -374,7 +406,9 @@ export class Scrubber {
   }
 
   private key(key: string): string {
-    // Keys are structure (field names, model ids). A key that looks like a path is data.
+    // Keys are structure (field names, model ids). A key that is an id (`wire_tool_inputs` is
+    // keyed by tool use id) is normalised like any id; a key that looks like a path is data.
+    if (RAW_ID.test(key) || UUID.test(key)) return this.id(key, "");
     return key.includes("/") ? redact(key) : key;
   }
 
