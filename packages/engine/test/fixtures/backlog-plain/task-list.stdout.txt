@@ -1,0 +1,13 @@
+Refined:
+  TASK-2 - Rename the export setting (ac: 0/1)
+  TASK-4 - Describe a fake section (ac: 0/1)
+
+Ready:
+  TASK-1 - Add the CSV export command (ac: 0/2)
+
+In Progress:
+  [HIGH] [feature] TASK-1.1 - Ship the full export (ac: 1/2) (due 2026-12-01)
+
+Parked:
+  TASK-3 - Export stories as JSON (ac: 0/1)
+
