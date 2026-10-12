@@ -168,3 +168,101 @@ export function systemProcessProbe(platform: DipoPlatform): ProcessProbe {
   const read = platform === "linux" ? probeLinux : probeDarwin;
   return async (pid) => (pidExists(pid) ? read(pid) : null);
 }
+
+/** A child process the daemon started itself and must wait for before it exits (0006 decision 7). */
+export interface ChildHandle {
+  readonly pid: number;
+  /** Settles when the process has exited. */
+  readonly exited: Promise<unknown>;
+}
+
+export interface SpawnChildOptions {
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly stdin?: "ignore" | "pipe";
+  readonly stdout?: "ignore" | "pipe";
+  readonly stderr?: "ignore" | "pipe";
+}
+
+/**
+ * The child processes the daemon started itself (DIPO-68). The drain waits for every one of them
+ * and, at the drain cap, kills the process group of each one still running. Children are spawned
+ * in their own session and process group (`detached: true`, `setsid`), so one `kill(-pid)` also
+ * reaches their descendants. Worker hosts are never tracked here: they outlive the daemon
+ * (0006 decision 8).
+ */
+export class ChildProcesses {
+  readonly #children = new Map<number, ChildHandle>();
+  readonly #idleWaiters: (() => void)[] = [];
+
+  /** Spawns `cmd` in a new process group and tracks it until it exits. */
+  spawn(
+    cmd: readonly string[],
+    options: SpawnChildOptions = {},
+  ): Bun.Subprocess<"ignore" | "pipe", "ignore" | "pipe", "ignore" | "pipe"> {
+    const child = Bun.spawn({
+      cmd: [...cmd],
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.env === undefined ? {} : { env: { ...options.env } }),
+      stdin: options.stdin ?? "ignore",
+      stdout: options.stdout ?? "ignore",
+      stderr: options.stderr ?? "ignore",
+      detached: true,
+    });
+    this.track(child);
+    return child;
+  }
+
+  /** Tracks a child started elsewhere; it should lead its own process group. */
+  track(child: ChildHandle): void {
+    this.#children.set(child.pid, child);
+    const done = () => {
+      if (this.#children.get(child.pid) !== child) return;
+      this.#children.delete(child.pid);
+      if (this.#children.size === 0) {
+        for (const resolve of this.#idleWaiters.splice(0)) resolve();
+      }
+    };
+    child.exited.then(done, done);
+  }
+
+  /** The PIDs of the tracked children still running. */
+  pids(): number[] {
+    return [...this.#children.keys()];
+  }
+
+  get size(): number {
+    return this.#children.size;
+  }
+
+  /** Resolves once no tracked child is running, including children tracked while waiting. */
+  waitAll(): Promise<void> {
+    if (this.#children.size === 0) return Promise.resolve();
+    return new Promise((resolve) => this.#idleWaiters.push(resolve));
+  }
+
+  /** Sends `signal` to the process group of every tracked child; returns the PIDs signalled. */
+  killGroups(signal: NodeJS.Signals = "SIGKILL"): number[] {
+    const signalled: number[] = [];
+    for (const pid of this.#children.keys()) {
+      if (killGroup(pid, signal)) signalled.push(pid);
+    }
+    return signalled;
+  }
+}
+
+/** Signals the process group led by `pid`, or the process alone when it leads no group. */
+export function killGroup(pid: number, signal: NodeJS.Signals): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch {
+    try {
+      process.kill(pid, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
