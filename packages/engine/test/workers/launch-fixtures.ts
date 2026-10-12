@@ -205,8 +205,14 @@ export const BLOCKED_RESULTS = [
   "",
 ].join("\n");
 
-/** A step runner for the engine credential check whose commands all exit with `code`. */
-export function credentialSteps(code: number | "startFailed" = 1): {
+/**
+ * A step runner for the engine credential check. A number is the program's exit code, printed
+ * in the marker line by a wrapper that exits 0; `{ wrapperExit }` is a wrapper that failed before
+ * the program ran and printed nothing.
+ */
+export function credentialSteps(
+  code: number | "startFailed" | { readonly wrapperExit: number } = 1,
+): {
   readonly runStep: RunStep;
   readonly commands: (readonly string[])[];
 } {
@@ -215,12 +221,13 @@ export function credentialSteps(code: number | "startFailed" = 1): {
     commands.push(request.command);
     if (code === "startFailed") return { outcome: "startFailed", reason: "srt is missing" };
     const empty = { text: "", truncated: false };
+    const ran = typeof code === "number";
     return {
       outcome: "exited",
-      code,
+      code: ran ? 0 : code.wrapperExit,
       signal: null,
       timedOut: false,
-      stdout: empty,
+      stdout: ran ? { text: `dipo-credential-exit ${code}\n`, truncated: false } : empty,
       stderr: empty,
       warnings: [],
     };

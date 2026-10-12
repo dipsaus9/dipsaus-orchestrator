@@ -4,8 +4,10 @@
 // `security find-generic-password -s gh:github.com` itself, with no model, through
 // `dipo daemon sandbox-exec` under the verify-kind `srt` policy (no network). Both must fail.
 // Their output never reaches the engine: each runs under `/bin/sh` with stdout and stderr sent to
-// /dev/null, and only the exit code is kept. A success holds the adapter (fail-closed), and so
-// does a check that cannot run. This tests the sandbox mechanism with the engine's own policy;
+// /dev/null, then the shell prints one marker line with the program's exit code. The marker is
+// written from inside the sandbox, so a wrapper that failed before the program ran (exit 125
+// without a refusal file, an exception, a usage error) never passes as a refusal. A success holds
+// the adapter (fail-closed), and so does a check that cannot run. This tests the sandbox mechanism with the engine's own policy;
 // the session self-test covers the run's settings file.
 
 import type { DipoPlatform } from "../platform/paths";
@@ -43,9 +45,16 @@ export function credentialCommands(
   ];
 }
 
-/** `/bin/sh` runs the program with both output streams to /dev/null; only the exit code is kept. */
-export function silenced(argv: readonly string[]): [string, ...string[]] {
-  return ["/bin/sh", "-c", 'exec "$0" "$@" >/dev/null 2>&1', ...argv];
+/** The line the shell prints inside the sandbox after the program ran. */
+export const CREDENTIAL_MARKER = "dipo-credential-exit";
+const MARKER_LINE = /^dipo-credential-exit (\d+)\n?$/;
+
+/**
+ * `/bin/sh` runs the program with both output streams to /dev/null, then prints
+ * `dipo-credential-exit <code>`: the only output that reaches the engine.
+ */
+export function marked(argv: readonly string[]): [string, ...string[]] {
+  return ["/bin/sh", "-c", `"$0" "$@" >/dev/null 2>&1; echo "${CREDENTIAL_MARKER} $?"`, ...argv];
 }
 
 export type CredentialCheckResult =
@@ -98,21 +107,31 @@ export function judgeCredentialStep(
   if (step.timedOut || step.code === null) {
     return failure(probe, `${TEXT[probe]} did not exit inside the sandbox`, false);
   }
-  if (step.code === 0) {
+  // The wrapper must succeed and print exactly the marker line from inside the sandbox.
+  const marker = MARKER_LINE.exec(step.stdout.text);
+  if (step.code !== 0 || marker === null || step.stdout.truncated) {
+    return failure(
+      probe,
+      `the sandbox wrapper exited ${step.code} without the marker line, so nothing shows ${TEXT[probe]} ran inside the sandbox`,
+      false,
+    );
+  }
+  const code = Number(marker[1]);
+  if (code === 0) {
     return failure(
       probe,
       `${TEXT[probe]} succeeded inside the sandbox, so a sandboxed command could read the GitHub token`,
       true,
     );
   }
-  if (DID_NOT_RUN.includes(step.code)) {
+  if (DID_NOT_RUN.includes(code)) {
     return failure(
       probe,
-      `${TEXT[probe]} was not found or not executable inside the sandbox (exit ${step.code}), so the token was not tested`,
+      `${TEXT[probe]} was not found or not executable inside the sandbox (exit ${code}), so the token was not tested`,
       false,
     );
   }
-  return { ok: true, code: step.code };
+  return { ok: true, code };
 }
 
 /** Runs every credential command for the platform inside the sandbox; all must fail. */
@@ -125,7 +144,7 @@ export async function engineCredentialCheck(
     const step = await runStep({
       kind: "verify",
       script: CREDENTIAL_CHECK_SCRIPT,
-      command: silenced(argv),
+      command: marked(argv),
       worktree: input.worktree,
       mainCheckout: input.mainCheckout,
       home: input.home,

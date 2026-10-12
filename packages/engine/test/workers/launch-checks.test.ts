@@ -249,7 +249,7 @@ describe("(engine) roles with unchecked tools", () => {
 });
 
 async function runCredentials(
-  code: number | "startFailed",
+  code: number | "startFailed" | { readonly wrapperExit: number },
   platform: "darwin" | "linux" = "darwin",
 ) {
   const { clock, holds } = setup();
@@ -275,7 +275,7 @@ describe("(engine) credential check under srt", () => {
     expect(steps.commands[0]).toEqual([
       "/bin/sh",
       "-c",
-      'exec "$0" "$@" >/dev/null 2>&1',
+      '"$0" "$@" >/dev/null 2>&1; echo "dipo-credential-exit $?"',
       TOOLS.gh,
       "auth",
       "token",
@@ -295,7 +295,14 @@ describe("(engine) credential check under srt", () => {
   });
 
   it("holds the adapter when the check cannot run or the program is missing", async () => {
-    for (const code of ["startFailed", 127] as const) {
+    for (const code of [
+      "startFailed",
+      127,
+      126,
+      { wrapperExit: 125 },
+      { wrapperExit: 1 },
+      { wrapperExit: 2 },
+    ] as const) {
       const { result, holds } = await runCredentials(code);
       expect(result.ok).toBe(false);
       expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.check).toBe("credential-check");
