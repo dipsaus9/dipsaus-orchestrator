@@ -2,7 +2,8 @@
 // is created with `O_CREAT | O_EXCL`, liveness is PID plus start time (`process.ts`), and a stale
 // record is broken by rename-and-verify so only one breaker wins.
 //
-// 1. Read the record. A live daemon that answers on its socket is reported as running.
+// 1. Read the record. A live daemon that answers `engine.hello` and `daemon.status` with its own PID
+//    over `ws+unix://` on its socket (`helloHandshake`) is reported as running.
 // 2. Create the record exclusively. Success: this process is the instance.
 // 3. It exists: a live `dipo daemon` gets up to 5 s to answer, then is reported unresponsive (code
 //    never kills a live process on a guess). A dead PID, or a live one with another start time or
@@ -26,10 +27,17 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import type { Clock } from "@dipsaus-orchestrator/contract";
+import {
+  type Clock,
+  CONTRACT_VERSION,
+  type ContractVersion,
+  RequestId,
+} from "@dipsaus-orchestrator/contract";
 
-import { errorCode } from "./paths";
+import { createUlid } from "./ids";
+import { errorCode, readRuntimeRecord } from "./paths";
 import { isDaemonCommand, isSameProcess, type ProcessProbe } from "./process";
+import { connectUnixSocket } from "./socket";
 
 export const PID_FILE = "dipo.pid";
 export const LOCK_WAIT_MS = 5000;
@@ -323,5 +331,69 @@ function heldLock(
     release() {
       if (holdsOwn()) unlinkSync(path);
     },
+  };
+}
+
+/** How long step 1 waits for the socket to accept and for each reply. */
+export const HANDSHAKE_TIMEOUT_MS = 1000;
+
+export interface HelloHandshakeOptions {
+  readonly stateDir: string;
+  readonly clock: Clock;
+  /** Who is asking, sent in `engine.hello`. */
+  readonly client: { readonly name: string; readonly version: string };
+  /** The contract this binary speaks; tests send another major. */
+  readonly contract?: ContractVersion;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * Step 1's handshake (0006 decision 6): find the socket in `runtime.json` written by the process
+ * the record names (same PID and start time), send `engine.hello`
+ * over `ws+unix://`, then `daemon.status`, and check the status names the record's PID. Both are
+ * in the frozen surface (0005 section 11), so a daemon of another contract major answers too: its
+ * `contract.unsupported` reply to the hello still counts as an answer.
+ */
+export function helloHandshake(
+  options: HelloHandshakeOptions,
+): (record: PidRecord) => Promise<boolean> {
+  const { stateDir, clock } = options;
+  const timeoutMs = options.timeoutMs ?? HANDSHAKE_TIMEOUT_MS;
+  const nextId = createUlid(clock);
+  return async (record) => {
+    const runtime = await readRuntimeRecord(stateDir);
+    // The socket must belong to the process the record names: same PID and same start time. The
+    // caller has already checked that start time against the live process, so this is the
+    // PID-plus-start-time identity of 0006 decision 6, not a bare PID.
+    if (
+      runtime === null ||
+      runtime.pid !== record.pid ||
+      runtime.startTimeMs !== record.startTimeMs
+    ) {
+      return false;
+    }
+    const client = await connectUnixSocket(runtime.socket, { clock, timeoutMs });
+    if (client === null) return false;
+    try {
+      const hello = await client.request({
+        kind: "read",
+        requestId: RequestId.parse(nextId()),
+        name: "engine.hello",
+        args: { contract: options.contract ?? CONTRACT_VERSION, client: options.client },
+      });
+      if (hello === null) return false;
+      if (!hello.ok && hello.error.code !== "contract.unsupported") return false;
+      const status = await client.request({
+        kind: "read",
+        requestId: RequestId.parse(nextId()),
+        name: "daemon.status",
+        args: {},
+      });
+      if (status === null || !status.ok) return false;
+      const pid = (status.result as { pid?: unknown } | undefined)?.pid;
+      return pid === record.pid;
+    } finally {
+      client.close();
+    }
   };
 }
