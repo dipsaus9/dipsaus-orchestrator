@@ -1,10 +1,10 @@
 ---
 id: DIPO-21
 title: Open the central state database with migrations
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:56'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -16,6 +16,9 @@ references:
   - packages/engine/src/db/
   - packages/engine/test/db/
   - packages/engine/src/index.ts
+  - packages/engine/tsconfig.json
+  - scripts/build.ts
+  - scripts/build.test.ts
 documentation:
   - docs/decisions/0007-state-database.md
 priority: high
@@ -52,18 +55,37 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `platform/sqlite.ts` opens with `{ create: true, readwrite: true, strict: true }` and sets `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`, `journal_size_limit=67108864`; a new file gets `auto_vacuum=INCREMENTAL` before its first table.
-- [ ] #2 The database and its directory are created with modes `0600` and `0700`; at open the module logs `sqlite_version()` through an injected logger and refuses a `<state>` on a network filesystem with an error naming the path, detected by parsing `mount` output on macOS and `/proc/self/mountinfo` on Linux.
-- [ ] #3 Writes go through `immediate()` transactions; the transaction helper throws when its callback returns a thenable, and an office handle exposes no way to run a statement without its `office_id` bound.
-- [ ] #4 Migration 1 creates `offices` and `schema_migrations` as `STRICT` tables; `PRAGMA user_version` mirrors the head.
-- [ ] #5 Before applying pending migrations the runner writes `backups/pre-v<N>-<time>.db` with `VACUUM INTO` from a Bun Worker; a failing step rolls back and leaves `user_version` unchanged.
-- [ ] #6 A database whose `user_version` is newer than the binary is refused with a message containing `upgrade dipo`; a recorded checksum that differs from the binary's step stops the load.
-- [ ] #7 A schema test fails when an office-scoped table lacks `office_id` as the first primary key column.
-- [ ] #8 A measurement test (CI only) records the commit time under `synchronous=FULL` in its output.
+- [x] #1 `platform/sqlite.ts` opens with `{ create: true, readwrite: true, strict: true }` and sets `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`, `journal_size_limit=67108864`; a new file gets `auto_vacuum=INCREMENTAL` before its first table.
+- [x] #2 The database and its directory are created with modes `0600` and `0700`; at open the module logs `sqlite_version()` through an injected logger and refuses a `<state>` on a network filesystem with an error naming the path, detected by parsing `mount` output on macOS and `/proc/self/mountinfo` on Linux.
+- [x] #3 Writes go through `immediate()` transactions; the transaction helper throws when its callback returns a thenable, and an office handle exposes no way to run a statement without its `office_id` bound.
+- [x] #4 Migration 1 creates `offices` and `schema_migrations` as `STRICT` tables; `PRAGMA user_version` mirrors the head.
+- [x] #5 Before applying pending migrations the runner writes `backups/pre-v<N>-<time>.db` with `VACUUM INTO` from a Bun Worker; a failing step rolls back and leaves `user_version` unchanged.
+- [x] #6 A database whose `user_version` is newer than the binary is refused with a message containing `upgrade dipo`; a recorded checksum that differs from the binary's step stops the load.
+- [x] #7 A schema test fails when an office-scoped table lacks `office_id` as the first primary key column.
+- [x] #8 A measurement test (CI only) records the commit time under `synchronous=FULL` in its output.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S06 (DIPO-15). Before cutover: built by hand-run agents.
+
+Scope addition: packages/engine/tsconfig.json now includes `test` (rootDir `.`, as packages/contract already does with `scripts`). Without it the declared test directory packages/engine/test/db/ is run by bun test but never typechecked by `tsc -b`; an ad hoc check found real type errors there before the change.
+
+Implementation (DIPO-21):
+- packages/engine/src/platform/sqlite.ts: openSqlite creates <state> 0700 and pre-creates dipo.db 0600 (SQLite gives -wal and -shm the database file's mode; existing files are tightened), refuses a network filesystem by parsing /sbin/mount (macOS) or /proc/self/mountinfo (Linux) with an error naming the path, warns for a sync folder, sets auto_vacuum=INCREMENTAL on a file with no tables, then WAL, synchronous=FULL, foreign_keys=ON, busy_timeout=5000, journal_size_limit=67108864, and logs sqlite_version() through the injected DbLogger. checkIntegrity runs quick_check (for the daemon after an unclean exit; the unclean-exit detection itself is DIPO-23). immediate()/deferred() throw AsyncTransactionError, rolling back, when the callback returns a thenable. vacuumInto runs VACUUM INTO on a read-only connection in a Bun Worker (sqlite-worker.ts), optional quick_check of the copy, copy mode 0600.
+- packages/engine/src/db/: migrations.ts (forward-only, numbered 1..N, sha256 checksum of SQL or of a code step's declared source string, refuses user_version > head with 'upgrade dipo', stops on a checksum mismatch, writes backups/pre-v<head>-<yyyymmddThhmmss>.db before pending steps, each step in its own immediate transaction with foreign_key_check, schema_migrations insert and user_version), schema.ts (migration 1: STRICT offices and schema_migrations; SOFTWARE_TABLES), schema-check.ts (findOfficeKeyViolations), office.ts (OfficeHandle: every statement must use $office_id and may not bind it; no access to the connection), database.ts (openStateDatabase).
+- Not in this story: offices.path uniqueness and insert defaults (DIPO-27), runs.kind/run_outcomes (D11/D12 belong to DIPO-48/DIPO-49), resolving <state> from the platform (DIPO-23).
+- For DIPO-17: the compiled binary must include packages/engine/src/platform/sqlite-worker.ts as an extra entrypoint, because vacuumInto starts it with new Worker(new URL('./sqlite-worker.ts', import.meta.url)).
+- Commit pause on macOS arm64 (local, sqlite 3.51.0, 200 commits): p50 0.04 ms, max 0.2 ms; the CI run prints the Linux numbers.
+
+Scope addition after merging main (DIPO-17 landed): scripts/build.ts gains packages/engine/src/platform/sqlite-worker.ts as an extra entrypoint, and sqlite.ts resolves the worker to /$bunfs/root/engine/src/platform/sqlite-worker.ts inside a binary (same pattern as the self-check worker); scripts/build.test.ts asserts the entrypoint and no longer assumes exactly two. Without it vacuumInto, and so every migration, would fail in the compiled dipo. Checked by compiling a throwaway entry with --root=packages: VACUUM INTO from the Worker and the /sbin/mount check work inside the binary.
+
+Correction: the earlier note 'For DIPO-17: the compiled binary must include sqlite-worker.ts as an extra entrypoint' is superseded; this story added the entrypoint to scripts/build.ts itself. Code migration steps are checksummed over their `source` string, so authors must put the full step body (for example the SQL it runs) in `source`.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Central state database: platform/sqlite.ts opens <state>/dipo.db with the 0007 pragmas, 0700/0600 modes, sqlite version log, refusal on network filesystems (mount/mountinfo parsing), sync-folder warning, synchronous-only transaction helpers, VACUUM INTO in a Bun Worker (also an entrypoint of the compiled binary). db/: checksummed migrations with a pre-migration backup, per-step transactions, too-new and edited-checksum refusal; migration 1 (offices, schema_migrations, STRICT); office-key schema check; OfficeHandle binding $office_id. CI-only commit-pause measurement. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
