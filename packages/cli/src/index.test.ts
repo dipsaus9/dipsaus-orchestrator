@@ -22,6 +22,12 @@ function fakeDeps(overrides: { daemonCode?: number; clientChecks?: ClientCheck[]
     connectDaemon: async () => {
       throw new Error("connectDaemon must not be called");
     },
+    daemon: {
+      inspect: () => Promise.reject(new Error("the lifecycle must not be called")),
+      start: () => Promise.reject(new Error("the lifecycle must not be called")),
+      stop: () => Promise.reject(new Error("the lifecycle must not be called")),
+      restart: () => Promise.reject(new Error("the lifecycle must not be called")),
+    },
     clock: new ManualClock(),
     clientChecks: overrides.clientChecks ?? [{ name: "ink", run: () => undefined }],
     stamp: { version: "0.0.0-dev", commit: "0123456789ab", commitDate: "2026-10-12" },

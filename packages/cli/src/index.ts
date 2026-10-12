@@ -2,12 +2,21 @@
 // the hidden `self-check`; later stories add subcommands. Daemon-side forms go through `runDaemon`
 // (0004, 0006 decision 2); every other subcommand goes through `client`.
 
-import { connectToDaemon, systemClock } from "@dipsaus-orchestrator/client/node";
+import {
+  connectOrStart,
+  inspectDaemon,
+  restartDaemon,
+  startDaemon,
+  stopDaemon,
+  systemClock,
+  systemLifecycleDeps,
+  versionHint,
+} from "@dipsaus-orchestrator/client/node";
 import type { Clock } from "@dipsaus-orchestrator/contract";
 import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
-import { type ConnectDaemon, DAEMON_SUBCOMMANDS } from "./daemon-commands";
+import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
 import {
   compiledStamp,
   currentRuntime,
@@ -27,6 +36,7 @@ export type CliDeps = {
   readonly writeError: (line: string) => void;
   readonly runDaemon: (argv: readonly string[]) => Promise<number>;
   readonly connectDaemon: ConnectDaemon;
+  readonly daemon: DaemonControl;
   readonly clock: Clock;
   readonly clientChecks: readonly ClientCheck[];
   readonly stamp: BuildStamp | undefined;
@@ -37,6 +47,16 @@ export const HELP = `dipo: run your software products with a model as your team
 
 Usage:
   dipo [options]
+  dipo daemon start [--log-level <level>]
+                    start the daemon in the background and wait up to 5 s for it
+  dipo daemon stop [--force]
+                    stop the daemon; --force signals an unresponsive one
+                    (SIGTERM, then SIGKILL after 10 s)
+  dipo daemon restart [--log-level <level>]
+                    stop the daemon and start this binary's version
+  dipo daemon status [--json]
+                    running (exit 0), unresponsive (exit 1), not running or
+                    stale (exit 3)
   dipo daemon --foreground [--log-level <level>]
                     run the daemon in this terminal; logs also go to stderr
   dipo daemon log-level <level>
@@ -44,6 +64,9 @@ Usage:
                     (error, warn, info, debug or trace)
   dipo daemon resume-scheduling
                     leave safe mode so the daemon schedules work again
+
+Commands that need the daemon start it unless daemon.autostart is false in
+<state>/config.yaml.
 
 Options:
   --version         print the version, commit, Bun version and platform
@@ -62,16 +85,27 @@ export function defaultDeps(): CliDeps {
   const stamp = compiledStamp();
   const runtime = currentRuntime();
   const { version } = versionInfo(stamp, runtime);
+  const lifecycle = systemLifecycleDeps({ client: { name: "dipo-cli", version }, origin: "cli" });
   return {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
     runDaemon: (argv) => runDaemon(argv, { version }),
     connectDaemon: async () => {
-      const { client } = await connectToDaemon({
-        client: { name: "dipo-cli", version },
-        origin: "cli",
-      });
-      return client;
+      const { session, started } = await connectOrStart(lifecycle);
+      if (started !== null) {
+        process.stderr.write(
+          `dipo: started the daemon (pid ${started.pid}, version ${started.version})\n`,
+        );
+      }
+      const hint = versionHint(version, session.hello?.engine);
+      if (hint !== null) process.stderr.write(`dipo: ${hint}\n`);
+      return session;
+    },
+    daemon: {
+      inspect: () => inspectDaemon(lifecycle),
+      start: (options) => startDaemon(lifecycle, options),
+      stop: (options) => stopDaemon(lifecycle, options),
+      restart: (options) => restartDaemon(lifecycle, options),
     },
     clock: systemClock,
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
@@ -103,7 +137,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     return deps.runDaemon(args.slice(1));
   }
   const subcommand = args[0] === "daemon" ? DAEMON_SUBCOMMANDS.get(args[1] ?? "") : undefined;
-  if (subcommand !== undefined) return subcommand(args.slice(2), deps);
+  if (subcommand !== undefined) {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return subcommand(args.slice(2), { ...deps, version });
+  }
   if (args[0] === "self-check" && args.length === 1) {
     return selfCheck(deps);
   }
