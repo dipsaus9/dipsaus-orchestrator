@@ -1,10 +1,10 @@
 ---
 id: DIPO-28
 title: Run the Backlog CLI and parse its plain output
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:31'
+updated_date: '2026-10-12 21:35'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -76,3 +76,9 @@ Implemented in packages/engine/src/backlog/: plain.ts (parser), runner.ts (allow
 
 Follow-up for a later story: the daemon should pass its resolved backlog path (tools.paths.backlog) into backlogFeature instead of relying on `backlog` from PATH.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Backlog CLI integration in packages/engine/src/backlog: runner with an allowlist of subcommands, the 0010 never-run list (cleanup, task complete/demote, doctor --fix, config set statuses, any Draft status) refused before spawn, options and values split like the CLI's parser with dash-led values refused, section-rule and Modified-files-trailer guards on written text, --doc values without ', ', errors carrying command and output and a narrow 'not found' check; backlog.version office load step accepting 1.53.x only; one parser for task/draft view and list with R02 on repeated or out-of-order sections and unknown sections kept raw; fixtures recorded from the pinned 1.53.0. Reviewer pass. Follow-up: pass the daemon's resolved backlog path.
+<!-- SECTION:FINAL_SUMMARY:END -->
