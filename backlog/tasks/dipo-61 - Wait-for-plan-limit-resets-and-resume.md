@@ -4,7 +4,7 @@ title: Wait for plan-limit resets and resume
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:39'
 labels:
   - 'tier:M'
   - after-cutover
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/run/plan-limit.ts
   - packages/engine/src/run/
   - packages/engine/test/run/
+  - packages/engine/src/features.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0008-worker-adapter.md

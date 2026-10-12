@@ -4,7 +4,7 @@ title: Price usage from a versioned catalog
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:39'
 labels:
   - 'tier:S'
   - after-cutover
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/pricing/
   - packages/engine/src/db/migrations/
   - packages/engine/test/pricing/
+  - packages/engine/src/features.ts
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0008-worker-adapter.md
