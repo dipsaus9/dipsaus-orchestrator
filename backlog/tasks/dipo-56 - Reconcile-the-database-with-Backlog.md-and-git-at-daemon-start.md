@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 21:44'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -20,6 +20,7 @@ references:
   - packages/engine/src/recovery/
   - packages/engine/src/scan/
   - packages/engine/src/features.ts
+  - packages/engine/src/office/
 documentation:
   - docs/decisions/0001-foundational-decisions.md
   - docs/decisions/0005-command-and-event-model.md
@@ -62,6 +63,7 @@ test_plan:
 - [ ] #6 A worktree or branch changed by hand under a running story parks it; `git worktree prune` runs only after confirmation.
 - [ ] #7 Scheduling stays off until reconcile of every loaded office finishes.
 - [ ] #8 Reconcile runs as a recovery step registered with the daemon's `recovering` state (DIPO-68) and when `office.rescan` (DIPO-72) runs.
+- [ ] #9 At daemon start every registered office whose path is missing gets the 0007 section 3 notice ("path missing; `dipo office open` the new path, or `dipo office purge`"); DIPO-27 only refuses such an office when it loads. A test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
