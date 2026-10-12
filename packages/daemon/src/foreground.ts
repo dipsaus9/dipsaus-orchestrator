@@ -333,7 +333,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     for (const tool of tools.missing) logger.warn("tool not found on PATH", { tool });
 
     // Upgrades (0006 decision 14): checked every minute; an engine step is a child the daemon
-    // started or a command still writing, and an automatic restart waits for both.
+    // started or a command still writing, and an automatic restart waits for both. Once any stop
+    // is requested (`daemon.stop`, a signal, a restart, a lost lock) the watcher counts as busy
+    // and stops, so a daemon someone stopped never starts a new binary on its own.
     const command = selfCommand();
     upgrade = new UpgradeWatcher({
       clock,
@@ -341,10 +343,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       executable: command[command.length - 1] ?? process.execPath,
       readStamp: options.readExecutableStamp ?? systemExecutableStamp,
       autoRestart: run.settings.daemon.autoRestartOnUpgrade,
-      busy: () => children.size > 0 || lifecycle.inFlight > 0,
+      busy: () => stops.requested !== null || children.size > 0 || lifecycle.inFlight > 0,
       restart: () => stops.request({ reason: UPGRADE_REASON, stopWorkers: false }),
     });
     const watcher = upgrade;
+    void stops.promise.then(() => watcher.stop());
     // Office commands reach the database only once the migrations step opened it; until then the
     // lifecycle gate answers them with engine.recovering.
     const offices: OfficeDirectory = {
@@ -513,7 +516,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     if (ownsLock) logger.info("lock released", { path: lock.path });
     // An upgrade drain ends in the new binary (0006 decision 14), started only now that the lock
     // and the socket are free, with the same environment minus the Bun flag variables.
-    if (clean && upgrade?.restarting === true) {
+    if (clean && stops.requested?.reason === UPGRADE_REASON && upgrade?.restarting === true) {
       try {
         const started = (options.spawnDetached ?? systemSpawnDetached)({
           cmd: [...selfCommand(), "daemon", "--foreground", "--log-level", logger.level()],
