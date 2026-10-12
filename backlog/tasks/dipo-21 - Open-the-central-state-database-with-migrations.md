@@ -4,7 +4,7 @@ title: Open the central state database with migrations
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:51'
+updated_date: '2026-10-12 11:53'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -17,6 +17,8 @@ references:
   - packages/engine/test/db/
   - packages/engine/src/index.ts
   - packages/engine/tsconfig.json
+  - scripts/build.ts
+  - scripts/build.test.ts
 documentation:
   - docs/decisions/0007-state-database.md
 priority: high
@@ -76,4 +78,6 @@ Implementation (DIPO-21):
 - Not in this story: offices.path uniqueness and insert defaults (DIPO-27), runs.kind/run_outcomes (D11/D12 belong to DIPO-48/DIPO-49), resolving <state> from the platform (DIPO-23).
 - For DIPO-17: the compiled binary must include packages/engine/src/platform/sqlite-worker.ts as an extra entrypoint, because vacuumInto starts it with new Worker(new URL('./sqlite-worker.ts', import.meta.url)).
 - Commit pause on macOS arm64 (local, sqlite 3.51.0, 200 commits): p50 0.04 ms, max 0.2 ms; the CI run prints the Linux numbers.
+
+Scope addition after merging main (DIPO-17 landed): scripts/build.ts gains packages/engine/src/platform/sqlite-worker.ts as an extra entrypoint, and sqlite.ts resolves the worker to /$bunfs/root/engine/src/platform/sqlite-worker.ts inside a binary (same pattern as the self-check worker); scripts/build.test.ts asserts the entrypoint and no longer assumes exactly two. Without it vacuumInto, and so every migration, would fail in the compiled dipo. Checked by compiling a throwaway entry with --root=packages: VACUUM INTO from the Worker and the /sbin/mount check work inside the binary.
 <!-- SECTION:NOTES:END -->
