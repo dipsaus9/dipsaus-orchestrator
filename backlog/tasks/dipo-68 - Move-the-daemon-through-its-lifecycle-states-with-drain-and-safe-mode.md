@@ -1,10 +1,10 @@
 ---
 id: DIPO-68
 title: Move the daemon through its lifecycle states with drain and safe mode
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 09:20'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:40'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/platform/process.ts
   - packages/daemon/test/
   - packages/engine/src/index.ts
+  - packages/engine/test/platform/process.test.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -50,18 +51,33 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The daemon state machine accepts only the transitions of 0006 decision 7, keeps the current state with its reason, and reports each transition as `{ from, to, reason }` to registered listeners.
-- [ ] #2 `recovering` runs the recovery steps registered by other modules in registration order, database migrations first, then enters `running`, or `safe` when the crash counter requires it.
-- [ ] #3 SIGTERM, and SIGINT in `--foreground`, enter `draining`: no new work starts, pending writes finish, and the daemon exits within 20 s, or 60 s while workers are being stopped; at the cap it exits anyway.
-- [ ] #4 On a clean exit the daemon removes `dipo.sock`, then `dipo.pid`, and leaves worker hosts running.
-- [ ] #5 Before exiting, the daemon waits for every child process it started itself (worker hosts excepted) and kills the process group of any child still running at the drain cap.
-- [ ] #6 A crash counter in `<state>` counts unclean exits; three within 10 minutes start the next daemon in `safe` with reason "crash loop", and 10 minutes of stable running reset it.
-- [ ] #7 In `safe` a scheduling predicate reports `scheduling.off` for commands that would schedule work, and a method leaves `safe` for `daemon.resumeScheduling` (DIPO-24) to call.
-- [ ] #8 In `starting` and `recovering` an office-access predicate reports the retryable `engine.recovering` for office commands and reads.
+- [x] #1 The daemon state machine accepts only the transitions of 0006 decision 7, keeps the current state with its reason, and reports each transition as `{ from, to, reason }` to registered listeners.
+- [x] #2 `recovering` runs the recovery steps registered by other modules in registration order, database migrations first, then enters `running`, or `safe` when the crash counter requires it.
+- [x] #3 SIGTERM, and SIGINT in `--foreground`, enter `draining`: no new work starts, pending writes finish, and the daemon exits within 20 s, or 60 s while workers are being stopped; at the cap it exits anyway.
+- [x] #4 On a clean exit the daemon removes `dipo.sock`, then `dipo.pid`, and leaves worker hosts running.
+- [x] #5 Before exiting, the daemon waits for every child process it started itself (worker hosts excepted) and kills the process group of any child still running at the drain cap.
+- [x] #6 A crash counter in `<state>` counts unclean exits; three within 10 minutes start the next daemon in `safe` with reason "crash loop", and 10 minutes of stable running reset it.
+- [x] #7 In `safe` a scheduling predicate reports `scheduling.off` for commands that would schedule work, and a method leaves `safe` for `daemon.resumeScheduling` (DIPO-24) to call.
+- [x] #8 In `starting` and `recovering` an office-access predicate reports the retryable `engine.recovering` for office commands and reads.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-23 in the M0 review (DIPO-15). Before cutover: built by hand-run agents.
+
+Added reference packages/engine/test/platform/process.test.ts: the new ChildProcesses tracker (engine/src/platform/process.ts) is tested next to the existing process tests.
+
+Implementation (DIPO-68):
+- packages/daemon/src/lifecycle.ts: DaemonLifecycle with the 0006 decision 7 transition table, state and reason, onTransition listeners ({ from, to, reason }), officeAccess() (engine.recovering in starting/recovering), scheduling() (scheduling.off in safe), resumeScheduling() for daemon.resumeScheduling (throws daemon.notSafe outside safe), beginWork()/idle() for pending work.
+- packages/daemon/src/recovery.ts: RecoverySteps registry (migrations step always first, then registration order) and runRecovery (recovering -> running, or safe with reason "crash loop"). DIPO-56/57 register through ForegroundOptions.recoverySteps until a feature-level registration exists.
+- packages/daemon/src/drain.ts: drain with caps 20 s / 60 s (stopWorkers), waits for pending work and tracked children, SIGKILLs the process groups at the cap. stopWorkers hook is a parameter for DIPO-50/DIPO-24.
+- packages/daemon/src/crash-counter.ts: <state>/crashes.json with a running marker (PID + start time) cleared only on a clean exit; a marker left by another process is one crash at the next start.
+- packages/engine/src/platform/process.ts: ChildProcesses (spawn detached in its own process group, track, waitAll, killGroups) and killGroup.
+- foreground.ts wires it: starting (lock, runtime dir, bind, verify), recovering (migrations), running/safe, draining on SIGTERM/SIGINT or lost lock; cleanup removes dipo.sock then dipo.pid. DaemonIo gained an injected clock.
+
+Interpretations to confirm:
+- draining is reachable from starting, recovering and safe as well as running (0006: "SIGTERM always means this graceful drain"); the diagram only shows running -> draining.
+- The scheduling predicate also reports scheduling.off in draining ("no new work").
+- A drain that hits its cap still exits 0 and clears the crash marker, so stops that hit the cap do not push the daemon into safe; a lost lock exits 1; a failed recovery step exits 1 and counts as a crash.
 <!-- SECTION:NOTES:END -->
