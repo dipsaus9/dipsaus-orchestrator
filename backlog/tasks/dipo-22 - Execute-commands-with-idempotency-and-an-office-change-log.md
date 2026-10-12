@@ -1,10 +1,10 @@
 ---
 id: DIPO-22
 title: Execute commands with idempotency and an office change log
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:19'
+updated_date: '2026-10-12 12:22'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -94,3 +94,9 @@ After merging DIPO-26: the request args hash uses the one canonicalJson in packa
 
 Review advisories: the executor reads the requests record before resolving story references, so a retry of a command that succeeded gets its stored reply even if a story it named was since removed (a different command name still fails request.reused; when resolution fails with a record present the stored reply wins). Software-level requests still running are kept in flight in MemoryRequestTable, so a concurrent duplicate shares the first reply instead of running twice. packages/engine/src/platform/ids.ts now exports cryptoFill, which changelog/log.ts uses for the epoch instead of its own copy (scope addition for that export).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Command execution: migration 2 (stories, story_aliases, change_log, requests; office_id first); story keys with alias resolution and story.ambiguous; gap-free change log with per-office random epoch, replay with stream.resetRequired, view-checked renderer; executeCommand with one write transaction per command, idempotency by requestId (looked up before reference resolution) with request.reused, confirmation.required for conversation origin, in-memory software-level request table with in-flight dedupe; registry and features list, commands.describe without provisional entries and with reads; unknown names return capability.missing. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
