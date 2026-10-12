@@ -7,7 +7,10 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
+  BASE_CHECKOUT_CONFIG,
+  BASE_CHECKOUT_ENV,
   checkGitVersion,
+  FETCH_CONFIG,
   DROPPED_GIT_ENV,
   GitError,
   type GitCall,
@@ -75,10 +78,27 @@ describe("hardened calls", () => {
       workTree: "/wt/_base",
     };
     expect(hardenedArgs(worktree, ["status"])).not.toContain("--bare");
+    expect(hardenedArgs(REPO, ["fetch", "origin"], FETCH_CONFIG)).toContain(
+      "protocol.ext.allow=never",
+    );
+    expect(hardenedArgs(REPO, ["worktree", "add"], BASE_CHECKOUT_CONFIG)).toEqual(
+      expect.arrayContaining(["filter.lfs.process=", "filter.lfs.smudge="]),
+    );
+    expect(hardenedEnv({}, REPO, BASE_CHECKOUT_ENV)["GIT_LFS_SKIP_SMUDGE"]).toBe("1");
   });
 
   it("set GIT_DIR and GIT_COMMON_DIR from the recorded paths and drop inherited locations", () => {
-    const inherited: Record<string, string> = { HOME: "/home/me", GIT_CONFIG_GLOBAL: "/dev/null" };
+    const inherited: Record<string, string> = {
+      HOME: "/home/me",
+      GIT_CONFIG_KEY_0: "core.sshCommand",
+      GIT_CONFIG_VALUE_0: "planted",
+      GIT_CONFIG_KEY_12: "credential.helper",
+      GIT_CONFIG_VALUE_12: "planted",
+      GIT_SSH: "/usr/bin/ssh",
+      GIT_SSH_COMMAND: "ssh -i key",
+      GIT_ASKPASS: "/usr/bin/askpass",
+      SSH_ASKPASS: "/usr/bin/ssh-askpass",
+    };
     for (const name of DROPPED_GIT_ENV) inherited[name] = "/planted";
     const env = hardenedEnv(inherited, {
       kind: "worktree",
@@ -88,7 +108,10 @@ describe("hardened calls", () => {
     });
     expect(env).toMatchObject({
       HOME: "/home/me",
-      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_SSH: "/usr/bin/ssh",
+      GIT_SSH_COMMAND: "ssh -i key",
+      GIT_ASKPASS: "/usr/bin/askpass",
+      SSH_ASKPASS: "/usr/bin/ssh-askpass",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_TERMINAL_PROMPT: "0",
       LC_ALL: "C",
@@ -99,6 +122,21 @@ describe("hardened calls", () => {
     });
     expect(env["GIT_INDEX_FILE"]).toBeUndefined();
     expect(env["GIT_CONFIG_PARAMETERS"]).toBeUndefined();
+    for (const name of [
+      "GIT_CONFIG_COUNT",
+      "GIT_CONFIG_KEY_0",
+      "GIT_CONFIG_VALUE_0",
+      "GIT_CONFIG_KEY_12",
+      "GIT_CONFIG_VALUE_12",
+      "GIT_CONFIG_GLOBAL",
+      "GIT_EXEC_PATH",
+      "GIT_TEMPLATE_DIR",
+      "GIT_REPLACE_REF_BASE",
+      "GIT_SHALLOW_FILE",
+      "GIT_ATTR_SOURCE",
+    ]) {
+      expect(env[name]).toBeUndefined();
+    }
     const repo = hardenedEnv(inherited, REPO);
     expect(repo["GIT_DIR"]).toBe("/repo/.git");
     expect(repo["GIT_COMMON_DIR"]).toBe("/repo/.git");

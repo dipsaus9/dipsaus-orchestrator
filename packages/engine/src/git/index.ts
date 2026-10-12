@@ -3,11 +3,18 @@
 export { EngineGit, gitSettings } from "./feature";
 export type { EngineGitDeps } from "./feature";
 export {
+  BASE_CHECKOUT_CONFIG,
+  BASE_CHECKOUT_ENV,
   DROPPED_GIT_ENV,
+  DROPPED_GIT_ENV_PREFIXES,
+  FETCH_CONFIG,
   HARDENED_CONFIG,
   hardenedArgs,
   hardenedCwd,
   hardenedEnv,
+  isDroppedGitEnv,
+  KEPT_AUTH_ENV,
+  WORKTREE_ADD_CONFIG,
 } from "./hardened";
 export type { GitLocation } from "./hardened";
 export { OfficeGit } from "./office";
@@ -36,7 +43,7 @@ export {
   runGitStepOk,
   spawnGitExec,
 } from "./runner";
-export type { GitCall, GitExec, GitResult, GitStepRunner, Sleep } from "./runner";
+export type { GitCall, GitExec, GitResult, GitStepOptions, GitStepRunner, Sleep } from "./runner";
 export {
   checkGitVersion,
   isSupportedGitVersion,

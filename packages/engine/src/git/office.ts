@@ -6,14 +6,29 @@
 // never a work tree of any engine call, so the engine never writes it.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
-import type { GitLocation } from "./hardened";
+import {
+  BASE_CHECKOUT_CONFIG,
+  BASE_CHECKOUT_ENV,
+  FETCH_CONFIG,
+  type GitLocation,
+  WORKTREE_ADD_CONFIG,
+} from "./hardened";
 import { BASE_WORKTREE, canonicalFuturePath, resolveWorktreeRoot } from "./paths";
 import { GitQueue } from "./queue";
-import { GitError, type GitResult, runGitStep, runGitStepOk, type GitStepRunner } from "./runner";
+import {
+  GitError,
+  type GitResult,
+  type GitStepOptions,
+  runGitStep,
+  runGitStepOk,
+  type GitStepRunner,
+} from "./runner";
+
+const BASE_CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 
 /** The office configuration git reads (0010 section 7). */
 export interface GitSettings {
@@ -30,9 +45,13 @@ export interface GitSession {
   /** The repository without a work tree: fetch, refs, `worktree add`. */
   readonly repository: GitLocation;
   /** Runs one hardened step; any exit code is returned, a lock still held after retries throws. */
-  step(location: GitLocation, args: readonly string[]): Promise<GitResult>;
+  step(
+    location: GitLocation,
+    args: readonly string[],
+    options?: GitStepOptions,
+  ): Promise<GitResult>;
   /** Runs one hardened step; a non-zero exit throws `git.failed`. Returns stdout. */
-  ok(location: GitLocation, args: readonly string[]): Promise<string>;
+  ok(location: GitLocation, args: readonly string[], options?: GitStepOptions): Promise<string>;
 }
 
 export type FetchState =
@@ -115,8 +134,8 @@ export class OfficeGit {
   run<T>(item: (git: GitSession) => Promise<T>): Promise<T> {
     const session: GitSession = {
       repository: this.repository,
-      step: (location, args) => runGitStep(this.#runner, location, args),
-      ok: (location, args) => runGitStepOk(this.#runner, location, args),
+      step: (location, args, options) => runGitStep(this.#runner, location, args, options),
+      ok: (location, args, options) => runGitStepOk(this.#runner, location, args, options),
     };
     return this.queue.run(() => item(session));
   }
@@ -184,12 +203,11 @@ export class OfficeGit {
       const base = await this.#resolveBase(git).catch(() => null);
       const before = base === null ? null : await this.#remoteBaseSha(git, base);
       const { remote } = this.#settings;
-      const result = await git.step(git.repository, [
-        "fetch",
-        "--quiet",
-        "--no-recurse-submodules",
-        remote,
-      ]);
+      const result = await git.step(
+        git.repository,
+        ["fetch", "--quiet", "--no-recurse-submodules", remote],
+        { config: FETCH_CONFIG },
+      );
       if (result.code !== 0) {
         const detail = result.stderr.trim() || `exit ${result.code}`;
         this.#fetch = { ok: false, at: this.#clock.now(), detail };
@@ -236,27 +254,24 @@ export class OfficeGit {
     }
     if (registered === null || !existsSync(path)) {
       // `--force` only re-adds a registered worktree whose directory is gone.
-      await git.ok(git.repository, [
-        "worktree",
-        "add",
-        ...(registered === null ? [] : ["--force"]),
-        "--detach",
-        path,
-        sha,
-      ]);
+      await git.ok(
+        git.repository,
+        ["worktree", "add", ...(registered === null ? [] : ["--force"]), "--detach", path, sha],
+        {
+          ...BASE_CHECKOUT,
+          config: [...WORKTREE_ADD_CONFIG, ...BASE_CHECKOUT_CONFIG],
+        },
+      );
       return { path, base, sha };
     }
     const location = this.worktreeLocation(path);
     const head = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
     if (head !== sha) {
-      await git.ok(location, [
-        "checkout",
-        "--quiet",
-        "--force",
-        "--no-recurse-submodules",
-        "--detach",
-        sha,
-      ]);
+      await git.ok(
+        location,
+        ["checkout", "--quiet", "--force", "--no-recurse-submodules", "--detach", sha],
+        BASE_CHECKOUT,
+      );
     }
     return { path, base, sha };
   }
@@ -283,7 +298,8 @@ export class OfficeGit {
       } catch {
         continue;
       }
-      if (canonicalFuturePath(gitdir) === want) return join(dir, name);
+      // A relative link (`worktree.useRelativePaths`) is relative to the file that holds it.
+      if (canonicalFuturePath(resolve(join(dir, name), gitdir)) === want) return join(dir, name);
     }
     return null;
   }
@@ -310,7 +326,7 @@ export class OfficeGit {
       pointer = "";
     }
     const named = pointer.startsWith("gitdir: ") ? pointer.slice("gitdir: ".length) : "";
-    if (named === "" || canonicalFuturePath(named) !== canonicalFuturePath(gitDir)) {
+    if (named === "" || canonicalFuturePath(resolve(path, named)) !== canonicalFuturePath(gitDir)) {
       throw new GitError(
         "git.worktreeChanged",
         `${path}/.git no longer points at ${gitDir}; dipo runs no git in that worktree.`,

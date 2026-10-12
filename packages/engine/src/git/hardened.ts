@@ -3,7 +3,8 @@
 // `GIT_CONFIG_NOSYSTEM=1`, `-c core.hooksPath=/dev/null -c core.fsmonitor=false`, no pager, no
 // terminal prompt, C locale (stable messages for the lock check), and `GIT_DIR` and
 // `GIT_COMMON_DIR` from paths the engine recorded, never discovered from a worktree. Location
-// variables inherited from the daemon's environment are dropped first.
+// and config variables inherited from the daemon's environment are dropped first; the maintainer's
+// ssh and askpass settings stay (see `KEPT_AUTH_ENV`).
 
 /** Where one git call runs. Paths are absolute and recorded by the engine. */
 export type GitLocation =
@@ -52,11 +53,69 @@ export const DROPPED_GIT_ENV: readonly string[] = [
   "PAGER",
   "GIT_EDITOR",
   "GIT_SEQUENCE_EDITOR",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_EXEC_PATH",
+  "GIT_TEMPLATE_DIR",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_ATTR_SOURCE",
+];
+
+/** Inherited variables dropped by prefix: the numbered `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. */
+export const DROPPED_GIT_ENV_PREFIXES: readonly string[] = ["GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"];
+
+/**
+ * Kept from the daemon's environment on purpose: the maintainer's own transport and credential
+ * prompts (`GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_ASKPASS`, `SSH_ASKPASS`), which fetch and push need to
+ * authenticate as the maintainer (0008 section 2: the engine runs git with the maintainer's
+ * credentials). They come from the maintainer's session, never from a repository.
+ */
+export const KEPT_AUTH_ENV: readonly string[] = [
+  "GIT_SSH",
+  "GIT_SSH_COMMAND",
+  "GIT_ASKPASS",
+  "SSH_ASKPASS",
+];
+
+/** True when an inherited variable is dropped from a hardened call. */
+export function isDroppedGitEnv(name: string): boolean {
+  return (
+    DROPPED_GIT_ENV.includes(name) ||
+    DROPPED_GIT_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))
+  );
+}
+
+/** Extra config for a fetch: the `ext::` transport, which runs a command, is never allowed. */
+export const FETCH_CONFIG: readonly (readonly [string, string])[] = [
+  ["protocol.ext.allow", "never"],
+];
+
+/**
+ * Extra config and environment for checkouts of `_base`: no Git LFS smudge, so no filter reaches
+ * the network or runs a long-lived process while the engine reads the base.
+ */
+export const BASE_CHECKOUT_CONFIG: readonly (readonly [string, string])[] = [
+  ["filter.lfs.process", ""],
+  ["filter.lfs.smudge", ""],
+];
+export const BASE_CHECKOUT_ENV: Readonly<Record<string, string>> = { GIT_LFS_SKIP_SMUDGE: "1" };
+
+/** `worktree add` writes absolute `gitdir` links, which the engine records and compares. */
+export const WORKTREE_ADD_CONFIG: readonly (readonly [string, string])[] = [
+  ["worktree.useRelativePaths", "false"],
 ];
 
 /** The argument list of a hardened call: config overrides, then `--bare` for repository calls. */
-export function hardenedArgs(location: GitLocation, args: readonly string[]): string[] {
-  const config = HARDENED_CONFIG.flatMap(([key, value]) => ["-c", `${key}=${value}`]);
+export function hardenedArgs(
+  location: GitLocation,
+  args: readonly string[],
+  extraConfig: readonly (readonly [string, string])[] = [],
+): string[] {
+  const config = [...HARDENED_CONFIG, ...extraConfig].flatMap(([key, value]) => [
+    "-c",
+    `${key}=${value}`,
+  ]);
   return ["--no-pager", ...config, ...(location.kind === "repository" ? ["--bare"] : []), ...args];
 }
 
@@ -64,10 +123,11 @@ export function hardenedArgs(location: GitLocation, args: readonly string[]): st
 export function hardenedEnv(
   base: Readonly<Record<string, string | undefined>>,
   location: GitLocation,
+  extraEnv: Readonly<Record<string, string>> = {},
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(base)) {
-    if (value !== undefined && !DROPPED_GIT_ENV.includes(name)) env[name] = value;
+    if (value !== undefined && !isDroppedGitEnv(name)) env[name] = value;
   }
   Object.assign(env, {
     GIT_CONFIG_NOSYSTEM: "1",
@@ -77,6 +137,7 @@ export function hardenedEnv(
     LC_ALL: "C",
     LANGUAGE: "C",
   });
+  Object.assign(env, extraEnv);
   if (location.kind === "repository") {
     env["GIT_DIR"] = location.commonDir;
     env["GIT_COMMON_DIR"] = location.commonDir;

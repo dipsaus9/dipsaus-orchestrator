@@ -6,6 +6,12 @@ import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import { type GitLocation, hardenedArgs, hardenedCwd, hardenedEnv } from "./hardened";
 
+/** Per-step additions to the hardened call: command-line config and environment. */
+export interface GitStepOptions {
+  readonly config?: readonly (readonly [string, string])[];
+  readonly env?: Readonly<Record<string, string>>;
+}
+
 /** One git process to start: the arguments after `git`, its environment and working directory. */
 export interface GitCall {
   readonly args: readonly string[];
@@ -84,10 +90,11 @@ export async function runGitStep(
   runner: GitStepRunner,
   location: GitLocation,
   args: readonly string[],
+  options: GitStepOptions = {},
 ): Promise<GitResult> {
   const call: GitCall = {
-    args: hardenedArgs(location, args),
-    env: hardenedEnv(runner.env, location),
+    args: hardenedArgs(location, args, options.config),
+    env: hardenedEnv(runner.env, location, options.env),
     cwd: hardenedCwd(location),
   };
   for (let attempt = 0; ; attempt += 1) {
@@ -112,8 +119,9 @@ export async function runGitStepOk(
   runner: GitStepRunner,
   location: GitLocation,
   args: readonly string[],
+  options: GitStepOptions = {},
 ): Promise<string> {
-  const result = await runGitStep(runner, location, args);
+  const result = await runGitStep(runner, location, args, options);
   if (result.code !== 0) {
     throw new GitError(
       "git.failed",
