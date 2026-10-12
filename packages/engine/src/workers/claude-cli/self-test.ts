@@ -580,6 +580,9 @@ export async function resolveSelfTestTools(
   return { ok: true, tools: { perl: found["perl"] ?? "", gh: found["gh"] ?? "" } };
 }
 
+/** A pointer file as git writes it: one `gitdir: <path>` line and nothing else. */
+export const POINTER_LINE = /^gitdir: [^\n]+\n$/;
+
 /** The admin directory a `<worktree>/.git` pointer names, or null when it names none. */
 export function parsePointer(text: string, workdir: string): string | null {
   const match = /^gitdir: (.+)$/m.exec(text);
@@ -715,10 +718,15 @@ export async function runSelfTest(
   const pointerFile = `${workdir}/.git`;
 
   const pointer = await fs.readText(pointerFile);
-  const adminDir = pointer === null ? null : parsePointer(pointer, workdir);
+  // Exactly one `gitdir: <path>` line, as git writes it: anything else (for example a byte left
+  // by a self-test cut off by a crash) is noticed here and refuses.
+  const adminDir =
+    pointer === null || !POINTER_LINE.test(pointer) ? null : parsePointer(pointer, workdir);
   if (pointer === null || adminDir === null) {
     return fail(
-      cannotRun(`the worktree's .git pointer ${pointerFile} is missing or names no gitdir`),
+      cannotRun(
+        `the worktree's .git pointer ${pointerFile} is missing or is not exactly one "gitdir: <path>" line`,
+      ),
     );
   }
   if (!inside(adminDir, `${main}/.git/worktrees`)) {
@@ -744,7 +752,8 @@ export async function runSelfTest(
   );
   if (!tools.ok) return fail(cannotRun(tools.reason));
 
-  const nonce = deps.sessionId.replaceAll("-", "").slice(0, 16);
+  // Lower case: the nonce names files and its first character is the written byte.
+  const nonce = deps.sessionId.toLowerCase().replaceAll("-", "").slice(0, 16);
   const layout = selfTestLayout(
     {
       main,

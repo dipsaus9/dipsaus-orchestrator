@@ -331,7 +331,12 @@ describe("(unit) trusted perl and gh", () => {
 /** The self-test run, with the session replayed and the disk in memory. */
 async function runWith(
   results: string | null,
-  options: { commands?: readonly string[]; extra?: (fs: MemoryFs) => void; fs?: MemoryFs } = {},
+  options: {
+    commands?: readonly string[];
+    extra?: (fs: MemoryFs) => void;
+    fs?: MemoryFs;
+    sessionId?: string;
+  } = {},
 ) {
   const clock = new ManualClock();
   const fs = options.fs ?? new MemoryFs();
@@ -348,7 +353,13 @@ async function runWith(
   const runSettings = plan(runSpec, context()).files.find((f) => f.name === SETTINGS_FILE);
   const report = await runSelfTest(
     { spec: runSpec, ctx: context(), runSettings: runSettings?.content ?? "" },
-    { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
+    {
+      spawn: fake.spawn,
+      clock,
+      fs,
+      sessionId: options.sessionId ?? SELF_TEST_SESSION,
+      platform: "darwin",
+    },
   );
   return { report, fs, fake, runSettings: runSettings?.content ?? "" };
 }
@@ -413,6 +424,27 @@ describe("(engine) self-test run", () => {
     });
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "pointer" });
     expect(fs.files.get(`${WORKDIR}/.git`)).toBe(POINTER);
+  });
+
+  it("derives the nonce from the lower-cased session id", async () => {
+    const { report } = await runWith(BLOCKED_RESULTS, {
+      sessionId: SELF_TEST_SESSION.toUpperCase(),
+    });
+    expect(report.verdict).toEqual({ ok: true, refused: REFUSED });
+  });
+
+  it("refuses before any session when the pointer is not exactly one gitdir line", async () => {
+    for (const pointer of [`${POINTER}c`, `${POINTER}gitdir: /x\n`, POINTER.trimEnd(), ""]) {
+      const clock = new ManualClock();
+      const fake = scriptedClaude(clock, {});
+      const report = await runSelfTest(
+        { spec: spec(), ctx: context(), runSettings: "{}" },
+        { spawn: fake.spawn, clock, fs: new MemoryFs(pointer), sessionId: SELF_TEST_SESSION },
+      );
+      expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
+      expect(!report.verdict.ok && report.verdict.reason).toContain("exactly one");
+      expect(fake.calls).toEqual([]);
+    }
   });
 
   it("refuses when the command never wrote its results", async () => {
