@@ -4,7 +4,7 @@ title: Capture scrubbed Claude recordings for adapter tests
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:32'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -16,6 +16,7 @@ references:
   - packages/engine/test/recordings/claude-cli/
   - packages/engine/test/fixtures/repos/
   - package.json
+  - tsconfig.json
 documentation:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -58,7 +59,7 @@ test_plan:
 - [ ] #6 `derive.ts` produces `terminated`, `crash-truncated`, `crash-zeroed`, `init-rejected`, `start-failed`, `report-invalid`, `prompt-too-long`, `stall` and `budget-engine-cap` from live recordings.
 - [ ] #7 Live scenarios `success-single`, `success-tools-subagent`, `max-turns`, `permission-denied`, `interrupt`, `resume` and `worker-park-ambiguous` are committed, and `meta.json` carries version, flags, date, prompt size and hash.
 - [ ] #8 Unit tests over every committed recording assert no secret shape, no redacted decision field, and usage numbers equal to the checksum taken at capture.
-- [ ] #9 Implementation notes record the 0008 live checks: `--json-schema` per turn in streaming input, `priority: "now"` behaviour, `apiKeySource` on a claude.ai login, and SIGINT behaviour in streaming input.
+- [ ] #9 Implementation notes record the 0008 live checks: `--json-schema` per turn in streaming input, `priority: "now"` behaviour, `apiKeySource` on a claude.ai login, SIGINT behaviour in streaming input, `--max-turns` behaviour in streaming input, and, as a go/no-go check, whether the sandbox `denyWrite` on `<main>/.git` beats the shared-`.git` allowance of a linked worktree; if it does not, the notes say so and no story run is enabled until the maintainer revisits 0008 option (a).
 - [ ] #10 `bun run recordings:status` lists recordings whose `claude_code_version` differs from the local `claude --version`.
 <!-- AC:END -->
 

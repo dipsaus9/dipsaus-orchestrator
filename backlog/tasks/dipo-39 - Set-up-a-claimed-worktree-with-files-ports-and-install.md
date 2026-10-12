@@ -4,14 +4,14 @@ title: 'Set up a claimed worktree with files, ports and install'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:32'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
-  - DIPO-33
   - DIPO-37
   - DIPO-38
+  - DIPO-72
 references:
   - packages/engine/src/worktree/setup.ts
   - packages/engine/src/worktree/slots.ts
@@ -31,7 +31,7 @@ ordinal: 39000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: after a claim, the engine copies or links the configured gitignored files, copies a filtered `.claude/settings.local.json`, assigns a machine-wide port slot, builds the run environment, and runs install, `setup` and `post_create` inside `srt`, rolling back the claim when setup fails.
 
-Context: teardown is DIPO-58. References: 0010 section 8 (files, install, setup, post_create, run environment), section 9 (slots and bind check), failure case "Setup fails", amendment from 0008 (settings copy, env-file notice); 0013 section 4 (env file facts); 0008 section 2 "Project settings" (dropped keys), "Env files".
+Context: teardown is DIPO-58. The run profile comes from DIPO-72's stored profile. References: 0010 section 8 (files, install, setup, post_create, run environment), section 9 (slots and bind check), failure case "Setup fails", amendment from 0008 (settings copy, env-file notice); 0013 section 4 (env file facts); 0008 section 2 "Project settings" (dropped keys), "Env files".
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 
@@ -46,6 +46,8 @@ test_plan:
       check: "(unit) slot allocation and freeing; environment substitution."
     - kind: "automated"
       check: "(integration) a failing `setup` script rolls back the claim and leaves the story Ready."
+    - kind: "automated"
+      check: "(unit) with a fake disk probe reporting 1 GB free before install, setup fails and rolls back the claim."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -58,7 +60,8 @@ test_plan:
 - [ ] #5 Slots are machine-wide in `<state>`: the lowest free slot 1 to `maxSlots` is taken and kept while the worktree exists.
 - [ ] #6 The run environment holds `DIPO_SLOT`, `DIPO_PORT_OFFSET`, `DIPO_STORY`, `DIPO_WORKTREE`, named ports or `PORT`, and `env` entries with only the documented placeholders substituted.
 - [ ] #7 Install from the run profile, then `setup`, then each `post_create` argument list run through DIPO-37 in order, without a shell.
-- [ ] #8 On setup failure the worktree is removed, the branch deleted only if it still points at the start SHA, the story stays Ready, and the skip is `pickupCheckFailed` with the setup log.
+- [ ] #8 Before install the DIPO-38 free-space check runs again; less than 2 GB free fails setup with a log line naming the free space.
+- [ ] #9 On setup failure the worktree is removed, the branch deleted only if it still points at the start SHA, the story stays Ready, and the skip is `pickupCheckFailed` with the setup log.
 <!-- AC:END -->
 
 ## Implementation Notes

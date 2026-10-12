@@ -4,7 +4,7 @@ title: Assemble worker prompts from templates and story data
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:32'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -29,7 +29,7 @@ ordinal: 47000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the engine renders the system file (L1 worker contract plus L2 built-in developer role) and the `implement` task message (L4 sections in the 0014 order) from logic-free templates and story data, enforces section and total budgets, and stores only hashes and sizes of each part.
 
-Context: the review kind and L5 nudges come later (M1 and DIPO-60); verify feedback items are added here because DIPO-49 sends them. References: 0014 sections 1 (layers, template rules), 2 (sections, precedence sentence, what is left out, report fields), 4 (budgets, never-truncated contract, R26 backstop, drop order), 5 (byte-stable L1+L2, deterministic render), 6 (handoff block), 7 (verify feedback evidence); 0007 section 4 (`prompt_parts`).
+Context: the review kind and L5 nudges come later (M1 and DIPO-60); verify feedback items are added here because DIPO-49 sends them. The contract-size backstop returns an error that DIPO-48 handles before the claim, like a failed pickup re-check (0014 section 4; M0 review, DIPO-15). The `worker_notes` table lives here because the handoff block is its first reader; teardown (DIPO-58) deletes its rows. References: 0014 sections 1 (layers, template rules), 2 (sections, precedence sentence, what is left out, report fields), 4 (budgets, never-truncated contract, R26 backstop, drop order), 5 (byte-stable L1+L2, deterministic render), 6 (handoff block), 7 (verify feedback evidence); 0007 section 4 (`prompt_parts`).
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 
@@ -41,7 +41,9 @@ test_plan:
     - kind: "automated"
       check: "(unit) golden L1+L2 and L4; `DIPO_UPDATE_GOLDEN=1` regenerates them."
     - kind: "automated"
-      check: "(unit) drop order and markers over a large fixture; contract over the cap fails."
+      check: "(unit) drop order and markers over a large fixture; a contract over the cap fails with `prompt.contractTooLarge`."
+    - kind: "automated"
+      check: "(engine) worker notes stored for a worktree appear in the next handoff block, cut at 1,500 characters."
     - kind: "automated"
       check: "(unit) feedback location parsing for tsc, oxlint and bun test samples."
 ```
@@ -52,11 +54,11 @@ test_plan:
 - [ ] #1 Templates under `packages/engine/src/prompts/` hold named slots only; a test fails when a template contains a conditional or loop syntax.
 - [ ] #2 The rendered L1+L2 file is byte-identical for every story with the same role and engine version, and contains no id, date, path or count.
 - [ ] #3 The task message holds `context`, `inputs`, `dependencies`, `background`, `handoff`, `story`, `outcome`, `criteria`, `scope`, `test_plan`, `answers`, `instructions`, `feedback` in that order, each in its tag, each present only under its 0014 condition.
-- [ ] #4 Story contract sections are never truncated; over `prompt.contractMax` assembly fails and the story returns to Refined with the assembly error.
+- [ ] #4 Story contract sections are never truncated; `assembleContract(story)` measures them on their own, and over `prompt.contractMax` assembly fails with `prompt.contractTooLarge` naming the size and the limit; moving the story to Refined is DIPO-48.
 - [ ] #5 Over the total cap, sections drop in the order dependencies, background, context tail, inputs content, each with a marker.
 - [ ] #6 A verify feedback item holds the failing step and command, exit code, last 60 output lines and `file:line` locations parsed from tsc, oxlint and bun test output.
 - [ ] #7 A handoff block holds `git log --oneline <base>..HEAD`, `git diff --stat HEAD`, untracked files, criteria status, last verify result, open feedback and worker notes up to 1,500 characters.
-- [ ] #8 A migration adds `prompt_parts`; per run and agent the sha256, bytes and estimated tokens of each part are stored and no prompt text is.
+- [ ] #8 A migration adds `prompt_parts` and `worker_notes`; per run and agent the sha256, bytes and estimated tokens of each part are stored and no prompt text is; the `notes` of a worker report are stored per worktree in `worker_notes` and read back for the handoff block.
 - [ ] #9 Golden files cover the rendered L1+L2 and a sample L4 for a fixture story.
 <!-- AC:END -->
 

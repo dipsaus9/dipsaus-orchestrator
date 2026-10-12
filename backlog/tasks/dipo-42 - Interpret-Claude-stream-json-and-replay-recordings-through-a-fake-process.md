@@ -4,7 +4,7 @@ title: Interpret Claude stream-json and replay recordings through a fake process
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:32'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -58,7 +58,7 @@ test_plan:
 - [ ] #4 A partial last line is held until complete; an unknown message type is logged once per run and ignored.
 - [ ] #5 `result(state, exit)` returns the outcome of the 0008 section 7 table when no intent is recorded, with a proposed park reason.
 - [ ] #6 The report is read from the channel recorded in DIPO-41 (`structured_output`, or the 0008 fallback), validated against the report schema.
-- [ ] #7 `FakeProcess` replays a recording via the injected spawn, advances the manual clock by recorded `t` deltas, jumps to the post-interrupt tail on SIGINT, exits 143 with no result on SIGTERM, and records stdin writes.
+- [ ] #7 `FakeProcess` implements the contract `ChildProcess` type and replays a recording via an injected `Spawn` (DIPO-18), advances the manual clock by recorded `t` deltas, jumps to the post-interrupt tail on SIGINT, exits 143 with no result on SIGTERM, and records stdin writes.
 - [ ] #8 `ScriptedWorker` emits Worker events from a list, and a contract test rejects any script event the adapter schema could not produce.
 <!-- AC:END -->
 
@@ -66,4 +66,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S26 (DIPO-15). Before cutover: built by hand-run agents.
+
+M0 review (DIPO-15): the open unknown is resolved through the Backlog CLI as soon as DIPO-41 lands, with the channel its implementation notes record; until then this story cannot pass the Ready gate (R15).
 <!-- SECTION:NOTES:END -->
