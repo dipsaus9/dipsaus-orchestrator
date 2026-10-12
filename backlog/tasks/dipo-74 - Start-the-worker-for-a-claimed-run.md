@@ -4,7 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 21:47'
+updated_date: '2026-10-12 21:48'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -21,6 +21,7 @@ references:
   - packages/engine/src/workers/claude-cli/adapter.ts
   - packages/engine/src/features.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/test/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
