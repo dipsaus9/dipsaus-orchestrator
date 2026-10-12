@@ -45,6 +45,11 @@ export interface SandboxHost {
   createTempRoot(): Promise<string>;
   /** Removes a temp root, its policy file and its refusal file. */
   removeTempRoot(tempRoot: string): Promise<void>;
+  /**
+   * dipo's own state, logs and runtime directories (every runtime candidate), derived from the
+   * daemon's environment with the DIPO-23 path rules; the step may not read them.
+   */
+  dipoDirs(daemonEnv: Readonly<Record<string, string | undefined>>): Promise<string[]>;
   /** Resolves `rg`, `bwrap` and `socat` on the absolute entries of PATH; runs nothing. */
   resolveTools(env: Readonly<Record<string, string>>): Promise<SandboxTools>;
   /**
@@ -90,8 +95,6 @@ export interface StepRequest {
   readonly home: string;
   /** The user id, for `/run/user/<uid>`. */
   readonly uid: number;
-  /** dipo's state and runtime directories, hidden from the step. */
-  readonly dipoDirs: readonly string[];
   readonly sandbox: {
     readonly toolchainPaths: readonly string[];
     readonly registryHosts: readonly string[];
@@ -138,6 +141,12 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
   }
   try {
     const env = stepEnv(request.env, tempRoot, request.extraEnv);
+    let dipoDirs: string[];
+    try {
+      dipoDirs = await deps.host.dipoDirs(request.env);
+    } catch (error) {
+      return startFailed(`could not resolve dipo's own directories: ${message(error)}`);
+    }
     const run = {
       platform: deps.platform,
       kind: request.kind,
@@ -146,7 +155,7 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
       mainCheckout: request.mainCheckout,
       worktree: request.worktree,
       tempRoot,
-      dipoDirs: request.dipoDirs,
+      dipoDirs,
       sshAuthSock: request.env["SSH_AUTH_SOCK"],
       toolchainPaths: request.sandbox.toolchainPaths,
       registryHosts: request.sandbox.registryHosts,

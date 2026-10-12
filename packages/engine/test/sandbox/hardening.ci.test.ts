@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
@@ -139,7 +139,8 @@ if (CI) {
           const layout = makeLayout(dir);
           const agentDir = join(dir, "agent");
           mkdirSync(agentDir);
-          const dipoSocket = join(layout.dipoState, "dipo.sock");
+          // The runtime directory comes from DIPO_RUNTIME_DIR through the DIPO-23 path rules.
+          const dipoSocket = join(layout.dipoRuntime, "dipo.sock");
           const agentSocket = join(agentDir, "agent.sock");
           const servers = [serve(dipoSocket), serve(agentSocket)];
           try {
@@ -157,6 +158,43 @@ if (CI) {
             expect(result.stdout.text.trim().split("\n")).toEqual(["blocked", "blocked"]);
           } finally {
             for (const server of servers) await server.stop(true);
+          }
+        }),
+      TIMEOUT_MS,
+    );
+
+    it(
+      "refuses, through the refusal file, when a dipo directory would hide the worktree",
+      () =>
+        withTempDir(async (dir) => {
+          const layout = makeLayout(dir);
+          const result = await runSandboxedStep(
+            stepDeps(),
+            request(layout, ["/usr/bin/true"], "verify", { DIPO_RUNTIME_DIR: layout.dir }),
+          );
+          expect(result.outcome).toBe("startFailed");
+          if (result.outcome === "startFailed") {
+            expect(result.reason).toContain("sandbox refused to start: read denies hide the step");
+            expect(result.reason).toContain(`denyRead ${layout.dir} covers the working directory`);
+          }
+        }),
+      TIMEOUT_MS,
+    );
+
+    it(
+      "refuses a step that could write the source code a from-source dipo runs",
+      () =>
+        withTempDir(async (dir) => {
+          const layout = makeLayout(dir);
+          const repo = resolve(import.meta.dir, "../../../..");
+          const result = await runSandboxedStep(stepDeps(), {
+            ...request(layout, ["/usr/bin/true"]),
+            worktree: repo,
+            mainCheckout: repo,
+          });
+          expect(result.outcome).toBe("startFailed");
+          if (result.outcome === "startFailed") {
+            expect(result.reason).toContain(`the dipo source ${repo} is writable by the step`);
           }
         }),
       TIMEOUT_MS,

@@ -19,7 +19,13 @@ import {
 } from "../sandbox/policy";
 import { evaluateProbe, type ProbeResult, type SandboxFacts } from "../sandbox/probe";
 import { refusalPathFor, type SandboxHost } from "../sandbox/step";
-import { passwdHome, type DipoPlatform } from "./paths";
+import {
+  passwdHome,
+  readRuntimeRecord,
+  resolveSoftwareDirs,
+  runtimeCandidates,
+  type DipoPlatform,
+} from "./paths";
 
 /** Where step temp roots live. Short, because macOS limits Unix socket paths to about 104 bytes. */
 export const STEP_TEMP_PREFIX = "/tmp/dipo-s-";
@@ -39,6 +45,42 @@ export function isCompiled(moduleUrl: string = import.meta.url): boolean {
 export function dipoCommand(): string[] {
   if (isCompiled()) return [process.execPath];
   return [process.execPath, resolve(import.meta.dir, "../../../cli/src/main.ts")];
+}
+
+/**
+ * The workspace a from-source `dipo` runs (the repository holding `packages/cli/src/main.ts`) and
+ * its `node_modules`: when the CLI entry is given, a step may not be able to write them.
+ */
+export function sourceCodeRoots(mainScript: string | undefined): string[] {
+  if (mainScript === undefined) return [];
+  const root = resolve(mainScript, "../../../..");
+  return [root, join(root, "node_modules")];
+}
+
+/**
+ * dipo's own directories (0006 decision 3, DIPO-23 path rules): state, logs, the runtime directory
+ * recorded in `runtime.json` and every runtime candidate, from the daemon's environment.
+ */
+export async function systemDipoDirs(
+  platform: DipoPlatform,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string[]> {
+  const dirs = resolveSoftwareDirs({ platform, env, home: passwdHome() });
+  const record = await readRuntimeRecord(dirs.state);
+  const candidates = runtimeCandidates({
+    platform,
+    env,
+    uid: process.getuid?.() ?? 0,
+    lingering: true,
+  }).map((candidate) => candidate.path);
+  return [
+    ...new Set([
+      dirs.state,
+      dirs.logs,
+      ...(record === null ? [] : [record.runtimeDir]),
+      ...candidates,
+    ]),
+  ];
 }
 
 /** The argv of one sandboxed step. */
@@ -137,6 +179,8 @@ export async function checkTrust(input: {
   readonly PATH: string | undefined;
   readonly tools: SandboxTools;
   readonly binary: string;
+  /** Source code a from-source dipo runs (`sourceCodeRoots`); empty for the binary. */
+  readonly code: readonly string[];
 }): Promise<string[]> {
   const writable = await Promise.all(
     writableRoots(input.settings, input.homes).map(async (root) => ({
@@ -153,6 +197,9 @@ export async function checkTrust(input: {
   const candidates: TrustedCandidate[] = [];
   for (const [label, path] of named) {
     if (path !== null) candidates.push({ label, spellings: await spellings(path) });
+  }
+  for (const path of input.code) {
+    candidates.push({ label: "the dipo source", spellings: await spellings(path) });
   }
   const entries = pathEntries(input.PATH);
   for (const entry of entries) {
@@ -287,7 +334,9 @@ export function systemSandboxHost(
           socat: settings.socatPath ?? null,
         },
         binary,
+        code: sourceCodeRoots(dipo[1]),
       }),
+    dipoDirs: (env) => systemDipoDirs(platform, env),
     probe: (tools) => probeSandbox(platform, tools),
     writePolicy: async (tempRoot, settings) => {
       const path = policyPathFor(tempRoot);

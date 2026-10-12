@@ -35,6 +35,7 @@ export interface Layout {
   readonly secret: string;
   readonly npmrc: string;
   readonly dipoState: string;
+  readonly dipoRuntime: string;
 }
 
 export function makeLayout(dir: string): Layout {
@@ -42,16 +43,18 @@ export function makeLayout(dir: string): Layout {
   const main = join(dir, "main");
   const worktree = join(dir, "wt");
   const dipoState = join(dir, "dipo-state");
+  const dipoRuntime = join(dir, "dipo-run");
   mkdirSync(join(home, ".ssh"), { recursive: true });
   mkdirSync(join(main, ".git"), { recursive: true });
   mkdirSync(worktree, { recursive: true });
   mkdirSync(dipoState, { recursive: true });
+  mkdirSync(dipoRuntime, { recursive: true });
   const secret = join(home, ".ssh", "id_test");
   writeFileSync(secret, "not-a-real-key\n");
   const npmrc = join(home, ".npmrc");
   writeFileSync(npmrc, "//registry.example/:_authToken=not-a-real-token\n");
   writeFileSync(join(worktree, ".git"), `gitdir: ${join(main, ".git", "worktrees", "wt")}\n`);
-  return { dir, home, main, worktree, secret, npmrc, dipoState };
+  return { dir, home, main, worktree, secret, npmrc, dipoState, dipoRuntime };
 }
 
 /** Writes an executable shell script that records that it ran in `<dir>/<name>-ran`. */
@@ -77,9 +80,15 @@ export function request(
     mainCheckout: layout.main,
     home: layout.home,
     uid: process.getuid?.() ?? 0,
-    dipoDirs: [layout.dipoState],
     sandbox: { toolchainPaths: [], registryHosts: [] },
     scriptMinutes: { install: 2, verify: 2 },
-    env: { ...process.env, HOME: layout.home, ...env },
+    // dipo's own directories are derived from these (DIPO-23 path rules).
+    env: {
+      ...process.env,
+      HOME: layout.home,
+      DIPO_HOME: layout.dipoState,
+      DIPO_RUNTIME_DIR: layout.dipoRuntime,
+      ...env,
+    },
   };
 }

@@ -173,19 +173,15 @@ export function translatePolicy(run: SandboxRun): TranslatedPolicy {
     run.sshAuthSock === undefined || agentDir === null
       ? []
       : [covers(agentDir) ? run.sshAuthSock : agentDir];
-  const denyRead: string[] = [];
-  for (const path of unique([
+  // A deny over the worktree or the temp root would hide them from the step; it is kept here and
+  // `sandbox-exec` refuses the run (`coveringDenies`), so the step fails closed.
+  const denyRead = unique([
     ...[...SECRET_HOME_PATHS, ...EXTRA_SECRET_HOME_PATHS].map((rel) => joinPath(run.home, rel)),
     ...run.dipoDirs,
     `/run/user/${run.uid}`,
     ...DENIED_SOCKET_PATHS,
     ...agent,
-  ])) {
-    // A deny over the worktree or the temp root would hide them from the step itself.
-    if (covers(path))
-      warnings.push(`denyRead: skipped ${path} (it holds the worktree or temp root)`);
-    else denyRead.push(path);
-  }
+  ]);
 
   // macOS Seatbelt filters Unix sockets by path. Linux seccomp cannot, so there the only way to let
   // a step create a socket under its temp root is to allow Unix sockets as a whole; the read denies
@@ -286,3 +282,40 @@ export const DENY_ALL_SETTINGS: SrtSettings = {
   network: { allowedDomains: [], deniedDomains: [], strictAllowlist: true },
   filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
 };
+
+/** True when a path or glob of a deny list matches `path` (`*` and `?` stay within one segment). */
+export function denyMatches(entry: string, path: string): boolean {
+  if (!GLOB.test(entry)) return isAtOrUnder(path, entry);
+  const pattern = entry
+    .replace(/\/\*\*$/, "")
+    .split("")
+    .map((ch) =>
+      ch === "*" ? "[^/]*" : ch === "?" ? "[^/]" : ch.replace(/[.+^$()|\\{}[\]]/g, "\\$&"),
+    )
+    .join("");
+  const regex = new RegExp(`^${pattern}$`);
+  // The path itself or any of its ancestors.
+  for (let at = path; at !== "/" && at !== ""; at = parentDir(at)) {
+    if (regex.test(at)) return true;
+  }
+  return false;
+}
+
+/**
+ * Read denies that would hide a root the step must use (its working directory, temp root or a
+ * write path), in every spelling given. Each one refuses the step: srt would mount over it.
+ */
+export function coveringDenies(
+  denyRead: readonly string[],
+  roots: readonly { readonly label: string; readonly spellings: readonly string[] }[],
+): string[] {
+  const reasons: string[] = [];
+  for (const entry of denyRead) {
+    for (const root of roots) {
+      if (root.spellings.some((spelling) => denyMatches(entry, spelling))) {
+        reasons.push(`denyRead ${entry} covers the ${root.label} ${root.spellings[0] ?? ""}`);
+      }
+    }
+  }
+  return reasons;
+}

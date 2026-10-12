@@ -74,6 +74,7 @@ function fakeHost(probe: ProbeResult = { ok: true }): Recorder {
     refusal: null,
     distrust: [],
     host: {
+      dipoDirs: async () => ["/home/m/.local/state/dipo"],
       resolveTools: async () => TOOLS,
       trustCheck: async (input) => {
         rec.trustInputs.push(input);
@@ -107,7 +108,6 @@ const REQUEST: StepRequest = {
   mainCheckout: "/src/p",
   home: "/home/m",
   uid: 501,
-  dipoDirs: ["/home/m/.local/state/dipo"],
   sandbox: { toolchainPaths: ["~/.bun/install/cache"], registryHosts: ["registry.npmjs.org"] },
   scriptMinutes: { install: 15, verify: 20 },
   env: {

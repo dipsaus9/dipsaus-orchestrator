@@ -10,7 +10,9 @@ import { SandboxRuntimeConfigSchema } from "@anthropic-ai/sandbox-runtime";
 
 import type { DipoPlatform } from "../../src/platform/paths";
 import {
+  coveringDenies,
   DENY_ALL_SETTINGS,
+  denyMatches,
   expandHome,
   globRoot,
   linuxLiteralPath,
@@ -97,11 +99,20 @@ describe("translatePolicy", () => {
     const { settings, warnings } = translatePolicy({
       ...run("darwin", "verify"),
       sshAuthSock: "/tmp/agent.sock",
-      dipoDirs: ["/tmp"],
     });
     expect(settings.filesystem.denyRead).toContain("/tmp/agent.sock");
     expect(settings.filesystem.denyRead).not.toContain("/tmp");
-    expect(warnings).toEqual(["denyRead: skipped /tmp (it holds the worktree or temp root)"]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("keeps a dipo directory that covers the temp root, for sandbox-exec to refuse", () => {
+    const { settings } = translatePolicy({ ...run("linux", "verify"), dipoDirs: ["/tmp"] });
+    expect(settings.filesystem.denyRead).toContain("/tmp");
+    expect(
+      coveringDenies(settings.filesystem.denyRead, [
+        { label: "temp root", spellings: ["/tmp/dipo-s-AbC123"] },
+      ]),
+    ).toEqual(["denyRead /tmp covers the temp root /tmp/dipo-s-AbC123"]);
   });
 
   it("pins rg on both platforms and bwrap and socat on Linux", () => {
@@ -249,5 +260,25 @@ describe("trustViolations", () => {
     expect(
       trustViolations({ writable, candidates: [], pathEntries: ["bin", "", "/usr/bin"] }),
     ).toEqual(['PATH holds a relative entry "bin"', 'PATH holds a relative entry ""']);
+  });
+});
+
+describe("denyMatches and coveringDenies", () => {
+  it("matches paths at or under a literal deny and globs per segment", () => {
+    expect(denyMatches("/run/user/1000", "/run/user/1000/dipo")).toBe(true);
+    expect(denyMatches("/run/user/1000", "/run/user/10000")).toBe(false);
+    expect(denyMatches("/tmp/ssh-*", "/tmp/ssh-AbC/agent.1")).toBe(true);
+    expect(denyMatches("/tmp/ssh-*", "/tmp/dipo-s-AbC")).toBe(false);
+    expect(denyMatches("/tmp/ssh-*", "/tmp")).toBe(false);
+  });
+
+  it("finds nothing for the default policy of a step", () => {
+    const { settings } = translatePolicy(run("linux", "install"));
+    const roots = [
+      { label: "working directory", spellings: ["/src/product.worktrees/PROD-7"] },
+      { label: "temp root", spellings: ["/tmp/dipo-s-AbC123"] },
+      ...settings.filesystem.allowWrite.map((path) => ({ label: "write path", spellings: [path] })),
+    ];
+    expect(coveringDenies(settings.filesystem.denyRead, roots)).toEqual([]);
   });
 });

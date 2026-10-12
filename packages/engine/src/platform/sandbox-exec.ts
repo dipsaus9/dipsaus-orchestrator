@@ -25,10 +25,23 @@ import { SandboxManager, SandboxRuntimeConfigSchema } from "@anthropic-ai/sandbo
 import applySeccompArm64 from "@anthropic-ai/sandbox-runtime/vendor/seccomp/arm64/apply-seccomp" with { type: "file" };
 import applySeccompX64 from "@anthropic-ai/sandbox-runtime/vendor/seccomp/x64/apply-seccomp" with { type: "file" };
 
-import { expandHome, type SandboxTools, type SrtSettings } from "../sandbox/policy";
+import {
+  coveringDenies,
+  expandHome,
+  globRoot,
+  type SandboxTools,
+  type SrtSettings,
+} from "../sandbox/policy";
 import { refusalPathFor, SANDBOX_REFUSED_EXIT_CODE, SANDBOX_REFUSED_MARKER } from "../sandbox/step";
 import { currentPlatform, passwdHome } from "./paths";
-import { checkTrust, probeSandbox, resolveTools } from "./sandbox";
+import {
+  checkTrust,
+  isCompiled,
+  probeSandbox,
+  resolveTools,
+  sourceCodeRoots,
+  spellings,
+} from "./sandbox";
 
 export interface SandboxExecOptions {
   readonly policyPath: string;
@@ -123,13 +136,34 @@ export async function runSandboxExec(options: SandboxExecOptions): Promise<numbe
       bwrap: config.bwrapPath ?? resolved.bwrap,
       socat: config.socatPath ?? resolved.socat,
     };
+    const view = trustView(config, homes[0] ?? "/");
     const distrust = await checkTrust({
-      settings: trustView(config, homes[0] ?? "/"),
+      settings: view,
       homes,
       PATH: env["PATH"],
       tools,
       binary: process.execPath,
+      // From source, Bun runs this repository's code: the step may not be able to write it.
+      code: isCompiled()
+        ? []
+        : sourceCodeRoots(resolve(import.meta.dir, "../../../cli/src/main.ts")),
     });
+    if (distrust.length > 0) throw new Refusal(`untrusted paths: ${distrust.join("; ")}`);
+    // A read deny over the working directory, the temp root or a write path would hide it.
+    const roots = [
+      { label: "working directory", path: process.cwd() },
+      ...(env["TMPDIR"] ? [{ label: "temp root", path: env["TMPDIR"] }] : []),
+      ...view.filesystem.allowWrite.map((path) => ({ label: "write path", path: globRoot(path) })),
+    ];
+    const covered = coveringDenies(
+      config.filesystem.denyRead.map((entry) =>
+        typeof entry === "string" ? expandHome(entry, homes[0] ?? "/") : entry.path,
+      ),
+      await Promise.all(
+        roots.map(async (root) => ({ label: root.label, spellings: await spellings(root.path) })),
+      ),
+    );
+    if (covered.length > 0) throw new Refusal(`read denies hide the step: ${covered.join("; ")}`);
     if (distrust.length > 0) throw new Refusal(`untrusted paths: ${distrust.join("; ")}`);
     const probe = await probeSandbox(platform, tools);
     if (!probe.ok) throw new Refusal(probe.reasons.join("; "));
