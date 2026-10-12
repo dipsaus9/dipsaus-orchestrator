@@ -1,10 +1,10 @@
 ---
 id: DIPO-68
 title: Move the daemon through its lifecycle states with drain and safe mode
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 09:20'
-updated_date: '2026-10-12 12:45'
+updated_date: '2026-10-12 12:48'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -82,4 +82,12 @@ Interpretations to confirm:
 - A drain that hits its cap still exits 0 and clears the crash marker, so stops that hit the cap do not push the daemon into safe; a lost lock exits 1; a failed recovery step exits 1 and counts as a crash.
 
 Review follow-up (PR #32): the crash counter now writes its running marker right after the PID lock is taken, before the runtime-directory choice and the socket bind, so an unclean exit early in starting (exit 1 or a hard kill) counts toward the crash loop; crash-loop.test.ts covers a failure between lock and bind. scheduling() documents that scheduling.off in draining is deliberate and that clients reconnect on daemon.state to draining (DIPO-24). Known edge: in the rare stale-break race the losing starter overwrites the winner's marker before its post-bind re-read, which can count one spurious crash.
+
+Follow-up idea (reviewer, optional): in CrashCounter.open count a foreign marker as a crash only when its PID and start time are no longer alive, which removes the rare spurious crash when two starters race for a stale lock.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Daemon lifecycle: DaemonLifecycle state machine per 0006 decision 7 (draining from every live state), recovery steps with migrations first, crash counter in <state>/crashes.json written right after the PID lock (three crashes in 10 minutes give safe with 'crash loop', 10 stable minutes reset), drain on SIGTERM/SIGINT with 20 s or 60 s caps and process-group SIGKILL of the daemon's own children at the cap, worker hosts untouched, engine.recovering in starting/recovering, scheduling.off in safe and draining, resumeScheduling from safe. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
