@@ -4,7 +4,7 @@ title: Reach the daemon from the CLI through the client package
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:35'
+updated_date: '2026-10-12 13:42'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -20,6 +20,7 @@ references:
   - packages/cli/package.json
   - packages/cli/tsconfig.json
   - bun.lock
+  - test/state-dir/
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
@@ -76,10 +77,10 @@ Implementation (DIPO-25):
 - Reconnect: 0.5 s doubling to 5 s on the injected clock, reset after a successful hello; re-subscribes after the last stored cursor, re-sends every unanswered command and read with its original `requestId` after the new hello; drops stored events it already has (derived events exempt); a refused subscribe (`stream.resetRequired`) ends the subscription through `onEnded`. Only the first `connect()` fails fast (`client.unreachable`, 5 s timeout); later losses reconnect.
 - `@dipsaus-orchestrator/client/node` (second `exports` entry, `src/node/`): `unixSocketTransport` (`ws+unix://`), `stateDir` and `readRuntimeInfo` for `<state>/runtime.json`, `systemClock`, and `connectToDaemon`, which throws `DaemonNotRunningError` when there is no record or nothing answers on its socket. Stale-record checks against `dipo.pid` stay with DIPO-70.
 - Lint (`.oxlintrc.json`): `packages/client/src/**` bans `bun`, `bun:*`, `node:*` imports and the `Bun`, `process`, `Buffer` and `require` globals; `packages/client/src/node/**` lifts that and keeps the engine/daemon and timer bans; `src/node/clock.ts` is the one file allowed real time. Fixtures and `test/lint-boundaries/lint-client-core.test.ts` prove each case.
-- CLI: `dipo daemon log-level <level>` and `dipo daemon resume-scheduling` (`packages/cli/src/daemon-commands.ts`) print the reply; an engine error prints `dipo: <code>: <message>` and exits 1; no daemon prints `dipo: no daemon is running (...). Start it with \`dipo daemon start\`.` and exits 1; usage errors exit 2; a 10 s reply deadline covers a daemon that vanishes mid-command.
+- CLI: `dipo daemon log-level <level>` and `dipo daemon resume-scheduling` (`packages/cli/src/daemon-commands.ts`) print the reply; an engine error prints `dipo: <code>: <message>` and exits 1; no daemon prints `dipo: no daemon is running (...). Start it with \`dipo daemon start\` (until that exists: \`dipo daemon --foreground\`).` and exits 1; usage errors exit 2; a 10 s reply deadline covers a daemon that vanishes mid-command and prints `dipo: the daemon did not answer within 10 s.` (no start hint).
 - Daemon: the contract server logs `connection opened`, `connection closed` and `frame received` (kind, name, stream, requestId, never args) at debug, so the manual test can see `debug` lines (`packages/daemon/src/server.ts`, added to References).
 - Tests: `packages/client/test/unit/client.test.ts` (fake transport, manual clock: handshake, reply matching, backoff sequence, same-requestId re-send, re-subscribe after the last cursor, duplicate drop, reset); `packages/client/test/integration/daemon.test.ts` (a real `dipo daemon --foreground` in a temp DIPO_HOME started in `safe` from a seeded crash loop: hello, command, dropped connection, `daemon.state` replayed once after reconnect, and the CLI subcommands as processes, including after the daemon stopped); `packages/cli/src/daemon-commands.test.ts`.
-- Deviations: none from the ACs. Not-running exits 1 (AC #6 asks non-zero; 0006's exit 3 is for `dipo daemon status`). `dipo daemon start` itself arrives with DIPO-70; until then start the daemon with `dipo daemon --foreground`. `stateDir` repeats the daemon's anchor rule because `client` may not import `engine`; both sides pin the same paths in tests.
+- Deviations: none from the ACs. Not-running exits 1 (AC #6 asks non-zero; 0006's exit 3 is for `dipo daemon status`). `dipo daemon start` itself arrives with DIPO-70; until then start the daemon with `dipo daemon --foreground`. `stateDir` repeats the daemon's anchor rule because `client` may not import `engine`; `test/state-dir/state-dir.test.ts` runs both on the same inputs.
 
 Maintainer test (macOS, uses a throwaway state directory so your real dipo state is untouched):
 
@@ -105,7 +106,7 @@ Expect `dipo: daemon.notSafe: Scheduling is not off: the daemon is running, not 
 Stop the daemon: Ctrl-C in terminal 1 (expect `"msg":"daemon stopped"`). Then in terminal 2:
     ./dist/dipo daemon log-level debug; echo "exit $?"
     ./dist/dipo daemon resume-scheduling; echo "exit $?"
-Expect for both `dipo: no daemon is running (nothing answers on /tmp/dipo-test/run/dipo.sock). Start it with \`dipo daemon start\`.` and `exit 1`.
+Expect for both `dipo: no daemon is running (nothing answers on /tmp/dipo-test/run/dipo.sock). Start it with \`dipo daemon start\` (until that exists: \`dipo daemon --foreground\`).` and `exit 1`.
 
 Optional, resume from safe mode: in terminal 1 seed a crash loop and start again:
     NOW=$(($(date +%s)*1000)); printf '{"version":1,"running":{"pid":999999,"startTimeMs":1},"crashes":[%d,%d]}\n' $((NOW-120000)) $((NOW-60000)) > $DIPO_HOME/crashes.json
@@ -115,4 +116,8 @@ Expect a `"to":"safe","reason":"crash loop"` line. In terminal 2:
 Expect `scheduling resumed; daemon state: running` and `exit 0`; terminal 1 shows `"from":"safe","to":"running","reason":"scheduling resumed"`. Stop with Ctrl-C, then `rm -rf /tmp/dipo-test`.
 
 References added: packages/daemon/src/server.ts (debug log lines the manual test expects; the server had none), packages/cli/package.json and packages/cli/tsconfig.json (testkit as a dev dependency for the CLI tests), bun.lock (zod and testkit links for client and cli).
+
+Review fixes (PR #38): the not-running hint names the foreground fallback until DIPO-70; the reply-timeout message has no start hint; the client core lint also bans `globalThis`/`self`/`window` access to `Bun`, `process`, `Buffer`, `require` and the timers; `test/state-dir/state-dir.test.ts` (added to References) checks client and daemon resolve the same `<state>`.
+
+Follow-up for DIPO-53: a liveness deadline for long-lived clients (treat a connection as dead when no frame or `stream.mark` heartbeat arrives within a deadline, then reconnect). The CLI has its 10 s reply deadline; the TUI needs the liveness check.
 <!-- SECTION:NOTES:END -->
