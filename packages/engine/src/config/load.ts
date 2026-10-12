@@ -6,6 +6,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { checkConfigDocument, configError, type ConfigError } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import { parseYamlDocument } from "../platform/yaml";
@@ -13,7 +14,6 @@ import {
   describeSchema,
   describeValue,
   formatPath,
-  isMapping,
   knownKeysAt,
   schemaAt,
   valueAt,
@@ -37,17 +37,11 @@ export const OFFICE_LOCAL_FILE = ".dipo/office.local.yaml";
 export const FLAGS_SOURCE = "command flags";
 const EFFECTIVE_SOURCE = "effective configuration";
 
-/** One configuration problem: where it is, what was expected, and a full message. */
-export interface ConfigError {
-  /** `.dipo/office.yaml`, `.dipo/office.local.yaml` or `command flags`. */
-  readonly file: string;
-  /** Dotted key path, or `(top level)`. */
-  readonly path: string;
-  /** What the key accepts, for example `integer` or `one of "when-present" | "never"`. */
-  readonly expected: string;
-  /** `<file>: <path>: <problem>`, ready to show. */
-  readonly message: string;
-}
+/**
+ * One configuration problem (the contract's shape, shared with software configuration). `file`
+ * is `.dipo/office.yaml`, `.dipo/office.local.yaml` or `command flags`.
+ */
+export type { ConfigError };
 
 export type OfficeConfigResult =
   | {
@@ -66,10 +60,6 @@ export interface OfficeConfigSources {
   readonly local?: string | undefined;
   /** Overrides from flags on a single command, shaped like `office.yaml` without `version`. */
   readonly flags?: unknown;
-}
-
-function configError(file: string, path: string, expected: string, problem: string): ConfigError {
-  return { file, path, expected, message: `${file}: ${path}: ${problem}` };
 }
 
 function issueErrors(
@@ -117,78 +107,11 @@ function validate(file: string, schema: z.ZodType, input: unknown): Checked {
   return { ok: false, errors: issueErrors(file, schema, input, parsed.error.issues) };
 }
 
-// Parses one file and checks its version. Returns the mapping to validate.
+// Parses one file and checks its version, the same way as software configuration. Returns the
+// mapping to validate.
 function readDocument(file: string, text: string): Checked {
-  const parsed = parseYamlDocument(text);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      errors: [configError(file, "(top level)", "exactly one YAML document", parsed.message)],
-    };
-  }
-  const document = parsed.value ?? {};
-  if (!isMapping(document)) {
-    return {
-      ok: false,
-      errors: [
-        configError(
-          file,
-          "(top level)",
-          "mapping",
-          `expected mapping, got ${describeValue(document)}`,
-        ),
-      ],
-    };
-  }
-  const version = document["version"];
-  if (version === undefined) {
-    return {
-      ok: false,
-      errors: [
-        configError(
-          file,
-          "version",
-          "integer",
-          "expected integer, got nothing; version is required",
-        ),
-      ],
-    };
-  }
-  if (typeof version !== "number" || !Number.isInteger(version)) {
-    return {
-      ok: false,
-      errors: [
-        configError(file, "version", "integer", `expected integer, got ${describeValue(version)}`),
-      ],
-    };
-  }
-  if (version > OFFICE_CONFIG_VERSION) {
-    return {
-      ok: false,
-      errors: [
-        configError(
-          file,
-          "version",
-          `integer from 1 to ${OFFICE_CONFIG_VERSION}`,
-          `configuration version ${version} is newer than this dipo understands (up to ${OFFICE_CONFIG_VERSION}); upgrade dipo`,
-        ),
-      ],
-    };
-  }
-  if (version < 1) {
-    return {
-      ok: false,
-      errors: [
-        configError(
-          file,
-          "version",
-          `integer from 1 to ${OFFICE_CONFIG_VERSION}`,
-          `unknown configuration version ${version}`,
-        ),
-      ],
-    };
-  }
-  return { ok: true, value: document };
+  const checked = checkConfigDocument(file, parseYamlDocument(text), OFFICE_CONFIG_VERSION);
+  return checked.ok ? { ok: true, value: checked.document } : checked;
 }
 
 // `privacy.*` and `retention.*` are machine-local (0007 amendment): in `office.yaml` each key is
