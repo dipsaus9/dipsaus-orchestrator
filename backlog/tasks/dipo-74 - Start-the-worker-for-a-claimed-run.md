@@ -4,7 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 12:33'
+updated_date: '2026-10-12 12:36'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -64,6 +64,7 @@ test_plan:
 - [ ] #4 Ingestion (DIPO-45) starts for the run when its host starts, and the engine emits `work.phase build`.
 - [ ] #5 The run's slot from setup is recorded on the run.
 - [ ] #6 The Claude CLI `WorkerAdapter` is built per run in `workers/claude-cli/adapter.ts` with `plan(spec)` closing over a `ClaudeLaunchContext` (DIPO-40's `plan(spec, ctx)`), so the engine calls the 0008 signature; a test under `packages/engine/test/run/` covers the binding.
+- [ ] #7 When `plan` refuses a path (DIPO-40: rule-special characters such as parentheses, a workdir at home or `/`), the run is not started and an `engine.notice` names the path and the character and suggests moving the checkout or the worktree root; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
