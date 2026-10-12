@@ -4,7 +4,7 @@ title: Open and forget offices
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:02'
+updated_date: '2026-10-12 21:11'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -98,4 +98,6 @@ Implementation (DIPO-27):
 
 Review fix (PR #51, AC #10): the CLI resolves an office from the cwd's marker, but an unopened `cp -r` copy carries the original's marker. `office.forget` and `office.reloadConfig` now take an optional `from` (the main worktree the client resolved the office from, contract 1.1); the daemon compares it with the registered path (realpath on both sides) and answers `office.unknown` (details `reason: "path"`) on a mismatch, so the CLI treats the cwd as unregistered: it prints "not an office, run `dipo office open`" and at a terminal asks once to open it, which runs the copy detection. Repository resolution is shared: `resolveRepositoryWith` and `mainWorktreeOf` in `packages/contract/src/repository.ts` (pure; git and realpath are injected), used by the engine and by the CLI workspace (separate-git-dir fallback and realpath now match). `office.forget` returns the registered `path` (optional, minor 1); the forget confirmation names the path when the office comes from the cwd (with `--office` the client does not know the path before sending, so it names the id only). Integration test `test/office-resolution/` (outside both packages, because cli may not import engine) runs the CLI against the office manager on real repositories: copy case for forget and reload-config, and resolution parity with the engine.
 Not done here, carried to a later story: the 0007 section 3 missing-path notice at daemon start, and real office summaries in `engine.hello`. An ADR 0005 amendment for `office.refused`, `office.markerInvalid`, the `office.open` warnings and the `from` argument and `path` result will be proposed to the maintainer.
+
+Follow-up for later stories: the `from` path guard covers only `office.forget` and `office.reloadConfig`. Every later office-level command the CLI resolves from the current directory (`work.run` first, DIPO-48) needs the same guard, ideally moved into shared office resolution so each command gets it without repeating it.
 <!-- SECTION:NOTES:END -->
