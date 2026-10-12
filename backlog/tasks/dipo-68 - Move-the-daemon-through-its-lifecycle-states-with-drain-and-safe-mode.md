@@ -4,7 +4,7 @@ title: Move the daemon through its lifecycle states with drain and safe mode
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:20'
-updated_date: '2026-10-12 12:40'
+updated_date: '2026-10-12 12:45'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -80,4 +80,6 @@ Interpretations to confirm:
 - draining is reachable from starting, recovering and safe as well as running (0006: "SIGTERM always means this graceful drain"); the diagram only shows running -> draining.
 - The scheduling predicate also reports scheduling.off in draining ("no new work").
 - A drain that hits its cap still exits 0 and clears the crash marker, so stops that hit the cap do not push the daemon into safe; a lost lock exits 1; a failed recovery step exits 1 and counts as a crash.
+
+Review follow-up (PR #32): the crash counter now writes its running marker right after the PID lock is taken, before the runtime-directory choice and the socket bind, so an unclean exit early in starting (exit 1 or a hard kill) counts toward the crash loop; crash-loop.test.ts covers a failure between lock and bind. scheduling() documents that scheduling.off in draining is deliberate and that clients reconnect on daemon.state to draining (DIPO-24). Known edge: in the rare stale-break race the losing starter overwrites the winner's marker before its post-bind re-read, which can count one spurious crash.
 <!-- SECTION:NOTES:END -->
