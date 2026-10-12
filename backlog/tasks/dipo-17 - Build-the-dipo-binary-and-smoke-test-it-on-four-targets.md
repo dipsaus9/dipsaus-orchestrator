@@ -1,10 +1,10 @@
 ---
 id: DIPO-17
 title: Build the dipo binary and smoke-test it on four targets
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:37'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -62,19 +62,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `scripts/build.ts` builds `packages/cli` with `bun build --compile --target=bun-<os>-<arch>` and defines `DIPO_VERSION`, `DIPO_COMMIT` (12 hex plus `-dirty` on a dirty tree) and `DIPO_COMMIT_DATE`.
-- [ ] #2 Outside a release, the version printed is the `package.json` version with `-dev` appended; running from source without defines prints `dev (unknown commit)`.
-- [ ] #3 `dipo --version` prints `dipo <version> (<commit> <date>) bun <bun-version> <os>-<arch>` and `--version --json` prints the same fields as JSON.
-- [ ] #4 On darwin, `scripts/build.ts` runs `codesign --sign - --force` when `codesign -v` fails.
-- [ ] #5 `ci.yml` has four `smoke (<target>)` jobs on `macos-26`, `macos-26-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`, each checking `--version`, `--help`, `file` output, `codesign -v` on macOS, and writing the highest `GLIBC_` version to the job summary on Linux.
-- [ ] #6 `ci-ok` needs the four smoke jobs.
-- [ ] #7 The hidden `dipo self-check` opens a `bun:sqlite` database in WAL mode in a temp directory, does a round trip with a Bun Worker passed to `bun build --compile` as an extra entrypoint, serves `Bun.serve` on a Unix socket and connects to it with a `ws+unix://` client, parses YAML with `Bun.YAML.parse`, renders an Ink component to a PassThrough stream, and initialises the bundled `@anthropic-ai/sandbox-runtime` library with a deny-all policy; it prints one line per check and exits non-zero on the first failure.
-- [ ] #8 Ink's optional `react-devtools-core` peer dependency is handled so the compiled binary builds and runs without it, and any other unresolved import fails the build.
-- [ ] #9 Each of the four smoke jobs runs `dipo self-check` and fails when it exits non-zero.
+- [x] #1 `scripts/build.ts` builds `packages/cli` with `bun build --compile --target=bun-<os>-<arch>` and defines `DIPO_VERSION`, `DIPO_COMMIT` (12 hex plus `-dirty` on a dirty tree) and `DIPO_COMMIT_DATE`.
+- [x] #2 Outside a release, the version printed is the `package.json` version with `-dev` appended; running from source without defines prints `dev (unknown commit)`.
+- [x] #3 `dipo --version` prints `dipo <version> (<commit> <date>) bun <bun-version> <os>-<arch>` and `--version --json` prints the same fields as JSON.
+- [x] #4 On darwin, `scripts/build.ts` runs `codesign --sign - --force` when `codesign -v` fails.
+- [x] #5 `ci.yml` has four `smoke (<target>)` jobs on `macos-26`, `macos-26-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`, each checking `--version`, `--help`, `file` output, `codesign -v` on macOS, and writing the highest `GLIBC_` version to the job summary on Linux.
+- [x] #6 `ci-ok` needs the four smoke jobs.
+- [x] #7 The hidden `dipo self-check` opens a `bun:sqlite` database in WAL mode in a temp directory, does a round trip with a Bun Worker passed to `bun build --compile` as an extra entrypoint, serves `Bun.serve` on a Unix socket and connects to it with a `ws+unix://` client, parses YAML with `Bun.YAML.parse`, renders an Ink component to a PassThrough stream, and initialises the bundled `@anthropic-ai/sandbox-runtime` library with a deny-all policy; it prints one line per check and exits non-zero on the first failure.
+- [x] #8 Ink's optional `react-devtools-core` peer dependency is handled so the compiled binary builds and runs without it, and any other unresolved import fails the build.
+- [x] #9 Each of the four smoke jobs runs `dipo self-check` and fails when it exits non-zero.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S02 (DIPO-15). Before cutover: built by hand-run agents.
+
+Implemented in PR #20. The engine probes live in engine/src/platform/self-check.ts and the worker in self-check-worker.ts. The runner is in daemon/src/self-check.ts and is reached through runDaemon(['self-check']). The Ink check is tui/src/self-check.ts. The CLI is in cli/src (index.ts, version.ts and main.ts). scripts/build.ts uses bun build --compile with --splitting, --root=packages and --external=react-devtools-core. Splitting keeps Ink's devtools chunk lazy, and --root fixes the worker's /$bunfs path. Build output goes to dist/, which build.ts ignores through dist/.gitignore. On Linux the smoke jobs install bubblewrap, socat and ripgrep for the sandbox-runtime init. Local bun test skips the sandbox probe; the smoke jobs run it. Follow-up for DIPO-37: in the compiled binary sandbox-runtime cannot find its vendored apply-seccomp binary. On Linux this is a warning at initialization.
 <!-- SECTION:NOTES:END -->
