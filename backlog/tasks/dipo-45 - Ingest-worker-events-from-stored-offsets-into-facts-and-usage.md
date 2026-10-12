@@ -4,7 +4,7 @@ title: Ingest worker events from stored offsets into facts and usage
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:30'
+updated_date: '2026-10-12 14:35'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -104,4 +104,6 @@ Review fixes (PR #43):
 - Each pass re-reads the last processed line (`last_line_bytes`, `last_line_hash`) and reports `ingest.fileChanged` when it no longer matches; the file identity is recorded as soon as the file exists, so a replacement before the first complete line is caught.
 - Added reference: test/workers/scripted.test.ts (schema refuses a usage event whose parts do not add up).
 - For later stories: DIPO-51 and DIPO-57 must call `finalizeAgentUsage` at run end when no exit line was ingested (host died); pending output per run assumes one agent at a time, multi-agent pending is a later concern.
+
+Re-review fix (PR #43): every usage table keeps cache_create = cache_create_5m + cache_create_1h, enforced by a CHECK in migration 4. At a turn end usage_totals caps the 1 hour part at the adapter's new total and the 5 minute part is the rest (the adapter's per-message rule). Pricing (DIPO-62) reads the parts directly. Tested after the pause-now and success-tools-subagent replays.
 <!-- SECTION:NOTES:END -->
