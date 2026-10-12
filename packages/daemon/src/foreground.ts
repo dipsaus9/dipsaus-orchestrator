@@ -10,34 +10,45 @@ import { parseArgs } from "node:util";
 import type { LogLevel, TimerHandle } from "@dipsaus-orchestrator/contract";
 import {
   acquireLock,
-  bindDaemonSocket,
   ChildProcesses,
   chooseRuntimeDir,
   createLogger,
+  createSystemIds,
   currentPlatform,
+  engineRegistry,
   ensurePrivateDir,
+  FEATURES,
+  helloFeature,
+  helloHandshake,
   isLogLevel,
   lingeringEnabled,
   LOG_LEVELS,
+  MemoryRequestTable,
+  noOfficeSummaries,
   openLogFile,
   openStateDatabase,
   passwdHome,
-  probeDaemonSocket,
   readRuntimeRecord,
   removeSocketFile,
   resolveSoftwareDirs,
   runtimeCandidates,
+  serveUnixSocket,
   SOCKET_FILE,
+  SoftwareStream,
+  stateOfficeDirectory,
   systemProcessProbe,
   writeRuntimeRecord,
-  type BoundSocket,
+  type FeatureModule,
   type HeldLock,
   type Logger,
   type LogFile,
+  type OfficeDirectory,
   type PidRecord,
+  type ServedSocket,
   type StateDatabase,
 } from "@dipsaus-orchestrator/engine";
 
+import { controlFeature, emitDaemonStates } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
 import { noOrphansActive, type DaemonIo } from "./io";
@@ -49,6 +60,7 @@ import {
   type RecoveryContext,
   type RecoveryStep,
 } from "./recovery";
+import { ContractServer } from "./server";
 
 /** How often the daemon checks that `dipo.pid` still holds its own record (0006 decision 6). */
 export const LOCK_CHECK_MS = 60_000;
@@ -61,6 +73,8 @@ export interface ForegroundOptions {
   /** Recovery steps after the migrations, in registration order (DIPO-56, DIPO-57). */
   readonly recoverySteps?: readonly RecoveryStep[];
   readonly drainCaps?: DrainCaps;
+  /** Feature modules served next to the engine's own; tests register fixtures here. */
+  readonly features?: readonly FeatureModule[];
 }
 
 /** The first stop request wins: a signal, a lost lock, or later `daemon.stop` (DIPO-24). */
@@ -195,12 +209,12 @@ async function runWithLog(run: Run): Promise<number> {
     probe,
     clock: io.clock,
     logger,
-    handshake: async (record) => {
-      const runtime = await readRuntimeRecord(stateDir);
-      if (runtime === null || runtime.pid !== record.pid) return false;
-      const identity = await probeDaemonSocket(runtime.socket);
-      return identity?.pid === record.pid && identity.startTimeMs === record.startTimeMs;
-    },
+    // Step 1 asks the running daemon itself: engine.hello, then daemon.status over ws+unix://.
+    handshake: helloHandshake({
+      stateDir,
+      clock: io.clock,
+      client: { name: "dipo daemon", version: io.version },
+    }),
   });
   if (outcome.kind === "running") {
     const runtime = await readRuntimeRecord(stateDir);
@@ -223,11 +237,15 @@ async function runWithLog(run: Run): Promise<number> {
 async function serve(run: Run, lock: HeldLock): Promise<number> {
   const { io, logger, logFile, stateDir, platform, stops, options } = run;
   const clock = io.clock;
+  const startedAt = clock.now();
   const lifecycle = new DaemonLifecycle("daemon started");
   lifecycle.onTransition((change) => logger.info("daemon state", { ...change }));
+  // The software stream: a ring buffer with a new random epoch at every start (0006 decision 9).
+  const software = new SoftwareStream({ clock });
+  emitDaemonStates(lifecycle, software);
   const children = new ChildProcesses();
   const held: {
-    socket: BoundSocket | null;
+    socket: ServedSocket | null;
     database: StateDatabase | null;
     crashes: CrashCounter | null;
     lockTimer: TimerHandle | null;
@@ -270,11 +288,45 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const socketPath = join(choice.path, SOCKET_FILE);
     removeSocketFile(socketPath);
     const record = lock.record();
-    held.socket = bindDaemonSocket(socketPath, {
-      pid: record.pid,
-      startTimeMs: record.startTimeMs,
-      version: record.version,
+    // Office commands reach the database only once the migrations step opened it; until then the
+    // lifecycle gate answers them with engine.recovering.
+    const offices: OfficeDirectory = {
+      get: (office) =>
+        held.database === null ? undefined : stateOfficeDirectory(held.database).get(office),
+    };
+    const registry = engineRegistry([
+      ...FEATURES,
+      helloFeature({
+        engineVersion: io.version,
+        daemonState: () => lifecycle.state,
+        softwareCursor: () => software.head(),
+        officeSummaries: noOfficeSummaries,
+      }),
+      controlFeature({
+        lifecycle,
+        logger,
+        clock,
+        startedAt,
+        pid: record.pid,
+        version: io.version,
+        socket: socketPath,
+        requestStop: (request) => stops.request(request),
+      }),
+      ...(options.features ?? []),
+    ]);
+    const server = new ContractServer({
+      registry,
+      offices,
+      clock,
+      ids: createSystemIds(clock),
+      softwareRequests: new MemoryRequestTable(clock),
+      lifecycle,
+      software,
+      officeSummaries: noOfficeSummaries,
+      engineVersion: io.version,
+      logger: logger.child({ component: "server" }),
     });
+    held.socket = serveUnixSocket(socketPath, (connection) => server.accept(connection));
 
     // The stale-break window (0006 decision 6): re-read the lock after binding and before
     // touching any state. The database stays closed when the lock is not ours (0007 section 1).
@@ -382,13 +434,17 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
   } finally {
     if (held.lockTimer !== null) clock.clearTimeout(held.lockTimer);
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
-    held.database?.close();
     // Clean exit: remove dipo.sock, then dipo.pid (0006 decision 6). A daemon that lost the lock
-    // leaves the socket path alone: it may belong to the daemon that holds the lock now.
+    // leaves the socket path alone: it may belong to the daemon that holds the lock now. The
+    // connections close (1001) before the database, so no request reaches a closed database.
     const ownsLock = lock.verify();
-    if (held.socket !== null) {
-      await held.socket.stop({ removeFile: ownsLock });
-      logger.info("socket closed", { removed: ownsLock });
+    try {
+      if (held.socket !== null) {
+        await held.socket.stop({ removeFile: ownsLock });
+        logger.info("socket closed", { removed: ownsLock });
+      }
+    } finally {
+      held.database?.close();
     }
     // Only a clean exit clears the crash marker; any other exit counts as a crash next start.
     if (clean) held.crashes?.cleanExit();
