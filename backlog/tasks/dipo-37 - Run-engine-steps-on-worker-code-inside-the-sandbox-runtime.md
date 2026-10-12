@@ -4,12 +4,13 @@ title: Run engine steps on worker code inside the sandbox runtime
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:40'
+updated_date: '2026-10-12 11:41'
 labels:
   - test-before-merge
   - 'tier:L'
 milestone: m-0
 dependencies:
+  - DIPO-17
   - DIPO-18
   - DIPO-23
   - DIPO-26
@@ -24,6 +25,7 @@ references:
   - .github/workflows/ci.yml
   - packages/engine/src/index.ts
   - scripts/build.ts
+  - scripts/build.test.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md
