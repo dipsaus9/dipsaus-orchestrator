@@ -2,6 +2,7 @@
 // or reorder a merged one, because its checksum is recorded in every database it ran on.
 
 import type { Migration } from "./migrations";
+import { changeLogRequestsStories } from "./migrations/0002-change-log-requests-stories";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -39,4 +40,5 @@ create table offices (
 ) strict;
 `,
   },
+  changeLogRequestsStories,
 ];
