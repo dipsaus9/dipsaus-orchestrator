@@ -1,0 +1,66 @@
+{
+  "scenario": "interrupt",
+  "source": "live",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "SIGINT mid-turn in stream-json input; the recording shows whether the turn ends with a result and the process stays alive for the next message.",
+  "usage_checksum": "884bbfd3b226749b9066fe76433898423f533bb868865ac56c5873c06a2127e7",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "5",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 674,
+  "prompt_sha256": "c7a74bf70341d14da041dbbf7508b0b5b1df5c44db5f85c5f7ed411782aebeec",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 1,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 1,
+      "op": "user",
+      "bytes": 350
+    },
+    {
+      "t": 4843,
+      "op": "signal",
+      "signal": "SIGINT"
+    }
+  ],
+  "unknown_types": []
+}

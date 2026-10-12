@@ -13,6 +13,10 @@
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b",
     "contract:schema": "bun packages/contract/scripts/write-schema.ts",
+    "recordings:capture": "bun tools/recordings/capture.ts",
+    "recordings:derive": "bun tools/recordings/derive.ts",
+    "recordings:refresh": "bun tools/recordings/refresh.ts",
+    "recordings:status": "bun tools/recordings/status.ts",
     "test": "bun test",
     "verify": "bun run format:check && bun run lint && bun run typecheck && bun test"
   },
