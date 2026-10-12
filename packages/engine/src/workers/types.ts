@@ -1,0 +1,249 @@
+// The adapter-neutral Worker contract (0008 section 1). An adapter has a launch half (`plan`,
+// `encode`), run by the worker host, and an interpret half (`interpret`, `result`), a pure parser
+// the engine runs over `events.ndjson`. Nothing here names a CLI flag or a stream format; those
+// stay inside the adapter's own directory (for Claude, `workers/claude-cli/`).
+
+import type { OpenEnum, ParkReason } from "@dipsaus-orchestrator/contract";
+
+/** Run kinds an adapter may know (0008 amendment of 2026-10-12, D12). M0 plans only `implement`. */
+export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
+/** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
+export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
+
+/** Caps per run, from the tier (0008 section 9). Loops stay in the engine. */
+export interface Caps {
+  /** Input plus output plus cache-creation tokens (0008 section 4). */
+  readonly budgetTokens: number;
+  readonly maxTurns: number;
+  readonly maxMinutes: number;
+}
+
+/** A JSON Schema document, passed to the adapter as data. */
+export type JsonSchema = Readonly<Record<string, unknown>>;
+
+export interface WorkerSpec {
+  /** Run id (`run-...`). */
+  readonly run: string;
+  /** Agent id (`agt-...`). */
+  readonly agent: string;
+  readonly kind: WorkerKind;
+  /** Absolute working directory: the story worktree for `implement` and `review`. */
+  readonly workdir: string;
+  readonly model: string;
+  readonly effort: string;
+  readonly caps: Caps;
+  /** Absolute path of the rendered L1+L2 system file (0014 section 1). */
+  readonly systemFile: string;
+  /** The L4 task message (0014 section 1); the first user message, never on argv. */
+  readonly taskMessage: string;
+  /** `allow`: the role's tool names; `deny`: extra deny rules of the role. */
+  readonly tools: { readonly allow: readonly string[]; readonly deny: readonly string[] };
+  /** Engine-made session id; `resume` continues that session instead of starting it. */
+  readonly session: { readonly id: string; readonly resume: boolean };
+  /** The schema the worker's report must follow (`WorkerReport`). */
+  readonly reportSchema: JsonSchema;
+  /** Relay the adapter's hooks to the worker host (0008 section 5). */
+  readonly hookRelay: boolean;
+}
+
+/** A file the worker host writes into the run directory before it starts the worker. */
+export interface LaunchFile {
+  /** File name relative to the run directory. */
+  readonly name: string;
+  readonly content: string;
+}
+
+/** Everything the worker host needs to start one worker (0008 section 1, 0006 decision 8). */
+export interface LaunchPlan {
+  /** Program and arguments; `argv[0]` is an absolute path, never looked up on `PATH`. */
+  readonly argv: readonly [string, ...string[]];
+  /** The complete environment of the worker; nothing else is inherited. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly cwd: string;
+  /** Files written into the run directory before the spawn. */
+  readonly files: readonly LaunchFile[];
+  /** Lines written to the worker's stdin right after the spawn, each ending in a newline. */
+  readonly stdin: readonly string[];
+}
+
+/** What the engine asks of a running worker (0008 section 6). */
+export type SteerOp =
+  | { readonly kind: "steer" | "answer"; readonly text: string }
+  | { readonly kind: "pause" | "stop" | "kill" };
+
+export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
+
+/**
+ * One action of the worker host. The ops of one `encode` call run in order; a signal with
+ * `afterMs` is sent that many milliseconds after the first op of the call, and only while the
+ * worker still runs.
+ */
+export type HostOp =
+  | { readonly write: string }
+  | { readonly signal: HostSignal; readonly afterMs?: number }
+  | { readonly closeStdin: true };
+
+/** Tokens of one model, cumulative over the run. */
+export interface ModelUsageTotals {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheCreate: number;
+  readonly cacheRead: number;
+}
+/** Keyed by the model id the adapter reports. */
+export type UsageTotalsByModel = Readonly<Record<string, ModelUsageTotals>>;
+
+export interface WorkerReportCriterion {
+  /** The criterion number as in Backlog.md. */
+  readonly n: number;
+  readonly met: boolean;
+  readonly evidence: string;
+}
+
+/** The report a worker returns at the end of a turn (0008 section 1, 0014). */
+export interface WorkerReport {
+  readonly status: "done" | "blocked";
+  readonly criteria: readonly WorkerReportCriterion[];
+  readonly summary: string;
+  readonly commitSubject: string;
+  readonly question?: string;
+  readonly notes?: string;
+  /** Blocked on a denied call (0008 section 5). */
+  readonly needsPermission?: { readonly tool: string; readonly action: string };
+}
+
+export type WaitingOn = "permission" | "question" | "plan-limit" | "retry" | "auth";
+
+/** Facts an adapter reads from a worker's output (0008 section 3). */
+export type WorkerEvent =
+  | {
+      readonly t: "started";
+      readonly sessionId: string;
+      readonly model: string;
+      readonly version: string;
+      readonly permissionMode: string;
+      readonly tools: readonly string[];
+    }
+  | {
+      readonly t: "activity";
+      readonly kind: "text" | "tool" | "subagent";
+      readonly tool?: string;
+      readonly path?: string;
+      readonly agentId?: string;
+    }
+  | { readonly t: "output"; readonly text: string }
+  | {
+      readonly t: "usage";
+      readonly messageId: string;
+      readonly model: string;
+      readonly agentId?: string;
+      readonly input: number;
+      readonly cacheCreate: number;
+      readonly cacheRead: number;
+    }
+  | {
+      readonly t: "turn";
+      readonly report: WorkerReport | null;
+      readonly totals: UsageTotalsByModel;
+      readonly numTurns: number;
+      readonly terminal: string;
+    }
+  | {
+      readonly t: "waiting";
+      readonly on: WaitingOn;
+      readonly detail: string;
+      readonly until?: string;
+    }
+  | { readonly t: "denied"; readonly tool: string; readonly reason: string }
+  | {
+      readonly t: "limit";
+      readonly status: string;
+      readonly utilization?: number;
+      readonly resetsAt?: string;
+      readonly creditsRequired?: boolean;
+    }
+  | { readonly t: "compacted"; readonly preTokens: number }
+  | { readonly t: "modelSwitched"; readonly from: string; readonly to: string };
+
+export type WorkerOutcome =
+  | "done"
+  | "blocked"
+  | "capped"
+  | "plan-limit"
+  | "stopped"
+  | "reassigned"
+  | "crashed"
+  | "startFailed"
+  | "initRejected";
+
+/** How a run ended, as the adapter reads it; the engine decides what follows (0008 section 7). */
+export interface WorkerResult {
+  readonly outcome: WorkerOutcome;
+  readonly report: WorkerReport | null;
+  readonly usage: UsageTotalsByModel;
+  readonly sessionId: string;
+  readonly resumable: boolean;
+  /** A proposed park; the engine decides. */
+  readonly park?: { readonly reason: ParkReason; readonly detail: string };
+}
+
+/** Result of `probe`: version, login kind and capabilities (0008 sections 2 and 11). */
+export interface AdapterStatus {
+  readonly ok: boolean;
+  readonly version: string | null;
+  readonly login: string | null;
+  readonly capabilities: readonly string[];
+  /** Why the adapter refuses to run, when `ok` is false. */
+  readonly reason?: string;
+}
+
+/** One line of `events.ndjson` as the worker host wrote it (0017 format). */
+export interface HostLine {
+  readonly t: number;
+  readonly ch: string;
+  readonly data: string;
+}
+
+/** Parser state an adapter threads through `interpret`; opaque to the engine. */
+export type ParseState = Readonly<Record<string, unknown>>;
+
+/** What `exit.json` records when the worker ends. */
+export interface ExitRecord {
+  readonly code: number | null;
+  readonly signal: string | null;
+}
+
+/** The native session a resume would continue. */
+export interface SessionRef {
+  readonly id: string;
+  readonly transcriptPath: string | null;
+  readonly version: string;
+  readonly systemHash: string;
+}
+
+export type ResumeCheck = { readonly ok: true } | { readonly ok: false; readonly reason: string };
+
+export interface WorkerAdapter {
+  /** For example `claude-cli`. */
+  readonly id: string;
+  /** Version, login kind, capabilities; refuses below the minimum. */
+  probe(): Promise<AdapterStatus>;
+  /** Pure: argv, env, files for the run dir, first stdin lines. */
+  plan(spec: WorkerSpec): LaunchPlan;
+  /** Pure: steer, answer, pause, stop, kill to stdin writes and signals. */
+  encode(op: SteerOp): HostOp[];
+  /** Pure parser over one host line. */
+  interpret(
+    line: HostLine,
+    state: ParseState,
+  ): { readonly events: WorkerEvent[]; readonly state: ParseState };
+  /** Pure: the run's result once `exit.json` exists. */
+  result(state: ParseState, exit: ExitRecord): WorkerResult;
+  /** Transcript present, version and prompt hash unchanged. */
+  canResume(ref: SessionRef, spec: WorkerSpec): ResumeCheck;
+}
+
+/** Thrown by `plan` when a spec or its launch context cannot be planned safely. */
+export class PlanError extends Error {
+  override readonly name = "PlanError";
+}

@@ -1,5 +1,8 @@
 // What the daemon forms need from their process, injectable so tests run them in-process.
 
+import type { Clock } from "@dipsaus-orchestrator/contract";
+import { systemClock } from "@dipsaus-orchestrator/engine";
+
 export type DaemonIo = {
   readonly writeLine: (line: string) => void;
   readonly writeError: (line: string) => void;
@@ -10,6 +13,8 @@ export type DaemonIo = {
   readonly version: string;
   /** Calls `handler` once on SIGTERM or SIGINT; returns a function that removes the handler. */
   readonly onShutdownSignal: (handler: (signal: string) => void) => () => void;
+  /** Time and timers for the daemon: the drain cap, the minute lock check, the crash counter. */
+  readonly clock: Clock;
 };
 
 export const defaultIo: DaemonIo = {
@@ -27,6 +32,7 @@ export const defaultIo: DaemonIo = {
       process.off("SIGINT", listener);
     };
   },
+  clock: systemClock,
 };
 
 /**

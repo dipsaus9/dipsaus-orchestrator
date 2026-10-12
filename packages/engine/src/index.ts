@@ -36,8 +36,20 @@ export type {
   RuntimeRecord,
   SoftwareDirs,
 } from "./platform/paths";
-export { isDaemonCommand, isSameProcess, systemProcessProbe } from "./platform/process";
-export type { ProcessIdentity, ProcessInfo, ProcessProbe } from "./platform/process";
+export {
+  ChildProcesses,
+  isDaemonCommand,
+  isSameProcess,
+  killGroup,
+  systemProcessProbe,
+} from "./platform/process";
+export type {
+  ChildHandle,
+  ProcessIdentity,
+  ProcessInfo,
+  ProcessProbe,
+  SpawnChildOptions,
+} from "./platform/process";
 export { acquireLock, LockBreakError, PID_FILE } from "./platform/lock";
 export type { HeldLock, LockCheck, LockOutcome, PidRecord } from "./platform/lock";
 export { bindDaemonSocket, probeDaemonSocket, removeSocketFile } from "./platform/socket";
@@ -170,3 +182,42 @@ export {
 } from "./platform/sandbox";
 export { runSandboxExec } from "./platform/sandbox-exec";
 export type { SandboxExecOptions } from "./platform/sandbox-exec";
+export {
+  KNOWN_WORKER_KINDS,
+  PlanError,
+  type AdapterStatus,
+  type Caps,
+  type ExitRecord,
+  type HostLine,
+  type HostOp,
+  type HostSignal,
+  type JsonSchema,
+  type LaunchFile,
+  type LaunchPlan,
+  type ModelUsageTotals,
+  type ParseState,
+  type ResumeCheck,
+  type SessionRef,
+  type SteerOp,
+  type UsageTotalsByModel,
+  type WaitingOn,
+  type WorkerAdapter,
+  type WorkerEvent,
+  type WorkerKind,
+  type WorkerOutcome,
+  type WorkerReport,
+  type WorkerReportCriterion,
+  type WorkerResult,
+  type WorkerSpec,
+} from "./workers/types";
+export {
+  CLAUDE_CLI_ADAPTER_ID,
+  ENV_ALLOWLIST,
+  PLANNED_KINDS,
+  plan as planClaudeLaunch,
+  REPORT_SCHEMA_FILE,
+  SETTINGS_FILE,
+  type ClaudeLaunchContext,
+} from "./workers/claude-cli/plan";
+export { encode as encodeClaudeOp } from "./workers/claude-cli/encode";
+export { WORKER_REPORT_JSON_SCHEMA, WorkerReportSchema } from "./workers/claude-cli/report-schema";
