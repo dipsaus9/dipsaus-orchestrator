@@ -4,22 +4,24 @@ title: Open and forget offices
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:27'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
-  - DIPO-25
   - DIPO-26
+  - DIPO-70
 references:
   - packages/engine/src/office/
   - packages/engine/src/db/migrations/
   - packages/cli/src/
   - packages/engine/test/office/
+  - packages/engine/src/features.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
+  - docs/decisions/0017-testing-strategy-and-configuration.md
 priority: high
 type: feature
 ordinal: 27000
@@ -30,7 +32,7 @@ ordinal: 27000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: `dipo office open [path]` registers a git repository with Backlog.md as an office with an `off_<ulid>` id and a marker in `.git/dipo/office.json`, the daemon loads an office's engine instance on first use, and `dipo office forget` removes it from the list without touching the repository.
 
-Context: changing the office's Backlog.md settings is DIPO-36. References: 0006 decision 4 (explicit registration, switching is client state, lazy loading), open question 2 (interactive prompt in an unregistered project); 0007 sections 2 (main worktree as office path, `<git-common-dir>/dipo/`, copy detection, network filesystem warning), 3 (`offices` table, `forgotten_at`, missing path notice); 0005 section 4 (`office.open`, `office.forget`, errors).
+Context: changing the office's Backlog.md settings is DIPO-36. This story adds the office load-step seam next to DIPO-22's command and read registry (M0 review, DIPO-15): the Backlog CLI version check (DIPO-28), the story index (DIPO-32), the scan (DIPO-72) and journal replay (DIPO-34) register as load steps. `office.reloadConfig` moved here from DIPO-26 in the M0 review; whether a run may start is decided in DIPO-48 from the predicates this story and others expose. References: 0017 section 5 (invalid configuration blocks new runs, running workers keep theirs, reload command); 0006 decision 4 (explicit registration, switching is client state, lazy loading), open question 2 (interactive prompt in an unregistered project); 0007 sections 2 (main worktree as office path, `<git-common-dir>/dipo/`, copy detection, network filesystem warning), 3 (`offices` table, `forgotten_at`, missing path notice); 0005 section 4 (`office.open`, `office.forget`, errors).
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 
@@ -44,7 +46,11 @@ test_plan:
     - kind: "automated"
       check: "(integration) copied repository gets a new id; moved repository keeps it."
     - kind: "automated"
-      check: "(engine) forget then reopen restores rows; forget with an active run fails `office.busy`."
+      check: "(engine) forget then reopen restores rows; forget while a stub active-work check reports work fails `office.busy`."
+    - kind: "automated"
+      check: "(engine) `office.reloadConfig` with an invalid file keeps the previous configuration and `configBlocksRuns` returns the errors; a valid reload clears them."
+    - kind: "automated"
+      check: "(unit) registered load steps run in registration order; a failing step refuses the office with a notice naming it."
     - kind: "manual"
       check: "run `dipo office open` in this repository"
       expect: "prints the office id; `ls .git/dipo` shows `office.json`; `git status` shows no change."
@@ -58,10 +64,12 @@ test_plan:
 - [ ] #3 A new office gets `off_<ulid>`, a `0700` `<git-common-dir>/dipo/` directory with `office.json { officeId, createdAt }`, an `offices` row with a random epoch, and an `office.registered` event; the reply has `registered: true`.
 - [ ] #4 Opening a registered path again replies `registered: false` and `changed: false`; a forgotten office is restored with its rows.
 - [ ] #5 A marker whose id is registered at another existing path gets a new id and marker with an `engine.notice`; when the other path is gone it is treated as a move and the row's path is updated.
-- [ ] #6 `office.forget` sets `forgotten_at`, emits `office.forgotten`, keeps every row, and fails with `office.busy` while runs are active.
+- [ ] #6 `office.forget` sets `forgotten_at`, emits `office.forgotten`, keeps every row, and fails with `office.busy` when a registered active-work check reports work for the office; DIPO-48 registers the run check, and this story tests with a stub check.
 - [ ] #7 Office-level commands load the office's engine instance lazily and refuse an office whose `office.json` id differs from its row.
-- [ ] #8 The CLI resolves the office from `--office`, else from the current directory; an unregistered Backlog.md project prints "not an office, run `dipo office open`", and an interactive terminal is asked once to open it.
-- [ ] #9 A repository on a network filesystem gets a warning at open.
+- [ ] #8 Office load runs the load steps that feature modules add with `registerLoadStep(name, fn)` from their `register(registry)`, in registration order, so later stories add load steps without editing `office/`; a failing step refuses the office with a notice naming the step.
+- [ ] #9 At load and on `office.reloadConfig { office }` the office reads its configuration (DIPO-26); an invalid result keeps the previous configuration for running work, emits an `engine.notice` with the errors, and `configBlocksRuns(office)` returns them until a valid reload, for `work.run` (DIPO-48) to refuse new runs.
+- [ ] #10 The CLI resolves the office from `--office`, else from the current directory; an unregistered Backlog.md project prints "not an office, run `dipo office open`", and an interactive terminal is asked once to open it.
+- [ ] #11 A repository on a network filesystem gets a warning at open.
 <!-- AC:END -->
 
 ## Implementation Notes
