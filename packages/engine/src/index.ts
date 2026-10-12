@@ -181,3 +181,21 @@ export {
 } from "./workers/claude-cli/plan";
 export { encode as encodeClaudeOp } from "./workers/claude-cli/encode";
 export { WORKER_REPORT_JSON_SCHEMA, WorkerReportSchema } from "./workers/claude-cli/report-schema";
+export {
+  budgetTokens,
+  currentTotals as currentClaudeTotals,
+  initialState as initialClaudeState,
+  interpret as interpretClaudeLine,
+  interpretLogged as interpretClaudeLineLogged,
+  type ClaudeParseState,
+  type InitialStateOptions as ClaudeInitialStateOptions,
+} from "./workers/claude-cli/interpret";
+export { result as claudeResult } from "./workers/claude-cli/result";
+export { ClaudeWorkerEventSchema } from "./workers/claude-cli/schema";
+export {
+  ScriptedWorker,
+  ScriptError,
+  scriptProblems,
+  type EventSchema,
+  type ScriptedWorkerOptions,
+} from "./workers/scripted";
