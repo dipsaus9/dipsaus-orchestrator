@@ -4,7 +4,7 @@ title: Start the TUI with the office store and the office switcher
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:54'
+updated_date: '2026-10-12 11:58'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -13,6 +13,7 @@ dependencies:
   - DIPO-25
   - DIPO-27
   - DIPO-32
+  - DIPO-52
   - DIPO-70
 references:
   - packages/tui/
@@ -22,7 +23,6 @@ references:
   - bun.lock
   - packages/client/src/index.ts
   - packages/client/test/
-  - packages/contract/
 documentation:
   - docs/decisions/0009-tui.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -67,7 +67,7 @@ test_plan:
 - [ ] #6 `q` twice within 2 s quits and restores the terminal; Ctrl+C and SIGTERM restore it too.
 - [ ] #7 Below 60 columns or 16 rows a single list with "widen for detail" is shown; `NO_COLOR`, `--no-color`, `--ascii` and `--inline` are honoured.
 - [ ] #8 `packages/tui` imports only `contract` and `client`, and render tests use `render`, `press` and `frame` helpers with ANSI stripped.
-- [ ] #9 The contract defines the read `office.switch` (0005 section 7, 0009 section 4) with the same args and result as `office.snapshot`, `since` set to the next unreleased contract minor, schema files regenerated; DIPO-20 left it undefined.
+- [ ] #9 Enter in the office switcher sends the read `office.switch` (DIPO-52) and the store replaces its state with the returned snapshot; a render test shows it.
 <!-- AC:END -->
 
 ## Implementation Notes
