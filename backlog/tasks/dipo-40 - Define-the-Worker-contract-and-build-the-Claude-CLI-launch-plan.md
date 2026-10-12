@@ -4,7 +4,7 @@ title: Define the Worker contract and build the Claude CLI launch plan
 status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:35'
+updated_date: '2026-10-12 14:22'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -88,6 +88,8 @@ Review hardening (PR #30, fail closed, each with a unit test):
 - Bash denies also cover git branch, fetch, config, apply, submodule, symbolic-ref, notes and commit-tree, bare and with arguments. A code comment states that Bash rules match command text only and the sandbox denyWrite on <main>/.git and <worktree>/.git is the real boundary.
 - plan refuses a workdir or tmpDir that is / or equals or contains home, and a runDir, systemFile or mcpConfig inside the workdir.
 - plan refuses a mainCheckout or workdir holding * ? [ ] { } ( ) \ ! or control characters, because Claude Code documents no escaping for permission rules. Golden files updated.
+
+Follow-up (branch DIPO-37/bash-allow-and-toolchain-split), per the 0008 amendments of 2026-10-12: the run settings file allows Bash (permissions.allow gains "Bash"; every deny rule, blockReadsOutsideWorkingDirectories, the sandbox block and the credential denies stay), and sandbox.filesystem.allowRead now comes from sandbox.toolchainReadPaths (default ~/.bun, ~/.npm, ~/.cache), so ~/.bun/bin is readable again. Plan goldens regenerated.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

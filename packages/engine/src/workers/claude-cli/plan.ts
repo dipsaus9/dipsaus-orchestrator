@@ -39,7 +39,7 @@ const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Bash rules match the command text only (`sh -c`, aliases and scripts get past them), so they
 // guide the model and stop the obvious forms. The real boundary is the sandbox `denyWrite` on
 // `<main>/.git` and `<worktree>/.git` plus the closed network (0008 section 2).
-const GIT_WRITE_VERBS = [
+export const GIT_WRITE_VERBS = [
   "add",
   "am",
   "apply",
@@ -99,7 +99,7 @@ export interface ClaudeLaunchContext {
   readonly mcpConfig?: string;
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
-    "toolchainPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
+    "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
   >;
 }
 
@@ -228,7 +228,11 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     ...spec.tools.deny,
   ];
   return {
-    allow: ["Read(./**)", "Edit(./**)", "Write(./**)"],
+    // `Bash` needs an allow rule: under `--permission-prompts none` the permission layer denies
+    // every Bash call without one (0008 amendment of 2026-10-12, recording
+    // `safety-bash-prompts-none`). The deny rules above, the read block, the sandbox and the
+    // backstop stay the boundary.
+    allow: ["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"],
     deny: unique(deny),
     blockReadsOutsideWorkingDirectories: true,
   };
@@ -236,8 +240,11 @@ function permissions(spec: WorkerSpec, paths: Paths) {
 
 function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
   const { home, workdir, main, tmp } = paths;
+  // The toolchain read list, not the install caches: the worker must reach `~/.bun/bin` to run bun.
   const allowRead = unique([
-    ...ctx.sandbox.toolchainPaths.map((path) => expandHome("sandbox.toolchainPaths", path, home)),
+    ...ctx.sandbox.toolchainReadPaths.map((path) =>
+      expandHome("sandbox.toolchainReadPaths", path, home),
+    ),
     ...ctx.sandbox.allowRead.map((path) => expandHome("sandbox.allowRead", path, home)),
   ]);
   return {

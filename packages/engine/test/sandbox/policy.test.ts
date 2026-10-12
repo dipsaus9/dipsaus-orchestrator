@@ -37,7 +37,7 @@ function run(platform: DipoPlatform, kind: StepPolicyKind): SandboxRun {
     dipoDirs: ["/home/maintainer/.local/state/dipo", "/run/user/1000/dipo"],
     sshAuthSock: "/tmp/ssh-XyZ/agent.42",
     tools: { rg: "/usr/bin/rg", bwrap: "/usr/bin/bwrap", socat: "/usr/bin/socat" },
-    toolchainPaths: ["~/.bun/install/cache", "~/.npm/**", "/opt/cache/*.tmp", "~/.cache"],
+    installCachePaths: ["~/.bun/install/cache", "~/.npm/**", "/opt/cache/*.tmp", "~/.cache"],
     registryHosts: ["registry.npmjs.org", "*.npmjs.org"],
   };
 }
@@ -134,7 +134,7 @@ describe("translatePolicy", () => {
     expect(install.strictAllowlist).toBe(true);
   });
 
-  it("adds the toolchain paths, with ~ expanded, to the writes of install only", () => {
+  it("adds the install caches, with ~ expanded, to the writes of install only", () => {
     const install = translatePolicy(run("darwin", "install")).settings.filesystem.allowWrite;
     expect(install).toContain("/home/maintainer/.bun/install/cache");
     expect(install).toContain("/home/maintainer/.npm/**");
