@@ -10,6 +10,7 @@ import {
   daemonSetLogLevel,
   daemonStatus,
   daemonStop,
+  type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import type { FeatureModule, Logger, SoftwareStream } from "@dipsaus-orchestrator/engine";
 
@@ -25,6 +26,10 @@ export interface ControlDeps {
   readonly pid: number;
   readonly version: string;
   readonly socket: string;
+  /** The absolute tool paths resolved from the daemon's `PATH` at start (DIPO-70). */
+  readonly tools: ToolPaths;
+  /** True once the executable on disk changed (0006 decision 14, DIPO-70). */
+  readonly upgradePending: () => boolean;
   /** Starts the drain; the first request wins (`foreground.ts`). */
   readonly requestStop: (request: DrainRequest) => void;
 }
@@ -47,13 +52,13 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
           version: deps.version,
           uptimeMs: Math.max(0, Math.floor(clock.now() - deps.startedAt)),
           socket: deps.socket,
-          // Office loading is DIPO-27, runs DIPO-48, keep-awake DIPO-63, upgrades DIPO-70, and
-          // the tool paths DIPO-70; until then each reports its empty state.
+          // Office loading is DIPO-27, runs DIPO-48 and keep-awake DIPO-63; until then each
+          // reports its empty state.
           loadedOffices: [],
           activeRuns: 0,
           keepAwake: { held: false },
-          upgradePending: false,
-          tools: {},
+          upgradePending: deps.upgradePending(),
+          tools: { ...deps.tools },
         }),
       });
 

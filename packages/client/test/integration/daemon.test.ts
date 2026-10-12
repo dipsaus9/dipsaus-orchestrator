@@ -219,7 +219,7 @@ describe("client against a running daemon", () => {
   );
 
   it(
-    "runs dipo daemon log-level and resume-scheduling, and names dipo daemon start once it is gone",
+    "runs dipo daemon log-level and resume-scheduling, and names dipo daemon start once it is gone with autostart off",
     async () => {
       await withTempDir(async (dir) => {
         const env = daemonEnv(dir);
@@ -239,6 +239,12 @@ describe("client against a running daemon", () => {
           const log = readFileSync(join(env["DIPO_HOME"] ?? "", "logs", "daemon.log"), "utf8");
           expect(log).toContain('"level":"debug"');
 
+          // With autostart off (DIPO-70) a command that needs the daemon names `dipo daemon start`
+          // and starts nothing.
+          writeFileSync(
+            join(env["DIPO_HOME"] ?? "", "config.yaml"),
+            "version: 1\ndaemon:\n  autostart: false\n",
+          );
           for (const args of [
             ["daemon", "log-level", "info"],
             ["daemon", "resume-scheduling"],
