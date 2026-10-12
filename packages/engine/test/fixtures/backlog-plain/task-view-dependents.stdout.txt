@@ -1,0 +1,42 @@
+File: /fixture/backlog/tasks/task-1 - Add-the-CSV-export-command.md
+
+Task TASK-1 - Add the CSV export command
+==================================================
+
+Status: ○ Ready
+Ordinal: 1000
+Created: 2026-10-12 11:28 (UTC)
+Labels: tier:S
+Subtasks (1):
+- TASK-1.1 - Ship the full export
+
+Dependency Graph:
+--------------------------------------------------
+Dependents (1 direct, 1 total):
+└─ TASK-1.1 - Ship the full export [In Progress]
+
+Description:
+--------------------------------------------------
+Outcome: maintainers can export the story list as CSV for a spreadsheet.
+
+```dipo
+branch: "TASK-1/add-the-csv-export-command"
+unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) one CSV row per story, header first"
+    - kind: "manual"
+      check: "Run the export and open the file in a spreadsheet"
+      expect: "Every story shows on its own row"
+```
+
+Acceptance Criteria:
+--------------------------------------------------
+- [ ] #1 The export command writes one CSV row per story
+- [ ] #2 A header row names every column
+
+Definition of Done:
+--------------------------------------------------
+No Definition of Done items defined
+
