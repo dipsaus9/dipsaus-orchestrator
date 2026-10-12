@@ -4,7 +4,7 @@ title: Open and forget offices
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 20:53'
+updated_date: '2026-10-12 21:02'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -24,6 +24,7 @@ references:
   - packages/engine/test/reads/hello.test.ts
   - packages/daemon/src/
   - packages/daemon/test/support/harness.ts
+  - test/office-resolution/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -94,4 +95,7 @@ Implementation (DIPO-27):
 - CLI: `dipo office open [path]`, `dipo office forget [--office <id>] [--yes]`, `dipo office reload-config [--office <id>]`. Office from `--office`, else from the marker in the repository around the cwd; an unregistered Backlog.md project (or a marker the daemon does not know) prints "not an office, run `dipo office open`" and at a terminal asks once to open it. Forget asks for confirmation before connecting (or needs --yes in scripts).
 - Not done here: the daemon-start notice listing offices whose path is missing (0007 section 3) is only given when such an office is loaded (`office.pathMissing`); unloading idle offices is left for later.
 - Refs added for paths outside the original References: engine `commands/` and `reads/execute.ts` (OfficeDirectory.load, lazy loading in the executors), engine `index.ts` (exports), `test/reads/hello.test.ts` (stub directory), daemon `src/` (wiring, subscribe loading, daemon.status) and `test/support/harness.ts`.
+
+Review fix (PR #51, AC #10): the CLI resolves an office from the cwd's marker, but an unopened `cp -r` copy carries the original's marker. `office.forget` and `office.reloadConfig` now take an optional `from` (the main worktree the client resolved the office from, contract 1.1); the daemon compares it with the registered path (realpath on both sides) and answers `office.unknown` (details `reason: "path"`) on a mismatch, so the CLI treats the cwd as unregistered: it prints "not an office, run `dipo office open`" and at a terminal asks once to open it, which runs the copy detection. Repository resolution is shared: `resolveRepositoryWith` and `mainWorktreeOf` in `packages/contract/src/repository.ts` (pure; git and realpath are injected), used by the engine and by the CLI workspace (separate-git-dir fallback and realpath now match). `office.forget` returns the registered `path` (optional, minor 1); the forget confirmation names the path when the office comes from the cwd (with `--office` the client does not know the path before sending, so it names the id only). Integration test `test/office-resolution/` (outside both packages, because cli may not import engine) runs the CLI against the office manager on real repositories: copy case for forget and reload-config, and resolution parity with the engine.
+Not done here, carried to a later story: the 0007 section 3 missing-path notice at daemon start, and real office summaries in `engine.hello`. An ADR 0005 amendment for `office.refused`, `office.markerInvalid`, the `office.open` warnings and the `from` argument and `path` result will be proposed to the maintainer.
 <!-- SECTION:NOTES:END -->
