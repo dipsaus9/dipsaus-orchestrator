@@ -181,7 +181,12 @@ jobs:
           printf 'preload = ["./planted.ts"]\n' > "$dir/bunfig.toml"
           printf 'require("fs").writeFileSync("%s/ran", "1")\n' "$dir" > "$dir/planted.ts"
           (cd "$dir" && "$GITHUB_WORKSPACE/dist/dipo" --version)
-          if [ -e "$dir/ran" ]; then echo "$dir/ran exists"; exit 1; fi
+          if [ -e "$dir/ran" ]; then echo "bunfig.toml preload ran"; exit 1; fi
+          # A planted .env must not reach the binary either (BUN_OPTIONS would preload code).
+          rm "$dir/bunfig.toml"
+          printf 'BUN_OPTIONS=--preload ./planted.ts\n' > "$dir/.env"
+          (cd "$dir" && "$GITHUB_WORKSPACE/dist/dipo" --version)
+          if [ -e "$dir/ran" ]; then echo ".env BUN_OPTIONS preload ran"; exit 1; fi
 
   ci-ok:
     name: ci-ok
