@@ -270,10 +270,11 @@ describe("claude-cli plan", () => {
     expect(sandbox.filesystem.denyWrite).toContain(
       "/home/maintainer/code/shop.worktrees/DIPO-999/.git",
     );
-    // The toolchain defaults are the package caches since the DIPO-37 review.
+    // The toolchain read list, so ~/.bun/bin stays readable (0008 amendment of 2026-10-12); the
+    // install caches are for engine steps only.
     expect(sandbox.filesystem.allowRead).toEqual([
-      "/home/maintainer/.bun/install/cache",
-      "/home/maintainer/.npm/_cacache",
+      "/home/maintainer/.bun",
+      "/home/maintainer/.npm",
       "/home/maintainer/.cache",
     ]);
     expect(sandbox.credentials.files.map((file) => file.path)).toEqual([

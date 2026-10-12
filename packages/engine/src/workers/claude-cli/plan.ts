@@ -99,7 +99,7 @@ export interface ClaudeLaunchContext {
   readonly mcpConfig?: string;
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
-    "toolchainPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
+    "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
   >;
 }
 
@@ -240,8 +240,11 @@ function permissions(spec: WorkerSpec, paths: Paths) {
 
 function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
   const { home, workdir, main, tmp } = paths;
+  // The toolchain read list, not the install caches: the worker must reach `~/.bun/bin` to run bun.
   const allowRead = unique([
-    ...ctx.sandbox.toolchainPaths.map((path) => expandHome("sandbox.toolchainPaths", path, home)),
+    ...ctx.sandbox.toolchainReadPaths.map((path) =>
+      expandHome("sandbox.toolchainReadPaths", path, home),
+    ),
     ...ctx.sandbox.allowRead.map((path) => expandHome("sandbox.allowRead", path, home)),
   ]);
   return {
