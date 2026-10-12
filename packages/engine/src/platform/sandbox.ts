@@ -1,19 +1,31 @@
 // The system side of sandboxed engine steps (DIPO-37, 0008 section 2). This is the only engine code
-// that starts a sandboxed step: it spawns `dipo daemon sandbox-exec --policy <file> -- <cmd>` from
-// `process.execPath`, which runs the command inside the bundled `srt` library (0004 and 0006
-// amendments of 2026-10-12). It also gathers the probe facts, makes the step temp root
-// `/tmp/dipo-s-<id>` and writes the policy file next to it.
+// that starts a sandboxed step: it spawns `dipo daemon sandbox-exec --policy <file> --cwd <dir> --
+// <cmd>` from `process.execPath`, which runs the command inside the bundled `srt` library (0004
+// and 0006 amendments of 2026-10-12). It also makes the step temp root `/tmp/dipo-s-<id>`, writes
+// the policy file next to it, and resolves, trust-checks and probes the host programs srt runs
+// outside the sandbox. `sandbox-exec` repeats the trust check and the probe before it starts srt.
 
 import type { ChildExit, ChildProcess, Signal } from "@dipsaus-orchestrator/contract";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { constants } from "node:fs";
+import { access, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
+import {
+  trustViolations,
+  writableRoots,
+  type SandboxTools,
+  type SrtSettings,
+  type TrustedCandidate,
+} from "../sandbox/policy";
 import { evaluateProbe, type ProbeResult, type SandboxFacts } from "../sandbox/probe";
-import type { SandboxHost } from "../sandbox/step";
-import type { DipoPlatform } from "./paths";
+import { refusalPathFor, type SandboxHost } from "../sandbox/step";
+import { passwdHome, type DipoPlatform } from "./paths";
 
 /** Where step temp roots live. Short, because macOS limits Unix socket paths to about 104 bytes. */
 export const STEP_TEMP_PREFIX = "/tmp/dipo-s-";
+
+/** The working directory `sandbox-exec` starts in: nothing there is writable by a step. */
+export const TRUSTED_CWD = "/";
 
 /** True when this module runs inside the compiled `dipo` binary. */
 export function isCompiled(moduleUrl: string = import.meta.url): boolean {
@@ -34,8 +46,18 @@ export function sandboxExecArgv(
   dipo: readonly string[],
   policyPath: string,
   command: readonly string[],
+  cwd?: string,
 ): string[] {
-  return [...dipo, "daemon", "sandbox-exec", "--policy", policyPath, "--", ...command];
+  return [
+    ...dipo,
+    "daemon",
+    "sandbox-exec",
+    "--policy",
+    policyPath,
+    ...(cwd === undefined ? [] : ["--cwd", cwd]),
+    "--",
+    ...command,
+  ];
 }
 
 /** The policy file of a temp root: a sibling, so the step cannot rewrite it under its own root. */
@@ -43,9 +65,113 @@ export function policyPathFor(tempRoot: string): string {
   return `${tempRoot}.policy.json`;
 }
 
-async function firstLine(cmd: string[], env: Record<string, string>): Promise<string | null> {
+/** The entries of a PATH value, empty entries included (an empty entry means the cwd). */
+export function pathEntries(PATH: string | undefined): string[] {
+  return PATH === undefined || PATH === "" ? [] : PATH.split(":");
+}
+
+async function isExecutableFile(path: string): Promise<boolean> {
   try {
-    const child = Bun.spawn({ cmd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    await access(path, constants.X_OK);
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** The first `name` on the absolute entries of PATH; relative entries are never searched. */
+export async function whichAbsolute(
+  name: string,
+  PATH: string | undefined,
+): Promise<string | null> {
+  for (const entry of pathEntries(PATH)) {
+    if (!entry.startsWith("/")) continue;
+    const candidate = join(entry, name);
+    if (await isExecutableFile(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Resolves the host programs srt runs: `rg` everywhere, `bwrap` and `socat` on Linux. Runs nothing. */
+export async function resolveTools(
+  platform: DipoPlatform,
+  PATH: string | undefined,
+): Promise<SandboxTools> {
+  return {
+    rg: await whichAbsolute("rg", PATH),
+    bwrap: platform === "linux" ? await whichAbsolute("bwrap", PATH) : null,
+    socat: platform === "linux" ? await whichAbsolute("socat", PATH) : null,
+  };
+}
+
+/**
+ * The spellings of a path: as given, and with symlinks resolved on its longest existing prefix
+ * (so `/tmp/x` on macOS is also `/private/tmp/x`, even before `x` exists).
+ */
+export async function spellings(path: string): Promise<string[]> {
+  let head = path;
+  let rest = "";
+  for (;;) {
+    try {
+      const real = await realpath(head);
+      const full = rest === "" ? real : join(real, rest);
+      return full === path ? [path] : [path, full];
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return [path];
+      rest =
+        rest === "" ? head.slice(parent.length + 1) : join(head.slice(parent.length + 1), rest);
+      head = parent;
+    }
+  }
+}
+
+/**
+ * Why a step under `settings` may not run: a relative PATH entry, or a pinned program, the dipo
+ * binary or a PATH directory at or under a path the step can write (its `allowWrite` entries and
+ * srt's default write paths). Runs nothing.
+ */
+export async function checkTrust(input: {
+  readonly settings: SrtSettings;
+  readonly homes: readonly string[];
+  readonly PATH: string | undefined;
+  readonly tools: SandboxTools;
+  readonly binary: string;
+}): Promise<string[]> {
+  const writable = await Promise.all(
+    writableRoots(input.settings, input.homes).map(async (root) => ({
+      source: root.source,
+      spellings: await spellings(root.path),
+    })),
+  );
+  const named: [string, string | null][] = [
+    ["rg", input.tools.rg],
+    ["bwrap", input.tools.bwrap],
+    ["socat", input.tools.socat],
+    ["the dipo binary", input.binary],
+  ];
+  const candidates: TrustedCandidate[] = [];
+  for (const [label, path] of named) {
+    if (path !== null) candidates.push({ label, spellings: await spellings(path) });
+  }
+  const entries = pathEntries(input.PATH);
+  for (const entry of entries) {
+    if (entry.startsWith("/")) {
+      candidates.push({ label: "PATH directory", spellings: await spellings(entry) });
+    }
+  }
+  return trustViolations({ writable, candidates, pathEntries: entries });
+}
+
+async function firstLine(cmd: string[]): Promise<string | null> {
+  try {
+    const child = Bun.spawn({
+      cmd,
+      env: { PATH: "/usr/bin:/bin" },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [out, err, code] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
@@ -78,39 +204,35 @@ export function parseOsRelease(text: string): { id: string; versionId: string } 
   return { id, versionId: field("VERSION_ID") ?? "" };
 }
 
-/** Gathers the probe facts of this machine with the step's PATH. */
+/** Gathers the probe facts for pinned programs; runs `bwrap --version` on Linux. */
 export async function systemSandboxFacts(
   platform: DipoPlatform,
-  env: Readonly<Record<string, string | undefined>>,
+  tools: SandboxTools,
 ): Promise<SandboxFacts> {
-  const PATH = env["PATH"] ?? "";
-  const which = (name: string) => Bun.which(name, { PATH });
-  const rg = which("rg");
   if (platform !== "linux") {
-    return { platform, rg, bwrap: null, socat: null, restrictUserns: null, os: null };
+    return { platform, rg: tools.rg, bwrap: null, socat: null, restrictUserns: null, os: null };
   }
-  const bwrapPath = which("bwrap");
   const bwrap =
-    bwrapPath === null
+    tools.bwrap === null
       ? null
-      : { path: bwrapPath, version: await firstLine([bwrapPath, "--version"], { PATH }) };
+      : { path: tools.bwrap, version: await firstLine([tools.bwrap, "--version"]) };
   const osText = await readTrimmed("/etc/os-release");
   return {
     platform,
-    rg,
+    rg: tools.rg,
     bwrap,
-    socat: which("socat"),
+    socat: tools.socat,
     restrictUserns: await readTrimmed("/proc/sys/kernel/apparmor_restrict_unprivileged_userns"),
     os: osText === null ? null : parseOsRelease(osText),
   };
 }
 
-/** Checks what `srt` needs on this machine (0008 section 2). */
+/** Checks what `srt` needs on this machine (0008 section 2), for already trusted programs. */
 export async function probeSandbox(
   platform: DipoPlatform,
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  tools: SandboxTools,
 ): Promise<ProbeResult> {
-  return evaluateProbe(await systemSandboxFacts(platform, env));
+  return evaluateProbe(await systemSandboxFacts(platform, tools));
 }
 
 /** Wraps a Bun subprocess started in its own process group as a contract `ChildProcess`. */
@@ -143,14 +265,30 @@ export function systemSandboxHost(
   // Tests pass a prefix under DIPO_TMP (0017 section 3).
   tempPrefix: string = STEP_TEMP_PREFIX,
 ): SandboxHost {
+  const binary = dipo[0] ?? process.execPath;
   return {
-    probe: (env) => probeSandbox(platform, env),
     // mkdtemp makes the directory 0700 with an unpredictable name.
     createTempRoot: () => mkdtemp(tempPrefix),
     removeTempRoot: async (tempRoot) => {
-      await rm(policyPathFor(tempRoot), { force: true });
+      const policy = policyPathFor(tempRoot);
+      await rm(refusalPathFor(policy), { force: true });
+      await rm(policy, { force: true });
       await rm(tempRoot, { recursive: true, force: true });
     },
+    resolveTools: (env) => resolveTools(platform, env["PATH"]),
+    trustCheck: ({ settings, home, env }) =>
+      checkTrust({
+        settings,
+        homes: [home, env["HOME"] ?? home, passwdHome()],
+        PATH: env["PATH"],
+        tools: {
+          rg: settings.ripgrep?.command ?? null,
+          bwrap: settings.bwrapPath ?? null,
+          socat: settings.socatPath ?? null,
+        },
+        binary,
+      }),
+    probe: (tools) => probeSandbox(platform, tools),
     writePolicy: async (tempRoot, settings) => {
       const path = policyPathFor(tempRoot);
       // `wx`: never through a file or link someone else left at that name.
@@ -160,8 +298,9 @@ export function systemSandboxHost(
     start: ({ policyPath, command, cwd, env }) =>
       groupChild(
         Bun.spawn({
-          cmd: sandboxExecArgv(dipo, policyPath, command),
-          cwd,
+          cmd: sandboxExecArgv(dipo, policyPath, command, cwd),
+          // Never the worktree: Bun would load its bunfig.toml and .env before srt starts.
+          cwd: TRUSTED_CWD,
           env,
           stdin: "ignore",
           stdout: "pipe",
@@ -169,5 +308,12 @@ export function systemSandboxHost(
           detached: true,
         }),
       ),
+    readRefusal: async (policyPath) => {
+      try {
+        return (await readFile(refusalPathFor(policyPath), "utf8")).trim();
+      } catch {
+        return null;
+      }
+    },
   };
 }

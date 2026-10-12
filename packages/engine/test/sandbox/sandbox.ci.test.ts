@@ -93,15 +93,19 @@ if (CI) {
     );
 
     it(
-      "cannot read a secret under ~/.ssh",
+      "cannot read a secret under ~/.ssh or ~/.npmrc",
       () =>
         withTempDir(async (dir) => {
           const layout = makeLayout(dir);
           const result = exited(
-            await runSandboxedStep(stepDeps(), request(layout, ["/bin/cat", layout.secret])),
+            await runSandboxedStep(
+              stepDeps(),
+              request(layout, ["/bin/cat", layout.secret, layout.npmrc]),
+            ),
           );
           expect(result.code).not.toBe(0);
           expect(result.stdout.text).not.toContain("not-a-real-key");
+          expect(result.stdout.text).not.toContain("not-a-real-token");
         }),
       TIMEOUT_MS,
     );

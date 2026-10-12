@@ -4,19 +4,34 @@
 // `timeouts.scriptMinutes`, and its output captured for storage. Fail-closed: when the sandbox is
 // missing, fails its probe or refuses to start, the step returns `startFailed` with the reason and
 // the command never runs unsandboxed.
+//
+// Order matters: the host programs srt runs outside the sandbox are resolved first (nothing runs),
+// checked against the paths the policy makes writable, and only then probed. A refusal counts only
+// when `sandbox-exec` wrote it to the refusal file next to the policy, which the sandboxed command
+// cannot write; a command that prints the refusal line and exits 125 is an ordinary failure.
 
 import type { ChildProcess, Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { DipoPlatform } from "../platform/paths";
 import { stepEnv } from "./env";
-import { translatePolicy, type SrtSettings, type StepPolicyKind } from "./policy";
+import {
+  translatePolicy,
+  type SandboxTools,
+  type SrtSettings,
+  type StepPolicyKind,
+} from "./policy";
 import type { ProbeResult } from "./probe";
 
 /** Exit code of `dipo daemon sandbox-exec` when it refuses to run the command. */
 export const SANDBOX_REFUSED_EXIT_CODE = 125;
 
-/** Prefix of the stderr line `dipo daemon sandbox-exec` writes when it refuses. */
+/** Prefix of the stderr line `dipo daemon sandbox-exec` writes when it refuses (for people). */
 export const SANDBOX_REFUSED_MARKER = "dipo sandbox-exec: refused: ";
+
+/** The refusal file of a policy: `sandbox-exec` writes the reason there, outside the temp root. */
+export function refusalPathFor(policyPath: string): string {
+  return `${policyPath}.refused`;
+}
 
 /** Time between SIGTERM and SIGKILL when a step overruns its timeout. */
 export const KILL_GRACE_MS = 5000;
@@ -26,21 +41,37 @@ export const OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
 
 /** What a step needs from the machine; `systemSandboxHost` in the platform module is the real one. */
 export interface SandboxHost {
-  /** Runs the probe with the step's PATH. */
-  probe(env: Readonly<Record<string, string>>): Promise<ProbeResult>;
   /** Creates a fresh, private temp root `/tmp/dipo-s-<id>`. */
   createTempRoot(): Promise<string>;
-  /** Removes a temp root and its policy file. */
+  /** Removes a temp root, its policy file and its refusal file. */
   removeTempRoot(tempRoot: string): Promise<void>;
+  /** Resolves `rg`, `bwrap` and `socat` on the absolute entries of PATH; runs nothing. */
+  resolveTools(env: Readonly<Record<string, string>>): Promise<SandboxTools>;
+  /**
+   * Reasons the step may not run: a relative PATH entry, or a pinned program, the dipo binary or a
+   * PATH directory under a path the settings make writable. Runs nothing.
+   */
+  trustCheck(input: {
+    readonly settings: SrtSettings;
+    readonly home: string;
+    readonly env: Readonly<Record<string, string>>;
+  }): Promise<string[]>;
+  /** Checks the pinned programs (runs `bwrap --version` on Linux); call after `trustCheck`. */
+  probe(tools: SandboxTools): Promise<ProbeResult>;
   /** Writes the settings file for a temp root and returns its path. */
   writePolicy(tempRoot: string, settings: SrtSettings): Promise<string>;
-  /** Spawns `dipo daemon sandbox-exec --policy <file> -- <command>`. */
+  /**
+   * Spawns `dipo daemon sandbox-exec --policy <file> --cwd <cwd> -- <command>` from a trusted
+   * working directory, so nothing in the worktree is loaded before srt starts.
+   */
   start(options: {
     readonly policyPath: string;
     readonly command: readonly [string, ...string[]];
     readonly cwd: string;
     readonly env: Readonly<Record<string, string>>;
   }): ChildProcess;
+  /** The reason `sandbox-exec` wrote to the refusal file of a policy, or null. */
+  readRefusal(policyPath: string): Promise<string | null>;
 }
 
 export interface StepDeps {
@@ -57,6 +88,10 @@ export interface StepRequest {
   readonly worktree: string;
   readonly mainCheckout: string;
   readonly home: string;
+  /** The user id, for `/run/user/<uid>`. */
+  readonly uid: number;
+  /** dipo's state and runtime directories, hidden from the step. */
+  readonly dipoDirs: readonly string[];
   readonly sandbox: {
     readonly toolchainPaths: readonly string[];
     readonly registryHosts: readonly string[];
@@ -103,28 +138,45 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
   }
   try {
     const env = stepEnv(request.env, tempRoot, request.extraEnv);
+    const run = {
+      platform: deps.platform,
+      kind: request.kind,
+      home: request.home,
+      uid: request.uid,
+      mainCheckout: request.mainCheckout,
+      worktree: request.worktree,
+      tempRoot,
+      dipoDirs: request.dipoDirs,
+      sshAuthSock: request.env["SSH_AUTH_SOCK"],
+      toolchainPaths: request.sandbox.toolchainPaths,
+      registryHosts: request.sandbox.registryHosts,
+    };
+
+    let tools: SandboxTools;
+    let distrust: string[];
     let probe: ProbeResult;
     try {
-      probe = await deps.host.probe(env);
+      tools = await deps.host.resolveTools(env);
+      distrust = await deps.host.trustCheck({
+        settings: translatePolicy({ ...run, tools }).settings,
+        home: request.home,
+        env,
+      });
+      if (distrust.length > 0) {
+        return startFailed(`sandbox refused untrusted paths: ${distrust.join("; ")}`);
+      }
+      probe = await deps.host.probe(tools);
     } catch (error) {
       return startFailed(`sandbox probe failed: ${message(error)}`);
     }
     if (!probe.ok) return startFailed(`sandbox unavailable: ${probe.reasons.join("; ")}`);
 
-    const { settings, warnings } = translatePolicy({
-      platform: deps.platform,
-      kind: request.kind,
-      home: request.home,
-      mainCheckout: request.mainCheckout,
-      worktree: request.worktree,
-      tempRoot,
-      toolchainPaths: request.sandbox.toolchainPaths,
-      registryHosts: request.sandbox.registryHosts,
-    });
+    const { settings, warnings } = translatePolicy({ ...run, tools });
 
     let child: ChildProcess;
+    let policyPath: string;
     try {
-      const policyPath = await deps.host.writePolicy(tempRoot, settings);
+      policyPath = await deps.host.writePolicy(tempRoot, settings);
       child = deps.host.start({ policyPath, command: request.command, cwd: request.worktree, env });
     } catch (error) {
       return startFailed(`could not start dipo daemon sandbox-exec: ${message(error)}`);
@@ -146,8 +198,10 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
     deps.clock.clearTimeout(timeoutTimer);
     if (killTimer !== undefined) deps.clock.clearTimeout(killTimer);
 
-    const refusal = refusalReason(exit.code, stderr.text);
-    if (refusal !== null) return startFailed(refusal);
+    if (exit.code === SANDBOX_REFUSED_EXIT_CODE) {
+      const refusal = await deps.host.readRefusal(policyPath).catch(() => null);
+      if (refusal !== null) return startFailed(`sandbox refused to start: ${refusal}`);
+    }
     return {
       outcome: "exited",
       code: exit.code,
@@ -160,14 +214,6 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
   } finally {
     await deps.host.removeTempRoot(tempRoot).catch(() => undefined);
   }
-}
-
-/** The reason `dipo daemon sandbox-exec` gave when it refused, or null when it ran the command. */
-export function refusalReason(code: number | null, stderr: string): string | null {
-  if (code !== SANDBOX_REFUSED_EXIT_CODE) return null;
-  const line = stderr.split("\n").find((l) => l.startsWith(SANDBOX_REFUSED_MARKER));
-  if (line === undefined) return null;
-  return `sandbox refused to start: ${line.slice(SANDBOX_REFUSED_MARKER.length)}`;
 }
 
 function startFailed(reason: string): StepResult {

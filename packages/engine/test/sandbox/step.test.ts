@@ -6,12 +6,11 @@ import { describe, expect, it } from "bun:test";
 import type { ChildExit, ChildProcess, Signal } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import type { SrtSettings } from "../../src/sandbox/policy";
+import type { SandboxTools, SrtSettings } from "../../src/sandbox/policy";
 import { evaluateProbe, type ProbeResult } from "../../src/sandbox/probe";
 import {
   capture,
   KILL_GRACE_MS,
-  refusalReason,
   runSandboxedStep,
   SANDBOX_REFUSED_EXIT_CODE,
   SANDBOX_REFUSED_MARKER,
@@ -55,8 +54,13 @@ type Recorder = {
   started: Parameters<SandboxHost["start"]>[0][];
   policies: SrtSettings[];
   removed: string[];
-  probedEnv: Readonly<Record<string, string>>[];
+  probedTools: SandboxTools[];
+  trustInputs: Parameters<SandboxHost["trustCheck"]>[0][];
+  refusal: string | null;
+  distrust: string[];
 };
+
+const TOOLS: SandboxTools = { rg: "/usr/bin/rg", bwrap: "/usr/bin/bwrap", socat: "/usr/bin/socat" };
 
 function fakeHost(probe: ProbeResult = { ok: true }): Recorder {
   const child = fakeChild();
@@ -65,12 +69,21 @@ function fakeHost(probe: ProbeResult = { ok: true }): Recorder {
     started: [],
     policies: [],
     removed: [],
-    probedEnv: [],
+    probedTools: [],
+    trustInputs: [],
+    refusal: null,
+    distrust: [],
     host: {
-      probe: async (env) => {
-        rec.probedEnv.push(env);
+      resolveTools: async () => TOOLS,
+      trustCheck: async (input) => {
+        rec.trustInputs.push(input);
+        return rec.distrust;
+      },
+      probe: async (tools) => {
+        rec.probedTools.push(tools);
         return probe;
       },
+      readRefusal: async () => rec.refusal,
       createTempRoot: async () => TEMP_ROOT,
       removeTempRoot: async (root) => void rec.removed.push(root),
       writePolicy: async (root, settings) => {
@@ -93,7 +106,9 @@ const REQUEST: StepRequest = {
   worktree: "/src/p.worktrees/P-1",
   mainCheckout: "/src/p",
   home: "/home/m",
-  sandbox: { toolchainPaths: ["~/.bun"], registryHosts: ["registry.npmjs.org"] },
+  uid: 501,
+  dipoDirs: ["/home/m/.local/state/dipo"],
+  sandbox: { toolchainPaths: ["~/.bun/install/cache"], registryHosts: ["registry.npmjs.org"] },
   scriptMinutes: { install: 15, verify: 20 },
   env: {
     PATH: "/usr/bin:/bin",
@@ -187,8 +202,9 @@ describe("runSandboxedStep", () => {
     expect(rec.removed).toEqual([TEMP_ROOT]);
   });
 
-  it("returns startFailed when sandbox-exec refuses to start srt", async () => {
+  it("returns startFailed when sandbox-exec wrote a refusal file", async () => {
     const rec = fakeHost();
+    rec.refusal = "seccomp not available - unix socket access not restricted";
     const running = runSandboxedStep(
       { clock: new ManualClock(), platform: "linux", host: rec.host },
       REQUEST,
@@ -203,6 +219,58 @@ describe("runSandboxedStep", () => {
       outcome: "startFailed",
       reason: "sandbox refused to start: seccomp not available - unix socket access not restricted",
     });
+  });
+
+  it("treats a faked refusal line with exit 125 as an ordinary failure", async () => {
+    const rec = fakeHost();
+    const running = runSandboxedStep(
+      { clock: new ManualClock(), platform: "linux", host: rec.host },
+      REQUEST,
+    );
+    await settleMany();
+    rec.child.finish(
+      { code: SANDBOX_REFUSED_EXIT_CODE, signal: null },
+      "",
+      `${SANDBOX_REFUSED_MARKER}faked by worker code\n`,
+    );
+    expect(await running).toMatchObject({ outcome: "exited", code: SANDBOX_REFUSED_EXIT_CODE });
+  });
+
+  it("refuses untrusted paths before the probe runs anything", async () => {
+    const rec = fakeHost();
+    rec.distrust = [
+      "bwrap /src/p.worktrees/P-1/bin/bwrap is writable by the step (allowWrite /src/p.worktrees/P-1)",
+    ];
+    const result = await runSandboxedStep(
+      { clock: new ManualClock(), platform: "linux", host: rec.host },
+      REQUEST,
+    );
+    expect(result).toEqual({
+      outcome: "startFailed",
+      reason:
+        "sandbox refused untrusted paths: bwrap /src/p.worktrees/P-1/bin/bwrap is writable by the step (allowWrite /src/p.worktrees/P-1)",
+    });
+    expect(rec.probedTools).toEqual([]);
+    expect(rec.started).toEqual([]);
+  });
+
+  it("checks the policy with the pinned tools and the step environment", async () => {
+    const rec = fakeHost();
+    const running = runSandboxedStep(
+      { clock: new ManualClock(), platform: "linux", host: rec.host },
+      REQUEST,
+    );
+    await settleMany();
+    rec.child.finish({ code: 0, signal: null });
+    await running;
+    const input = rec.trustInputs[0];
+    expect(input?.settings.bwrapPath).toBe("/usr/bin/bwrap");
+    expect(input?.env["PATH"]).toBe("/usr/bin:/bin");
+    expect(input?.home).toBe("/home/m");
+    expect(rec.probedTools).toEqual([TOOLS]);
+    expect(rec.policies[0]?.ripgrep).toEqual({ command: "/usr/bin/rg" });
+    expect(rec.policies[0]?.filesystem.denyRead).toContain("/home/m/.local/state/dipo");
+    expect(rec.policies[0]?.filesystem.denyRead).toContain("/run/user/501");
   });
 
   it("returns startFailed when the script has no timeout", async () => {
@@ -221,7 +289,15 @@ describe("runSandboxedStep", () => {
     const rec = fakeHost();
     const running = runSandboxedStep(
       { clock: new ManualClock(), platform: "darwin", host: rec.host },
-      { ...REQUEST, extraEnv: { PORT: "4100" } },
+      {
+        ...REQUEST,
+        extraEnv: {
+          PORT: "4100",
+          BUN_OPTIONS: "--preload x",
+          NODE_OPTIONS: "-r x",
+          BUN_CONFIG_REGISTRY: "x",
+        },
+      },
     );
     await settleMany();
     rec.child.finish({ code: 0, signal: null }, "ok\n", "warn\n");
@@ -247,7 +323,7 @@ describe("runSandboxedStep", () => {
       TMPDIR: TEMP_ROOT,
       DIPO_TMP: TEMP_ROOT,
     });
-    expect(rec.probedEnv[0]?.["PATH"]).toBe("/usr/bin:/bin");
+    expect(rec.probedTools).toEqual([TOOLS]);
     expect(rec.removed).toEqual([TEMP_ROOT]);
   });
 
@@ -266,10 +342,10 @@ describe("runSandboxedStep", () => {
       expect(policy?.network.allowUnixSockets).toEqual([TEMP_ROOT]);
       if (kind === "install") {
         expect(policy?.network.allowedDomains).toEqual(["registry.npmjs.org"]);
-        expect(policy?.filesystem.allowWrite).toContain("/home/m/.bun");
+        expect(policy?.filesystem.allowWrite).toContain("/home/m/.bun/install/cache");
       } else {
         expect(policy?.network.allowedDomains).toEqual([]);
-        expect(policy?.filesystem.allowWrite).not.toContain("/home/m/.bun");
+        expect(policy?.filesystem.allowWrite).not.toContain("/home/m/.bun/install/cache");
       }
     }
   });
@@ -323,18 +399,6 @@ describe("runSandboxedStep", () => {
     expect(await running).toMatchObject({
       warnings: ["allowWrite: skipped /home/m/.cache/* (a glob; Linux takes literal paths only)"],
     });
-  });
-});
-
-describe("refusalReason", () => {
-  it("needs both the exit code and the marker line", () => {
-    const line = `${SANDBOX_REFUSED_MARKER}no rg\n`;
-    expect(refusalReason(SANDBOX_REFUSED_EXIT_CODE, `noise\n${line}`)).toBe(
-      "sandbox refused to start: no rg",
-    );
-    expect(refusalReason(SANDBOX_REFUSED_EXIT_CODE, "plain failure")).toBeNull();
-    expect(refusalReason(1, line)).toBeNull();
-    expect(refusalReason(null, line)).toBeNull();
   });
 });
 

@@ -31,6 +31,12 @@ if (CI && process.platform === "linux" && process.env[GUARD] !== "1") {
         ).stdout.trim();
         const env = { ...process.env };
         delete env["DIPO_TEST_CI"];
+        // `bun run verify` put this checkout's node_modules/.bin on PATH; a PATH directory the step
+        // can write is refused, so drop those entries.
+        env["PATH"] = (env["PATH"] ?? "")
+          .split(":")
+          .filter((entry) => entry !== REPO && !entry.startsWith(`${REPO}/`))
+          .join(":");
         const result = await runSandboxedStep(stepDeps(), {
           kind: "verify",
           script: "verify",
@@ -38,6 +44,8 @@ if (CI && process.platform === "linux" && process.env[GUARD] !== "1") {
           worktree: REPO,
           mainCheckout: dirname(common),
           home: passwdHome(),
+          uid: process.getuid?.() ?? 0,
+          dipoDirs: [],
           sandbox: { toolchainPaths: [], registryHosts: [] },
           scriptMinutes: { verify: 10 },
           env,

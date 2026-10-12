@@ -12,8 +12,11 @@ import type { DipoPlatform } from "../../src/platform/paths";
 import {
   DENY_ALL_SETTINGS,
   expandHome,
+  globRoot,
   linuxLiteralPath,
   translatePolicy,
+  trustViolations,
+  writableRoots,
   type SandboxRun,
   type StepPolicyKind,
 } from "../../src/sandbox/policy";
@@ -25,9 +28,13 @@ function run(platform: DipoPlatform, kind: StepPolicyKind): SandboxRun {
     platform,
     kind,
     home: "/home/maintainer",
+    uid: 1000,
     mainCheckout: "/src/product",
     worktree: "/src/product.worktrees/PROD-7",
     tempRoot: "/tmp/dipo-s-AbC123",
+    dipoDirs: ["/home/maintainer/.local/state/dipo", "/run/user/1000/dipo"],
+    sshAuthSock: "/tmp/ssh-XyZ/agent.42",
+    tools: { rg: "/usr/bin/rg", bwrap: "/usr/bin/bwrap", socat: "/usr/bin/socat" },
     toolchainPaths: ["~/.bun/install/cache", "~/.npm/**", "/opt/cache/*.tmp", "~/.cache"],
     registryHosts: ["registry.npmjs.org", "*.npmjs.org"],
   };
@@ -63,7 +70,7 @@ describe("translatePolicy", () => {
     ]);
   });
 
-  it("denies reading the secret paths of 0008 under the given home", () => {
+  it("denies reading the secrets, dipo's own directories and the agent and daemon sockets", () => {
     const { settings } = translatePolicy(run("linux", "verify"));
     expect(settings.filesystem.denyRead).toEqual([
       "/home/maintainer/.ssh",
@@ -71,7 +78,40 @@ describe("translatePolicy", () => {
       "/home/maintainer/.config/gh",
       "/home/maintainer/.gnupg",
       "/home/maintainer/.netrc",
+      "/home/maintainer/.npmrc",
+      "/home/maintainer/.git-credentials",
+      "/home/maintainer/.claude",
+      "/home/maintainer/.docker",
+      "/home/maintainer/.kube",
+      "/home/maintainer/.local/state/dipo",
+      "/run/user/1000/dipo",
+      "/run/user/1000",
+      "/var/run/docker.sock",
+      "/run/docker.sock",
+      "/tmp/ssh-*",
+      "/tmp/ssh-XyZ",
     ]);
+  });
+
+  it("denies the agent socket itself when its directory holds the temp root", () => {
+    const { settings, warnings } = translatePolicy({
+      ...run("darwin", "verify"),
+      sshAuthSock: "/tmp/agent.sock",
+      dipoDirs: ["/tmp"],
+    });
+    expect(settings.filesystem.denyRead).toContain("/tmp/agent.sock");
+    expect(settings.filesystem.denyRead).not.toContain("/tmp");
+    expect(warnings).toEqual(["denyRead: skipped /tmp (it holds the worktree or temp root)"]);
+  });
+
+  it("pins rg on both platforms and bwrap and socat on Linux", () => {
+    const linux = translatePolicy(run("linux", "verify")).settings;
+    expect(linux.ripgrep).toEqual({ command: "/usr/bin/rg" });
+    expect(linux.bwrapPath).toBe("/usr/bin/bwrap");
+    expect(linux.socatPath).toBe("/usr/bin/socat");
+    const darwin = translatePolicy(run("darwin", "verify")).settings;
+    expect(darwin.ripgrep).toEqual({ command: "/usr/bin/rg" });
+    expect(darwin.bwrapPath).toBeUndefined();
   });
 
   it("closes the network for verify and opens only the registry hosts for install", () => {
@@ -141,5 +181,73 @@ describe("linuxLiteralPath", () => {
     expect(linuxLiteralPath("/a/b?")).toBeNull();
     expect(linuxLiteralPath("/a/{b,c}")).toBeNull();
     expect(linuxLiteralPath("/a/**/c/**")).toBeNull();
+  });
+});
+
+describe("writableRoots", () => {
+  it("lists allowWrite roots up to their first glob and srt's default write paths", () => {
+    const roots = writableRoots(translatePolicy(run("darwin", "install")).settings, ["/h"]);
+    expect(roots.map((root) => root.path)).toEqual([
+      "/src/product.worktrees/PROD-7",
+      "/tmp/dipo-s-AbC123",
+      "/home/maintainer/.bun/install/cache",
+      "/home/maintainer/.npm",
+      "/opt/cache",
+      "/home/maintainer/.cache",
+      "/tmp/claude",
+      "/private/tmp/claude",
+      "/h/.claude/debug",
+      "/h/.npm/_logs",
+    ]);
+  });
+
+  it("cuts a glob back to its literal directory", () => {
+    expect(globRoot("/a/b/**")).toBe("/a/b");
+    expect(globRoot("/a/b*/c")).toBe("/a");
+    expect(globRoot("/a/b")).toBe("/a/b");
+  });
+});
+
+describe("trustViolations", () => {
+  const writable = [
+    { spellings: ["/w/tree", "/private/w/tree"], source: "allowWrite /w/tree" },
+    { spellings: ["/home/m/.bun"], source: "allowWrite ~/.bun" },
+  ];
+
+  it("passes programs, binary and PATH outside every writable root", () => {
+    expect(
+      trustViolations({
+        writable,
+        candidates: [
+          { label: "rg", spellings: ["/usr/bin/rg"] },
+          { label: "PATH directory", spellings: ["/w/treehouse"] },
+        ],
+        pathEntries: ["/usr/bin", "/w/treehouse"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses a program, binary or PATH directory under a writable root in any spelling", () => {
+    expect(
+      trustViolations({
+        writable,
+        candidates: [
+          { label: "bwrap", spellings: ["/w/tree/bin/bwrap"] },
+          { label: "the dipo binary", spellings: ["/home/m/.bun/bin/bun"] },
+          { label: "PATH directory", spellings: ["/link/bin", "/private/w/tree/bin"] },
+        ],
+        pathEntries: ["/link/bin"],
+      }),
+    ).toEqual([
+      "bwrap /w/tree/bin/bwrap is writable by the step (allowWrite /w/tree)",
+      "the dipo binary /home/m/.bun/bin/bun is writable by the step (allowWrite ~/.bun)",
+      "PATH directory /link/bin is writable by the step (allowWrite /w/tree)",
+    ]);
+  });
+
+  it("refuses relative and empty PATH entries", () => {
+    expect(
+      trustViolations({ writable, candidates: [], pathEntries: ["bin", "", "/usr/bin"] }),
+    ).toEqual(['PATH holds a relative entry "bin"', 'PATH holds a relative entry ""']);
   });
 });
