@@ -1,6 +1,6 @@
 export { officeFeature } from "./feature";
 export { OfficeManager } from "./manager";
-export type { OfficeManagerDeps, OpenResult, ReloadConfigResult } from "./manager";
+export type { ForgetResult, OfficeManagerDeps, OpenResult, ReloadConfigResult } from "./manager";
 export {
   MARKER_FILE,
   markerPath,
@@ -13,6 +13,7 @@ export {
 export type { MarkerRead } from "./marker";
 export {
   BACKLOG_CONFIG,
+  canonicalPath,
   isBacklogProject,
   mainWorktreeOf,
   networkFsType,

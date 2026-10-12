@@ -115,7 +115,7 @@ describe("dipo office reload-config", () => {
       { repository: { ...REPO, office: OFFICE, backlog: true } },
     );
     expect(await main(["office", "reload-config"], ctx.deps)).toBe(1);
-    expect(ctx.sent[0]?.args).toEqual({ office: OFFICE });
+    expect(ctx.sent[0]?.args).toEqual({ office: OFFICE, from: "/work/app" });
     expect(ctx.out).toEqual([
       `office ${OFFICE}: configuration invalid; new runs are refused until it is fixed`,
       "  f: p: expected e",
@@ -144,7 +144,7 @@ describe("dipo office reload-config", () => {
     expect(ctx.questions).toEqual(["Open /work/app as an office now? [y/N] "]);
     expect(ctx.sent).toEqual([
       { name: "office.open", args: { path: "/work/app" } },
-      { name: "office.reloadConfig", args: { office: OFFICE } },
+      { name: "office.reloadConfig", args: { office: OFFICE, from: "/work/app" } },
     ]);
     expect(ctx.out).toEqual([
       `opened /work/app as office ${OFFICE}`,
@@ -184,15 +184,17 @@ describe("dipo office reload-config", () => {
 
 describe("dipo office forget", () => {
   it("asks for confirmation at a terminal before connecting", async () => {
-    const ctx = fake(() => ok({ office: OFFICE }), {
+    const ctx = fake(() => ok({ office: OFFICE, path: "/work/app" }), {
       repository: { ...REPO, office: OFFICE, backlog: true },
       interactive: true,
       answers: ["yes"],
     });
     expect(await main(["office", "forget"], ctx.deps)).toBe(0);
-    expect(ctx.questions[0]).toContain(`Forget office ${OFFICE}?`);
-    expect(ctx.sent).toEqual([{ name: "office.forget", args: { office: OFFICE } }]);
-    expect(ctx.out).toEqual([`forgot office ${OFFICE}`]);
+    expect(ctx.questions[0]).toContain(`Forget office ${OFFICE} at /work/app?`);
+    expect(ctx.sent).toEqual([
+      { name: "office.forget", args: { office: OFFICE, from: "/work/app" } },
+    ]);
+    expect(ctx.out).toEqual([`forgot office ${OFFICE} at /work/app`]);
   });
 
   it("needs --yes in a script and sends nothing without it", async () => {

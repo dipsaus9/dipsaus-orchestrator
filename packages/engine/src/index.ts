@@ -133,6 +133,7 @@ export { officeUnknown, stateOfficeDirectory } from "./commands/offices";
 export type { OfficeAccess, OfficeDirectory } from "./commands/offices";
 export {
   BACKLOG_CONFIG,
+  canonicalPath,
   isBacklogProject,
   mainWorktreeOf,
   MARKER_FILE,

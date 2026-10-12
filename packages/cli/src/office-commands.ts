@@ -31,11 +31,21 @@ export const NOT_AN_OFFICE = "not an office, run `dipo office open`";
 
 const YES = /^\s*y(es)?\s*$/i;
 
-/** What an office subcommand does once it has an office; "unknown" when the daemon has no such office. */
-type Act = (session: DaemonSession, office: OfficeId) => Promise<number | "unknown">;
+const at = (path: string | undefined): string => (path === undefined ? "" : ` at ${path}`);
 
-/** Asks the person before the command is sent; false stops it. */
-type Confirm = (office: OfficeId) => Promise<boolean>;
+/**
+ * What an office subcommand does once it has an office. `from` is the main worktree the office was
+ * resolved from, sent so the daemon checks it is the office's registered path; "unknown" when the
+ * daemon has no such office there.
+ */
+type Act = (
+  session: DaemonSession,
+  office: OfficeId,
+  from: string | undefined,
+) => Promise<number | "unknown">;
+
+/** Asks the person before the command is sent; false stops it. `path` is null with `--office`. */
+type Confirm = (office: OfficeId, path: string | null) => Promise<boolean>;
 
 type Target =
   | { readonly kind: "office"; readonly office: OfficeId; readonly main: string | null }
@@ -116,10 +126,10 @@ async function withOffice(
   let main: string;
   if (target.kind === "office") {
     // Asked before connecting, so the reply deadline never runs while a person decides.
-    if (!(await confirm(target.office))) return 1;
+    if (!(await confirm(target.office, target.main))) return 1;
     let unregistered = false;
     const code = await withDaemon(deps, async (session) => {
-      const outcome = await act(session, target.office);
+      const outcome = await act(session, target.office, target.main ?? undefined);
       if (outcome !== "unknown") return outcome;
       if (target.main === null) {
         deps.writeError(`dipo: office.unknown: there is no office ${target.office}.`);
@@ -142,8 +152,8 @@ async function withOffice(
     const opened = await session.command(officeOpen, { path: main });
     if (!opened.ok) return engineFailure(deps, opened.error);
     printOpened(deps, main, opened.result, opened.changed);
-    if (!(await confirm(opened.result.office))) return 1;
-    const outcome = await act(session, opened.result.office);
+    if (!(await confirm(opened.result.office, main))) return 1;
+    const outcome = await act(session, opened.result.office, main);
     return outcome === "unknown" ? 1 : outcome;
   });
 }
@@ -165,30 +175,36 @@ async function forgetCommand(args: readonly string[], deps: OfficeCommandDeps): 
   const options = parseOptions(args, true);
   if (typeof options === "string") return usage(deps, `office forget: ${options}`);
   // `office.forget` has `confirm: true`: every client asks first (0005 section 4).
-  const confirm: Confirm = async (office) => {
+  const confirm: Confirm = async (office, path) => {
+    const named = path === null ? `office ${office}` : `office ${office} at ${path}`;
     if (options.yes) return true;
     if (!deps.workspace.interactive) {
       deps.writeError(
-        `dipo: forgetting office ${office} needs confirmation; run it at a terminal or pass --yes.`,
+        `dipo: forgetting ${named} needs confirmation; run it at a terminal or pass --yes.`,
       );
       return false;
     }
     const answer = await deps.workspace.ask(
-      `Forget office ${office}? Its repository and history are kept, and \`dipo office open\` brings it back. [y/N] `,
+      `Forget ${named}? Its repository and history are kept, and \`dipo office open\` brings it back. [y/N] `,
     );
     if (YES.test(answer)) return true;
     deps.writeLine("nothing forgotten");
     return false;
   };
-  const forget: Act = async (session, office) => {
-    const outcome = await session.command(officeForget, { office });
+  const forget: Act = async (session, office, from) => {
+    const outcome = await session.command(officeForget, {
+      office,
+      ...(from === undefined ? {} : { from }),
+    });
     if (!outcome.ok) {
       return outcome.error.code === "office.unknown"
         ? "unknown"
         : engineFailure(deps, outcome.error);
     }
     deps.writeLine(
-      outcome.changed ? `forgot office ${office}` : `office ${office} was already forgotten`,
+      outcome.changed
+        ? `forgot office ${office}${at(outcome.result.path)}`
+        : `office ${office}${at(outcome.result.path)} was already forgotten`,
     );
     return 0;
   };
@@ -201,8 +217,11 @@ async function reloadConfigCommand(
 ): Promise<number> {
   const options = parseOptions(args, false);
   if (typeof options === "string") return usage(deps, `office reload-config: ${options}`);
-  return withOffice(deps, options.office, async (session, office) => {
-    const outcome = await session.command(officeReloadConfig, { office });
+  return withOffice(deps, options.office, async (session, office, from) => {
+    const outcome = await session.command(officeReloadConfig, {
+      office,
+      ...(from === undefined ? {} : { from }),
+    });
     if (!outcome.ok) {
       return outcome.error.code === "office.unknown"
         ? "unknown"

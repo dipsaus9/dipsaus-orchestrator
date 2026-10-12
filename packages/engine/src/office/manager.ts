@@ -35,6 +35,7 @@ import {
   type GitRunner,
   isBacklogProject,
   networkFsType,
+  canonicalPath,
   type Repository,
   resolveRepository,
 } from "./repository";
@@ -62,6 +63,12 @@ export interface OpenResult {
   readonly office: OfficeId;
   readonly registered: boolean;
   readonly warnings?: string[];
+}
+
+export interface ForgetResult {
+  readonly office: OfficeId;
+  /** The registered path of the forgotten office. */
+  readonly path: string;
 }
 
 export interface ReloadConfigResult {
@@ -266,14 +273,39 @@ export class OfficeManager implements OfficeDirectory {
     return this.#serialised(() => this.#open(path));
   }
 
-  /** `office.forget { office }`: hides the office from the list and keeps every row. */
-  forget(office: OfficeId): Promise<CommandOutcome<{ office: OfficeId }>> {
-    return this.#serialised(async () => this.#forget(office));
+  /**
+   * `office.forget { office, from? }`: hides the office from the list and keeps every row. `from`
+   * is the main worktree a client resolved the office from; see `#checkFrom`.
+   */
+  forget(office: OfficeId, from?: string): Promise<CommandOutcome<ForgetResult>> {
+    return this.#serialised(async () => this.#forget(office, from));
   }
 
-  /** `office.reloadConfig { office }` (0017 section 5). */
-  reloadConfig(office: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {
-    return this.#serialised(() => this.#reloadConfig(office));
+  /** `office.reloadConfig { office, from? }` (0017 section 5). */
+  reloadConfig(office: OfficeId, from?: string): Promise<CommandOutcome<ReloadConfigResult>> {
+    return this.#serialised(() => this.#reloadConfig(office, from));
+  }
+
+  /**
+   * A client that resolved the office from its current directory names the main worktree it found
+   * there. When that is not the office's registered path (canonical on both sides) the directory is
+   * not this office, for example an unopened copy that still carries the original's marker, so the
+   * command fails with `office.unknown` and acts on nothing.
+   */
+  #checkFrom(db: StateDatabase, officeId: OfficeId, from: string | undefined): OfficeRow {
+    const row = this.#row(db, officeId);
+    if (row === null) {
+      const error = officeUnknown(officeId);
+      throw new CommandError(error.code, error.message, error.details);
+    }
+    if (from !== undefined && canonicalPath(from) !== canonicalPath(row.path)) {
+      throw new CommandError("office.unknown", ` is not office , which is registered at .`, {
+        office: officeId,
+        from,
+        reason: "path",
+      });
+    }
+    return row;
   }
 
   #serialised<T>(fn: () => Promise<T>): Promise<T> {
@@ -469,16 +501,14 @@ export class OfficeManager implements OfficeDirectory {
     return { office, registered: false, changed: true };
   }
 
-  #forget(officeId: OfficeId): CommandOutcome<{ office: OfficeId }> {
+  #forget(officeId: OfficeId, from: string | undefined): CommandOutcome<ForgetResult> {
     const db = this.#deps.database();
     if (db === null) throw new CommandError(recovering().code, recovering().message);
-    const row = this.#row(db, officeId);
-    if (row === null) {
-      const error = officeUnknown(officeId);
-      throw new CommandError(error.code, error.message, error.details);
-    }
+    const row = this.#checkFrom(db, officeId, from);
     // Target state: forgetting a forgotten office changes nothing (0005 section 9).
-    if (row.forgotten_at !== null) return { result: { office: officeId }, changed: false };
+    if (row.forgotten_at !== null) {
+      return { result: { office: officeId, path: row.path }, changed: false };
+    }
     const handle = this.#instances.get(officeId)?.office ?? db.office(officeId);
     for (const { name, check } of this.#deps.registry().activeWorkChecks()) {
       if (check(handle)) {
@@ -498,10 +528,16 @@ export class OfficeManager implements OfficeDirectory {
     this.#instances.delete(officeId);
     this.#deps.logger.info("office forgotten", { office: officeId });
     this.#deps.software.append("office.forgotten", { office: officeId });
-    return { result: { office: officeId }, changed: true };
+    return { result: { office: officeId, path: row.path }, changed: true };
   }
 
-  async #reloadConfig(officeId: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {
+  async #reloadConfig(
+    officeId: OfficeId,
+    from: string | undefined,
+  ): Promise<CommandOutcome<ReloadConfigResult>> {
+    const db = this.#deps.database();
+    if (db === null) throw new CommandError(recovering().code, recovering().message);
+    this.#checkFrom(db, officeId, from);
     const wasLoaded = this.#instances.has(officeId);
     const access = await this.load(officeId);
     if (!access.ok)

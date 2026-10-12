@@ -7,7 +7,12 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Spawn } from "@dipsaus-orchestrator/contract";
+import {
+  mainWorktreeOf,
+  type RepositoryLocation,
+  resolveRepositoryWith,
+  type Spawn,
+} from "@dipsaus-orchestrator/contract";
 
 import { isNetworkFsType, mountFor, type MountReader, readSystemMounts } from "../platform/sqlite";
 
@@ -45,13 +50,8 @@ async function runGit(runner: GitRunner, cwd: string, args: readonly string[]): 
   return { code: exit.code, stdout, stderr };
 }
 
-/** A repository as the office sees it. */
-export interface Repository {
-  /** The main worktree, canonical (symlinks resolved): the office path. */
-  readonly mainWorktree: string;
-  /** `<git-common-dir>`, canonical. */
-  readonly commonDir: string;
-}
+/** A repository as the office sees it: the main worktree (the office path) and the common dir. */
+export type Repository = RepositoryLocation;
 
 export type ResolveResult =
   | { readonly ok: true; readonly repository: Repository }
@@ -61,7 +61,8 @@ export type ResolveResult =
       readonly detail: string;
     };
 
-function canonical(path: string): string {
+/** The canonical form of an existing path (symlinks resolved); the path itself otherwise. */
+export function canonicalPath(path: string): string {
   try {
     return realpathSync(path);
   } catch {
@@ -69,62 +70,25 @@ function canonical(path: string): string {
   }
 }
 
-/** The main worktree from `git worktree list --porcelain`: the first `worktree` record. */
-export function mainWorktreeOf(porcelain: string): { path: string; bare: boolean } | null {
-  const records = porcelain.split("\n\n");
-  const first = records[0]?.split("\n") ?? [];
-  const line = first.find((entry) => entry.startsWith("worktree "));
-  if (line === undefined) return null;
-  return { path: line.slice("worktree ".length), bare: first.includes("bare") };
-}
+export { mainWorktreeOf };
 
-/** Resolves `path` (any worktree of a repository, or a directory in one) to its office location. */
+/**
+ * Resolves `path` (any worktree of a repository, or a directory in one) to its office location,
+ * with the contract's `resolveRepositoryWith`, which the CLI uses too.
+ */
 export async function resolveRepository(runner: GitRunner, path: string): Promise<ResolveResult> {
   if (!existsSync(path)) return { ok: false, reason: "missing", detail: `${path} does not exist` };
   if (!statSync(path).isDirectory()) {
     return { ok: false, reason: "not-git", detail: `${path} is not a directory` };
   }
-  const common = await runGit(runner, path, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-common-dir",
-  ]);
-  if (common.code !== 0) {
-    return { ok: false, reason: "not-git", detail: common.stderr.trim() || "not a git repository" };
-  }
-  const list = await runGit(runner, path, ["worktree", "list", "--porcelain"]);
-  const main = list.code === 0 ? mainWorktreeOf(list.stdout) : null;
-  if (main === null) {
-    return { ok: false, reason: "not-git", detail: list.stderr.trim() || "no worktree listed" };
-  }
-  if (main.bare) {
-    return { ok: false, reason: "bare", detail: `${main.path} is a bare repository` };
-  }
-  const commonDir = canonical(common.stdout.trim());
-  let mainWorktree = canonical(main.path);
-  if (mainWorktree === commonDir) {
-    // A repository made with `--separate-git-dir` lists its git directory as the main worktree;
-    // from the main worktree itself `--show-toplevel` names it. A linked worktree cannot.
-    const own = await runGit(runner, path, [
-      "rev-parse",
-      "--path-format=absolute",
-      "--git-dir",
-      "--show-toplevel",
-    ]);
-    const [gitDir, top] = own.stdout.trim().split("\n");
-    if (own.code !== 0 || gitDir === undefined || top === undefined) {
-      return { ok: false, reason: "not-git", detail: "cannot find the main worktree" };
-    }
-    if (canonical(gitDir) !== commonDir) {
-      return {
-        ok: false,
-        reason: "not-git",
-        detail: `its git directory ${commonDir} is separate from the main worktree; open the main worktree instead`,
-      };
-    }
-    mainWorktree = canonical(top);
-  }
-  return { ok: true, repository: { mainWorktree, commonDir } };
+  const resolved = await resolveRepositoryWith({
+    git: async (args) => {
+      const result = await runGit(runner, path, args);
+      return { ok: result.code === 0, stdout: result.stdout, stderr: result.stderr };
+    },
+    canonical: canonicalPath,
+  });
+  return resolved.ok ? { ok: true, repository: resolved.location } : resolved;
 }
 
 /** True when the main worktree holds a Backlog.md project (`backlog/config.yml`). */

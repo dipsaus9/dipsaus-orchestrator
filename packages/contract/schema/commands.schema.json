@@ -38,6 +38,10 @@
         "office": {
           "type": "string",
           "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": ["office"]
@@ -48,6 +52,9 @@
         "office": {
           "type": "string",
           "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "path": {
+          "type": "string"
         }
       },
       "required": ["office"]
@@ -129,6 +136,10 @@
         "office": {
           "type": "string",
           "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": ["office"]

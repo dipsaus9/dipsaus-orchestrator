@@ -62,6 +62,10 @@ export const ToolPaths = z.object({
 export type ToolPaths = z.infer<typeof ToolPaths>;
 
 const OfficeArgs = z.object({ office: OfficeId });
+// Since minor 1 (DIPO-27): `from` is the main worktree a client resolved the office from (its
+// current directory). The daemon answers `office.unknown` when it is not the office's registered
+// path, so a copied repository that still carries the original's marker never acts on it.
+const OfficeTargetArgs = z.object({ office: OfficeId, from: z.string().min(1).optional() });
 const OfficeResult = z.object({ office: OfficeId });
 
 // Commands
@@ -85,8 +89,8 @@ export const officeOpen = defineCommand({
 export const officeForget = defineCommand({
   name: "office.forget",
   level: "software",
-  args: OfficeArgs,
-  result: OfficeResult, // never deletes repository data
+  args: OfficeTargetArgs,
+  result: z.object({ office: OfficeId, path: z.string().optional() }), // never deletes repository data; path since minor 1
   confirm: true,
   irreversible: false,
   since: 0,
@@ -135,7 +139,7 @@ export const officeRescan = defineCommand({
 export const officeReloadConfig = defineCommand({
   name: "office.reloadConfig",
   level: "software",
-  args: OfficeArgs,
+  args: OfficeTargetArgs,
   result: z.object({
     office: OfficeId,
     valid: z.boolean(),
