@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:52'
+updated_date: '2026-10-12 17:06'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -24,6 +24,7 @@ references:
   - packages/engine/src/index.ts
   - tools/recordings/scenarios.ts
   - packages/engine/test/workers/recordings.test.ts
+  - test/lint-boundaries/
 documentation:
   - docs/decisions/0008-worker-adapter.md
 priority: high
@@ -90,15 +91,9 @@ Deviations and open points:
 - AC #8 is not checked: the three live recordings are a maintainer step (no live Claude session was started by the implementer).
 - The self-test costs one small haiku session per launch and resume.
 - The self-test checks more than the three probes of the AC (admin dir, refs, objects, control write) at the DIPO-41 reviewer's request.
-- gh auth token exiting 127 (gh not found inside the sandbox) counts as refused; the exit code is kept in the verdict.
+- gh auth token (and on macOS the Keychain probe) exiting 126 or 127 inside the sandbox refuses the run as 'cannot run' (the Keychain token was not tested); any other non-zero exit counts as refused, and its exit code and stderr class are kept in the verdict.
 - Plugin finding (DIPO-41: user-scope plugins load under --setting-sources project,local): not decided here. The self-test records the plugin count from system/init but does not refuse on it. Options for the maintainer: (a) refuse when system/init lists any plugin; (b) disable them per run by writing enabledPlugins false for each user-enabled plugin into the run settings file (needs a live check that --settings overrides user scope); (c) isolate the worker's config dir (CLAUDE_CONFIG_DIR; needs a live check that the claude.ai login still works); (d) accept with a notice. Each changes 0008 section 2, so it needs an ADR amendment.
-- Skills and agents frontmatter check (0008, roles with Agent or Skill) is not built: the M0 developer role has neither tool.
-
-Maintainer test steps (on the branch, macOS, Claude Code >= 2.1.285 logged in with the subscription, gh logged in):
-1. bun install && bun run verify -> green; 3 tests skipped (the live safety recordings).
-2. DIPO_TMP=$(mktemp -d) bun run recordings:capture safety-gitdir-write safety-pointer-write safety-gh-token -> for each: wrote packages/engine/test/recordings/claude-cli/<name> (...lines) and a checks line with disk.written [], pointerChanged false, controlWritten true, verdict {ok:true,...}; for safety-gh-token verdict.ghExit is non-zero and ghTokenReadableOutsideSandbox is true. The capture runs in a temp fixture repo, not in this repository.
-3. bun test packages/engine/test/workers tools/recordings -> all pass, 0 skipped.
-4. git add packages/engine/test/recordings/claude-cli/safety-gitdir-write packages/engine/test/recordings/claude-cli/safety-pointer-write packages/engine/test/recordings/claude-cli/safety-gh-token && git commit -m 'test(DIPO-43): record the self-test safety scenarios' && git push. If any verdict is not ok, do not commit; report the checks line.
+- Skills and agents frontmatter check (0008, roles with Agent or Skill) is not built; until it is, the launch checks refuse a role with Agent, Task or Skill (see Review hardening).
 
 Review hardening (PR #46, no Claude session):
 - Exact command: the self-test reads the session's Bash tool uses (one per tool use id) and requires exactly one, whose command equals the planned command; no call, extra calls or another command refuse (cannot run). Recordings redact tool inputs, so the capture stores this check as checks.bash and the replay tests use it.
@@ -109,9 +104,15 @@ Review hardening (PR #46, no Claude session):
 - For DIPO-74: the worker host must accept only a checked plan (for example a branded CheckedLaunchPlan returned by prepareClaudeLaunch), so planClaudeLaunch cannot bypass the launch checks.
 - For DIPO-51: lift a hold set for a CLI startFailed outcome only after a passing probe (prepareClaudeLaunch's gate does that).
 
-Maintainer test steps (current; replace the earlier list): macOS, Claude Code >= 2.1.285 logged in with the subscription, gh logged in, perl and gh on PATH outside the worktree.
+Second review hardening (PR #46, no Claude session):
+- Keychain: on macOS the self-test also runs /usr/bin/security find-generic-password -s gh:github.com (absolute path, stdout discarded), which must fail inside the sandbox; exit 0 refuses as unsafe. gh auth token stays. Each exec probe records its exit code and a class of its stderr (none, not-found, denied, other; never the content) in verdict.refused, so safety-gh-token shows which probe refused and how. Linux runs gh only. The capture also records whether each read works outside the sandbox (ghTokenReadableOutsideSandbox, keychainReadableOutsideSandbox) and the probes it ran.
+- Bash call shape: the one Bash call's input may hold only command, description and timeout, plus run_in_background as false; anything else refuses (cannot run).
+- Pointer probe: appends one byte (the nonce's first character), so the disk check outside the sandbox sees any write on its own; the engine restores the pointer from the copy it read before the session, in the finally block.
+- Lint boundary tests (test/lint-boundaries/) get a 180 s per-test timeout: one oxlint run took about 55 s under load and the shared run is paid by whichever test runs first in random order.
+
+Maintainer test steps (current): macOS, Claude Code >= 2.1.285 logged in with the subscription, gh logged in (token in the Keychain), perl and gh on PATH outside the repository.
 1. bun install && bun run verify -> green; 3 tests skipped (the live safety recordings).
-2. DIPO_TMP=$(mktemp -d) bun run recordings:capture safety-gitdir-write safety-pointer-write safety-gh-token -> for each: wrote packages/engine/test/recordings/claude-cli/<name> (<n> lines) and a checks line with disk.written [], pointerChanged false, controlWritten true, bash {calls:1, exact:true}, verdict {ok:true,...}; for safety-gh-token verdict.ghExit is non-zero and not 126 or 127, and ghTokenReadableOutsideSandbox is true. The capture runs in a temp fixture repo.
+2. DIPO_TMP=$(mktemp -d) bun run recordings:capture safety-gitdir-write safety-pointer-write safety-gh-token -> for each: wrote packages/engine/test/recordings/claude-cli/<name> (<n> lines) and a checks line with disk.written [], pointerChanged false, controlWritten true, bash {calls:1, exact:true, shape:true} and verdict {ok:true,...}. For safety-gh-token: probes ["gh-token","keychain"], verdict.refused has gh-token and keychain, each with a non-zero exit other than 126 or 127 and a stderr class, and ghTokenReadableOutsideSandbox and keychainReadableOutsideSandbox are true. The capture runs in a temp fixture repo.
 3. bun test packages/engine/test/workers tools/recordings -> all pass, 0 skipped.
 4. git add the three directories packages/engine/test/recordings/claude-cli/safety-gitdir-write, safety-pointer-write and safety-gh-token; git commit -m 'test(DIPO-43): record the self-test safety scenarios'; git push. If any verdict is not ok, do not commit; report the checks line.
 <!-- SECTION:NOTES:END -->
