@@ -61,6 +61,41 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991
+        },
+        "dayUsage": {
+          "type": "object",
+          "properties": {
+            "tokens": {
+              "type": "number",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "number",
+              "minimum": 0
+            },
+            "share": {
+              "type": "number",
+              "minimum": 0
+            },
+            "alert": {
+              "type": "boolean"
+            },
+            "estimatedCost": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": ["tokens", "alert"]
+        },
+        "evidence": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["checked", "claimed", "estimated", "none"]
+          }
         }
       },
       "required": ["office", "name", "path", "running", "parked", "onHold", "waitingOnMaintainer"]
@@ -126,6 +161,1090 @@
           "type": "boolean"
         }
       }
+    },
+    "story.state.data": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Refined",
+            "Ready",
+            "In Progress",
+            "In Review",
+            "Done",
+            "Parked",
+            "Removed"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Refined",
+            "Ready",
+            "In Progress",
+            "In Review",
+            "Done",
+            "Parked",
+            "Removed"
+          ]
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "provisional": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": "string"
+            },
+            "lifecycle": {
+              "type": "string",
+              "enum": [
+                "Draft",
+                "Refined",
+                "Ready",
+                "In Progress",
+                "In Review",
+                "Done",
+                "Parked",
+                "Removed"
+              ]
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "column": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "refined",
+                    "ready",
+                    "waiting",
+                    "running",
+                    "review",
+                    "desk",
+                    "held",
+                    "done"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "parked": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "ambiguous-spec",
+                        "verify-failing",
+                        "conflict",
+                        "scope-violation",
+                        "review-blocked",
+                        "budget-exceeded",
+                        "on-hold",
+                        "stopped",
+                        "interrupted",
+                        "needs-permission",
+                        "worker-failed"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string",
+                  "enum": [
+                    "Draft",
+                    "Refined",
+                    "Ready",
+                    "In Progress",
+                    "In Review",
+                    "Done",
+                    "Parked",
+                    "Removed"
+                  ]
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": ["reason", "detail", "from", "since"]
+            },
+            "waitingOn": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              }
+            },
+            "gateMessages": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["key", "story", "provisional", "title", "lifecycle", "column"]
+        },
+        "detail": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["story", "key", "from", "to", "view"]
+    },
+    "story.renumbered.data": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "detectedBy": {
+          "type": "string",
+          "enum": ["engine", "reconcile"]
+        }
+      },
+      "required": ["key", "from", "to", "detectedBy"]
+    },
+    "work.assigned.data": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        }
+      },
+      "required": ["work"]
+    },
+    "work.phase.data": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["setup", "build", "verify", "review", "test", "merge"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "progress": {
+          "type": "object",
+          "properties": {
+            "criteriaMet": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "criteriaTotal": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "loop": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "loopCap": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "verify": {
+              "type": "string",
+              "enum": ["none", "passing", "failing"]
+            },
+            "reviewRound": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
+        }
+      },
+      "required": ["work", "phase", "progress"]
+    },
+    "work.progress.data": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "progress": {
+          "type": "object",
+          "properties": {
+            "criteriaMet": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "criteriaTotal": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "loop": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "loopCap": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "verify": {
+              "type": "string",
+              "enum": ["none", "passing", "failing"]
+            },
+            "reviewRound": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
+        }
+      },
+      "required": ["work", "progress"]
+    },
+    "work.output.data": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["worker", "verify", "script"]
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": ["work", "source", "from", "to", "text"]
+    },
+    "work.observed.data": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "quiet",
+                "no-output",
+                "same-failure",
+                "input-wait",
+                "plan-limit",
+                "host-lost",
+                "follow-only"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": ["work", "signal", "since"]
+    },
+    "usage.updated.data": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cacheCreateTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cacheReadTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "turns": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "elapsedMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "estimatedCost": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens",
+                "cacheCreateTokens",
+                "cacheReadTokens",
+                "turns",
+                "elapsedMs"
+              ]
+            },
+            "run": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cacheCreateTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cacheReadTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "turns": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "elapsedMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "estimatedCost": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens",
+                "cacheCreateTokens",
+                "cacheReadTokens",
+                "turns",
+                "elapsedMs"
+              ]
+            },
+            "budget": {
+              "type": "object",
+              "properties": {
+                "unit": {
+                  "type": "string",
+                  "const": "tokens"
+                },
+                "limit": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "used": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["unit", "limit", "used"]
+            },
+            "budgetShare": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": ["agent", "run", "budget", "budgetShare"]
+        }
+      },
+      "required": ["work", "usage"]
+    },
+    "gate.reached.data": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["review", "test", "merge"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "waitingOn": {
+          "type": "string",
+          "enum": ["maintainer", "rule"]
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": ["gate", "work", "kind", "waitingOn", "summary"]
+    },
+    "gate.decided.data": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["approved", "rejected"]
+        },
+        "by": {
+          "type": "string",
+          "enum": ["maintainer", "rule"]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["gate", "decision", "by"]
+    },
+    "question.asked.data": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "pattern": "^qst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["question", "permission"]
+        },
+        "text": {
+          "type": "string"
+        },
+        "askedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": ["question", "work", "kind", "text", "askedAt"]
+    },
+    "question.closed.data": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "pattern": "^qst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "answer": {
+          "type": "string"
+        }
+      },
+      "required": ["question"]
+    },
+    "story.parked.data": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "work": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "tier": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["S", "M", "L"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ambiguous-spec",
+                "verify-failing",
+                "conflict",
+                "scope-violation",
+                "review-blocked",
+                "budget-exceeded",
+                "on-hold",
+                "stopped",
+                "interrupted",
+                "needs-permission",
+                "worker-failed"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Refined",
+            "Ready",
+            "In Progress",
+            "In Review",
+            "Done",
+            "Parked",
+            "Removed"
+          ]
+        },
+        "lastGoodCommit": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+          }
+        }
+      },
+      "required": ["story", "key", "reason", "detail", "from", "actions"]
+    },
+    "test.started.data": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "type": "string",
+          "pattern": "^tst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "checkout": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": ["test", "story", "key", "checkout", "startedAt"]
+    },
+    "test.recorded.data": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "type": "string",
+          "pattern": "^tst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "result": {
+          "type": "string",
+          "enum": ["pass", "fail"]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["test", "story", "key", "result"]
     }
   }
 }

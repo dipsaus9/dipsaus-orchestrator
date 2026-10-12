@@ -6,9 +6,12 @@ export * from "./catalog";
 export * from "./definition";
 export * from "./envelope";
 export * from "./errors";
+export * from "./fieldblock";
 export * from "./ids";
+export * from "./office";
 export * from "./software";
 export * from "./version";
+export * from "./work";
 
 export type {
   ChildExit,
