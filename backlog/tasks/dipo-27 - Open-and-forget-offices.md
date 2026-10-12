@@ -1,10 +1,10 @@
 ---
 id: DIPO-27
 title: Open and forget offices
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:11'
+updated_date: '2026-10-12 21:13'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -101,3 +101,9 @@ Not done here, carried to a later story: the 0007 section 3 missing-path notice 
 
 Follow-up for later stories: the `from` path guard covers only `office.forget` and `office.reloadConfig`. Every later office-level command the CLI resolves from the current directory (`work.run` first, DIPO-48) needs the same guard, ideally moved into shared office resolution so each command gets it without repeating it.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Offices: OfficeManager with lazy load, open (git common dir and main worktree via shared pure resolution, marker office.json in <git-common-dir>/dipo, copy and move detection, restore of forgotten offices, re-register after database loss), forget (office.busy through active-work checks, rows kept), load steps and active-work checks registered by feature modules, config read at load and on office.reloadConfig (shipped at contract 1.1 with its final result; invalid config keeps the previous one and blocks runs), network filesystem warning, daemon.status.loadedOffices, CLI dipo office open/forget/reload-config with the cwd path guard (from) so an unopened copy never acts on the original office. Reviewer pass. Follow-ups: the from guard for later cwd-resolved commands (DIPO-48), the 0007 section 3 missing-path notice and office summaries in engine.hello, an ADR 0005 amendment for the new codes and fields.
+<!-- SECTION:FINAL_SUMMARY:END -->
