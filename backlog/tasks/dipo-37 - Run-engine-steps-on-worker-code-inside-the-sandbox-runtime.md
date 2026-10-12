@@ -1,10 +1,10 @@
 ---
 id: DIPO-37
 title: Run engine steps on worker code inside the sandbox runtime
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:25'
+updated_date: '2026-10-12 14:16'
 labels:
   - test-before-merge
   - 'tier:L'
@@ -197,4 +197,12 @@ Manual test on macOS (current):
    $D daemon sandbox-exec --policy $T/q.json --cwd $T/wt -- true; echo $?
    -> refused: read denies hide the step: denyRead ... covers the working directory ..., 125
 6. `cd - && rm -rf $T`.
+
+Maintainer test 2026-10-12: OK (sandbox tests and manual deny-rule checks on macOS).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Engine steps on worker code run inside the bundled srt 0.0.79 via the hidden form dipo daemon sandbox-exec --policy <file> --cwd <dir> -- <cmd>: translatePolicy (worktree and temp root writable, denyWrite on main and worktree .git, secret, dipo dir and socket read denies, closed network for verify, install to registry hosts only), probe with pinned rg/bwrap/socat from absolute PATH entries, trust check refusing when tools, the dipo binary or source, or PATH dirs are step-writable, refusal via a file the step cannot write, embedded apply-seccomp, allowlisted env, scriptMinutes timeout, fresh temp root per step, smoke and Linux self-verify in CI, compiled binary autoload of bunfig/.env off. Two adversarial reviews passed; maintainer tested OK. Follow-up: toolchain read/write split and Bash allow rule per the 0008 amendments.
+<!-- SECTION:FINAL_SUMMARY:END -->
