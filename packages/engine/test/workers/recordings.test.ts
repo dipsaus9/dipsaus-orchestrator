@@ -1,0 +1,298 @@
+// Every committed Claude recording replayed through the fake process and the real adapter
+// (0017 section 2; DIPO-42 test plan): it parses with the adapter schema, it gives the outcome and
+// proposed park its `meta.json` describes, and the usage arithmetic matches the numbers in it.
+
+import { describe, expect, it } from "bun:test";
+
+import { KNOWN_PARK_REASONS } from "@dipsaus-orchestrator/contract";
+import type { Recording } from "@dipsaus-orchestrator/testkit";
+
+import { budgetTokens, initialState } from "../../src/workers/claude-cli/interpret";
+import { ClaudeWorkerEventSchema, schemaFor } from "../../src/workers/claude-cli/schema";
+import type {
+  ModelUsageTotals,
+  UsageTotalsByModel,
+  WorkerOutcome,
+  WorkerResult,
+} from "../../src/workers/types";
+import { loadRecording, recordingNames, replay } from "./replay";
+
+type Expectation = readonly [outcome: WorkerOutcome, park: string | null];
+
+/** The adapter's reading of each recording when no intent is recorded (0008 section 7). */
+const EXPECTED: Readonly<Record<string, Expectation>> = {
+  "budget-engine-cap": ["done", null],
+  "crash-truncated": ["crashed", "worker-failed"],
+  "crash-zeroed": ["crashed", "worker-failed"],
+  "init-rejected": ["initRejected", "worker-failed"],
+  "init-rejected-model": ["initRejected", "worker-failed"],
+  interrupt: ["crashed", "worker-failed"],
+  "max-turns": ["capped", "budget-exceeded"],
+  "pause-now": ["blocked", "ambiguous-spec"],
+  "permission-denied": ["blocked", "needs-permission"],
+  "prompt-too-long": ["capped", "budget-exceeded"],
+  "report-invalid": ["blocked", "ambiguous-spec"],
+  "report-invalid-missing": ["blocked", "ambiguous-spec"],
+  resume: ["done", null],
+  "safety-bash-prompts-none": ["blocked", "needs-permission"],
+  "safety-main-git": ["done", null],
+  stall: ["done", null],
+  "start-failed": ["startFailed", null],
+  "start-failed-auth": ["startFailed", null],
+  "start-failed-billing": ["startFailed", null],
+  "success-single": ["done", null],
+  "success-tools-subagent": ["done", null],
+  terminated: ["crashed", "worker-failed"],
+  "worker-park-ambiguous": ["blocked", "ambiguous-spec"],
+};
+
+/** Scenarios whose park in `meta.expected` the engine decides from its own caps, not the adapter. */
+const ENGINE_DECIDED = new Set(["budget-engine-cap"]);
+
+const OUTCOMES: readonly WorkerOutcome[] = [
+  "done",
+  "blocked",
+  "capped",
+  "plan-limit",
+  "stopped",
+  "reassigned",
+  "crashed",
+  "startFailed",
+  "initRejected",
+];
+
+/** Park reasons `meta.expected` names as "park X" or "parks X". */
+function namedParks(text: string): string[] {
+  return [...text.matchAll(/parks? ([a-z-]+)/gi)]
+    .map((match) => match[1] ?? "")
+    .filter((word) => (KNOWN_PARK_REASONS as readonly string[]).includes(word));
+}
+
+/** Outcomes `meta.expected` names as "outcome X" or "outcome is X". */
+function namedOutcomes(text: string): string[] {
+  return [...text.matchAll(/outcome (?:is )?(\w+)/gi)]
+    .map((match) => match[1] ?? "")
+    .filter((word) => (OUTCOMES as readonly string[]).includes(word));
+}
+
+type Json = Record<string, unknown>;
+
+function stdout(recording: Recording): Json[] {
+  return recording.lines
+    .filter((line) => line.ch === "stdout" && typeof line.data === "object")
+    .map((line) => line.data as Json);
+}
+
+function modelUsage(message: Json): UsageTotalsByModel {
+  const out: Record<string, ModelUsageTotals> = {};
+  for (const [model, entry] of Object.entries(message["modelUsage"] as Record<string, Json>)) {
+    out[model] = {
+      input: entry["inputTokens"] as number,
+      output: entry["outputTokens"] as number,
+      cacheCreate: entry["cacheCreationInputTokens"] as number,
+      cacheRead: entry["cacheReadInputTokens"] as number,
+    };
+  }
+  return out;
+}
+
+/** Deduplicated assistant usage per model, without output (a placeholder per message). */
+function assistantUsage(messages: readonly Json[], subagentsOnly = false): UsageTotalsByModel {
+  const seen = new Set<string>();
+  const out: Record<string, ModelUsageTotals> = {};
+  for (const message of messages) {
+    if (message["type"] !== "assistant") continue;
+    if (subagentsOnly && message["parent_tool_use_id"] === null) continue;
+    const inner = message["message"] as Json;
+    const id = inner["id"] as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const usage = inner["usage"] as Json;
+    const model = inner["model"] as string;
+    const before = out[model] ?? { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
+    out[model] = {
+      input: before.input + (usage["input_tokens"] as number),
+      output: 0,
+      cacheCreate: before.cacheCreate + (usage["cache_creation_input_tokens"] as number),
+      cacheRead: before.cacheRead + (usage["cache_read_input_tokens"] as number),
+    };
+  }
+  return out;
+}
+
+function results(recording: Recording): Json[] {
+  return stdout(recording).filter((message) => message["type"] === "result");
+}
+
+function lastResult(recording: Recording): Json {
+  const all = results(recording);
+  const last = all[all.length - 1];
+  if (last === undefined) throw new Error(`${recording.name}: no result`);
+  return last;
+}
+
+const names = recordingNames();
+
+describe("committed Claude recordings through the adapter", () => {
+  it("cover every recording in the expectation table and nothing else", () => {
+    expect(names).toEqual(Object.keys(EXPECTED).toSorted());
+  });
+
+  for (const name of names) {
+    describe(name, () => {
+      const recording = loadRecording(name);
+
+      it("(contract) parses with the adapter schema, and every event fits the event schema", async () => {
+        for (const message of stdout(recording)) {
+          const schema = schemaFor(message as { type: string; subtype?: unknown });
+          if (schema !== null) expect(schema.safeParse(message).success).toBe(true);
+        }
+        const run = await replay(recording);
+        expect(run.state.problems).toEqual([]);
+        expect(run.state.unknownTypes).toEqual([]);
+        for (const event of run.events) {
+          expect(ClaudeWorkerEventSchema.safeParse(event).success).toBe(true);
+        }
+      });
+
+      it("(unit) gives the expected outcome and proposed park", async () => {
+        const [outcome, park] = EXPECTED[name] ?? ["?", null];
+        const { result } = await replay(recording);
+        expect<WorkerResult["outcome"]>(result.outcome).toBe(outcome as WorkerOutcome);
+        expect(result.park?.reason ?? null).toBe(park);
+        expect(result.sessionId).toBe("session-1");
+
+        // What meta.json names must agree with the table.
+        const text = recording.meta.expected;
+        for (const word of namedOutcomes(text)) expect(word).toBe(outcome);
+        if (!ENGINE_DECIDED.has(name)) {
+          for (const word of namedParks(text)) expect(word).toBe(park ?? "");
+        }
+      });
+    });
+  }
+});
+
+describe("usage arithmetic from the recordings", () => {
+  it("emits one usage event per message id, and live numbers equal deduplicated messages", async () => {
+    for (const name of names) {
+      const recording = loadRecording(name);
+      const ids = new Set(
+        stdout(recording)
+          .filter((message) => message["type"] === "assistant")
+          .map((message) => (message["message"] as Json)["id"]),
+      );
+      const run = await replay(recording);
+      const usage = run.events.filter((event) => event.t === "usage");
+      expect(usage.length).toBe(ids.size);
+    }
+  });
+
+  it("success-single: the result's modelUsage replaces the live numbers", async () => {
+    const recording = loadRecording("success-single");
+    const run = await replay(recording);
+    expect(run.result.usage).toEqual(modelUsage(lastResult(recording)));
+    const turn = run.events.find((event) => event.t === "turn");
+    expect(turn?.t === "turn" && turn.totals).toEqual(modelUsage(lastResult(recording)));
+  });
+
+  it("success-tools-subagent: subagent usage carries parent_tool_use_id, totals include it", async () => {
+    const recording = loadRecording("success-tools-subagent");
+    const run = await replay(recording);
+    const subagent = assistantUsage(stdout(recording), true);
+    const [model = ""] = Object.keys(subagent);
+    const fromEvents = run.events
+      .filter((event) => event.t === "usage" && event.agentId !== undefined)
+      .reduce((sum, event) => sum + (event.t === "usage" ? event.cacheCreate : 0), 0);
+    expect(fromEvents).toBe(subagent[model]?.cacheCreate ?? -1);
+    expect(fromEvents).toBeGreaterThan(0);
+    expect(run.result.usage).toEqual(modelUsage(lastResult(recording)));
+    // modelUsage includes the subagent: live main plus subagent equals the first turn's totals.
+    const first = results(recording)[0];
+    const live = assistantUsage(stdout(recording).slice(0, stdout(recording).indexOf(first ?? {})));
+    expect(live[model]?.cacheCreate).toBe(modelUsage(first ?? {})[model]?.cacheCreate ?? -1);
+  });
+
+  it("resume: the second process adds only the change since the stored totals", async () => {
+    const recording = loadRecording("resume");
+    const [first, second] = results(recording);
+    const run = await replay(recording);
+    const turns = run.events.filter((event) => event.t === "turn");
+    expect(turns.length).toBe(2);
+    expect(turns[0]?.t === "turn" && turns[0].totals).toEqual(modelUsage(first ?? {}));
+    // The resumed CLI totals include the restored spend, so they are the run totals as they are.
+    expect(run.result.usage).toEqual(modelUsage(second ?? {}));
+  });
+
+  it("resume after a restart: a new run adds only the change since the stored CLI totals", async () => {
+    const recording = loadRecording("resume");
+    const [first, second] = results(recording);
+    const stored = modelUsage(first ?? {});
+    const now = modelUsage(second ?? {});
+    // Replay only the second process, as a new run that resumes the stored session.
+    const secondOnly: Recording = {
+      ...recording,
+      lines: recording.lines.slice(recording.lines.findIndex((line) => line.ch === "exit") + 1),
+      meta: {
+        ...recording.meta,
+        steering: recording.meta.steering?.filter((steer) => steer.t > 6794) ?? [],
+      },
+    };
+    const run = await replay(secondOnly, {
+      state: initialState({ plannedModel: "haiku", baseline: stored }),
+    });
+    const [model = ""] = Object.keys(now);
+    const change = (field: "input" | "output" | "cacheCreate" | "cacheRead") =>
+      (now[model]?.[field] ?? 0) - (stored[model]?.[field] ?? 0);
+    expect(run.result.usage).toEqual({
+      [model]: {
+        input: change("input"),
+        output: change("output"),
+        cacheCreate: change("cacheCreate"),
+        cacheRead: change("cacheRead"),
+      },
+    });
+    // Carrying the stored run totals as well gives the session's cumulative totals once.
+    const carried = await replay(secondOnly, {
+      state: initialState({ plannedModel: "haiku", totals: stored }),
+    });
+    expect(carried.result.usage).toEqual(now);
+  });
+
+  it("crash-zeroed and terminated: usage recovered from earlier assistant messages", async () => {
+    for (const name of ["crash-zeroed", "terminated"]) {
+      const recording = loadRecording(name);
+      const run = await replay(recording);
+      expect(run.result.usage).toEqual(assistantUsage(stdout(recording)));
+      expect(budgetTokens(run.result.usage)).toBeGreaterThan(0);
+    }
+  });
+
+  it("pause-now and interrupt: an aborted turn keeps its live usage", async () => {
+    const pause = loadRecording("pause-now");
+    const messages = stdout(pause);
+    const aborted = messages.indexOf(results(pause)[0] ?? {});
+    const abortedLive = assistantUsage(messages.slice(0, aborted));
+    const run = await replay(pause);
+    const last = modelUsage(lastResult(pause));
+    const [model = ""] = Object.keys(last);
+    expect(run.result.usage[model]).toEqual({
+      input: (abortedLive[model]?.input ?? 0) + (last[model]?.input ?? 0),
+      output: last[model]?.output ?? 0,
+      cacheCreate: (abortedLive[model]?.cacheCreate ?? 0) + (last[model]?.cacheCreate ?? 0),
+      cacheRead: (abortedLive[model]?.cacheRead ?? 0) + (last[model]?.cacheRead ?? 0),
+    });
+
+    const interrupt = loadRecording("interrupt");
+    const interrupted = await replay(interrupt);
+    expect(interrupted.result.usage).toEqual(assistantUsage(stdout(interrupt)));
+  });
+
+  it("budget-engine-cap: budget tokens pass the test tier budget", async () => {
+    const recording = loadRecording("budget-engine-cap");
+    const run = await replay(recording);
+    const limit = recording.meta.testConfig?.["budgetTokens"];
+    expect(typeof limit).toBe("number");
+    expect(budgetTokens(run.result.usage)).toBeGreaterThan(limit as number);
+  });
+});
