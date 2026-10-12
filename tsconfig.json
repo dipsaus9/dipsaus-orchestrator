@@ -4,7 +4,7 @@
     "outDir": ".tsbuild",
     "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo"
   },
-  "include": ["scripts", "test"],
+  "include": ["scripts", "test", "tools/recordings"],
   "exclude": ["test/lint-boundaries/fixtures"],
   "references": [
     { "path": "packages/contract" },

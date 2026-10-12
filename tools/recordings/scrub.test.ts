@@ -1,0 +1,351 @@
+import { describe, expect, it } from "bun:test";
+
+import type { Envelope } from "./format";
+import {
+  DECISION_FIELDS,
+  HOOK_RULES,
+  isRedacted,
+  matchRule,
+  redact,
+  Scrubber,
+  scrubCapture,
+  STDOUT_RULES,
+  valuesAt,
+} from "./scrub";
+import { guardSecrets, SecretFoundError } from "./secrets";
+import { serializeStream } from "./format";
+import { stdoutOf, usageChecksum } from "./usage";
+
+const ROOTS = [
+  { path: "/private/tmp/dipo-abc123/repo.worktrees/story", placeholder: "${WORKDIR}" },
+  { path: "/private/tmp/dipo-abc123", placeholder: "${ROOT}" },
+  { path: "/home/maintainer", placeholder: "${HOME}" },
+];
+
+const PLANTED = "sk-ant-api03-planted-secret-value";
+
+const SESSION = "5b0c1f3e-1111-4222-8333-944455556666";
+
+function out(t: number, data: unknown): Envelope {
+  return { t, ch: "stdout", data };
+}
+
+/** A synthetic stream in the shape of Claude Code stream-json, with a planted secret. */
+function syntheticStream(): Envelope[] {
+  return [
+    out(5, {
+      type: "system",
+      subtype: "init",
+      session_id: SESSION,
+      uuid: "0a0a0a0a-0000-4000-8000-000000000001",
+      cwd: "/tmp/dipo-abc123/repo.worktrees/story",
+      model: "claude-haiku-4-5",
+      permissionMode: "default",
+      apiKeySource: "none",
+      claude_code_version: "2.1.296",
+      tools: ["Read", "Bash"],
+      capabilities: ["structured_output"],
+      slash_commands: ["review"],
+      plugins: [{ name: "x", path: "/home/maintainer/.claude/plugins/x" }],
+    }),
+    out(10, {
+      type: "assistant",
+      session_id: SESSION,
+      uuid: "0a0a0a0a-0000-4000-8000-000000000002",
+      parent_tool_use_id: null,
+      message: {
+        id: "msg_01ABC",
+        type: "message",
+        role: "assistant",
+        model: "claude-haiku-4-5",
+        content: [
+          { type: "text", text: `here is the key ${PLANTED}` },
+          {
+            type: "tool_use",
+            id: "toolu_01XYZ",
+            name: "Read",
+            input: { file_path: "/home/maintainer/x" },
+          },
+        ],
+        stop_reason: "tool_use",
+        usage: {
+          input_tokens: 12,
+          output_tokens: 1,
+          cache_creation_input_tokens: 300,
+          cache_read_input_tokens: 0,
+          service_tier: "standard",
+        },
+      },
+    }),
+    out(12, {
+      type: "user",
+      session_id: SESSION,
+      parent_tool_use_id: null,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_01XYZ",
+            content: "Bearer abc.def",
+            is_error: false,
+          },
+        ],
+      },
+    }),
+    out(14, { type: "brand_new_type", subtype: "x", payload: "something" }),
+    out(20, {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: SESSION,
+      num_turns: 2,
+      duration_ms: 1234,
+      duration_api_ms: 1000,
+      total_cost_usd: 0.0123,
+      result: "done",
+      terminal_reason: "completed",
+      usage: {
+        input_tokens: 20,
+        output_tokens: 40,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 10,
+      },
+      modelUsage: { "claude-haiku-4-5": { inputTokens: 20, outputTokens: 40, costUSD: 0.0123 } },
+      permission_denials: [
+        { tool_name: "Write", tool_use_id: "toolu_02", tool_input: { file_path: "/x" } },
+      ],
+      structured_output: {
+        status: "blocked",
+        question: "Which greeting?",
+        summary: "free text",
+        criteria: [{ n: 1, met: false, evidence: "none" }],
+        commitSubject: "chore: x",
+      },
+    }),
+    { t: 21, ch: "stderr", data: `warning at /home/maintainer/.claude ${PLANTED}` },
+    { t: 22, ch: "exit", data: { code: 0, signal: null } },
+  ];
+}
+
+describe("scrubber", () => {
+  it("aborts the capture when a planted secret is not redacted, and passes once scrubbed", () => {
+    const raw = serializeStream(syntheticStream());
+    expect(() => guardSecrets("stream.jsonl", raw)).toThrow(SecretFoundError);
+    const { lines } = scrubCapture(syntheticStream(), ROOTS);
+    const text = serializeStream(lines);
+    expect(text).not.toContain(PLANTED);
+    expect(text).not.toContain("/home/maintainer");
+    expect(() =>
+      guardSecrets("stream.jsonl", text, [{ name: "home", value: "/home/maintainer" }]),
+    ).not.toThrow();
+  });
+
+  it("aborts when a secret sits in a field the allowlist keeps", () => {
+    const stream = [
+      out(1, { type: "system", subtype: "init", model: PLANTED, session_id: SESSION }),
+    ];
+    const text = serializeStream(scrubCapture(stream, ROOTS).lines);
+    expect(() => guardSecrets("stream.jsonl", text)).toThrow(SecretFoundError);
+  });
+
+  it("keeps allowlisted fields as they are", () => {
+    const [init, assistant, , , result] = stdoutOf(
+      scrubCapture(syntheticStream(), ROOTS).lines,
+    ) as Record<string, any>[];
+    expect(init).toMatchObject({
+      type: "system",
+      subtype: "init",
+      model: "claude-haiku-4-5",
+      permissionMode: "default",
+      apiKeySource: "none",
+      claude_code_version: "2.1.296",
+      tools: ["Read", "Bash"],
+      capabilities: ["structured_output"],
+      cwd: "${WORKDIR}",
+    });
+    expect(assistant?.message.content[1]).toMatchObject({ type: "tool_use", name: "Read" });
+    expect(assistant?.message.usage).toEqual({
+      input_tokens: 12,
+      output_tokens: 1,
+      cache_creation_input_tokens: 300,
+      cache_read_input_tokens: 0,
+      service_tier: "standard",
+    });
+    expect(result).toMatchObject({
+      subtype: "success",
+      terminal_reason: "completed",
+      num_turns: 2,
+      total_cost_usd: 0.0123,
+      permission_denials: [{ tool_name: "Write" }],
+      structured_output: {
+        status: "blocked",
+        question: "Which greeting?",
+        criteria: [{ n: 1, met: false }],
+      },
+    });
+  });
+
+  it("redacts every other string with the sha256 marker", () => {
+    const [init, assistant, user, , result] = stdoutOf(
+      scrubCapture(syntheticStream(), ROOTS).lines,
+    ) as Record<string, any>[];
+    expect(assistant?.message.content[0].text).toBe(redact(`here is the key ${PLANTED}`));
+    expect(assistant?.message.content[0].text).toMatch(
+      /^\[redacted sha256:[0-9a-f]{12} len:\d+\]$/,
+    );
+    expect(isRedacted(assistant?.message.content[1].input.file_path)).toBe(true);
+    expect(isRedacted(user?.message.content[0].content)).toBe(true);
+    expect(isRedacted(init?.slash_commands[0])).toBe(true);
+    expect(isRedacted(init?.plugins[0].path)).toBe(true);
+    expect(isRedacted(result?.result)).toBe(true);
+    expect(isRedacted(result?.structured_output.summary)).toBe(true);
+    expect(isRedacted(result?.structured_output.criteria[0].evidence)).toBe(true);
+    expect(isRedacted(result?.permission_denials[0].tool_input.file_path)).toBe(true);
+  });
+
+  it("redacts an unknown message type whole and reports it", () => {
+    const { lines, report } = scrubCapture(syntheticStream(), ROOTS);
+    const unknown = stdoutOf(lines)[3] as Record<string, unknown>;
+    expect(Object.keys(unknown).toSorted()).toEqual(["redacted", "subtype", "type"]);
+    expect(unknown).toMatchObject({ type: "brand_new_type", subtype: "x" });
+    expect(isRedacted(unknown.redacted)).toBe(true);
+    expect(report.unknownTypes).toEqual(["brand_new_type/x"]);
+  });
+
+  it("redacts an unknown system subtype and an unknown hook event whole", () => {
+    const scrubber = new Scrubber(ROOTS);
+    expect(scrubber.stdout({ type: "system", subtype: "mystery", text: "x" })).toMatchObject({
+      type: "system",
+      subtype: "mystery",
+    });
+    expect(scrubber.hook({ hook_event_name: "Mystery", prompt: "x" })).toMatchObject({
+      hook_event_name: "Mystery",
+    });
+    expect(scrubber.report.unknownTypes).toEqual(["system/mystery", "hook:Mystery"]);
+  });
+
+  it("redacts every stderr line and keeps the exit status", () => {
+    const { lines } = scrubCapture(syntheticStream(), ROOTS);
+    expect(isRedacted(lines.find((line) => line.ch === "stderr")?.data)).toBe(true);
+    expect(lines.at(-1)).toEqual({ t: 22, ch: "exit", data: { code: 0, signal: null } });
+  });
+
+  it("changes no usage number", () => {
+    const raw = syntheticStream();
+    const { lines } = scrubCapture(raw, ROOTS);
+    expect(usageChecksum(stdoutOf(lines))).toBe(usageChecksum(stdoutOf(raw)));
+  });
+
+  it("keeps the arrival times", () => {
+    const { lines } = scrubCapture(syntheticStream(), ROOTS);
+    expect(lines.map((line) => line.t)).toEqual(syntheticStream().map((line) => line.t));
+  });
+});
+
+describe("normaliser", () => {
+  it("maps ids to stable placeholders within a recording", () => {
+    const { lines } = scrubCapture(syntheticStream(), ROOTS);
+    const [init, assistant, user, , result] = stdoutOf(lines) as Record<string, any>[];
+    expect(init?.session_id).toBe("session-1");
+    expect(result?.session_id).toBe("session-1");
+    expect(init?.uuid).toBe("uuid-1");
+    expect(assistant?.uuid).toBe("uuid-2");
+    expect(assistant?.message.id).toBe("msg-1");
+    expect(assistant?.message.content[1].id).toBe("toolu-1");
+    expect(user?.message.content[0].tool_use_id).toBe("toolu-1");
+    expect(result?.permission_denials[0].tool_use_id).toBe("toolu-2");
+  });
+
+  it("gives the same placeholder for the same id in a second process of the capture", () => {
+    const scrubber = new Scrubber(ROOTS);
+    scrubber.stdout({ type: "system", subtype: "init", session_id: SESSION });
+    const resumed = scrubber.stdout({
+      type: "system",
+      subtype: "init",
+      session_id: SESSION,
+    }) as Record<string, unknown>;
+    expect(resumed.session_id).toBe("session-1");
+  });
+
+  it("maps the temp, worktree and home paths, also through /private, to placeholders", () => {
+    const scrubber = new Scrubber(ROOTS);
+    expect(scrubber.normalisePaths("/tmp/dipo-abc123/repo.worktrees/story/src")).toBe(
+      "${WORKDIR}/src",
+    );
+    expect(scrubber.normalisePaths("/private/tmp/dipo-abc123/repo/.git")).toBe("${ROOT}/repo/.git");
+    expect(scrubber.normalisePaths("/home/maintainer/.claude")).toBe("${HOME}/.claude");
+  });
+
+  it("replaces transcript paths and redacts a path field that still holds a real path", () => {
+    const scrubber = new Scrubber(ROOTS);
+    const hook = scrubber.hook({
+      hook_event_name: "SessionStart",
+      session_id: SESSION,
+      transcript_path: "/home/maintainer/.claude/projects/x/y.jsonl",
+      cwd: "/opt/elsewhere",
+      source: "startup",
+    }) as Record<string, unknown>;
+    expect(hook).toMatchObject({
+      transcript_path: "${TRANSCRIPT}",
+      source: "startup",
+      session_id: "session-1",
+    });
+    expect(isRedacted(hook.cwd)).toBe(true);
+  });
+
+  it("redacts object keys that look like paths", () => {
+    const scrubber = new Scrubber(ROOTS);
+    const user = scrubber.stdout({ type: "user", snapshot: { "/home/maintainer/a": 1 } }) as Record<
+      string,
+      any
+    >;
+    expect(Object.keys(user.snapshot)[0]).toMatch(/^\[redacted sha256:/);
+  });
+});
+
+describe("allowlist", () => {
+  it("keeps every decision field", () => {
+    for (const [kind, fields] of Object.entries(DECISION_FIELDS)) {
+      const type = kind.split("/")[0] ?? kind;
+      const rules = [...(STDOUT_RULES[kind] ?? STDOUT_RULES[type] ?? [])];
+      for (const field of fields) {
+        if (["type", "subtype", "model", "permissionMode", "is_error"].includes(field)) continue;
+        expect({
+          kind,
+          field,
+          action: matchRule(
+            rules,
+            field.split(".").map((part) => (part === "*" ? "0" : part)),
+          ),
+        }).toEqual({
+          kind,
+          field,
+          action: "keep",
+        });
+      }
+    }
+  });
+
+  it("knows the hook events 0008 section 5 registers", () => {
+    for (const event of [
+      "SessionStart",
+      "PermissionRequest",
+      "PostToolUse",
+      "Notification",
+      "SubagentStart",
+      "SubagentStop",
+      "Stop",
+      "StopFailure",
+      "PostCompact",
+      "PostModelSwitch",
+      "SessionEnd",
+    ]) {
+      expect(HOOK_RULES[event]).toBeDefined();
+    }
+  });
+
+  it("reads values at a pattern", () => {
+    expect(valuesAt({ a: [{ b: 1 }, { b: 2 }] }, "a.*.b")).toEqual([1, 2]);
+  });
+});
