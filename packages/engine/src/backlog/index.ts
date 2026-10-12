@@ -1,5 +1,5 @@
 // The Backlog.md integration (0010 section 1): the CLI runner with its never-run list, the version
-// load step, and the `--plain` parser.
+// load step, the `--plain` parser, the story fields of section 3 and the branch slug of section 4.
 
 import type { FeatureModule } from "../commands/registry";
 
@@ -31,6 +31,7 @@ export type {
   UnknownItem,
 } from "./plain";
 export { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "./runner";
+export { branchFor, EMPTY_SLUG, SLUG_MAX, slug } from "./slug";
 export type { BacklogCli, BacklogOutput } from "./runner";
 export {
   checkVersion,
