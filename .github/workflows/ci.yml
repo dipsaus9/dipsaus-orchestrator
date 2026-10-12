@@ -33,6 +33,14 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
+      # The CI-only sandbox tests (DIPO-37) run steps inside `srt`, which needs bubblewrap, socat and
+      # ripgrep, and a user namespace that Ubuntu 24.04's AppArmor restriction leaves usable (0008).
+      - name: Install the sandbox runtime's Linux dependencies (0008)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep
+      - name: Allow unprivileged user namespaces for bubblewrap
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: bun run verify
 
   dependency-review:
@@ -92,6 +100,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep
+      - name: Allow unprivileged user namespaces for bubblewrap
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install the sandbox probe's macOS dependency (ripgrep)
+        if: runner.os == 'macOS'
+        run: command -v rg || brew install ripgrep
       - name: Build
         run: bun scripts/build.ts --target "bun-$TARGET"
       - name: dipo --version
@@ -134,6 +148,45 @@ jobs:
         env:
           DIPO_TMP: ${{ runner.temp }}/dipo
         run: ./dist/dipo self-check
+      # DIPO-37: a real sandboxed run inside the compiled binary. It fails on any refusal, which
+      # includes every srt dependency warning, such as a missing apply-seccomp helper on Linux.
+      - name: dipo daemon sandbox-exec (deny-all)
+        env:
+          POLICY: ${{ runner.temp }}/deny-all.json
+        run: |
+          printf '%s\n' '{"network":{"allowedDomains":[],"deniedDomains":[],"strictAllowlist":true},"filesystem":{"denyRead":[],"allowWrite":[],"denyWrite":[]}}' > "$POLICY"
+          set +e
+          ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- true 2> stderr.txt
+          code=$?
+          set -e
+          cat stderr.txt
+          if [ "$code" -ne 0 ]; then echo "sandbox-exec exited with $code"; exit 1; fi
+          if [ -s stderr.txt ]; then echo "sandbox-exec wrote to stderr"; exit 1; fi
+          # A write outside the policy must fail inside the sandbox.
+          if ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- sh -c 'echo x > "$1"' sh "$RUNNER_TEMP/escaped"; then
+            echo "a write outside the policy succeeded"; exit 1
+          fi
+          if [ -e "$RUNNER_TEMP/escaped" ]; then echo "$RUNNER_TEMP/escaped exists"; exit 1; fi
+      - name: apply-seccomp blocks Unix sockets under deny-all
+        if: runner.os == 'Linux'
+        env:
+          POLICY: ${{ runner.temp }}/deny-all.json
+        run: |
+          if ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- timeout 2 socat ABSTRACT-LISTEN:dipo-smoke -; then
+            echo "a Unix socket was created under deny-all: apply-seccomp is not applied"; exit 1
+          fi
+      - name: The binary ignores bunfig.toml and .env in its working directory
+        run: |
+          dir="$(mktemp -d)"
+          printf 'preload = ["./planted.ts"]\n' > "$dir/bunfig.toml"
+          printf 'require("fs").writeFileSync("%s/ran", "1")\n' "$dir" > "$dir/planted.ts"
+          (cd "$dir" && "$GITHUB_WORKSPACE/dist/dipo" --version)
+          if [ -e "$dir/ran" ]; then echo "bunfig.toml preload ran"; exit 1; fi
+          # A planted .env must not reach the binary either (BUN_OPTIONS would preload code).
+          rm "$dir/bunfig.toml"
+          printf 'BUN_OPTIONS=--preload ./planted.ts\n' > "$dir/.env"
+          (cd "$dir" && "$GITHUB_WORKSPACE/dist/dipo" --version)
+          if [ -e "$dir/ran" ]; then echo ".env BUN_OPTIONS preload ran"; exit 1; fi
 
   ci-ok:
     name: ci-ok

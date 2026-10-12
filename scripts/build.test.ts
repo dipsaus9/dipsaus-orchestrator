@@ -70,6 +70,17 @@ describe("buildCommand", () => {
     for (const entry of ENTRYPOINTS) expect(entry.startsWith(`${ROOT}/`)).toBe(true);
   });
 
+  it("never loads bunfig.toml, .env, tsconfig.json or package.json from the working directory", () => {
+    for (const flag of [
+      "--no-compile-autoload-bunfig",
+      "--no-compile-autoload-dotenv",
+      "--no-compile-autoload-tsconfig",
+      "--no-compile-autoload-package-json",
+    ]) {
+      expect(command).toContain(flag);
+    }
+  });
+
   it("leaves only react-devtools-core unresolved", () => {
     expect(EXTERNALS).toEqual(["react-devtools-core"]);
     expect(command.filter((arg) => arg.startsWith("--external"))).toEqual([

@@ -21,12 +21,19 @@
         "@dipsaus-orchestrator/daemon": "workspace:*",
         "@dipsaus-orchestrator/tui": "workspace:*",
       },
+      "devDependencies": {
+        "@dipsaus-orchestrator/testkit": "workspace:*",
+      },
     },
     "packages/client": {
       "name": "@dipsaus-orchestrator/client",
       "version": "0.0.0",
       "dependencies": {
         "@dipsaus-orchestrator/contract": "workspace:*",
+        "zod": "4.6.5",
+      },
+      "devDependencies": {
+        "@dipsaus-orchestrator/testkit": "workspace:*",
       },
     },
     "packages/contract": {

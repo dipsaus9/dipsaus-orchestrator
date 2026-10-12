@@ -167,8 +167,12 @@ export class ContractServer {
 
   /** The session for one accepted connection; `serveUnixSocket` calls it. */
   accept(socket: SocketConnection): ConnectionSession {
-    const connection = new Connection(this, socket, () => this.#connections.delete(connection));
+    const connection = new Connection(this, socket, () => {
+      this.#connections.delete(connection);
+      this.#deps.logger.debug("connection closed", { connections: this.#connections.size });
+    });
     this.#connections.add(connection);
+    this.#deps.logger.debug("connection opened", { connections: this.#connections.size });
     return connection;
   }
 
@@ -262,6 +266,13 @@ class Connection implements ConnectionSession {
       return;
     }
     const frame = parsed.data;
+    // Names and ids only: args stay out of the log at every level (0006 decision 13).
+    this.#deps.logger.debug("frame received", {
+      kind: frame.kind,
+      ...("name" in frame ? { name: frame.name } : {}),
+      ...("stream" in frame ? { stream: frame.stream } : {}),
+      ...("requestId" in frame ? { requestId: frame.requestId } : {}),
+    });
     if (this.#state === "new") {
       await this.#handshake(frame);
       return;
