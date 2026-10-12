@@ -312,7 +312,10 @@ export {
   stripLocalSettings,
 } from "./workers/claude-cli/settings-check";
 export {
+  bashCalls as selfTestBashCalls,
   judgeSelfTest,
+  resolveSelfTestTools,
+  workerWritableRoots,
   PROBE_GROUPS,
   runSelfTest,
   SELF_TEST_EFFORT,
@@ -322,6 +325,8 @@ export {
   type ProbeName,
   type SelfTestDisk,
   type SelfTestEvidence,
+  type SelfTestBashCalls,
+  type SelfTestTools,
   type SelfTestVerdict,
 } from "./workers/claude-cli/self-test";
 export {

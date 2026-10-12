@@ -3,9 +3,12 @@
 // in-memory file system for the self-test, and a spec and context on absolute fake paths.
 
 import type { Spawn, SpawnOptions } from "@dipsaus-orchestrator/contract";
+import { join } from "node:path";
+
 import {
   FakeProcess,
   fakeSpawn,
+  readRecording,
   type ManualClock,
   type RecordedLine,
   type Recording,
@@ -135,6 +138,55 @@ export class MemoryFs implements SelfTestFs {
     this.removed.push(path);
     this.files.delete(path);
   }
+
+  /** Symlink targets by path; any other path resolves to itself. */
+  readonly links = new Map<string, string>();
+  /** Executable files; `perl` and `gh` in /usr/bin by default. */
+  readonly executables = new Set<string>(TOOLS_ON_PATH);
+
+  async realpath(path: string): Promise<string | null> {
+    return this.links.get(path) ?? path;
+  }
+
+  async isExecutableFile(path: string): Promise<boolean> {
+    return this.executables.has(path);
+  }
+}
+
+export const TOOLS = { perl: "/usr/bin/perl", gh: "/usr/bin/gh" } as const;
+const TOOLS_ON_PATH = [TOOLS.perl, TOOLS.gh];
+
+/**
+ * The `safety-main-git` session rewritten so its Bash calls run `commands`, in order; Bash calls
+ * past the list are dropped. Recordings redact tool inputs, so the exact-command check needs this.
+ */
+export function selfTestSession(commands: readonly string[]): Recording {
+  const base = readRecording(
+    join(import.meta.dir, "..", "recordings", "claude-cli", "safety-main-git"),
+  );
+  let seen = 0;
+  const lines: RecordedLine[] = [];
+  for (const line of base.lines) {
+    const data = line.data as { type?: string; message?: { content?: Record<string, unknown>[] } };
+    const content = data.type === "assistant" ? data.message?.content : undefined;
+    if (line.ch !== "stdout" || content === undefined) {
+      lines.push(line);
+      continue;
+    }
+    const kept: Record<string, unknown>[] = [];
+    for (const block of content) {
+      if (block["type"] !== "tool_use" || block["name"] !== "Bash") {
+        kept.push(block);
+        continue;
+      }
+      const command = commands[seen];
+      seen += 1;
+      if (command !== undefined) kept.push({ ...block, input: { command } });
+    }
+    if (kept.length === 0) continue;
+    lines.push({ ...line, data: { ...data, message: { ...data.message, content: kept } } });
+  }
+  return { ...base, lines };
 }
 
 /** What the self-test command writes when the sandbox blocks every forbidden write. */

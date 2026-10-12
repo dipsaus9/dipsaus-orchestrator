@@ -17,11 +17,17 @@
 // through, a `gh auth token` that exited 0, or a self-test that could not run refuses the run.
 // The engine removes every file the self-test made.
 
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
 import type { ChildExit, ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
+import {
+  isAtOrUnder,
+  SRT_DEFAULT_HOME_WRITE_PATHS,
+  SRT_DEFAULT_WRITE_PATHS,
+} from "../../sandbox/policy";
 import type { LaunchCheckFailure } from "../hold";
 import type { WorkerOutcome, WorkerSpec } from "../types";
 import { initialState, interpret, type ClaudeParseState } from "./interpret";
@@ -77,6 +83,13 @@ export interface SelfTestPaths {
   readonly tmpDir: string;
   /** Makes every file name unique to this self-test. */
   readonly nonce: string;
+  /** Absolute `perl` and `gh`, resolved outside the sandbox from the daemon's PATH. */
+  readonly tools: SelfTestTools;
+}
+
+export interface SelfTestTools {
+  readonly perl: string;
+  readonly gh: string;
 }
 
 export interface ProbeTarget {
@@ -97,10 +110,11 @@ export interface SelfTestLayout {
 // One open per target and `gh auth token` with its output thrown away; one result line each.
 const SCRIPT = [
   "my $out = shift;",
-  'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n";',
+  'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
   "while (@ARGV) {",
   "my ($n, $m, $p) = splice(@ARGV, 0, 3);",
-  'if ($n eq "gh-token") { system("gh auth token >/dev/null 2>&1"); my $c = $? == -1 ? 127 : ($? & 127 ? 128 + ($? & 127) : $? >> 8); print $o "gh-token exit $c\\n"; next }',
+  // `gh auth token` by absolute path, no shell, output to /dev/null; exec failure exits 127.
+  'if ($n eq "gh-token") { my $pid = fork(); if (!defined $pid) { print $o "gh-token exit 127\\n"; next } if ($pid == 0) { open(STDOUT, ">", "/dev/null"); open(STDERR, ">", "/dev/null"); exec { $p } $p, "auth", "token"; require POSIX; POSIX::_exit(127) } waitpid($pid, 0); my $c = $? & 127 ? 128 + ($? & 127) : $? >> 8; print $o "gh-token exit $c\\n"; next }',
   'if (open(my $f, $m, $p)) { close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" }',
   "}",
   "close $o;",
@@ -139,9 +153,9 @@ export function selfTestLayout(
   const args = [
     resultsFile,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
-    ...(probes.includes("gh-token") ? ["gh-token", "-", "-"] : []),
+    ...(probes.includes("gh-token") ? ["gh-token", "-", paths.tools.gh] : []),
   ];
-  const command = `perl -e '${SCRIPT}' ${args.map(shellQuote).join(" ")}`;
+  const command = `${shellQuote(paths.tools.perl)} -e '${SCRIPT}' ${args.map(shellQuote).join(" ")}`;
   const prompt = [
     "Run this command once with the Bash tool, exactly as written, in a single call. Some of its writes are meant to fail; that is the expected result.",
     "",
@@ -198,8 +212,19 @@ export interface SelfTestEvidence {
   readonly outcomeDetail?: string;
   /** Tools the permission layer denied during the session. */
   readonly denied: readonly string[];
+  /** Bash calls the session made, and whether there was one and it was the planned command. */
+  readonly bash: SelfTestBashCalls;
   readonly disk: SelfTestDisk;
 }
+
+export interface SelfTestBashCalls {
+  readonly calls: number;
+  /** True when exactly one call was made and its command equals the planned command. */
+  readonly exact: boolean;
+}
+
+/** Exit codes of `gh` that mean it never ran: not executable (126) or not found (127). */
+export const GH_DID_NOT_RUN: readonly number[] = [126, 127];
 
 export type SelfTestVerdict =
   | { readonly ok: true; readonly ghExit: number | null }
@@ -279,6 +304,12 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
     const why = evidence.outcomeDetail === undefined ? "" : `: ${evidence.outcomeDetail}`;
     return cannotRun(`the Claude Code session ended ${evidence.outcome}${why}`);
   }
+  if (evidence.bash.calls !== 1) {
+    return cannotRun(`the session made ${evidence.bash.calls} Bash calls instead of exactly one`);
+  }
+  if (!evidence.bash.exact) {
+    return cannotRun("the session's Bash call was not the planned command");
+  }
   if (lines === null) {
     const denied =
       evidence.denied.length === 0
@@ -298,6 +329,17 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
       "control",
     );
   }
+  const ghLine = lines.get("gh-token");
+  if (
+    probes.includes("gh-token") &&
+    ghLine?.kind === "exit" &&
+    GH_DID_NOT_RUN.includes(ghLine.code)
+  ) {
+    return cannotRun(
+      `gh was not found or not executable inside the sandbox (exit ${ghLine.code}), so the Keychain token was not tested`,
+      "gh-token",
+    );
+  }
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
   }
@@ -314,6 +356,10 @@ export interface SelfTestFs {
   exists(path: string): Promise<boolean>;
   /** Removes a file; a missing file is fine. */
   remove(path: string): Promise<void>;
+  /** The path with symlinks resolved, or null when it does not exist. */
+  realpath(path: string): Promise<string | null>;
+  /** True when the path is a regular file the daemon may execute. */
+  isExecutableFile(path: string): Promise<boolean>;
 }
 
 export const nodeSelfTestFs: SelfTestFs = {
@@ -338,7 +384,125 @@ export const nodeSelfTestFs: SelfTestFs = {
     }
   },
   remove: (path) => rm(path, { force: true }),
+  realpath: async (path) => {
+    try {
+      return await realpath(path);
+    } catch {
+      return null;
+    }
+  },
+  isExecutableFile: async (path) => {
+    try {
+      await access(path, constants.X_OK);
+      return (await stat(path)).isFile();
+    } catch {
+      return false;
+    }
+  },
 };
+
+/** Pure: the Bash calls in the session's stdout, one per tool use id, with their commands. */
+export function bashCalls(stdout: string, planned: string): SelfTestBashCalls {
+  const commands = new Map<string, unknown>();
+  for (const line of stdout.split("\n")) {
+    if (!line.includes('"tool_use"')) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const record = value as { type?: unknown; message?: { content?: unknown } };
+    if (record.type !== "assistant" || !Array.isArray(record.message?.content)) continue;
+    for (const block of record.message.content as Record<string, unknown>[]) {
+      if (block["type"] !== "tool_use" || block["name"] !== "Bash") continue;
+      const id = typeof block["id"] === "string" ? block["id"] : `#${commands.size}`;
+      const input = block["input"] as { command?: unknown } | undefined;
+      commands.set(id, input?.command);
+    }
+  }
+  const [only] = commands.values();
+  return { calls: commands.size, exact: commands.size === 1 && only === planned };
+}
+
+/** Where a sandboxed command of the worker can write (0008 section 2 and srt's defaults). */
+export function workerWritableRoots(workdir: string, tmpDir: string, home: string): string[] {
+  return [
+    workdir,
+    tmpDir,
+    ...SRT_DEFAULT_WRITE_PATHS,
+    ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => `${home}/${rel}`),
+  ];
+}
+
+export type ResolvedTools =
+  | { readonly ok: true; readonly tools: SelfTestTools }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Resolves `perl` and `gh` to absolute paths from the daemon's PATH, outside the sandbox, and
+ * refuses when one of them, or a directory on the worker's PATH, lies where a worker can write:
+ * a planted `perl` or `gh` would fake the self-test's results.
+ */
+export async function resolveSelfTestTools(
+  input: {
+    readonly daemonPath: string;
+    readonly workerPath: string;
+    readonly writable: readonly string[];
+  },
+  fs: SelfTestFs,
+): Promise<ResolvedTools> {
+  const writable: string[] = [];
+  for (const root of input.writable) {
+    writable.push(root);
+    const real = await fs.realpath(root);
+    if (real !== null && real !== root) writable.push(real);
+  }
+  const writableHit = (spellings: readonly string[]) =>
+    writable.find((root) => spellings.some((path) => isAtOrUnder(path, root)));
+
+  for (const entry of input.workerPath.split(":")) {
+    if (!entry.startsWith("/")) {
+      return {
+        ok: false,
+        reason: `the worker's PATH holds a relative or empty entry ${JSON.stringify(entry)}`,
+      };
+    }
+    const real = await fs.realpath(entry);
+    const hit = writableHit(real === null ? [entry] : [entry, real]);
+    if (hit !== undefined) {
+      return {
+        ok: false,
+        reason: `the worker's PATH entry ${entry} lies under ${hit}, which a worker can write`,
+      };
+    }
+  }
+  const found: Record<string, string> = {};
+  for (const name of ["perl", "gh"] as const) {
+    let resolved: string | null = null;
+    for (const entry of input.daemonPath.split(":")) {
+      if (!entry.startsWith("/")) continue;
+      const candidate = `${entry}/${name}`;
+      if (await fs.isExecutableFile(candidate)) {
+        resolved = candidate;
+        break;
+      }
+    }
+    if (resolved === null) {
+      return { ok: false, reason: `${name} is not on the daemon's PATH` };
+    }
+    const real = (await fs.realpath(resolved)) ?? resolved;
+    const hit = writableHit([resolved, real]);
+    if (hit !== undefined) {
+      return {
+        ok: false,
+        reason: `${name} at ${real} lies under ${hit}, which a worker can write`,
+      };
+    }
+    found[name] = real;
+  }
+  return { ok: true, tools: { perl: found["perl"] ?? "", gh: found["gh"] ?? "" } };
+}
 
 /** The admin directory a `<worktree>/.git` pointer names, or null when it names none. */
 export function parsePointer(text: string, workdir: string): string | null {
@@ -491,8 +655,26 @@ export async function runSelfTest(
     };
   }
 
+  const tools = await resolveSelfTestTools(
+    {
+      daemonPath: ctx.env["PATH"] ?? "",
+      // The plan passes the daemon's PATH through to the worker unchanged (ENV_ALLOWLIST).
+      workerPath: ctx.env["PATH"] ?? "",
+      writable: workerWritableRoots(workdir, ctx.tmpDir, ctx.home),
+    },
+    fs,
+  );
+  if (!tools.ok) return fail(cannotRun(tools.reason));
+
   const nonce = deps.sessionId.replaceAll("-", "").slice(0, 16);
-  const layout = selfTestLayout({ main, workdir, adminDir, tmpDir: ctx.tmpDir, nonce });
+  const layout = selfTestLayout({
+    main,
+    workdir,
+    adminDir,
+    tmpDir: ctx.tmpDir,
+    nonce,
+    tools: tools.tools,
+  });
   const selfDir = `${ctx.runDir}/${SELF_TEST_DIR}`;
   const systemFile = `${selfDir}/system.md`;
   const selfSpec: WorkerSpec = {
@@ -511,7 +693,6 @@ export async function runSelfTest(
     hookRelay: false,
   };
   const launch = plan(selfSpec, { ...ctx, runDir: selfDir });
-
   await fs.mkdir(selfDir);
   await fs.mkdir(ctx.tmpDir);
   await fs.writeText(systemFile, SELF_TEST_SYSTEM_PROMPT);
@@ -534,21 +715,30 @@ export async function runSelfTest(
     session = error instanceof Error ? error.message : String(error);
   }
 
-  const results = await fs.readText(layout.resultsFile);
-  const written: WriteProbe[] = [];
-  for (const target of forbidden) {
-    if (await fs.exists(target.path)) written.push(target.name);
-  }
-  const pointerAfter = await fs.readText(pointerFile);
-  const disk: SelfTestDisk = {
-    results,
-    written,
-    pointerChanged: pointerAfter !== pointer,
-    controlWritten: await fs.exists(layout.controlFile),
-  };
-  // Remove everything the self-test made; the files carry the nonce, so nothing else is touched.
-  for (const path of [layout.resultsFile, layout.controlFile, ...forbidden.map((t) => t.path)]) {
-    await fs.remove(path);
+  let disk: SelfTestDisk;
+  try {
+    const results = await fs.readText(layout.resultsFile);
+    const written: WriteProbe[] = [];
+    for (const target of forbidden) {
+      if (await fs.exists(target.path)) written.push(target.name);
+    }
+    const pointerAfter = await fs.readText(pointerFile);
+    disk = {
+      results,
+      written,
+      pointerChanged: pointerAfter !== pointer,
+      controlWritten: await fs.exists(layout.controlFile),
+    };
+  } finally {
+    // Remove everything the self-test made, even when a read above threw; the files carry the
+    // nonce, so nothing else is touched. One failed removal does not stop the others.
+    for (const path of [layout.resultsFile, layout.controlFile, ...forbidden.map((t) => t.path)]) {
+      try {
+        await fs.remove(path);
+      } catch {
+        // Best effort; a forbidden file left behind was already counted as written.
+      }
+    }
   }
 
   const outcome = sessionOutcome(session, timeoutMs);
@@ -557,6 +747,10 @@ export async function runSelfTest(
     outcome: outcome.outcome,
     ...(outcome.detail === undefined ? {} : { outcomeDetail: outcome.detail }),
     denied: typeof session === "string" ? [] : session.denied,
+    bash:
+      typeof session === "string"
+        ? { calls: 0, exact: false }
+        : bashCalls(session.stdout, layout.command),
     disk,
   };
   return {
