@@ -11,6 +11,7 @@
     "format:fix": "oxfmt",
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b",
+    "contract:schema": "bun packages/contract/scripts/write-schema.ts",
     "test": "bun test",
     "verify": "bun run format:check && bun run lint && bun run typecheck && bun test"
   },
