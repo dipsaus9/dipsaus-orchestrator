@@ -4,7 +4,7 @@ title: 'Start, stop, restart and report the daemon from the CLI'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 17:13'
+updated_date: '2026-10-12 17:19'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -24,6 +24,8 @@ references:
   - packages/client/src/node/index.ts
   - packages/daemon/test/
   - test/lifecycle-parity/
+  - packages/client/src/node/connect.ts
+  - packages/client/src/node/runtime.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
@@ -127,4 +129,6 @@ $T/bin/dipo daemon status | grep upgrade        # upgrade pending: the binary ch
 $T/bin/dipo daemon stop                          # dipo daemon stopped (pid ...)
 pgrep -fl "daemon --foreground"; rm -rf $T       # pgrep prints nothing: no daemon left
 ```
+
+Review fixes (PR #48): added references packages/client/src/node/connect.ts (connectToDaemon and DaemonNotRunningError moved out of client/node/index.ts so the lifecycle module can use them without an import cycle) and packages/client/src/node/runtime.ts (logsDir, so a failed start names <logs>/daemon.log). The daemon starts the new binary only when the drain's request was the upgrade, and the upgrade watcher counts as busy and stops once any stop is requested, so a daemon stopped by `dipo daemon stop`, SIGTERM, a restart or a lost lock never comes back on its own (test: packages/daemon/test/integration/upgrade-restart.test.ts). `stop --force` now removes the stale runtime.json also when SIGTERM ends the daemon within 10 s, so the next status says `not running`. An ADR 0006 amendment about starting the daemon through a short-lived /bin/sh (double fork, so a client running under --no-orphans cannot kill it on exit) will be proposed to the maintainer.
 <!-- SECTION:NOTES:END -->
