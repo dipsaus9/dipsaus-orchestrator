@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:41'
+updated_date: '2026-10-12 14:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -99,4 +99,19 @@ Maintainer test steps (on the branch, macOS, Claude Code >= 2.1.285 logged in wi
 2. DIPO_TMP=$(mktemp -d) bun run recordings:capture safety-gitdir-write safety-pointer-write safety-gh-token -> for each: wrote packages/engine/test/recordings/claude-cli/<name> (...lines) and a checks line with disk.written [], pointerChanged false, controlWritten true, verdict {ok:true,...}; for safety-gh-token verdict.ghExit is non-zero and ghTokenReadableOutsideSandbox is true. The capture runs in a temp fixture repo, not in this repository.
 3. bun test packages/engine/test/workers tools/recordings -> all pass, 0 skipped.
 4. git add packages/engine/test/recordings/claude-cli/safety-gitdir-write packages/engine/test/recordings/claude-cli/safety-pointer-write packages/engine/test/recordings/claude-cli/safety-gh-token && git commit -m 'test(DIPO-43): record the self-test safety scenarios' && git push. If any verdict is not ok, do not commit; report the checks line.
+
+Review hardening (PR #46, no Claude session):
+- Exact command: the self-test reads the session's Bash tool uses (one per tool use id) and requires exactly one, whose command equals the planned command; no call, extra calls or another command refuse (cannot run). Recordings redact tool inputs, so the capture stores this check as checks.bash and the replay tests use it.
+- Trusted tools: perl and gh are resolved outside the sandbox to absolute, symlink-resolved paths from the daemon's PATH and used by path in the command (gh through fork and exec, no shell). The self-test refuses when either lies under a path a worker can write (worktree, sandbox temp dir, /tmp/claude, ~/.claude/debug, ~/.npm/_logs), or when the worker's PATH holds an empty or relative entry or a directory under one of those.
+- gh exit 126 or 127 inside the sandbox refuses (cannot run: gh was not found or not executable, so the Keychain token was not tested); it is no longer a pass.
+- Cleanup runs in a finally block: the results file, the control file and every forbidden probe file are removed even when a disk read throws.
+- claudeLaunchChecks refuses a role whose tools include Agent, Task or Skill (check tools, key = tool) until the .claude/agents and skills frontmatter check exists.
+- For DIPO-74: the worker host must accept only a checked plan (for example a branded CheckedLaunchPlan returned by prepareClaudeLaunch), so planClaudeLaunch cannot bypass the launch checks.
+- For DIPO-51: lift a hold set for a CLI startFailed outcome only after a passing probe (prepareClaudeLaunch's gate does that).
+
+Maintainer test steps (current; replace the earlier list): macOS, Claude Code >= 2.1.285 logged in with the subscription, gh logged in, perl and gh on PATH outside the worktree.
+1. bun install && bun run verify -> green; 3 tests skipped (the live safety recordings).
+2. DIPO_TMP=$(mktemp -d) bun run recordings:capture safety-gitdir-write safety-pointer-write safety-gh-token -> for each: wrote packages/engine/test/recordings/claude-cli/<name> (<n> lines) and a checks line with disk.written [], pointerChanged false, controlWritten true, bash {calls:1, exact:true}, verdict {ok:true,...}; for safety-gh-token verdict.ghExit is non-zero and not 126 or 127, and ghTokenReadableOutsideSandbox is true. The capture runs in a temp fixture repo.
+3. bun test packages/engine/test/workers tools/recordings -> all pass, 0 skipped.
+4. git add the three directories packages/engine/test/recordings/claude-cli/safety-gitdir-write, safety-pointer-write and safety-gh-token; git commit -m 'test(DIPO-43): record the self-test safety scenarios'; git push. If any verdict is not ok, do not commit; report the checks line.
 <!-- SECTION:NOTES:END -->
