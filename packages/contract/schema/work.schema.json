@@ -71,7 +71,7 @@
         }
       ]
     },
-    "Signal": {
+    "WatchdogSignal": {
       "anyOf": [
         {
           "type": "string",

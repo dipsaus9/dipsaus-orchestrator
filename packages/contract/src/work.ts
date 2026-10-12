@@ -81,7 +81,7 @@ export const Phase = openEnum(KNOWN_PHASES);
 export type Phase = z.infer<typeof Phase>;
 
 // Watchdog signals of `work.observed` (0009 section 3).
-export const KNOWN_SIGNALS = [
+export const KNOWN_WATCHDOG_SIGNALS = [
   "quiet",
   "no-output",
   "same-failure",
@@ -90,8 +90,8 @@ export const KNOWN_SIGNALS = [
   "host-lost",
   "follow-only",
 ] as const;
-export const Signal = openEnum(KNOWN_SIGNALS);
-export type Signal = z.infer<typeof Signal>;
+export const WatchdogSignal = openEnum(KNOWN_WATCHDOG_SIGNALS);
+export type WatchdogSignal = z.infer<typeof WatchdogSignal>;
 
 // The eight health states of 0009 section 3, in the engine's precedence order.
 export const KNOWN_HEALTH = [
@@ -217,7 +217,7 @@ export const StoryView = z.object({
 });
 export type StoryView = z.infer<typeof StoryView>;
 
-export const ActiveSignal = z.object({ signal: Signal, since: Timestamp });
+export const ActiveSignal = z.object({ signal: WatchdogSignal, since: Timestamp });
 export type ActiveSignal = z.infer<typeof ActiveSignal>;
 
 export const WorkView = z.object({

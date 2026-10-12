@@ -12,3 +12,16 @@ export * from "./office";
 export * from "./software";
 export * from "./version";
 export * from "./work";
+
+export type {
+  ChildExit,
+  ChildProcess,
+  ChildStdin,
+  Clock,
+  IdPrefix,
+  IdSource,
+  Signal,
+  Spawn,
+  SpawnOptions,
+  TimerHandle,
+} from "./runtime";

@@ -7,6 +7,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.79",
     "@dipsaus-orchestrator/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@dipsaus-orchestrator/testkit": "workspace:*"
   }
 }

@@ -11,7 +11,7 @@ import {
   KNOWN_HEALTH,
   KNOWN_PARK_REASONS,
   KNOWN_PHASES,
-  KNOWN_SIGNALS,
+  KNOWN_WATCHDOG_SIGNALS,
   KNOWN_SKIP_REASONS,
   KNOWN_TIERS,
   Lifecycle,
@@ -23,7 +23,7 @@ import {
   Phase,
   QueueColumn,
   QuestionView,
-  Signal,
+  WatchdogSignal,
   SkipReason,
   StoryView,
   TestView,
@@ -81,7 +81,7 @@ describe("open enums", () => {
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 11 },
     { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
-    { name: "Signal", schema: Signal, known: KNOWN_SIGNALS, size: 7 },
+    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 7 },
     { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 8 },
   ];
 

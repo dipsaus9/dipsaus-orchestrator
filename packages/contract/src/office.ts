@@ -31,7 +31,7 @@ import {
   Phase,
   Progress,
   QuestionView,
-  Signal,
+  WatchdogSignal,
   SkipReason,
   StoryRef,
   StoryRefValue,
@@ -418,7 +418,7 @@ export const workObserved = defineEvent({
   type: "work.observed",
   stream: "office",
   derived: false,
-  data: z.object({ work: WorkRef, signal: Signal, since: Timestamp }),
+  data: z.object({ work: WorkRef, signal: WatchdogSignal, since: Timestamp }),
 });
 
 // Cumulative, so a duplicate or skipped one is harmless.
