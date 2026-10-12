@@ -1,0 +1,22 @@
+File: /fixture/backlog/drafts/draft-1 - Sketch-the-export-format.md
+
+Task DRAFT-1 - Sketch the export format
+==================================================
+
+Status: ○ Draft
+Created: 2026-10-12 11:28 (UTC)
+
+Description:
+--------------------------------------------------
+Outcome: maintainers can export a story list as CSV.
+
+A rough idea, not refined yet.
+
+Acceptance Criteria:
+--------------------------------------------------
+No acceptance criteria defined
+
+Definition of Done:
+--------------------------------------------------
+No Definition of Done items defined
+

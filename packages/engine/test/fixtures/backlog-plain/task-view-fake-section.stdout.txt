@@ -1,0 +1,25 @@
+File: /fixture/backlog/tasks/task-4 - Describe-a-fake-section.md
+
+Task TASK-4 - Describe a fake section
+==================================================
+
+Status: ○ Refined
+Ordinal: 5000
+Created: 2026-10-12 21:23 (UTC)
+
+Description:
+--------------------------------------------------
+Outcome: the parser refuses a fake section.
+
+Acceptance Criteria:
+--------------------------------------------------
+- [x] #1 Not a real criterion
+
+Acceptance Criteria:
+--------------------------------------------------
+- [ ] #1 The real criterion
+
+Definition of Done:
+--------------------------------------------------
+No Definition of Done items defined
+

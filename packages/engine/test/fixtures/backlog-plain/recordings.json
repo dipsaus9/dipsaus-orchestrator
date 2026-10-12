@@ -1,0 +1,53 @@
+{
+  "backlog": "1.53.0",
+  "recordings": [
+    {
+      "name": "task-view-full",
+      "args": ["task", "view", "TASK-1.1", "--plain"],
+      "exitCode": 0,
+      "stderr": ""
+    },
+    {
+      "name": "task-view-dependents",
+      "args": ["task", "view", "TASK-1", "--plain"],
+      "exitCode": 0,
+      "stderr": ""
+    },
+    {
+      "name": "task-view-fake-section",
+      "args": ["task", "view", "TASK-4", "--plain"],
+      "exitCode": 0,
+      "stderr": ""
+    },
+    {
+      "name": "draft-view",
+      "args": ["draft", "view", "DRAFT-1", "--plain"],
+      "exitCode": 0,
+      "stderr": ""
+    },
+    {
+      "name": "task-list",
+      "args": ["task", "list", "--plain"],
+      "exitCode": 0,
+      "stderr": ""
+    },
+    {
+      "name": "draft-list",
+      "args": ["draft", "list", "--plain"],
+      "exitCode": 0,
+      "stderr": ""
+    },
+    {
+      "name": "task-view-unknown",
+      "args": ["task", "view", "TASK-99", "--plain"],
+      "exitCode": 1,
+      "stderr": "Task TASK-99 not found. Task lookups read only the local working copy; use 'backlog browser' to see tasks from other branches.\n"
+    },
+    {
+      "name": "draft-view-unknown",
+      "args": ["draft", "view", "DRAFT-99", "--plain"],
+      "exitCode": 0,
+      "stderr": "Draft DRAFT-99 not found.\n"
+    }
+  ]
+}
