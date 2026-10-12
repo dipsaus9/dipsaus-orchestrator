@@ -62,9 +62,10 @@ function sourceFiles(dir: string): string[] {
 
 describe("Bun.YAML boundary", () => {
   const packagesDir = join(import.meta.dir, "..", "..", "..");
-  const allowed = "engine/src/platform/yaml.ts";
+  // The engine parses through its platform module, clients through `client/node` (DIPO-69).
+  const allowed = ["engine/src/platform/yaml.ts", "client/src/node/config.ts"];
 
-  it(`is reached only through ${allowed}`, () => {
+  it(`is reached only through ${allowed.join(" and ")}`, () => {
     const offenders = readdirSync(packagesDir)
       .flatMap((name) => {
         const src = join(packagesDir, name, "src");
@@ -76,7 +77,7 @@ describe("Bun.YAML boundary", () => {
       })
       .filter((file) => readFileSync(file, "utf8").includes("Bun.YAML"))
       .map((file) => relative(packagesDir, file))
-      .filter((file) => file !== allowed);
+      .filter((file) => !allowed.includes(file));
     expect(offenders).toEqual([]);
   });
 });

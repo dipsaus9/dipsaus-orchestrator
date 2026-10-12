@@ -1,10 +1,10 @@
 ---
 id: DIPO-69
 title: Load software-level configuration from the state directory
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-12 09:20'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 14:39'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -21,6 +21,13 @@ references:
   - packages/contract/
   - packages/daemon/src/
   - packages/client/src/node/index.ts
+  - packages/engine/src/config/keys.ts
+  - packages/engine/src/config/load.ts
+  - packages/engine/src/config/index.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/platform/yaml.ts
+  - packages/daemon/test/integration/foreground.test.ts
+  - test/software-config/
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -54,16 +61,34 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `SoftwareConfig` version 1 is a `z.strictObject` in `packages/contract` with `version`, `daemon.autostart` (boolean, default `true`) and `daemon.autoRestartOnUpgrade` (boolean, default `false`) and no other key.
-- [ ] #2 An absent `<state>/config.yaml` gives the defaults; an unknown key, a wrong type, a missing `version` or more than one YAML document is an error naming the file, the key path and the expected type.
-- [ ] #3 A file whose `version` is newer than the binary knows is refused with a message containing `upgrade dipo`.
-- [ ] #4 The daemon reads the file at start through `platform/yaml.ts`, and `client/node` reads it before an autostart; both validate with the same contract schema.
-- [ ] #5 A test lists the key paths of every schema version and fails when a key is added to an existing version (0017 amendment of 2026-10-12).
-- [ ] #6 `packages/contract/schema/config.schema.json` is generated with `z.toJSONSchema`, and a contract test fails when it differs from a fresh export.
+- [x] #1 `SoftwareConfig` version 1 is a `z.strictObject` in `packages/contract` with `version`, `daemon.autostart` (boolean, default `true`) and `daemon.autoRestartOnUpgrade` (boolean, default `false`) and no other key.
+- [x] #2 An absent `<state>/config.yaml` gives the defaults; an unknown key, a wrong type, a missing `version` or more than one YAML document is an error naming the file, the key path and the expected type.
+- [x] #3 A file whose `version` is newer than the binary knows is refused with a message containing `upgrade dipo`.
+- [x] #4 The daemon reads the file at start through `platform/yaml.ts`, and `client/node` reads it before an autostart; both validate with the same contract schema.
+- [x] #5 A test lists the key paths of every schema version and fails when a key is added to an existing version (0017 amendment of 2026-10-12).
+- [x] #6 `packages/contract/schema/config.schema.json` is generated with `z.toJSONSchema`, and a contract test fails when it differs from a fresh export.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Added in the M0 review (DIPO-15, D11) as the home of software-level configuration. Before cutover: built by hand-run agents.
+
+Implementation (DIPO-69):
+- Schema and pure validation in packages/contract/src/config.ts: SoftwareConfigV1 (z.strictObject, version literal 1, daemon.autostart default true, daemon.autoRestartOnUpgrade default false), SOFTWARE_CONFIG_SCHEMAS by version, SOFTWARE_CONFIG_DEFAULTS, resolveSoftwareConfig, the ConfigError shape, checkConfigDocument (mapping, integer version, 'upgrade dipo' for a newer one) and parseSingleYamlDocument(parser, text), which takes the caller's YAML parser so the contract stays I/O-free. config.schema.json joins contractJsonSchemas(), so the existing contract schema test checks it.
+- Added refs, with reasons: packages/engine/src/config/keys.ts (the pure schema walkers moved to packages/contract/src/config-keys.ts so client/node can describe errors the same way; keys.ts now re-exports them), packages/engine/src/config/load.ts (uses the contract's ConfigError and checkConfigDocument instead of its own copy; messages unchanged), packages/engine/src/platform/yaml.ts (keeps the only engine Bun.YAML call and delegates the one-document rule to the contract), packages/engine/src/config/index.ts and packages/engine/src/index.ts (export loadSoftwareConfig), packages/daemon/test/integration/foreground.test.ts (daemon reads the file at start and refuses a newer version), test/software-config/ (runs the daemon and client readers on the same files, like test/state-dir).
+- Daemon: runForeground loads <state>/config.yaml before the lock; an invalid file prints each error and exits 1. The settings are kept on the run for DIPO-70 (autoRestartOnUpgrade).
+- client/node: readSoftwareConfig(state) in src/node/config.ts, the second allowed Bun.YAML caller (the boundary test in engine/test/config/yaml.test.ts names both). DIPO-70 calls it before an autostart; no autostart exists yet.
+
+Review follow-up (PR #44):
+- A configuration refusal at daemon start (invalid or newer config.yaml) exits with EXIT_CONFIG = 78 (sysexits EX_CONFIG), exported from packages/contract (config.ts) so DIPO-63 and DIPO-70 can use it without importing the daemon.
+- DIPO-63 must keep launchd and systemd from restarting the daemon on exit 78: systemd RestartPreventExitStatus=78; for launchd, a KeepAlive policy that does not relaunch after a configuration exit (for example KeepAlive SuccessfulExit=false is not enough on its own; DIPO-63 picks the policy and tests it).
+- DIPO-70's autostart must read <state>/config.yaml first with readSoftwareConfig (client/node) and, when it is invalid or newer, show the error instead of spawning a daemon that would exit 78.
+- The engine office loader's issueErrors is now built on the contract's configIssueErrors, with only the office.local.yaml top-level unknown-key wording as an override (unknownKeyProblem option); office messages are unchanged and pinned in packages/engine/test/config/load.test.ts.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Software-level configuration: strict v1 schema for <state>/config.yaml in packages/contract (daemon.autostart default true, daemon.autoRestartOnUpgrade default false), pure helpers with an injected YAML parser, JSON Schema export, key-path test per version; daemon reads it before the lock and exits 78 (EXIT_CONFIG) on an invalid or newer file; client/node readSoftwareConfig; both readers agree (root test); office loader errors built on the shared contract helpers. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
