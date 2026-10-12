@@ -71,6 +71,11 @@ export type UnknownItem =
 export interface ParseOptions {
   /** Called once for each unknown key, section or line. */
   readonly onUnknown?: (item: UnknownItem) => void;
+  /**
+   * False keeps the text as the CLI printed it, without NFC normalisation. The field write path
+   * uses it to splice the raw description, so bytes outside the block are written back unchanged.
+   */
+  readonly normalize?: boolean;
 }
 
 export interface ChecklistItem {
@@ -156,9 +161,9 @@ export interface PlainList {
   readonly unknown: readonly UnknownItem[];
 }
 
-/** LF-split, NFC-normalised lines, without the empty line after a final newline. */
-export function plainLines(output: string): string[] {
-  const lines = output.normalize("NFC").split("\n");
+/** LF-split, NFC-normalised lines (unless `normalize` is false), without the empty line after a final newline. */
+export function plainLines(output: string, normalize = true): string[] {
+  const lines = (normalize ? output.normalize("NFC") : output).split("\n");
   if (lines.at(-1) === "") lines.pop();
   return lines;
 }
@@ -224,7 +229,7 @@ function optional<K extends string>(key: K, value: string | undefined): Partial<
 
 /** Parses `task view --plain` or `draft view --plain`. Throws `BacklogParseError`. */
 export function parseView(output: string, options: ParseOptions = {}): PlainTask {
-  const lines = plainLines(output);
+  const lines = plainLines(output, options.normalize ?? true);
   const unknown = new Unknowns(options.onUnknown);
 
   const fileLine = lines[0] ?? "";

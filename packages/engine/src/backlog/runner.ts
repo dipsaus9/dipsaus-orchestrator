@@ -5,7 +5,9 @@
 // fact 2), documentation entries holding `, ` (lists split on it), plan, notes or definition-of-done
 // text ending in a `Modified files: ` line (the parser reads that line as the trailer), and any
 // positional or unknown option starting with `-` (the CLI would read free text as a flag; free text
-// goes after its option, which takes the next argument whatever it starts with). An error is any
+// goes after its option, which takes the next argument whatever it starts with). An edit may change
+// labels only with `--add-label` and `--remove-label`, never by replacing or clearing the list
+// (0010 section 3). An error is any
 // non-zero exit or a `not found` line (fact 3); it carries the command and its output.
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
@@ -153,6 +155,14 @@ const VALUE_OPTIONS: ReadonlySet<string> = new Set([
   "--skip",
 ]);
 
+/** Edit options that replace or clear the whole label list. */
+const REPLACING_LABEL_OPTIONS: ReadonlySet<string> = new Set([
+  "-l",
+  "--label",
+  "--labels",
+  "--clear-labels",
+]);
+
 /** The texts printed before the `Modified files:` trailer line (see `plain.ts`). */
 const BEFORE_TRAILER: ReadonlySet<string> = new Set([
   "--dod",
@@ -224,6 +234,10 @@ export function refusal(args: readonly string[]): string | null {
     options.filter((o) => names.includes(o.name)).map((o) => o.value ?? "");
   if (values(["-s", "--status"]).some((value) => value.trim().toLowerCase() === "draft")) {
     return "status `Draft` is never set (0010 section 1)";
+  }
+  const labelOption = options.find((o) => REPLACING_LABEL_OPTIONS.has(o.name));
+  if (sub === "edit" && labelOption !== undefined) {
+    return `\`${labelOption.name}\` replaces the labels; an edit changes labels only with --add-label and --remove-label (0010 section 3)`;
   }
   if (dashed !== undefined) {
     return `\`${dashed}\` starts with \`-\` but is no option the engine passes; the CLI would read it as a flag`;

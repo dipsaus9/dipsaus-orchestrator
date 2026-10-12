@@ -34,6 +34,11 @@ describe("refused subcommands", () => {
     ["task"],
     ["task", "remove", "TASK-1"],
     ["config", "set", "taskPrefix", "x"],
+    ["task", "edit", "TASK-1", "-l", "tier:S"],
+    ["task", "edit", "TASK-1", "-ltier:S"],
+    ["task", "edit", "TASK-1", "--label", "tier:S"],
+    ["task", "edit", "TASK-1", "--labels=tier:S"],
+    ["draft", "edit", "DRAFT-1", "--clear-labels"],
     [],
   ];
 
@@ -50,6 +55,15 @@ describe("refused subcommands", () => {
     expect(refusal(["task", "complete", "TASK-1"])).toContain("never run");
     expect(refusal(["config", "set", "statuses", "x"])).toContain("`config set statuses`");
     expect(refusal(["task", "edit", "TASK-1", "-s", "Draft"])).toContain("status `Draft`");
+    expect(refusal(["task", "edit", "TASK-1", "-l", "tier:S"])).toContain("--add-label");
+  });
+
+  it("changes labels on an edit only with --add-label and --remove-label", () => {
+    expect(
+      refusal(["task", "edit", "TASK-1", "--add-label", "tier:M", "--remove-label", "tier:S"]),
+    ).toBeNull();
+    expect(refusal(["task", "create", "New", "-l", "tier:S"])).toBeNull();
+    expect(refusal(["task", "list", "-l", "tier:M", "--plain"])).toBeNull();
   });
 
   it("allows the subcommands the engine uses", () => {
