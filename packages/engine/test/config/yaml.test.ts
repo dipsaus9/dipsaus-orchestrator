@@ -33,6 +33,11 @@ describe("parseYamlDocument", () => {
     expect(parseYamlDocument("- 1\n---\n- 2\n").ok).toBe(false);
   });
 
+  it("counts a second marker as a new document even with nothing before it", () => {
+    expect(parseYamlDocument("---\n---\n").ok).toBe(false);
+    expect(parseYamlDocument("# header\n---\n---\n- 1\n").ok).toBe(false);
+  });
+
   it("returns a syntax error as a value", () => {
     const result = parseYamlDocument("tiers: [\n");
     expect(result.ok).toBe(false);

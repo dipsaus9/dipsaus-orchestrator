@@ -16,14 +16,17 @@ function isContentLine(line: string): boolean {
 }
 
 // `Bun.YAML.parse` returns an array both for a file with several documents and for one document
-// whose top level is a sequence. Markers decide: a `---` after content, or content after `...`,
-// starts a second document. Markers at column 0 are never part of a block scalar.
+// whose top level is a sequence. Markers decide: a `---` after content or after another `---`,
+// or content after `...`, starts a second document. Markers at column 0 are never part of a
+// block scalar.
 function hasSecondDocument(text: string): boolean {
   let seenContent = false;
+  let seenStart = false;
   let ended = false;
   for (const line of text.split(/\r?\n/)) {
     if (DOCUMENT_START.test(line)) {
-      if (seenContent) return true;
+      if (seenContent || seenStart) return true;
+      seenStart = true;
       continue;
     }
     if (DOCUMENT_END.test(line)) {
