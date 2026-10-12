@@ -185,7 +185,15 @@ export interface WorkerResult {
   readonly resumable: boolean;
   /** A proposed park; the engine decides. */
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
+  /**
+   * The one recovery step 0008 section 7 asks for before the proposed park: `handoff` starts a
+   * new session with a handoff, `report-feedback` sends one turn asking for a valid report.
+   */
+  readonly retry?: WorkerRetry;
 }
+
+/** A recovery step the engine tries once before the proposed park (0008 section 7). */
+export type WorkerRetry = "handoff" | "report-feedback";
 
 /** Result of `probe`: version, login kind and capabilities (0008 sections 2 and 11). */
 export interface AdapterStatus {

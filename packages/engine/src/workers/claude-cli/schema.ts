@@ -1,0 +1,268 @@
+// zod schemas for the Claude Code stream-json lines the adapter reads (0017 section 2: strict on
+// the fields we use, tolerant of unknown message types and fields), and the schema of the Worker
+// events this adapter can produce (the contract check for `ScriptedWorker`, 0017 section 2).
+//
+// Recordings redact every string outside the 0017 allowlist to `[redacted ...]`, so a schema here
+// only types fields; decisions read kept fields (types, subtypes, enums, numbers, ids) alone.
+
+import { z } from "zod";
+
+import { WorkerReportSchema } from "./report-schema";
+
+const Count = z.number().int().nonnegative();
+/** A token count; absent counts read as zero. */
+const Tokens = Count.optional().default(0);
+
+export const InitMessage = z.object({
+  type: z.literal("system"),
+  subtype: z.literal("init"),
+  session_id: z.string().min(1),
+  model: z.string().min(1),
+  claude_code_version: z.string().min(1),
+  permissionMode: z.string(),
+  tools: z.array(z.string()),
+  apiKeySource: z.string(),
+});
+
+const ContentBlock = z.looseObject({ type: z.string() });
+export const TextBlock = z.object({ type: z.literal("text"), text: z.string() });
+export const ToolUseBlock = z.object({
+  type: z.literal("tool_use"),
+  id: z.string().min(1),
+  name: z.string().min(1),
+  input: z.unknown(),
+});
+
+export const AssistantMessage = z.object({
+  type: z.literal("assistant"),
+  message: z.object({
+    id: z.string().min(1),
+    model: z.string().min(1),
+    content: z.array(ContentBlock),
+    usage: z.object({
+      input_tokens: Tokens,
+      cache_creation_input_tokens: Tokens,
+      cache_read_input_tokens: Tokens,
+      output_tokens: Tokens,
+    }),
+  }),
+  parent_tool_use_id: z.string().nullable(),
+  error: z.string().optional(),
+});
+
+export const ModelUsageEntry = z.object({
+  inputTokens: Tokens,
+  outputTokens: Tokens,
+  cacheReadInputTokens: Tokens,
+  cacheCreationInputTokens: Tokens,
+});
+
+export const ResultMessage = z.object({
+  type: z.literal("result"),
+  subtype: z.string().min(1),
+  session_id: z.string().min(1),
+  is_error: z.boolean(),
+  num_turns: Count,
+  terminal_reason: z.string().nullish(),
+  structured_output: z.unknown().optional(),
+  modelUsage: z.record(z.string(), ModelUsageEntry),
+  permission_denials: z
+    .array(z.object({ tool_name: z.string().min(1), tool_use_id: z.string().min(1) }))
+    .optional()
+    .default([]),
+  startup_failure_reason: z.string().nullish(),
+  api_error_status: z.number().int().nullish(),
+});
+
+export const PermissionDeniedMessage = z.object({
+  type: z.literal("system"),
+  subtype: z.literal("permission_denied"),
+  tool_name: z.string().min(1),
+  tool_use_id: z.string().min(1),
+  decision_reason_type: z.string().optional(),
+});
+
+const RateLimitWindow = z.object({
+  utilization: z.number().nonnegative().optional(),
+  resetsAt: z.number().optional(),
+});
+
+export const RateLimitMessage = z.object({
+  type: z.literal("rate_limit_event"),
+  rate_limit_info: z.object({
+    status: z.string().min(1),
+    resetsAt: z.number().optional(),
+    utilization: z.number().nonnegative().optional(),
+    rateLimitType: z.string().optional(),
+    errorCode: z.string().optional(),
+    unifiedWindows: z.record(z.string(), RateLimitWindow).optional(),
+  }),
+});
+
+export const ApiRetryMessage = z.object({
+  type: z.literal("system"),
+  subtype: z.literal("api_retry"),
+  error: z.string().min(1),
+});
+
+export const CompactBoundaryMessage = z.object({
+  type: z.literal("system"),
+  subtype: z.literal("compact_boundary"),
+  compact_metadata: z.object({ pre_tokens: Count }),
+});
+
+export const SessionStateMessage = z.object({
+  type: z.literal("system"),
+  subtype: z.literal("session_state_changed"),
+  state: z.string().min(1),
+});
+
+/** A hook payload relayed by the worker host (0008 section 5); only the event name is required. */
+export const HookPayload = z.looseObject({
+  hook_event_name: z.string().min(1),
+  tool_name: z.string().optional(),
+  error: z.string().optional(),
+});
+
+/** Top-level `type` values the adapter knows. Any other type is logged once per run and ignored. */
+export const KNOWN_TYPES = [
+  "system",
+  "assistant",
+  "user",
+  "stream_event",
+  "result",
+  "rate_limit_event",
+  "tool_progress",
+] as const;
+
+/**
+ * `system` subtypes the adapter knows: some map to events, the rest are read for liveness only.
+ * `background_tasks_changed`, `thinking_tokens` and `task_updated` were seen live in DIPO-41.
+ */
+export const KNOWN_SYSTEM_SUBTYPES = [
+  "init",
+  "status",
+  "session_state_changed",
+  "permission_denied",
+  "api_retry",
+  "compact_boundary",
+  "task_started",
+  "task_progress",
+  "task_notification",
+  "task_updated",
+  "background_tasks_changed",
+  "thinking_tokens",
+  "hook_started",
+  "hook_progress",
+  "hook_response",
+] as const;
+
+/** The schema each known stdout message must satisfy; types without one carry no used field. */
+export function schemaFor(message: {
+  readonly type: string;
+  readonly subtype?: unknown;
+}): z.ZodType | null {
+  switch (message.type) {
+    case "assistant":
+      return AssistantMessage;
+    case "result":
+      return ResultMessage;
+    case "rate_limit_event":
+      return RateLimitMessage;
+    case "system":
+      switch (message.subtype) {
+        case "init":
+          return InitMessage;
+        case "permission_denied":
+          return PermissionDeniedMessage;
+        case "api_retry":
+          return ApiRetryMessage;
+        case "compact_boundary":
+          return CompactBoundaryMessage;
+        case "session_state_changed":
+          return SessionStateMessage;
+        default:
+          return null;
+      }
+    default:
+      return null;
+  }
+}
+
+// ---- Worker events this adapter can produce (0008 section 3) -------------------------------
+
+const Name = z.string().min(1);
+const Iso = z.iso.datetime();
+
+const Totals = z.strictObject({
+  input: Count,
+  output: Count,
+  cacheCreate: Count,
+  cacheRead: Count,
+});
+
+/**
+ * Every Worker event `interpret` can emit, in the exact shape it emits it. A `ScriptedWorker`
+ * script that fails this schema describes something the Claude CLI adapter could not produce.
+ */
+export const ClaudeWorkerEventSchema = z.union([
+  z.strictObject({
+    t: z.literal("started"),
+    sessionId: Name,
+    model: Name,
+    version: Name,
+    permissionMode: z.string(),
+    tools: z.array(Name),
+  }),
+  z.strictObject({
+    t: z.literal("activity"),
+    kind: z.literal("text"),
+    agentId: Name.exactOptional(),
+  }),
+  z.strictObject({
+    t: z.literal("activity"),
+    kind: z.literal("tool"),
+    tool: Name,
+    path: z.string().exactOptional(),
+    agentId: Name.exactOptional(),
+  }),
+  z.strictObject({
+    t: z.literal("activity"),
+    kind: z.literal("subagent"),
+    tool: Name,
+    agentId: Name,
+  }),
+  z.strictObject({ t: z.literal("output"), text: z.string() }),
+  z.strictObject({
+    t: z.literal("usage"),
+    messageId: Name,
+    model: Name,
+    agentId: Name.exactOptional(),
+    input: Count,
+    cacheCreate: Count,
+    cacheRead: Count,
+  }),
+  z.strictObject({
+    t: z.literal("turn"),
+    report: WorkerReportSchema.nullable(),
+    totals: z.record(Name, Totals),
+    numTurns: Count,
+    terminal: Name,
+  }),
+  z.strictObject({
+    t: z.literal("waiting"),
+    on: z.enum(["permission", "question", "plan-limit", "retry", "auth"]),
+    detail: Name,
+    until: Iso.exactOptional(),
+  }),
+  z.strictObject({ t: z.literal("denied"), tool: Name, reason: Name }),
+  z.strictObject({
+    t: z.literal("limit"),
+    status: Name,
+    utilization: z.number().min(0).max(1).exactOptional(),
+    resetsAt: Iso.exactOptional(),
+    creditsRequired: z.literal(true).exactOptional(),
+  }),
+  z.strictObject({ t: z.literal("compacted"), preTokens: Count }),
+  z.strictObject({ t: z.literal("modelSwitched"), from: Name, to: Name }),
+]);

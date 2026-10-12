@@ -5,20 +5,19 @@
 
 import { tmpdir } from "node:os";
 
-import { platformSelfChecks } from "@dipsaus-orchestrator/engine";
+import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine";
 
 import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { runSandboxExecForm } from "./sandbox-exec";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
+import { runWorkerHostForm } from "./worker-host";
 
 type Form = {
   /** Shown in the usage message; hidden forms have none. */
   readonly usage: string | null;
   readonly run: (args: readonly string[], io: DaemonIo) => Promise<number>;
 };
-
-const RUN_ID = /^run_[0-9A-HJKMNP-TV-Z]{26}$/;
 
 const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
   ["--foreground", { usage: FOREGROUND_USAGE, run: runForeground }],
@@ -28,12 +27,10 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
       usage: "dipo daemon worker-host <run-id>",
       run: async (args, io) => {
         const [runId, ...rest] = args;
-        if (runId === undefined || !RUN_ID.test(runId) || rest.length > 0) {
+        if (runId === undefined || !RUN_ID_PATTERN.test(runId) || rest.length > 0) {
           return usageError(io, "worker-host needs one run id (run_<ulid>)");
         }
-        // The host itself is DIPO-44.
-        io.writeError("dipo: daemon worker-host is not available in this build yet");
-        return 1;
+        return runWorkerHostForm(runId, io);
       },
     },
   ],

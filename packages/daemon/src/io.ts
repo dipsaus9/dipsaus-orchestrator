@@ -37,10 +37,12 @@ export const defaultIo: DaemonIo = {
 
 /**
  * True when `--no-orphans` is active (0006 decision 8): in this process's Bun flags or in
- * `BUN_OPTIONS`. It would end the daemon with the starting client and SIGKILL every worker host
- * on a clean exit.
+ * `BUN_OPTIONS`, or inherited from a parent Bun as `BUN_FEATURE_FLAG_NO_ORPHANS` (DIPO-44). It would
+ * end the daemon with the starting client and SIGKILL every worker host on a clean exit.
  */
 export function noOrphansActive(io: Pick<DaemonIo, "env" | "execArgv">): boolean {
+  const flag = io.env["BUN_FEATURE_FLAG_NO_ORPHANS"];
+  if (flag !== undefined && flag !== "" && flag !== "0" && flag !== "false") return true;
   if (io.execArgv.some((arg) => arg === "--no-orphans" || arg.startsWith("--no-orphans="))) {
     return true;
   }
