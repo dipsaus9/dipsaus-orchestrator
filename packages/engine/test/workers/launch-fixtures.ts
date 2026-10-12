@@ -1,0 +1,150 @@
+// Shared fixtures for the launch check tests (DIPO-43): a `Spawn` that answers `claude --version`
+// and `claude auth status` from fixed text and replays a recording for the self-test session, an
+// in-memory file system for the self-test, and a spec and context on absolute fake paths.
+
+import type { Spawn, SpawnOptions } from "@dipsaus-orchestrator/contract";
+import {
+  FakeProcess,
+  fakeSpawn,
+  type ManualClock,
+  type RecordedLine,
+  type Recording,
+} from "@dipsaus-orchestrator/testkit";
+
+import { OFFICE_DEFAULTS } from "../../src/config";
+import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
+import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import type { SelfTestFs } from "../../src/workers/claude-cli/self-test";
+import type { WorkerSpec } from "../../src/workers/types";
+
+export const HOME = "/home/maintainer";
+export const MAIN = "/home/maintainer/code/shop";
+export const WORKDIR = "/home/maintainer/code/shop.worktrees/DIPO-999";
+export const ADMIN_DIR = `${MAIN}/.git/worktrees/DIPO-999`;
+export const RUN_DIR = `${MAIN}/.git/dipo/runs/run-0001`;
+export const TMP_DIR = "/tmp/dipo-run-0001";
+export const POINTER = `gitdir: ${ADMIN_DIR}\n`;
+export const SELF_TEST_SESSION = "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+
+export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
+  return {
+    run: "run-0001",
+    agent: "agt-0001",
+    kind: "implement",
+    workdir: WORKDIR,
+    model: "sonnet",
+    effort: "medium",
+    caps: { budgetTokens: 800_000, maxTurns: 120, maxMinutes: 60 },
+    systemFile: `${RUN_DIR}/system.md`,
+    taskMessage: "<story>DIPO-999 Add a greeting</story>",
+    tools: { allow: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"], deny: [] },
+    session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
+    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    hookRelay: false,
+    ...overrides,
+  };
+}
+
+export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {
+  return {
+    claudePath: `${HOME}/.local/bin/claude`,
+    home: HOME,
+    env: { PATH: "/usr/bin:/bin", HOME, ANTHROPIC_API_KEY: "sk-ant-api03-not-a-real-key" },
+    toolVariables: [],
+    mainCheckout: MAIN,
+    runDir: RUN_DIR,
+    hostSocket: `${RUN_DIR}/host.sock`,
+    tmpDir: TMP_DIR,
+    sandbox: OFFICE_DEFAULTS.sandbox,
+    ...overrides,
+  };
+}
+
+/** A process that prints `stdout` and exits with `code`. */
+export function textProcess(clock: ManualClock, stdout: string, code = 0): FakeProcess {
+  const lines: RecordedLine[] = [
+    { t: 1, ch: "stdout", data: stdout },
+    { t: 2, ch: "exit", data: { code, signal: null } },
+  ];
+  return new FakeProcess({ lines, clock });
+}
+
+export interface ScriptedClaude {
+  readonly spawn: Spawn;
+  readonly calls: SpawnOptions[];
+}
+
+export interface ScriptedClaudeOptions {
+  readonly version?: string;
+  readonly auth?: string;
+  /** Replayed for each `claude -p` (the self-test session). */
+  readonly session?: Recording;
+  /** Called when the self-test session starts, to play what its command writes. */
+  readonly onSession?: (options: SpawnOptions) => void;
+}
+
+/** `claude --version`, `claude auth status` and `claude -p` as fakes. */
+export function scriptedClaude(clock: ManualClock, options: ScriptedClaudeOptions): ScriptedClaude {
+  const calls: SpawnOptions[] = [];
+  const spawn: Spawn = (spawnOptions) => {
+    calls.push(spawnOptions);
+    const args = spawnOptions.cmd.slice(1);
+    if (args[0] === "--version") {
+      return textProcess(clock, `${options.version ?? "2.1.296"} (Claude Code)\n`);
+    }
+    if (args[0] === "auth") {
+      return textProcess(
+        clock,
+        options.auth ?? '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}\n',
+      );
+    }
+    if (options.session === undefined) throw new Error("no session recording for claude -p");
+    options.onSession?.(spawnOptions);
+    return fakeSpawn(options.session, clock).spawn(spawnOptions);
+  };
+  return { spawn, calls };
+}
+
+/** An in-memory file system holding the worktree pointer. */
+export class MemoryFs implements SelfTestFs {
+  readonly files = new Map<string, string>();
+  readonly dirs = new Set<string>();
+  readonly removed: string[] = [];
+
+  constructor(pointer: string | null = POINTER) {
+    if (pointer !== null) this.files.set(`${WORKDIR}/.git`, pointer);
+  }
+
+  async mkdir(path: string): Promise<void> {
+    this.dirs.add(path);
+  }
+
+  async writeText(path: string, text: string): Promise<void> {
+    this.files.set(path, text);
+  }
+
+  async readText(path: string): Promise<string | null> {
+    return this.files.get(path) ?? null;
+  }
+
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+
+  async remove(path: string): Promise<void> {
+    this.removed.push(path);
+    this.files.delete(path);
+  }
+}
+
+/** What the self-test command writes when the sandbox blocks every forbidden write. */
+export const BLOCKED_RESULTS = [
+  "control written",
+  "main-git blocked Operation not permitted",
+  "worktree-admin blocked Operation not permitted",
+  "refs blocked Operation not permitted",
+  "objects blocked Operation not permitted",
+  "pointer blocked Operation not permitted",
+  "gh-token exit 1",
+  "",
+].join("\n");
