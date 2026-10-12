@@ -288,3 +288,8 @@ Changes to accepted ADRs, each with a dated line under its "Amendments" (maintai
 11. `yaml` library docs (comments kept on documents; trailing comment handling not fully stable), npm `yaml` 2.9.1. https://eemeli.org/yaml/
 12. npm registry, `backlog.md` 1.53.0 (`bin: backlog`). https://registry.npmjs.org/backlog.md/latest
 13. Local probes, 2026-10-10, on Bun 1.3.5 (installed) and Bun 1.4.2 (binary from npm `@oven/bun-darwin-aarch64` 1.4.2, unpacked in a scratch directory, not installed). 1.4.2: `Bun.YAML` and `Bun.TOML` have `parse` and `stringify`, `Bun.JSONC` has `parse`, `Bun.JSON5` has `parse` and `stringify`; 1.3.5: only `Bun.TOML.parse` and `Bun.YAML.parse`/`stringify`. Both: `no: no` and `on: yes` stay strings; invalid YAML throws `SyntaxError`; a two-document file parses to an array; `<<: *anchor` is merged; `Bun.YAML.stringify` drops comments and writes flow style unless given an indent; an env-gated test file passes with and without the variable. `bun test --help` on 1.4.2: `--timeout` per-test default 5000 ms.
+
+## Amendments
+
+- 2026-10-12, M0 review (maintainer): software-level configuration lives in `<state>/config.yaml` with the same shell as office files: YAML 1.2, exactly one document, `z.strictObject` schemas, a required integer `version`, a JSON Schema export checked by a contract test, and refusal of a newer `version` with "upgrade dipo". Its keys are in the 0006 amendment.
+- 2026-10-12, M0 review (maintainer): every added configuration key, in `office.yaml`, `office.local.yaml` or `config.yaml`, bumps that file's `version`, with a migration from the previous version (identity where nothing else changes). An older dipo then refuses the file with "upgrade dipo" instead of reporting an unknown key.
