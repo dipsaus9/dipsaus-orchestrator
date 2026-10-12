@@ -2,18 +2,10 @@
 // package layout, and asserts that every boundary rule of decision 0004 is reported as an error.
 
 import { describe, expect, it } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 
-const REPO = join(import.meta.dir, "..", "..");
-const FIXTURES = join(import.meta.dir, "fixtures");
-const OXLINT = join(REPO, "node_modules", ".bin", "oxlint");
+import { lintTree, type Placement } from "./lint-tree";
+
 const RULE = "eslint(no-restricted-imports)";
-
-// Temp files only under DIPO_TMP (0017), falling back to /tmp.
-const TMP_ROOT = process.env["DIPO_TMP"] ?? "/tmp";
-
-type Placement = { fixture: string; target: string };
 
 const violations: Placement[] = [
   { fixture: "tui-imports-engine.ts", target: "packages/tui/src/fixture.ts" },
@@ -26,33 +18,14 @@ const violations: Placement[] = [
   { fixture: "deep-import.ts", target: "packages/tui/src/fixture.ts" },
   { fixture: "deep-import.ts", target: "packages/client/src/fixture.ts" },
   { fixture: "deep-import.ts", target: "packages/cli/src/fixture.ts" },
+  { fixture: "deep-import.ts", target: "packages/daemon/src/fixture.ts" },
+  { fixture: "deep-import.ts", target: "packages/testkit/src/fixture.ts" },
 ];
-
-type Diagnostic = { code: string; severity: string; filename: string };
-
-function lintPlaced(placement: Placement): { exitCode: number; diagnostics: Diagnostic[] } {
-  mkdirSync(TMP_ROOT, { recursive: true });
-  const dir = mkdtempSync(join(TMP_ROOT, "dipo-lint-"));
-  try {
-    cpSync(join(REPO, ".oxlintrc.json"), join(dir, ".oxlintrc.json"));
-    const target = join(dir, placement.target);
-    mkdirSync(join(target, ".."), { recursive: true });
-    cpSync(join(FIXTURES, placement.fixture), target);
-    const result = Bun.spawnSync(
-      [OXLINT, "--config", ".oxlintrc.json", "--deny-warnings", "--format", "json", "packages"],
-      { cwd: dir, stdout: "pipe", stderr: "pipe" },
-    );
-    const output = JSON.parse(result.stdout.toString()) as { diagnostics: Diagnostic[] };
-    return { exitCode: result.exitCode, diagnostics: output.diagnostics };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 
 describe("oxlint import boundaries", () => {
   for (const placement of violations) {
     it(`reports ${placement.fixture} in ${placement.target}`, () => {
-      const { exitCode, diagnostics } = lintPlaced(placement);
+      const { exitCode, diagnostics } = lintTree([placement]);
       expect(exitCode).not.toBe(0);
       const hits = diagnostics.filter(
         (d) => d.code === RULE && d.severity === "error" && d.filename === placement.target,
@@ -62,10 +35,9 @@ describe("oxlint import boundaries", () => {
   }
 
   it("allows cli to import client, contract and daemon", () => {
-    const { exitCode, diagnostics } = lintPlaced({
-      fixture: "cli-allowed.ts",
-      target: "packages/cli/src/fixture.ts",
-    });
+    const { exitCode, diagnostics } = lintTree([
+      { fixture: "cli-allowed.ts", target: "packages/cli/src/fixture.ts" },
+    ]);
     expect(diagnostics).toEqual([]);
     expect(exitCode).toBe(0);
   });
