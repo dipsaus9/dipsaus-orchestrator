@@ -1,10 +1,10 @@
 ---
 id: DIPO-19
 title: 'Define the contract envelope, ids, errors and software-level messages'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:31'
+updated_date: '2026-10-12 11:35'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -77,3 +77,9 @@ Implemented (DIPO-19 branch):
 - JSON Schema is always the input side of zod: the output side adds additionalProperties false, which would make other-language readers reject fields a newer minor adds.
 - I/O lives outside src: packages/contract/scripts/write-schema.ts (bun run contract:schema, then oxfmt), scripts/schema.test.ts (drift check, compares parsed JSON), scripts/boundary.test.ts (src imports only zod, no I/O globals; package depends on zod only). The contract tsconfig now includes scripts (rootDir .).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Contract core in packages/contract: branded ids and Cursor, client/server frames with auth rule, EngineError with code-derived retryable, CONTRACT_VERSION 1.0, defineCommand/defineRead/defineEvent with since/provisional check, software-level commands/reads/events, commands.describe incl. reads, JSON Schema export (bun run contract:schema) with drift test, boundary test (src imports only zod, no I/O). office.init, office.purge, office.reloadConfig are provisional until DIPO-36, DIPO-76, DIPO-27 ship them. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
