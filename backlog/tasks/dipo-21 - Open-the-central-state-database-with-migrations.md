@@ -1,10 +1,10 @@
 ---
 id: DIPO-21
 title: Open the central state database with migrations
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:53'
+updated_date: '2026-10-12 11:56'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -80,4 +80,12 @@ Implementation (DIPO-21):
 - Commit pause on macOS arm64 (local, sqlite 3.51.0, 200 commits): p50 0.04 ms, max 0.2 ms; the CI run prints the Linux numbers.
 
 Scope addition after merging main (DIPO-17 landed): scripts/build.ts gains packages/engine/src/platform/sqlite-worker.ts as an extra entrypoint, and sqlite.ts resolves the worker to /$bunfs/root/engine/src/platform/sqlite-worker.ts inside a binary (same pattern as the self-check worker); scripts/build.test.ts asserts the entrypoint and no longer assumes exactly two. Without it vacuumInto, and so every migration, would fail in the compiled dipo. Checked by compiling a throwaway entry with --root=packages: VACUUM INTO from the Worker and the /sbin/mount check work inside the binary.
+
+Correction: the earlier note 'For DIPO-17: the compiled binary must include sqlite-worker.ts as an extra entrypoint' is superseded; this story added the entrypoint to scripts/build.ts itself. Code migration steps are checksummed over their `source` string, so authors must put the full step body (for example the SQL it runs) in `source`.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Central state database: platform/sqlite.ts opens <state>/dipo.db with the 0007 pragmas, 0700/0600 modes, sqlite version log, refusal on network filesystems (mount/mountinfo parsing), sync-folder warning, synchronous-only transaction helpers, VACUUM INTO in a Bun Worker (also an entrypoint of the compiled binary). db/: checksummed migrations with a pre-migration backup, per-step transactions, too-new and edited-checksum refusal; migration 1 (offices, schema_migrations, STRICT); office-key schema check; OfficeHandle binding $office_id. CI-only commit-pause measurement. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
