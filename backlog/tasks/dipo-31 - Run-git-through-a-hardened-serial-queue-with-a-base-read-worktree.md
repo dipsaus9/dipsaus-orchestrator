@@ -4,7 +4,7 @@ title: Run git through a hardened serial queue with a base read worktree
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:26'
+updated_date: '2026-10-12 21:38'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,8 @@ references:
   - packages/engine/src/index.ts
   - packages/engine/src/office/repository.ts
   - packages/engine/src/platform/repo-files.ts
+  - packages/daemon/src/foreground.ts
+  - packages/testkit/src/git.ts
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0008-worker-adapter.md
@@ -78,4 +80,12 @@ DIPO-31 implementation (2026-10-12):
 - features.ts lists engineGit.feature, whose load step git.version checks git --version once per office load and records the office's paths; later stories reach the queue through engineGit.forOffice(office).
 - Added refs: packages/engine/src/index.ts (exports the git module), packages/engine/src/office/repository.ts and packages/engine/src/platform/repo-files.ts (AC 2: their read-only discovery and scan git calls now use the same hardening; discovery cannot use recorded paths, it finds them).
 - Follow-ups: git.fetchFailed is retryable but not yet in the contract's RETRYABLE_ERROR_CODES; the command that surfaces it (DIPO-48 pickup, DIPO-34 planning push) adds it. OfficeGit takes configuration at office load; office.reloadConfig does not yet call configure(). safe.directory is not overridden (0008 does not ask for it; the daemon runs as the repository owner).
+
+Review hardening (2026-10-12):
+- Inherited env also drops GIT_CONFIG_COUNT, every GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n, GIT_CONFIG_GLOBAL, GIT_EXEC_PATH, GIT_TEMPLATE_DIR, GIT_REPLACE_REF_BASE, GIT_SHALLOW_FILE and GIT_ATTR_SOURCE. GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS and SSH_ASKPASS are kept on purpose from the daemon's (maintainer's) environment, so fetch and push authenticate as the maintainer (KEPT_AUTH_ENV in git/hardened.ts).
+- _base checkouts (worktree add, checkout) run with GIT_LFS_SKIP_SMUDGE=1 and -c filter.lfs.process= -c filter.lfs.smudge=; fetch runs with -c protocol.ext.allow=never (other protocols keep git's defaults); worktree add runs with -c worktree.useRelativePaths=false, and adminDirOf/worktreeLocation resolve a relative gitdir against the directory of the file that holds it.
+- The daemon builds EngineGit in foreground.ts with the git path it resolved from PATH and adds its feature to the registry; features.ts is back to main. platform/repo-files.ts reuses hardenedArgs/hardenedEnv (kind none).
+- testkit isolatedEnv sets XDG_CONFIG_HOME under the temp home, because engine git now drops GIT_CONFIG_GLOBAL and must not find the maintainer's XDG git config in tests.
+- For DIPO-38/DIPO-74: before each engine call in a story worktree, compare the admin dir's commondir and gitdir files, and the worktree's .git pointer, against a run-start snapshot (0008 section 2); worktreeLocation only checks the pointer today.
+- Residual repository-config keys accepted (the repo config lives in the common dir, which the worker cannot write): remote url and uploadpack/receivepack, core.sshCommand, credential helpers, http.*, url.*.insteadOf.
 <!-- SECTION:NOTES:END -->
