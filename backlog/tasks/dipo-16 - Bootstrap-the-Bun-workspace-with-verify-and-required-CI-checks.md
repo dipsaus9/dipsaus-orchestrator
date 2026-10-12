@@ -1,10 +1,10 @@
 ---
 id: DIPO-16
 title: Bootstrap the Bun workspace with verify and required CI checks
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:13'
+updated_date: '2026-10-12 11:18'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -91,3 +91,9 @@ Implemented on branch DIPO-16/bootstrap-bun-workspace-verify-required.
 - ci.yml: verify (DIPO_TEST_CI=1), dependency-review (PRs only, 0016 licence allow list, fail-on-severity high), ci-ok (needs all, if always(); dependency-review may be skipped only outside PRs). Actions pinned by SHA: checkout v7.0.1, setup-bun v2.2.0, cache v6.1.0, dependency-review-action v5.0.0.
 - Deviations: status set to In Progress because this Backlog.md config has no In Review status. client/node entry not added: the story says only index.ts per package, and DIPO-25 AC#3 adds that second exports entry.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Bun 1.4.2 workspace with seven packages (contract, engine, daemon, client, tui, cli, private testkit), verify script (format:check, lint, typecheck, test), oxlint import boundaries with fixture tests, PR-title checker per 0016, CI (verify, dependency-review, ci-ok) and pr-title workflows with SHA-pinned actions, CLAUDE.md prerequisites and pinned versions. Reviewer pass; dependency graph enabled (Dependabot alerts on per 0016).
+<!-- SECTION:FINAL_SUMMARY:END -->
