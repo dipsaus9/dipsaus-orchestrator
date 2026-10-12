@@ -186,6 +186,16 @@ function delta(now: ModelUsageTotals, before: ModelUsageTotals): ModelUsageTotal
   };
 }
 
+/** Per field the larger of two totals. */
+function larger(a: ModelUsageTotals, b: ModelUsageTotals): ModelUsageTotals {
+  return {
+    input: Math.max(a.input, b.input),
+    output: Math.max(a.output, b.output),
+    cacheCreate: Math.max(a.cacheCreate, b.cacheCreate),
+    cacheRead: Math.max(a.cacheRead, b.cacheRead),
+  };
+}
+
 function fromModelUsage(entry: z.infer<typeof ModelUsageEntry>): ModelUsageTotals {
   return {
     input: entry.inputTokens,
@@ -541,33 +551,42 @@ function result(value: unknown, state: ClaudeParseState): Step {
     next = step.state;
   }
 
-  // Usage: cumulative totals replace the live numbers, unless the result carries none.
+  // Usage: on a completed turn the cumulative totals replace the live numbers. A turn that did
+  // not complete (aborted, capped, crashed) may report totals without its own spend, or none at
+  // all, so per field the larger of the live numbers and the reported change is kept.
   const reported: Record<string, ModelUsageTotals> = {};
   for (const [model, entry] of Object.entries(msg.modelUsage))
     reported[model] = fromModelUsage(entry);
-  if (Object.values(reported).every(isZero)) {
-    next = { ...next, committed: addTotals(next.committed, next.live), live: {} };
-  } else {
-    const change: Record<string, ModelUsageTotals> = {};
+  const none = Object.values(reported).every(isZero);
+  const completed =
+    (msg.terminal_reason ?? (msg.subtype === "success" ? "completed" : msg.subtype)) ===
+    "completed";
+  const change: Record<string, ModelUsageTotals> = {};
+  if (!none) {
     for (const [model, usage] of Object.entries(reported)) {
       change[model] = delta(usage, next.baseline[model] ?? ZERO_USAGE);
     }
-    next = {
-      ...next,
-      committed: addTotals(next.committed, change),
-      live: {},
-      baseline: { ...next.baseline, ...reported },
-    };
-    for (const model of Object.keys(reported)) {
-      if (!next.models.includes(model) && next.models.length > 0) {
-        events.push({
-          t: "modelSwitched",
-          from: next.models[next.models.length - 1] ?? model,
-          to: model,
-        });
-      }
-      next = { ...next, models: remember(next.models, model) };
+  }
+  if (none || !completed) {
+    for (const model of new Set([...Object.keys(change), ...Object.keys(next.live)])) {
+      change[model] = larger(change[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
     }
+  }
+  next = {
+    ...next,
+    committed: addTotals(next.committed, change),
+    live: {},
+    baseline: none ? next.baseline : { ...next.baseline, ...reported },
+  };
+  for (const model of Object.keys(reported)) {
+    if (!next.models.includes(model) && next.models.length > 0) {
+      events.push({
+        t: "modelSwitched",
+        from: next.models[next.models.length - 1] ?? model,
+        to: model,
+      });
+    }
+    next = { ...next, models: remember(next.models, model) };
   }
 
   const { report, problem: reportProblem } = readReport(msg.structured_output);

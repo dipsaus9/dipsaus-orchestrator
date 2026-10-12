@@ -207,6 +207,7 @@ export {
   type WorkerReport,
   type WorkerReportCriterion,
   type WorkerResult,
+  type WorkerRetry,
   type WorkerSpec,
 } from "./workers/types";
 export {

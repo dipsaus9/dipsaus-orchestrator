@@ -4,7 +4,7 @@
 
 import type { ParkReason } from "@dipsaus-orchestrator/contract";
 
-import type { ExitRecord, WorkerOutcome, WorkerReport, WorkerResult } from "../types";
+import type { ExitRecord, WorkerOutcome, WorkerReport, WorkerResult, WorkerRetry } from "../types";
 import { currentTotals, type ClaudeParseState } from "./interpret";
 
 /** Exit code of a Claude process ended by SIGTERM (0008 "Exit and resume"). */
@@ -15,6 +15,7 @@ interface Decision {
   readonly report: WorkerReport | null;
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   readonly resumable: boolean;
+  readonly retry?: WorkerRetry;
 }
 
 function exitText(exit: ExitRecord): string {
@@ -71,6 +72,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       report: null,
       park: { reason: "budget-exceeded", detail: "prompt_too_long: the context is full" },
       resumable: false,
+      retry: "handoff",
     };
   }
   if (turn.subtype === "error_max_structured_output_retries") {
@@ -116,6 +118,7 @@ function noReport(why: string): Decision {
     report: null,
     park: { reason: "ambiguous-spec", detail: `no valid report: ${why}` },
     resumable: true,
+    retry: "report-feedback",
   };
 }
 
@@ -130,5 +133,6 @@ export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult 
     sessionId,
     resumable: decision.resumable && sessionId !== "",
     ...(decision.park === undefined ? {} : { park: decision.park }),
+    ...(decision.retry === undefined ? {} : { retry: decision.retry }),
   };
 }

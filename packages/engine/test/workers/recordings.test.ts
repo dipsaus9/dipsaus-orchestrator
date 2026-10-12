@@ -46,6 +46,13 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "worker-park-ambiguous": ["blocked", "ambiguous-spec"],
 };
 
+/** The recovery step proposed before the park, where 0008 section 7 asks for one. */
+const RETRY: Readonly<Record<string, string>> = {
+  "prompt-too-long": "handoff",
+  "report-invalid": "report-feedback",
+  "report-invalid-missing": "report-feedback",
+};
+
 /** Scenarios whose park in `meta.expected` the engine decides from its own caps, not the adapter. */
 const ENGINE_DECIDED = new Set(["budget-engine-cap"]);
 
@@ -161,6 +168,7 @@ describe("committed Claude recordings through the adapter", () => {
         expect<WorkerResult["outcome"]>(result.outcome).toBe(outcome as WorkerOutcome);
         expect(result.park?.reason ?? null).toBe(park);
         expect(result.sessionId).toBe("session-1");
+        expect<string | null>(result.retry ?? null).toBe(RETRY[name] ?? null);
 
         // What meta.json names must agree with the table.
         const text = recording.meta.expected;
