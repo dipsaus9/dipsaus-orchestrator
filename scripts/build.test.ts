@@ -60,11 +60,12 @@ describe("buildCommand", () => {
     expect(command).toContain('--define=DIPO_VERSION="0.0.0-dev"');
     expect(command).toContain('--define=DIPO_COMMIT="3f2a9c1e7b20"');
     expect(command).toContain('--define=DIPO_COMMIT_DATE="2026-11-02"');
-    expect(command.at(-2)).toBe("packages/cli/src/main.ts");
+    expect(command.at(-ENTRYPOINTS.length)).toBe("packages/cli/src/main.ts");
   });
 
   it("passes the self-check worker as an extra entrypoint below the build root", () => {
     expect(ENTRYPOINTS).toContain("packages/engine/src/platform/self-check-worker.ts");
+    expect(ENTRYPOINTS).toContain("packages/engine/src/platform/sqlite-worker.ts");
     expect(command).toContain(`--root=${ROOT}`);
     for (const entry of ENTRYPOINTS) expect(entry.startsWith(`${ROOT}/`)).toBe(true);
   });
