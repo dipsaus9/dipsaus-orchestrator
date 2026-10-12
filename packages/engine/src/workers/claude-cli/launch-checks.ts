@@ -26,6 +26,12 @@ export interface ClaudeLaunchCheckDeps {
   readonly selfTestTimeoutMs?: number;
 }
 
+/**
+ * Tools that load project agents or skills. 0008 section 2 asks for a frontmatter check of
+ * `.claude/agents/*.md` and the skills for such roles; until it exists they are refused.
+ */
+export const UNCHECKED_TOOLS: readonly string[] = ["Agent", "Task", "Skill"];
+
 function settingsOf(launch: LaunchPlan): string {
   const file = launch.files.find((entry) => entry.name === SETTINGS_FILE);
   if (file === undefined) throw new Error("the launch plan has no run settings file");
@@ -42,6 +48,19 @@ export async function claudeLaunchChecks(
   launch: LaunchPlan,
   deps: ClaudeLaunchCheckDeps,
 ): Promise<LaunchCheckOutcome> {
+  const unchecked = spec.tools.allow.filter((tool) => UNCHECKED_TOOLS.includes(tool));
+  if (unchecked.length > 0) {
+    return {
+      ok: false,
+      failures: unchecked.map((tool) => ({
+        check: "tools",
+        key: tool,
+        detail:
+          "a role with this tool loads .claude/agents and skills, whose frontmatter can set permissionMode and hooks, and that check does not exist yet (0008 section 2)",
+        fix: "Remove the tool from the role until the agents and skills check is built.",
+      })),
+    };
+  }
   const status = await probe({
     spawn: deps.spawn,
     clock: deps.clock,

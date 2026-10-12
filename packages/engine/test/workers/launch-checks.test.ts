@@ -27,11 +27,12 @@ import {
   MemoryFs,
   scriptedClaude,
   SELF_TEST_SESSION,
+  selfTestSession,
   spec,
   TMP_DIR,
+  TOOLS,
   WORKDIR,
 } from "./launch-fixtures";
-import { loadRecording } from "./replay";
 
 function setup() {
   const clock = new ManualClock();
@@ -52,12 +53,13 @@ const LAYOUT = selfTestLayout({
   adminDir: ADMIN_DIR,
   tmpDir: TMP_DIR,
   nonce: NONCE,
+  tools: TOOLS,
 });
 
 /** A self-test whose sandboxed command leaves `results` behind. */
 function claudeWith(clock: ManualClock, fs: MemoryFs, results: string) {
   return scriptedClaude(clock, {
-    session: loadRecording("safety-main-git"),
+    session: selfTestSession([LAYOUT.command]),
     onSession: () => {
       fs.files.set(LAYOUT.resultsFile, results);
       fs.files.set(LAYOUT.controlFile, "");
@@ -200,4 +202,30 @@ describe("(engine) Claude launch checks", () => {
     expect(fake.calls[2]?.cmd).toContain("--session-id");
     expect(fake.calls[2]?.cmd).not.toContain("--resume");
   });
+});
+
+describe("(engine) roles with unchecked tools", () => {
+  it.each(["Agent", "Task", "Skill"])(
+    "refuses a role that allows %s before any check runs",
+    async (tool) => {
+      const { clock, holds } = setup();
+      const fake = scriptedClaude(clock, {});
+      const result = await prepareLaunch(
+        spec({ tools: { allow: ["Read", "Bash", tool], deny: [] } }),
+        context(),
+        holds,
+        {
+          spawn: fake.spawn,
+          clock,
+          selfTestSessionId: SELF_TEST_SESSION,
+          allowProjectSettings: [],
+          readText: async () => undefined,
+          fs: new MemoryFs(),
+        },
+      );
+      expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "tools", key: tool });
+      expect(fake.calls).toEqual([]);
+    },
+  );
 });
