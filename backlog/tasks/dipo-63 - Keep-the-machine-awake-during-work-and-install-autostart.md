@@ -4,7 +4,7 @@ title: Keep the machine awake during work and install autostart
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:54'
+updated_date: '2026-10-12 14:34'
 labels:
   - 'tier:M'
   - after-cutover
@@ -65,6 +65,7 @@ test_plan:
 - [ ] #4 On Linux, `install` and `status` warn when lingering is off and explain `loginctl enable-linger` without running it.
 - [ ] #5 Under systemd, worker hosts start in their own `systemd-run --user --scope` unit.
 - [ ] #6 When installed, `dipo daemon start|stop|restart` go through `launchctl` or `systemctl --user`; over SSH, where the `gui/<uid>` launchd domain is missing, `launchctl` uses `user/<uid>`.
+- [ ] #7 The launchd agent and the systemd unit do not restart the daemon after exit code 78 (`EX_CONFIG`, an invalid or newer `config.yaml`, DIPO-69): systemd `RestartPreventExitStatus=78`, launchd an equivalent policy; a test of the generated files covers it.
 <!-- AC:END -->
 
 ## Implementation Notes

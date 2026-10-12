@@ -4,7 +4,7 @@ title: Re-attach worker hosts after a daemon restart
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 14:34'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -21,6 +21,7 @@ references:
   - packages/engine/src/run/
   - packages/engine/src/recovery/
   - packages/engine/src/features.ts
+  - packages/engine/src/ingest/
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
@@ -67,6 +68,7 @@ test_plan:
 - [ ] #6 After catch-up the run's caps are checked and the worker stopped when over.
 - [ ] #7 An `ingest.fileChanged` report (DIPO-45) for an active run parks it `interrupted` with detail "event file changed".
 - [ ] #8 Re-attach runs as a recovery step registered with the daemon's `recovering` state (DIPO-68), after reconcile (DIPO-56).
+- [ ] #9 A re-attach that finds a dead host without `exit.json` or an ingested exit line finalizes the agent's usage with `finalizeAgentUsage` (DIPO-45); a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
