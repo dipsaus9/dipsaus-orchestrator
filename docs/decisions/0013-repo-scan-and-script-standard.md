@@ -170,3 +170,7 @@ The orchestrator does not manage secrets or setup. The scan only records facts D
 4. **`.claude/backlog-workflow.json` — answered 2026-10-10: temporary bridge only.** The scan reads it until a repo conforms and reports "still relies on backlog-workflow.json" as a deviation. Long term, what a project is comes from the scan of the repo itself (this ADR) and what the maintainer wants for an office lives in `.dipo/office.yaml` (DIPO-14); the old file can then be removed.
 5. **`PORT` — answered 2026-10-10: required.** A `dev` script must use the `PORT` environment variable when it is set, so parallel worktrees get their own ports. A repo whose `dev` uses fixed ports does not conform (level Partial) and the scan reports the one-line fix; such a repo can still be tested one story at a time (DIPO-7 port fallback).
 6. **`format` — answered 2026-10-10: standardised as check only.** `format` never rewrites files; `format:fix` writes. The engine may run `format` as a check.
+
+## Amendments
+
+- 2026-10-11, M0 story breakdown (maintainer): in M0 the scan is code only, and `run` refuses an office whose verify is unresolved, with a message naming the script to add. The AI fallback and the confirm command move to M1.

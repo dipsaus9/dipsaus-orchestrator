@@ -305,3 +305,5 @@ Decided by the maintainer 2026-10-10 (open question 1) and recorded under "Amend
 ## Amendments
 
 - 2026-10-11, decision 0017 (maintainer): `privacy.*` and `retention.*` are accepted only in `.dipo/office.local.yaml`. In the committed `.dipo/office.yaml` they are a validation error that names the key and points to the local file. This makes "periods are office configuration" (section 7) mean machine-local office configuration only.
+- 2026-10-12, M0 review (maintainer): new table `run_outcomes`, tier P (kept until purge). One row is written when a run ends: tier, role, model, outcome, park reasons, loops, review rounds, verify failures, budget tokens used, minutes, criteria count and scope size. It keeps what retro and tier tuning need after run detail ages out.
+- 2026-10-12, M0 review (maintainer): `runs.kind` is `story` or `session`, and `runs.key` is nullable. A session run is a model session outside a story run (0008 amendment), with no worktree or branch and no story key; its usage is recorded under the office.
