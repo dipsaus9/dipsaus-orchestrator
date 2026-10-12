@@ -13,6 +13,7 @@ import {
   workRun,
   type CommandDefinition,
   type ReadDefinition,
+  type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import {
   createLogger,
@@ -110,6 +111,8 @@ export interface Harness {
   readonly server: ContractServer;
   readonly state: StateDatabase;
   readonly stops: DrainRequest[];
+  /** Set `pending` to what `daemon.status` reports as `upgradePending`. */
+  readonly upgrade: { pending: boolean };
   readonly socket: ServedSocket;
   /** Registers an office row as `office.open` will, and returns its id. */
   addOffice(name?: string): OfficeId;
@@ -123,6 +126,8 @@ export interface HarnessOptions {
   readonly softwareCapacity?: number;
   readonly backpressureLimitBytes?: number;
   readonly renderer?: Renderer;
+  /** What `daemon.status` reports as the resolved tool paths. */
+  readonly tools?: ToolPaths;
 }
 
 export async function startHarness(dir: string, options: HarnessOptions = {}): Promise<Harness> {
@@ -144,6 +149,7 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
   });
   const socketPath = join(dir, "dipo.sock");
   const stops: DrainRequest[] = [];
+  const upgrade = { pending: false };
   const registry = engineRegistry([
     ...FEATURES,
     helloFeature({
@@ -160,6 +166,8 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
       pid: process.pid,
       version: TEST_VERSION,
       socket: socketPath,
+      tools: options.tools ?? {},
+      upgradePending: () => upgrade.pending,
       requestStop: (request) => stops.push(request),
     }),
     fixtureFeature,
@@ -195,6 +203,7 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     server,
     state,
     stops,
+    upgrade,
     socket,
     addOffice(name = "demo") {
       const office = OfficeId.parse(ids.next("off"));

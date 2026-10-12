@@ -4,13 +4,20 @@ import { ClientError } from "@dipsaus-orchestrator/client";
 import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { REPLY_TIMEOUT_MS, type DaemonSession } from "./daemon-commands";
+import { type DaemonControl, REPLY_TIMEOUT_MS, type DaemonSession } from "./daemon-commands";
 import { main, type CliDeps } from "./index";
 
 type Sent = { name: string; args: unknown };
 type Handler = (sent: Sent) => Promise<unknown>;
 
-function fake(connect: () => Promise<Handler>) {
+const NO_LIFECYCLE: DaemonControl = {
+  inspect: () => Promise.reject(new Error("inspect must not be called")),
+  start: () => Promise.reject(new Error("start must not be called")),
+  stop: () => Promise.reject(new Error("stop must not be called")),
+  restart: () => Promise.reject(new Error("restart must not be called")),
+};
+
+function fake(connect: () => Promise<Handler>, daemon: DaemonControl = NO_LIFECYCLE) {
   const out: string[] = [];
   const err: string[] = [];
   const sent: Sent[] = [];
@@ -34,6 +41,7 @@ function fake(connect: () => Promise<Handler>) {
       };
       return session;
     },
+    daemon,
     clock,
     clientChecks: [],
     stamp: undefined,
@@ -96,7 +104,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
       );
       expect(await main(argv, ctx.deps)).toBe(1);
       expect(ctx.err).toEqual([
-        "dipo: no daemon is running (no runtime.json in /state). Start it with `dipo daemon start` (until that exists: `dipo daemon --foreground`).",
+        "dipo: no daemon is running (no runtime.json in /state). Start it with `dipo daemon start`.",
       ]);
       expect(ctx.out).toEqual([]);
     }
@@ -107,7 +115,10 @@ describe("dipo daemon log-level and resume-scheduling", () => {
       Promise.reject(new ClientError("contract.unsupported", "The daemon speaks contract 2.0.")),
     );
     expect(await main(["daemon", "log-level", "debug"], ctx.deps)).toBe(1);
-    expect(ctx.err).toEqual(["dipo: contract.unsupported: The daemon speaks contract 2.0."]);
+    expect(ctx.err).toEqual([
+      "dipo: contract.unsupported: The daemon speaks contract 2.0.",
+      "dipo: run `dipo daemon restart`",
+    ]);
   });
 
   it("gives up when no reply arrives within the deadline", async () => {
