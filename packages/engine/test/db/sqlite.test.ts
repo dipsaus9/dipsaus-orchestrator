@@ -162,7 +162,11 @@ describe("openSqlite", () => {
       const raw = new Database(path, { create: true });
       raw.exec("create table t (x integer primary key, y text); create index ty on t (y);");
       const insert = raw.query("insert into t (y) values ($y)");
-      for (let i = 0; i < 2000; i++) insert.run({ $y: `row ${i} ${"x".repeat(50)}` });
+      // One transaction: 2000 separate commits each wait for the disk and can exceed the
+      // test timeout on a busy machine.
+      raw.transaction(() => {
+        for (let i = 0; i < 2000; i++) insert.run({ $y: `row ${i} ${"x".repeat(50)}` });
+      })();
       raw.close();
 
       const healthy = await openSqlite({ ...options, checkIntegrity: true });
