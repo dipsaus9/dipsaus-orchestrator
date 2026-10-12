@@ -1,1 +1,27 @@
+// The main entry of `@dipsaus-orchestrator/client`: the runtime-free protocol core every UI shares
+// (0004 amendment of 2026-10-12). A lint rule keeps Bun and Node APIs out of it; the Unix-socket
+// transport is in `@dipsaus-orchestrator/client/node`.
+
 export const packageName = "@dipsaus-orchestrator/client";
+
+export {
+  ClientError,
+  CONNECT_TIMEOUT_MS,
+  DipoClient,
+  RECONNECT_INITIAL_MS,
+  RECONNECT_MAX_MS,
+  reconnectDelay,
+} from "./client";
+export type {
+  ClientOptions,
+  CommandOptions,
+  CommandOutcome,
+  ConnectionState,
+  HelloResult,
+  ReadOutcome,
+  SubscribeOptions,
+  Subscription,
+} from "./client";
+export { ulidRequestIds } from "./request-id";
+export type { RandomBytes, RequestIds } from "./request-id";
+export type { Transport, TransportConnection, TransportHandlers } from "./transport";
