@@ -7,7 +7,12 @@
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import type { LogLevel, SoftwareConfig, TimerHandle } from "@dipsaus-orchestrator/contract";
+import {
+  EXIT_CONFIG,
+  type LogLevel,
+  type SoftwareConfig,
+  type TimerHandle,
+} from "@dipsaus-orchestrator/contract";
 import {
   acquireLock,
   ChildProcesses,
@@ -155,14 +160,15 @@ export async function runForeground(
   });
   try {
     // Software-level settings (0006 amendment of 2026-10-12), read once at start. An invalid or
-    // newer file stops the start: the daemon never guesses its own settings (0017 section 5).
+    // newer file stops the start: the daemon never guesses its own settings (0017 section 5). It
+    // exits with EXIT_CONFIG (78), so a supervisor does not restart it in a loop (DIPO-63).
     const settings = await loadSoftwareConfig(dirs.state);
     if (!settings.ok) {
       for (const error of settings.errors) {
         logger.error("invalid software configuration", { ...error });
         io.writeError(`dipo: ${error.message}`);
       }
-      return 1;
+      return EXIT_CONFIG;
     }
     logger.info("software configuration", {
       fromFile: settings.fromFile,

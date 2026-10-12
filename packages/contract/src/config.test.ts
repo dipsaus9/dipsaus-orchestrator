@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   configIssueErrors,
+  EXIT_CONFIG,
   parseSingleYamlDocument,
   resolveSoftwareConfig,
   SOFTWARE_CONFIG_DEFAULTS,
@@ -191,5 +192,11 @@ describe("configIssueErrors", () => {
       "f.yaml: extra: unknown key; only one of the keys version, inner",
       "f.yaml: inner.b: unknown key; expected one of the keys a",
     ]);
+  });
+});
+
+describe("EXIT_CONFIG", () => {
+  it("is EX_CONFIG from sysexits, the code supervisors and clients must not restart on", () => {
+    expect(EXIT_CONFIG).toBe(78);
   });
 });

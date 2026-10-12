@@ -168,11 +168,33 @@ describe("dipo daemon --foreground", () => {
         await Bun.write(join(state, "config.yaml"), "version: 2\n");
         const daemon = start(daemonEnv(dir));
         try {
-          expect(await daemon.exited).toBe(1);
+          // EX_CONFIG, so a supervisor does not restart it in a loop.
+          expect(await daemon.exited).toBe(78);
           const stderr = await new Response(daemon.stderr).text();
           expect(stderr).toContain(`dipo: ${join(state, "config.yaml")}: version: `);
           expect(stderr).toContain("upgrade dipo");
           // Refused before the lock: nothing to clean up.
+          expect(existsSync(join(state, "dipo.pid"))).toBe(false);
+        } finally {
+          await stop(daemon);
+        }
+      });
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
+    "exits with EX_CONFIG for an invalid config.yaml",
+    async () => {
+      await withTempDir(async (dir) => {
+        const state = join(dir, "state");
+        await Bun.write(join(state, "config.yaml"), "version: 1\ndaemon:\n  autostrat: false\n");
+        const daemon = start(daemonEnv(dir));
+        try {
+          expect(await daemon.exited).toBe(78);
+          expect(await new Response(daemon.stderr).text()).toContain(
+            `dipo: ${join(state, "config.yaml")}: daemon.autostrat: unknown key`,
+          );
           expect(existsSync(join(state, "dipo.pid"))).toBe(false);
         } finally {
           await stop(daemon);
