@@ -7,7 +7,7 @@
 // Liveness is PID plus start time through the DIPO-23 identity check, where a zombie is dead;
 // the socket is never asked (0006 decision 8).
 
-import { renameSync, writeFileSync } from "node:fs";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
@@ -92,14 +92,23 @@ export async function launchWorkerHost(options: LaunchWorkerHostOptions): Promis
   renameSync(`${launchPath}.tmp`, launchPath);
 
   const spawn = options.spawnDetached ?? systemSpawnDetached;
-  const { pid } = spawn({
-    cmd: [...options.dipoCommand, "daemon", "worker-host", options.runId],
-    cwd: runDir,
-    env: { ...detachedEnv(options.env), [RUN_DIR_ENV]: runDir },
-    outputFile: join(runDir, HOST_LOG_FILE),
-  });
-  const info = await options.probe(pid);
+  // launch.json holds the task message: it never stays behind when the host did not start.
+  let pid: number;
+  let info: Awaited<ReturnType<ProcessProbe>>;
+  try {
+    ({ pid } = spawn({
+      cmd: [...options.dipoCommand, "daemon", "worker-host", options.runId],
+      cwd: runDir,
+      env: { ...detachedEnv(options.env), [RUN_DIR_ENV]: runDir },
+      outputFile: join(runDir, HOST_LOG_FILE),
+    }));
+    info = await options.probe(pid);
+  } catch (error) {
+    rmSync(launchPath, { force: true });
+    throw error;
+  }
   if (info === null || info.zombie) {
+    rmSync(launchPath, { force: true });
     throw new HostStartError(`the worker host for ${options.runId} (pid ${pid}) exited at once`);
   }
   return {

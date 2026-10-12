@@ -4,7 +4,7 @@
 // liveness by PID plus start time only, a zombie being dead.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -118,6 +118,16 @@ describe("launchWorkerHost", () => {
     withTempDir(async (dir) => {
       const options = { ...launchOptions(dir, []), probe: (async () => null) as ProcessProbe };
       await expect(launchWorkerHost(options)).rejects.toThrow(HostStartError);
+      const launchPath = join(runDirectory(options.officeDir, RUN), LAUNCH_FILE);
+      expect(existsSync(launchPath)).toBe(false);
+      const throwing = {
+        ...options,
+        spawnDetached: () => {
+          throw new Error("EAGAIN");
+        },
+      };
+      await expect(launchWorkerHost(throwing)).rejects.toThrow("EAGAIN");
+      expect(existsSync(launchPath)).toBe(false);
       await expect(launchWorkerHost({ ...options, runId: "run-0001" })).rejects.toThrow(
         "not a run id",
       );
