@@ -4,7 +4,7 @@ title: Host each worker in a detached process with an event file
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:59'
+updated_date: '2026-10-12 14:05'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -87,4 +87,6 @@ Implementation (DIPO-44):
 - Not in this story: the systemd transient scope for hosts under a user unit (0006 decision 8, under supervisors; goes with autostart DIPO-63) and the wiring into a run (DIPO-74).
 
 CI follow-up: on Linux a parent that runs with --no-orphans kills its detached children even with both variables removed (the mechanism does not depend on the child's environment). So the daemon's refusal to run with --no-orphans is the real guard, and stripping the variables keeps a host from turning on --no-orphans for itself. The CI detach test runs its stand-in daemon without --no-orphans and puts both variables only into the environment it hands to the host launch. Without the stripping, that test fails.
+
+Review follow-up: launch.json is removed whenever a host does not start (launchWorkerHost on a spawn error or HostStartError; the worker-host form before every refusal when DIPO_RUN_DIR is absolute). Plan files may not use the run files the engine or host writes (RESERVED_RUN_FILES). LineSplitter holds at most 4 MiB of a line and emits a longer one in pieces, each its own event. The host fixes the hosts directory to 0700 with ensurePrivateDir. A failure while preparing or binding the host socket ends in exit.json with a startError. Retention of events.ndjson belongs to DIPO-4 and DIPO-45. DIPO-70 must strip both BUN_OPTIONS and BUN_FEATURE_FLAG_NO_ORPHANS when it starts the daemon. An ADR 0006 amendment about BUN_FEATURE_FLAG_NO_ORPHANS and the Linux behaviour will be proposed to the maintainer.
 <!-- SECTION:NOTES:END -->
