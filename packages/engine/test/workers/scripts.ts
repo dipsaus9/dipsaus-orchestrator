@@ -76,6 +76,17 @@ export const SCRIPTS: Readonly<Record<string, readonly WorkerEvent[]>> = {
     },
     { t: "compacted", preTokens: 150000 },
   ],
+  // Ingestion debounce (DIPO-45): small output, usage twice, then more than 16 KiB of text.
+  "output-and-usage": [
+    started,
+    { t: "activity", kind: "text" },
+    { t: "output", text: "Reading the greeter." },
+    { t: "usage", messageId: "msg-1", model: MODEL, input: 2, cacheCreate: 100, cacheRead: 50 },
+    { t: "usage", messageId: "msg-2", model: MODEL, input: 3, cacheCreate: 10, cacheRead: 60 },
+    { t: "activity", kind: "text" },
+    { t: "output", text: "x".repeat(17 * 1024) },
+    { t: "turn", report: done, totals, numTurns: 2, terminal: "completed" },
+  ],
 };
 
 /** A `ScriptedWorker` checked against the Claude CLI adapter's event schema, the M0 default. */
