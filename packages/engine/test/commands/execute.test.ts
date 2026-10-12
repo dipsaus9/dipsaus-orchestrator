@@ -19,7 +19,7 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable, REQUEST_TTL_MS } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
-import { addStory, renumberStory } from "../../src/stories/keys";
+import { addStory, removeStory, renumberStory } from "../../src/stories/keys";
 import { type FixtureCalls, fixtureFeature } from "./fixtures";
 import { addOffice, countRows, createFactTable, openTestState, type TestState } from "./helpers";
 
@@ -337,6 +337,47 @@ describe("executeCommand", () => {
         expect(
           errorCode(await touch(s, R2, { story: "DIPO-7", text: "x" }, { name: "work.nope" })),
         ).toBe("capability.missing");
+      } finally {
+        s.state.close();
+      }
+    }));
+
+  it("answers a retry from its record even after the story it named was removed", () =>
+    withTempDir(async (dir) => {
+      const s = await setup(dir);
+      try {
+        const story = seedStory(s);
+        const first = await touch(s, R1, { story: "DIPO-7", text: "done" });
+        expect(first.ok).toBe(true);
+        s.office.immediate(() => removeStory(s.office, story.key, s.clock.now()));
+        expect(await touch(s, R1, { story: "DIPO-7", text: "done" })).toEqual(first);
+        expect(errorCode(await touch(s, R2, { story: "DIPO-7", text: "done" }))).toBe(
+          "story.unknown",
+        );
+        expect(s.calls.touch).toBe(1);
+      } finally {
+        s.state.close();
+      }
+    }));
+
+  it("gives a concurrent duplicate of a software-level command the same reply", () =>
+    withTempDir(async (dir) => {
+      const s = await setup(dir);
+      try {
+        const level = (value: string) =>
+          executeCommand(s.deps, {
+            requestId: R1,
+            name: "fixture.level",
+            args: { level: value },
+            origin: "cli",
+            confirmed: false,
+          });
+        const [a, b, c] = await Promise.all([level("debug"), level("debug"), level("info")]);
+        expect(a).toMatchObject({ ok: true, result: { level: "debug" } });
+        expect(b).toEqual(a);
+        expect(errorCode(c)).toBe("request.reused");
+        expect(s.calls.level).toBe(1);
+        expect(s.deps.softwareRequests.inFlight(R1)).toBeUndefined();
       } finally {
         s.state.close();
       }

@@ -65,6 +65,10 @@ function priorReply(
 ): CommandReply | null {
   if (prior === null) return null;
   if (prior.command === command && prior.argsHash === hash) return prior.reply;
+  return reused(requestId);
+}
+
+function reused(requestId: RequestId): CommandReply {
   return failure(
     requestId,
     engineError(
@@ -97,10 +101,14 @@ function runOfficeCommand(
   const refFields = findStoryRefFields(command.definition.args);
   try {
     return office.immediate((): CommandReply => {
+      // The record first: a retry of a command that succeeded gets its reply even when a story it
+      // named has since been removed or renumbered out of reach.
+      const record = findOfficeRequest(office, requestId, now);
+      if (record !== null && record.command !== name) return reused(requestId);
       const resolved = resolveStoryRefs(office, refFields, args);
-      if (!resolved.ok) return failure(requestId, resolved.error);
+      if (!resolved.ok) return record === null ? failure(requestId, resolved.error) : record.reply;
       const hash = argsHash(name, resolved.args);
-      const prior = priorReply(requestId, findOfficeRequest(office, requestId, now), name, hash);
+      const prior = priorReply(requestId, record, name, hash);
       if (prior !== null) return prior;
 
       const entries: NewEntry[] = [];
@@ -151,6 +159,31 @@ async function runSoftwareCommand(
   const hash = argsHash(name, args);
   const prior = priorReply(requestId, deps.softwareRequests.find(requestId), name, hash);
   if (prior !== null) return prior;
+  // A duplicate that arrives while the first is still running waits for the same reply.
+  const running = deps.softwareRequests.inFlight(requestId);
+  if (running !== undefined) {
+    return running.command === name && running.argsHash === hash
+      ? running.reply
+      : reused(requestId);
+  }
+  const reply = handleSoftwareCommand(deps, command, request, args, hash);
+  deps.softwareRequests.begin(requestId, { command: name, argsHash: hash, reply });
+  try {
+    return await reply;
+  } finally {
+    deps.softwareRequests.end(requestId);
+  }
+}
+
+async function handleSoftwareCommand(
+  deps: ExecutorDeps,
+  command: Extract<RegisteredCommand, { level: "software" }>,
+  request: CommandRequest,
+  args: unknown,
+  hash: string,
+): Promise<CommandReply> {
+  const { requestId } = request;
+  const name = command.definition.name;
   try {
     const outcome = await command.handle(
       {
