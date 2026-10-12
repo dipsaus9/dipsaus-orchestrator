@@ -1,10 +1,10 @@
 ---
 id: DIPO-24
 title: Serve the contract over WebSocket on the Unix socket with replayable streams
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:19'
+updated_date: '2026-10-12 13:21'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -101,4 +101,12 @@ Review follow-up (PR #36):
 - Backpressure: SocketConnection.send reports sent, backpressure or dropped, and buffered() gives the unsent bytes. Bun 1.4.2 drops frames past backpressureLimit (send returns 0) but leaves the connection open, so serve.ts terminates a connection whose send is dropped or whose unsent data passes the limit (8 MiB). Office catch-up is flow-controlled: pages of 100 entries, one frame each, read and rendered only while less than 1 MiB is unsent; the websocket drain handler resumes it, and catch-up and software replay stop as soon as the connection is closed. A slow client therefore pauses its own catch-up instead of growing the daemon buffer; past the limit it is terminated and resumes from its cursor. Tests: daemon/test/integration/backpressure.test.ts (raw socket that stops reading: paused while a fast client gets everything; with a 256 KiB limit it is terminated, nothing more is rendered for it, and a new connection resumes from the same cursor).
 - Lock step 1: helloHandshake also requires runtime.json startTimeMs to equal the PID record start time (which acquireLock checks against the live process), so the identity is PID plus start time as in DIPO-23, before the engine.hello/daemon.status exchange. Test for a reused PID with another start time.
 - daemon.status placeholder fields and their owning stories: loadedOffices [] (DIPO-27, office loading), activeRuns 0 (DIPO-48/DIPO-74, runs), keepAwake { held: false } (DIPO-63, keep-awake), upgradePending false (DIPO-70, restart and upgrade), tools {} (DIPO-70 AC #3, tool paths resolved at start), webUrl absent (browser listener, after M0).
+
+Follow-up idea (reviewer): an integration test where a paused client resumes reading on the same connection and receives every seq once, in order, then one caughtUp mark; and a platform test pinning Bun's send return codes past backpressureLimit.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Contract over WebSocket on the Unix socket: serve.ts (one JSON frame per text frame, plain HTTP 426, backpressure with send results, termination on drop or past 8 MiB), software stream ring buffer with a random epoch, engine.hello with capability flags for registered non-provisional names, ContractServer (first-frame rule, other-major frozen surface, lifecycle gates, subscribe/replay/reset with stream.mark caughtUp, paced office catch-up, filters, 15 s heartbeat), daemon.* control operations, daemon.state on every lifecycle transition, lock step 1 via engine.hello + daemon.status with pid and start-time identity. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
