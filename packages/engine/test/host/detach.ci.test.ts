@@ -48,8 +48,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           copyFileSync(join(FIXTURES, "stub-worker.sh"), stub);
           chmodSync(stub, 0o755);
           const env = cleanEnv();
-          // A Bun-wide --no-orphans here must not reach the host (0006 decision 8).
-          env["BUN_OPTIONS"] = "--no-orphans";
+          delete env["BUN_OPTIONS"];
+          delete env["BUN_FEATURE_FLAG_NO_ORPHANS"];
           const daemon = Bun.spawn({
             cmd: [process.execPath, join(FIXTURES, "host-daemon.ts"), dir, RUN],
             env: { ...env, DIPO_TMP: dir, DIPO_HOME: join(dir, "state") },

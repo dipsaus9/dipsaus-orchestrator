@@ -25,7 +25,9 @@ const host = await launchWorkerHost({
     stdin: ['"first"\n'],
   },
   dipoCommand: [process.execPath, CLI_MAIN],
-  env: process.env,
+  // The daemon never runs with --no-orphans (0006 decision 8), but its environment may carry the
+  // flag variables; the host must not inherit them, or it would die with this process.
+  env: { ...process.env, BUN_OPTIONS: "--no-orphans", BUN_FEATURE_FLAG_NO_ORPHANS: "1" },
   probe: systemProcessProbe(currentPlatform()),
 });
 writeFileSync(join(dir, "host.json"), JSON.stringify({ ...host, daemonPid: process.pid }));
