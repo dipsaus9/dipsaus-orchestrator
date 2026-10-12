@@ -7,6 +7,8 @@ import { homedir, userInfo } from "node:os";
 export interface SecretPattern {
   readonly name: string;
   readonly pattern: RegExp;
+  /** Matches that are placeholders, not secrets. */
+  readonly allow?: RegExp;
 }
 
 /** Token shapes and markers that never belong in a recording. */
@@ -19,6 +21,13 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   { name: "bearer token", pattern: /Bearer / },
   { name: "private key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   // A real home directory, on any machine: the normaliser turns every one into ${HOME}.
+  // Any email address, so a committed recording cannot carry one even where the capture-time
+  // needle (the maintainer's git email) is unknown, as in CI. Documentation domains are allowed.
+  {
+    name: "email address",
+    pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g,
+    allow: /@example\.(?:org|com)$/i,
+  },
   { name: "home path", pattern: /\/(?:Users|home)\/[A-Za-z0-9._-]+/ },
 ];
 
@@ -52,8 +61,12 @@ export function scanForSecrets(text: string, needles: readonly Needle[] = []): S
   const hits: SecretHit[] = [];
   const lines = text.split("\n");
   lines.forEach((line, index) => {
-    for (const { name, pattern } of SECRET_PATTERNS) {
-      if (pattern.test(line)) hits.push({ name, line: index + 1 });
+    for (const { name, pattern, allow } of SECRET_PATTERNS) {
+      const matches = pattern.global ? [...line.matchAll(pattern)].map((match) => match[0]) : [];
+      const hit = pattern.global
+        ? matches.some((match) => allow === undefined || !allow.test(match))
+        : pattern.test(line);
+      if (hit) hits.push({ name, line: index + 1 });
     }
     const lower = line.toLowerCase();
     for (const needle of needles) {

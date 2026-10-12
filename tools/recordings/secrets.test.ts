@@ -10,6 +10,7 @@ const SHAPES: readonly [string, string][] = [
   ["aws access key id", `${"AKIA"}${"ABCDEFGHIJKLMNOP"}`],
   ["bearer token", `Authorization: ${"Bearer"} abc`],
   ["private key", `-----BEGIN ${"OPENSSH"} PRIVATE KEY-----`],
+  ["email address", `mail ${"someone"}@${"mail"}.example.net`],
   ["home path", `/${"Users"}/someone/.claude`],
   ["home path", `/${"home"}/someone/x`],
 ];
@@ -33,10 +34,15 @@ describe("secret guard", () => {
   });
 
   it("finds literal needles case-insensitively", () => {
-    const hits = scanForSecrets("written by Someone@Example.org", [
-      { name: "email", value: "someone@example.org" },
+    const hits = scanForSecrets("written by Someone", [{ name: "user", value: "someone" }]);
+    expect(hits).toEqual([{ name: "user", line: 1 }]);
+  });
+
+  it("allows example.org and example.com email placeholders", () => {
+    expect(scanForSecrets("from test@example.org and dev@example.com")).toEqual([]);
+    expect(scanForSecrets("test@example.org and x@corp.io")).toEqual([
+      { name: "email address", line: 1 },
     ]);
-    expect(hits).toEqual([{ name: "email", line: 1 }]);
   });
 
   it("passes placeholders and redaction markers", () => {
