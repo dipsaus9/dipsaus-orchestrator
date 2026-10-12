@@ -1,10 +1,10 @@
 ---
 id: DIPO-28
 title: Run the Backlog CLI and parse its plain output
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 21:25'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -52,17 +52,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `backlog --version` is checked by an office load step registered through the DIPO-27 seam; a version outside 1.53.x refuses the office with a notice naming the version and the install command `bun add -g backlog.md@1.53.0`.
-- [ ] #2 The runner refuses `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses` and any status `Draft` before spawning.
-- [ ] #3 A non-zero exit or a `not found` line is an error carrying the command and output.
-- [ ] #4 The parser requires `File:` on line 1 and `Task <ID> - <title>` on line 2, reads known header keys only, splits lists on `, `, takes dependencies from the first level of the dependency graph, and recognises sections only by known names followed by exactly 50 `-`.
-- [ ] #5 A repeated or out-of-order known section is a parse error reported as R02; unknown keys and sections are kept raw and logged.
-- [ ] #6 Text containing a line of 50 `-` is refused by the write path before calling the CLI.
-- [ ] #7 Fixtures recorded from Backlog.md 1.53.0 cover a task with every field, a draft, a list with `(ac: n/m)` counts, a fake section inside a description, and an unknown id.
+- [x] #1 `backlog --version` is checked by an office load step registered through the DIPO-27 seam; a version outside 1.53.x refuses the office with a notice naming the version and the install command `bun add -g backlog.md@1.53.0`.
+- [x] #2 The runner refuses `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses` and any status `Draft` before spawning.
+- [x] #3 A non-zero exit or a `not found` line is an error carrying the command and output.
+- [x] #4 The parser requires `File:` on line 1 and `Task <ID> - <title>` on line 2, reads known header keys only, splits lists on `, `, takes dependencies from the first level of the dependency graph, and recognises sections only by known names followed by exactly 50 `-`.
+- [x] #5 A repeated or out-of-order known section is a parse error reported as R02; unknown keys and sections are kept raw and logged.
+- [x] #6 Text containing a line of 50 `-` is refused by the write path before calling the CLI.
+- [x] #7 Fixtures recorded from Backlog.md 1.53.0 cover a task with every field, a draft, a list with `(ac: n/m)` counts, a fake section inside a description, and an unknown id.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S13 (DIPO-15). Before cutover: built by hand-run agents.
+
+Implemented in packages/engine/src/backlog/: plain.ts (parser), runner.ts (allowlist, never-run list, write-path text guard, errors), version.ts (backlog.version load step), index.ts (backlogFeature), listed in features.ts with systemSpawn and `backlog` from PATH.
+- 1.53 prints a blank line between `File:` and `Task <ID> - <title>`; the parser accepts exactly that one blank line.
+- `not found` goes to stderr in 1.53; `draft view DRAFT-99` exits 0 with it, so the runner checks stderr lines, and bare stdout messages outside a view.
+- An unknown `Name:` plus rule never starts a section (only known names do); it stays in the surrounding text and is reported raw through onUnknown and `unknown`.
+- `Modified files:` is a trailer line after the notes, read off the end of the last of Definition of Done, Plan or Notes.
+- Fixtures recorded by packages/engine/test/backlog/record-plain.ts against a temp copy of the fixture project; the pinned CLI runs as `bun node_modules/backlog.md/cli.js`, so tests need no node.
+- The daemon's resolved tool path is not threaded into the feature (foreground.ts is outside References); the step uses `backlog` on the daemon PATH.
 <!-- SECTION:NOTES:END -->
