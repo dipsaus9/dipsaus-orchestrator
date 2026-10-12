@@ -5,6 +5,8 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 
+import { hardenedArgs, hardenedEnv } from "../git/hardened";
+
 export interface RepoFiles {
   /** Repo-relative POSIX paths of tracked and untracked, not ignored files. */
   listFiles(): Promise<string[]>;
@@ -21,18 +23,8 @@ export type RepoFilesOptions = {
   env?: Record<string, string | undefined>;
 };
 
-// The hardened flags of every engine git call (0008 section 2, DIPO-31): no hooks, no fsmonitor, no
-// system config, no pager or prompt.
-const GIT_SAFE = [
-  "--no-pager",
-  "-c",
-  "core.hooksPath=/dev/null",
-  "-c",
-  "core.fsmonitor=false",
-  "-c",
-  "core.quotepath=off",
-];
-const GIT_SAFE_ENV = { GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" };
+// Every scan git call is hardened like any engine git call (0008 section 2, DIPO-31). The scan finds
+// the repository from its root, so it runs without recorded paths (location `none`).
 
 function inside(root: string, path: string): string {
   const clean = normalize(path);
@@ -48,9 +40,10 @@ async function runGit(
   env: Record<string, string | undefined>,
   stdin?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["git", ...GIT_SAFE, ...args], {
+  const location = { kind: "none", cwd: root } as const;
+  const proc = Bun.spawn(["git", ...hardenedArgs(location, args)], {
     cwd: root,
-    env: { ...env, ...GIT_SAFE_ENV },
+    env: hardenedEnv(env, location),
     stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "pipe",
