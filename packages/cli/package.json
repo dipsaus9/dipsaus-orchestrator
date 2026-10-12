@@ -1,0 +1,15 @@
+{
+  "name": "@dipsaus-orchestrator/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dipsaus-orchestrator/client": "workspace:*",
+    "@dipsaus-orchestrator/contract": "workspace:*",
+    "@dipsaus-orchestrator/daemon": "workspace:*",
+    "@dipsaus-orchestrator/tui": "workspace:*"
+  }
+}

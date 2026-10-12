@@ -1,0 +1,84 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "env": {
+    "builtin": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["test/lint-boundaries/fixtures/**"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+            "message": "Deep imports are banned (0004). Import the package entry instead."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["packages/tui/**", "packages/client/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "tui and client never import engine (0004). Go through the contract and client."
+              },
+              {
+                "name": "@dipsaus-orchestrator/daemon",
+                "message": "tui and client never import daemon (0004). Go through the contract and client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@dipsaus-orchestrator/engine/**", "@dipsaus-orchestrator/daemon/**"],
+                "message": "tui and client never import engine or daemon (0004)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/cli/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "cli never imports engine (0004). Daemon-side code runs through runDaemon; everything else goes through client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@dipsaus-orchestrator/engine/**"],
+                "message": "cli never imports engine (0004)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
