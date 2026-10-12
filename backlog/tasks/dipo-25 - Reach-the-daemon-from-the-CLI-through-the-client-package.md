@@ -1,10 +1,10 @@
 ---
 id: DIPO-25
 title: Reach the daemon from the CLI through the client package
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:42'
+updated_date: '2026-10-12 14:20'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -120,4 +120,12 @@ References added: packages/daemon/src/server.ts (debug log lines the manual test
 Review fixes (PR #38): the not-running hint names the foreground fallback until DIPO-70; the reply-timeout message has no start hint; the client core lint also bans `globalThis`/`self`/`window` access to `Bun`, `process`, `Buffer`, `require` and the timers; `test/state-dir/state-dir.test.ts` (added to References) checks client and daemon resolve the same `<state>`.
 
 Follow-up for DIPO-53: a liveness deadline for long-lived clients (treat a connection as dead when no frame or `stream.mark` heartbeat arrives within a deadline, then reconnect). The CLI has its 10 s reply deadline; the TUI needs the liveness check.
+
+Maintainer test 2026-10-12: OK (log-level against a running daemon, no-daemon message after stop).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+CLI reaches the daemon through the client package: runtime-free client core (DipoClient with engine.hello first, requestId matching, typed command/read/subscribe, reconnect with backoff, resubscribe after the last cursor, resend with the same requestId, duplicate events dropped) and client/node (ws+unix transport, stateDir, runtime.json, connectToDaemon); lint keeps the core runtime-free incl. globalThis access; dipo daemon log-level and resume-scheduling with exit 1 for engine errors and no daemon, 2 for usage; daemon debug log lines without args; cross-package state dir test. Reviewer pass; maintainer tested OK. Follow-up: liveness deadline for long-lived clients in DIPO-53.
+<!-- SECTION:FINAL_SUMMARY:END -->
