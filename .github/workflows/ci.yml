@@ -1,4 +1,4 @@
-# Decision 0016 rule 1. Required check: `ci-ok` (rule 2). Smoke builds are added by DIPO-17.
+# Decision 0016 rule 1. Required check: `ci-ok` (rule 2).
 name: ci
 
 on:
@@ -50,9 +50,94 @@ jobs:
           fail-on-severity: high
           allow-licenses: MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, CC0-1.0, BlueOak-1.0.0
 
+  # 0016 rule 1: build with the release script and smoke-test the binary natively on each target.
+  smoke:
+    name: smoke (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-26
+            file: "Mach-O 64-bit executable arm64"
+          - target: darwin-x64
+            runner: macos-26-intel
+            file: "Mach-O 64-bit executable x86_64"
+          - target: linux-x64
+            runner: ubuntu-24.04
+            file: "ELF 64-bit LSB executable, x86-64"
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            file: "ELF 64-bit LSB executable, ARM aarch64"
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      TARGET: ${{ matrix.target }}
+      EXPECTED_FILE: ${{ matrix.file }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - name: Install the sandbox runtime's Linux dependencies (0008)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep
+      - name: Build
+        run: bun scripts/build.ts --target "bun-$TARGET"
+      - name: dipo --version
+        run: |
+          version="$(jq -r .version package.json)-dev"
+          commit="$(git rev-parse --short=12 HEAD)"
+          out="$(./dist/dipo --version)"
+          echo "$out"
+          case "$out" in
+            "dipo $version ($commit "????-??-??") bun "*" $TARGET") ;;
+            *) echo "expected dipo $version ($commit <date>) bun <version> $TARGET"; exit 1 ;;
+          esac
+          json="$(./dist/dipo --version --json)"
+          echo "$json"
+          echo "$json" | jq -e --arg v "$version" --arg c "$commit" --arg t "$TARGET" \
+            '.version == $v and .commit == $c and "\(.os)-\(.arch)" == $t' > /dev/null
+      - name: dipo --help
+        run: ./dist/dipo --help
+      - name: file
+        run: |
+          out="$(file dist/dipo)"
+          echo "$out"
+          case "$out" in
+            *"$EXPECTED_FILE"*) ;;
+            *) echo "expected: $EXPECTED_FILE"; exit 1 ;;
+          esac
+      - name: codesign -v
+        if: runner.os == 'macOS'
+        run: codesign -v dist/dipo
+      - name: Record the glibc floor
+        if: runner.os == 'Linux'
+        run: |
+          floor="$(objdump -T dist/dipo | grep -o 'GLIBC_[0-9.]*' | sort -u -V | tail -n 1)"
+          if [ -z "$floor" ]; then
+            echo "no GLIBC_ symbol versions found"
+            exit 1
+          fi
+          echo "Highest GLIBC_ symbol version of dipo ($TARGET): \`$floor\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: dipo self-check
+        env:
+          DIPO_TMP: ${{ runner.temp }}/dipo
+        run: ./dist/dipo self-check
+
   ci-ok:
     name: ci-ok
-    needs: [verify, dependency-review]
+    needs: [verify, dependency-review, smoke]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}

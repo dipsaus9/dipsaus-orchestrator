@@ -12,6 +12,7 @@ import {
 } from "./definition";
 import { Cursor, OfficeId } from "./ids";
 import { ContractVersion } from "./version";
+import { EvidenceMap } from "./work";
 
 // 0006 section 7. Closed enum: a new state is a major change (0005 section 11).
 export const DaemonState = z.enum(["starting", "recovering", "running", "draining", "safe"]);
@@ -22,6 +23,17 @@ export type LogLevel = z.infer<typeof LogLevel>;
 
 const Count = z.int().nonnegative();
 
+// Today's token usage of an office, engine-derived from the usage alerts (0009 section 8). `tokens`
+// counts as the budget does; `estimatedCost` is always estimated.
+export const DayUsage = z.object({
+  tokens: z.number().nonnegative(),
+  limit: z.number().nonnegative().optional(),
+  share: z.number().nonnegative().optional(),
+  alert: z.boolean(),
+  estimatedCost: z.number().nonnegative().optional(),
+});
+export type DayUsage = z.infer<typeof DayUsage>;
+
 export const OfficeSummary = z.object({
   office: OfficeId,
   name: z.string(),
@@ -30,6 +42,8 @@ export const OfficeSummary = z.object({
   parked: Count, // includes on-hold
   onHold: Count, // subset of parked
   waitingOnMaintainer: Count, // open gates, questions, tests, parked other than on-hold
+  dayUsage: DayUsage.optional(), // [`usage.alerts`]
+  evidence: EvidenceMap.optional(), // [`evidence`]
 });
 export type OfficeSummary = z.infer<typeof OfficeSummary>;
 

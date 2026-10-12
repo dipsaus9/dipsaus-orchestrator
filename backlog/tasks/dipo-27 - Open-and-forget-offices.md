@@ -4,7 +4,7 @@ title: Open and forget offices
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:40'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -17,6 +17,7 @@ references:
   - packages/cli/src/
   - packages/engine/test/office/
   - packages/engine/src/features.ts
+  - packages/contract/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -70,6 +71,7 @@ test_plan:
 - [ ] #9 At load and on `office.reloadConfig { office }` the office reads its configuration (DIPO-26); an invalid result keeps the previous configuration for running work, emits an `engine.notice` with the errors, and `configBlocksRuns(office)` returns them until a valid reload, for `work.run` (DIPO-48) to refuse new runs.
 - [ ] #10 The CLI resolves the office from `--office`, else from the current directory; an unregistered Backlog.md project prints "not an office, run `dipo office open`", and an interactive terminal is asked once to open it.
 - [ ] #11 A repository on a network filesystem gets a warning at open.
+- [ ] #12 The contract definition of `office.reloadConfig` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, and `commands.describe` lists it.
 <!-- AC:END -->
 
 ## Implementation Notes

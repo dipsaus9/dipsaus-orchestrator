@@ -4,12 +4,13 @@ title: Run engine steps on worker code inside the sandbox runtime
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:41'
 labels:
   - test-before-merge
   - 'tier:L'
 milestone: m-0
 dependencies:
+  - DIPO-17
   - DIPO-18
   - DIPO-23
   - DIPO-26
@@ -23,6 +24,8 @@ references:
   - packages/daemon/src/
   - .github/workflows/ci.yml
   - packages/engine/src/index.ts
+  - scripts/build.ts
+  - scripts/build.test.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -77,6 +80,7 @@ test_plan:
 - [ ] #9 Steps run with an allowlisted environment, the `timeouts.scriptMinutes` timeout of their script, and output captured for storage.
 - [ ] #10 Each of the four smoke jobs of DIPO-17 runs `dipo daemon sandbox-exec` with a deny-all policy around `true` after installing the probe's dependencies, and every `ubuntu-24.04` job that runs sandbox tests sets `sysctl kernel.apparmor_restrict_unprivileged_userns=0` in `ci.yml`.
 - [ ] #11 A CI-only test runs this repository's own verify under the verify policy and passes; an environment guard stops that test from running inside itself.
+- [ ] #12 Inside the compiled `dipo` binary, `srt` finds its `apply-seccomp` helper on Linux (DIPO-17 found it missing: a warning at init); the smoke job's `sandbox-exec` check fails when the helper is missing or `srt` warns about it.
 <!-- AC:END -->
 
 ## Implementation Notes

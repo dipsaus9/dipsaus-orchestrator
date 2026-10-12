@@ -4,7 +4,7 @@ title: Restore state from a backup and purge an office
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:40'
 labels:
   - 'tier:M'
   - after-cutover
@@ -65,6 +65,7 @@ test_plan:
 - [ ] #5 `office.purge` is handled as a software-level command: its idempotency record is kept in the daemon's in-memory request table, because purge deletes the office's own `requests` rows; a repeat with the same `requestId` returns the stored reply.
 - [ ] #6 `dipo office purge` asks for confirmation and says that the deletion cannot be undone.
 - [ ] #7 An office whose path is missing is listed at daemon start with the notice "path missing; `dipo office open` the new path, or `dipo office purge`".
+- [ ] #8 The contract definition of `office.purge` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, so AC #4's `commands.describe` entry with `confirm` and `irreversible` appears.
 <!-- AC:END -->
 
 ## Implementation Notes

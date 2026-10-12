@@ -198,6 +198,549 @@
         }
       },
       "required": ["state"]
+    },
+    "work.run.args": {
+      "type": "object",
+      "properties": {
+        "stories": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              }
+            ]
+          }
+        },
+        "maxAgents": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "work.run.result": {
+      "type": "object",
+      "properties": {
+        "started": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              },
+              "key": {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "run": {
+                "type": "string",
+                "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              }
+            },
+            "required": ["story", "key", "run"]
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              },
+              "key": {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "parked",
+                      "notReady",
+                      "notRunnable",
+                      "dependency",
+                      "collision",
+                      "capacity",
+                      "pickupCheckFailed"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": ["story", "key", "reason"]
+          }
+        }
+      },
+      "required": ["started", "skipped"]
+    },
+    "work.answer.args": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "pattern": "^qst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "text": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["allow", "deny"]
+        }
+      },
+      "required": ["question", "text"]
+    },
+    "work.answer.result": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "pattern": "^qst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "delivered": {
+          "type": "string",
+          "enum": ["now", "on-resume"]
+        }
+      },
+      "required": ["question", "delivered"]
+    },
+    "work.steer.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["story", "text"]
+    },
+    "work.steer.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "delivered": {
+          "type": "string",
+          "const": "next-turn"
+        }
+      },
+      "required": ["run", "delivered"]
+    },
+    "work.pause.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        }
+      },
+      "required": ["story"]
+    },
+    "work.pause.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["run"]
+    },
+    "work.resume.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["story"]
+    },
+    "work.resume.result": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Refined",
+            "Ready",
+            "In Progress",
+            "In Review",
+            "Done",
+            "Parked",
+            "Removed"
+          ]
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["story", "key", "to"]
+    },
+    "work.reassign.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["S", "M", "L"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": ["story"]
+    },
+    "work.reassign.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "agent": {
+          "type": "string",
+          "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["run", "agent"]
+    },
+    "work.stop.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["story"]
+    },
+    "work.stop.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["run"]
+    },
+    "work.discard.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["story", "note"]
+    },
+    "work.discard.result": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["story", "key"]
+    },
+    "story.hold.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["story", "note"]
+    },
+    "story.hold.result": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["story", "key"]
+    },
+    "story.drop.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        },
+        "deleteBranch": {
+          "type": "boolean"
+        }
+      },
+      "required": ["story", "deleteBranch"]
+    },
+    "story.drop.result": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["story", "key"]
+    },
+    "gate.approve.args": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["gate"]
+    },
+    "gate.approve.result": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "decision": {
+          "type": "string",
+          "const": "approved"
+        }
+      },
+      "required": ["gate", "decision"]
+    },
+    "gate.reject.args": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["gate", "note"]
+    },
+    "gate.reject.result": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "decision": {
+          "type": "string",
+          "const": "rejected"
+        }
+      },
+      "required": ["gate", "decision"]
+    },
+    "test.start.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        }
+      },
+      "required": ["story"]
+    },
+    "test.start.result": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "type": "string",
+          "pattern": "^tst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "checkout": {
+          "type": "string"
+        },
+        "script": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["test", "checkout", "script"]
+    },
+    "test.record.args": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "type": "string",
+          "pattern": "^tst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "result": {
+          "type": "string",
+          "enum": ["pass", "fail"]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["test", "result"]
+    },
+    "test.record.result": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "type": "string",
+          "pattern": "^tst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "result": {
+          "type": "string",
+          "enum": ["pass", "fail"]
+        }
+      },
+      "required": ["test", "result"]
     }
   }
 }
