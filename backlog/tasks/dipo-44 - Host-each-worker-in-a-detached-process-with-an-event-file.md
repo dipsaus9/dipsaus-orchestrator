@@ -4,7 +4,7 @@ title: Host each worker in a detached process with an event file
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:57'
+updated_date: '2026-10-12 13:59'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -85,4 +85,6 @@ Implementation (DIPO-44):
 - worker_hosts (migration 3): key (office_id, run_id, agent_id), so a reassign can add a second host for the run.
 - Finding: Bun 1.4.2 passes --no-orphans to child processes as BUN_FEATURE_FLAG_NO_ORPHANS=1 as well as through BUN_OPTIONS. Removing only BUN_OPTIONS left the host dying with a --no-orphans parent (seen in the CI detach test). detachedEnv strips both, and the daemon's noOrphansActive guard also checks the flag. The client lifecycle (DIPO-70) should strip it too when it starts the daemon. 0006 decision 8 names only BUN_OPTIONS, so the maintainer may want an amendment line.
 - Not in this story: the systemd transient scope for hosts under a user unit (0006 decision 8, under supervisors; goes with autostart DIPO-63) and the wiring into a run (DIPO-74).
+
+CI follow-up: on Linux a parent that runs with --no-orphans kills its detached children even with both variables removed (the mechanism does not depend on the child's environment). So the daemon's refusal to run with --no-orphans is the real guard, and stripping the variables keeps a host from turning on --no-orphans for itself. The CI detach test runs its stand-in daemon without --no-orphans and puts both variables only into the environment it hands to the host launch. Without the stripping, that test fails.
 <!-- SECTION:NOTES:END -->
