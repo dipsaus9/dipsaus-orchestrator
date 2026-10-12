@@ -54,6 +54,8 @@ export { acquireLock, LockBreakError, PID_FILE } from "./platform/lock";
 export type { HeldLock, LockCheck, LockOutcome, PidRecord } from "./platform/lock";
 export { bindDaemonSocket, probeDaemonSocket, removeSocketFile } from "./platform/socket";
 export type { BoundSocket, SocketIdentity } from "./platform/socket";
+export { SOFTWARE_STREAM, SOFTWARE_STREAM_CAPACITY, SoftwareStream } from "./software-stream";
+export type { SoftwareListener, SoftwareReplay, SoftwareStreamOptions } from "./software-stream";
 export { createLogger, DEFAULT_LOG_LEVEL, isLogLevel, LOG_LEVELS } from "./log/logger";
 export type { LogContext, LogFields, Logger, LogSink } from "./log/logger";
 export { DAEMON_LOG_FILE, openLogFile } from "./log/file";
@@ -104,6 +106,14 @@ export { findStoryRefFields, resolveStoryRefs } from "./commands/story-refs";
 export { engineRegistry, FEATURES } from "./features";
 export { executeRead } from "./reads/execute";
 export type { ReadDeps } from "./reads/execute";
+export {
+  CAPABILITY_FLAGS,
+  capabilityFlags,
+  contractUnsupported,
+  helloFeature,
+  noOfficeSummaries,
+} from "./reads/hello";
+export type { HelloSource, OfficeSummarySource } from "./reads/hello";
 export {
   addStory,
   findStoryByKey,
