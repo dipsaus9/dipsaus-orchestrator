@@ -4,7 +4,7 @@ title: 'Derive story and work views, snapshots and a plain watch command'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:54'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,7 @@ references:
   - packages/cli/src/
   - packages/engine/test/views/
   - packages/engine/src/features.ts
+  - packages/contract/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0008-worker-adapter.md
@@ -63,6 +64,7 @@ test_plan:
 - [ ] #6 `office.snapshot` reads stories, work and gates in one read transaction with its cursor, with questions joined by DIPO-59 and tests by M1 and empty lists until then; `story.detail` returns facts and past runs; `work.outputRange` returns stored text for a byte range.
 - [ ] #7 `office.summary` events are sent after catch-up and debounced on change.
 - [ ] #8 `dipo watch [ID]` prints phase, health, loop, verify and budget share, then streams `work.output` lines, without Ink.
+- [ ] #9 The `story.detail` result shape that DIPO-20 drafted (`view`, `work?`, `runs`, `verdicts`) and `OfficeSummary.dayUsage` are checked against what the views serve and adjusted where needed before `v0.1.0`; after the first release they can only grow by additive fields.
 <!-- AC:END -->
 
 ## Implementation Notes
