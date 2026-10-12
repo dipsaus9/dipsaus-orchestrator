@@ -1,10 +1,10 @@
 ---
 id: DIPO-20
 title: 'Define the contract work model: lifecycle, views, work commands and events'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:48'
+updated_date: '2026-10-12 11:51'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -73,3 +73,9 @@ Choices to confirm: story.drop is confirm true but irreversible false (the stati
 
 After merging main (DIPO-18 exports a runtime type Signal), the watchdog signal schema is named WatchdogSignal with KNOWN_WATCHDOG_SIGNALS.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Contract work model in packages/contract: closed Lifecycle and DaemonState; open enums (Tier, ParkReason, SkipReason, Phase, WatchdogSignal, Health, QueueColumn, GateKind) with KNOWN_* lists; views (StoryView, WorkView, GateView, QuestionView, TestView, Usage with cache split); 14 office commands, 5 reads, 15 office events with since/provisional per AC #8; strict FieldBlock schema; work.schema.json export. story.detail and OfficeSummary.dayUsage shapes are first drafts, adjustable before v0.1.0. office.switch is not defined yet. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
