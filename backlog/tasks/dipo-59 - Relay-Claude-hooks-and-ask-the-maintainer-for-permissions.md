@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:58'
+updated_date: '2026-10-12 14:34'
 labels:
   - 'tier:M'
   - after-cutover
@@ -78,6 +78,7 @@ test_plan:
 - [ ] #7 `work.answer { question, decision }` answers a waiting permission question, and `dipo answer <question> <text|allow|deny>` sends `work.answer`.
 - [ ] #8 The `permission-wait` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
 - [ ] #9 `work.answer` on a permission question without `decision` fails with `args.invalid`; `text` stays required by the schema and may be empty, and for a permission question it is the reason given to the worker. A test covers both.
+- [ ] #10 The `PostModelSwitch` and `PostCompact` hook payloads map to `modelSwitched` and `compacted`, deduplicated against the `system/init`, `modelUsage` and `compact_boundary` paths (DIPO-42 review); a recording or fixture covers each.
 <!-- AC:END -->
 
 ## Implementation Notes

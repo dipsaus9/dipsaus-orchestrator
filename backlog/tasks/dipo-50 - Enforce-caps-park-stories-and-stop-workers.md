@@ -4,7 +4,7 @@ title: 'Enforce caps, park stories and stop workers'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 14:34'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -74,6 +74,7 @@ test_plan:
 - [ ] #7 `work.stop { story, note? }` sends the stop sequence through the host (now-priority message, close stdin, SIGTERM after 10 s, SIGKILL after 30 s) and parks `stopped` with `park.from` In Progress; branch and worktree are kept; a story not running fails `story.notRunning`.
 - [ ] #8 `dipo stop <ID>` asks for confirmation, as `commands.describe` marks `work.stop` with `confirm: true`.
 - [ ] #9 Before DIPO-59 lands, a report `blocked` with `needsPermission` (a call denied by `--permission-prompts none`) parks `needs-permission` with the tool and action as detail, keeping worktree, branch and session.
+- [ ] #10 The engine stops the worker at the first turn that ends `error_max_turns` (DIPO-42 keeps the outcome `capped` even if a later queued message finishes), so a later done report never overrides the cap; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
