@@ -4,7 +4,7 @@ title: Start the TUI with the office store and the office switcher
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:34'
+updated_date: '2026-10-12 14:37'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -23,7 +23,6 @@ references:
   - bun.lock
   - packages/client/src/index.ts
   - packages/client/test/
-  - packages/client/src/client.ts
 documentation:
   - docs/decisions/0009-tui.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -69,7 +68,6 @@ test_plan:
 - [ ] #7 Below 60 columns or 16 rows a single list with "widen for detail" is shown; `NO_COLOR`, `--no-color`, `--ascii` and `--inline` are honoured.
 - [ ] #8 `packages/tui` imports only `contract` and `client`, and render tests use `render`, `press` and `frame` helpers with ANSI stripped.
 - [ ] #9 Enter in the office switcher sends the read `office.switch` (DIPO-52); the store replaces its state with the returned snapshot, unsubscribes from the previous office stream and subscribes to `office:<id>` after the returned cursor (0005 section 8); a render test shows it.
-- [ ] #10 The client gets a liveness deadline on the injected clock (no frame for a set number of heartbeat intervals while subscribed, or a pending request past its deadline) that closes and reconnects, so a hung daemon is noticed (DIPO-25 review); a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes

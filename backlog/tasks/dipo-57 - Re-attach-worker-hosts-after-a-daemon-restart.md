@@ -4,7 +4,7 @@ title: Re-attach worker hosts after a daemon restart
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:34'
+updated_date: '2026-10-12 14:37'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -68,7 +68,7 @@ test_plan:
 - [ ] #6 After catch-up the run's caps are checked and the worker stopped when over.
 - [ ] #7 An `ingest.fileChanged` report (DIPO-45) for an active run parks it `interrupted` with detail "event file changed".
 - [ ] #8 Re-attach runs as a recovery step registered with the daemon's `recovering` state (DIPO-68), after reconcile (DIPO-56).
-- [ ] #9 A re-attach that finds a dead host without `exit.json` or an ingested exit line finalizes the agent's usage with `finalizeAgentUsage` (DIPO-45); a test covers it.
+- [ ] #9 When a re-attach finds a dead host without `exit.json` or an ingested exit line and resumes the run, the resumed session is a new agent and the dead agent's usage is finalized first with `finalizeAgentUsage` (DIPO-45); when the run ends instead, DIPO-51's `endRun` finalizes it. A test covers the resume case.
 <!-- AC:END -->
 
 ## Implementation Notes

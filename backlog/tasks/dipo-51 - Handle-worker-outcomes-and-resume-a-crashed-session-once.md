@@ -4,7 +4,7 @@ title: Handle worker outcomes and resume a crashed session once
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:34'
+updated_date: '2026-10-12 14:37'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -61,7 +61,7 @@ test_plan:
 - [ ] #7 Every outcome that ends a run goes through the `endRun` function of DIPO-49, so it writes its `run_outcomes` row.
 - [ ] #8 A `rate_limit_event` with `status: rejected` or a 429 rate-limit turn closes stdin, writes a wait fact `{ scope, resetsAt?, since }` on the run, emits `work.observed plan-limit`, and never parks.
 - [ ] #9 On resume the ingestor (DIPO-45) starts from the stored totals and baseline, and a counter reset in the CLI is told apart from restored spend, so no usage is counted twice or lost; a test with a resumed run covers it.
-- [ ] #10 When a run ends without an ingested exit line, `finalizeAgentUsage` (DIPO-45) is called so its usage reaches `usage_daily`; a test covers it.
+- [ ] #10 `endRun` calls `finalizeAgentUsage` (DIPO-45) for every agent of the run whose exit line was not ingested, so its usage reaches `usage_daily`; a test covers a run ending without an exit line.
 <!-- AC:END -->
 
 ## Implementation Notes
