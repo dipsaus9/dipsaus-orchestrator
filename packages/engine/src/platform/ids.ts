@@ -14,7 +14,8 @@ const MAX_TIME = 2 ** 48 - 1;
 
 export type RandomFill = (bytes: Uint8Array) => void;
 
-const cryptoFill: RandomFill = (bytes) => {
+/** The system randomness: `crypto.getRandomValues`. */
+export const cryptoFill: RandomFill = (bytes) => {
   crypto.getRandomValues(bytes);
 };
 
