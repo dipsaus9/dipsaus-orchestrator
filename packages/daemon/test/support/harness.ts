@@ -24,6 +24,7 @@ import {
   newLogState,
   noOfficeSummaries,
   openStateDatabase,
+  Renderer,
   serveUnixSocket,
   SoftwareStream,
   stateOfficeDirectory,
@@ -47,6 +48,11 @@ function shipped<D extends CommandDefinition>(definition: D, name: string = defi
 
 /** An office command that writes one `scan.finished` entry per call. */
 export const scanCommand = shipped(officeRescan, "fixture.scan");
+/** An office command that writes `BULK_ENTRIES` large `scan.finished` entries, to fill a slow client. */
+export const bulkCommand = shipped(officeRescan, "fixture.bulk");
+export const BULK_ENTRIES = 120;
+export const BULK_ENTRY_BYTES = 16 * 1024;
+const BULK_TEXT = "x".repeat(BULK_ENTRY_BYTES);
 /** `work.run` as if built, so the `safe` check can be seen; it starts nothing. */
 export const runCommand = shipped(workRun);
 /** A provisional command: registered, but never described and never a capability. */
@@ -65,6 +71,15 @@ export const echoRead: ReadDefinition = defineRead({
 export const fixtureFeature: FeatureModule = {
   name: "test/fixtures",
   register(registry) {
+    registry.addOfficeCommand({
+      definition: bulkCommand,
+      handle: (ctx) => {
+        for (let i = 0; i < BULK_ENTRIES; i++) {
+          ctx.emit({ type: "scan.finished", delta: { scripts: {}, warnings: [BULK_TEXT] } });
+        }
+        return { result: { scan: "started" as const } };
+      },
+    });
     registry.addOfficeCommand({
       definition: scanCommand,
       handle: (ctx) => {
@@ -106,6 +121,8 @@ export interface HarnessOptions {
   readonly states?: readonly ("recovering" | "running" | "safe" | "draining")[];
   readonly heartbeatMs?: number;
   readonly softwareCapacity?: number;
+  readonly backpressureLimitBytes?: number;
+  readonly renderer?: Renderer;
 }
 
 export async function startHarness(dir: string, options: HarnessOptions = {}): Promise<Harness> {
@@ -160,8 +177,15 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     engineVersion: TEST_VERSION,
     logger,
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
+    ...(options.renderer === undefined ? {} : { renderer: options.renderer }),
   });
-  const socket = serveUnixSocket(socketPath, (connection) => server.accept(connection));
+  const socket = serveUnixSocket(
+    socketPath,
+    (connection) => server.accept(connection),
+    options.backpressureLimitBytes === undefined
+      ? {}
+      : { backpressureLimitBytes: options.backpressureLimitBytes },
+  );
 
   return {
     socketPath,

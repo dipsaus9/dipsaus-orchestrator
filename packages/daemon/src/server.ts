@@ -34,7 +34,6 @@ import {
   type Logger,
   type MemoryRequestTable,
   type OfficeDirectory,
-  type OfficeHandle,
   type OfficeSummarySource,
   Renderer,
   replay,
@@ -49,10 +48,19 @@ import type { DaemonLifecycle } from "./lifecycle";
 
 /** An idle subscription gets a `stream.mark` this often (0005 section 8). */
 export const HEARTBEAT_MS = 15_000;
+/**
+ * Office catch-up stops reading the change log while more than this many bytes wait to be
+ * written to the client, and continues on the socket's drain; a slow client then costs at most
+ * this plus one page, well under the backpressure limit.
+ */
+export const PUMP_HIGH_WATER_BYTES = 1024 * 1024;
 /** At most this many events go in one `events` frame. */
 export const EVENTS_PER_FRAME = 500;
-/** Office replay reads the change log in pages of this many entries. */
-const REPLAY_PAGE = 1000;
+/**
+ * Office replay reads, renders and sends the change log in pages of this many entries, one frame
+ * each, and checks for backpressure between pages (worker output entries are at most 16 KiB).
+ */
+const REPLAY_PAGE = 100;
 
 /** Commands that would schedule work and so fail with `scheduling.off` in `safe` (0006 decision 7). */
 export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run"]);
@@ -77,6 +85,8 @@ export interface ContractServerDeps {
   readonly logger: Logger;
   readonly renderer?: Renderer;
   readonly heartbeatMs?: number;
+  /** Office catch-up pauses while more than this many bytes wait to be written. */
+  readonly pumpHighWaterBytes?: number;
 }
 
 /**
@@ -107,6 +117,8 @@ interface Subscription {
   /** The last position the client has been brought to; marks repeat it. */
   position: Cursor;
   heartbeat: ReturnType<Clock["setTimeout"]> | null;
+  /** True until the replay has reached the head and `stream.mark { caughtUp }` went out. */
+  catchingUp: boolean;
 }
 
 type HandshakeState = "new" | "ready" | "foreign";
@@ -142,6 +154,10 @@ export class ContractServer {
 
   get heartbeatMs(): number {
     return this.#heartbeatMs;
+  }
+
+  get pumpHighWaterBytes(): number {
+    return this.#deps.pumpHighWaterBytes ?? PUMP_HIGH_WATER_BYTES;
   }
 
   /** Open connections. */
@@ -209,18 +225,14 @@ class Connection implements ConnectionSession {
 
   officeChanged(office: OfficeId): void {
     for (const subscription of this.#subscriptions.values()) {
-      if (subscription.office !== office) continue;
-      const handle = this.#deps.offices.get(office);
-      if (handle === undefined) {
-        this.#dropSubscription(subscription);
-        continue;
-      }
-      try {
-        this.#catchUpOffice(subscription, handle);
-      } catch (error) {
-        this.#deps.logger.error("office stream delivery failed", { office, error });
-        this.#close(CLOSE_POLICY_VIOLATION, "the office stream needs a reset; subscribe again");
-      }
+      if (subscription.office === office) this.#pumpOffice(subscription);
+    }
+  }
+
+  /** The socket wrote what was queued: continue every office stream from its position. */
+  drain(): void {
+    for (const subscription of this.#subscriptions.values()) {
+      if (subscription.office !== null) this.#pumpOffice(subscription);
     }
   }
 
@@ -423,19 +435,14 @@ class Connection implements ConnectionSession {
       return;
     }
     let after: Cursor;
-    let first: Event[];
-    let head: Cursor;
-    let more: boolean;
     try {
       after = frame.after ?? headCursor(handle);
-      const replayed = replay(handle, after, { limit: REPLAY_PAGE });
-      if (!replayed.ok) {
-        this.#reply({ ok: false, requestId, error: replayed.error });
+      // Checks the cursor; the entries are sent page by page below.
+      const checked = replay(handle, after, { limit: 1 });
+      if (!checked.ok) {
+        this.#reply({ ok: false, requestId, error: checked.error });
         return;
       }
-      first = this.#server.renderer.renderAll(office, replayed.head.epoch, replayed.entries);
-      head = first.at(-1)?.cursor ?? after;
-      more = replayed.entries.length === REPLAY_PAGE;
     } catch (error) {
       this.#deps.logger.error("office replay failed", { office, error });
       this.#reply({
@@ -447,29 +454,48 @@ class Connection implements ConnectionSession {
     }
     this.#reply({ ok: true, requestId, result: { stream, from: after } });
     const subscription = this.#addSubscription(stream, office, filter, after);
-    this.#deliver(subscription, first, head);
-    try {
-      if (more) this.#catchUpOffice(subscription, handle);
-    } catch (error) {
-      this.#deps.logger.error("office replay failed", { office, error });
-      this.#close(CLOSE_POLICY_VIOLATION, "the office stream needs a reset; subscribe again");
-      return;
-    }
-    this.#mark(subscription, true);
+    subscription.catchingUp = true;
+    this.#pumpOffice(subscription);
   }
 
-  /** Sends every entry after the subscription's position; throws when the cursor needs a reset. */
-  #catchUpOffice(subscription: Subscription, handle: OfficeHandle): void {
-    const office = handle.officeId;
-    for (;;) {
-      const replayed = replay(handle, subscription.position, { limit: REPLAY_PAGE });
-      if (!replayed.ok) throw new Error(replayed.error.message);
-      if (replayed.entries.length === 0) return;
-      const events = this.#server.renderer.renderAll(office, replayed.head.epoch, replayed.entries);
-      const last = events.at(-1);
-      if (last === undefined) return;
-      this.#deliver(subscription, events, last.cursor);
-      if (replayed.entries.length < REPLAY_PAGE) return;
+  /**
+   * Sends the office entries after the subscription's position, one page per frame, and stops
+   * while more than `PUMP_HIGH_WATER_BYTES` wait to be written (`drain` resumes it) or once the
+   * connection is closed, so a slow client never makes the daemon read and render the whole log
+   * at once. At the head it ends the catch-up with `stream.mark { caughtUp: true }`. A cursor that
+   * can no longer be replayed (a restored office) closes the connection; the client subscribes
+   * again.
+   */
+  #pumpOffice(subscription: Subscription): void {
+    const office = subscription.office;
+    if (office === null) return;
+    const handle = this.#deps.offices.get(office);
+    if (handle === undefined) {
+      this.#dropSubscription(subscription);
+      return;
+    }
+    try {
+      while (!this.#closed && this.#socket.buffered() < this.#server.pumpHighWaterBytes) {
+        const replayed = replay(handle, subscription.position, { limit: REPLAY_PAGE });
+        if (!replayed.ok) throw new Error(replayed.error.message);
+        const events = this.#server.renderer.renderAll(
+          office,
+          replayed.head.epoch,
+          replayed.entries,
+        );
+        const last = events.at(-1);
+        if (last !== undefined) this.#deliver(subscription, events, last.cursor);
+        if (replayed.entries.length < REPLAY_PAGE) {
+          if (subscription.catchingUp && !this.#closed) {
+            subscription.catchingUp = false;
+            this.#mark(subscription, true);
+          }
+          return;
+        }
+      }
+    } catch (error) {
+      this.#deps.logger.error("office stream delivery failed", { office, error });
+      this.#close(CLOSE_POLICY_VIOLATION, "the office stream needs a reset; subscribe again");
     }
   }
 
@@ -479,7 +505,14 @@ class Connection implements ConnectionSession {
     filter: readonly string[],
     position: Cursor,
   ): Subscription {
-    const subscription: Subscription = { stream, office, filter, position, heartbeat: null };
+    const subscription: Subscription = {
+      stream,
+      office,
+      filter,
+      position,
+      heartbeat: null,
+      catchingUp: false,
+    };
     this.#subscriptions.set(stream, subscription);
     this.#armHeartbeat(subscription);
     return subscription;
@@ -516,7 +549,7 @@ class Connection implements ConnectionSession {
 
   #sendEvents(subscription: Subscription, events: readonly Event[]): void {
     if (events.length === 0) return;
-    for (let i = 0; i < events.length; i += EVENTS_PER_FRAME) {
+    for (let i = 0; i < events.length && !this.#closed; i += EVENTS_PER_FRAME) {
       this.#send({ kind: "events", events: events.slice(i, i + EVENTS_PER_FRAME) });
     }
     this.#armHeartbeat(subscription);
@@ -552,7 +585,9 @@ class Connection implements ConnectionSession {
 
   #send(frame: ServerFrame): void {
     if (this.#closed) return;
-    this.#socket.send(JSON.stringify(frame));
+    // A dropped frame means the connection is closing (a slow client past the backpressure
+    // limit): stop here; the client reconnects and replays from its last cursor (0005 section 8).
+    if (this.#socket.send(JSON.stringify(frame)) === "dropped") this.closed();
   }
 
   #close(code: number, reason: string): void {

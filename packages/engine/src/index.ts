@@ -79,6 +79,8 @@ export type {
   AcceptConnection,
   ConnectionSession,
   ServedSocket,
+  SendResult,
+  ServeOptions,
   SocketConnection,
 } from "./platform/serve";
 export { SOFTWARE_STREAM, SOFTWARE_STREAM_CAPACITY, SoftwareStream } from "./software-stream";
