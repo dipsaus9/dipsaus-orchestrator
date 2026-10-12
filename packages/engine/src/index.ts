@@ -16,6 +16,37 @@ export type { Migration, MigrateResult } from "./db/migrations";
 export { OfficeHandle } from "./db/office";
 export { platformSelfChecks, type SelfCheck } from "./platform/self-check";
 export {
+  chooseRuntimeDir,
+  currentPlatform,
+  ensurePrivateDir,
+  lingeringEnabled,
+  passwdHome,
+  readRuntimeRecord,
+  resolveSoftwareDirs,
+  runtimeCandidates,
+  RuntimeDirError,
+  RUNTIME_FILE,
+  SOCKET_FILE,
+  writeRuntimeRecord,
+} from "./platform/paths";
+export type {
+  DipoPlatform,
+  RuntimeCandidate,
+  RuntimeDirChoice,
+  RuntimeRecord,
+  SoftwareDirs,
+} from "./platform/paths";
+export { isDaemonCommand, isSameProcess, systemProcessProbe } from "./platform/process";
+export type { ProcessIdentity, ProcessInfo, ProcessProbe } from "./platform/process";
+export { acquireLock, LockBreakError, PID_FILE } from "./platform/lock";
+export type { HeldLock, LockCheck, LockOutcome, PidRecord } from "./platform/lock";
+export { bindDaemonSocket, probeDaemonSocket, removeSocketFile } from "./platform/socket";
+export type { BoundSocket, SocketIdentity } from "./platform/socket";
+export { createLogger, DEFAULT_LOG_LEVEL, isLogLevel, LOG_LEVELS } from "./log/logger";
+export type { LogContext, LogFields, Logger, LogSink } from "./log/logger";
+export { DAEMON_LOG_FILE, openLogFile } from "./log/file";
+export type { LogFile } from "./log/file";
+export {
   appendEntries,
   cursorAt,
   headCursor,

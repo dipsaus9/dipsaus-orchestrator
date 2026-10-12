@@ -9,5 +9,8 @@
   "dependencies": {
     "@dipsaus-orchestrator/contract": "workspace:*",
     "@dipsaus-orchestrator/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@dipsaus-orchestrator/testkit": "workspace:*"
   }
 }

@@ -56,6 +56,25 @@ describe("cli", () => {
     expect(captured.err.join("\n")).toContain("unknown arguments");
   });
 
+  it("passes the daemon-side forms to runDaemon without the daemon word", async () => {
+    for (const argv of [
+      ["daemon", "--foreground", "--log-level", "debug"],
+      ["daemon", "worker-host", "run_01"],
+      ["daemon", "wait-pid", "42"],
+    ]) {
+      const { deps, captured } = fakeDeps({ daemonCode: 3 });
+      expect(await main(argv, deps)).toBe(3);
+      expect(captured.daemonCalls).toEqual([argv.slice(1)]);
+    }
+  });
+
+  it("does not send other daemon subcommands to runDaemon", async () => {
+    const { deps, captured } = fakeDeps();
+    expect(await main(["daemon", "self-check"], deps)).toBe(2);
+    expect(await main(["daemon"], deps)).toBe(2);
+    expect(captured.daemonCalls).toEqual([]);
+  });
+
   it("runs the daemon-side checks through runDaemon, then the client checks", async () => {
     const { deps, captured } = fakeDeps();
     expect(await main(["self-check"], deps)).toBe(0);

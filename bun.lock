@@ -43,6 +43,9 @@
         "@dipsaus-orchestrator/contract": "workspace:*",
         "@dipsaus-orchestrator/engine": "workspace:*",
       },
+      "devDependencies": {
+        "@dipsaus-orchestrator/testkit": "workspace:*",
+      },
     },
     "packages/engine": {
       "name": "@dipsaus-orchestrator/engine",
