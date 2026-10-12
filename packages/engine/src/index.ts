@@ -71,6 +71,20 @@ export type {
   LockOutcome,
   PidRecord,
 } from "./platform/lock";
+export {
+  resolveTools,
+  sameStamp,
+  systemExecutableStamp,
+  systemIsExecutable,
+  TOOL_NAMES,
+} from "./platform/tools";
+export type {
+  ExecutableStamp,
+  IsExecutable,
+  ReadExecutableStamp,
+  ResolvedTools,
+  ToolName,
+} from "./platform/tools";
 export { connectUnixSocket, removeSocketFile } from "./platform/socket";
 export type { ConnectOptions, RequestFrame, SocketClient, SocketReply } from "./platform/socket";
 export {
