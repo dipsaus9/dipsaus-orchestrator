@@ -13,6 +13,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
+import { cryptoFill, type RandomFill } from "../platform/ids";
 
 /** Retention tier of an entry (0007 section 7): S state, R short. */
 export type LogTier = "S" | "R";
@@ -59,12 +60,6 @@ export interface LogState {
   /** Replay from a cursor below this seq needs a reset (0007 section 7). */
   readonly replayFloorSeq: number;
 }
-
-export type RandomFill = (bytes: Uint8Array) => void;
-
-const cryptoFill: RandomFill = (bytes) => {
-  crypto.getRandomValues(bytes);
-};
 
 /**
  * A new random epoch for an office's change log (0005 section 2). Each office gets one when it is
