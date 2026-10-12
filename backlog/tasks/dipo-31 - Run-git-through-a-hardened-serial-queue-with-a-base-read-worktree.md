@@ -1,10 +1,10 @@
 ---
 id: DIPO-31
 title: Run git through a hardened serial queue with a base read worktree
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:38'
+updated_date: '2026-10-12 21:42'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -89,3 +89,9 @@ Review hardening (2026-10-12):
 - For DIPO-38/DIPO-74: before each engine call in a story worktree, compare the admin dir's commondir and gitdir files, and the worktree's .git pointer, against a run-start snapshot (0008 section 2); worktreeLocation only checks the pointer today.
 - Residual repository-config keys accepted (the repo config lives in the common dir, which the worker cannot write): remote url and uploadpack/receivepack, core.sshCommand, credential helpers, http.*, url.*.insteadOf.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened git through a serial queue per office in packages/engine/src/git: git 2.38+ load step; every engine call with NOSYSTEM, hooksPath=/dev/null, fsmonitor off, no pager, LC_ALL=C, no terminal prompt, and a scrubbed environment (auth variables kept); repository calls as --bare with recorded GIT_DIR/GIT_COMMON_DIR so the main checkout is never touched; worktree calls with the admin dir from the recorded common dir and a pointer check; lock retries 100/400/1600 ms without deleting lock files; base from config or origin HEAD; worktree root outside the checkout; _base read worktree kept at origin/<base> with LFS smudge off; fetch with protocol.ext never and a retryable git.fetchFailed; EngineGit built by the daemon with its resolved git path. Reviewer pass. Follow-ups: run-start snapshot of commondir/gitdir for story worktrees (DIPO-38/74), git.fetchFailed in the contract's retryable codes, reloadConfig reaching OfficeGit.
+<!-- SECTION:FINAL_SUMMARY:END -->
