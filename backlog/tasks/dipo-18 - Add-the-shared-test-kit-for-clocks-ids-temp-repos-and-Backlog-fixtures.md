@@ -4,7 +4,7 @@ title: 'Add the shared test kit for clocks, ids, temp repos and Backlog fixtures
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:32'
+updated_date: '2026-10-12 11:38'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -22,6 +22,10 @@ references:
   - test/lint-boundaries/
   - packages/contract/
   - packages/engine/src/index.ts
+  - tools/lint/
+  - packages/engine/package.json
+  - packages/engine/tsconfig.json
+  - packages/engine/src/platform/
 documentation:
   - docs/decisions/0001-foundational-decisions.md
   - docs/decisions/0004-language-and-runtime.md
@@ -87,4 +91,6 @@ Implemented (DIPO-18):
 - backlog.md 1.53.0 pinned as root devDependency. Fixture at packages/engine/test/fixtures/backlog/backlog, generated with that CLI: backlog init dipo-fixture --defaults --integration-mode none --check-branches false --include-remote false --auto-open-browser false; statuses line set to the 0012 list by hand (config set statuses is refused, 0010 fact 6); config set defaultStatus Refined; draft create DRAFT-1; task create TASK-1 (Ready, automated and manual test plan), TASK-2 (Refined, test_plan not_applicable), TASK-3 (Parked, park reason on-hold). Regenerate the same way when the pin changes.
 - Lint: no-restricted-globals (timers) and no-restricted-properties (Date.now, globalThis timers) everywhere except packages/engine/src/platform/ and packages/testkit/. oxlint has no no-restricted-syntax, so new Date() without arguments is a local JS plugin rule dipo/no-argless-date in tools/lint/oxlint-plugin.js (oxlint jsPlugins). spawnSync, execSync and execFileSync are banned in packages/engine/src (platform too) and packages/daemon/src as properties on any object (Bun.spawnSync, cp.spawnSync) and as named imports from node:child_process, child_process and bun. testkit may not import engine or daemon. test/lint-boundaries/lint-time-and-spawn.test.ts proves each ban and the allowed places; the shared runner moved to lint-tree.ts.
 - Deviation from declared scope: tools/lint/oxlint-plugin.js is new (needed for the new Date() rule).
+
+Scope widened at review (orchestrator): tools/lint/ holds a local oxlint jsPlugin for the `new Date()` ban, because oxlint 1.87 has no no-restricted-syntax; an AST rule was preferred over the grep test 0017 section 4 allows, since it lets `new Date(value)` through. packages/engine/package.json and tsconfig.json take testkit as a devDependency and project reference (AC #3). packages/engine/src/platform/ covers the colocated clock and ids tests the test plan requires. The empty directories in the Backlog fixture are not committed; `backlog task list` works without them.
 <!-- SECTION:NOTES:END -->
