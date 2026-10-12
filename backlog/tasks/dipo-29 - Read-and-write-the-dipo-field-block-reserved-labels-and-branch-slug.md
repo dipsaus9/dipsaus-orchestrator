@@ -1,10 +1,10 @@
 ---
 id: DIPO-29
 title: 'Read and write the dipo field block, reserved labels and branch slug'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:51'
+updated_date: '2026-10-12 21:54'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -74,4 +74,12 @@ Implementation: fields/block.ts holds the parser (locateBlock, parseFieldBlock; 
 Review fixes: added ref packages/engine/src/backlog/plain.ts. parseView takes normalize: false, so the write path splices the description as the CLI printed it. NFC normalisation is only for parsing and comparing, so NFD text outside the block is written back byte for byte. A CRLF ending on the opening and closing lines counts as the line ending, and the splice keeps CRLF. A line that is ```dipo only after trimming other trailing whitespace fails R02, so a stale block is never shadowed by an appended one. The pinned CLI stores descriptions with LF endings, so the read back compares after turning CRLF into LF.
 
 Every writeFields and editLabels call must go through the per-worktree serial git queue (DIPO-31); the caller (DIPO-34) owns that.
+
+Review follow-up (optional): raise R02 for a near-miss block opener with leading whitespace or other case (`  ```dipo`, ````DIPO`). DIPO-34 review must check that the backlog lane wraps writeFields and editLabels in the per-worktree git queue.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+dipo field block, reserved labels and branch slug in packages/engine/src/backlog: block parser (one block, R02 with line for second, unclosed, trailing text or near-miss opener; CRLF handled), YAML through platform/yaml.ts and the contract FieldBlock schema; canonical emitter; byte-exact splice on the raw description with NFC only for parsing and comparing; one write path for tasks and drafts with re-read, reapply, up to 3 retries and read-back verification; labels only via --add-label/--remove-label with the runner refusing other label flags on edit; reserved label reader for tier, role and test-before-merge; slug and branchFor per 0010 section 4. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
