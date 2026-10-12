@@ -4,7 +4,7 @@ title: Capture scrubbed Claude recordings for adapter tests
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:00'
+updated_date: '2026-10-12 13:09'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -82,5 +82,7 @@ AC #9, 0008 live checks:
 
 Implementation: `tools/recordings/` holds the capture (`capture.ts`, `scenarios.ts`), the scrubber and normaliser (`scrub.ts`), the secret guard (`secrets.ts`), the usage checksum (`usage.ts`), `derive.ts`, `status.ts`, `refresh.ts` and their unit tests; `recordings.test.ts` runs the secret scan, the decision-field check, the usage checksum, the id check and the derive-is-current check over every committed recording. Root `tsconfig.json` includes `tools/recordings`. Scripts: `recordings:capture`, `recordings:derive`, `recordings:refresh`, `recordings:status`.
 
-Deviations: extra live recordings `pause-now`, `safety-main-git`, `safety-bash-prompts-none`; extra derived variants `init-rejected-model`, `start-failed-auth`, `start-failed-billing`, `report-invalid-missing` (one directory per variant). `start-failed`'s `startup_failure_reason` value and the assistant `error` variants are illustrative and cited in `meta.cites`. `pause-now`'s kept `question` is model-written text, not fixture-controlled (report exemption); it holds no secret and passes the scan. `permission-wait` and `needs-permission` stay with DIPO-59 as the description says.
+Deviations: extra live recordings `pause-now`, `safety-main-git`, `safety-bash-prompts-none`; extra derived variants `init-rejected-model`, `start-failed-auth`, `start-failed-billing`, `report-invalid-missing` (one directory per variant). `start-failed`'s `startup_failure_reason` value and the assistant `error` variants are illustrative and cited in `meta.cites`. The report exemption keeps model-written, not fixture-controlled, text in `structured_output.question` in `pause-now`, `safety-bash-prompts-none`, `success-tools-subagent` and its derivatives `stall` and `budget-engine-cap`, and in `structured_output.needsPermission.action` in `permission-denied` and `safety-bash-prompts-none`; only `worker-park-ambiguous` and the `permission-denied` question are the fixed fixture text. None holds a secret and all pass the scan. `permission-wait` and `needs-permission` stay with DIPO-59 as the description says.
+
+Review fixes (PR #35, no new Claude session): a generic email pattern (example.org and example.com allowed) joined the secret guard, so CI catches emails without the capture-time needle. The name lists in `system/init` (`slash_commands`, `terminal_slash_commands`, `agents`, `skills`, `plugins`) now keep only lengths (`[redacted len:<n>]`), never an unsalted, reversible hash; the committed live recordings were rewritten offline from their redacted form (usage checksums unchanged) and a test enforces it. Derived failure results now all carry `stop_reason: null` and `terminal_reason: "error"` (`prompt_too_long` for prompt-too-long), cited as illustrative; the empty assistant text uses `redact("")`; `recordings:derive` guards every output before writing any.
 <!-- SECTION:NOTES:END -->
