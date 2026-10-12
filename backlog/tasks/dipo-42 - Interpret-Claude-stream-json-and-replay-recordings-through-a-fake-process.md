@@ -1,10 +1,10 @@
 ---
 id: DIPO-42
 title: Interpret Claude stream-json and replay recordings through a fake process
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:35'
+updated_date: '2026-10-12 13:37'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -20,6 +20,7 @@ references:
   - packages/testkit/src/index.ts
   - packages/testkit/src/fake-process.test.ts
   - packages/engine/src/index.ts
+  - packages/engine/src/workers/types.ts
 documentation:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -90,4 +91,12 @@ Open for later stories: an init rejection lives only in the parse state (no Work
 Review fixes (PR #37): a result whose turn did not complete (terminal_reason other than completed, or empty/zero totals) commits per field the larger of the live numbers and the reported change, so an aborted later turn keeps its spend (synthetic test in result.test.ts); a completed turn still replaces live numbers. WorkerResult gains the additive optional `retry?: "handoff" | "report-feedback"` (`handoff` for prompt_too_long, `report-feedback` for a missing or invalid report). ScriptedWorker requires the event schema; tests default it to ClaudeWorkerEventSchema through `scriptedWorker()` in test/workers/scripts.ts. New unit tests for result rows without recordings: plan-limit from a rejected rate_limit_event and from a 429, error_max_structured_output_retries, done report with nonzero exit, blocked with needsPermission and question.
 
 Follow-ups for other stories: a neutral Worker event for an init rejection so the engine can stop the worker at once (DIPO-44/45); stop the worker at the first error_max_turns instead of letting a queued message run (DIPO-50/51); map the PostCompact and PostModelSwitch hook payloads once a recording shows them (DIPO-59); the risk of double counting when the CLI's cumulative counters reset or a resume restores totals we cannot tell apart from new spend (DIPO-45/51).
+
+Scope added at review: packages/engine/src/workers/types.ts carries the neutral optional WorkerResult.retry ('handoff' | 'report-feedback') and the WorkerRetry type, the retry step 0008 section 7 asks for (prompt_too_long gets one handoff session; a missing or invalid report gets one feedback turn; caps get none).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Claude stream-json interpretation: schema.ts (strict on used fields), pure interpret.ts with JSON state (events per 0008 section 3, usage per message id, turn-end deltas, aborted-turn spend kept), result.ts (section 7 outcomes and parks, neutral retry hint), ScriptedWorker that refuses events the adapter cannot produce, testkit FakeProcess/fakeSpawn/readRecording; all 23 recordings replayed through the real parser. Follow-ups noted for DIPO-44/45 (init rejection event), DIPO-50/51 (stop at first error_max_turns, resume counters) and DIPO-59 (PostCompact/PostModelSwitch hooks). Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
