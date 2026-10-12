@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import type { LogLevel, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { LogLevel, SoftwareConfig, TimerHandle } from "@dipsaus-orchestrator/contract";
 import {
   acquireLock,
   ChildProcesses,
@@ -22,6 +22,7 @@ import {
   helloHandshake,
   isLogLevel,
   lingeringEnabled,
+  loadSoftwareConfig,
   LOG_LEVELS,
   MemoryRequestTable,
   noOfficeSummaries,
@@ -153,10 +154,25 @@ export async function runForeground(
     component: "daemon",
   });
   try {
+    // Software-level settings (0006 amendment of 2026-10-12), read once at start. An invalid or
+    // newer file stops the start: the daemon never guesses its own settings (0017 section 5).
+    const settings = await loadSoftwareConfig(dirs.state);
+    if (!settings.ok) {
+      for (const error of settings.errors) {
+        logger.error("invalid software configuration", { ...error });
+        io.writeError(`dipo: ${error.message}`);
+      }
+      return 1;
+    }
+    logger.info("software configuration", {
+      fromFile: settings.fromFile,
+      ...settings.config.daemon,
+    });
     return await runWithLog({
       io,
       logger,
       logFile,
+      settings: settings.config,
       stateDir: dirs.state,
       platform,
       homeMismatch: dirs.homeMismatch,
@@ -177,6 +193,8 @@ interface Run {
   readonly io: DaemonIo;
   readonly logger: Logger;
   readonly logFile: LogFile;
+  /** The software-level settings read at start; DIPO-70 acts on `daemon.autoRestartOnUpgrade`. */
+  readonly settings: SoftwareConfig;
   readonly stateDir: string;
   readonly platform: ReturnType<typeof currentPlatform>;
   readonly homeMismatch: { readonly env: string; readonly passwd: string } | null;
