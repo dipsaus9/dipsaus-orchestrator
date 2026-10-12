@@ -68,3 +68,58 @@ export function stubSpawn(stdout: string, stderr = "", code = 0): StubSpawn {
   };
   return { spawn, calls };
 }
+
+export interface ScriptedReply {
+  readonly stdout?: string;
+  readonly stderr?: string;
+  readonly code?: number;
+}
+
+/** A `Spawn` that answers each call with `reply(args)`, where `args` follow the CLI command. */
+export function scriptedSpawn(
+  reply: (args: readonly string[]) => ScriptedReply,
+  command: readonly string[] = ["backlog"],
+): StubSpawn {
+  const calls: SpawnOptions[] = [];
+  const spawn: Spawn = (options) => {
+    calls.push(options);
+    const { stdout = "", stderr = "", code = 0 } = reply(options.cmd.slice(command.length));
+    const child: ChildProcess = {
+      pid: 4242,
+      stdin: null,
+      stdout: stream(stdout),
+      stderr: stream(stderr),
+      exited: Promise.resolve({ code, signal: null }),
+      kill: () => {},
+    };
+    return child;
+  };
+  return { spawn, calls };
+}
+
+/** A minimal `task view --plain` output with this description and these labels. */
+export function viewOutput(
+  id: string,
+  description: string,
+  labels: readonly string[] = [],
+): string {
+  return [
+    `File: /office/backlog/tasks/${id.toLowerCase()} - Story.md`,
+    "",
+    `Task ${id} - Story`,
+    "=".repeat(50),
+    "",
+    "Status: ○ Ready",
+    "Created: 2026-10-12 11:28 (UTC)",
+    ...(labels.length > 0 ? [`Labels: ${labels.join(", ")}`] : []),
+    "",
+    "Description:",
+    "-".repeat(50),
+    description === "" ? "No description provided" : description,
+    "",
+    "Acceptance Criteria:",
+    "-".repeat(50),
+    "No acceptance criteria defined",
+    "",
+  ].join("\n");
+}

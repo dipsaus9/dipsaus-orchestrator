@@ -30,6 +30,7 @@ export type {
   TaskRef,
   UnknownItem,
 } from "./plain";
+export * from "./fields";
 export { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "./runner";
 export { branchFor, EMPTY_SLUG, SLUG_MAX, slug } from "./slug";
 export type { BacklogCli, BacklogOutput } from "./runner";
