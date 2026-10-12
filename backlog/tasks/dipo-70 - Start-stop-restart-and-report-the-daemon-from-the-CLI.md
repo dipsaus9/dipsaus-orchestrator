@@ -1,10 +1,10 @@
 ---
 id: DIPO-70
 title: 'Start, stop, restart and report the daemon from the CLI'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 17:19'
+updated_date: '2026-10-12 20:32'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -131,4 +131,12 @@ pgrep -fl "daemon --foreground"; rm -rf $T       # pgrep prints nothing: no daem
 ```
 
 Review fixes (PR #48): added references packages/client/src/node/connect.ts (connectToDaemon and DaemonNotRunningError moved out of client/node/index.ts so the lifecycle module can use them without an import cycle) and packages/client/src/node/runtime.ts (logsDir, so a failed start names <logs>/daemon.log). The daemon starts the new binary only when the drain's request was the upgrade, and the upgrade watcher counts as busy and stops once any stop is requested, so a daemon stopped by `dipo daemon stop`, SIGTERM, a restart or a lost lock never comes back on its own (test: packages/daemon/test/integration/upgrade-restart.test.ts). `stop --force` now removes the stale runtime.json also when SIGTERM ends the daemon within 10 s, so the next status says `not running`. An ADR 0006 amendment about starting the daemon through a short-lived /bin/sh (double fork, so a client running under --no-orphans cannot kill it on exit) will be proposed to the maintainer.
+
+Maintainer test 2026-10-12: OK.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Daemon lifecycle from the CLI: client/node lifecycle module with dipo daemon start, stop [--force], restart and status [--json] (running, unresponsive, stale, not running; exit 0/1/3), autostart from log-level and resume-scheduling after reading config.yaml, start through a short-lived /bin/sh so a --no-orphans client cannot take the daemon down, Bun flag variables stripped, verified-identity signals for --force, stale leftovers removed safely, version mismatch hint; engine platform/tools.ts resolving claude/backlog/gh/rg/git for daemon.status.tools; daemon upgrade watcher (upgradePending, optional auto-restart only when idle and only for an upgrade drain). Reviewer pass; maintainer tested OK.
+<!-- SECTION:FINAL_SUMMARY:END -->
