@@ -1,10 +1,10 @@
 ---
 id: DIPO-20
 title: 'Define the contract work model: lifecycle, views, work commands and events'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:47'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -48,18 +48,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `Lifecycle` and `DaemonState` are closed enums with the exact values of 0005 as amended; `Tier`, `ParkReason` (11 known values) and `SkipReason` are open enums whose known values are exported and whose schemas accept any other string (0005 amendment of 2026-10-12).
-- [ ] #2 `Phase` (`setup`, `build`, `verify`, `review`, `test`, `merge`), watchdog signals and `Health` (eight states) are open enums: unknown strings parse.
-- [ ] #3 `StoryView`, `WorkView`, `GateView`, `QuestionView`, `TestView`, `Progress`, `UsageTotals` (with `cacheCreateTokens` and `cacheReadTokens`) and `Usage` (budget unit `"tokens"`, `budgetShare`) match 0005 section 5 with the 0008 and 0009 additions.
-- [ ] #4 Args and results exist for `work.run`, `work.answer`, `work.steer`, `work.pause`, `work.resume`, `work.reassign`, `work.stop`, `work.discard`, `story.hold`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, and for the reads `office.snapshot`, `story.detail`, `work.outputRange`, `office.usage`, `office.digest`.
-- [ ] #5 Office event schemas exist for every office row of the 0005 section 5 event table.
-- [ ] #6 `FieldBlock` is a `z.strictObject` with `branch`, `unknowns`, `test_plan` and `park` as 0010 section 3; a non-string text value fails with a message containing `quote this value`.
-- [ ] #7 The JSON Schema export of DIPO-19 includes the new schemas and its contract test passes.
-- [ ] #8 The commands and reads M0 does not build are marked `provisional: true` with no `since`: `work.steer`, `work.pause`, `work.resume` (until DIPO-61 ships it for held runs), `work.reassign`, `work.discard`, `story.hold`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `office.usage` and `office.digest`; every other command and read of this story carries `since` 1.0.
+- [x] #1 `Lifecycle` and `DaemonState` are closed enums with the exact values of 0005 as amended; `Tier`, `ParkReason` (11 known values) and `SkipReason` are open enums whose known values are exported and whose schemas accept any other string (0005 amendment of 2026-10-12).
+- [x] #2 `Phase` (`setup`, `build`, `verify`, `review`, `test`, `merge`), watchdog signals and `Health` (eight states) are open enums: unknown strings parse.
+- [x] #3 `StoryView`, `WorkView`, `GateView`, `QuestionView`, `TestView`, `Progress`, `UsageTotals` (with `cacheCreateTokens` and `cacheReadTokens`) and `Usage` (budget unit `"tokens"`, `budgetShare`) match 0005 section 5 with the 0008 and 0009 additions.
+- [x] #4 Args and results exist for `work.run`, `work.answer`, `work.steer`, `work.pause`, `work.resume`, `work.reassign`, `work.stop`, `work.discard`, `story.hold`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, and for the reads `office.snapshot`, `story.detail`, `work.outputRange`, `office.usage`, `office.digest`.
+- [x] #5 Office event schemas exist for every office row of the 0005 section 5 event table.
+- [x] #6 `FieldBlock` is a `z.strictObject` with `branch`, `unknowns`, `test_plan` and `park` as 0010 section 3; a non-string text value fails with a message containing `quote this value`.
+- [x] #7 The JSON Schema export of DIPO-19 includes the new schemas and its contract test passes.
+- [x] #8 The commands and reads M0 does not build are marked `provisional: true` with no `since`: `work.steer`, `work.pause`, `work.resume` (until DIPO-61 ships it for held runs), `work.reassign`, `work.discard`, `story.hold`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `office.usage` and `office.digest`; every other command and read of this story carries `since` 1.0.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S05 (DIPO-15). Before cutover: built by hand-run agents.
+
+Implementation (DIPO-20 branch):
+- packages/contract/src/work.ts: Lifecycle (closed), open enums via openEnum() for Tier, ParkReason (11), SkipReason (7), Phase, Signal, Health (8), QueueColumn and GateKind with exported KNOWN_* values; Evidence; WorkRef, Progress, UsageTotals (cache split), Usage (budget unit tokens, budgetShare), StoryView (waitingOn, gateMessages, evidence), WorkView (signals, lastOutputAt, evidence), GateView, QuestionView (kind), TestView. DaemonState is reused from software.ts.
+- packages/contract/src/office.ts: the 14 office commands, the 5 reads and the 15 office events of the 0005 section 5 table. Provisional per AC #8; work.run, work.answer, work.stop, office.snapshot, story.detail and work.outputRange carry since 0 (1.0).
+- packages/contract/src/fieldblock.ts: FieldBlock strictObject; text values fail with 'expected a string: quote this value'; test_plan needs exactly one of entries or not_applicable; branch checked against the R18 pattern without the id equality (the gate owns that); presence and content rules stay with R15, R18, R20.
+- OfficeSummary gains optional dayUsage and evidence (0009 section 8).
+- JSON Schema export adds work.schema.json; regenerated with bun run contract:schema.
+Choices to confirm: story.drop is confirm true but irreversible false (the static flag cannot depend on deleteBranch; clients ask typed confirmation when deleteBranch is true, 0009 section 5). work.answer keeps text required next to the optional decision. story.detail, office.usage and office.digest result shapes are a first cut for DIPO-52 and M1. office.switch (0005 section 7) is not defined here.
 <!-- SECTION:NOTES:END -->
