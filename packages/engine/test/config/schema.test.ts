@@ -125,6 +125,8 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.remote).toBe("origin");
     expect(OFFICE_DEFAULTS.worktree.root).toBe("../{repo}.worktrees");
     expect(OFFICE_DEFAULTS.worktree.maxSlots).toBe(20);
+    expect(OFFICE_DEFAULTS.worktree.ports).toEqual({ stride: 10, named: {} });
+    expect(OFFICE_DEFAULTS.sandbox.toolchainPaths).toEqual(["~/.bun", "~/.npm", "~/.cache"]);
     expect(OFFICE_DEFAULTS.story.tiers).toEqual(["S", "M", "L"]);
     expect(OFFICE_DEFAULTS.prompt.contractMax).toBe(12_000);
     expect(OFFICE_DEFAULTS.polling).toEqual({ prStateSeconds: 60, fetchSeconds: 300 });

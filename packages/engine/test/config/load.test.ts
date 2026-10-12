@@ -273,6 +273,26 @@ describe("precedence and merge", () => {
     });
   });
 
+  it("keeps the default port stride when only named ports are set", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 1\nworktree: { ports: { named: { PORT: 3000 } } }\n",
+      }),
+    );
+    expect(result.config.worktree.ports).toEqual({ stride: 10, named: { PORT: 3000 } });
+  });
+
+  it("refuses a toolchain path that is neither absolute nor under ~/", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({
+        office: "version: 1\nsandbox: { toolchainPaths: [~/.bun, /opt/tools, .cache] }\n",
+      }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.path).toBe("sandbox.toolchainPaths.2");
+    expect(error?.message).toContain("must start with ~/ or /");
+  });
+
   it("sets base only when a file names it", () => {
     expect(ok(resolveOfficeConfig({})).config.base).toBeUndefined();
     expect(ok(resolveOfficeConfig({ office: "version: 1\nbase: develop\n" })).config.base).toBe(

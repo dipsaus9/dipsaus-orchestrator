@@ -364,7 +364,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "contextItem": {
               "type": "object",
@@ -390,7 +391,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "inputs": {
               "type": "object",
@@ -416,7 +418,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "inputsFile": {
               "type": "object",
@@ -442,7 +445,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "dependencies": {
               "type": "object",
@@ -468,7 +472,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "background": {
               "type": "object",
@@ -494,7 +499,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "handoff": {
               "type": "object",
@@ -520,7 +526,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "feedbackItem": {
               "type": "object",
@@ -546,7 +553,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "feedbackTotal": {
               "type": "object",
@@ -572,7 +580,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "feedbackLogLines": {
               "type": "object",
@@ -598,7 +607,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "diff": {
               "type": "object",
@@ -624,7 +634,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "nudge": {
               "type": "object",
@@ -650,7 +661,8 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
             "taskMessage": {
               "type": "object",
@@ -676,10 +688,12 @@
                   "maximum": 9007199254740991
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "Prompt section budgets per project size class (0014 section 4), in characters unless the name says lines. Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
         },
         "contractMax": {
           "type": "integer",
@@ -696,7 +710,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^(?:~\\/|\\/)"
           }
         },
         "registryHosts": {

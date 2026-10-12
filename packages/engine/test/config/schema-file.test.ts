@@ -13,6 +13,12 @@ describe("office.schema.json", () => {
     expect(committed).toEqual(officeJsonSchema());
   });
 
+  it("says that prompt budget letters are project size classes, not tiers", () => {
+    const text = JSON.stringify(officeJsonSchema());
+    expect(text).toContain("project size classes from `git ls-files`");
+    expect(text).toContain("not story tiers");
+  });
+
   it("rejects unknown keys and has no privacy or retention keys", () => {
     const schema = officeJsonSchema() as {
       additionalProperties: unknown;

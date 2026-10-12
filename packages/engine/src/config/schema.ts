@@ -19,26 +19,39 @@ const TierCaps = z.strictObject({
   loops: count(),
 });
 
-// 0014 section 4: project size classes S (<150 files), M (<500), L (<5,000), XL (above).
-const BySize = z.strictObject({ S: count(), M: count(), L: count(), XL: count() });
+// 0014 section 4: S, M, L and XL are project size classes counted from `git ls-files` at pickup
+// (S under 150 files, M under 500, L under 5,000, XL above). They are not story tiers.
+const SIZE_CLASSES =
+  "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers.";
+const BySize = z
+  .strictObject({ S: count(), M: count(), L: count(), XL: count() })
+  .describe(SIZE_CLASSES);
 
 // 0014 section 4, one entry per table row and per-item cap, in characters unless the name says
 // otherwise. `taskMessage` is the total cap of the L4 task message.
-const PromptBudgets = z.strictObject({
-  context: BySize,
-  contextItem: BySize,
-  inputs: BySize,
-  inputsFile: BySize,
-  dependencies: BySize,
-  background: BySize,
-  handoff: BySize,
-  feedbackItem: BySize,
-  feedbackTotal: BySize,
-  feedbackLogLines: BySize,
-  diff: BySize,
-  nudge: BySize,
-  taskMessage: BySize,
-});
+const PromptBudgets = z
+  .strictObject({
+    context: BySize,
+    contextItem: BySize,
+    inputs: BySize,
+    inputsFile: BySize,
+    dependencies: BySize,
+    background: BySize,
+    handoff: BySize,
+    feedbackItem: BySize,
+    feedbackTotal: BySize,
+    feedbackLogLines: BySize,
+    diff: BySize,
+    nudge: BySize,
+    taskMessage: BySize,
+  })
+  .describe(
+    `Prompt section budgets per project size class (0014 section 4), in characters unless the name says lines. ${SIZE_CLASSES}`,
+  );
+
+// 0008 section 2: a toolchain path is absolute or starts at the home directory (`~/`). The
+// sandbox stories (DIPO-37, DIPO-40) expand `~` against the injected home.
+const ToolchainPath = text().regex(/^(?:~\/|\/)/, "must start with ~/ or /");
 
 // 0010 section 8.
 const WorktreeFile = z.strictObject({
@@ -85,7 +98,7 @@ const officeShape = {
     root: text(),
     files: z.array(WorktreeFile),
     ports: z.strictObject({
-      stride: count().optional(),
+      stride: count(),
       named: z.record(text(), z.int().min(1).max(65535)),
     }),
     env: z.record(text(), z.string()),
@@ -107,7 +120,7 @@ const officeShape = {
     contractMax: count(),
   }),
   sandbox: z.strictObject({
-    toolchainPaths: z.array(text()),
+    toolchainPaths: z.array(ToolchainPath),
     registryHosts: z.array(text()),
     allowRead: z.array(text()),
     allowedDomains: z.array(text()),
@@ -144,7 +157,8 @@ function fileForm(schema: z.ZodType): z.ZodType {
     const shape = (schema as z.ZodObject).shape as Record<string, z.ZodType>;
     const partial: Record<string, z.ZodType> = {};
     for (const [key, value] of Object.entries(shape)) partial[key] = fileForm(value).optional();
-    return z.strictObject(partial);
+    const form = z.strictObject(partial);
+    return schema.description === undefined ? form : form.describe(schema.description);
   }
   return schema;
 }
@@ -238,7 +252,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   worktree: {
     root: "../{repo}.worktrees",
     files: [],
-    ports: { named: {} },
+    ports: { stride: 10, named: {} },
     env: {},
     post_create: [],
     maxSlots: 20,
