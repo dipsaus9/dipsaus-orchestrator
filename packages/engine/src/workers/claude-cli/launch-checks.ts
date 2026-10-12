@@ -7,6 +7,7 @@
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import { gateLaunch, type AdapterHold, type AdapterHolds, type LaunchCheckOutcome } from "../hold";
+import type { DipoPlatform } from "../../platform/paths";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { CLAUDE_CLI_ADAPTER_ID, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
@@ -24,6 +25,8 @@ export interface ClaudeLaunchCheckDeps {
   readonly fs?: SelfTestFs;
   readonly probeTimeoutMs?: number;
   readonly selfTestTimeoutMs?: number;
+  /** Decides whether the Keychain probe runs; the running platform by default. */
+  readonly platform?: DipoPlatform;
 }
 
 /**
@@ -89,6 +92,7 @@ export async function claudeLaunchChecks(
       sessionId: deps.selfTestSessionId,
       ...(deps.fs === undefined ? {} : { fs: deps.fs }),
       ...(deps.selfTestTimeoutMs === undefined ? {} : { timeoutMs: deps.selfTestTimeoutMs }),
+      ...(deps.platform === undefined ? {} : { platform: deps.platform }),
     },
   );
   const failure = selfTestFailure(report);

@@ -1,20 +1,22 @@
 // The sandbox self-test (0008 section 2, option (a), and its 2026-10-12 amendments). Before every
 // launch and resume a short Claude Code session runs under the run's own settings file and makes
-// one Bash call, so the command meets the Bash sandbox exactly as a worker's would. The command
-// is a fixed `perl` script, not a shell redirection or a `gh` command line, so the permission
-// rules do not stop it first and the sandbox alone decides. It tries:
+// exactly one Bash call, so the command meets the Bash sandbox exactly as a worker's would. The
+// command is a fixed `perl` script run by absolute path, not a shell redirection or a `gh` command
+// line, so the permission rules do not stop it first and the sandbox alone decides. It tries:
 //
 // - writes under `<main>/.git`: the directory itself, this worktree's admin directory, `refs` and
 //   `objects` (DIPO-41 review: repeat the on-disk go/no-go checks on every platform);
-// - an append to the `<worktree>/.git` pointer (opened, nothing written);
-// - `gh auth token`, whose token sits in the macOS Keychain the file rules do not cover; its
-//   output goes to /dev/null, only the exit code is kept;
+// - an append of one nonce byte to the `<worktree>/.git` pointer, so the disk check outside the
+//   sandbox proves a write on its own (the engine restores the pointer afterwards);
+// - `gh auth token`, whose token sits in the macOS Keychain the file rules do not cover, and on
+//   macOS also `/usr/bin/security find-generic-password -s gh:github.com`, a direct Keychain read.
+//   Their output is discarded; only the exit code and a class of their stderr are kept;
 // - a control write inside the worktree, which must succeed, or the blocked writes prove nothing.
 //
 // The script writes one line per probe into a results file in the sandbox temp directory. The
 // engine then judges from disk, outside the sandbox: the results file, whether any forbidden file
 // exists, whether the pointer changed, and whether the control file exists. Any write that got
-// through, a `gh auth token` that exited 0, or a self-test that could not run refuses the run.
+// through, a Keychain read that succeeded, or a self-test that could not run refuses the run.
 // The engine removes every file the self-test made.
 
 import { constants } from "node:fs";
@@ -23,6 +25,7 @@ import { isAbsolute, resolve } from "node:path";
 
 import type { ChildExit, ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
+import { currentPlatform, type DipoPlatform } from "../../platform/paths";
 import {
   isAtOrUnder,
   SRT_DEFAULT_HOME_WRITE_PATHS,
@@ -45,6 +48,10 @@ export const SELF_TEST_TIMEOUT_MS = 180_000;
 export const SELF_TEST_DIR = "self-test";
 /** Prefix of every file the self-test makes; the rest is a nonce from the session id. */
 export const SELF_TEST_FILE_PREFIX = "dipo-self-test-";
+/** macOS's Keychain tool, a system binary at a fixed path. */
+export const KEYCHAIN_TOOL = "/usr/bin/security";
+/** The Keychain service under which `gh` stores the github.com token. */
+export const GH_KEYCHAIN_SERVICE = "gh:github.com";
 
 export const SELF_TEST_SYSTEM_PROMPT = [
   "You are running dipo's sandbox self-test before a worker run.",
@@ -55,7 +62,9 @@ export const SELF_TEST_SYSTEM_PROMPT = [
 
 /** Probes that write where a worker never may. */
 export type WriteProbe = "main-git" | "worktree-admin" | "refs" | "objects" | "pointer";
-export type ProbeName = WriteProbe | "gh-token";
+/** Probes that run a program which must fail inside the sandbox. */
+export type ExecProbe = "gh-token" | "keychain";
+export type ProbeName = WriteProbe | ExecProbe;
 
 export const WRITE_PROBES: readonly WriteProbe[] = [
   "main-git",
@@ -64,14 +73,27 @@ export const WRITE_PROBES: readonly WriteProbe[] = [
   "objects",
   "pointer",
 ];
-export const ALL_PROBES: readonly ProbeName[] = [...WRITE_PROBES, "gh-token"];
+export const EXEC_PROBES: readonly ExecProbe[] = ["gh-token", "keychain"];
+export const ALL_PROBES: readonly ProbeName[] = [...WRITE_PROBES, ...EXEC_PROBES];
 
 /** The probe groups of the three live safety recordings (AC #8). */
 export const PROBE_GROUPS = {
   "safety-gitdir-write": ["main-git", "worktree-admin", "refs", "objects"],
   "safety-pointer-write": ["pointer"],
-  "safety-gh-token": ["gh-token"],
+  "safety-gh-token": ["gh-token", "keychain"],
 } as const satisfies Readonly<Record<string, readonly ProbeName[]>>;
+
+function isExecProbe(probe: ProbeName): probe is ExecProbe {
+  return (EXEC_PROBES as readonly string[]).includes(probe);
+}
+
+/** The probes that apply on `platform`: the Keychain probe is macOS only. */
+export function probesFor(
+  platform: DipoPlatform,
+  probes: readonly ProbeName[] = ALL_PROBES,
+): ProbeName[] {
+  return probes.filter((probe) => probe !== "keychain" || platform === "darwin");
+}
 
 export interface SelfTestPaths {
   /** The main checkout; its git directory is `<main>/.git`. */
@@ -81,7 +103,7 @@ export interface SelfTestPaths {
   readonly adminDir: string;
   /** The sandbox temp directory; the results file goes there. */
   readonly tmpDir: string;
-  /** Makes every file name unique to this self-test. */
+  /** Makes every file name unique to this self-test; its first character is the written byte. */
   readonly nonce: string;
   /** Absolute `perl` and `gh`, resolved outside the sandbox from the daemon's PATH. */
   readonly tools: SelfTestTools;
@@ -103,19 +125,22 @@ export interface SelfTestLayout {
   readonly targets: readonly ProbeTarget[];
   readonly controlFile: string;
   readonly resultsFile: string;
+  /** The byte every write probe writes; the pointer probe appends it. */
+  readonly byte: string;
   readonly command: string;
   readonly prompt: string;
 }
 
-// One open per target and `gh auth token` with its output thrown away; one result line each.
+// One line per probe. Write probes open and write the byte; exec probes run the program by
+// absolute path with no shell, stdout to /dev/null, stderr read only to classify it.
 const SCRIPT = [
-  "my $out = shift;",
+  "my $out = shift; my $b = shift;",
   'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
+  'my %x = ("gh-token" => ["auth", "token"], "keychain" => ["find-generic-password", "-s", "gh:github.com"]);',
   "while (@ARGV) {",
   "my ($n, $m, $p) = splice(@ARGV, 0, 3);",
-  // `gh auth token` by absolute path, no shell, output to /dev/null; exec failure exits 127.
-  'if ($n eq "gh-token") { my $pid = fork(); if (!defined $pid) { print $o "gh-token exit 127\\n"; next } if ($pid == 0) { open(STDOUT, ">", "/dev/null"); open(STDERR, ">", "/dev/null"); exec { $p } $p, "auth", "token"; require POSIX; POSIX::_exit(127) } waitpid($pid, 0); my $c = $? & 127 ? 128 + ($? & 127) : $? >> 8; print $o "gh-token exit $c\\n"; next }',
-  'if (open(my $f, $m, $p)) { close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" }',
+  'if (exists $x{$n}) { pipe(my $r, my $w); my $pid = fork(); if (!defined $pid) { print $o "$n exit 127 none\\n"; next } if ($pid == 0) { close $r; open(STDOUT, ">", "/dev/null"); open(STDERR, ">&", $w); exec { $p } $p, @{$x{$n}}; require POSIX; POSIX::_exit(127) } close $w; my $e = do { local $/; <$r> } // ""; close $r; waitpid($pid, 0); my $c = $? & 127 ? 128 + ($? & 127) : $? >> 8; my $k = $e eq "" ? "none" : $e =~ /could not be found/i ? "not-found" : $e =~ /not permitted|denied|not allowed|sandbox/i ? "denied" : "other"; print $o "$n exit $c $k\\n"; next }',
+  'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" }',
   "}",
   "close $o;",
   'print "dipo-self-test finished\\n";',
@@ -135,25 +160,32 @@ export function selfTestLayout(
   probes: readonly ProbeName[] = ALL_PROBES,
 ): SelfTestLayout {
   const name = `${SELF_TEST_FILE_PREFIX}${paths.nonce}`;
+  const byte = paths.nonce.slice(0, 1);
+  if (!/^[0-9a-z]$/.test(byte)) throw new Error(`the self-test nonce must start with [0-9a-z]`);
   const gitDir = `${paths.main}/.git`;
   const where: Record<WriteProbe, ProbeTarget> = {
     "main-git": { name: "main-git", mode: ">", path: `${gitDir}/${name}` },
     "worktree-admin": { name: "worktree-admin", mode: ">", path: `${paths.adminDir}/${name}` },
     refs: { name: "refs", mode: ">", path: `${gitDir}/refs/heads/${name}` },
     objects: { name: "objects", mode: ">", path: `${gitDir}/objects/${name}` },
-    // Opened for append and closed without a byte written: an allowed open changes nothing.
+    // One byte appended: an allowed write changes the pointer, which the disk check sees.
     pointer: { name: "pointer", mode: ">>", path: `${paths.workdir}/.git` },
   };
   const controlFile = `${paths.workdir}/.${name}`;
   const resultsFile = `${paths.tmpDir}/${name}.txt`;
   const targets: ProbeTarget[] = [
     { name: "control", mode: ">", path: controlFile },
-    ...probes.filter((probe): probe is WriteProbe => probe !== "gh-token").map((p) => where[p]),
+    ...probes.filter((probe): probe is WriteProbe => !isExecProbe(probe)).map((p) => where[p]),
   ];
+  const programs: Record<ExecProbe, string> = {
+    "gh-token": paths.tools.gh,
+    keychain: KEYCHAIN_TOOL,
+  };
   const args = [
     resultsFile,
+    byte,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
-    ...(probes.includes("gh-token") ? ["gh-token", "-", paths.tools.gh] : []),
+    ...probes.filter(isExecProbe).flatMap((probe) => [probe, "-", programs[probe]]),
   ];
   const command = `${shellQuote(paths.tools.perl)} -e '${SCRIPT}' ${args.map(shellQuote).join(" ")}`;
   const prompt = [
@@ -163,13 +195,18 @@ export function selfTestLayout(
     "",
     'Then return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
   ].join("\n");
-  return { probes, targets, controlFile, resultsFile, command, prompt };
+  return { probes, targets, controlFile, resultsFile, byte, command, prompt };
 }
+
+/** How a program's stderr read, never its content. */
+export type StderrClass = "none" | "not-found" | "denied" | "other";
 
 /** One parsed line of the results file. */
 export type ProbeLine =
   | { readonly kind: "write"; readonly written: boolean; readonly detail: string }
-  | { readonly kind: "exit"; readonly code: number };
+  | { readonly kind: "exit"; readonly code: number; readonly stderr: StderrClass };
+
+const STDERR_CLASSES: readonly string[] = ["none", "not-found", "denied", "other"];
 
 /** Pure: the results file as one entry per probe name. */
 export function parseResults(text: string): Map<string, ProbeLine> {
@@ -177,9 +214,10 @@ export function parseResults(text: string): Map<string, ProbeLine> {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line === "") continue;
-    const exit = /^gh-token exit (\d+)$/.exec(line);
+    const exit = /^(gh-token|keychain) exit (\d+)(?: ([a-z-]+))?$/.exec(line);
     if (exit !== null) {
-      lines.set("gh-token", { kind: "exit", code: Number(exit[1]) });
+      const stderr = STDERR_CLASSES.includes(exit[3] ?? "") ? (exit[3] as StderrClass) : "other";
+      lines.set(exit[1] ?? "", { kind: "exit", code: Number(exit[2]), stderr });
       continue;
     }
     const write = /^([a-z-]+) (written|blocked)(?: (.*))?$/.exec(line);
@@ -212,7 +250,7 @@ export interface SelfTestEvidence {
   readonly outcomeDetail?: string;
   /** Tools the permission layer denied during the session. */
   readonly denied: readonly string[];
-  /** Bash calls the session made, and whether there was one and it was the planned command. */
+  /** Bash calls the session made, and whether the one call was the planned one. */
   readonly bash: SelfTestBashCalls;
   readonly disk: SelfTestDisk;
 }
@@ -221,13 +259,23 @@ export interface SelfTestBashCalls {
   readonly calls: number;
   /** True when exactly one call was made and its command equals the planned command. */
   readonly exact: boolean;
+  /**
+   * True when the one call's input holds only `command`, `description` and `timeout` (and
+   * `run_in_background` false): no background run, no other option.
+   */
+  readonly shape: boolean;
 }
 
-/** Exit codes of `gh` that mean it never ran: not executable (126) or not found (127). */
-export const GH_DID_NOT_RUN: readonly number[] = [126, 127];
+/** Exit codes of a program that never ran: not executable (126) or not found (127). */
+export const DID_NOT_RUN: readonly number[] = [126, 127];
+
+/** How each exec probe was refused inside the sandbox: exit code and stderr class. */
+export type ExecRefusals = Readonly<
+  Partial<Record<ExecProbe, { readonly exit: number; readonly stderr: StderrClass }>>
+>;
 
 export type SelfTestVerdict =
-  | { readonly ok: true; readonly ghExit: number | null }
+  | { readonly ok: true; readonly refused: ExecRefusals }
   | {
       readonly ok: false;
       /** True when the sandbox let something through; false when the self-test could not run. */
@@ -243,6 +291,13 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   objects: "a write under <main>/.git/objects",
   pointer: "a write to the <worktree>/.git pointer",
   "gh-token": "`gh auth token`",
+  keychain: `\`security find-generic-password -s ${GH_KEYCHAIN_SERVICE}\``,
+};
+
+const EXEC_LEAK: Record<ExecProbe, string> = {
+  "gh-token":
+    "`gh auth token` succeeded inside the sandbox, so a worker could read the GitHub token",
+  keychain: `the Keychain item ${GH_KEYCHAIN_SERVICE} was readable inside the sandbox, so a worker could read the GitHub token`,
 };
 
 function cannotRun(reason: string, probe?: ProbeName | "control"): SelfTestVerdict {
@@ -257,7 +312,8 @@ function cannotRun(reason: string, probe?: ProbeName | "control"): SelfTestVerdi
 /** Pure: the verdict from the session and the disk. Anything unproven refuses. */
 export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   const { disk, probes } = evidence;
-  const writeProbes = probes.filter((probe): probe is WriteProbe => probe !== "gh-token");
+  const writeProbes = probes.filter((probe): probe is WriteProbe => !isExecProbe(probe));
+  const execProbes = probes.filter(isExecProbe);
   // What got through decides first, whatever else happened.
   const onDisk = disk.written.find((probe) => writeProbes.includes(probe));
   if (onDisk !== undefined) {
@@ -289,15 +345,11 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
         };
       }
     }
-    const gh = lines.get("gh-token");
-    if (probes.includes("gh-token") && gh?.kind === "exit" && gh.code === 0) {
-      return {
-        ok: false,
-        unsafe: true,
-        probe: "gh-token",
-        reason:
-          "`gh auth token` succeeded inside the sandbox, so a worker could read the GitHub token",
-      };
+    for (const probe of execProbes) {
+      const line = lines.get(probe);
+      if (line?.kind === "exit" && line.code === 0) {
+        return { ok: false, unsafe: true, probe, reason: EXEC_LEAK[probe] };
+      }
     }
   }
   if (evidence.outcome === "startFailed" || evidence.outcome === "initRejected") {
@@ -310,6 +362,11 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   if (!evidence.bash.exact) {
     return cannotRun("the session's Bash call was not the planned command");
   }
+  if (!evidence.bash.shape) {
+    return cannotRun(
+      "the session's Bash call carried input other than command, description and timeout, or ran in the background",
+    );
+  }
   if (lines === null) {
     const denied =
       evidence.denied.length === 0
@@ -319,7 +376,7 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   }
   for (const probe of probes) {
     const line = lines.get(probe);
-    const expected = probe === "gh-token" ? "exit" : "write";
+    const expected = isExecProbe(probe) ? "exit" : "write";
     if (line?.kind !== expected) return cannotRun(`no result for ${PROBE_TEXT[probe]}`, probe);
   }
   const control = lines.get("control");
@@ -329,22 +386,23 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
       "control",
     );
   }
-  const ghLine = lines.get("gh-token");
-  if (
-    probes.includes("gh-token") &&
-    ghLine?.kind === "exit" &&
-    GH_DID_NOT_RUN.includes(ghLine.code)
-  ) {
-    return cannotRun(
-      `gh was not found or not executable inside the sandbox (exit ${ghLine.code}), so the Keychain token was not tested`,
-      "gh-token",
-    );
+  const refused: Partial<Record<ExecProbe, { exit: number; stderr: StderrClass }>> = {};
+  for (const probe of execProbes) {
+    const line = lines.get(probe);
+    if (line?.kind !== "exit") continue;
+    if (DID_NOT_RUN.includes(line.code)) {
+      const what = probe === "gh-token" ? "gh" : KEYCHAIN_TOOL;
+      return cannotRun(
+        `${what} was not found or not executable inside the sandbox (exit ${line.code}), so the Keychain token was not tested`,
+        probe,
+      );
+    }
+    refused[probe] = { exit: line.code, stderr: line.stderr };
   }
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
   }
-  const gh = lines.get("gh-token");
-  return { ok: true, ghExit: gh?.kind === "exit" ? gh.code : null };
+  return { ok: true, refused };
 }
 
 /** File access the self-test needs, outside the sandbox. Injectable for tests. */
@@ -403,7 +461,7 @@ export const nodeSelfTestFs: SelfTestFs = {
 
 /** Pure: the Bash calls in the session's stdout, one per tool use id, with their commands. */
 export function bashCalls(stdout: string, planned: string): SelfTestBashCalls {
-  const commands = new Map<string, unknown>();
+  const inputs = new Map<string, Record<string, unknown> | undefined>();
   for (const line of stdout.split("\n")) {
     if (!line.includes('"tool_use"')) continue;
     let value: unknown;
@@ -416,14 +474,32 @@ export function bashCalls(stdout: string, planned: string): SelfTestBashCalls {
     if (record.type !== "assistant" || !Array.isArray(record.message?.content)) continue;
     for (const block of record.message.content as Record<string, unknown>[]) {
       if (block["type"] !== "tool_use" || block["name"] !== "Bash") continue;
-      const id = typeof block["id"] === "string" ? block["id"] : `#${commands.size}`;
-      const input = block["input"] as { command?: unknown } | undefined;
-      commands.set(id, input?.command);
+      const id = typeof block["id"] === "string" ? block["id"] : `#${inputs.size}`;
+      const input = block["input"];
+      inputs.set(
+        id,
+        typeof input === "object" && input !== null
+          ? (input as Record<string, unknown>)
+          : undefined,
+      );
     }
   }
-  const [only] = commands.values();
-  return { calls: commands.size, exact: commands.size === 1 && only === planned };
+  const [only] = inputs.values();
+  const one = inputs.size === 1 && only !== undefined;
+  const shape =
+    one &&
+    Object.keys(only).every((key) => BASH_INPUT_KEYS.includes(key)) &&
+    (only["run_in_background"] === undefined || only["run_in_background"] === false);
+  return { calls: inputs.size, exact: one && only["command"] === planned, shape };
 }
+
+/** Input keys the one Bash call may carry; `run_in_background` only as false. */
+export const BASH_INPUT_KEYS: readonly string[] = [
+  "command",
+  "description",
+  "timeout",
+  "run_in_background",
+];
 
 /** Where a sandboxed command of the worker can write (0008 section 2 and srt's defaults). */
 export function workerWritableRoots(workdir: string, tmpDir: string, home: string): string[] {
@@ -519,6 +595,8 @@ export interface SelfTestDeps {
   /** An engine-made UUID for the self-test session; never the run's own session id. */
   readonly sessionId: string;
   readonly timeoutMs?: number;
+  /** Decides whether the Keychain probe runs; the running platform by default. */
+  readonly platform?: DipoPlatform;
 }
 
 export interface SelfTestInput {
@@ -667,14 +745,17 @@ export async function runSelfTest(
   if (!tools.ok) return fail(cannotRun(tools.reason));
 
   const nonce = deps.sessionId.replaceAll("-", "").slice(0, 16);
-  const layout = selfTestLayout({
-    main,
-    workdir,
-    adminDir,
-    tmpDir: ctx.tmpDir,
-    nonce,
-    tools: tools.tools,
-  });
+  const layout = selfTestLayout(
+    {
+      main,
+      workdir,
+      adminDir,
+      tmpDir: ctx.tmpDir,
+      nonce,
+      tools: tools.tools,
+    },
+    probesFor(deps.platform ?? currentPlatform()),
+  );
   const selfDir = `${ctx.runDir}/${SELF_TEST_DIR}`;
   const systemFile = `${selfDir}/system.md`;
   const selfSpec: WorkerSpec = {
@@ -730,6 +811,12 @@ export async function runSelfTest(
       controlWritten: await fs.exists(layout.controlFile),
     };
   } finally {
+    // Put the pointer back as it was before the session, in case a write got through.
+    try {
+      if ((await fs.readText(pointerFile)) !== pointer) await fs.writeText(pointerFile, pointer);
+    } catch {
+      // Best effort; a changed pointer was already counted, and the run is refused.
+    }
     // Remove everything the self-test made, even when a read above threw; the files carry the
     // nonce, so nothing else is touched. One failed removal does not stop the others.
     for (const path of [layout.resultsFile, layout.controlFile, ...forbidden.map((t) => t.path)]) {
@@ -749,7 +836,7 @@ export async function runSelfTest(
     denied: typeof session === "string" ? [] : session.denied,
     bash:
       typeof session === "string"
-        ? { calls: 0, exact: false }
+        ? { calls: 0, exact: false, shape: false }
         : bashCalls(session.stdout, layout.command),
     disk,
   };

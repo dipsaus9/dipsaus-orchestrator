@@ -18,9 +18,11 @@ import {
   resolveSelfTestTools,
   runSelfTest,
   SELF_TEST_MODEL,
+  probesFor,
   selfTestFailure,
   selfTestLayout,
   workerWritableRoots,
+  type ProbeName,
   type SelfTestBashCalls,
   type SelfTestDisk,
   type SelfTestEvidence,
@@ -56,6 +58,10 @@ const PATHS = {
 };
 const NONCE = SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16);
 const RUN_LAYOUT = selfTestLayout({ ...PATHS, nonce: NONCE });
+const REFUSED = {
+  "gh-token": { exit: 1, stderr: "other" },
+  keychain: { exit: 44, stderr: "denied" },
+} as const;
 
 /** One assistant stream line with a Bash tool use. */
 function bashLine(id: string, command: string): string {
@@ -70,7 +76,7 @@ function evidence(disk: Partial<SelfTestDisk>, more: Partial<SelfTestEvidence> =
     probes: selfTestLayout(PATHS).probes,
     outcome: "done" as const,
     denied: [],
-    bash: { calls: 1, exact: true },
+    bash: { calls: 1, exact: true, shape: true },
     disk: {
       results: BLOCKED_RESULTS,
       written: [],
@@ -96,8 +102,11 @@ describe("(unit) self-test layout", () => {
     expect(layout.resultsFile).toBe(`${TMP_DIR}/dipo-self-test-n1.txt`);
     // Absolute perl, so neither `Bash(gh *)` nor redirection rules stop it first, and gh by path.
     expect(layout.command.startsWith(`'${TOOLS.perl}' -e '`)).toBe(true);
-    expect(layout.command).toContain('exec { $p } $p, "auth", "token"');
-    expect(layout.command).toEndWith(`'gh-token' '-' '${TOOLS.gh}'`);
+    expect(layout.command).toContain("exec { $p } $p, @{$x{$n}}");
+    expect(layout.command).toContain('"find-generic-password", "-s", "gh:github.com"');
+    expect(layout.command).toEndWith(
+      `'gh-token' '-' '${TOOLS.gh}' 'keychain' '-' '/usr/bin/security'`,
+    );
     expect(layout.prompt).toContain(layout.command);
   });
 
@@ -107,6 +116,18 @@ describe("(unit) self-test layout", () => {
     const pointer = selfTestLayout(PATHS, PROBE_GROUPS["safety-pointer-write"]);
     expect(pointer.targets.map((target) => target.name)).toEqual(["control", "pointer"]);
     expect(pointer.command).not.toContain("'gh-token'");
+  });
+
+  it("writes the nonce byte, appends it to the pointer, and probes the Keychain on macOS only", () => {
+    const layout = selfTestLayout(PATHS);
+    expect(layout.byte).toBe("n");
+    expect(layout.command).toContain(`'${TMP_DIR}/dipo-self-test-n1.txt' 'n' 'control'`);
+    expect(layout.command).toContain("print $f $b");
+    expect(probesFor("darwin")).toContain("keychain");
+    expect(probesFor("linux")).not.toContain("keychain");
+    expect(probesFor("linux", PROBE_GROUPS["safety-gh-token"])).toEqual(["gh-token"]);
+    const linux = selfTestLayout(PATHS, probesFor("linux"));
+    expect(linux.command).not.toContain("/usr/bin/security");
   });
 
   it("refuses a path it cannot quote", () => {
@@ -121,7 +142,7 @@ describe("(unit) self-test layout", () => {
       written: false,
       detail: "Operation not permitted",
     });
-    expect(lines.get("gh-token")).toEqual({ kind: "exit", code: 1 });
+    expect(lines.get("gh-token")).toEqual({ kind: "exit", code: 1, stderr: "other" });
     expect(parsePointer(POINTER, WORKDIR)).toBe(ADMIN_DIR);
     expect(parsePointer("gitdir: ../shop/.git/worktrees/x\n", "/a/wt")).toBe(
       "/a/shop/.git/worktrees/x",
@@ -131,7 +152,11 @@ describe("(unit) self-test layout", () => {
 
   it("counts Bash calls by tool use id and compares the one command exactly", () => {
     const planned = "perl -e 1";
-    expect(bashCalls(`${bashLine("t1", planned)}\n`, planned)).toEqual({ calls: 1, exact: true });
+    expect(bashCalls(`${bashLine("t1", planned)}\n`, planned)).toEqual({
+      calls: 1,
+      exact: true,
+      shape: true,
+    });
     // The same message repeated (a stream re-emit) still counts once.
     expect(
       bashCalls(`${bashLine("t1", planned)}\n${bashLine("t1", planned)}\n`, planned).calls,
@@ -139,18 +164,29 @@ describe("(unit) self-test layout", () => {
     expect(bashCalls(`${bashLine("t1", `${planned} `)}\n`, planned)).toEqual({
       calls: 1,
       exact: false,
+      shape: true,
     });
     expect(bashCalls(`${bashLine("t1", planned)}\n${bashLine("t2", "ls")}\n`, planned)).toEqual({
       calls: 2,
       exact: false,
+      shape: false,
     });
-    expect(bashCalls("", planned)).toEqual({ calls: 0, exact: false });
+    const shaped = (input: Record<string, unknown>) =>
+      bashCalls(
+        `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input }] } })}\n`,
+        planned,
+      );
+    expect(shaped({ command: planned, description: "d", timeout: 1000 }).shape).toBe(true);
+    expect(shaped({ command: planned, run_in_background: false }).shape).toBe(true);
+    expect(shaped({ command: planned, run_in_background: true }).shape).toBe(false);
+    expect(shaped({ command: planned, dangerouslyDisableSandbox: true }).shape).toBe(false);
+    expect(bashCalls("", planned)).toEqual({ calls: 0, exact: false, shape: false });
   });
 });
 
 describe("(unit) self-test verdict", () => {
   it("passes when every forbidden write is blocked, gh fails and the control write succeeds", () => {
-    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true, ghExit: 1 });
+    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true, refused: REFUSED });
   });
 
   it.each(["main-git", "worktree-admin", "refs", "objects", "pointer"] as WriteProbe[])(
@@ -194,15 +230,34 @@ describe("(unit) self-test verdict", () => {
 
   it("refuses when the session made no Bash call, extra calls or a different command", () => {
     const cases: [SelfTestBashCalls, string][] = [
-      [{ calls: 0, exact: false }, "0 Bash calls"],
-      [{ calls: 2, exact: false }, "2 Bash calls"],
-      [{ calls: 1, exact: false }, "not the planned command"],
+      [{ calls: 0, exact: false, shape: false }, "0 Bash calls"],
+      [{ calls: 2, exact: false, shape: false }, "2 Bash calls"],
+      [{ calls: 1, exact: false, shape: true }, "not the planned command"],
+      [{ calls: 1, exact: true, shape: false }, "ran in the background"],
     ];
     for (const [bash, text] of cases) {
       const verdict = judgeSelfTest(evidence({}, { bash }));
       expect(verdict).toMatchObject({ ok: false, unsafe: false });
       expect(!verdict.ok && verdict.reason).toContain(text);
     }
+  });
+
+  it("refuses as unsafe when the Keychain item is readable inside the sandbox", () => {
+    const results = BLOCKED_RESULTS.replace("keychain exit 44 denied", "keychain exit 0 none");
+    expect(judgeSelfTest(evidence({ results }))).toMatchObject({
+      ok: false,
+      unsafe: true,
+      probe: "keychain",
+    });
+  });
+
+  it("refuses when security never ran inside the sandbox", () => {
+    const results = BLOCKED_RESULTS.replace("keychain exit 44 denied", "keychain exit 127 none");
+    expect(judgeSelfTest(evidence({ results }))).toMatchObject({
+      ok: false,
+      unsafe: false,
+      probe: "keychain",
+    });
   });
 
   it("refuses when the self-test cannot run", () => {
@@ -293,7 +348,7 @@ async function runWith(
   const runSettings = plan(runSpec, context()).files.find((f) => f.name === SETTINGS_FILE);
   const report = await runSelfTest(
     { spec: runSpec, ctx: context(), runSettings: runSettings?.content ?? "" },
-    { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+    { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
   );
   return { report, fs, fake, runSettings: runSettings?.content ?? "" };
 }
@@ -301,8 +356,8 @@ async function runWith(
 describe("(engine) self-test run", () => {
   it("runs one Claude session under the run's own settings file and passes on a blocked disk", async () => {
     const { report, fs, fake, runSettings } = await runWith(BLOCKED_RESULTS);
-    expect(report.verdict).toEqual({ ok: true, ghExit: 1 });
-    expect(report.evidence?.bash).toEqual({ calls: 1, exact: true });
+    expect(report.verdict).toEqual({ ok: true, refused: REFUSED });
+    expect(report.evidence?.bash).toEqual({ calls: 1, exact: true, shape: true });
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
     expect(session?.cmd).toContain("--settings");
     expect(session?.cmd).toContain(`${RUN_DIR}/self-test/${SETTINGS_FILE}`);
@@ -352,6 +407,14 @@ describe("(engine) self-test run", () => {
     expect(fs.files.has(RUN_LAYOUT.resultsFile)).toBe(false);
   });
 
+  it("restores the pointer from its saved copy when a write got through", async () => {
+    const { report, fs } = await runWith(BLOCKED_RESULTS, {
+      extra: (disk) => disk.files.set(`${WORKDIR}/.git`, `${POINTER}${NONCE.slice(0, 1)}`),
+    });
+    expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "pointer" });
+    expect(fs.files.get(`${WORKDIR}/.git`)).toBe(POINTER);
+  });
+
   it("refuses when the command never wrote its results", async () => {
     const { report } = await runWith(null);
     expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
@@ -364,7 +427,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
     expect(fake.calls).toEqual([]);
@@ -376,7 +439,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "pointer" });
     expect(selfTestFailure(report)?.file).toBe(`${WORKDIR}/.git`);
@@ -395,12 +458,17 @@ describe("(unit) live safety recordings", () => {
       const checks = recording.meta["checks"] as {
         disk: SelfTestDisk;
         bash: SelfTestBashCalls;
+        probes: ProbeName[];
         verdict: unknown;
       };
       const run = await replay(recording);
       const denied = run.events.flatMap((event) => (event.t === "denied" ? [event.tool] : []));
+      // The probes the capture ran: the Keychain probe only where it was captured on macOS.
+      expect(checks.probes.filter((probe) => probe !== "keychain")).toEqual(
+        probes.filter((probe) => probe !== "keychain"),
+      );
       const verdict = judgeSelfTest({
-        probes,
+        probes: checks.probes,
         outcome: run.result.outcome,
         denied,
         bash: checks.bash,

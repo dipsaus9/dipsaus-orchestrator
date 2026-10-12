@@ -197,6 +197,7 @@ export const BLOCKED_RESULTS = [
   "refs blocked Operation not permitted",
   "objects blocked Operation not permitted",
   "pointer blocked Operation not permitted",
-  "gh-token exit 1",
+  "gh-token exit 1 other",
+  "keychain exit 44 denied",
   "",
 ].join("\n");
