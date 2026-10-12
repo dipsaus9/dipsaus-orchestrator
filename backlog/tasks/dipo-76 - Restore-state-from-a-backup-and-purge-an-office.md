@@ -4,7 +4,7 @@ title: Restore state from a backup and purge an office
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 11:40'
+updated_date: '2026-10-12 21:47'
 labels:
   - 'tier:M'
   - after-cutover
@@ -72,4 +72,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-65 in the M0 review (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+DIPO-27 review: DIPO-27 only refuses an office with a missing path when it loads (office.pathMissing); the daemon-start notice of AC #7 is still owed here.
 <!-- SECTION:NOTES:END -->
