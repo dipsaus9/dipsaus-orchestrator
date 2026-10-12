@@ -22,21 +22,38 @@ export const PLANNED_KINDS: readonly WorkerKind[] = ["implement"];
 export const ENV_ALLOWLIST = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TMPDIR"] as const;
 
 // Names an office may never declare as tool variables: API keys and tokens that would move a
-// worker off the Max login or hand it a credential, and the engine's own variables.
-const REFUSED_TOOL_VARIABLE = /^(?:ANTHROPIC_|CLAUDE_|AWS_|DIPO_)/;
-const REFUSED_TOOL_VARIABLES = new Set(["GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"]);
+// worker off the Max login or hand it a credential, the engine's own variables, and variables that
+// change how processes start (loader, Node and shell startup) or where git resolves its repository.
+const REFUSED_TOOL_VARIABLE = /^(?:ANTHROPIC_|CLAUDE_|AWS_|DIPO_|LD_|DYLD_|GIT_)/;
+const REFUSED_TOOL_VARIABLES = new Set([
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "NPM_TOKEN",
+  "NODE_OPTIONS",
+  "BASH_ENV",
+  "ENV",
+]);
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-// Git verbs that write (0014 section 3): the engine handles every one of them.
+// Git verbs that write or reach the network (0014 section 3): the engine handles every one of them.
+// Bash rules match the command text only (`sh -c`, aliases and scripts get past them), so they
+// guide the model and stop the obvious forms. The real boundary is the sandbox `denyWrite` on
+// `<main>/.git` and `<worktree>/.git` plus the closed network (0008 section 2).
 const GIT_WRITE_VERBS = [
   "add",
   "am",
+  "apply",
+  "branch",
   "checkout",
   "cherry-pick",
   "clean",
   "commit",
+  "commit-tree",
+  "config",
+  "fetch",
   "merge",
   "mv",
+  "notes",
   "pull",
   "push",
   "rebase",
@@ -45,7 +62,9 @@ const GIT_WRITE_VERBS = [
   "revert",
   "rm",
   "stash",
+  "submodule",
   "switch",
+  "symbolic-ref",
   "tag",
   "update-ref",
   "worktree",
@@ -94,6 +113,18 @@ function expandHome(label: string, path: string, home: string): string {
   if (path === "~") return home;
   if (path.startsWith("~/")) return absolute(label, `${home}/${path.slice(2)}`);
   return absolute(label, path);
+}
+
+// Characters with a meaning in permission rules or globs. Claude Code documents no escaping for
+// them, so a path holding one is refused rather than written into a rule that matches less.
+const RULE_SPECIAL = /[*?[\]{}()\\!]/;
+
+function ruleSafe(label: string, path: string): string {
+  const control = [...path].some((char) => char.charCodeAt(0) < 0x20 || char === "\u007f");
+  if (control || RULE_SPECIAL.test(path)) {
+    throw new PlanError(`${label} holds a character with a meaning in permission rules: ${path}`);
+  }
+  return path;
 }
 
 function isInside(path: string, root: string): boolean {
@@ -252,13 +283,33 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
   checkSpec(spec);
   const claude = absolute("claudePath", ctx.claudePath);
   const home = absolute("home", ctx.home);
-  const workdir = absolute("workdir", spec.workdir);
-  const main = absolute("mainCheckout", ctx.mainCheckout);
+  const workdir = ruleSafe("workdir", absolute("workdir", spec.workdir));
+  const main = ruleSafe("mainCheckout", absolute("mainCheckout", ctx.mainCheckout));
   const runDir = absolute("runDir", ctx.runDir);
   const tmp = absolute("tmpDir", ctx.tmpDir);
   const systemFile = absolute("systemFile", spec.systemFile);
   if (isInside(workdir, main) || isInside(main, workdir)) {
     throw new PlanError(`the worktree ${workdir} must lie outside the main checkout ${main}`);
+  }
+  for (const [label, dir] of [
+    ["workdir", workdir],
+    ["tmpDir", tmp],
+  ] as const) {
+    if (dir === "/" || isInside(home, dir)) {
+      throw new PlanError(
+        `${label} ${dir} must not be the root or hold the home directory ${home}`,
+      );
+    }
+  }
+  const mcpConfig = ctx.mcpConfig === undefined ? undefined : absolute("mcpConfig", ctx.mcpConfig);
+  for (const [label, path] of [
+    ["runDir", runDir],
+    ["systemFile", systemFile],
+    ["mcpConfig", mcpConfig],
+  ] as const) {
+    if (path !== undefined && isInside(path, workdir)) {
+      throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
+    }
   }
   const paths: Paths = { home, workdir, main, tmp };
   const reportSchema = JSON.stringify(spec.reportSchema);
@@ -290,7 +341,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     "--setting-sources",
     "project,local",
     "--strict-mcp-config",
-    ...(ctx.mcpConfig === undefined ? [] : ["--mcp-config", absolute("mcpConfig", ctx.mcpConfig)]),
+    ...(mcpConfig === undefined ? [] : ["--mcp-config", mcpConfig]),
     "--append-system-prompt-file",
     systemFile,
     "--exclude-dynamic-system-prompt-sections",

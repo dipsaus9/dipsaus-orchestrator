@@ -337,6 +337,67 @@ describe("claude-cli plan", () => {
     expect(() => plan(spec("S", { model: "--bare" }), context())).toThrow(PlanError);
   });
 
+  it("refuses tool variables that change process start or git resolution", () => {
+    for (const name of [
+      "LD_PRELOAD",
+      "LD_LIBRARY_PATH",
+      "DYLD_INSERT_LIBRARIES",
+      "NODE_OPTIONS",
+      "BASH_ENV",
+      "ENV",
+      "GIT_DIR",
+      "GIT_CONFIG_GLOBAL",
+    ]) {
+      expect(() => plan(spec("S"), context({ toolVariables: [name] }))).toThrow(name);
+    }
+  });
+
+  it("denies the further git verbs bare and with arguments", () => {
+    const { permissions } = settingsOf(plan(spec("S"), context())) as {
+      permissions: { deny: string[] };
+    };
+    for (const verb of [
+      "branch",
+      "fetch",
+      "config",
+      "apply",
+      "submodule",
+      "symbolic-ref",
+      "notes",
+      "commit-tree",
+    ]) {
+      expect(permissions.deny).toContain(`Bash(git ${verb})`);
+      expect(permissions.deny).toContain(`Bash(git ${verb} *)`);
+    }
+  });
+
+  it("refuses a workdir or tmpDir that is the root, the home directory or holds it", () => {
+    for (const dir of ["/", "/home/maintainer", "/home", "/home/maintainer/"]) {
+      expect(() => plan(spec("S", { workdir: dir }), context())).toThrow(PlanError);
+      expect(() => plan(spec("S"), context({ tmpDir: dir }))).toThrow(PlanError);
+    }
+  });
+
+  it("refuses a run dir, system file or mcp.json inside the worktree", () => {
+    const workdir = spec("S").workdir;
+    expect(() => plan(spec("S"), context({ runDir: `${workdir}/.run` }))).toThrow(/runDir/);
+    expect(() => plan(spec("S", { systemFile: `${workdir}/system.md` }), context())).toThrow(
+      /systemFile/,
+    );
+    expect(() => plan(spec("S"), context({ mcpConfig: `${workdir}/mcp.json` }))).toThrow(
+      /mcpConfig/,
+    );
+  });
+
+  it("refuses a main checkout or workdir with characters that mean something in rules", () => {
+    for (const special of ["*", "?", "[", "]", "(", ")", "{", "}", "\\", "!", "\n"]) {
+      const main = `/home/maintainer/code/sh${special}op`;
+      expect(() => plan(spec("S"), context({ mainCheckout: main }))).toThrow(PlanError);
+      const workdir = `/home/maintainer/code/wt${special}/DIPO-999`;
+      expect(() => plan(spec("S", { workdir }), context())).toThrow(PlanError);
+    }
+  });
+
   it("is pure: the same input gives the same plan", () => {
     expect(plan(spec("L"), context())).toEqual(plan(spec("L"), context()));
   });
