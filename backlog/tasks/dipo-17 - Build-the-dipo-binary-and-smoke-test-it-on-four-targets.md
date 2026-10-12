@@ -4,7 +4,7 @@ title: Build the dipo binary and smoke-test it on four targets
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:37'
+updated_date: '2026-10-12 11:39'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -24,6 +24,7 @@ references:
   - packages/engine/src/platform/
   - packages/engine/src/index.ts
   - packages/tui/src/index.ts
+  - packages/tui/src/self-check.test.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -79,4 +80,6 @@ test_plan:
 M0 breakdown draft number S02 (DIPO-15). Before cutover: built by hand-run agents.
 
 Implemented in PR #20. The engine probes live in engine/src/platform/self-check.ts and the worker in self-check-worker.ts. The runner is in daemon/src/self-check.ts and is reached through runDaemon(['self-check']). The Ink check is tui/src/self-check.ts. The CLI is in cli/src (index.ts, version.ts and main.ts). scripts/build.ts uses bun build --compile with --splitting, --root=packages and --external=react-devtools-core. Splitting keeps Ink's devtools chunk lazy, and --root fixes the worker's /$bunfs path. Build output goes to dist/, which build.ts ignores through dist/.gitignore. On Linux the smoke jobs install bubblewrap, socat and ripgrep for the sandbox-runtime init. Local bun test skips the sandbox probe; the smoke jobs run it. Follow-up for DIPO-37: in the compiled binary sandbox-runtime cannot find its vendored apply-seccomp binary. On Linux this is a warning at initialization.
+
+Scope widened at review (orchestrator): the colocated Ink self-check test packages/tui/src/self-check.test.ts is added to the references.
 <!-- SECTION:NOTES:END -->
