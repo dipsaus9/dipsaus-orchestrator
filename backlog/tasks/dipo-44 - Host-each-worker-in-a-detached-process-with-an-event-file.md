@@ -4,7 +4,7 @@ title: Host each worker in a detached process with an event file
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:31'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -63,6 +63,7 @@ test_plan:
 - [ ] #6 The run directory is `0700` and holds `events.ndjson`, `exit.json` and `host.log` capped at 5 MB by dropping the oldest half.
 - [ ] #7 Liveness checks use the DIPO-23 identity check of PID and start time, where a zombie counts as dead, never socket reachability.
 - [ ] #8 The host's main function runs in-process in tests with an injected spawn, so only the detach test needs a real child process.
+- [ ] #9 Delayed host signals (`HostOp` `afterMs`, DIPO-40) are cancelled when the worker exits, so a delayed SIGTERM or SIGKILL never reaches a reused PID; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
