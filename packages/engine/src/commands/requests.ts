@@ -8,22 +8,11 @@ import { createHash } from "node:crypto";
 
 import type { Clock, CommandReply, RequestId } from "@dipsaus-orchestrator/contract";
 
+import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 
 /** How long a request record answers a retry (0007 section 7, tier D). */
 export const REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
-
-/** JSON with object keys sorted, so equal values always give equal text. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
-  }
-  return JSON.stringify(value ?? null);
-}
 
 /** sha256 over the command name and its args after story references resolved to keys. */
 export function argsHash(command: string, resolvedArgs: unknown): string {

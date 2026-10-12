@@ -56,7 +56,7 @@ export type {
   SoftwareCommandHandler,
   SoftwareCommandRegistration,
 } from "./commands/registry";
-export { argsHash, canonicalJson, MemoryRequestTable, REQUEST_TTL_MS } from "./commands/requests";
+export { argsHash, MemoryRequestTable, REQUEST_TTL_MS } from "./commands/requests";
 export { findStoryRefFields, resolveStoryRefs } from "./commands/story-refs";
 export { engineRegistry, FEATURES } from "./features";
 export { executeRead } from "./reads/execute";
@@ -70,3 +70,32 @@ export {
   resolveStoryRef,
 } from "./stories/keys";
 export type { NewStory, StoryIdentity, StoryResolution } from "./stories/keys";
+export {
+  canonicalJson,
+  configHash,
+  FLAGS_SOURCE,
+  loadOfficeConfig,
+  LOCAL_ALLOWED_KEYS,
+  LOCAL_ONLY_KEYS,
+  mergeLayer,
+  OFFICE_CONFIG_VERSION,
+  OFFICE_DEFAULTS,
+  OFFICE_FILE,
+  OFFICE_LOCAL_FILE,
+  OfficeConfigV1,
+  OfficeFileV1,
+  OfficeLocalFileV1,
+  OfficeOverridesV1,
+  officeJsonSchema,
+  resolveOfficeConfig,
+  schemaKeyPaths,
+} from "./config";
+export type {
+  ConfigError,
+  OfficeConfig,
+  OfficeConfigResult,
+  OfficeConfigSources,
+  OfficeFile,
+  OfficeLocalFile,
+  OfficeOverrides,
+} from "./config";
