@@ -1,10 +1,10 @@
 ---
 id: DIPO-17
 title: Build the dipo binary and smoke-test it on four targets
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:39'
+updated_date: '2026-10-12 11:43'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -83,3 +83,9 @@ Implemented in PR #20. The engine probes live in engine/src/platform/self-check.
 
 Scope widened at review (orchestrator): the colocated Ink self-check test packages/tui/src/self-check.test.ts is added to the references.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+dipo binary: scripts/build.ts compiles packages/cli with bun build --compile for darwin-arm64/x64 and linux-x64/arm64, version defines with -dev outside --release, ad-hoc codesign fallback on macOS, --version (text and JSON) and --help in the CLI, hidden self-check (sqlite WAL, worker VACUUM INTO, unix-socket WebSocket, YAML, sandbox-runtime, Ink) run by four CI smoke jobs that ci-ok requires. Build uses --splitting and --root=packages so Ink devtools stays lazy and the Worker path resolves in the binary. Known gap for DIPO-37: srt's apply-seccomp helper is not found inside the binary on Linux. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
