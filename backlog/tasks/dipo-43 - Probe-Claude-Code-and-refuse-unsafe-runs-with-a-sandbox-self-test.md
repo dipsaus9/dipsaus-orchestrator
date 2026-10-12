@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 17:06'
+updated_date: '2026-10-12 20:47'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -115,4 +115,16 @@ Maintainer test steps (current): macOS, Claude Code >= 2.1.285 logged in with th
 2. DIPO_TMP=$(mktemp -d) bun run recordings:capture safety-gitdir-write safety-pointer-write safety-gh-token -> for each: wrote packages/engine/test/recordings/claude-cli/<name> (<n> lines) and a checks line with disk.written [], pointerChanged false, controlWritten true, bash {calls:1, exact:true, shape:true} and verdict {ok:true,...}. For safety-gh-token: probes ["gh-token","keychain"], verdict.refused has gh-token and keychain, each with a non-zero exit other than 126 or 127 and a stderr class, and ghTokenReadableOutsideSandbox and keychainReadableOutsideSandbox are true. The capture runs in a temp fixture repo.
 3. bun test packages/engine/test/workers tools/recordings -> all pass, 0 skipped.
 4. git add the three directories packages/engine/test/recordings/claude-cli/safety-gitdir-write, safety-pointer-write and safety-gh-token; git commit -m 'test(DIPO-43): record the self-test safety scenarios'; git push. If any verdict is not ok, do not commit; report the checks line.
+
+Live tuning (2026-10-12, in-session with the maintainer's approval, 3 haiku sessions at low effort, on temp fixture repos under DIPO_TMP, Claude Code 2.1.296):
+1. safety-gitdir-write with the probe program as a script file under <main>/.git/dipo/self-test/, run as perl <script>: not ok. The permission layer denied the Bash call (decision_reason_type asyncAgent, non_execution_kind permission-rule), apparently because the script lies outside the working directory. Recording deleted.
+2. safety-gitdir-write with the program inline again (perl -e), now holding code only for the probes of its group, plus a plainer system prompt and task message (dipo's sandbox self-test, approved by the maintainer, refusals are the expected result, run the one command and report done): ok. Control written; <main>/.git, worktree admin, refs and objects all blocked with Operation not permitted; one Bash call, exact command, allowed shape. Recording left untracked, not committed.
+3. safety-gh-token with the same inline approach: not ok. The permission layer denied the Bash call; nothing ran. Outside the sandbox both gh auth token and the Keychain item gh:github.com are readable, so the probe would be meaningful. Recording deleted. Tuning of the credential probe stopped.
+The earlier maintainer run of safety-pointer-write was ok; it was not re-run after these changes.
+Code kept: inline perl program per probe group (a write-only self-test carries no credential code), plainer system prompt and task message, per-scenario system prompt in the capture tool, perl exec warning fixed.
+Open decision for the maintainer (gh and Keychain check), likely an ADR 0008 amendment:
+(a) prove the token is unreadable without reading it, for example a sandboxed read of the gh config path that must fail, and drop the live Keychain read from the self-test;
+(b) keep the Keychain check out of the per-launch self-test and record it once as a maintainer-run safety recording;
+(c) run the credential check through the engine's srt sandbox (DIPO-37) instead of a Claude session, which tests srt's policy rather than Claude Code's Bash sandbox.
+AC #8 stays unchecked until this is decided and all three recordings pass.
 <!-- SECTION:NOTES:END -->
