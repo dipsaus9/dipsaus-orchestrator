@@ -138,7 +138,17 @@ export type WorkerEvent =
       readonly model: string;
       readonly agentId?: string;
       readonly input: number;
+      /**
+       * Output as the message reports it. It may be a placeholder until the turn ends, so run
+       * totals take output only from `turn`; the per-message number is stored as reported.
+       */
+      readonly output: number;
+      /** Cache creation, the sum of the two parts below (0008 section 4). */
       readonly cacheCreate: number;
+      /** Cache creation for the 5 minute cache; all of it when the source gives no split. */
+      readonly cacheCreate5m: number;
+      /** Cache creation for the 1 hour cache. */
+      readonly cacheCreate1h: number;
       readonly cacheRead: number;
     }
   | {

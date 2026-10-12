@@ -55,35 +55,46 @@ export function recordUsageMessage(
     readonly messageId: string;
     readonly model: string;
     readonly input: number;
+    readonly output: number;
     readonly cacheCreate: number;
+    readonly cacheCreate5m: number;
+    readonly cacheCreate1h: number;
     readonly cacheRead: number;
   },
   at: number,
 ): boolean {
   const inserted = office.run(
     `insert or ignore into usage_messages (office_id, agent_id, message_id, run_id, model, input,
-       output, cache_create, cache_read, at)
-     values ($office_id, $agent, $message, $run, $model, $input, 0, $create, $read, $at)`,
+       output, cache_create, cache_create_5m, cache_create_1h, cache_read, at)
+     values ($office_id, $agent, $message, $run, $model, $input, $output, $create, $create5m,
+       $create1h, $read, $at)`,
     {
       agent: scope.agent,
       message: message.messageId,
       run: scope.run,
       model: message.model,
       input: message.input,
+      output: message.output,
       create: message.cacheCreate,
+      create5m: message.cacheCreate5m,
+      create1h: message.cacheCreate1h,
       read: message.cacheRead,
       at,
     },
   );
   if (inserted.changes === 0) return false;
   ensureRow(office, scope, message.model, at);
+  // Live output stays out of the totals: per-message output may be a placeholder (0008 section 4).
   office.run(
     `update usage_totals set input = input + $input, cache_create = cache_create + $create,
+       cache_create_5m = cache_create_5m + $create5m, cache_create_1h = cache_create_1h + $create1h,
        cache_read = cache_read + $read, updated_at = $at
      where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
     {
       input: message.input,
       create: message.cacheCreate,
+      create5m: message.cacheCreate5m,
+      create1h: message.cacheCreate1h,
       read: message.cacheRead,
       at,
       run: scope.run,
@@ -167,6 +178,8 @@ interface TotalsRow {
   input: number;
   output: number;
   cache_create: number;
+  cache_create_5m: number;
+  cache_create_1h: number;
   cache_read: number;
   turns: number;
   elapsed_ms: number;
@@ -192,7 +205,8 @@ export function finalizeAgentUsage(
   at: number,
 ): number {
   const rows = office.all<TotalsRow>(
-    `select run_id, model, role, tier, input, output, cache_create, cache_read, turns, elapsed_ms,
+    `select run_id, model, role, tier, input, output, cache_create, cache_create_5m,
+       cache_create_1h, cache_read, turns, elapsed_ms,
        budget_used, budget_limit, est_cost_micros
      from usage_totals
      where office_id = $office_id and run_id = $run and agent_id = $agent and final = 0`,
@@ -215,13 +229,17 @@ export function finalizeAgentUsage(
     );
     office.run(
       `insert into usage_daily (office_id, day, role, tier, model, input, output, cache_create,
-         cache_read, turns, runs, est_cost_micros, budget_used, budget_limit_sum)
-       values ($office_id, $day, $role, $tier, $model, $input, $output, $create, $read, $turns,
+         cache_create_5m, cache_create_1h, cache_read, turns, runs, est_cost_micros, budget_used,
+         budget_limit_sum)
+       values ($office_id, $day, $role, $tier, $model, $input, $output, $create, $create5m,
+         $create1h, $read, $turns,
          $runs, $cost, $used, $limit)
        on conflict (office_id, day, role, tier, model) do update set
          input = input + excluded.input,
          output = output + excluded.output,
          cache_create = cache_create + excluded.cache_create,
+         cache_create_5m = cache_create_5m + excluded.cache_create_5m,
+         cache_create_1h = cache_create_1h + excluded.cache_create_1h,
          cache_read = cache_read + excluded.cache_read,
          turns = turns + excluded.turns,
          runs = runs + excluded.runs,
@@ -238,6 +256,8 @@ export function finalizeAgentUsage(
         input: row.input,
         output: row.output,
         create: row.cache_create,
+        create5m: row.cache_create_5m,
+        create1h: row.cache_create_1h,
         read: row.cache_read,
         turns: row.turns,
         runs: newRun,

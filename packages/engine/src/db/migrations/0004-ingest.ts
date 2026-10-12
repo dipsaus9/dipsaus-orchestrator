@@ -2,8 +2,11 @@
 // message, per run and agent, and per day, stored worker output, and the cursor each run's event
 // file is read from. Every table is office-scoped, so `office_id` leads each primary key.
 //
-// Usage per message keeps one cache-creation count: the neutral `usage` worker event has no
-// 5 minute and 1 hour split. Estimated cost columns stay null until pricing (DIPO-62).
+// Cache creation is stored as its total and its 5 minute and 1 hour parts (0007 section 4).
+// Per-message `output` is what the message reports, which may be a placeholder until the turn
+// ends; run totals take output from the turn end. In `usage_totals` the two parts are the sum over
+// counted messages, while `cache_create` is replaced by the adapter's cumulative total at each
+// turn end. Estimated cost columns stay null until pricing (DIPO-62).
 
 import type { SqlMigration } from "../migrations";
 
@@ -39,6 +42,8 @@ create table usage_messages (
   input integer not null,
   output integer not null,
   cache_create integer not null,
+  cache_create_5m integer not null,
+  cache_create_1h integer not null,
   cache_read integer not null,
   at integer not null,
   primary key (office_id, agent_id, message_id),
@@ -55,6 +60,8 @@ create table usage_totals (
   input integer not null default 0,
   output integer not null default 0,
   cache_create integer not null default 0,
+  cache_create_5m integer not null default 0,
+  cache_create_1h integer not null default 0,
   cache_read integer not null default 0,
   turns integer not null default 0,
   elapsed_ms integer not null default 0,
@@ -78,6 +85,8 @@ create table usage_daily (
   input integer not null default 0,
   output integer not null default 0,
   cache_create integer not null default 0,
+  cache_create_5m integer not null default 0,
+  cache_create_1h integer not null default 0,
   cache_read integer not null default 0,
   turns integer not null default 0,
   runs integer not null default 0,
@@ -110,6 +119,7 @@ create table ingest_cursors (
   size integer not null default 0,
   read_offset integer not null default 0,
   last_line_hash text,
+  last_line_bytes integer,
   parse_state text not null,
   first_line_t integer,
   last_line_t integer,

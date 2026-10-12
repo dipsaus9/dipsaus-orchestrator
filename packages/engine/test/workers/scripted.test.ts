@@ -75,7 +75,29 @@ describe("ScriptedWorker", () => {
         { t: "waiting", on: "lunch", detail: "x" },
         { t: "waiting", on: "question" },
         // Usage is never negative and always names a message.
-        { t: "usage", messageId: "", model: "m", input: -1, cacheCreate: 0, cacheRead: 0 },
+        {
+          t: "usage",
+          messageId: "",
+          model: "m",
+          input: -1,
+          output: 0,
+          cacheCreate: 0,
+          cacheCreate5m: 0,
+          cacheCreate1h: 0,
+          cacheRead: 0,
+        },
+        // The cache-creation parts always add up to the total.
+        {
+          t: "usage",
+          messageId: "m-1",
+          model: "m",
+          input: 1,
+          output: 0,
+          cacheCreate: 5,
+          cacheCreate5m: 1,
+          cacheCreate1h: 1,
+          cacheRead: 0,
+        },
         // The report must fit the report schema.
         { t: "turn", report: { status: "maybe" }, totals: {}, numTurns: 1, terminal: "completed" },
         // Utilization is a 0..1 fraction; extra fields are never added.
