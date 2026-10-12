@@ -1,10 +1,10 @@
 ---
 id: DIPO-45
 title: Ingest worker events from stored offsets into facts and usage
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:35'
+updated_date: '2026-10-12 14:38'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -107,3 +107,9 @@ Review fixes (PR #43):
 
 Re-review fix (PR #43): every usage table keeps cache_create = cache_create_5m + cache_create_1h, enforced by a CHECK in migration 4. At a turn end usage_totals caps the 1 hour part at the adapter's new total and the 5 minute part is the rest (the adapter's per-message rule). Pricing (DIPO-62) reads the parts directly. Tested after the pause-now and success-tools-subagent replays.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Worker event ingestion: migration 4 (agents, usage_messages, usage_totals, usage_daily, output_chunks, ingest_cursors; cache writes split 5m/1h with a CHECK that they sum to cache_create), Ingestor reading complete events.ndjson lines from the stored offset and committing facts, output, change-log entries, parser state and offset in one transaction; triggers on host advanced announcements with a 1 s poll fallback; work.output and usage.updated debounced on the injected clock; changed, shrunk, replaced or rewritten event files stop ingestion with ingest.fileChanged; neutral initRejected event and hook; budget excludes cache reads; usage final on the exit line, finalizeAgentUsage exported for run ends without one. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
