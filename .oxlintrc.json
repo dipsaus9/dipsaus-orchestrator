@@ -199,6 +199,164 @@
             "name": "clearImmediate",
             "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
           }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Date",
+            "property": "now",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          }
         ]
       }
     },
@@ -254,6 +412,44 @@
           },
           {
             "name": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Date",
+            "property": "now",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearImmediate",
             "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
           }
         ]

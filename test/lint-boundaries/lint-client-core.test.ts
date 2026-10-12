@@ -10,6 +10,7 @@ import { lintTree, type Diagnostic } from "./lint-tree";
 
 const GLOBALS = "eslint(no-restricted-globals)";
 const IMPORTS = "eslint(no-restricted-imports)";
+const PROPERTIES = "eslint(no-restricted-properties)";
 
 type Case = { fixture: string; dir: string; rule: string };
 
@@ -26,9 +27,23 @@ const violations: Case[] = [
   { fixture: "client-imports-engine.ts", dir: "packages/client/src", rule: IMPORTS },
   { fixture: "client-imports-engine.ts", dir: "packages/client/src/node", rule: IMPORTS },
   { fixture: "client-imports-daemon.ts", dir: "packages/client/src/node", rule: IMPORTS },
+  // Property access through globalThis, self or window is banned like the bare global.
+  { fixture: "client-core-global-this-bun.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "client-core-global-this-process.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "client-core-self-buffer.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "client-core-window-require.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "client-core-self-timer.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "client-core-window-timer.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "global-this-timer.ts", dir: "packages/client/src", rule: PROPERTIES },
+  // The overrides keep the clock bans of the base config.
+  { fixture: "date-now.ts", dir: "packages/client/src", rule: PROPERTIES },
+  { fixture: "date-now.ts", dir: "packages/client/src/node", rule: PROPERTIES },
+  { fixture: "global-this-timer.ts", dir: "packages/client/src/node", rule: PROPERTIES },
 ];
 
 const allowed: Omit<Case, "rule">[] = [
+  { fixture: "client-core-global-this-bun.ts", dir: "packages/client/src/node" },
+  { fixture: "client-core-global-this-process.ts", dir: "packages/client/src/node" },
   { fixture: "client-core-node-import.ts", dir: "packages/client/src/node" },
   { fixture: "client-core-bun-import.ts", dir: "packages/client/src/node" },
   { fixture: "client-core-bun-global.ts", dir: "packages/client/src/node" },
