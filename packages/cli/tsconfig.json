@@ -18,6 +18,9 @@
       "path": "../daemon"
     },
     {
+      "path": "../testkit"
+    },
+    {
       "path": "../tui"
     }
   ]

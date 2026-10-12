@@ -122,6 +122,348 @@
       }
     },
     {
+      "files": ["packages/client/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "tui and client never import engine (0004). Go through the contract and client."
+              },
+              {
+                "name": "@dipsaus-orchestrator/daemon",
+                "message": "tui and client never import daemon (0004). Go through the contract and client."
+              },
+              {
+                "name": "bun",
+                "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun code belongs in packages/client/src/node/."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["node:*", "bun:*"],
+                "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/engine/**", "@dipsaus-orchestrator/daemon/**"],
+                "message": "tui and client never import engine or daemon (0004)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ],
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun code belongs in packages/client/src/node/."
+          },
+          {
+            "name": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Node code belongs in packages/client/src/node/."
+          },
+          {
+            "name": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Node code belongs in packages/client/src/node/."
+          },
+          {
+            "name": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Node code belongs in packages/client/src/node/."
+          },
+          {
+            "name": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "name": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "name": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "name": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "name": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "name": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Date",
+            "property": "now",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "self",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "self",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "Bun",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "process",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "Buffer",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "require",
+            "message": "The main client entry is runtime-free (0004 amendment of 2026-10-12). Bun and Node code belongs in packages/client/src/node/."
+          },
+          {
+            "object": "window",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "window",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/client/src/node/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "tui and client never import engine (0004). Go through the contract and client."
+              },
+              {
+                "name": "@dipsaus-orchestrator/daemon",
+                "message": "tui and client never import daemon (0004). Go through the contract and client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@dipsaus-orchestrator/engine/**", "@dipsaus-orchestrator/daemon/**"],
+                "message": "tui and client never import engine or daemon (0004)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ],
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "name": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "name": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "name": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "name": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "name": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Date",
+            "property": "now",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the client's real clock is packages/client/src/node/clock.ts."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/client/src/node/clock.ts"],
+      "rules": {
+        "no-restricted-globals": "off",
+        "no-restricted-properties": "off",
+        "dipo/no-argless-date": "off"
+      }
+    },
+    {
       "files": ["packages/cli/**"],
       "rules": {
         "no-restricted-imports": [
