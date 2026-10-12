@@ -130,3 +130,43 @@ export type {
   OfficeLocalFile,
   OfficeOverrides,
 } from "./config";
+export {
+  DENY_ALL_SETTINGS,
+  evaluateProbe,
+  expandHome,
+  KILL_GRACE_MS,
+  linuxLiteralPath,
+  MIN_BWRAP_VERSION,
+  OUTPUT_LIMIT_BYTES,
+  parseBwrapVersion,
+  refusalReason,
+  runSandboxedStep,
+  SANDBOX_REFUSED_EXIT_CODE,
+  SANDBOX_REFUSED_MARKER,
+  SECRET_HOME_PATHS,
+  STEP_ENV_ALLOWLIST,
+  stepEnv,
+  translatePolicy,
+} from "./sandbox";
+export type {
+  CapturedOutput,
+  ProbeResult,
+  SandboxFacts,
+  SandboxHost,
+  SandboxRun,
+  SrtSettings,
+  StepDeps,
+  StepPolicyKind,
+  StepRequest,
+  StepResult,
+  TranslatedPolicy,
+} from "./sandbox";
+export {
+  dipoCommand,
+  probeSandbox,
+  sandboxExecArgv,
+  STEP_TEMP_PREFIX,
+  systemSandboxHost,
+} from "./platform/sandbox";
+export { runSandboxExec } from "./platform/sandbox-exec";
+export type { SandboxExecOptions } from "./platform/sandbox-exec";

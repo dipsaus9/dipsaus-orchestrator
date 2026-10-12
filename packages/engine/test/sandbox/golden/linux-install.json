@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "network": {
+      "allowedDomains": ["registry.npmjs.org", "*.npmjs.org"],
+      "deniedDomains": [],
+      "strictAllowlist": true,
+      "allowAllUnixSockets": true
+    },
+    "filesystem": {
+      "denyRead": [
+        "/home/maintainer/.ssh",
+        "/home/maintainer/.aws",
+        "/home/maintainer/.config/gh",
+        "/home/maintainer/.gnupg",
+        "/home/maintainer/.netrc"
+      ],
+      "allowWrite": [
+        "/src/product.worktrees/PROD-7",
+        "/tmp/dipo-s-AbC123",
+        "/home/maintainer/.bun/install/cache",
+        "/home/maintainer/.npm",
+        "/home/maintainer/.cache"
+      ],
+      "denyWrite": ["/src/product/.git", "/src/product.worktrees/PROD-7/.git"]
+    }
+  },
+  "warnings": ["allowWrite: skipped /opt/cache/*.tmp (a glob; Linux takes literal paths only)"]
+}

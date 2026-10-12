@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "network": {
+      "allowedDomains": [],
+      "deniedDomains": [],
+      "strictAllowlist": true,
+      "allowUnixSockets": ["/tmp/dipo-s-AbC123"]
+    },
+    "filesystem": {
+      "denyRead": [
+        "/home/maintainer/.ssh",
+        "/home/maintainer/.aws",
+        "/home/maintainer/.config/gh",
+        "/home/maintainer/.gnupg",
+        "/home/maintainer/.netrc"
+      ],
+      "allowWrite": ["/src/product.worktrees/PROD-7", "/tmp/dipo-s-AbC123"],
+      "denyWrite": ["/src/product/.git", "/src/product.worktrees/PROD-7/.git"]
+    }
+  },
+  "warnings": []
+}
