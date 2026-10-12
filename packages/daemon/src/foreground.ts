@@ -20,6 +20,7 @@ import {
   createLogger,
   createSystemIds,
   currentPlatform,
+  detachedEnv,
   engineRegistry,
   ensurePrivateDir,
   FEATURES,
@@ -37,14 +38,20 @@ import {
   readRuntimeRecord,
   removeSocketFile,
   resolveSoftwareDirs,
+  resolveTools,
   runtimeCandidates,
+  selfCommand,
   serveUnixSocket,
   SOCKET_FILE,
   SoftwareStream,
   stateOfficeDirectory,
+  systemExecutableStamp,
   systemProcessProbe,
+  systemSpawnDetached,
   writeRuntimeRecord,
   type FeatureModule,
+  type ReadExecutableStamp,
+  type SpawnDetached,
   type HeldLock,
   type Logger,
   type LogFile,
@@ -67,6 +74,7 @@ import {
   type RecoveryStep,
 } from "./recovery";
 import { ContractServer } from "./server";
+import { UPGRADE_REASON, UpgradeWatcher } from "./upgrade";
 
 /** How often the daemon checks that `dipo.pid` still holds its own record (0006 decision 6). */
 export const LOCK_CHECK_MS = 60_000;
@@ -81,6 +89,10 @@ export interface ForegroundOptions {
   readonly drainCaps?: DrainCaps;
   /** Feature modules served next to the engine's own; tests register fixtures here. */
   readonly features?: readonly FeatureModule[];
+  /** How the upgrade check reads the executable; tests replace the file system. */
+  readonly readExecutableStamp?: ReadExecutableStamp;
+  /** How the daemon starts the new binary after an upgrade drain; tests record the call. */
+  readonly spawnDetached?: SpawnDetached;
 }
 
 /** The first stop request wins: a signal, a lost lock, or later `daemon.stop` (DIPO-24). */
@@ -277,6 +289,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
   } = { socket: null, database: null, crashes: null, lockTimer: null, stableTimer: null };
   let lockLost = false;
   let clean = false;
+  let upgrade: UpgradeWatcher | null = null;
   try {
     logger.info("daemon state", { to: lifecycle.state, reason: lifecycle.reason });
     // The crash counter (0006 decision 7), opened right after the lock is taken so an unclean exit
@@ -312,6 +325,26 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const socketPath = join(choice.path, SOCKET_FILE);
     removeSocketFile(socketPath);
     const record = lock.record();
+
+    // Tool paths from this daemon's PATH, which the starting client kept (DIPO-70). A missing tool
+    // is reported, never a reason to stop the start.
+    const tools = resolveTools(io.env["PATH"]);
+    logger.info("tools resolved", { ...tools.paths, missing: tools.missing });
+    for (const tool of tools.missing) logger.warn("tool not found on PATH", { tool });
+
+    // Upgrades (0006 decision 14): checked every minute; an engine step is a child the daemon
+    // started or a command still writing, and an automatic restart waits for both.
+    const command = selfCommand();
+    upgrade = new UpgradeWatcher({
+      clock,
+      logger,
+      executable: command[command.length - 1] ?? process.execPath,
+      readStamp: options.readExecutableStamp ?? systemExecutableStamp,
+      autoRestart: run.settings.daemon.autoRestartOnUpgrade,
+      busy: () => children.size > 0 || lifecycle.inFlight > 0,
+      restart: () => stops.request({ reason: UPGRADE_REASON, stopWorkers: false }),
+    });
+    const watcher = upgrade;
     // Office commands reach the database only once the migrations step opened it; until then the
     // lifecycle gate answers them with engine.recovering.
     const offices: OfficeDirectory = {
@@ -334,6 +367,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         pid: record.pid,
         version: io.version,
         socket: socketPath,
+        tools: tools.paths,
+        upgradePending: () => watcher.pending,
         requestStop: (request) => stops.request(request),
       }),
       ...(options.features ?? []),
@@ -393,6 +428,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       }, LOCK_CHECK_MS);
     };
     tick();
+    watcher.start();
 
     const steps = new RecoverySteps({
       name: MIGRATIONS_STEP,
@@ -458,6 +494,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
   } finally {
     if (held.lockTimer !== null) clock.clearTimeout(held.lockTimer);
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
+    upgrade?.stop();
     // Clean exit: remove dipo.sock, then dipo.pid (0006 decision 6). A daemon that lost the lock
     // leaves the socket path alone: it may belong to the daemon that holds the lock now. The
     // connections close (1001) before the database, so no request reaches a closed database.
@@ -474,6 +511,21 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     if (clean) held.crashes?.cleanExit();
     lock.release();
     if (ownsLock) logger.info("lock released", { path: lock.path });
+    // An upgrade drain ends in the new binary (0006 decision 14), started only now that the lock
+    // and the socket are free, with the same environment minus the Bun flag variables.
+    if (clean && upgrade?.restarting === true) {
+      try {
+        const started = (options.spawnDetached ?? systemSpawnDetached)({
+          cmd: [...selfCommand(), "daemon", "--foreground", "--log-level", logger.level()],
+          cwd: process.cwd(),
+          env: detachedEnv(io.env),
+          outputFile: "/dev/null",
+        });
+        logger.info("started the new binary", { pid: started.pid });
+      } catch (error) {
+        logger.error("could not start the new binary; run `dipo daemon start`", { error });
+      }
+    }
     logger.info("daemon stopped", { log: logFile.path });
   }
 }

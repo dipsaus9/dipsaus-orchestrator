@@ -197,7 +197,19 @@ describe("daemon.* operations", () => {
       activeRuns: 0,
       keepAwake: { held: false },
       upgradePending: false,
+      tools: {},
     });
+  });
+
+  it("reports the resolved tool paths and a pending upgrade in daemon.status", async () => {
+    const tools = { git: "/usr/bin/git", claude: "/opt/bin/claude" };
+    const h = await start({ tools });
+    const client = await connect(h);
+    const before = okResult<Record<string, unknown>>(await client.read("daemon.status"));
+    expect(before).toMatchObject({ tools, upgradePending: false });
+    h.upgrade.pending = true;
+    const after = okResult<Record<string, unknown>>(await client.read("daemon.status"));
+    expect(after).toMatchObject({ tools, upgradePending: true });
   });
 
   it("stops: daemon.stop moves to draining, asks for the drain once, and a repeat changes nothing", async () => {
