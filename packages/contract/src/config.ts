@@ -103,27 +103,32 @@ export function parseSingleYamlDocument(parse: YamlParser, text: string): YamlPa
 
 // Validation
 
+/**
+ * Words the problem of an unknown key. `parent` is the path of the mapping that holds the key and
+ * `expected` the default wording's expected keys. Undefined keeps the default wording.
+ */
+export type UnknownKeyProblem = (
+  parent: readonly PropertyKey[],
+  expected: string,
+) => string | undefined;
+
 /** Turns zod issues into configuration errors that name the file, the key path and the type. */
 export function configIssueErrors(
   file: string,
   schema: z.ZodType,
   input: unknown,
   issues: readonly z.core.$ZodIssue[],
+  options: { readonly unknownKeyProblem?: UnknownKeyProblem } = {},
 ): ConfigError[] {
   const errors: ConfigError[] = [];
   for (const issue of issues) {
     if (issue.code === "unrecognized_keys") {
       const known = knownKeysAt(schema, issue.path);
       const expected = known.length > 0 ? `one of the keys ${known.join(", ")}` : "no other keys";
+      const problem =
+        options.unknownKeyProblem?.(issue.path, expected) ?? `unknown key; expected ${expected}`;
       for (const key of issue.keys) {
-        errors.push(
-          configError(
-            file,
-            formatPath([...issue.path, key]),
-            expected,
-            `unknown key; expected ${expected}`,
-          ),
-        );
+        errors.push(configError(file, formatPath([...issue.path, key]), expected, problem));
       }
       continue;
     }
@@ -187,6 +192,14 @@ export function checkConfigDocument(
 }
 
 // Software-level configuration
+
+/**
+ * The exit code of a daemon that refuses to start because `config.yaml` is invalid or newer than
+ * it knows: `EX_CONFIG` from sysexits. A supervisor must not restart on it (launchd, systemd
+ * `RestartPreventExitStatus=78`, DIPO-63), and a client that would autostart the daemon shows the
+ * configuration error instead (DIPO-70), because a restart cannot fix the file.
+ */
+export const EXIT_CONFIG = 78;
 
 /** The file name under `<state>`. */
 export const SOFTWARE_CONFIG_FILE = "config.yaml";

@@ -6,19 +6,16 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { checkConfigDocument, configError, type ConfigError } from "@dipsaus-orchestrator/contract";
+import {
+  checkConfigDocument,
+  configError,
+  configIssueErrors,
+  type ConfigError,
+} from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import { parseYamlDocument } from "../platform/yaml";
-import {
-  describeSchema,
-  describeValue,
-  formatPath,
-  knownKeysAt,
-  schemaAt,
-  valueAt,
-  valueKeyPaths,
-} from "./keys";
+import { valueKeyPaths } from "./keys";
 import { configHash, mergeLayer } from "./merge";
 import {
   LOCAL_ALLOWED_KEYS,
@@ -62,41 +59,20 @@ export interface OfficeConfigSources {
   readonly flags?: unknown;
 }
 
+// The contract's wording, except for an unknown top-level key in `office.local.yaml`, which
+// names the keys that file accepts.
 function issueErrors(
   file: string,
   schema: z.ZodType,
   input: unknown,
   issues: readonly z.core.$ZodIssue[],
 ): ConfigError[] {
-  const errors: ConfigError[] = [];
-  for (const issue of issues) {
-    if (issue.code === "unrecognized_keys") {
-      const known = knownKeysAt(schema, issue.path);
-      const expected = known.length > 0 ? `one of the keys ${known.join(", ")}` : "no other keys";
-      for (const key of issue.keys) {
-        const keyPath = formatPath([...issue.path, key]);
-        const problem =
-          file === OFFICE_LOCAL_FILE && issue.path.length === 0
-            ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`
-            : `unknown key; expected ${expected}`;
-        errors.push(configError(file, keyPath, expected, problem));
-      }
-      continue;
-    }
-    const at = schemaAt(schema, issue.path);
-    const expected = at === undefined ? issue.message : describeSchema(at);
-    const value = valueAt(input, issue.path);
-    const got =
-      issue.code === "invalid_value" && value !== undefined
-        ? JSON.stringify(value)
-        : describeValue(value);
-    const problem =
-      issue.code === "invalid_type" || issue.code === "invalid_value"
-        ? `expected ${expected}, got ${got}`
-        : `${issue.message} (expected ${expected})`;
-    errors.push(configError(file, formatPath(issue.path), expected, problem));
-  }
-  return errors;
+  return configIssueErrors(file, schema, input, issues, {
+    unknownKeyProblem: (parent) =>
+      file === OFFICE_LOCAL_FILE && parent.length === 0
+        ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`
+        : undefined,
+  });
 }
 
 type Checked = { ok: true; value: Record<string, unknown> } | { ok: false; errors: ConfigError[] };

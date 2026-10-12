@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { z } from "zod";
 
 import {
+  configIssueErrors,
   parseSingleYamlDocument,
   resolveSoftwareConfig,
   SOFTWARE_CONFIG_DEFAULTS,
@@ -165,5 +167,29 @@ describe("config.yaml JSON Schema", () => {
   it("accepts what the zod schema accepts", () => {
     expect(SoftwareConfigV1.safeParse({ version: 1 }).success).toBe(true);
     expect(SoftwareConfigV1.safeParse({ version: 1, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("configIssueErrors", () => {
+  const schema = z.strictObject({
+    version: z.literal(1),
+    inner: z.strictObject({ a: z.boolean() }),
+  });
+  const issuesOf = (input: unknown) => {
+    const result = schema.safeParse(input);
+    if (result.success) throw new Error("expected issues");
+    return result.error.issues;
+  };
+
+  it("lets a caller reword an unknown key and keeps the default otherwise", () => {
+    const input = { version: 1, extra: 1, inner: { a: true, b: 1 } };
+    const errors = configIssueErrors("f.yaml", schema, input, issuesOf(input), {
+      unknownKeyProblem: (parent, expected) =>
+        parent.length === 0 ? `unknown key; only ${expected}` : undefined,
+    });
+    expect(errors.map((error) => error.message).toSorted()).toEqual([
+      "f.yaml: extra: unknown key; only one of the keys version, inner",
+      "f.yaml: inner.b: unknown key; expected one of the keys a",
+    ]);
   });
 });
