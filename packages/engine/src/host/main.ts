@@ -9,15 +9,7 @@
 // out of `host/`). Time comes from the injected clock and the process from the injected spawn, so
 // tests run it in-process with a fake process; only the detach test needs a real one.
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type {
@@ -31,6 +23,7 @@ import type {
 
 import { createLogger, type Logger, type LogSink } from "../log/logger";
 import { listenLineSocket, type LineConnection, type LineServer } from "../platform/line-socket";
+import { ensurePrivateDir } from "../platform/paths";
 import { removeSocketFile } from "../platform/socket";
 import { EventLog, LineSplitter, type EventChannel } from "./events";
 import { openHostLog, type HostLog } from "./host-log";
@@ -197,14 +190,29 @@ export class WorkerHost {
       agent: launch.agent,
       offset: this.#events.offset,
     });
-    for (const file of plan.files) {
-      writeFileSync(join(this.runDir, file.name), file.content, { mode: 0o600 });
+    const fail = (what: string, error: unknown) => {
+      const message = `${what}: ${error instanceof Error ? error.message : String(error)}`;
+      this.#logger.error(what, { error: message });
+      // exit.json always exists once the host ran, so the engine never sees a silent end.
+      void this.#finish({ code: null, signal: null }, message).then(
+        this.#resolveDone,
+        this.#rejectDone,
+      );
+    };
+    try {
+      for (const file of plan.files) {
+        writeFileSync(join(this.runDir, file.name), file.content, { mode: 0o600 });
+      }
+      // The hosts directory carries the socket's access control (0006 decision 11).
+      ensurePrivateDir(dirname(this.socketPath));
+      // The engine never starts a host for a run whose old host is alive (0006 decision 8), so a
+      // file left at this path is a leftover.
+      removeSocketFile(this.socketPath);
+      this.#server = listenLineSocket(this.socketPath, (connection) => this.#accept(connection));
+    } catch (error) {
+      fail("cannot prepare the host socket", error);
+      return;
     }
-    mkdirSync(dirname(this.socketPath), { recursive: true, mode: 0o700 });
-    // The engine never starts a host for a run whose old host is alive (0006 decision 8), so a
-    // file left at this path is a leftover.
-    removeSocketFile(this.socketPath);
-    this.#server = listenLineSocket(this.socketPath, (connection) => this.#accept(connection));
 
     let child: ChildProcess;
     try {
@@ -216,12 +224,7 @@ export class WorkerHost {
         detached: true,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.#logger.error("cannot start the worker", { error: message });
-      void this.#finish({ code: null, signal: null }, message).then(
-        this.#resolveDone,
-        this.#rejectDone,
-      );
+      fail("cannot start the worker", error);
       return;
     }
     this.#child = child;

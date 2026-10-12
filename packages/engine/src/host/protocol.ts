@@ -39,12 +39,25 @@ export const RUN_ID_PATTERN = /^run_[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export const HostSignalSchema = z.enum(["SIGINT", "SIGTERM", "SIGKILL"]);
 
+/** Files the engine and the host write in the run directory; a plan's files may not use them. */
+export const RESERVED_RUN_FILES: ReadonlySet<string> = new Set([
+  LAUNCH_FILE,
+  `${LAUNCH_FILE}.tmp`,
+  EVENTS_FILE,
+  EXIT_FILE,
+  `${EXIT_FILE}.tmp`,
+  HOST_LOG_FILE,
+]);
+
 const LaunchFileSchema = z.object({
   name: z
     .string()
     .min(1)
     .refine((name) => !name.includes("/") && name !== "." && name !== "..", {
       message: "a launch file name is a plain file name",
+    })
+    .refine((name) => !RESERVED_RUN_FILES.has(name), {
+      message: "a launch file may not replace a file the host writes",
     }),
   content: z.string(),
 });

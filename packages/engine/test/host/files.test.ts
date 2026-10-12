@@ -40,6 +40,14 @@ describe("EventLog", () => {
 });
 
 describe("LineSplitter", () => {
+  it("emits a line longer than the cap in pieces instead of holding it", () => {
+    const splitter = new LineSplitter(4);
+    expect(splitter.push("abcdefghij")).toEqual(["abcd", "efgh"]);
+    expect(splitter.push("k\nxy")).toEqual(["ijk\n"]);
+    expect(splitter.push("012345678\n")).toEqual(["xy01", "2345", "678\n"]);
+    expect(splitter.flush()).toBeNull();
+  });
+
   it("keeps newlines, holds partial lines and survives split UTF-8", () => {
     const splitter = new LineSplitter();
     const bytes = new TextEncoder().encode("a\nbé");

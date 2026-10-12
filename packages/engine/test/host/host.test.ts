@@ -5,8 +5,8 @@
 // delayed signal.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { ChildProcess, Signal, Spawn } from "@dipsaus-orchestrator/contract";
 import {
@@ -26,6 +26,7 @@ import {
   HOST_LOG_FILE,
   hostSocketPath,
   LAUNCH_FILE,
+  RESERVED_RUN_FILES,
   type HostExitFile,
   type HostLaunch,
   type HostStatus,
@@ -340,11 +341,85 @@ describe("worker host in-process", () => {
         signal: null,
         finalOffset: statSync(join(runDir, EVENTS_FILE)).size,
         at: clock.now(),
-        startError: "ENOENT: claude",
+        startError: "cannot start the worker: ENOENT: claude",
       });
       expect(readLines(runDir).lines).toEqual([
         { t: 0, ch: "exit", data: '{"code":null,"signal":null}' },
       ]);
+    }));
+
+  it("refuses plan files that would replace a file the host writes", () =>
+    withTempDir((dir) => {
+      const { runDir, launch } = setup(dir);
+      for (const name of RESERVED_RUN_FILES) {
+        const bad = { ...launch, plan: { ...launch.plan, files: [{ name, content: "x" }] } };
+        writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(bad));
+        expect(() =>
+          WorkerHost.start({
+            runId: RUN,
+            runDir,
+            clock: new ManualClock(),
+            spawn: () => {
+              throw new Error("not reached");
+            },
+            killGroup: () => {},
+            pid: 782,
+          }),
+        ).toThrow("may not replace a file the host writes");
+        expect(existsSync(join(runDir, LAUNCH_FILE))).toBe(false);
+      }
+      expect([...RESERVED_RUN_FILES].toSorted()).toEqual([
+        "events.ndjson",
+        "exit.json",
+        "exit.json.tmp",
+        "host.log",
+        "launch.json",
+        "launch.json.tmp",
+      ]);
+    }));
+
+  it("makes the hosts directory 0700 even when it exists with a wider mode", () =>
+    withTempDir(async (dir) => {
+      const { runDir, socket } = setup(dir);
+      mkdirSync(dirname(socket), { recursive: true });
+      chmodSync(dirname(socket), 0o755);
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock: new ManualClock(),
+        spawn: () => {
+          throw new Error("ENOENT");
+        },
+        killGroup: () => {},
+        pid: 783,
+      });
+      await host.done;
+      expect(statSync(dirname(socket)).mode & 0o777).toBe(0o700);
+    }));
+
+  it("writes exit.json with the start error when the socket cannot be prepared or bound", () =>
+    withTempDir(async (dir) => {
+      const { runDir, launch } = setup(dir);
+      // A directory where the socket should be: the leftover cannot be removed and nothing binds.
+      const socket = join(dir, "rt", "hosts", `${RUN}.sock`);
+      mkdirSync(join(socket, "inside"), { recursive: true });
+      writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify({ ...launch, socket }));
+      let spawned = false;
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock: new ManualClock(),
+        spawn: () => {
+          spawned = true;
+          throw new Error("not reached");
+        },
+        killGroup: () => {},
+        pid: 784,
+      });
+      const exit = await host.done;
+      expect(spawned).toBe(false);
+      expect(exit.startError).toStartWith("cannot prepare the host socket");
+      expect(JSON.parse(readFileSync(join(runDir, EXIT_FILE), "utf8"))).toEqual(exit);
     }));
 
   it("refuses a launch file for another run and removes it", () =>

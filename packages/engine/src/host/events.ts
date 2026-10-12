@@ -10,6 +10,9 @@ import type { HostLine } from "../workers/types";
 
 export type EventChannel = "stdout" | "stderr" | "hook" | "exit";
 
+/** The longest line the host holds while waiting for its newline (4 MiB). */
+export const MAX_PENDING_LINE = 4 * 1024 * 1024;
+
 export class EventLog {
   readonly path: string;
   #fd: number | null;
@@ -56,7 +59,17 @@ export class EventLog {
  */
 export class LineSplitter {
   readonly #decoder = new TextDecoder();
+  readonly #maxPending: number;
   #pending = "";
+
+  /**
+   * `maxPending` caps the held partial line (in UTF-16 code units, about its bytes for stream
+   * JSON): a longer line is emitted in pieces of that size, each its own event, so a worker that
+   * never writes a newline cannot grow the host's memory.
+   */
+  constructor(maxPending: number = MAX_PENDING_LINE) {
+    this.#maxPending = maxPending;
+  }
 
   push(chunk: Uint8Array | string): string[] {
     const text = typeof chunk === "string" ? chunk : this.#decoder.decode(chunk, { stream: true });
@@ -64,8 +77,14 @@ export class LineSplitter {
     const lines: string[] = [];
     let start = 0;
     for (let at = all.indexOf("\n"); at >= 0; at = all.indexOf("\n", start)) {
+      for (; at + 1 - start > this.#maxPending; start += this.#maxPending) {
+        lines.push(all.slice(start, start + this.#maxPending));
+      }
       lines.push(all.slice(start, at + 1));
       start = at + 1;
+    }
+    for (; all.length - start > this.#maxPending; start += this.#maxPending) {
+      lines.push(all.slice(start, start + this.#maxPending));
     }
     this.#pending = all.slice(start);
     return lines;
