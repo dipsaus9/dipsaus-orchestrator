@@ -1,10 +1,10 @@
 ---
 id: DIPO-33
 title: Detect the run profile of a repository with pure scan code
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:55'
+updated_date: '2026-10-12 11:59'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -76,3 +76,9 @@ Implemented in packages/engine/src/scan/detect/ (types, manifest, probe, detect,
 - Dev ports: explicit port in the dev script or vite/wrangler config, including a member of a ports object in a module the vite config imports (relative or workspace package export); else the Vite, Next or wrangler default. Imported config modules are read for ports but are not fingerprint inputs, as 0013 section 5 lists none.
 - packages/engine/test/ is run by bun test but not by tsc -b (the engine tsconfig includes src only); the integration test was typechecked ad hoc.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Pure repository scan in packages/engine/src/scan/detect: readProbe (via platform/repo-files.ts, git with core.fsmonitor off, env file contents never read) collects manifests, lockfile names, runtime files, dev config and env file presence; detect() resolves package manager, install, runtime, scripts, verify and ports with source, confidence and evidence, reports conflicts, conformance level and deviations, and a runRefusal naming the missing script; fingerprint() hashes the 0013 section 5 inputs, not lockfile contents. Survey: couchcade is Partial (fixed ports, 0013 open question 5). Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
