@@ -4,7 +4,7 @@ title: 'Enforce caps, park stories and stop workers'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:59'
+updated_date: '2026-10-12 07:58'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -34,7 +34,7 @@ ordinal: 50000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the engine stops a worker at 100% of its tier's token budget, turn cap or time cap and parks the story `budget-exceeded`, parks a worker that reports `blocked` with a question as `ambiguous-spec`, ends a worker on `work.stop` with park reason `stopped`, and writes every park as a story fact on the story branch.
 
-Context: the triage view, `work.answer`, `work.resume` and answer-before-park waits are M1 (M0 breakdown decision D2, DIPO-15). The 80% nudge is DIPO-60. Until DIPO-59 adds the `PermissionRequest` hook, the launch plan (`--permission-prompts none`, DIPO-40) denies every call that would prompt; a worker that cannot finish without the denied action reports `blocked` with `needsPermission`, and the story parks `needs-permission` (0008 sections 5 and 7). References: 0008 section 6 (stop sequence, caps checked after every usage and turn event, turns summed by the engine), section 7 (intent first, `capped`, blocked rows); 0012 F16, transition In Progress or In Review to Parked; 0010 section 2 (lane a park commit and push), section 3 (`park` key); 0005 section 4 (`work.stop`), section 5 (`story.parked` with actions); 0007 section 4 (`parks`); 0001 (budgets never raised silently).
+Context: the triage view, `work.resume` and answer-before-park waits are M1 (M0 breakdown decision D2, DIPO-15). The one M0 exception is answering a `needs-permission` park with `work.answer` (allow once or deny), which DIPO-59 builds (M0 breakdown decision D10, DIPO-15). The 80% nudge is DIPO-60. Until DIPO-59 adds the `PermissionRequest` hook, the launch plan (`--permission-prompts none`, DIPO-40) denies every call that would prompt; a worker that cannot finish without the denied action reports `blocked` with `needsPermission`, and the story parks `needs-permission` (0008 sections 5 and 7). References: 0008 section 6 (stop sequence, caps checked after every usage and turn event, turns summed by the engine), section 7 (intent first, `capped`, blocked rows); 0012 F16, transition In Progress or In Review to Parked; 0010 section 2 (lane a park commit and push), section 3 (`park` key); 0005 section 4 (`work.stop`), section 5 (`story.parked` with actions); 0007 section 4 (`parks`); 0001 (budgets never raised silently).
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 

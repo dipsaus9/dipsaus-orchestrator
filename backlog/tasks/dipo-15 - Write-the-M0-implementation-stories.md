@@ -4,7 +4,7 @@ title: Write the M0 implementation stories
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:43'
-updated_date: '2026-10-11 18:59'
+updated_date: '2026-10-12 07:58'
 labels: []
 milestone: m-0
 dependencies: []
@@ -54,4 +54,6 @@ Open unknown kept on purpose: DIPO-42 has one open unknown (report channel per t
 Suggested test-before-merge (not set; maintainer decides): DIPO-23, DIPO-25, DIPO-27, DIPO-35, DIPO-36, DIPO-37, DIPO-41, DIPO-43, DIPO-48, DIPO-49, DIPO-50, DIPO-53, DIPO-54, DIPO-55, DIPO-57, DIPO-59, DIPO-63.
 
 Review fixes (PR #16): cutover needs DIPO-16 to DIPO-55 Done; DIPO-55 now also depends on DIPO-49 (verify and commit) and DIPO-51 (worker outcomes) so the end-to-end loop is in place before cutover. ADR 0016 needed no amendment for D6: cutting v0.1.0 after DIPO-66 and the live smoke run is stricter than, and consistent with, 0016's 'v0.1.0 when the skeleton delivers a story end to end'. The Clock and IdSource interfaces live in packages/contract (DIPO-18). DIPO-66's one-time maintainer steps go into docs/release.md. DIPO-50 parks needs-permission for calls denied by the launch plan until DIPO-59 adds the PermissionRequest hook.
+
+D10 (maintainer, 2026-10-12): DIPO-59's allow-once flow with work.answer and dipo answer stays in M0 as an explicit exception to D2. It resumes only a story parked needs-permission; every other resume of a parked story stays M1. Recorded as a 2026-10-12 amendment line in 0003. DIPO-50's context and DIPO-59's ACs, dependencies (now also DIPO-50) and test plan were aligned with 0008 sections 5 and 8 and the 0005 work.answer decision amendment.
 <!-- SECTION:NOTES:END -->
