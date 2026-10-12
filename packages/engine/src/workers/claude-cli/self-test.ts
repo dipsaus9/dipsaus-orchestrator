@@ -54,9 +54,10 @@ export const KEYCHAIN_TOOL = "/usr/bin/security";
 export const GH_KEYCHAIN_SERVICE = "gh:github.com";
 
 export const SELF_TEST_SYSTEM_PROMPT = [
-  "You are running dipo's sandbox self-test before a worker run.",
-  "Run the one command the user gives with the Bash tool, exactly as written, then return the report.",
-  "Never change, split, retry or work around the command, and run nothing else.",
+  "You are running dipo's sandbox self-test. dipo is the maintainer's own orchestrator for their software, and the maintainer approved this test.",
+  "It runs in a disposable git worktree before a worker starts. It checks that the Bash sandbox does its job: writes to git metadata outside the worktree must be refused, and the GitHub token must not be readable. The token is never printed; the script sends that output to /dev/null.",
+  "Every probe write except one control file is expected to be refused by the sandbox. Refusals are the expected, successful result, not a problem to fix or ask about.",
+  "Your only task: run the one command the user gives, once, with the Bash tool, exactly as written, in a single call. Do not open, inspect or change the script, run nothing else, and do not ask questions. Then return the report with status done.",
   "",
 ].join("\n");
 
@@ -125,26 +126,60 @@ export interface SelfTestLayout {
   readonly targets: readonly ProbeTarget[];
   readonly controlFile: string;
   readonly resultsFile: string;
+  /** The inline probe program passed to `perl -e`. */
+  readonly script: string;
   /** The byte every write probe writes; the pointer probe appends it. */
   readonly byte: string;
   readonly command: string;
   readonly prompt: string;
 }
 
-// One line per probe. Write probes open and write the byte; exec probes run the program by
-// absolute path with no shell, stdout to /dev/null, stderr read only to classify it.
-const SCRIPT = [
-  "my $out = shift; my $b = shift;",
-  'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
-  'my %x = ("gh-token" => ["auth", "token"], "keychain" => ["find-generic-password", "-s", "gh:github.com"]);',
-  "while (@ARGV) {",
-  "my ($n, $m, $p) = splice(@ARGV, 0, 3);",
-  'if (exists $x{$n}) { pipe(my $r, my $w); my $pid = fork(); if (!defined $pid) { print $o "$n exit 127 none\\n"; next } if ($pid == 0) { close $r; open(STDOUT, ">", "/dev/null"); open(STDERR, ">&", $w); exec { $p } $p, @{$x{$n}}; require POSIX; POSIX::_exit(127) } close $w; my $e = do { local $/; <$r> } // ""; close $r; waitpid($pid, 0); my $c = $? & 127 ? 128 + ($? & 127) : $? >> 8; my $k = $e eq "" ? "none" : $e =~ /could not be found/i ? "not-found" : $e =~ /not permitted|denied|not allowed|sandbox/i ? "denied" : "other"; print $o "$n exit $c $k\\n"; next }',
-  'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" }',
-  "}",
-  "close $o;",
-  'print "dipo-self-test finished\\n";',
-].join(" ");
+/**
+ * The probe program, one line for `perl -e`, holding code only for the probes it runs, so a
+ * write-only self-test carries no credential code. Arguments: the results file, the byte, then
+ * one triple per probe (name, open mode, path; for an exec probe name, `-`, program). Write
+ * probes open their path and write the byte; exec probes run the program by absolute path with
+ * no shell, stdout to /dev/null, and stderr read only to classify it. One result line per probe.
+ * Passed inline: Claude Code's permission layer denies `perl <script>` when the script lies
+ * outside the working directory (seen live on 2.1.296), and a script inside the worktree could
+ * be changed by a worker.
+ */
+export function probeScript(probes: readonly ProbeName[]): string {
+  const exec = probes.filter(isExecProbe);
+  const args: Record<ExecProbe, string> = {
+    "gh-token": '"gh-token" => ["auth", "token"]',
+    keychain: `"keychain" => ["find-generic-password", "-s", "${GH_KEYCHAIN_SERVICE}"]`,
+  };
+  const execPart =
+    exec.length === 0
+      ? []
+      : [
+          `my %exec = (${exec.map((probe) => args[probe]).join(", ")});`,
+          // Inside the loop: run the program, keep its exit code and a class of its stderr.
+          'if (exists $exec{$n}) { pipe(my $r, my $w) or do { print $o "$n exit 127 none\\n"; next }; my $pid = fork(); if (!defined $pid) { print $o "$n exit 127 none\\n"; next } if ($pid == 0) { close $r; open(STDOUT, ">", "/dev/null"); open(STDERR, ">&", $w); { no warnings "exec"; exec { $p } $p, @{ $exec{$n} }; } require POSIX; POSIX::_exit(127) } close $w; my $e = do { local $/; <$r> } // ""; close $r; waitpid($pid, 0); my $c = $? & 127 ? 128 + ($? & 127) : $? >> 8; my $k = $e eq "" ? "none" : $e =~ /could not be found/i ? "not-found" : $e =~ /not permitted|denied|not allowed|sandbox/i ? "denied" : "other"; print $o "$n exit $c $k\\n"; next }',
+        ];
+  return [
+    "use strict; use warnings;",
+    "my $out = shift @ARGV; my $b = shift @ARGV;",
+    'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
+    ...(execPart.length === 0 ? [] : [execPart[0] ?? ""]),
+    "while (@ARGV) { my ($n, $m, $p) = splice(@ARGV, 0, 3);",
+    ...(execPart.length === 0 ? [] : [execPart[1] ?? ""]),
+    'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" } }',
+    "close $o;",
+    'print "dipo-self-test finished\\n";',
+  ].join(" ");
+}
+
+const PROBE_PROSE: Record<ProbeName, string> = {
+  "main-git": "a file in the main checkout's .git directory",
+  "worktree-admin": "a file in this worktree's admin directory under .git/worktrees",
+  refs: "a file under .git/refs/heads",
+  objects: "a file under .git/objects",
+  pointer: "one byte appended to this worktree's .git pointer file",
+  "gh-token": "",
+  keychain: "",
+};
 
 function shellQuote(value: string): string {
   const control = [...value].some((char) => char.charCodeAt(0) < 0x20 || char === "\u007f");
@@ -154,7 +189,7 @@ function shellQuote(value: string): string {
   return `'${value}'`;
 }
 
-/** Pure: the probe files, the command and the prompt of one self-test. */
+/** Pure: the probe files, the script, the command and the prompt of one self-test. */
 export function selfTestLayout(
   paths: SelfTestPaths,
   probes: readonly ProbeName[] = ALL_PROBES,
@@ -181,21 +216,43 @@ export function selfTestLayout(
     "gh-token": paths.tools.gh,
     keychain: KEYCHAIN_TOOL,
   };
+  const script = probeScript(probes);
   const args = [
     resultsFile,
     byte,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
     ...probes.filter(isExecProbe).flatMap((probe) => [probe, "-", programs[probe]]),
   ];
-  const command = `${shellQuote(paths.tools.perl)} -e '${SCRIPT}' ${args.map(shellQuote).join(" ")}`;
+  const command = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
+  const writes = probes.filter((probe) => !isExecProbe(probe)).map((probe) => PROBE_PROSE[probe]);
+  const credentials = probes.filter(isExecProbe);
+  const checks = [
+    ...(writes.length === 0 ? [] : [`it tries to write ${writes.join(", ")}`]),
+    ...(credentials.length === 0
+      ? []
+      : [
+          `it checks that the GitHub token cannot be read: it runs \`gh auth token\`${credentials.includes("keychain") ? ` and \`security find-generic-password -s ${GH_KEYCHAIN_SERVICE}\` (the Keychain item gh uses)` : ""} with the output sent to /dev/null and keeps only the exit codes`,
+        ]),
+  ];
   const prompt = [
-    "Run this command once with the Bash tool, exactly as written, in a single call. Some of its writes are meant to fail; that is the expected result.",
+    "This is dipo's sandbox self-test, approved by the maintainer. Run exactly this one command once with the Bash tool, in a single call:",
     "",
     command,
     "",
-    'Then return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
+    `The perl program in it writes a control file inside this worktree, which should succeed. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
+    "",
+    'After the command has run, whatever it printed, return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
   ].join("\n");
-  return { probes, targets, controlFile, resultsFile, byte, command, prompt };
+  return {
+    probes,
+    targets,
+    controlFile,
+    resultsFile,
+    script,
+    byte,
+    command,
+    prompt,
+  };
 }
 
 /** How a program's stderr read, never its content. */

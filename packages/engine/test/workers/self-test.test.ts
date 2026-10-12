@@ -100,10 +100,12 @@ describe("(unit) self-test layout", () => {
       ["pointer", ">>", `${WORKDIR}/.git`],
     ]);
     expect(layout.resultsFile).toBe(`${TMP_DIR}/dipo-self-test-n1.txt`);
-    // Absolute perl, so neither `Bash(gh *)` nor redirection rules stop it first, and gh by path.
-    expect(layout.command.startsWith(`'${TOOLS.perl}' -e '`)).toBe(true);
-    expect(layout.command).toContain("exec { $p } $p, @{$x{$n}}");
-    expect(layout.command).toContain('"find-generic-password", "-s", "gh:github.com"');
+    // Absolute perl on a script under <main>/.git/dipo (readable, never writable in the sandbox),
+    // so neither `Bash(gh *)` nor redirection rules stop it first, and gh by path.
+    expect(layout.command.startsWith(`'${TOOLS.perl}' -e '${layout.script}' `)).toBe(true);
+    expect(layout.script).toContain("exec { $p } $p, @{ $exec{$n} };");
+    expect(layout.script).toContain('"find-generic-password", "-s", "gh:github.com"');
+    expect(layout.script).toContain('open(STDOUT, ">", "/dev/null")');
     expect(layout.command).toEndWith(
       `'gh-token' '-' '${TOOLS.gh}' 'keychain' '-' '/usr/bin/security'`,
     );
@@ -116,13 +118,17 @@ describe("(unit) self-test layout", () => {
     const pointer = selfTestLayout(PATHS, PROBE_GROUPS["safety-pointer-write"]);
     expect(pointer.targets.map((target) => target.name)).toEqual(["control", "pointer"]);
     expect(pointer.command).not.toContain("'gh-token'");
+    // A write-only self-test carries no credential code at all.
+    expect(pointer.script).not.toContain("gh");
+    expect(pointer.script).not.toContain("find-generic-password");
+    expect(gh.script).toContain('"gh-token" => ["auth", "token"]');
   });
 
   it("writes the nonce byte, appends it to the pointer, and probes the Keychain on macOS only", () => {
     const layout = selfTestLayout(PATHS);
     expect(layout.byte).toBe("n");
     expect(layout.command).toContain(`'${TMP_DIR}/dipo-self-test-n1.txt' 'n' 'control'`);
-    expect(layout.command).toContain("print $f $b");
+    expect(layout.script).toContain("print $f $b");
     expect(probesFor("darwin")).toContain("keychain");
     expect(probesFor("linux")).not.toContain("keychain");
     expect(probesFor("linux", PROBE_GROUPS["safety-gh-token"])).toEqual(["gh-token"]);
