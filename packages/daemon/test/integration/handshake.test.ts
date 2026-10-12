@@ -68,6 +68,11 @@ describe("helloHandshake", () => {
     expect(await handshake()(record(process.pid + 1))).toBe(false);
   });
 
+  it("does not count a runtime record written by another process with the same PID", async () => {
+    // A reused PID: the record's start time differs from the one the socket's daemon wrote.
+    expect(await handshake()({ ...record(process.pid), startTimeMs: 2 })).toBe(false);
+  });
+
   it("does not count a socket nobody serves", async () => {
     await harness.socket.stop();
     expect(await handshake()(record(process.pid))).toBe(false);

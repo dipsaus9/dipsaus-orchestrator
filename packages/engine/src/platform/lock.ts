@@ -348,7 +348,8 @@ export interface HelloHandshakeOptions {
 }
 
 /**
- * Step 1's handshake (0006 decision 6): find the socket in `runtime.json`, send `engine.hello`
+ * Step 1's handshake (0006 decision 6): find the socket in `runtime.json` written by the process
+ * the record names (same PID and start time), send `engine.hello`
  * over `ws+unix://`, then `daemon.status`, and check the status names the record's PID. Both are
  * in the frozen surface (0005 section 11), so a daemon of another contract major answers too: its
  * `contract.unsupported` reply to the hello still counts as an answer.
@@ -361,7 +362,16 @@ export function helloHandshake(
   const nextId = createUlid(clock);
   return async (record) => {
     const runtime = await readRuntimeRecord(stateDir);
-    if (runtime === null || runtime.pid !== record.pid) return false;
+    // The socket must belong to the process the record names: same PID and same start time. The
+    // caller has already checked that start time against the live process, so this is the
+    // PID-plus-start-time identity of 0006 decision 6, not a bare PID.
+    if (
+      runtime === null ||
+      runtime.pid !== record.pid ||
+      runtime.startTimeMs !== record.startTimeMs
+    ) {
+      return false;
+    }
     const client = await connectUnixSocket(runtime.socket, { clock, timeoutMs });
     if (client === null) return false;
     try {
