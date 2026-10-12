@@ -3,7 +3,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { plan, REPORT_SCHEMA_FILE, SETTINGS_FILE } from "../../src/workers/claude-cli/plan";
+import {
+  GIT_WRITE_VERBS,
+  plan,
+  REPORT_SCHEMA_FILE,
+  SETTINGS_FILE,
+} from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { PlanError } from "../../src/workers/types";
@@ -231,7 +236,7 @@ describe("claude-cli plan", () => {
     expect(settings.includeGitInstructions).toBe(false);
     expect(settings.attribution).toEqual({ commit: "", pr: "" });
     expect(settings.hooks).toBeUndefined();
-    expect(settings.permissions.allow).toEqual(["Read(./**)", "Edit(./**)", "Write(./**)"]);
+    expect(settings.permissions.allow).toEqual(["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"]);
     expect(settings.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
     const deny = settings.permissions.deny;
     for (const rule of [
@@ -351,6 +356,32 @@ describe("claude-cli plan", () => {
     ]) {
       expect(() => plan(spec("S"), context({ toolVariables: [name] }))).toThrow(name);
     }
+  });
+
+  it("allows Bash and keeps every Bash deny, the read block and the sandbox", () => {
+    const settings = settingsOf(plan(spec("S"), context())) as {
+      permissions: {
+        allow: string[];
+        deny: string[];
+        blockReadsOutsideWorkingDirectories: boolean;
+      };
+      sandbox: {
+        enabled: boolean;
+        allowUnsandboxedCommands: boolean;
+        credentials: { files: unknown[]; envVars: unknown[] };
+      };
+    };
+    expect(settings.permissions.allow).toContain("Bash");
+    // Deny wins over allow in Claude Code, so each of these still stops its command.
+    for (const command of [...GIT_WRITE_VERBS.map((verb) => `git ${verb}`), "backlog", "gh"]) {
+      expect(settings.permissions.deny).toContain(`Bash(${command})`);
+      expect(settings.permissions.deny).toContain(`Bash(${command} *)`);
+    }
+    expect(settings.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
+    expect(settings.sandbox.enabled).toBe(true);
+    expect(settings.sandbox.allowUnsandboxedCommands).toBe(false);
+    expect(settings.sandbox.credentials.files).toHaveLength(5);
+    expect(settings.sandbox.credentials.envVars).toHaveLength(3);
   });
 
   it("denies the further git verbs bare and with arguments", () => {
