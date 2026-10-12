@@ -1,8 +1,10 @@
 // A Worker for engine tests that need no Claude detail (0017 section 2, option B): it plays a
-// short list of Worker events through the same interpret and result path the engine uses. A
-// script must never hold an event the real adapter could not produce, so the constructor takes
-// that adapter's event schema and refuses a script that fails it (the contract test checks every
-// registered script against the Claude CLI adapter's schema).
+// short list of Worker events through the Worker interface, so the engine reads them as it reads
+// a real adapter. A script must never hold an event the real adapter could not produce, so the
+// constructor requires that adapter's event schema and refuses a script that fails it; the
+// contract test checks every registered script against the Claude CLI adapter's schema.
+// `result` is a simplified reading of the script (done, blocked with its park, else crashed),
+// not the adapter's 0008 section 7 table; pass `result` to set any other outcome.
 
 import type {
   AdapterStatus,
@@ -33,8 +35,8 @@ export interface ScriptedWorkerOptions {
   readonly sessionId?: string;
   /** Fields that replace the result derived from the script. */
   readonly result?: Partial<WorkerResult>;
-  /** The real adapter's event schema; every script event must pass it. */
-  readonly schema?: EventSchema;
+  /** The real adapter's event schema (`ClaudeWorkerEventSchema` in M0); every event must pass. */
+  readonly schema: EventSchema;
 }
 
 export class ScriptError extends Error {
@@ -70,13 +72,11 @@ export class ScriptedWorker implements WorkerAdapter {
   readonly steered: SteerOp[] = [];
 
   constructor(options: ScriptedWorkerOptions) {
-    if (options.schema !== undefined) {
-      const problems = scriptProblems(options.script, options.schema);
-      if (problems.length > 0) {
-        throw new ScriptError(
-          `script holds events the adapter cannot produce: ${problems.join(", ")}`,
-        );
-      }
+    const problems = scriptProblems(options.script, options.schema);
+    if (problems.length > 0) {
+      throw new ScriptError(
+        `script holds events the adapter cannot produce: ${problems.join(", ")}`,
+      );
     }
     this.script = options.script;
     this.#exit = options.exit ?? { code: 0, signal: null };

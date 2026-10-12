@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
 import { ScriptedWorker, ScriptError, scriptProblems } from "../../src/workers/scripted";
 import type { ParseState, WorkerEvent, WorkerSpec } from "../../src/workers/types";
-import { SCRIPTS } from "./scripts";
+import { scriptedWorker, SCRIPTS } from "./scripts";
 
 function play(worker: ScriptedWorker) {
   let state: ParseState = {};
@@ -22,10 +22,7 @@ function play(worker: ScriptedWorker) {
 
 describe("ScriptedWorker", () => {
   it("emits its script through interpret and derives the result", () => {
-    const worker = new ScriptedWorker({
-      script: SCRIPTS["done"] ?? [],
-      schema: ClaudeWorkerEventSchema,
-    });
+    const worker = scriptedWorker({ script: SCRIPTS["done"] ?? [] });
     const { events, result } = play(worker);
     expect(events).toEqual([...(SCRIPTS["done"] ?? [])]);
     expect(result.outcome).toBe("done");
@@ -36,18 +33,18 @@ describe("ScriptedWorker", () => {
   });
 
   it("proposes the same parks as the adapter for a blocked report and a crash", () => {
-    const blocked = play(new ScriptedWorker({ script: SCRIPTS["blocked-question"] ?? [] })).result;
+    const blocked = play(scriptedWorker({ script: SCRIPTS["blocked-question"] ?? [] })).result;
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.park).toEqual({
       reason: "ambiguous-spec",
       detail: "Which greeting should the CLI print?",
     });
-    const crashed = new ScriptedWorker({
+    const crashed = scriptedWorker({
       script: SCRIPTS["done"] ?? [],
       exit: { code: 143, signal: null },
     });
     expect(play(crashed).result.park?.reason).toBe("worker-failed");
-    const overridden = new ScriptedWorker({
+    const overridden = scriptedWorker({
       script: SCRIPTS["plan-limit"] ?? [],
       result: { outcome: "plan-limit", report: null },
     });
@@ -55,7 +52,7 @@ describe("ScriptedWorker", () => {
   });
 
   it("implements the rest of the Worker interface without a process", async () => {
-    const worker = new ScriptedWorker({ script: [] });
+    const worker = scriptedWorker({ script: [] });
     expect((await worker.probe()).ok).toBe(true);
     expect(worker.plan({ workdir: "/tmp/wt" } as WorkerSpec).cwd).toBe("/tmp/wt");
     expect(worker.encode({ kind: "pause" })).toEqual([]);

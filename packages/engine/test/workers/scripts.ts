@@ -2,6 +2,8 @@
 // an engine test plays through `ScriptedWorker` belongs here, so the contract test in
 // scripted.test.ts checks it against what the Claude CLI adapter can produce.
 
+import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
+import { ScriptedWorker, type ScriptedWorkerOptions } from "../../src/workers/scripted";
 import type { WorkerEvent, WorkerReport } from "../../src/workers/types";
 
 const MODEL = "claude-haiku-5-5";
@@ -75,3 +77,8 @@ export const SCRIPTS: Readonly<Record<string, readonly WorkerEvent[]>> = {
     { t: "compacted", preTokens: 150000 },
   ],
 };
+
+/** A `ScriptedWorker` checked against the Claude CLI adapter's event schema, the M0 default. */
+export function scriptedWorker(options: Omit<ScriptedWorkerOptions, "schema">): ScriptedWorker {
+  return new ScriptedWorker({ ...options, schema: ClaudeWorkerEventSchema });
+}
