@@ -297,9 +297,11 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     },
     contractMax: 12_000,
   },
-  // 0008 section 2. `~` is the maintainer's home directory.
+  // 0008 section 2. `~` is the maintainer's home directory. The toolchain defaults are the package
+  // caches only (DIPO-37 review): an install step may write them, so no default may hold a PATH
+  // directory or the bun and dipo binaries (`~/.bun/bin`).
   sandbox: {
-    toolchainPaths: ["~/.bun", "~/.npm", "~/.cache"],
+    toolchainPaths: ["~/.bun/install/cache", "~/.npm/_cacache", "~/.cache"],
     registryHosts: [],
     allowRead: [],
     allowedDomains: [],

@@ -1,5 +1,5 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 100,
-  "ignorePatterns": ["backlog/**", "docs/**", "**/*.md", "bun.lock"]
+  "ignorePatterns": ["backlog/**", "docs/**", "**/*.md", "bun.lock", ".mcp.json"]
 }

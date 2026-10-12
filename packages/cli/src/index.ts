@@ -45,6 +45,7 @@ export const DAEMON_FORMS: ReadonlySet<string> = new Set([
   "--foreground",
   "worker-host",
   "wait-pid",
+  "sandbox-exec",
 ]);
 
 export function defaultDeps(): CliDeps {

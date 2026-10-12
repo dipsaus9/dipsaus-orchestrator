@@ -39,6 +39,14 @@ export const ENTRYPOINTS = [
  */
 export const EXTERNALS = ["react-devtools-core"] as const;
 
+/** Files the binary must never load from its working directory. */
+export const NO_AUTOLOAD = [
+  "--no-compile-autoload-bunfig",
+  "--no-compile-autoload-dotenv",
+  "--no-compile-autoload-tsconfig",
+  "--no-compile-autoload-package-json",
+] as const;
+
 export type GitState = { commit: string; dirty: boolean; commitDate: string };
 
 export function isTarget(value: string): value is Target {
@@ -89,6 +97,10 @@ export function buildCommand(options: {
     // Code splitting keeps Ink's devtools module, the only importer of the external
     // `react-devtools-core`, in a chunk that loads only when Ink enables devtools.
     "--splitting",
+    // The binary runs in worktrees the worker writes (`dipo daemon sandbox-exec`, DIPO-37). By
+    // default a compiled Bun binary loads `bunfig.toml` (its preload scripts) and `.env` from the
+    // working directory, which would run worker code outside the sandbox.
+    ...NO_AUTOLOAD,
     ...EXTERNALS.map((name) => `--external=${name}`),
     ...Object.entries(options.defines).map(([key, value]) => `--define=${key}=${value}`),
     ...ENTRYPOINTS,
