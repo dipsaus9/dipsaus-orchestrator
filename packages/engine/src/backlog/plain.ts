@@ -168,7 +168,7 @@ export function hasSectionRule(text: string): boolean {
   return text
     .normalize("NFC")
     .split("\n")
-    .some((line) => line === SECTION_RULE || line === `${SECTION_RULE}\r`);
+    .some((line) => line.trimEnd() === SECTION_RULE);
 }
 
 function splitList(value: string): string[] {

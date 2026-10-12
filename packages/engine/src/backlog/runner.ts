@@ -2,8 +2,11 @@
 // subcommands, through the injected `Spawn`, and refuses the never-run list before spawning:
 // `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses` and any status
 // `Draft`. The write path also refuses text holding a line of 50 `-` (it would print a fake section,
-// fact 2) and documentation entries holding `, ` (lists split on it). An error is any non-zero exit
-// or a `not found` line (fact 3); it carries the command and its output.
+// fact 2), documentation entries holding `, ` (lists split on it), plan, notes or definition-of-done
+// text ending in a `Modified files: ` line (the parser reads that line as the trailer), and any
+// positional or unknown option starting with `-` (the CLI would read free text as a flag; free text
+// goes after its option, which takes the next argument whatever it starts with). An error is any
+// non-zero exit or a `not found` line (fact 3); it carries the command and its output.
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -71,34 +74,125 @@ const NEVER_RUN: readonly (readonly [string, string])[] = [
   ["task", "demote"],
 ];
 
-/** The value of every `-s` / `--status` option in `args`. */
-function statusValues(args: readonly string[]): string[] {
-  const values: string[] = [];
-  for (const [i, arg] of args.entries()) {
-    if (arg === "-s" || arg === "--status") {
-      const value = args[i + 1];
-      if (value !== undefined) values.push(value);
-    } else if (arg.startsWith("--status=")) {
-      values.push(arg.slice("--status=".length));
-    } else if (arg.startsWith("-s") && !arg.startsWith("--") && arg.length > 2) {
-      values.push(arg.slice(2));
-    }
-  }
-  return values;
+/** Options of the allowed subcommands that take no value (from 1.53's `--help`). */
+const FLAG_OPTIONS: ReadonlySet<string> = new Set([
+  "--plain",
+  "--json",
+  "--draft",
+  "--no-dod-defaults",
+  "--clear-due-date",
+  "--clear-milestone",
+  "--clear-labels",
+  "--clear-ac",
+  "--clear-final-summary",
+  "--clear-deps",
+  "--clear-refs",
+  "--clear-docs",
+  "--unassigned",
+  "--ready",
+  "--count",
+  "--fix",
+  "--yes",
+]);
+
+/** Options of the allowed subcommands that take one value (from 1.53's `--help`). */
+const VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  "-t",
+  "--title",
+  "-d",
+  "--description",
+  "--desc",
+  "-a",
+  "--assignee",
+  "-s",
+  "--status",
+  "--exclude-status",
+  "-l",
+  "--labels",
+  "--label",
+  "--add-label",
+  "--remove-label",
+  "--priority",
+  "--type",
+  "--project",
+  "--due-date",
+  "--ordinal",
+  "-m",
+  "--milestone",
+  "-p",
+  "--parent",
+  "--ac",
+  "--acceptance-criteria",
+  "--remove-ac",
+  "--check-ac",
+  "--uncheck-ac",
+  "--dod",
+  "--remove-dod",
+  "--check-dod",
+  "--uncheck-dod",
+  "--plan",
+  "--append-plan",
+  "--notes",
+  "--append-notes",
+  "--comment",
+  "--comment-author",
+  "--final-summary",
+  "--append-final-summary",
+  "--depends-on",
+  "--dep",
+  "--ref",
+  "--add-ref",
+  "--remove-ref",
+  "--modified-file",
+  "--doc",
+  "--documentation",
+  "--search",
+  "--limit",
+  "--sort",
+  "--max-count",
+  "--skip",
+]);
+
+/** The texts printed before the `Modified files:` trailer line (see `plain.ts`). */
+const BEFORE_TRAILER: ReadonlySet<string> = new Set([
+  "--dod",
+  "--plan",
+  "--append-plan",
+  "--notes",
+  "--append-notes",
+]);
+
+interface ReadArgs {
+  readonly options: readonly { readonly name: string; readonly value: string | undefined }[];
+  /** A positional or unknown option that starts with `-`, which the CLI would read as a flag. */
+  readonly dashed: string | undefined;
 }
 
-/** The values of `--doc` / `--documentation` options. */
-function docValues(args: readonly string[]): string[] {
-  const values: string[] = [];
-  for (const [i, arg] of args.entries()) {
-    if (arg === "--doc" || arg === "--documentation") {
-      const value = args[i + 1];
-      if (value !== undefined) values.push(value);
-    } else if (arg.startsWith("--doc=") || arg.startsWith("--documentation=")) {
-      values.push(arg.slice(arg.indexOf("=") + 1));
+/**
+ * Splits the arguments after the subcommand into options and positionals the way the CLI's
+ * option parser does: a value option takes the next argument whatever it starts with, or its
+ * value after `=` (or after a short name, `-sReady`).
+ */
+function readArgs(args: readonly string[]): ReadArgs {
+  const options: { name: string; value: string | undefined }[] = [];
+  let dashed: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (!arg.startsWith("-")) continue;
+    const eq = arg.startsWith("--") ? arg.indexOf("=") : -1;
+    const name =
+      eq > 0 ? arg.slice(0, eq) : !arg.startsWith("--") && arg.length > 2 ? arg.slice(0, 2) : arg;
+    const inline = eq > 0 ? arg.slice(eq + 1) : name !== arg ? arg.slice(2) : undefined;
+    if (FLAG_OPTIONS.has(name) && inline === undefined) {
+      options.push({ name, value: undefined });
+    } else if (VALUE_OPTIONS.has(name)) {
+      if (inline === undefined) i++;
+      options.push({ name, value: inline ?? args[i] });
+    } else {
+      dashed ??= arg;
     }
   }
-  return values;
+  return { options, dashed };
 }
 
 /** Why the engine must not run `backlog <args>`, or null when it may. */
@@ -125,21 +219,43 @@ export function refusal(args: readonly string[]): string | null {
   if (subs !== null && subs !== undefined && (sub === undefined || !subs.includes(sub))) {
     return `\`${group} ${sub ?? ""}\` is not an allowed subcommand`;
   }
-  if (statusValues(args).some((value) => value.trim().toLowerCase() === "draft")) {
+  const { options, dashed } = readArgs(args.slice(subs === null ? 1 : 2));
+  const values = (names: readonly string[]) =>
+    options.filter((o) => names.includes(o.name)).map((o) => o.value ?? "");
+  if (values(["-s", "--status"]).some((value) => value.trim().toLowerCase() === "draft")) {
     return "status `Draft` is never set (0010 section 1)";
+  }
+  if (dashed !== undefined) {
+    return `\`${dashed}\` starts with \`-\` but is no option the engine passes; the CLI would read it as a flag`;
   }
   if (args.some((arg) => hasSectionRule(arg))) {
     return "the text holds a line of 50 `-`, which Backlog.md would print as a section";
   }
-  if (docValues(args).some((value) => value.includes(", "))) {
+  if (values(["--doc", "--documentation"]).some((value) => value.includes(", "))) {
     return "a documentation entry holds `, `, which the parser splits lists on";
+  }
+  const trailer = options.find(
+    (o) =>
+      BEFORE_TRAILER.has(o.name) &&
+      (o.value ?? "")
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .at(-1)
+        ?.trimStart()
+        .startsWith("Modified files: "),
+  );
+  if (trailer !== undefined) {
+    return `the ${trailer.name} text ends with a \`Modified files: \` line, which the parser reads as the modified-files trailer`;
   }
   return null;
 }
 
-/** True when the output reports an unknown id (fact 3): 1.53 prints it on stderr. */
+/** The 1.53 messages for an unknown id on stderr (fact 3). */
+const NOT_FOUND_STDERR = /^(Task|Draft) \S+ not found/i;
+
+/** The line reporting an unknown id (fact 3): 1.53 prints it on stderr, 1.48 on stdout. */
 function notFoundLine(stdout: string, stderr: string): string | undefined {
-  const fromStderr = stderr.split("\n").find((line) => /\bnot found\b/i.test(line));
+  const fromStderr = stderr.split("\n").find((line) => NOT_FOUND_STDERR.test(line));
   if (fromStderr !== undefined) return fromStderr;
   // A view's text is the task's own; only a bare message counts there.
   if (stdout.startsWith("File: ")) return undefined;

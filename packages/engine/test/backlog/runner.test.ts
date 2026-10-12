@@ -92,6 +92,46 @@ describe("the write path", () => {
     expect(refusal(["task", "edit", "T-1", "--notes", RULE.slice(1)])).toBeNull();
     expect(refusal(["task", "edit", "T-1", "--doc", "a.md, b.md"])).toContain("`, `");
   });
+
+  it("refuses a 50-dash line with trailing spaces", () => {
+    expect(refusal(["task", "edit", "T-1", "--notes", `a\n${RULE}  \nb`])).toContain(
+      "a line of 50 `-`",
+    );
+    expect(refusal(["task", "edit", "T-1", "--notes", `a\n${RULE}\r\nb`])).toContain(
+      "a line of 50 `-`",
+    );
+  });
+
+  it("refuses a positional value or unknown option that starts with `-`", async () => {
+    const stub = stubSpawn("");
+    const error = await caught(
+      runBacklog({ spawn: stub.spawn }, "/w", ["task", "create", "-weird title"]),
+    );
+    expect(error).toBeInstanceOf(BacklogRefusedError);
+    expect((error as Error).message).toContain("`-weird title` starts with `-`");
+    expect(stub.calls).toEqual([]);
+    expect(refusal(["task", "edit", "T-1", "--force"])).toContain("`--force` starts with `-`");
+    expect(refusal(["draft", "view", "-1"])).toContain("starts with `-`");
+  });
+
+  it("allows free text starting with `-` after its option, which takes it as the value", () => {
+    expect(refusal(["task", "edit", "T-1", "--notes", "-x dash notes", "--plain"])).toBeNull();
+    expect(refusal(["task", "create", "Title", "-d", "--not-a-flag", "-l", "tier:S"])).toBeNull();
+    expect(refusal(["task", "edit", "T-1", "--title=-dash", "-sReady"])).toBeNull();
+  });
+
+  it("refuses notes, plan or definition-of-done text whose last line is a `Modified files:` line", () => {
+    for (const option of ["--notes", "--append-notes", "--plan", "--append-plan", "--dod"]) {
+      expect(
+        refusal(["task", "edit", "T-1", option, "Did things\n\nModified files: a.ts\n"]),
+      ).toContain("`Modified files: ` line");
+    }
+    expect(
+      refusal(["task", "edit", "T-1", "--notes", "Modified files: a.ts\nthen more"]),
+    ).toBeNull();
+    expect(refusal(["task", "edit", "T-1", "--modified-file", "a.ts"])).toBeNull();
+    expect(refusal(["task", "edit", "T-1", "--final-summary", "Modified files: a.ts"])).toBeNull();
+  });
 });
 
 describe("running the CLI", () => {
@@ -144,6 +184,21 @@ describe("running the CLI", () => {
     const stub = stubSpawn(view);
     const out = await runBacklog({ spawn: stub.spawn }, "/w", ["task", "view", "T-1", "--plain"]);
     expect(out.stdout).toBe(view);
+  });
+
+  it("reads only the 1.53 `not found` shapes on stderr", async () => {
+    const warning = stubSpawn(
+      "Ready:\n  TASK-1 - One\n",
+      "warning: config.yml key not found, using default\n",
+    );
+    const out = await runBacklog({ spawn: warning.spawn }, "/w", ["task", "list", "--plain"]);
+    expect(out.stdout).toContain("TASK-1");
+    for (const stderr of ["Task TASK-3 not found.\n", "draft DRAFT-2 not found.\n"]) {
+      const stub = stubSpawn("", stderr);
+      expect(
+        await caught(runBacklog({ spawn: stub.spawn }, "/w", ["task", "view", "TASK-3"])),
+      ).toBeInstanceOf(BacklogCommandError);
+    }
   });
 
   it("reports a CLI that cannot start", async () => {
