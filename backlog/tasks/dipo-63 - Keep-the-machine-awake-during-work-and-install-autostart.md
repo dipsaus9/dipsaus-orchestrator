@@ -4,7 +4,7 @@ title: Keep the machine awake during work and install autostart
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 09:54'
 labels:
   - 'tier:M'
   - after-cutover
@@ -22,6 +22,7 @@ references:
   - packages/contract/
   - packages/daemon/src/
   - packages/client/src/node/index.ts
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md

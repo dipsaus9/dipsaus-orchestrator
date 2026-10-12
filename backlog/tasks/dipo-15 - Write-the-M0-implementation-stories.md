@@ -4,7 +4,7 @@ title: Write the M0 implementation stories
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:43'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 09:54'
 labels: []
 milestone: m-0
 dependencies: []
@@ -107,4 +107,6 @@ Final review round (2026-10-12):
 - Scope fixes: package entry files (`packages/engine/src/index.ts`, `packages/tui/src/index.ts`, `packages/testkit/src/index.ts`, `packages/client/src/index.ts`, `packages/client/src/node/index.ts`) added where a story adds a public export; `packages/contract/` replaces contract file paths in DIPO-18, 61, 63, 65, 69, 71, 76; DIPO-69 also scopes `packages/daemon/src/`; DIPO-63 scopes `packages/daemon/src/` and implements `wait-pid`.
 - Dependencies: DIPO-57 on DIPO-51; DIPO-59 on DIPO-52.
 - DIPO-43 flagged test-before-merge (live safety captures); `worktree.maxSlots` (20) added to DIPO-26; `work.resume` provisional until DIPO-61; `office.purge` idempotency kept in memory (DIPO-76, 0005 line); DIPO-64 log reader in `client/node`; DIPO-67 devDependency import ban is a test script, not an oxlint rule; every story inherits "tests create temp files and sockets only under `DIPO_TMP`"; DIPO-23 has a `DIPO_RUNTIME_DIR` test override; stories after cutover cite D14 instead of D6.
+
+- Under D11 (technical corrections package, maintainer, 2026-10-12): the `office.purge` idempotency detail in the 0005 amendment line (record kept in the daemon's in-memory request table) is a technical refinement of the approved `office.purge` contract command, not a new decision.
 <!-- SECTION:NOTES:END -->
