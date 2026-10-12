@@ -1,10 +1,10 @@
 ---
 id: DIPO-23
 title: Run the daemon with the PID lock and runtime directory
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:15'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -19,6 +19,10 @@ references:
   - packages/engine/src/log/
   - packages/cli/src/
   - packages/engine/src/index.ts
+  - packages/engine/src/platform/socket.ts
+  - packages/engine/test/platform/
+  - packages/engine/test/log/
+  - bun.lock
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
@@ -57,20 +61,36 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `packages/daemon` exports only `runDaemon(argv)`, which dispatches `--foreground`, `worker-host <run-id>` and `wait-pid <pid>` and rejects an unknown form with a usage message; `cli` calls it for the daemon-side forms only.
-- [ ] #2 `<state>` resolves from the passwd home directory per platform (or `DIPO_HOME`), never from `XDG_STATE_HOME`, `TMPDIR` or `XDG_RUNTIME_DIR`, and a warning is logged when `$HOME` differs.
-- [ ] #3 The runtime directory is chosen after the lock is held, from the 0006 candidates, rejected when longer than 100 bytes for the host socket path or when `lstat` shows a symlink, another owner or a mode other than `0700`, with a `mkdtemp` fallback; the choice is written to `<state>/runtime.json`.
-- [ ] #4 Lock acquisition follows 0006 decision 6 steps 1 to 3: a live daemon is reported, a live but silent one is `unresponsive` after 5 s, a stale record is broken by rename-and-verify at most 3 times; the daemon re-reads `dipo.pid` after binding and exits without opening the database when it is not its own.
-- [ ] #5 The database opens only after that re-read; the minute check recreates a missing `dipo.pid` and exits when another live daemon holds it.
-- [ ] #6 `platform/process.ts` checks PID identity by start time read with `LC_ALL=C TZ=UTC ps -o lstart=` with a tolerance of 2 s, or from field 22 of `/proc/<pid>/stat` on Linux, and treats a zombie as dead.
-- [ ] #7 `runDaemon` refuses to start when `--no-orphans` is in `process.execArgv` or `BUN_OPTIONS`.
-- [ ] #8 Logs are JSON lines with `ts`, `level`, `msg`, `component` and `office`/`run` when known, in `<logs>/daemon.log`, also on stderr in foreground; `code`, `token` and `session.token` fields are redacted at every level, and the logger is passed to modules that take one (DIPO-21).
+- [x] #1 `packages/daemon` exports only `runDaemon(argv)`, which dispatches `--foreground`, `worker-host <run-id>` and `wait-pid <pid>` and rejects an unknown form with a usage message; `cli` calls it for the daemon-side forms only.
+- [x] #2 `<state>` resolves from the passwd home directory per platform (or `DIPO_HOME`), never from `XDG_STATE_HOME`, `TMPDIR` or `XDG_RUNTIME_DIR`, and a warning is logged when `$HOME` differs.
+- [x] #3 The runtime directory is chosen after the lock is held, from the 0006 candidates, rejected when longer than 100 bytes for the host socket path or when `lstat` shows a symlink, another owner or a mode other than `0700`, with a `mkdtemp` fallback; the choice is written to `<state>/runtime.json`.
+- [x] #4 Lock acquisition follows 0006 decision 6 steps 1 to 3: a live daemon is reported, a live but silent one is `unresponsive` after 5 s, a stale record is broken by rename-and-verify at most 3 times; the daemon re-reads `dipo.pid` after binding and exits without opening the database when it is not its own.
+- [x] #5 The database opens only after that re-read; the minute check recreates a missing `dipo.pid` and exits when another live daemon holds it.
+- [x] #6 `platform/process.ts` checks PID identity by start time read with `LC_ALL=C TZ=UTC ps -o lstart=` with a tolerance of 2 s, or from field 22 of `/proc/<pid>/stat` on Linux, and treats a zombie as dead.
+- [x] #7 `runDaemon` refuses to start when `--no-orphans` is in `process.execArgv` or `BUN_OPTIONS`.
+- [x] #8 Logs are JSON lines with `ts`, `level`, `msg`, `component` and `office`/`run` when known, in `<logs>/daemon.log`, also on stderr in foreground; `code`, `token` and `session.token` fields are redacted at every level, and the logger is passed to modules that take one (DIPO-21).
 - [ ] #9 Implementation notes record the 0006 prototype results on Bun 1.4.2 in the compiled binary: macOS from the maintainer's machine, Linux from a CI job on `ubuntu-24.04`, including whether `ws+unix://` works; if it does not, the story stops there with the result in its notes for the maintainer to choose the transport.
-- [ ] #10 `DIPO_RUNTIME_DIR` overrides the runtime directory for tests, checked like any other candidate, so every test socket lives under `DIPO_TMP`.
+- [x] #10 `DIPO_RUNTIME_DIR` overrides the runtime directory for tests, checked like any other candidate, so every test socket lives under `DIPO_TMP`.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S08 (DIPO-15). Before cutover: built by hand-run agents.
+
+Scope additions: packages/engine/src/platform/socket.ts binds <runtime>/dipo.sock (0004 amendment c: the daemon's Bun.serve listeners go through engine/src/platform) and answers with the daemon's identity, which the lock's step-1 handshake uses until DIPO-24 serves engine.hello there. Engine unit tests live in packages/engine/test/platform/ and packages/engine/test/log/, next to the DIPO-21 tests in packages/engine/test/db/. bun.lock changes because packages/daemon gains a testkit devDependency for its integration test (packages/daemon/test/integration/, per 0017).
+
+Implementation (DIPO-23):
+- packages/daemon exports only runDaemon(argv, io?); a form table dispatches --foreground, worker-host <run-id>, wait-pid <pid> and the hidden self-check, and rejects anything else with a usage message (exit 2). New forms (sandbox-exec, hook, restore) are one table entry. worker-host and wait-pid check their argument and then exit 1 with 'not available in this build yet': the host is DIPO-44 and wait-pid DIPO-63. cli sends only 'dipo daemon --foreground|worker-host|wait-pid' to runDaemon, with the arguments after 'daemon'.
+- engine/src/platform/paths.ts: <state> and <logs> from os.userInfo().homedir per platform, DIPO_HOME override (logs then in <DIPO_HOME>/logs), $HOME mismatch reported and logged as a warning. Runtime candidates in 0006 order; lingering is read from /var/lib/systemd/linger/<user>. Each candidate: 100-byte check on hosts/run_<ulid>.sock, mkdir 0700 when missing, lstat (symlink, owner, mode 0700); fallback mkdtemp under /tmp, or under DIPO_TMP when it is set so test runs never leave /tmp entries; RuntimeDirError names every rejected path. runtime.json written by temp+rename, mode 0600.
+- engine/src/platform/process.ts: start time from /proc/<pid>/stat field 22 plus btime (USER_HZ 100) on Linux, from LC_ALL=C TZ=UTC ps -o stat= -o lstart= -o command= on macOS; 2 s tolerance; zombie (state Z) is dead; kill(pid, 0) first. isDaemonCommand matches 'daemon ... --foreground'.
+- engine/src/platform/lock.ts: steps 1 to 3 of 0006 decision 6, 5 s wait (poll 250 ms) before unresponsive, rename-and-verify with link() restore, at most 3 breaks (LockBreakError). An unparsable record that stays unchanged for the wait is treated as stale. verify() is the post-bind re-read; check() is the minute check (recreates a missing record with O_EXCL, reports lost when another live process holds it, takes back a foreign record of a dead process).
+- Daemon order: lock, runtime dir, record runtimeDir in dipo.pid, unlink leftover dipo.sock, bind, re-read dipo.pid (exit 1 without opening the database when it is not ours), write runtime.json, open the database. SIGTERM/SIGINT listeners are installed before startup so a signal during startup still cleans up. Clean exit removes dipo.sock then dipo.pid; a daemon that lost the lock leaves the socket path alone. 'already running' exits 0 (launchd SuccessfulExit=false must not restart it), unresponsive exits 1 and points to 'dipo daemon stop --force'.
+- engine/src/log: JSON lines with ts, level, msg, component, office/run from child loggers; code, token and session.token redacted at any depth and level; <logs>/daemon.log (dir 0700, file 0600) and stderr in foreground; level from --log-level or DIPO_LOG; the database gets logger.child({component: database}).
+- Manual check (compiled binary, macOS, DIPO_HOME/DIPO_RUNTIME_DIR/DIPO_TMP under /tmp): the second 'dipo daemon --foreground' printed 'dipo daemon is already running (pid N, version 0.0.0-dev, socket ...)' and exited 0; a SIGSTOPped daemon was reported unresponsive (about 7 s: one 1 s handshake timeout plus the 5 s wait); SIGTERM removed dipo.pid and dipo.sock.
+
+0006 prototype results (AC #9), Bun 1.4.2, compiled with bun build --compile:
+- macOS (maintainer's machine, darwin-arm64, 2026-10-12): WebSocket upgrade on a Bun.serve unix socket with a ws+unix:// client WORKS (also the unix-websocket check of dipo self-check). Socket file mode after bind 0755; removed by server.stop(true) (1.3.5 left it). A second Bun.serve({ unix }) on a live path now FAILS with EADDRINUSE (1.3.5 took the path over); the daemon still unlinks a leftover dipo.sock before binding, and the lock stays the guard. A detached host (setsid, stdio ignore, BUN_OPTIONS removed) survives SIGKILL of its parent: yes. Compiled binaries read BUN_OPTIONS: yes, process.execArgv shows --no-orphans, and a non-detached grandchild was killed when its BUN_OPTIONS=--no-orphans parent was SIGKILLed, so the runDaemon refusal is needed. SQLite 3.51.0.
+- Linux (ubuntu-24.04 CI on a scratch branch): NOT RUN. Pushing the scratch branch DIPO-23/prototype-0006 (prototype script plus a push-triggered workflow) was refused by the session's permission check; it needs the maintainer. ws+unix:// in the compiled Linux binary is covered meanwhile by the dipo self-check unix-websocket check in the linux-x64 and linux-arm64 smoke jobs (ubuntu-24.04 runners) of the PR. Still open on Linux: second bind, detached host survival, BUN_OPTIONS, systemd-run --user --scope from a user unit, systemd-inhibit --mode=block with lingering (SSH cannot be reproduced in CI).
+- Not run on either platform: the file:// redirect on snap Firefox and Safari (needs a desktop browser; belongs with dipo web).
 <!-- SECTION:NOTES:END -->
