@@ -1,10 +1,10 @@
 ---
 id: DIPO-33
 title: Detect the run profile of a repository with pure scan code
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:55'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -13,6 +13,7 @@ dependencies:
 references:
   - packages/engine/src/scan/detect/
   - packages/engine/test/scan/
+  - packages/engine/src/platform/repo-files.ts
 documentation:
   - docs/decisions/0013-repo-scan-and-script-standard.md
 priority: high
@@ -50,18 +51,28 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `detect(probe)` is pure: filesystem facts in, profile out, and it runs no repository script.
-- [ ] #2 `readProbe(dir)` collects exactly the file facts `detect` and the fingerprint need, reads no env file content, and runs no repository script.
-- [ ] #3 Package manager, install, runtime version, standard scripts, verify (script, declared list, composed from `lint`, `typecheck`, `test`) and dev ports resolve in the 0013 section 3 order with source and confidence.
-- [ ] #4 Two lockfiles, a `packageManager` that disagrees with the lockfile, or a `verify` script next to a different declared verify list become findings, never silent choices.
-- [ ] #5 Env example files and their expected real files are recorded by path with presence and ignore status; no env file content or hash is read or stored.
-- [ ] #6 The fingerprint hashes exactly the inputs of 0013 section 5 and ignores lockfile contents.
-- [ ] #7 The profile carries the conformance level and each deviation.
-- [ ] #8 A profile whose verify is unresolved carries a refusal message naming the script to add (`verify` in `package.json`, or the 0013 equivalent); no model is called.
+- [x] #1 `detect(probe)` is pure: filesystem facts in, profile out, and it runs no repository script.
+- [x] #2 `readProbe(dir)` collects exactly the file facts `detect` and the fingerprint need, reads no env file content, and runs no repository script.
+- [x] #3 Package manager, install, runtime version, standard scripts, verify (script, declared list, composed from `lint`, `typecheck`, `test`) and dev ports resolve in the 0013 section 3 order with source and confidence.
+- [x] #4 Two lockfiles, a `packageManager` that disagrees with the lockfile, or a `verify` script next to a different declared verify list become findings, never silent choices.
+- [x] #5 Env example files and their expected real files are recorded by path with presence and ignore status; no env file content or hash is read or stored.
+- [x] #6 The fingerprint hashes exactly the inputs of 0013 section 5 and ignores lockfile contents.
+- [x] #7 The profile carries the conformance level and each deviation.
+- [x] #8 A profile whose verify is unresolved carries a refusal message naming the script to add (`verify` in `package.json`, or the 0013 equivalent); no model is called.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S18 (DIPO-15). Before cutover: built by hand-run agents.
+
+Added reference packages/engine/src/platform/repo-files.ts: readProbe must list repository files and ask git which env files it ignores (git ls-files, git check-ignore), which needs a subprocess and filesystem reads. The inherited rule keeps Bun APIs inside packages/engine/src/platform/, so that I/O lives in a new platform module; scan/detect stays pure and receives it by injection.
+
+Implemented in packages/engine/src/scan/detect/ (types, manifest, probe, detect, ports, fingerprint, index) with unit tests beside the code, integration tests in packages/engine/test/scan/, and the injected file facts in packages/engine/src/platform/repo-files.ts (git ls-files and git check-ignore with core.fsmonitor off, so no repository command runs).
+- detect(probe, { nothingToStart }) is pure; the profile holds fingerprint, toolchain, capabilities as Resolution (resolved with source, confidence and evidence, conflict with candidates, or unresolved), extra scripts, env files, dev ports, conformance level with deviations, and runRefusal. Scan time and commit are left to DIPO-72, which stores the profile.
+- A package manager conflict (two lockfiles, packageManager against the lockfile) puts every package-manager-dependent capability in conflict instead of choosing one.
+- Env files: env paths are computed before anything is read and the reader refuses them, so even a gitignored wrangler.toml next to wrangler.example.toml is never read.
+- Couchcade: open question 5 (fixed dev ports mean Partial) is applied over the fit table's 'Conforming, with deviations'; the survey test documents this. The blog repo comes out non-standard (fit table: not a product).
+- Dev ports: explicit port in the dev script or vite/wrangler config, including a member of a ports object in a module the vite config imports (relative or workspace package export); else the Vite, Next or wrangler default. Imported config modules are read for ports but are not fingerprint inputs, as 0013 section 5 lists none.
+- packages/engine/test/ is run by bun test but not by tsc -b (the engine tsconfig includes src only); the integration test was typechecked ad hoc.
 <!-- SECTION:NOTES:END -->
