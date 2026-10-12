@@ -4,6 +4,7 @@
 import type { Migration } from "./migrations";
 import { changeLogRequestsStories } from "./migrations/0002-change-log-requests-stories";
 import { workerHosts } from "./migrations/0003-worker-hosts";
+import { ingest } from "./migrations/0004-ingest";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -43,4 +44,5 @@ create table offices (
   },
   changeLogRequestsStories,
   workerHosts,
+  ingest,
 ];
