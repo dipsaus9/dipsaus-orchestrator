@@ -1,10 +1,10 @@
 ---
 id: DIPO-15
 title: Write the M0 implementation stories
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:43'
-updated_date: '2026-10-12 09:54'
+updated_date: '2026-10-12 10:46'
 labels: []
 milestone: m-0
 dependencies: []
@@ -25,8 +25,8 @@ Context: docs/plan.md step 2 (M0 implementation stories). Stories follow ADR 001
 <!-- AC:BEGIN -->
 - [x] #1 All M0 stories exist in milestone m-0 following ADR 0012, with dependencies between them
 - [x] #2 Decisions that change an ADR (D2, D4–D8 and D10) are recorded as dated amendment lines in 0003, 0004, 0010 and 0013; D1, D3 and D9 need no ADR change and are recorded in this story's notes.
-- [ ] #3 A separate reviewer agent checked the stories and amendments and its findings are fixed
-- [ ] #4 Maintainer approved the M0 stories
+- [x] #3 A separate reviewer agent checked the stories and amendments and its findings are fixed
+- [x] #4 Maintainer approved the M0 stories
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -110,3 +110,9 @@ Final review round (2026-10-12):
 
 - Under D11 (technical corrections package, maintainer, 2026-10-12): the `office.purge` idempotency detail in the 0005 amendment line (record kept in the daemon's in-memory request table) is a technical refinement of the approved `office.purge` contract command, not a new decision.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+61 M0 implementation stories (DIPO-16 to DIPO-76) written from the accepted ADRs, following the 0012 story standard, with dependencies, scopes and test plans. Reviewed for buildability, tech stack and future fit, fixed until the final review passed. Maintainer decisions D1 to D17 recorded in the notes and as dated amendment lines in 0003-0008, 0010, 0013, 0016 and 0017. Cutover after DIPO-16..57 and DIPO-68..74 plus a re-run of the sandbox self-verify check; dipo builds the rest. Test-before-merge: DIPO-25, 35, 37, 43, 49, 53, 55, 59, 70, 73, 75.
+<!-- SECTION:FINAL_SUMMARY:END -->
