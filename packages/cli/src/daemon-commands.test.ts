@@ -96,7 +96,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
       );
       expect(await main(argv, ctx.deps)).toBe(1);
       expect(ctx.err).toEqual([
-        "dipo: no daemon is running (no runtime.json in /state). Start it with `dipo daemon start`.",
+        "dipo: no daemon is running (no runtime.json in /state). Start it with `dipo daemon start` (until that exists: `dipo daemon --foreground`).",
       ]);
       expect(ctx.out).toEqual([]);
     }
@@ -116,7 +116,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
     await Bun.sleep(0);
     ctx.clock.advance(REPLY_TIMEOUT_MS);
     expect(await running).toBe(1);
-    expect(ctx.err[0]).toContain("did not answer within 10 s");
+    expect(ctx.err).toEqual(["dipo: the daemon did not answer within 10 s."]);
     expect(ctx.closed()).toBe(1);
   });
 

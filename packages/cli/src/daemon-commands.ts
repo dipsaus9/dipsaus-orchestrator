@@ -29,7 +29,9 @@ export interface DaemonCommandDeps {
 /** How long a subcommand waits for its reply, reconnects included. */
 export const REPLY_TIMEOUT_MS = 10_000;
 
-export const START_HINT = "Start it with `dipo daemon start`.";
+/** `dipo daemon start` arrives with DIPO-70; until then the foreground form is the way to start. */
+export const START_HINT =
+  "Start it with `dipo daemon start` (until that exists: `dipo daemon --foreground`).";
 
 type Subcommand = (args: readonly string[], deps: DaemonCommandDeps) => Promise<number>;
 
@@ -94,9 +96,7 @@ async function withDaemon(
   let timer: ReturnType<Clock["setTimeout"]> | null = null;
   const deadline = new Promise<number>((resolve) => {
     timer = deps.clock.setTimeout(() => {
-      deps.writeError(
-        `dipo: the daemon did not answer within ${REPLY_TIMEOUT_MS / 1000} s. ${START_HINT}`,
-      );
+      deps.writeError(`dipo: the daemon did not answer within ${REPLY_TIMEOUT_MS / 1000} s.`);
       resolve(1);
     }, REPLY_TIMEOUT_MS);
   });
