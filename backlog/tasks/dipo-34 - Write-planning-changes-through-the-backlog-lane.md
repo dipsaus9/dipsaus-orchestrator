@@ -4,7 +4,7 @@ title: Write planning changes through the backlog lane
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:29'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -16,6 +16,7 @@ references:
   - packages/engine/src/backlog/lane/
   - packages/engine/src/db/migrations/
   - packages/engine/test/backlog/lane/
+  - packages/engine/src/features.ts
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0010-backlog-and-git-integration.md
@@ -29,7 +30,7 @@ ordinal: 34000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: planning operations that belong to no story PR are journaled, applied through the Backlog CLI on an engine branch `dipo/backlog-<UTC timestamp>` in the `<root>/_backlog` worktree, committed as `backlog: <op> <ID>`, pushed, and rebuilt from the journal when the base moves.
 
-Context: M0's only caller is office init (DIPO-36). Opening the backlog PR, the structural check and auto-merge are DIPO-35 (M0 breakdown decision D4, DIPO-15). References: 0010 section 2 (lane b, journal, rebuild, never force-push, pending-op skip, git queue ordering), section 2a step 1 (journal first); 0007 section 4 (`backlog_journal` states).
+Context: M0's only caller is office init (DIPO-36). Opening the backlog PR, the structural check and auto-merge are DIPO-35 and DIPO-73 (M0 breakdown decision D4, DIPO-15). The run skip is exposed as a predicate that DIPO-48 uses, because `work.run` does not exist yet (M0 review, DIPO-15). References: 0010 section 2 (lane b, journal, rebuild, never force-push, pending-op skip, git queue ordering), section 2a step 1 (journal first); 0007 section 4 (`backlog_journal` states).
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 
@@ -49,6 +50,8 @@ test_plan:
       check: "(integration) a conflicting base change triggers a rebuild on a new branch name; the old branch is untouched."
     - kind: "automated"
       check: "(engine) crash after journaling replays the operation."
+    - kind: "automated"
+      check: "(engine) `pendingLaneOp` is true for the story from journaling until its entry is marked merged or dropped."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -59,8 +62,8 @@ test_plan:
 - [ ] #3 Later operations append to the open engine branch until its changes are on `origin/<base>`.
 - [ ] #4 After a fetch that moves the base, a changed file whose blob equals the engine's blob is dropped as merged; otherwise the worktree resets to `origin/<base>` and unmerged operations are re-applied; an already pushed branch is replaced by a new branch name, never force-pushed.
 - [ ] #5 An operation that no longer applies is marked `dropped` with an `engine.notice`.
-- [ ] #6 `work.run` and the pickup re-check skip a story with a pending lane-b operation as `notRunnable` with the notice "pending backlog PR".
-- [ ] #7 After a crash, open journal entries are replayed before any other git queue item.
+- [ ] #6 `pendingLaneOp(office, key)` reports a story with a pending lane-b operation, with the notice text "pending backlog PR", from journaling until the entry is merged or dropped; `work.run` and the pickup re-check (DIPO-48) skip such a story as `notRunnable`.
+- [ ] #7 After a crash, open journal entries are replayed by an office load step (DIPO-27 seam) before any other git queue item.
 - [ ] #8 Without a remote, the branch stays local and the engine reports what is waiting.
 <!-- AC:END -->
 
