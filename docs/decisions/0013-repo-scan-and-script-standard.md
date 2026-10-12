@@ -174,3 +174,5 @@ The orchestrator does not manage secrets or setup. The scan only records facts D
 ## Amendments
 
 - 2026-10-11, M0 story breakdown (maintainer): in M0 the scan is code only, and `run` refuses an office whose verify is unresolved, with a message naming the script to add. The AI fallback and the confirm command move to M1.
+- 2026-10-12, DIPO-33 review (maintainer): couchcade is Partial, not "Conforming, with deviations", in the fit table above, because open question 5 makes fixed dev ports Partial. The fit table row is kept as surveyed; the scan reports Partial.
+- 2026-10-12, DIPO-33 review (maintainer): the fingerprint (section 5) also covers the local config modules that a dev server config imports when the scan reads ports from them (couchcade's `packages/config/vite`). A port changed there changes the fingerprint and triggers a rescan.
