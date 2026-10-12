@@ -1,10 +1,10 @@
 ---
 id: DIPO-18
 title: 'Add the shared test kit for clocks, ids, temp repos and Backlog fixtures'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:38'
+updated_date: '2026-10-12 11:39'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -94,3 +94,9 @@ Implemented (DIPO-18):
 
 Scope widened at review (orchestrator): tools/lint/ holds a local oxlint jsPlugin for the `new Date()` ban, because oxlint 1.87 has no no-restricted-syntax; an AST rule was preferred over the grep test 0017 section 4 allows, since it lets `new Date(value)` through. packages/engine/package.json and tsconfig.json take testkit as a devDependency and project reference (AC #3). packages/engine/src/platform/ covers the colocated clock and ids tests the test plan requires. The empty directories in the Backlog fixture are not committed; `backlog task list` works without them.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shared test kit: contract runtime types (Clock, IdSource, Spawn, ChildProcess), engine platform system clock and monotonic ULID id source, testkit ManualClock, SequentialIds, temp dirs and repos under DIPO_TMP with isolated git env, bare remotes, clean-env helpers, Backlog.md 1.53.0 fixture project, and lint bans on real time, timers and sync spawn outside the platform module (local oxlint jsPlugin for new Date()). Reviewer pass after scope widened.
+<!-- SECTION:FINAL_SUMMARY:END -->
