@@ -1,10 +1,10 @@
 ---
 id: DIPO-70
 title: 'Start, stop, restart and report the daemon from the CLI'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 14:37'
+updated_date: '2026-10-12 17:13'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -22,6 +22,8 @@ references:
   - packages/engine/test/platform/
   - packages/engine/src/index.ts
   - packages/client/src/node/index.ts
+  - packages/daemon/test/
+  - test/lifecycle-parity/
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
@@ -61,21 +63,68 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `lifecycle.start` spawns `dipo daemon --foreground` detached with stdio ignored, `BUN_OPTIONS` removed and the caller's `PATH` kept, waits up to 5 s for `engine.hello`, and prints PID and version.
-- [ ] #2 Any client command that needs the daemon starts it the same way unless `daemon.autostart` is `false` in `<state>/config.yaml`.
-- [ ] #3 At start the daemon resolves the absolute paths of `claude`, `backlog`, `gh`, `rg` and `git` from its `PATH`, logs them, and returns them in `daemon.status`; a missing tool is reported as missing and does not stop the start.
-- [ ] #4 `dipo daemon status` prints `running` (state, reason, PID, version, uptime, socket, tool paths), `not running`, `unresponsive` or `stale` with exit codes 0, 3, 1 as 0006 decision 5, and `--json` prints the same as JSON.
-- [ ] #5 `dipo daemon stop` sends `daemon.stop`; `--force` sends SIGTERM to the PID from `dipo.pid` after the DIPO-23 identity check of PID and start time, then SIGKILL after 10 s.
-- [ ] #6 `dipo daemon restart` uses `daemon.stop` for the same contract major and verified-PID SIGTERM for a different one, waits for the PID to exit, then starts the new daemon.
-- [ ] #7 A client whose binary version differs from the daemon's prints the restart hint of 0006 decision 14.
-- [ ] #8 The daemon checks its executable every 60 s and reports `upgrade pending` in `daemon.status` when it changed; with `daemon.autoRestartOnUpgrade: true` it drains and starts the new binary once no engine step (setup, install, verify, commit) is running.
-- [ ] #9 `lifecycle` treats a leftover `<state>/runtime.json` as stale when `dipo.pid` is missing or fails the DIPO-23 PID and start-time check, and `dipo daemon status` reports `not running` (or `stale` once leftovers are cleaned) with exit 3; a test covers it.
-- [ ] #10 Before an autostart, the client reads `<state>/config.yaml` with `readSoftwareConfig` (DIPO-69) and shows its errors instead of starting a daemon that exits 78; a test covers it.
-- [ ] #11 In addition to `BUN_OPTIONS` (#1), the client removes `BUN_FEATURE_FLAG_NO_ORPHANS` when it starts the daemon, like `BUN_FLAG_VARIABLES` for worker hosts (DIPO-44 finding); a test covers it.
+- [x] #1 `lifecycle.start` spawns `dipo daemon --foreground` detached with stdio ignored, `BUN_OPTIONS` removed and the caller's `PATH` kept, waits up to 5 s for `engine.hello`, and prints PID and version.
+- [x] #2 Any client command that needs the daemon starts it the same way unless `daemon.autostart` is `false` in `<state>/config.yaml`.
+- [x] #3 At start the daemon resolves the absolute paths of `claude`, `backlog`, `gh`, `rg` and `git` from its `PATH`, logs them, and returns them in `daemon.status`; a missing tool is reported as missing and does not stop the start.
+- [x] #4 `dipo daemon status` prints `running` (state, reason, PID, version, uptime, socket, tool paths), `not running`, `unresponsive` or `stale` with exit codes 0, 3, 1 as 0006 decision 5, and `--json` prints the same as JSON.
+- [x] #5 `dipo daemon stop` sends `daemon.stop`; `--force` sends SIGTERM to the PID from `dipo.pid` after the DIPO-23 identity check of PID and start time, then SIGKILL after 10 s.
+- [x] #6 `dipo daemon restart` uses `daemon.stop` for the same contract major and verified-PID SIGTERM for a different one, waits for the PID to exit, then starts the new daemon.
+- [x] #7 A client whose binary version differs from the daemon's prints the restart hint of 0006 decision 14.
+- [x] #8 The daemon checks its executable every 60 s and reports `upgrade pending` in `daemon.status` when it changed; with `daemon.autoRestartOnUpgrade: true` it drains and starts the new binary once no engine step (setup, install, verify, commit) is running.
+- [x] #9 `lifecycle` treats a leftover `<state>/runtime.json` as stale when `dipo.pid` is missing or fails the DIPO-23 PID and start-time check, and `dipo daemon status` reports `not running` (or `stale` once leftovers are cleaned) with exit 3; a test covers it.
+- [x] #10 Before an autostart, the client reads `<state>/config.yaml` with `readSoftwareConfig` (DIPO-69) and shows its errors instead of starting a daemon that exits 78; a test covers it.
+- [x] #11 In addition to `BUN_OPTIONS` (#1), the client removes `BUN_FEATURE_FLAG_NO_ORPHANS` when it starts the daemon, like `BUN_FLAG_VARIABLES` for worker hosts (DIPO-44 finding); a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-25 in the M0 review (DIPO-15); carries DIPO-25's test-before-merge flag for the daemon lifecycle behaviour. Before cutover: built by hand-run agents.
+
+Added references: `packages/daemon/test/` (the server harness gains `tools` and `upgradePending` for the new `daemon.status` fields; the upgrade watcher's manual-clock tests live in `packages/daemon/test/unit/upgrade.test.ts`, the "(engine)" test of the test plan) and `test/lifecycle-parity/` (`client` may not import `engine`, so `client/node` repeats the PID record parser, the process probe, the Bun flag variables and the logs directory; this root test runs both copies on the same inputs, like `test/state-dir`).
+
+Implementation (DIPO-70):
+- `client/node/lifecycle/`: `inspectDaemon` (running, foreign = other contract major, unresponsive, not running with the stale files it removed), `startDaemon`, `stopDaemon` (`daemon.stop`; `--force` = SIGTERM to the PID verified by PID, start time and `dipo daemon --foreground` command, SIGKILL after 10 s), `restartDaemon` (`daemon.stop` for the same major, verified SIGTERM for another, waits for the PID, then starts this binary; an invalid `config.yaml` refuses before anything stops), `connectOrStart` (autostart; reads `config.yaml` with `readSoftwareConfig` first) and `versionHint` (0006 decision 14 text).
+- Stale files are removed by rename-and-verify (a newer file is put back with `link()`), and a `runtime.json` whose own PID and start time are alive is never removed. A graceful `stop` also removes the `runtime.json` the daemon leaves behind, so the next `status` says `not running`.
+- The daemon is started through a short-lived `/bin/sh` (own session, stdio ignored) that backgrounds `dipo daemon --foreground` and exits, so the daemon is re-parented and is no descendant of the client. Reason: found in manual testing, a client that itself runs under `--no-orphans` (`BUN_FEATURE_FLAG_NO_ORPHANS=1` in its environment) SIGKILLs every descendant when it exits, so removing the variables from the daemon's environment (AC #11) was not enough. The daemon's environment is the caller's with `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS` removed; `PATH` is kept.
+- `engine/src/platform/tools.ts`: `resolveTools` (first executable on `PATH`, relative entries skipped) and the executable stamp (dev, inode, size, mtime). The daemon logs `tools resolved`, warns per missing tool and returns the paths in `daemon.status.tools`.
+- `daemon/src/upgrade.ts`: `UpgradeWatcher` checks the executable every 60 s (`selfCommand()`'s last element: the compiled binary, or the entry script from source). With `daemon.autoRestartOnUpgrade: true` it requests the drain (reason `upgrade`) once the daemon has no child process and no in-flight command; after a clean drain, with the lock and socket released, the daemon starts the new binary detached with the same environment minus the Bun flag variables. Later stories that run engine steps (setup, install, verify, commit) must run them as daemon children (`ChildProcesses`) so the restart waits for them.
+- CLI: `dipo daemon start|stop|restart|status [--json]`; `log-level` and `resume-scheduling` autostart and print the restart hint when versions differ. `START_HINT` no longer mentions `--foreground`.
+- Tests: client lifecycle unit tests (stale files, autostart off and invalid config spawn nothing, env stripping, force stop, restart across majors), CLI output tests, tool resolution, upgrade watcher on the manual clock, parity test, and the CI-only `packages/client/test/integration/lifecycle.ci.test.ts` on the compiled binary.
+
+Maintainer test steps (macOS, fresh temp state; the temp path must stay short so the runtime directory fits 100 bytes):
+```
+bun install && bun run build
+export T=$(mktemp -d /tmp/dipo-test.XXXX)
+export DIPO_HOME=$T/state DIPO_RUNTIME_DIR=$T/run DIPO_TMP=$T
+./dist/dipo daemon status; echo "exit $?"       # not running / exit 3
+./dist/dipo daemon start                         # dipo daemon started (pid N, version 0.0.0-dev)
+./dist/dipo daemon status; echo "exit $?"       # running, state, pid N, version, uptime, socket $T/run/dipo.sock, tools with absolute paths (or "missing") / exit 0
+./dist/dipo daemon status --json                 # {"status":"running","daemon":{...,"tools":{...}}}
+./dist/dipo daemon restart                       # dipo daemon stopped (pid N) / dipo daemon started (pid M, ...)
+./dist/dipo daemon stop                          # dipo daemon stopped (pid M)
+./dist/dipo daemon status; echo "exit $?"       # not running / exit 3
+echo '{"runtimeDir":"/nope","socket":"/nope/dipo.sock","pid":999999,"startTimeMs":1,"version":"x"}' > $T/state/runtime.json
+./dist/dipo daemon status; echo "exit $?"       # stale / removed leftovers ...runtime.json / exit 3
+./dist/dipo daemon status; echo "exit $?"       # not running / exit 3
+printf 'version: 1\ndaemon:\n  autostart: false\n' > $T/state/config.yaml
+./dist/dipo daemon log-level debug; echo "exit $?"   # ...daemon.autostart is false in .../config.yaml. Start it with `dipo daemon start`. / exit 1
+printf 'version: 1\ndaemon:\n  autostart: maybe\n' > $T/state/config.yaml
+./dist/dipo daemon log-level debug; echo "exit $?"   # cannot start the daemon: ...daemon.autostart: expected boolean, got string... / exit 1
+./dist/dipo daemon status; echo "exit $?"       # not running / exit 3 (nothing was started)
+rm $T/state/config.yaml
+BUN_FEATURE_FLAG_NO_ORPHANS=1 BUN_OPTIONS=--no-orphans ./dist/dipo daemon log-level debug   # stderr: dipo: started the daemon (pid N, ...); stdout: daemon log level: debug (until the daemon restarts)
+./dist/dipo daemon status | head -3              # running (the daemon survived the --no-orphans client)
+bun packages/cli/src/main.ts daemon status >/dev/null   # stderr: dipo: daemon runs v0.0.0-dev, this binary is vdev, run `dipo daemon restart`
+kill -STOP $(jq -r .pid $T/state/runtime.json)
+./dist/dipo daemon status; echo "exit $?"       # after about 5 s: unresponsive ... run `dipo daemon stop --force` / exit 1
+./dist/dipo daemon stop; echo "exit $?"         # does not answer. Run `dipo daemon stop --force` / exit 1
+./dist/dipo daemon stop --force                  # after about 15 s: dipo daemon stopped (pid N, killed after 10 s)
+./dist/dipo daemon status; echo "exit $?"       # not running / exit 3
+mkdir $T/bin && cp dist/dipo $T/bin/dipo && $T/bin/dipo daemon start
+cp dist/dipo $T/bin/dipo.new && mv $T/bin/dipo.new $T/bin/dipo && sleep 65
+$T/bin/dipo daemon status | grep upgrade        # upgrade pending: the binary changed on disk; run `dipo daemon restart`
+$T/bin/dipo daemon stop                          # dipo daemon stopped (pid ...)
+pgrep -fl "daemon --foreground"; rm -rf $T       # pgrep prints nothing: no daemon left
+```
 <!-- SECTION:NOTES:END -->
