@@ -26,6 +26,18 @@ export function stateDir(
   return join(home, ".local", "state", "dipo");
 }
 
+/** `<logs>`, where `daemon.log` is (0006 decision 3); `DIPO_HOME` puts it in `<DIPO_HOME>/logs`. */
+export function logsDir(
+  env: Env = process.env,
+  platform: string = process.platform,
+  home: string = userInfo().homedir,
+): string {
+  const override = env["DIPO_HOME"];
+  if (override !== undefined && override !== "") return join(override, "logs");
+  if (platform === "darwin") return join(home, "Library", "Logs", "dipo");
+  return join(home, ".local", "state", "dipo", "logs");
+}
+
 /** The fields of `<state>/runtime.json` a client uses. */
 export interface RuntimeInfo {
   readonly runtimeDir: string;
