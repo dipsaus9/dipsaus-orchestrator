@@ -5,6 +5,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  claudeResult,
+  initialClaudeState,
+  interpretClaudeLine,
+  judgeSelfTest,
+  PROBE_GROUPS,
+  selfTestLayout,
+} from "../../packages/engine/src/index";
+import type { ClaudeParseState, ProbeName, SelfTestDisk } from "../../packages/engine/src/index";
 import type { Envelope } from "./format";
 import { isRecord } from "./format";
 
@@ -337,6 +346,99 @@ const SCENARIOS_BASE: readonly Scenario[] = [
   },
 ];
 
+// DIPO-43 AC #8: the self-test command itself, one probe group per recording, under the launch
+// plan as it is. The capture judges it with the engine's own verdict over the raw stream and the
+// disk, and stores the disk facts and the verdict, so replay tests can judge the committed stream.
+
+function selfTestPaths(paths: CapturePaths) {
+  return {
+    main: paths.main,
+    workdir: paths.workdir,
+    adminDir: join(paths.main, ".git", "worktrees", "story"),
+    // The capture's sandbox temp directory (`capture.ts`).
+    tmpDir: join(paths.root, "tmp"),
+    // The temp repository is fresh for every capture.
+    nonce: "capture",
+  };
+}
+
+/** `gh auth token` outside any sandbox, output discarded: whether the probe can prove anything. */
+async function ghTokenReadableOutside(): Promise<boolean | null> {
+  try {
+    const proc = Bun.spawn(["gh", "auth", "token"], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    return (await proc.exited) === 0;
+  } catch {
+    return null;
+  }
+}
+
+function verifySelfTest(probes: readonly ProbeName[]) {
+  return async (
+    paths: CapturePaths,
+    raw: readonly Envelope[],
+  ): Promise<Record<string, unknown>> => {
+    const layout = selfTestLayout(selfTestPaths(paths), probes);
+    const results = existsSync(layout.resultsFile)
+      ? readFileSync(layout.resultsFile, "utf8")
+      : null;
+    const written = layout.targets.flatMap((target) =>
+      target.name !== "control" && target.name !== "pointer" && existsSync(target.path)
+        ? [target.name]
+        : [],
+    );
+    const pointer = readFileSync(join(paths.workdir, ".git"), "utf8");
+    const disk: SelfTestDisk = {
+      results,
+      written,
+      pointerChanged: pointer !== `gitdir: ${join(paths.main, ".git", "worktrees", "story")}\n`,
+      controlWritten: existsSync(layout.controlFile),
+    };
+    let state: ClaudeParseState = initialClaudeState({ plannedModel: "haiku" });
+    const denied: string[] = [];
+    let exit = { code: null as number | null, signal: null as string | null };
+    for (const line of raw) {
+      if (line.ch !== "stdout" && line.ch !== "exit") continue;
+      if (line.ch === "exit") exit = line.data as typeof exit;
+      const data = JSON.stringify(line.data);
+      const step = interpretClaudeLine(
+        { t: line.t, ch: line.ch, data: line.ch === "stdout" ? `${data}\n` : data },
+        state,
+      );
+      state = step.state as ClaudeParseState;
+      for (const event of step.events) if (event.t === "denied") denied.push(event.tool);
+    }
+    const outcome = claudeResult(state, exit).outcome;
+    const verdict = judgeSelfTest({ probes, outcome, denied, disk });
+    return {
+      disk,
+      verdict,
+      ...(probes.includes("gh-token")
+        ? { ghTokenReadableOutsideSandbox: await ghTokenReadableOutside() }
+        : {}),
+    };
+  };
+}
+
+function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Scenario {
+  const probes = PROBE_GROUPS[name];
+  return {
+    name,
+    fixture: "greeter",
+    model: "haiku",
+    effort: "low",
+    maxTurns: 6,
+    tools: ["Bash"],
+    turns: [(paths) => selfTestLayout(selfTestPaths(paths), probes).prompt],
+    expected,
+    verify: verifySelfTest(probes),
+    timeoutMs: 300_000,
+  };
+}
+
 const SAFETY_MAIN_GIT = SCENARIOS_BASE.find((scenario) => scenario.name === "safety-main-git");
 
 export const SCENARIOS: readonly Scenario[] = [
@@ -348,6 +450,18 @@ export const SCENARIOS: readonly Scenario[] = [
     expected:
       "The same probes under the launch plan as it is: with --permission-prompts none and no Bash allow rule, every Bash call is denied by the permission layer before the sandbox runs it (decision_reason_type asyncAgent).",
   },
+  selfTestScenario(
+    "safety-gitdir-write",
+    "The DIPO-43 self-test command under the launch plan as it is, from a linked worktree: writes to <main>/.git, its worktree admin directory, refs and objects are refused inside the sandbox; the control write in the worktree succeeds; the session ends with a done report.",
+  ),
+  selfTestScenario(
+    "safety-pointer-write",
+    "The DIPO-43 self-test command under the launch plan as it is: opening the <worktree>/.git pointer for writing is refused inside the sandbox and the pointer is unchanged; the control write in the worktree succeeds; the session ends with a done report.",
+  ),
+  selfTestScenario(
+    "safety-gh-token",
+    "The DIPO-43 self-test command under the launch plan as it is: `gh auth token` (output discarded) exits non-zero inside the sandbox; the control write in the worktree succeeds; the session ends with a done report. checks.ghTokenReadableOutsideSandbox shows whether the token was readable outside it, which makes the refusal meaningful.",
+  ),
 ];
 
 export function findScenario(name: string): Scenario | undefined {

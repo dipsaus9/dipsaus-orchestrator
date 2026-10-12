@@ -35,7 +35,10 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "report-invalid-missing": ["blocked", "ambiguous-spec"],
   resume: ["done", null],
   "safety-bash-prompts-none": ["blocked", "needs-permission"],
+  "safety-gh-token": ["done", null],
+  "safety-gitdir-write": ["done", null],
   "safety-main-git": ["done", null],
+  "safety-pointer-write": ["done", null],
   stall: ["done", null],
   "start-failed": ["startFailed", null],
   "start-failed-auth": ["startFailed", null],
@@ -52,6 +55,16 @@ const RETRY: Readonly<Record<string, string>> = {
   "report-invalid": "report-feedback",
   "report-invalid-missing": "report-feedback",
 };
+
+/**
+ * Live recordings the maintainer captures on a machine with Claude Code (DIPO-43 AC #8); the
+ * table names them already, and the coverage check accepts them as missing until committed.
+ */
+const AWAITING_CAPTURE = new Set([
+  "safety-gh-token",
+  "safety-gitdir-write",
+  "safety-pointer-write",
+]);
 
 /** Scenarios whose park in `meta.expected` the engine decides from its own caps, not the adapter. */
 const ENGINE_DECIDED = new Set(["budget-engine-cap"]);
@@ -142,7 +155,10 @@ const names = recordingNames();
 
 describe("committed Claude recordings through the adapter", () => {
   it("cover every recording in the expectation table and nothing else", () => {
-    expect(names).toEqual(Object.keys(EXPECTED).toSorted());
+    const expected = Object.keys(EXPECTED).filter(
+      (name) => names.includes(name) || !AWAITING_CAPTURE.has(name),
+    );
+    expect(names).toEqual(expected.toSorted());
   });
 
   for (const name of names) {
