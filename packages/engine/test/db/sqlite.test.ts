@@ -13,12 +13,14 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   AsyncTransactionError,
+  COMPILED_SQLITE_WORKER_PATH,
+  sqliteWorkerUrl,
   IntegrityCheckError,
   isNetworkFsType,
   mountFor,
@@ -209,6 +211,17 @@ describe("transactions", () => {
         db.close();
       }
     }));
+});
+
+describe("sqliteWorkerUrl", () => {
+  it("points next to the module from source and at the build entrypoint in a binary", () => {
+    expect(existsSync(new URL(sqliteWorkerUrl()).pathname)).toBe(true);
+    expect(sqliteWorkerUrl("file:///$bunfs/root/dipo")).toBe(COMPILED_SQLITE_WORKER_PATH);
+    const packages = join(import.meta.dir, "..", "..", "..");
+    const worker = join(packages, "engine", "src", "platform", "sqlite-worker.ts");
+    expect(existsSync(worker)).toBe(true);
+    expect(COMPILED_SQLITE_WORKER_PATH).toBe(`/$bunfs/root/${relative(packages, worker)}`);
+  });
 });
 
 describe("vacuumInto", () => {

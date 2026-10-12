@@ -322,6 +322,19 @@ function createConnection(
   };
 }
 
+/**
+ * Path of `sqlite-worker.ts` inside a compiled binary. `scripts/build.ts` passes it to
+ * `bun build --compile` as an extra entrypoint with `--root=packages` (DIPO-17).
+ */
+export const COMPILED_SQLITE_WORKER_PATH = "/$bunfs/root/engine/src/platform/sqlite-worker.ts";
+
+export function sqliteWorkerUrl(moduleUrl: string = import.meta.url): string {
+  // In the binary every module is bundled into the entry, so a URL relative to this module would
+  // point next to the entry instead of at the worker.
+  if (new URL(moduleUrl).pathname.startsWith("/$bunfs/")) return COMPILED_SQLITE_WORKER_PATH;
+  return new URL("./sqlite-worker.ts", moduleUrl).href;
+}
+
 /** Message to and from `sqlite-worker.ts`. */
 export interface VacuumRequest {
   readonly source: string;
@@ -343,7 +356,7 @@ export async function vacuumInto(
 ): Promise<void> {
   ensureDir(dirname(target));
   const request: VacuumRequest = { source, target, quickCheck: options.quickCheck === true };
-  const worker = new Worker(new URL("./sqlite-worker.ts", import.meta.url).href);
+  const worker = new Worker(sqliteWorkerUrl());
   try {
     const reply = await new Promise<VacuumReply>((resolve, reject) => {
       worker.addEventListener("message", (event: MessageEvent<VacuumReply>) => resolve(event.data));
