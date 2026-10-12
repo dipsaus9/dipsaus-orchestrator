@@ -4,7 +4,7 @@ title: Pick and claim one Ready story with work.run
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:44'
+updated_date: '2026-10-12 21:47'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -24,6 +24,11 @@ references:
   - packages/engine/src/features.ts
   - packages/engine/src/office/
   - packages/contract/
+  - packages/engine/src/commands/
+  - packages/engine/test/commands/
+  - packages/engine/src/git/
+  - packages/engine/test/git/
+  - packages/engine/test/office/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -76,8 +81,8 @@ test_plan:
 - [ ] #8 A claimed run records kind `story`, tier, role `developer`, model, start SHA, branch, worktree, budget unit and limit, loop cap, `config_hash` and run profile id.
 - [ ] #9 The engine emits `work.assigned` and `work.phase setup`, and keeps one active run per office.
 - [ ] #10 `dipo run [ID]` prints started and skipped stories with reasons.
-- [ ] #11 `work.run` resolved from the current directory carries the CLI's main worktree as `from` and the daemon refuses with `office.unknown` when it differs from the office's registered path, as DIPO-27 does for `office.forget` and `office.reloadConfig`; the guard moves into shared office resolution so every later cwd-resolved command gets it. A test covers an unopened copy.
-- [ ] #12 `git.fetchFailed` (DIPO-31) is added to the contract's `RETRYABLE_ERROR_CODES` (an additive minor change, `CONTRACT_VERSION.minor` bumped only when no unreleased bump exists yet), and pickup reports it as retryable.
+- [ ] #11 `work.run` resolved from the current directory carries the CLI's main worktree as an optional `from` argument (an additive minor contract change, `CONTRACT_VERSION.minor` bumped only when no unreleased bump exists yet), and the daemon refuses with `office.unknown` when it differs from the office's registered path, as DIPO-27 does for `office.forget` and `office.reloadConfig`; the check moves into shared office resolution in `commands/execute.ts` so every later cwd-resolved command gets it. A test covers an unopened copy.
+- [ ] #12 `office.reloadConfig` passes the new git settings to `OfficeGit.configure()` (DIPO-31 reads them only at office load); a test changes `base` and the worktree root through a reload.
 <!-- AC:END -->
 
 ## Implementation Notes

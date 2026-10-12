@@ -4,7 +4,7 @@ title: 'Derive story and work views, snapshots and a plain watch command'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:44'
+updated_date: '2026-10-12 14:42'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -70,7 +70,6 @@ test_plan:
 - [ ] #9 The `story.detail` result shape that DIPO-20 drafted (`view`, `work?`, `runs`, `verdicts`) is checked against what the views serve and adjusted where needed before `v0.1.0`; after the first release it can only grow by additive fields.
 - [ ] #10 The read `office.switch` (0005 section 7, 0009 section 4) is defined in the contract with the same args and result as `office.snapshot`, `since` set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, and `commands.describe` lists it, and is registered in the engine as an alias of `office.snapshot`; a test shows both return the same snapshot. DIPO-20 left it undefined.
 - [ ] #11 The client gets a liveness deadline on the injected clock: while subscribed, no frame for three idle `stream.mark` intervals (15 s each, 0005 section 8), or a pending request past its deadline, closes the connection and reconnects, so `dipo watch` notices a hung daemon (DIPO-25 review); a test covers it.
-- [ ] #12 `engine.hello` serves real office summaries (`OfficeSummary` per registered office, missing paths marked) instead of DIPO-24's placeholder `noOfficeSummaries`; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
