@@ -1,6 +1,6 @@
 // Read-only file facts of a repository checkout for the scan (0013 section 3). It lists files
 // and asks git which paths it ignores. It never runs a repository script: the git calls disable
-// `core.fsmonitor`, the one config key that would make git run a repository-chosen command.
+// `core.fsmonitor` and `core.hooksPath`, so git runs no repository-chosen command.
 
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
@@ -21,7 +21,18 @@ export type RepoFilesOptions = {
   env?: Record<string, string | undefined>;
 };
 
-const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off"];
+// The hardened flags of every engine git call (0008 section 2, DIPO-31): no hooks, no fsmonitor, no
+// system config, no pager or prompt.
+const GIT_SAFE = [
+  "--no-pager",
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.quotepath=off",
+];
+const GIT_SAFE_ENV = { GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" };
 
 function inside(root: string, path: string): string {
   const clean = normalize(path);
@@ -39,7 +50,7 @@ async function runGit(
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["git", ...GIT_SAFE, ...args], {
     cwd: root,
-    env,
+    env: { ...env, ...GIT_SAFE_ENV },
     stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "pipe",

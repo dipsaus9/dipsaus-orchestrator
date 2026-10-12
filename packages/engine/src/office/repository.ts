@@ -2,7 +2,7 @@
 // `git worktree list --porcelain`, so a linked worktree opens the same office; the office's own
 // directory is `<git-common-dir>/dipo/`, with the common directory from
 // `git rev-parse --path-format=absolute --git-common-dir`. Git runs through the injected `Spawn`
-// and never runs a repository-chosen command (`core.fsmonitor` off, as in the scan).
+// hardened as every engine git call is (`git/hardened.ts`): no hooks, no fsmonitor, no system config.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -14,12 +14,11 @@ import {
   type Spawn,
 } from "@dipsaus-orchestrator/contract";
 
+import { hardenedArgs, hardenedEnv } from "../git/hardened";
 import { isNetworkFsType, mountFor, type MountReader, readSystemMounts } from "../platform/sqlite";
 
 /** The Backlog.md project file that makes a repository a project (0006 decision 4). */
 export const BACKLOG_CONFIG = join("backlog", "config.yml");
-
-const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off"];
 
 /** How the office module runs git. */
 export interface GitRunner {
@@ -37,10 +36,12 @@ interface GitResult {
 }
 
 async function runGit(runner: GitRunner, cwd: string, args: readonly string[]): Promise<GitResult> {
+  // Discovery: no recorded paths yet, so git finds the repository from `cwd`.
+  const location = { kind: "none", cwd } as const;
   const child = runner.spawn({
-    cmd: [runner.git ?? "git", ...GIT_SAFE, ...args],
+    cmd: [runner.git ?? "git", ...hardenedArgs(location, args)],
     cwd,
-    ...(runner.env === undefined ? {} : { env: runner.env }),
+    env: hardenedEnv(runner.env ?? process.env, location),
   });
   const [stdout, stderr, exit] = await Promise.all([
     new Response(child.stdout).text(),
