@@ -19,7 +19,7 @@ import type { Clock, Cursor, RunId, TimerHandle, WorkRef } from "@dipsaus-orches
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { HostLine, ParseState, WorkerEvent } from "../workers/types";
-import { readCompleteLines, statEventFile, type FileIdentity } from "./event-file";
+import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, outputText } from "./output";
 import {
   applyTurnTotals,
@@ -115,6 +115,8 @@ interface CursorRow {
   device: number | null;
   inode: number | null;
   read_offset: number;
+  last_line_hash: string | null;
+  last_line_bytes: number | null;
   parse_state: string;
   first_line_t: number | null;
   last_line_t: number | null;
@@ -134,6 +136,7 @@ interface Tracked {
 }
 
 const SOURCE = "host-events";
+const decoder = new TextDecoder();
 
 function keyOf(run: string, agent: string): string {
   return `${run}\u0000${agent}`;
@@ -307,7 +310,9 @@ export class Ingestor {
     if (identity === null) return { status: "idle", lines: 0, offset };
     const lines = readCompleteLines(cursor.path, offset, identity.size);
     if (lines.length === 0) {
-      if (cursor.device === null && identity.size === 0) this.#recordIdentity(target, identity);
+      // Record the identity as soon as the file exists, so a replacement is caught even before the
+      // first complete line.
+      if (cursor.device === null) this.#recordIdentity(target, identity);
       return { status: "idle", lines: 0, offset };
     }
 
@@ -315,6 +320,8 @@ export class Ingestor {
     const events: WorkerEvent[] = [];
     const rejected: string[] = [];
     let exited = false;
+    let usageDirty = false;
+    let usageSent = false;
     const end = lines[lines.length - 1]?.end ?? offset;
 
     this.#office.immediate(() => {
@@ -398,9 +405,10 @@ export class Ingestor {
       }
 
       const last = lines[lines.length - 1]?.text ?? "";
+      const lastStart = lines.length > 1 ? (lines[lines.length - 2]?.end ?? offset) : offset;
       this.#office.run(
         `update ingest_cursors set read_offset = $end, device = $device, inode = $inode,
-           size = $size, last_line_hash = $hash, parse_state = $state, first_line_t = $first,
+           size = $size, last_line_hash = $hash, last_line_bytes = $bytes, parse_state = $state, first_line_t = $first,
            last_line_t = $last, updated_at = $now, ended_at = $ended
          where office_id = $office_id and run_id = $run and agent_id = $agent
            and source_kind = $kind`,
@@ -410,6 +418,7 @@ export class Ingestor {
           inode: identity.inode,
           size: identity.size,
           hash: createHash("sha256").update(last).digest("hex"),
+          bytes: end - lastStart,
           state: JSON.stringify(state),
           first: firstT,
           last: lastT,
@@ -432,10 +441,11 @@ export class Ingestor {
       if (exited || rejected.length > 0 || pending >= this.#timings.outputFlushBytes) {
         entries.push(...this.#outputEntries(target));
       }
-      if (usageChanged) tracked.usageDirty = true;
+      usageDirty = tracked.usageDirty || usageChanged;
       const dueAt = (tracked.lastUsageAt ?? -Infinity) + this.#timings.usageIntervalMs;
-      if (tracked.usageDirty && (exited || now >= dueAt)) {
-        entries.push(...this.#usageEntries(tracked));
+      if (usageDirty && (exited || now >= dueAt)) {
+        entries.push(...this.#usageEntries(target));
+        usageSent = true;
       }
       if (exited) {
         finalizeAgentUsage(this.#office, run, agent, now);
@@ -447,6 +457,10 @@ export class Ingestor {
       }
       appendEntries(this.#office, entries, { at: now });
     });
+
+    // Only a committed `usage.updated` counts as sent; a rolled-back one is sent again.
+    tracked.usageDirty = usageDirty;
+    if (usageSent) this.#usageSent(tracked, now);
 
     if (exited) {
       tracked.done = true;
@@ -499,8 +513,9 @@ export class Ingestor {
         if (!tracked.usageDirty) return;
         const at = this.#clock.now();
         this.#office.immediate(() =>
-          appendEntries(this.#office, this.#usageEntries(tracked), { at }),
+          appendEntries(this.#office, this.#usageEntries(tracked.target), { at }),
         );
+        this.#usageSent(tracked, at);
       },
       Math.max(0, dueAt - this.#clock.now()),
     );
@@ -559,10 +574,8 @@ export class Ingestor {
     ];
   }
 
-  #usageEntries(tracked: Tracked): NewEntry[] {
-    tracked.usageDirty = false;
-    tracked.lastUsageAt = this.#clock.now();
-    const { target } = tracked;
+  /** `usage.updated` with the agent's and run's usage now; the caller marks it sent on commit. */
+  #usageEntries(target: IngestTarget): NewEntry[] {
     if (target.work === undefined) return [];
     return [
       {
@@ -572,6 +585,12 @@ export class Ingestor {
         delta: { work: target.work, usage: readUsage(this.#office, target) },
       },
     ];
+  }
+
+  /** After a committed `usage.updated`: nothing pending, and the next one waits its interval. */
+  #usageSent(tracked: Tracked, at: number): void {
+    tracked.usageDirty = false;
+    tracked.lastUsageAt = at;
   }
 
   // ---- file change ---------------------------------------------------------------------------
@@ -587,6 +606,18 @@ export class Ingestor {
     if (identity.size < offset) {
       return `event file is ${identity.size} bytes, below the processed offset ${offset}`;
     }
+    // The last processed line must still be where it was: same bytes, ending in a newline.
+    const length = cursor.last_line_bytes;
+    if (cursor.last_line_hash !== null && length !== null && length > 0 && length <= offset) {
+      const bytes = readRange(cursor.path, offset - length, length);
+      const intact =
+        bytes.byteLength === length &&
+        bytes[length - 1] === 0x0a &&
+        createHash("sha256")
+          .update(decoder.decode(bytes.subarray(0, length - 1)))
+          .digest("hex") === cursor.last_line_hash;
+      if (!intact) return "event file rewritten before the processed offset";
+    }
     return null;
   }
 
@@ -595,7 +626,7 @@ export class Ingestor {
     const now = this.#clock.now();
     this.#office.immediate(() => {
       const entries: NewEntry[] = [...this.#outputEntries(target)];
-      if (tracked.usageDirty) entries.push(...this.#usageEntries(tracked));
+      if (tracked.usageDirty) entries.push(...this.#usageEntries(target));
       this.#office.run(
         `update ingest_cursors set changed_at = $now, changed_detail = $detail, updated_at = $now
          where office_id = $office_id and run_id = $run and agent_id = $agent
@@ -614,6 +645,7 @@ export class Ingestor {
       });
       appendEntries(this.#office, entries, { at: now });
     });
+    if (tracked.usageDirty && target.work !== undefined) this.#usageSent(tracked, now);
     this.#hooks.onFileChanged?.({ run: target.run, agent: target.agent, path, detail });
   }
 
@@ -621,8 +653,8 @@ export class Ingestor {
 
   #cursor(target: IngestTarget): CursorRow {
     const row = this.#office.get<CursorRow>(
-      `select path, device, inode, read_offset, parse_state, first_line_t, last_line_t,
-         output_emitted_to, ended_at, changed_at
+      `select path, device, inode, read_offset, last_line_hash, last_line_bytes, parse_state,
+         first_line_t, last_line_t, output_emitted_to, ended_at, changed_at
        from ingest_cursors
        where office_id = $office_id and run_id = $run and agent_id = $agent
          and source_kind = $kind`,

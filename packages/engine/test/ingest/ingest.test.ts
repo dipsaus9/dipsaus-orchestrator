@@ -187,6 +187,53 @@ describe("replaying success-tools-subagent", () => {
         if (result.length >= 8) expect(stored).not.toContain(result);
       }
     }));
+
+  it("stores message output and the 5 minute and 1 hour cache-creation split", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
+      new Ingestor({ office: f.office, clock: f.t.clock }).track(
+        target(f, claude, claudeState(NAME)),
+      );
+      // The first line per message id is the one counted (0008 section 4).
+      const expected = new Map<string, Json>();
+      for (const message of stdoutObjects(NAME)) {
+        if (message["type"] !== "assistant") continue;
+        const inner = message["message"] as Json;
+        if (!expected.has(inner["id"] as string)) {
+          expected.set(inner["id"] as string, inner["usage"] as Json);
+        }
+      }
+      const rows = f.office.all<{
+        message_id: string;
+        output: number;
+        cache_create: number;
+        cache_create_5m: number;
+        cache_create_1h: number;
+      }>(
+        `select message_id, output, cache_create, cache_create_5m, cache_create_1h
+         from usage_messages where office_id = $office_id`,
+      );
+      expect(rows.length).toBe(expected.size);
+      let oneHour = 0;
+      for (const row of rows) {
+        const usage = expected.get(row.message_id) ?? {};
+        const split = (usage["cache_creation"] ?? {}) as Json;
+        expect(row.output).toBe(usage["output_tokens"] as number);
+        expect(row.cache_create_1h).toBe(split["ephemeral_1h_input_tokens"] as number);
+        expect(row.cache_create_5m + row.cache_create_1h).toBe(row.cache_create);
+        oneHour += row.cache_create_1h;
+      }
+      expect(oneHour).toBeGreaterThan(0);
+      const totals = f.office.get<{ h: number }>(
+        "select sum(cache_create_1h) as h from usage_totals where office_id = $office_id",
+      );
+      expect(totals?.h).toBe(oneHour);
+      const daily = f.office.get<{ h: number }>(
+        "select sum(cache_create_1h) as h from usage_daily where office_id = $office_id",
+      );
+      expect(daily?.h).toBe(oneHour);
+    }));
 });
 
 describe("offsets", () => {
@@ -295,6 +342,36 @@ describe("debounce on the manual clock", () => {
       expect(typesOf(f.office).at(-1)).toBe("work.output");
       const big = loggedEvents(f.office).at(-1)?.data as { from: number; to: number };
       expect(big.to - big.from).toBeGreaterThanOrEqual(16 * 1024);
+      ingestor.close();
+    }));
+
+  it("a usage.updated whose transaction rolled back is sent again", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      const all = lines();
+      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      appendLines(f.eventFile, all.slice(0, 4));
+      ingestor.track(target(f, scripted(), { events: [] }));
+      f.t.clock.advance(250);
+      expect(typesOf(f.office)).toEqual(["usage.updated", "work.output"]);
+      f.t.clock.advance(100);
+      appendLines(f.eventFile, all.slice(4, 5)); // held for the interval
+      ingestor.announce(f.run, f.agent);
+
+      // The timer's transaction fails: no entry is stored, and the update stays pending.
+      const connection = f.t.state.connection;
+      connection.immediate(() =>
+        connection.exec("alter table change_log rename to change_log_off"),
+      );
+      expect(() => f.t.clock.advance(900)).toThrow();
+      connection.immediate(() =>
+        connection.exec("alter table change_log_off rename to change_log"),
+      );
+      expect(typesOf(f.office)).toEqual(["usage.updated", "work.output"]);
+
+      appendLines(f.eventFile, all.slice(5, 6)); // a line with no usage
+      ingestor.announce(f.run, f.agent);
+      expect(typesOf(f.office)).toEqual(["usage.updated", "work.output", "usage.updated"]);
       ingestor.close();
     }));
 
@@ -429,6 +506,40 @@ describe("a changed host event file", () => {
       renameSync(copy, f.eventFile);
       f.t.clock.advance(1000);
       expect(reports.map((report) => report.detail)).toEqual(["event file replaced"]);
+    }));
+
+  it("a file rewritten in place before the offset reports ingest.fileChanged", () =>
+    withTempDir(async (dir) => {
+      const { f, reports } = await ingestHalf(dir);
+      const text = readFileSync(f.eventFile, "utf8");
+      // Same size and inode, but the last processed line no longer matches its hash.
+      const at = text.lastIndexOf('{"t":') + 5;
+      writeFileSync(f.eventFile, `${text.slice(0, at)}9${text.slice(at + 1)}`);
+      f.t.clock.advance(1000);
+      expect(reports.map((report) => report.detail)).toEqual([
+        "event file rewritten before the processed offset",
+      ]);
+    }));
+
+  it("a file replaced before its first complete line reports ingest.fileChanged", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      writeFileSync(f.eventFile, '{"t":0,"ch":"stdout"'); // a partial first line
+      const reports: FileChangedReport[] = [];
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        hooks: { onFileChanged: (report) => reports.push(report) },
+      });
+      const worker = scriptedWorker({ script: SCRIPTS["done"] ?? [] });
+      expect(ingestor.track(target(f, worker, { events: [] })).status).toBe("idle");
+      const copy = `${f.eventFile}.new`;
+      writeFileSync(copy, "");
+      appendLines(copy, worker.lines());
+      renameSync(copy, f.eventFile);
+      f.t.clock.advance(1000);
+      expect(reports.map((report) => report.detail)).toEqual(["event file replaced"]);
+      expect(countRows(f.office, "usage_messages")).toBe(0);
     }));
 });
 

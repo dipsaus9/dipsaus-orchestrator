@@ -75,3 +75,20 @@ export function readCompleteLines(
     closeSync(fd);
   }
 }
+
+/** `length` bytes at `from`, or fewer when the file ends first. */
+export function readRange(path: string, from: number, length: number): Buffer {
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    let read = 0;
+    while (read < length) {
+      const n = readSync(fd, buffer, read, length - read, from + read);
+      if (n === 0) break;
+      read += n;
+    }
+    return buffer.subarray(0, read);
+  } finally {
+    closeSync(fd);
+  }
+}
