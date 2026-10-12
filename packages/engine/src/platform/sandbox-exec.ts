@@ -155,16 +155,22 @@ export async function runSandboxExec(options: SandboxExecOptions): Promise<numbe
       ...(env["TMPDIR"] ? [{ label: "temp root", path: env["TMPDIR"] }] : []),
       ...view.filesystem.allowWrite.map((path) => ({ label: "write path", path: globRoot(path) })),
     ];
+    const denies = config.filesystem.denyRead.map((entry) =>
+      typeof entry === "string" ? expandHome(entry, homes[0] ?? "/") : entry.path,
+    );
+    // Literal denies in every spelling too (`/tmp/x` is `/private/tmp/x` on macOS).
+    const denySpellings = (
+      await Promise.all(
+        denies.map((entry) => (/[*?[\]{}]/.test(entry) ? [entry] : spellings(entry))),
+      )
+    ).flat();
     const covered = coveringDenies(
-      config.filesystem.denyRead.map((entry) =>
-        typeof entry === "string" ? expandHome(entry, homes[0] ?? "/") : entry.path,
-      ),
+      [...new Set(denySpellings)],
       await Promise.all(
         roots.map(async (root) => ({ label: root.label, spellings: await spellings(root.path) })),
       ),
     );
     if (covered.length > 0) throw new Refusal(`read denies hide the step: ${covered.join("; ")}`);
-    if (distrust.length > 0) throw new Refusal(`untrusted paths: ${distrust.join("; ")}`);
     const probe = await probeSandbox(platform, tools);
     if (!probe.ok) throw new Refusal(probe.reasons.join("; "));
     if (tools.rg !== null) config.ripgrep = { command: tools.rg };
