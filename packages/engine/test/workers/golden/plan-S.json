@@ -56,7 +56,7 @@
       "pr": ""
     },
     "permissions": {
-      "allow": ["Read(./**)", "Edit(./**)", "Write(./**)"],
+      "allow": ["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"],
       "deny": [
         "Edit(./.git)",
         "Edit(./.git/**)",
@@ -157,11 +157,7 @@
           "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.json",
           "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.local.json"
         ],
-        "allowRead": [
-          "/home/maintainer/.bun/install/cache",
-          "/home/maintainer/.npm/_cacache",
-          "/home/maintainer/.cache"
-        ]
+        "allowRead": ["/home/maintainer/.bun", "/home/maintainer/.npm", "/home/maintainer/.cache"]
       },
       "network": {
         "allowedDomains": [],

@@ -64,7 +64,7 @@ if (CI && process.platform === "linux" && process.env[GUARD] !== "1") {
             mainCheckout: dirname(common),
             home: passwdHome(),
             uid: process.getuid?.() ?? 0,
-            sandbox: { toolchainPaths: [], registryHosts: [] },
+            sandbox: { installCachePaths: [], registryHosts: [] },
             scriptMinutes: { verify: 10 },
             env,
             extraEnv: { [GUARD]: "1" },

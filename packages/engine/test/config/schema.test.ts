@@ -64,7 +64,8 @@ const VERSION_1_KEY_PATHS = [
     "taskMessage",
   ].flatMap((section) => sizes(`prompt.budgets.${section}`)),
   "prompt.contractMax",
-  "sandbox.toolchainPaths",
+  "sandbox.toolchainReadPaths",
+  "sandbox.installCachePaths",
   "sandbox.registryHosts",
   "sandbox.allowRead",
   "sandbox.allowedDomains",
@@ -126,10 +127,11 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.worktree.root).toBe("../{repo}.worktrees");
     expect(OFFICE_DEFAULTS.worktree.maxSlots).toBe(20);
     expect(OFFICE_DEFAULTS.worktree.ports).toEqual({ stride: 10, named: {} });
-    expect(OFFICE_DEFAULTS.sandbox.toolchainPaths).toEqual([
+    expect(OFFICE_DEFAULTS.sandbox.toolchainReadPaths).toEqual(["~/.bun", "~/.npm", "~/.cache"]);
+    // ~/.cache is read but not written by default (0008 amendment of 2026-10-12).
+    expect(OFFICE_DEFAULTS.sandbox.installCachePaths).toEqual([
       "~/.bun/install/cache",
       "~/.npm/_cacache",
-      "~/.cache",
     ]);
     expect(OFFICE_DEFAULTS.story.tiers).toEqual(["S", "M", "L"]);
     expect(OFFICE_DEFAULTS.prompt.contractMax).toBe(12_000);

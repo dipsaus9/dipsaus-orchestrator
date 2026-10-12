@@ -4,7 +4,7 @@ title: Run engine steps on worker code inside the sandbox runtime
 status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:16'
+updated_date: '2026-10-12 14:22'
 labels:
   - test-before-merge
   - 'tier:L'
@@ -199,6 +199,8 @@ Manual test on macOS (current):
 6. `cd - && rm -rf $T`.
 
 Maintainer test 2026-10-12: OK (sandbox tests and manual deny-rule checks on macOS).
+
+Follow-up (branch DIPO-37/bash-allow-and-toolchain-split), per the 0008 amendments of 2026-10-12: sandbox.toolchainPaths is split in place (config v1 is unreleased) into sandbox.toolchainReadPaths (default ~/.bun, ~/.npm, ~/.cache) and sandbox.installCachePaths (default ~/.bun/install/cache, ~/.npm/_cacache; ~/.cache no longer written). translatePolicy takes installCachePaths for the install allowWrite; the read list needs no step entry because srt has no home-wide read block. install-cache-trust.test.ts checks that a cache holding a PATH directory or the running dipo or bun binary refuses the step. Policy goldens unchanged (the fixture lists its own caches).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
