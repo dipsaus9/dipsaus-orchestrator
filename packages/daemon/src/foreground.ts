@@ -21,6 +21,7 @@ import {
   createSystemIds,
   currentPlatform,
   detachedEnv,
+  EngineGit,
   engineRegistry,
   ensurePrivateDir,
   FEATURES,
@@ -368,8 +369,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "office" }),
       onOfficeChanged: (office) => server?.notifyOffice(office),
     });
+    // The engine's git (DIPO-31): one serial queue per loaded office, with the git this daemon
+    // resolved from its PATH, so every office uses the same binary.
+    const engineGit = new EngineGit({
+      spawn: systemSpawn,
+      ...(tools.paths.git === undefined ? {} : { git: tools.paths.git }),
+    });
     const registry: Registry = engineRegistry([
       ...FEATURES,
+      engineGit.feature,
       officeFeature(offices),
       helloFeature({
         engineVersion: io.version,

@@ -21,8 +21,8 @@ const GIT_CONFIG: readonly [string, string][] = [
 
 /**
  * The environment for git and tools that call git: the cleaned environment (no ANTHROPIC_*,
- * CLAUDE_*, GH_*), no inherited GIT_* variables, no global or system config, `HOME` set to
- * `home`, a fixed identity and dates, and no signing.
+ * CLAUDE_*, GH_*), no inherited GIT_* variables, no global or system config, `HOME` and
+ * `XDG_CONFIG_HOME` under `home`, a fixed identity and dates, and no signing.
  */
 export function isolatedEnv(home: string): Record<string, string> {
   const env = cleanEnv();
@@ -31,6 +31,8 @@ export function isolatedEnv(home: string): Record<string, string> {
   }
   Object.assign(env, {
     HOME: home,
+    // Engine git drops GIT_CONFIG_GLOBAL (DIPO-31), so the global config it finds must be in `home`.
+    XDG_CONFIG_HOME: join(home, ".config"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_AUTHOR_NAME: GIT_IDENTITY.name,
