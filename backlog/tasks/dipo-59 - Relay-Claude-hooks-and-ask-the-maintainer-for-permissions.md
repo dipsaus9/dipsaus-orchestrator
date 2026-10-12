@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 07:58'
+updated_date: '2026-10-12 08:00'
 labels:
   - 'tier:M'
   - after-cutover
@@ -17,8 +17,10 @@ references:
   - packages/engine/src/hooks/
   - packages/engine/src/workers/claude-cli/
   - packages/engine/src/host/
+  - packages/engine/src/run/
   - packages/cli/src/
   - packages/engine/test/hooks/
+  - packages/engine/test/run/
   - packages/engine/test/recordings/claude-cli/
 documentation:
   - docs/decisions/0005-command-and-event-model.md

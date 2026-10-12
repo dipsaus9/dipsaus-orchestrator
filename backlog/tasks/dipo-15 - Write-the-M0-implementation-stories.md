@@ -4,7 +4,7 @@ title: Write the M0 implementation stories
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:43'
-updated_date: '2026-10-12 07:59'
+updated_date: '2026-10-12 08:00'
 labels: []
 milestone: m-0
 dependencies: []
@@ -24,7 +24,7 @@ Context: docs/plan.md step 2 (M0 implementation stories). Stories follow ADR 001
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 All M0 stories exist in milestone m-0 following ADR 0012, with dependencies between them
-- [x] #2 Decisions that change an ADR (D2, D4–D8) are recorded as dated amendment lines in 0003, 0004, 0010 and 0013; D1, D3 and D9 need no ADR change and are recorded in this story's notes.
+- [x] #2 Decisions that change an ADR (D2, D4–D8 and D10) are recorded as dated amendment lines in 0003, 0004, 0010 and 0013; D1, D3 and D9 need no ADR change and are recorded in this story's notes.
 - [ ] #3 A separate reviewer agent checked the stories and amendments and its findings are fixed
 - [ ] #4 Maintainer approved the M0 stories
 <!-- AC:END -->
