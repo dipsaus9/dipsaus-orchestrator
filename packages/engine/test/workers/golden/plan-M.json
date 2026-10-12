@@ -1,0 +1,194 @@
+{
+  "argv": [
+    "/home/maintainer/.local/bin/claude",
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b",
+    "--model",
+    "sonnet",
+    "--effort",
+    "medium",
+    "--max-turns",
+    "120",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,Edit,Write,Glob,Grep,Bash",
+    "--settings",
+    "/home/maintainer/code/shop/.git/dipo/runs/run-0001/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "/home/maintainer/code/shop/.git/dipo/mcp.json",
+    "--append-system-prompt-file",
+    "/home/maintainer/code/shop/.git/dipo/runs/run-0001/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"enum\":[\"done\",\"blocked\"],\"description\":\"done when every criterion is met, else blocked\"},\"criteria\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\",\"exclusiveMinimum\":0,\"maximum\":9007199254740991,\"description\":\"criterion number as in the story\"},\"met\":{\"type\":\"boolean\"},\"evidence\":{\"type\":\"string\",\"description\":\"file, test or command output that shows it\"}},\"required\":[\"n\",\"met\",\"evidence\"],\"additionalProperties\":false},\"description\":\"one entry per acceptance criterion\"},\"summary\":{\"type\":\"string\",\"minLength\":1,\"description\":\"what changed, in a few sentences\"},\"commitSubject\":{\"type\":\"string\",\"minLength\":1,\"description\":\"proposed commit subject, imperative, without the story id\"},\"question\":{\"description\":\"blocked only: the one question the maintainer must answer\",\"type\":\"string\",\"minLength\":1},\"notes\":{\"description\":\"notes for a next session\",\"type\":\"string\"},\"needsPermission\":{\"description\":\"blocked only: the denied call the work cannot do without\",\"type\":\"object\",\"properties\":{\"tool\":{\"type\":\"string\",\"minLength\":1},\"action\":{\"type\":\"string\",\"minLength\":1}},\"required\":[\"tool\",\"action\"],\"additionalProperties\":false}},\"required\":[\"status\",\"criteria\",\"summary\",\"commitSubject\"],\"additionalProperties\":false}"
+  ],
+  "env": {
+    "HOME": "/home/maintainer",
+    "JAVA_HOME": "/opt/java",
+    "LANG": "en_US.UTF-8",
+    "PATH": "/home/maintainer/.bun/bin:/usr/bin:/bin",
+    "SHELL": "/bin/zsh",
+    "TERM": "xterm-256color",
+    "TMPDIR": "/tmp/maintainer",
+    "USER": "maintainer",
+    "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
+    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
+    "DIPO_RUN": "run-0001",
+    "DIPO_HOST_SOCKET": "/home/maintainer/.dipo/run/hosts/run-0001.sock"
+  },
+  "cwd": "/home/maintainer/code/shop.worktrees/DIPO-999",
+  "settings": {
+    "includeGitInstructions": false,
+    "attribution": {
+      "commit": "",
+      "pr": ""
+    },
+    "permissions": {
+      "allow": ["Read(./**)", "Edit(./**)", "Write(./**)"],
+      "deny": [
+        "Edit(./.git)",
+        "Edit(./.git/**)",
+        "Edit(./backlog/**)",
+        "Edit(./.dipo/**)",
+        "Edit(./.claude/settings.json)",
+        "Edit(./.claude/settings.local.json)",
+        "Edit(//home/maintainer/code/shop/.git/**)",
+        "Edit(//home/maintainer/code/shop/**)",
+        "Write(./.git)",
+        "Write(./.git/**)",
+        "Write(./backlog/**)",
+        "Write(./.dipo/**)",
+        "Write(./.claude/settings.json)",
+        "Write(./.claude/settings.local.json)",
+        "Write(//home/maintainer/code/shop/.git/**)",
+        "Write(//home/maintainer/code/shop/**)",
+        "Read(./**/.env*)",
+        "Read(~/.ssh/**)",
+        "Read(~/.aws/**)",
+        "Read(~/.config/gh/**)",
+        "Read(~/.gnupg/**)",
+        "Read(~/.netrc)",
+        "Bash(git add)",
+        "Bash(git add *)",
+        "Bash(git am)",
+        "Bash(git am *)",
+        "Bash(git checkout)",
+        "Bash(git checkout *)",
+        "Bash(git cherry-pick)",
+        "Bash(git cherry-pick *)",
+        "Bash(git clean)",
+        "Bash(git clean *)",
+        "Bash(git commit)",
+        "Bash(git commit *)",
+        "Bash(git merge)",
+        "Bash(git merge *)",
+        "Bash(git mv)",
+        "Bash(git mv *)",
+        "Bash(git pull)",
+        "Bash(git pull *)",
+        "Bash(git push)",
+        "Bash(git push *)",
+        "Bash(git rebase)",
+        "Bash(git rebase *)",
+        "Bash(git reset)",
+        "Bash(git reset *)",
+        "Bash(git restore)",
+        "Bash(git restore *)",
+        "Bash(git revert)",
+        "Bash(git revert *)",
+        "Bash(git rm)",
+        "Bash(git rm *)",
+        "Bash(git stash)",
+        "Bash(git stash *)",
+        "Bash(git switch)",
+        "Bash(git switch *)",
+        "Bash(git tag)",
+        "Bash(git tag *)",
+        "Bash(git update-ref)",
+        "Bash(git update-ref *)",
+        "Bash(git worktree)",
+        "Bash(git worktree *)",
+        "Bash(backlog)",
+        "Bash(backlog *)",
+        "Bash(gh)",
+        "Bash(gh *)"
+      ],
+      "blockReadsOutsideWorkingDirectories": true
+    },
+    "sandbox": {
+      "enabled": true,
+      "failIfUnavailable": true,
+      "allowUnsandboxedCommands": false,
+      "filesystem": {
+        "allowWrite": ["/home/maintainer/code/shop.worktrees/DIPO-999", "/tmp/claude-501"],
+        "denyWrite": [
+          "/home/maintainer/code/shop/.git",
+          "/home/maintainer/code/shop.worktrees/DIPO-999/.git",
+          "/home/maintainer/code/shop.worktrees/DIPO-999/backlog",
+          "/home/maintainer/code/shop.worktrees/DIPO-999/.dipo",
+          "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.json",
+          "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.local.json"
+        ],
+        "allowRead": ["/home/maintainer/.bun", "/home/maintainer/.npm", "/home/maintainer/.cache"]
+      },
+      "network": {
+        "allowedDomains": [],
+        "strictAllowlist": true,
+        "allowLocalBinding": false
+      },
+      "credentials": {
+        "files": [
+          {
+            "path": "/home/maintainer/.ssh",
+            "mode": "deny"
+          },
+          {
+            "path": "/home/maintainer/.aws",
+            "mode": "deny"
+          },
+          {
+            "path": "/home/maintainer/.config/gh",
+            "mode": "deny"
+          },
+          {
+            "path": "/home/maintainer/.gnupg",
+            "mode": "deny"
+          },
+          {
+            "path": "/home/maintainer/.netrc",
+            "mode": "deny"
+          }
+        ],
+        "envVars": [
+          {
+            "name": "GH_TOKEN",
+            "mode": "deny"
+          },
+          {
+            "name": "GITHUB_TOKEN",
+            "mode": "deny"
+          },
+          {
+            "name": "NPM_TOKEN",
+            "mode": "deny"
+          }
+        ]
+      }
+    }
+  },
+  "stdin": [
+    "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"<story>DIPO-999 Add a greeting</story>\\n<outcome>The CLI prints hello.</outcome>\"},\"parent_tool_use_id\":null}\n"
+  ]
+}
