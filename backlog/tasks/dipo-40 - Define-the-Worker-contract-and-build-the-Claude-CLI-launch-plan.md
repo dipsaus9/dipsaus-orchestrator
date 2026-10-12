@@ -4,7 +4,7 @@ title: Define the Worker contract and build the Claude CLI launch plan
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:27'
+updated_date: '2026-10-12 12:32'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -82,4 +82,10 @@ Implementation (DIPO-40):
 Claude Code CLI check (installed 2.1.296, read-only, no session started): -p, --input-format/--output-format stream-json, --verbose, --session-id, --resume, --model, --effort, --permission-prompts none, --tools, --settings, --setting-sources, --strict-mcp-config, --mcp-config, --exclude-dynamic-system-prompt-sections and --json-schema are in --help. --max-turns and --append-system-prompt-file are hidden options present in the binary. --help lists permission modes with manual in place of default; the binary's parser accepts default as well (manual is an alias of default), so --permission-mode default matches 0008. Settings keys used (includeGitInstructions, attribution.commit/pr, permissions.blockReadsOutsideWorkingDirectories, sandbox.failIfUnavailable, allowUnsandboxedCommands, network.strictAllowlist, credentials.files/envVars with mode deny) exist in the binary's settings schema. User message priority now/next/later is a top-level field.
 
 Left to later stories: the neutral nudge op on SteerOp (DIPO-60 AC 5), hook registration and dipo hook (DIPO-59), probe (DIPO-43), interpret and result (DIPO-42), canResume (DIPO-51).
+
+Review hardening (PR #30, fail closed, each with a unit test):
+- Tool variables also refuse LD_*, DYLD_*, GIT_*, NODE_OPTIONS, BASH_ENV and ENV (they change how processes start or where git resolves).
+- Bash denies also cover git branch, fetch, config, apply, submodule, symbolic-ref, notes and commit-tree, bare and with arguments. A code comment states that Bash rules match command text only and the sandbox denyWrite on <main>/.git and <worktree>/.git is the real boundary.
+- plan refuses a workdir or tmpDir that is / or equals or contains home, and a runDir, systemFile or mcpConfig inside the workdir.
+- plan refuses a mainCheckout or workdir holding * ? [ ] { } ( ) \ ! or control characters, because Claude Code documents no escaping for permission rules. Golden files updated.
 <!-- SECTION:NOTES:END -->
