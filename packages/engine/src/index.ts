@@ -185,7 +185,7 @@ export type {
 } from "./commands/registry";
 export { argsHash, MemoryRequestTable, REQUEST_TTL_MS } from "./commands/requests";
 export { findStoryRefFields, resolveStoryRefs } from "./commands/story-refs";
-export { engineGit, engineRegistry, FEATURES } from "./features";
+export { engineRegistry, FEATURES } from "./features";
 export * from "./git";
 export { executeRead } from "./reads/execute";
 export type { ReadDeps } from "./reads/execute";
