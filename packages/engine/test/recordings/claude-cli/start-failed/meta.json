@@ -9,6 +9,7 @@
   "transform": "After system/init, a result error_during_execution with startup_failure_reason \"sandbox_unavailable\" and zeroed totals; exit 1.",
   "cites": [
     "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\"",
     "startup_failure_reason value is illustrative; no live run showed one"
   ]
 }

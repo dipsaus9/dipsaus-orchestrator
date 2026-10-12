@@ -196,8 +196,10 @@ describe("scrubber", () => {
     );
     expect(isRedacted(assistant?.message.content[1].input.file_path)).toBe(true);
     expect(isRedacted(user?.message.content[0].content)).toBe(true);
+    // Names from the maintainer's setup keep only their length, never a reversible hash.
+    expect(init?.slash_commands).toEqual(["[redacted len:6]"]);
+    expect(init?.plugins).toEqual([{ name: "[redacted len:1]", path: "[redacted len:34]" }]);
     expect(isRedacted(init?.slash_commands[0])).toBe(true);
-    expect(isRedacted(init?.plugins[0].path)).toBe(true);
     expect(isRedacted(result?.result)).toBe(true);
     expect(isRedacted(result?.structured_output.summary)).toBe(true);
     expect(isRedacted(result?.structured_output.criteria[0].evidence)).toBe(true);

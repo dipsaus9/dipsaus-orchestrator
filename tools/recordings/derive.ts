@@ -5,6 +5,7 @@
 
 import type { Envelope, Meta, Recording } from "./format";
 import { isRecord, readRecording, serializeMeta, serializeStream, writeRecording } from "./format";
+import { redact } from "./scrub";
 import { guardSecrets, machineNeedles } from "./secrets";
 import { budgetTokens, stdoutOf, usageChecksum } from "./usage";
 
@@ -31,6 +32,20 @@ const CITE_RESULT =
   "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)";
 const CITE_ASSISTANT_ERROR =
   "Claude Code docs, Agent SDK TypeScript reference: SDKAssistantMessage error (0008 source 4)";
+
+const CITE_TERMINAL =
+  'terminal_reason "error" and stop_reason null on derived failure results are illustrative; live failures showed "aborted_streaming" and "max_turns"';
+
+/** A failed result: no report, no stop reason, one terminal reason across every derived failure. */
+function failure(result: Data, subtype: string, terminalReason = "error"): Data {
+  return {
+    ...withoutReport(result),
+    subtype,
+    is_error: true,
+    stop_reason: null,
+    terminal_reason: terminalReason,
+  };
+}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -114,7 +129,7 @@ function failedResult(lines: readonly Envelope[], extra: Data): Data {
     ).data as Data,
   );
   return {
-    ...withoutReport(result),
+    ...failure(result, "error_during_execution"),
     ...(zeroed({
       num_turns: 0,
       duration_ms: 0,
@@ -124,8 +139,6 @@ function failedResult(lines: readonly Envelope[], extra: Data): Data {
     }) as Data),
     modelUsage: {},
     permission_denials: [],
-    subtype: "error_during_execution",
-    is_error: true,
     ...extra,
   };
 }
@@ -144,7 +157,7 @@ function assistantError(lines: readonly Envelope[], error: string): Envelope[] {
       error,
       message: {
         ...message,
-        content: [{ type: "text", text: "[redacted sha256:000000000000 len:0]" }],
+        content: [{ type: "text", text: redact("") }],
       },
     };
     return [
@@ -194,14 +207,12 @@ export const TRANSFORMS: readonly Transform[] = [
       "The result becomes error_during_execution with zeroed totals and no report; exit 1.",
     expected:
       "Usage recovered from earlier assistant messages, not overwritten with zero (0017 source 5).",
-    cites: [CITE_RESULT],
+    cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
         lines,
         (result) => ({
-          ...withoutReport(result),
-          subtype: "error_during_execution",
-          is_error: true,
+          ...failure(result, "error_during_execution"),
           total_cost_usd: 0,
           usage: zeroed(result.usage),
           modelUsage: {},
@@ -242,7 +253,11 @@ export const TRANSFORMS: readonly Transform[] = [
       'After system/init, a result error_during_execution with startup_failure_reason "sandbox_unavailable" and zeroed totals; exit 1.',
     expected:
       "Outcome startFailed: scheduling for this adapter stopped in all offices, engine.notice, the story stays Ready (0008 section 7).",
-    cites: [CITE_RESULT, "startup_failure_reason value is illustrative; no live run showed one"],
+    cites: [
+      CITE_RESULT,
+      CITE_TERMINAL,
+      "startup_failure_reason value is illustrative; no live run showed one",
+    ],
     apply: (lines) =>
       afterInit(lines, (init) => [
         {
@@ -259,7 +274,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       'An assistant message with error "authentication_failed", then a failed result; exit 1.',
     expected: "Outcome startFailed (0008 section 7).",
-    cites: [CITE_ASSISTANT_ERROR],
+    cites: [CITE_ASSISTANT_ERROR, CITE_TERMINAL],
     apply: (lines) => assistantError(lines, "authentication_failed"),
   },
   {
@@ -267,7 +282,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-single",
     transform: 'An assistant message with error "billing_error", then a failed result; exit 1.',
     expected: "Outcome startFailed (0008 section 7).",
-    cites: [CITE_ASSISTANT_ERROR],
+    cites: [CITE_ASSISTANT_ERROR, CITE_TERMINAL],
     apply: (lines) => assistantError(lines, "billing_error"),
   },
   {
@@ -276,15 +291,11 @@ export const TRANSFORMS: readonly Transform[] = [
     transform: "The result becomes error_max_structured_output_retries without a report.",
     expected:
       'No outcome yet: one feedback turn "report in the schema", then park ambiguous-spec (0008 section 7, 0014 section 2).',
-    cites: [CITE_RESULT],
+    cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
         lines,
-        (result) => ({
-          ...withoutReport(result),
-          subtype: "error_max_structured_output_retries",
-          is_error: true,
-        }),
+        (result) => failure(result, "error_max_structured_output_retries"),
         1,
       ),
   },
@@ -303,16 +314,11 @@ export const TRANSFORMS: readonly Transform[] = [
       'The result becomes error_during_execution with terminal_reason "prompt_too_long" and no report.',
     expected:
       "No outcome yet: one new session with a 0014 handoff; a second hit parks budget-exceeded (0008 section 7).",
-    cites: [CITE_RESULT],
+    cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
         lines,
-        (result) => ({
-          ...withoutReport(result),
-          subtype: "error_during_execution",
-          is_error: true,
-          terminal_reason: "prompt_too_long",
-        }),
+        (result) => failure(result, "error_during_execution", "prompt_too_long"),
         1,
       ),
   },
@@ -367,11 +373,17 @@ export function deriveAll(read: (name: string) => Recording = readRecording): De
 /** Writes every derived recording after the secret guard. */
 export function writeDerived(): void {
   const needles = machineNeedles();
-  for (const derived of deriveAll()) {
-    const streamText = serializeStream(derived.lines);
-    const metaText = serializeMeta(derived.meta);
+  const outputs = deriveAll().map((derived) => ({
+    derived,
+    streamText: serializeStream(derived.lines),
+    metaText: serializeMeta(derived.meta),
+  }));
+  // Every output passes the guard before the first file is written, so a hit writes nothing.
+  for (const { derived, streamText, metaText } of outputs) {
     guardSecrets(`${derived.name}/stream.jsonl`, streamText, needles);
     guardSecrets(`${derived.name}/meta.json`, metaText, needles);
+  }
+  for (const { derived, streamText, metaText } of outputs) {
     writeRecording(derived.name, streamText, metaText);
     console.log(`derived ${derived.name} from ${derived.meta.derivedFrom}`);
   }

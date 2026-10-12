@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 
 import { decisionFieldProblems } from "./checks";
 import { deriveAll } from "./derive";
-import { readAllRecordings } from "./format";
+import { isRecord, readAllRecordings } from "./format";
 import { machineNeedles, scanForSecrets } from "./secrets";
 import { stdoutOf, usageChecksum } from "./usage";
 
@@ -58,6 +58,21 @@ describe("committed recordings", () => {
 
       it("keeps usage numbers equal to the checksum taken at capture", () => {
         expect(usageChecksum(stdoutOf(recording.lines))).toBe(recording.meta.usage_checksum);
+      });
+
+      it("keeps no hash of the names in system/init lists", () => {
+        for (const data of stdoutOf(recording.lines)) {
+          if (!isRecord(data) || data.type !== "system" || data.subtype !== "init") continue;
+          for (const field of [
+            "slash_commands",
+            "terminal_slash_commands",
+            "agents",
+            "skills",
+            "plugins",
+          ]) {
+            expect(JSON.stringify(data[field] ?? null)).not.toContain("sha256:");
+          }
+        }
       });
 
       it("holds only normalised ids", () => {

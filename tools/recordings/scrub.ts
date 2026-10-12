@@ -2,7 +2,8 @@
 // message type: listed fields are kept, ids and paths are normalised to stable placeholders, and
 // every other string at any depth becomes `[redacted sha256:<12 hex> len:<n>]`. A message type or
 // hook event the allowlist does not know is redacted whole and reported. Numbers, booleans and
-// null are kept: they are the usage and structure a replay needs, and carry no text.
+// null are kept: they are the usage and structure a replay needs, and carry no text. Name lists
+// from the maintainer's setup in `system/init` keep only their lengths (`[redacted len:<n>]`).
 
 import { createHash } from "node:crypto";
 
@@ -10,16 +11,24 @@ import { isRecord } from "./format";
 import type { Envelope } from "./format";
 
 /** What happens to a string at a matching path. */
-export type Action = "keep" | "id" | "path";
+export type Action = "keep" | "id" | "path" | "opaque";
 
 /** A dot path; `*` matches one key or index, `**` any number of them (also none). */
 export type PathRule = readonly [pattern: string, action: Action];
 
-const REDACTED = /^\[redacted sha256:[0-9a-f]{12} len:\d+\]$/;
+const REDACTED = /^\[redacted (?:sha256:[0-9a-f]{12} )?len:\d+\]$/;
 
 export function redact(value: string): string {
   const hash = createHash("sha256").update(value).digest("hex").slice(0, 12);
   return `[redacted sha256:${hash} len:${value.length}]`;
+}
+
+/**
+ * A marker without a hash, for short names from the maintainer's own setup (skills, agents,
+ * plugins, slash commands): an unsalted hash of a short name could be reversed by guessing.
+ */
+export function opaque(value: string): string {
+  return `[redacted len:${value.length}]`;
 }
 
 export function isRedacted(value: unknown): boolean {
@@ -73,6 +82,11 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     ["capabilities.*", "keep"],
     ["output_style", "keep"],
     ["fast_mode_state", "keep"],
+    ["slash_commands.**", "opaque"],
+    ["terminal_slash_commands.**", "opaque"],
+    ["agents.**", "opaque"],
+    ["skills.**", "opaque"],
+    ["plugins.**", "opaque"],
   ],
   "system/api_retry": [
     ["error", "keep"],
@@ -423,6 +437,9 @@ export class Scrubber {
           return this.id(value, key);
         case "path":
           return this.path(value, key);
+        case "opaque":
+          this.noteRedacted(kind, path);
+          return opaque(value);
         default:
           this.noteRedacted(kind, path);
           return redact(value);

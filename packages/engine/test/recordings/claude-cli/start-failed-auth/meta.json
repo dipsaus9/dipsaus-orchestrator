@@ -8,6 +8,7 @@
   "derivedFrom": "success-single",
   "transform": "An assistant message with error \"authentication_failed\", then a failed result; exit 1.",
   "cites": [
-    "Claude Code docs, Agent SDK TypeScript reference: SDKAssistantMessage error (0008 source 4)"
+    "Claude Code docs, Agent SDK TypeScript reference: SDKAssistantMessage error (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\""
   ]
 }

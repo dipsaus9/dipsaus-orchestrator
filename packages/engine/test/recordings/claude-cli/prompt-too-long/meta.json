@@ -7,5 +7,8 @@
   "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
   "derivedFrom": "success-single",
   "transform": "The result becomes error_during_execution with terminal_reason \"prompt_too_long\" and no report.",
-  "cites": ["Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)"]
+  "cites": [
+    "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\""
+  ]
 }
