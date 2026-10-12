@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "jsPlugins": ["./tools/lint/oxlint-plugin.js"],
   "categories": {
     "correctness": "error",
     "suspicious": "error"
@@ -21,7 +22,73 @@
           }
         ]
       }
-    ]
+    ],
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "setTimeout",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "name": "setInterval",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "name": "setImmediate",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "name": "clearTimeout",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "name": "clearInterval",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "name": "clearImmediate",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      }
+    ],
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "Date",
+        "property": "now",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "object": "globalThis",
+        "property": "setTimeout",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "object": "globalThis",
+        "property": "setInterval",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "object": "globalThis",
+        "property": "setImmediate",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "object": "globalThis",
+        "property": "clearTimeout",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "object": "globalThis",
+        "property": "clearInterval",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      },
+      {
+        "object": "globalThis",
+        "property": "clearImmediate",
+        "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+      }
+    ],
+    "dipo/no-argless-date": "error"
   },
   "overrides": [
     {
@@ -78,6 +145,144 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "files": ["packages/testkit/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "testkit never imports engine or daemon, so every package can use it (DIPO-15 D5)."
+              },
+              {
+                "name": "@dipsaus-orchestrator/daemon",
+                "message": "testkit never imports engine or daemon, so every package can use it (DIPO-15 D5)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@dipsaus-orchestrator/engine/**", "@dipsaus-orchestrator/daemon/**"],
+                "message": "testkit never imports engine or daemon (DIPO-15 D5)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ],
+        "no-restricted-globals": "off",
+        "no-restricted-properties": "off",
+        "dipo/no-argless-date": "off"
+      }
+    },
+    {
+      "files": ["packages/engine/src/**", "packages/daemon/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "node:child_process",
+                "importNames": ["spawnSync", "execSync", "execFileSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "child_process",
+                "importNames": ["spawnSync", "execSync", "execFileSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "bun",
+                "importNames": ["spawnSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Date",
+            "property": "now",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "setImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearTimeout",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearInterval",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "object": "globalThis",
+            "property": "clearImmediate",
+            "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
+          },
+          {
+            "property": "spawnSync",
+            "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+          },
+          {
+            "property": "execSync",
+            "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+          },
+          {
+            "property": "execFileSync",
+            "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/engine/src/platform/**"],
+      "rules": {
+        "no-restricted-globals": "off",
+        "no-restricted-properties": [
+          "error",
+          {
+            "property": "spawnSync",
+            "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+          },
+          {
+            "property": "execSync",
+            "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+          },
+          {
+            "property": "execFileSync",
+            "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+          }
+        ],
+        "dipo/no-argless-date": "off"
       }
     }
   ]

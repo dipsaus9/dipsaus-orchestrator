@@ -9,3 +9,16 @@ export * from "./errors";
 export * from "./ids";
 export * from "./software";
 export * from "./version";
+
+export type {
+  ChildExit,
+  ChildProcess,
+  ChildStdin,
+  Clock,
+  IdPrefix,
+  IdSource,
+  Signal,
+  Spawn,
+  SpawnOptions,
+  TimerHandle,
+} from "./runtime";
