@@ -66,9 +66,22 @@ describe("the block parser", () => {
     expect(parseFieldBlock(`${OUTCOME}\n\`\`\`dipo\n\`\`\``).fields).toEqual({});
   });
 
-  it("opens only on a line exactly ```dipo", () => {
-    expect(parseFieldBlock(`${OUTCOME}\n\`\`\`dipo \nbranch: 5\n\`\`\``).block).toBeUndefined();
+  it("opens only on a line exactly ```dipo, a CRLF ending included", () => {
     expect(parseFieldBlock(`${OUTCOME}\n \`\`\`dipo\nbranch: 5\n\`\`\``).block).toBeUndefined();
+    expect(
+      parseFieldBlock(`${OUTCOME}\r\n\`\`\`dipo\r\nunknowns: []\r\n\`\`\`\r\n`).fields,
+    ).toEqual({
+      unknowns: [],
+    });
+  });
+
+  it("fails R02 on a line that is ```dipo only after trimming other trailing whitespace", () => {
+    for (const opener of ["```dipo ", "```dipo\t", "```dipo \r", "```dipo\r\r"]) {
+      const error = errorOf(`${OUTCOME}\n\n${opener}\nbranch: "TASK-1/old"\n\`\`\``);
+      expect(error.rule).toBe("R02");
+      expect(error.detail).toContain("trailing whitespace");
+      expect(error.line).toBe(3);
+    }
   });
 
   it("fails R02 on a second block", () => {
@@ -225,6 +238,39 @@ describe("the splice", () => {
 
   it("refuses a description whose block structure is invalid", () => {
     expect(() => spliceFieldBlock(`${old}\n${old}`, {})).toThrow(FieldBlockError);
+  });
+
+  it("never appends a second block after a stale near-miss block", () => {
+    const stale = `${OUTCOME}\n\n\`\`\`dipo \nbranch: "TASK-4/old"\n\`\`\``;
+    expect(() => spliceFieldBlock(stale, { unknowns: [] })).toThrow(FieldBlockError);
+  });
+
+  it("splices a CRLF block in place and keeps CRLF endings", () => {
+    const head = `${OUTCOME}\r\n\r\nContext.\r\n\r\n`;
+    const tail = "\r\n";
+    const crlf = `${head}\`\`\`dipo\r\nbranch: "TASK-4/old"\r\n\`\`\`${tail}`;
+    const spliced = spliceFieldBlock(crlf, { branch: "TASK-4/new", unknowns: [] });
+    expect(spliced).toBe(
+      `${head}\`\`\`dipo\r\nbranch: "TASK-4/new"\r\nunknowns: []\r\n\`\`\`${tail}`,
+    );
+    expect(parseFieldBlock(spliced).fields).toEqual({ branch: "TASK-4/new", unknowns: [] });
+  });
+
+  it("appends with CRLF endings to a description that uses them", () => {
+    expect(spliceFieldBlock(`${OUTCOME}\r\n`, { unknowns: [] })).toBe(
+      `${OUTCOME}\r\n\r\n\`\`\`dipo\r\nunknowns: []\r\n\`\`\``,
+    );
+  });
+
+  it("keeps NFD text outside the block byte for byte and reads NFD block text as NFC", () => {
+    const nfd = "Outcome: the café export writes every röw.\n\nNähe.\n\n";
+    const block = '```dipo\nunknowns:\n  - q: "Café?"\n    status: "open"\n```';
+    const parsed = parseFieldBlock(`${nfd}${block}`).fields;
+    expect(parsed).toEqual({ unknowns: [{ q: "Café?", status: "open" }] });
+    const spliced = spliceFieldBlock(`${nfd}${block}`, { ...parsed, branch: "TASK-4/cafe" });
+    expect(spliced.startsWith(`${nfd}\`\`\`dipo\n`)).toBe(true);
+    expect(spliced).toContain("é export");
+    expect(spliced).not.toBe(spliced.normalize("NFC"));
   });
 });
 

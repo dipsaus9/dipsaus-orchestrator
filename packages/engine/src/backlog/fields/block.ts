@@ -32,30 +32,53 @@ export class FieldBlockError extends Error {
 
 /** Where the block sits in a description, by character offsets. */
 export interface BlockLocation {
-  /** Offset of the first content line (just after the opening line and its newline). */
+  /** Offset of the first content line (just after the opening line and its line ending). */
   readonly contentStart: number;
   /** Offset of the closing line; the content is `description.slice(contentStart, contentEnd)`. */
   readonly contentEnd: number;
   /** 1-based line of the opening line. */
   readonly openLine: number;
+  /** The opening line ends in CRLF; the splice writes the content with CRLF endings too. */
+  readonly crlf: boolean;
 }
 
-/** Finds the one block, or undefined when there is none. Throws `FieldBlockError`. */
+/** A line without the `\r` of a CRLF ending. */
+function bare(line: string): string {
+  return line.endsWith("\r") ? line.slice(0, -1) : line;
+}
+
+/**
+ * Finds the one block, or undefined when there is none. A `\r` before the newline belongs to the
+ * line ending. A line that is ```` ```dipo ```` only after trimming other trailing whitespace fails
+ * R02, so a stale block is never shadowed by a block appended after it. Throws `FieldBlockError`.
+ */
 export function locateBlock(description: string): BlockLocation | undefined {
   const lines = description.split("\n");
   let offset = 0;
   let found: BlockLocation | undefined;
-  let open: { line: number; contentStart: number } | undefined;
+  let open: { line: number; contentStart: number; crlf: boolean } | undefined;
   for (const [index, line] of lines.entries()) {
     const lineNumber = index + 1;
     const next = offset + line.length + 1;
+    const text = bare(line);
+    if (text !== BLOCK_OPEN && line.trimEnd() === BLOCK_OPEN) {
+      throw new FieldBlockError(
+        "a ```dipo line with trailing whitespace; the opening line must be exactly ```dipo",
+        lineNumber,
+      );
+    }
     if (open !== undefined) {
-      if (line === BLOCK_CLOSE) {
-        found = { contentStart: open.contentStart, contentEnd: offset, openLine: open.line };
+      if (text === BLOCK_CLOSE) {
+        found = {
+          contentStart: open.contentStart,
+          contentEnd: offset,
+          openLine: open.line,
+          crlf: open.crlf,
+        };
         open = undefined;
       }
     } else if (found !== undefined) {
-      if (line === BLOCK_OPEN) {
+      if (text === BLOCK_OPEN) {
         throw new FieldBlockError(
           "a second ```dipo block; a description holds at most one",
           lineNumber,
@@ -64,8 +87,8 @@ export function locateBlock(description: string): BlockLocation | undefined {
       if (line.trim() !== "") {
         throw new FieldBlockError("text after the ```dipo block; the block comes last", lineNumber);
       }
-    } else if (line === BLOCK_OPEN) {
-      open = { line: lineNumber, contentStart: next };
+    } else if (text === BLOCK_OPEN) {
+      open = { line: lineNumber, contentStart: next, crlf: text !== line };
     }
     offset = next;
   }
@@ -80,9 +103,9 @@ function issueText(issue: z.core.$ZodIssue): string {
   return path === "" ? issue.message : `${path}: ${issue.message}`;
 }
 
-/** The block's content parsed and validated. Empty content is an empty block. */
+/** The block's content, NFC-normalised, parsed and validated. Empty content is an empty block. */
 export function parseBlockContent(content: string, line?: number): FieldBlock {
-  const yaml = parseYamlDocument(content);
+  const yaml = parseYamlDocument(content.normalize("NFC"));
   if (!yaml.ok) throw new FieldBlockError(yaml.message, line);
   const result = FieldBlock.safeParse(yaml.value ?? {});
   if (!result.success) {
@@ -168,23 +191,31 @@ export function emitFieldBlock(fields: FieldBlock): string {
   return lines.map((line) => `${line}\n`).join("");
 }
 
+/** `text` with CRLF line endings when `crlf` is set. */
+function withEnding(text: string, crlf: boolean): string {
+  return crlf ? text.replace(/\n/g, "\r\n") : text;
+}
+
 /**
  * The description with its block set to `fields`, every byte outside the block's content unchanged.
  * Without a block, one is appended after a blank line; an empty value then adds nothing.
+ * A block opened with a CRLF line gets CRLF content lines; a block appended to a description
+ * holding CRLF uses CRLF throughout. The description is used as given, never normalised.
  * Throws `FieldBlockError` when the description's block structure is invalid.
  */
 export function spliceFieldBlock(description: string, fields: FieldBlock): string {
   const content = emitFieldBlock(fields);
   const block = locateBlock(description);
   if (block !== undefined) {
-    return description.slice(0, block.contentStart) + content + description.slice(block.contentEnd);
+    return (
+      description.slice(0, block.contentStart) +
+      withEnding(content, block.crlf) +
+      description.slice(block.contentEnd)
+    );
   }
   if (content === "") return description;
-  const separator =
-    description === "" || description.endsWith("\n\n")
-      ? ""
-      : description.endsWith("\n")
-        ? "\n"
-        : "\n\n";
-  return `${description}${separator}${BLOCK_OPEN}\n${content}${BLOCK_CLOSE}`;
+  const crlf = description.includes("\r\n");
+  const lf = description.replace(/\r\n/g, "\n");
+  const separator = lf === "" || lf.endsWith("\n\n") ? "" : lf.endsWith("\n") ? "\n" : "\n\n";
+  return description + withEnding(`${separator}${BLOCK_OPEN}\n${content}${BLOCK_CLOSE}`, crlf);
 }
