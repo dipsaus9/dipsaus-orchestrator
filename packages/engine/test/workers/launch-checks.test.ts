@@ -26,6 +26,8 @@ import {
   MAIN,
   MemoryFs,
   scriptedClaude,
+  credentialSteps,
+  HOME,
   SELF_TEST_SESSION,
   selfTestSession,
   spec,
@@ -53,6 +55,7 @@ const LAYOUT = selfTestLayout({
   adminDir: ADMIN_DIR,
   tmpDir: TMP_DIR,
   nonce: NONCE,
+  home: HOME,
   tools: TOOLS,
 });
 
@@ -100,22 +103,24 @@ describe("(engine) Claude launch checks", () => {
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
       platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
       allowProjectSettings: [],
       readText: async () => undefined,
       fs,
     });
 
-    const leaked = BLOCKED_RESULTS.replace("gh-token exit 1", "gh-token exit 0");
+    const leaked = BLOCKED_RESULTS.replace("gh-config refused 1", "gh-config opened");
     const refused = await prepareLaunch(spec(), context(), holds, deps(new MemoryFs(), leaked));
     expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
     const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-    expect(hold).toMatchObject({ check: "self-test", key: "gh-token" });
-    expect(hold?.detail).toContain("gh auth token");
+    expect(hold).toMatchObject({ check: "self-test", key: "gh-config" });
+    expect(hold?.detail).toContain("hosts.yml");
     const notice = notices.at(-1);
     expect(notice?.type).toBe("engine.notice");
     expect(notice?.data).toMatchObject({ level: "error", code: HOLD_NOTICE_CODE });
     const noticeText = String((notice?.data as { text?: string } | undefined)?.text);
-    expect(noticeText).toContain("gh auth token");
+    expect(noticeText).toContain("hosts.yml");
     expect(noticeText).toContain("every office");
 
     // An explicit work.run repeats the checks; they pass, the hold lifts.
@@ -150,6 +155,8 @@ describe("(engine) Claude launch checks", () => {
         clock,
         selfTestSessionId: SELF_TEST_SESSION,
         platform: "darwin" as const,
+        runStep: credentialSteps().runStep,
+        uid: 501,
         allowProjectSettings: [],
       });
       expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
@@ -175,6 +182,8 @@ describe("(engine) Claude launch checks", () => {
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
       platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
       allowProjectSettings: [],
       readText: async () => undefined,
       fs: new MemoryFs(),
@@ -196,6 +205,8 @@ describe("(engine) Claude launch checks", () => {
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
       platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
       allowProjectSettings: [],
       readText: async () => undefined,
       fs,
@@ -223,6 +234,8 @@ describe("(engine) roles with unchecked tools", () => {
           clock,
           selfTestSessionId: SELF_TEST_SESSION,
           platform: "darwin" as const,
+          runStep: credentialSteps().runStep,
+          uid: 501,
           allowProjectSettings: [],
           readText: async () => undefined,
           fs: new MemoryFs(),
@@ -233,4 +246,59 @@ describe("(engine) roles with unchecked tools", () => {
       expect(fake.calls).toEqual([]);
     },
   );
+});
+
+async function runCredentials(
+  code: number | "startFailed",
+  platform: "darwin" | "linux" = "darwin",
+) {
+  const { clock, holds } = setup();
+  const steps = credentialSteps(code);
+  const fake = scriptedClaude(clock, {});
+  const result = await prepareLaunch(spec(), context(), holds, {
+    spawn: fake.spawn,
+    clock,
+    selfTestSessionId: SELF_TEST_SESSION,
+    platform,
+    runStep: steps.runStep,
+    uid: 501,
+    allowProjectSettings: [],
+    readText: async () => undefined,
+    fs: new MemoryFs(),
+  });
+  return { result, holds, steps, fake };
+}
+
+describe("(engine) credential check under srt", () => {
+  it("runs gh auth token and, on macOS, the Keychain lookup with output to /dev/null", async () => {
+    const { steps } = await runCredentials(0, "darwin");
+    expect(steps.commands[0]).toEqual([
+      "/bin/sh",
+      "-c",
+      'exec "$0" "$@" >/dev/null 2>&1',
+      TOOLS.gh,
+      "auth",
+      "token",
+    ]);
+    const linux = await runCredentials(1, "linux");
+    expect(linux.steps.commands).toHaveLength(1);
+  });
+
+  it("holds the adapter when a credential command succeeds inside srt, before any session", async () => {
+    const { result, holds, fake } = await runCredentials(0);
+    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
+      check: "credential-check",
+      key: "gh-token",
+    });
+    expect(fake.calls.some((call) => call.cmd.includes("-p"))).toBe(false);
+  });
+
+  it("holds the adapter when the check cannot run or the program is missing", async () => {
+    for (const code of ["startFailed", 127] as const) {
+      const { result, holds } = await runCredentials(code);
+      expect(result.ok).toBe(false);
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.check).toBe("credential-check");
+    }
+  });
 });

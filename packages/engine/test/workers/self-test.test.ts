@@ -18,7 +18,6 @@ import {
   resolveSelfTestTools,
   runSelfTest,
   SELF_TEST_MODEL,
-  probesFor,
   selfTestFailure,
   selfTestLayout,
   workerWritableRoots,
@@ -54,14 +53,11 @@ const PATHS = {
   adminDir: ADMIN_DIR,
   tmpDir: TMP_DIR,
   nonce: "n1",
+  home: HOME,
   tools: TOOLS,
 };
 const NONCE = SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16);
 const RUN_LAYOUT = selfTestLayout({ ...PATHS, nonce: NONCE });
-const REFUSED = {
-  "gh-token": { exit: 1, stderr: "other" },
-  keychain: { exit: 44, stderr: "denied" },
-} as const;
 
 /** One assistant stream line with a Bash tool use. */
 function bashLine(id: string, command: string): string {
@@ -100,15 +96,16 @@ describe("(unit) self-test layout", () => {
       ["pointer", ">>", `${WORKDIR}/.git`],
     ]);
     expect(layout.resultsFile).toBe(`${TMP_DIR}/dipo-self-test-n1.txt`);
-    // Absolute perl on a script under <main>/.git/dipo (readable, never writable in the sandbox),
-    // so neither `Bash(gh *)` nor redirection rules stop it first, and gh by path.
+    // Absolute perl with the program inline, so no redirection rule stops it first.
     expect(layout.command.startsWith(`'${TOOLS.perl}' -e '${layout.script}' `)).toBe(true);
-    expect(layout.script).toContain("exec { $p } $p, @{ $exec{$n} };");
-    expect(layout.script).toContain('"find-generic-password", "-s", "gh:github.com"');
-    expect(layout.script).toContain('open(STDOUT, ">", "/dev/null")');
-    expect(layout.command).toEndWith(
-      `'gh-token' '-' '${TOOLS.gh}' 'keychain' '-' '/usr/bin/security'`,
+    // The gh configuration is opened for reading and closed; nothing is read, no credential runs.
+    expect(layout.ghConfigFile).toBe(`${HOME}/.config/gh/hosts.yml`);
+    expect(layout.script).toContain(
+      'if ($n eq "gh-config") { if (open(my $f, "<", $p)) { close $f;',
     );
+    expect(layout.script).not.toContain("auth");
+    expect(layout.script).not.toContain("find-generic-password");
+    expect(layout.command).toEndWith(`'gh-config' '<' '${HOME}/.config/gh/hosts.yml'`);
     expect(layout.prompt).toContain(layout.command);
   });
 
@@ -117,23 +114,17 @@ describe("(unit) self-test layout", () => {
     expect(gh.targets.map((target) => target.name)).toEqual(["control"]);
     const pointer = selfTestLayout(PATHS, PROBE_GROUPS["safety-pointer-write"]);
     expect(pointer.targets.map((target) => target.name)).toEqual(["control", "pointer"]);
-    expect(pointer.command).not.toContain("'gh-token'");
-    // A write-only self-test carries no credential code at all.
-    expect(pointer.script).not.toContain("gh");
-    expect(pointer.script).not.toContain("find-generic-password");
-    expect(gh.script).toContain('"gh-token" => ["auth", "token"]');
+    // A write-only self-test does not touch the gh configuration at all.
+    expect(pointer.command).not.toContain("'gh-config'");
+    expect(pointer.script).not.toContain("gh-config");
+    expect(gh.script).toContain("gh-config");
   });
 
-  it("writes the nonce byte, appends it to the pointer, and probes the Keychain on macOS only", () => {
+  it("writes the nonce byte and appends it to the pointer", () => {
     const layout = selfTestLayout(PATHS);
     expect(layout.byte).toBe("n");
     expect(layout.command).toContain(`'${TMP_DIR}/dipo-self-test-n1.txt' 'n' 'control'`);
     expect(layout.script).toContain("print $f $b");
-    expect(probesFor("darwin")).toContain("keychain");
-    expect(probesFor("linux")).not.toContain("keychain");
-    expect(probesFor("linux", PROBE_GROUPS["safety-gh-token"])).toEqual(["gh-token"]);
-    const linux = selfTestLayout(PATHS, probesFor("linux"));
-    expect(linux.command).not.toContain("/usr/bin/security");
   });
 
   it("refuses a path it cannot quote", () => {
@@ -148,7 +139,12 @@ describe("(unit) self-test layout", () => {
       written: false,
       detail: "Operation not permitted",
     });
-    expect(lines.get("gh-token")).toEqual({ kind: "exit", code: 1, stderr: "other" });
+    expect(lines.get("gh-config")).toEqual({ kind: "open", opened: false, errno: 1 });
+    expect(parseResults("gh-config opened\n").get("gh-config")).toEqual({
+      kind: "open",
+      opened: true,
+      errno: null,
+    });
     expect(parsePointer(POINTER, WORKDIR)).toBe(ADMIN_DIR);
     expect(parsePointer("gitdir: ../shop/.git/worktrees/x\n", "/a/wt")).toBe(
       "/a/shop/.git/worktrees/x",
@@ -192,7 +188,7 @@ describe("(unit) self-test layout", () => {
 
 describe("(unit) self-test verdict", () => {
   it("passes when every forbidden write is blocked, gh fails and the control write succeeds", () => {
-    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true, refused: REFUSED });
+    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true, ghConfigErrno: 1 });
   });
 
   it.each(["main-git", "worktree-admin", "refs", "objects", "pointer"] as WriteProbe[])(
@@ -219,18 +215,20 @@ describe("(unit) self-test verdict", () => {
     });
   });
 
-  it("refuses as unsafe when gh auth token exits 0 inside the sandbox", () => {
-    const results = BLOCKED_RESULTS.replace("gh-token exit 1", "gh-token exit 0");
+  it("refuses as unsafe when the gh configuration opened inside the sandbox", () => {
+    const results = BLOCKED_RESULTS.replace("gh-config refused 1", "gh-config opened");
     const verdict = judgeSelfTest(evidence({ results }));
-    expect(verdict).toMatchObject({ ok: false, unsafe: true, probe: "gh-token" });
+    expect(verdict).toMatchObject({ ok: false, unsafe: true, probe: "gh-config" });
   });
 
-  it("refuses when gh never ran inside the sandbox (126 or 127): the Keychain was not tested", () => {
-    for (const code of [126, 127]) {
-      const results = BLOCKED_RESULTS.replace("gh-token exit 1", `gh-token exit ${code}`);
+  it("passes on EPERM or EACCES only; any other errno (a missing file) cannot pass", () => {
+    const with13 = BLOCKED_RESULTS.replace("gh-config refused 1", "gh-config refused 13");
+    expect(judgeSelfTest(evidence({ results: with13 }))).toEqual({ ok: true, ghConfigErrno: 13 });
+    for (const errno of [2, 20]) {
+      const results = BLOCKED_RESULTS.replace("gh-config refused 1", `gh-config refused ${errno}`);
       const verdict = judgeSelfTest(evidence({ results }));
-      expect(verdict).toMatchObject({ ok: false, unsafe: false, probe: "gh-token" });
-      expect(!verdict.ok && verdict.reason).toContain("Keychain token was not tested");
+      expect(verdict).toMatchObject({ ok: false, unsafe: false, probe: "gh-config" });
+      expect(!verdict.ok && verdict.reason).toContain("not a permission error");
     }
   });
 
@@ -246,24 +244,6 @@ describe("(unit) self-test verdict", () => {
       expect(verdict).toMatchObject({ ok: false, unsafe: false });
       expect(!verdict.ok && verdict.reason).toContain(text);
     }
-  });
-
-  it("refuses as unsafe when the Keychain item is readable inside the sandbox", () => {
-    const results = BLOCKED_RESULTS.replace("keychain exit 44 denied", "keychain exit 0 none");
-    expect(judgeSelfTest(evidence({ results }))).toMatchObject({
-      ok: false,
-      unsafe: true,
-      probe: "keychain",
-    });
-  });
-
-  it("refuses when security never ran inside the sandbox", () => {
-    const results = BLOCKED_RESULTS.replace("keychain exit 44 denied", "keychain exit 127 none");
-    expect(judgeSelfTest(evidence({ results }))).toMatchObject({
-      ok: false,
-      unsafe: false,
-      probe: "keychain",
-    });
   });
 
   it("refuses when the self-test cannot run", () => {
@@ -364,7 +344,6 @@ async function runWith(
       clock,
       fs,
       sessionId: options.sessionId ?? SELF_TEST_SESSION,
-      platform: "darwin",
     },
   );
   return { report, fs, fake, runSettings: runSettings?.content ?? "" };
@@ -373,7 +352,7 @@ async function runWith(
 describe("(engine) self-test run", () => {
   it("runs one Claude session under the run's own settings file and passes on a blocked disk", async () => {
     const { report, fs, fake, runSettings } = await runWith(BLOCKED_RESULTS);
-    expect(report.verdict).toEqual({ ok: true, refused: REFUSED });
+    expect(report.verdict).toEqual({ ok: true, ghConfigErrno: 1 });
     expect(report.evidence?.bash).toEqual({ calls: 1, exact: true, shape: true });
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
     expect(session?.cmd).toContain("--settings");
@@ -436,7 +415,7 @@ describe("(engine) self-test run", () => {
     const { report } = await runWith(BLOCKED_RESULTS, {
       sessionId: SELF_TEST_SESSION.toUpperCase(),
     });
-    expect(report.verdict).toEqual({ ok: true, refused: REFUSED });
+    expect(report.verdict).toEqual({ ok: true, ghConfigErrno: 1 });
   });
 
   it("refuses before any session when the pointer is not exactly one gitdir line", async () => {
@@ -465,7 +444,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
     expect(fake.calls).toEqual([]);
@@ -477,7 +456,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "pointer" });
     expect(selfTestFailure(report)?.file).toBe(`${WORKDIR}/.git`);
@@ -501,10 +480,7 @@ describe("(unit) live safety recordings", () => {
       };
       const run = await replay(recording);
       const denied = run.events.flatMap((event) => (event.t === "denied" ? [event.tool] : []));
-      // The probes the capture ran: the Keychain probe only where it was captured on macOS.
-      expect(checks.probes.filter((probe) => probe !== "keychain")).toEqual(
-        probes.filter((probe) => probe !== "keychain"),
-      );
+      expect(checks.probes).toEqual([...probes]);
       const verdict = judgeSelfTest({
         probes: checks.probes,
         outcome: run.result.outcome,

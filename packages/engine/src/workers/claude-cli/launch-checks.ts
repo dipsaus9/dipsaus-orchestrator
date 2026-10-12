@@ -1,5 +1,6 @@
-// The Claude CLI launch checks (0008 section 2): probe, project settings check and sandbox
-// self-test, run before every launch and every resume. `prepareLaunch` is the one way to get a
+// The Claude CLI launch checks (0008 section 2 and its amendments): probe, project settings
+// check, the engine-side credential check under srt and the session self-test, run before every
+// launch and every resume. `prepareLaunch` is the one way to get a
 // launch plan the host may start: it plans, runs the checks through the adapter hold's gate and
 // returns the plan only when they pass; a refusal is `startFailed` with the hold set (DIPO-74
 // rolls back the claim, DIPO-51 resumes through the same function).
@@ -12,7 +13,15 @@ import type { LaunchPlan, WorkerSpec } from "../types";
 import { CLAUDE_CLI_ADAPTER_ID, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
 import { checkProjectSettings, type ReadOptionalText } from "./settings-check";
-import { runSelfTest, selfTestFailure, type SelfTestFs } from "./self-test";
+import { engineCredentialCheck, type RunStep } from "../credential-check";
+import {
+  nodeSelfTestFs,
+  resolveSelfTestTools,
+  runSelfTest,
+  selfTestFailure,
+  workerWritableRoots,
+  type SelfTestFs,
+} from "./self-test";
 
 export interface ClaudeLaunchCheckDeps {
   readonly spawn: Spawn;
@@ -25,8 +34,12 @@ export interface ClaudeLaunchCheckDeps {
   readonly fs?: SelfTestFs;
   readonly probeTimeoutMs?: number;
   readonly selfTestTimeoutMs?: number;
-  /** Decides whether the Keychain probe runs; the running platform by default. */
-  readonly platform?: DipoPlatform;
+  /** Decides whether the Keychain lookup runs (macOS only). */
+  readonly platform: DipoPlatform;
+  /** Runs one engine step inside srt (`runSandboxedStep` with its deps bound). */
+  readonly runStep: RunStep;
+  /** The user id, for the step policy. */
+  readonly uid: number;
 }
 
 /**
@@ -84,6 +97,30 @@ export async function claudeLaunchChecks(
   );
   if (settings.length > 0) return { ok: false, failures: settings };
 
+  // The engine runs the credential commands itself, under srt, with no model (0008 amendment).
+  const fs = deps.fs ?? nodeSelfTestFs;
+  const tools = await resolveSelfTestTools(
+    {
+      daemonPath: ctx.env["PATH"] ?? "",
+      workerPath: ctx.env["PATH"] ?? "",
+      writable: workerWritableRoots(spec.workdir, ctx.tmpDir, ctx.home),
+    },
+    fs,
+  );
+  if (!tools.ok) {
+    return { ok: false, failures: [{ check: "self-test", detail: tools.reason }] };
+  }
+  const credentials = await engineCredentialCheck(deps.runStep, {
+    platform: deps.platform,
+    gh: tools.tools.gh,
+    worktree: spec.workdir,
+    mainCheckout: ctx.mainCheckout,
+    home: ctx.home,
+    uid: deps.uid,
+    env: ctx.env,
+  });
+  if (!credentials.ok) return { ok: false, failures: [credentials.failure] };
+
   const report = await runSelfTest(
     { spec, ctx, runSettings: settingsOf(launch) },
     {
@@ -92,7 +129,6 @@ export async function claudeLaunchChecks(
       sessionId: deps.selfTestSessionId,
       ...(deps.fs === undefined ? {} : { fs: deps.fs }),
       ...(deps.selfTestTimeoutMs === undefined ? {} : { timeoutMs: deps.selfTestTimeoutMs }),
-      ...(deps.platform === undefined ? {} : { platform: deps.platform }),
     },
   );
   const failure = selfTestFailure(report);

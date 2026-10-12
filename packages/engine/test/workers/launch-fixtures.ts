@@ -18,6 +18,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import type { SelfTestFs } from "../../src/workers/claude-cli/self-test";
+import type { RunStep } from "../../src/workers/credential-check";
 import type { WorkerSpec } from "../../src/workers/types";
 
 export const HOME = "/home/maintainer";
@@ -27,6 +28,7 @@ export const ADMIN_DIR = `${MAIN}/.git/worktrees/DIPO-999`;
 export const RUN_DIR = `${MAIN}/.git/dipo/runs/run-0001`;
 export const TMP_DIR = "/tmp/dipo-run-0001";
 export const POINTER = `gitdir: ${ADMIN_DIR}\n`;
+export const GH_CONFIG = `${HOME}/.config/gh/hosts.yml`;
 export const SELF_TEST_SESSION = "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
 export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
@@ -116,6 +118,8 @@ export class MemoryFs implements SelfTestFs {
 
   constructor(pointer: string | null = POINTER) {
     if (pointer !== null) this.files.set(`${WORKDIR}/.git`, pointer);
+    // The gh configuration exists outside the sandbox.
+    this.files.set(GH_CONFIG, "");
   }
 
   async mkdir(path: string): Promise<void> {
@@ -197,7 +201,29 @@ export const BLOCKED_RESULTS = [
   "refs blocked Operation not permitted",
   "objects blocked Operation not permitted",
   "pointer blocked Operation not permitted",
-  "gh-token exit 1 other",
-  "keychain exit 44 denied",
+  "gh-config refused 1",
   "",
 ].join("\n");
+
+/** A step runner for the engine credential check whose commands all exit with `code`. */
+export function credentialSteps(code: number | "startFailed" = 1): {
+  readonly runStep: RunStep;
+  readonly commands: (readonly string[])[];
+} {
+  const commands: (readonly string[])[] = [];
+  const runStep: RunStep = async (request) => {
+    commands.push(request.command);
+    if (code === "startFailed") return { outcome: "startFailed", reason: "srt is missing" };
+    const empty = { text: "", truncated: false };
+    return {
+      outcome: "exited",
+      code,
+      signal: null,
+      timedOut: false,
+      stdout: empty,
+      stderr: empty,
+      warnings: [],
+    };
+  };
+  return { runStep, commands };
+}

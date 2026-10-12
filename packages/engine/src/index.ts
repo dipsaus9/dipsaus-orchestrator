@@ -327,10 +327,8 @@ export {
 } from "./workers/claude-cli/settings-check";
 export {
   bashCalls as selfTestBashCalls,
-  GH_KEYCHAIN_SERVICE,
+  GH_CONFIG_FILE,
   judgeSelfTest,
-  KEYCHAIN_TOOL,
-  probesFor as selfTestProbesFor,
   resolveSelfTestTools,
   workerWritableRoots,
   PROBE_GROUPS,
@@ -346,6 +344,17 @@ export {
   type SelfTestTools,
   type SelfTestVerdict,
 } from "./workers/claude-cli/self-test";
+export {
+  credentialCommands,
+  engineCredentialCheck,
+  GH_KEYCHAIN_SERVICE,
+  judgeCredentialStep,
+  KEYCHAIN_TOOL,
+  silenced,
+  type CredentialCheckResult,
+  type CredentialProbe,
+  type RunStep,
+} from "./workers/credential-check";
 export {
   claudeLaunchChecks,
   prepareLaunch as prepareClaudeLaunch,
