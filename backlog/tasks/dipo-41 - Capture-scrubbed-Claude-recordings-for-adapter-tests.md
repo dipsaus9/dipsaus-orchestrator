@@ -1,10 +1,10 @@
 ---
 id: DIPO-41
 title: Capture scrubbed Claude recordings for adapter tests
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:09'
+updated_date: '2026-10-12 13:11'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -86,3 +86,9 @@ Deviations: extra live recordings `pause-now`, `safety-main-git`, `safety-bash-p
 
 Review fixes (PR #35, no new Claude session): a generic email pattern (example.org and example.com allowed) joined the secret guard, so CI catches emails without the capture-time needle. The name lists in `system/init` (`slash_commands`, `terminal_slash_commands`, `agents`, `skills`, `plugins`) now keep only lengths (`[redacted len:<n>]`), never an unsalted, reversible hash; the committed live recordings were rewritten offline from their redacted form (usage checksums unchanged) and a test enforces it. Derived failure results now all carry `stop_reason: null` and `terminal_reason: "error"` (`prompt_too_long` for prompt-too-long), cited as illustrative; the empty assistant text uses `redact("")`; `recordings:derive` guards every output before writing any.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Scrubbed Claude recordings: tools/recordings capture (DIPO-40 launch plan on a fixture repo in a temp dir, raw stream in memory only), allowlist scrubber, id/path normaliser, secret guard incl. home path, user, emails and token shapes, usage checksum, derive.ts for nine failure variants, recordings:status. 10 live recordings (Claude Code 2.1.296, haiku, low effort, 11 sessions) and 13 derived. AC #9: denyWrite on <main>/.git holds from a linked worktree on macOS (go); --json-schema per turn works; priority now interrupts; apiKeySource none; SIGINT ends the process; max-turns per message. Findings for later stories: with --permission-prompts none every Bash call is denied before the sandbox (0008 assumed no allow rule needed); user-scope plugins, agents and skills load under --setting-sources project,local. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
