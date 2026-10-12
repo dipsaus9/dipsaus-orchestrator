@@ -72,9 +72,17 @@ export function saveOfficeRequest(
 }
 
 /** The daemon's in-memory request table for software-level commands (0005 section 9). */
+/** A software-level request whose handler has not finished; duplicates share its reply. */
+export interface InFlightRequest {
+  readonly command: string;
+  readonly argsHash: string;
+  readonly reply: Promise<CommandReply>;
+}
+
 export class MemoryRequestTable {
   readonly #clock: Clock;
   readonly #records = new Map<string, RequestRecord & { readonly at: number }>();
+  readonly #running = new Map<string, InFlightRequest>();
 
   constructor(clock: Clock) {
     this.#clock = clock;
@@ -88,6 +96,19 @@ export class MemoryRequestTable {
   save(requestId: RequestId, record: RequestRecord): void {
     this.#expire();
     this.#records.set(requestId, { ...record, at: this.#clock.now() });
+  }
+
+  /** The request with this id that is still running, if any. */
+  inFlight(requestId: RequestId): InFlightRequest | undefined {
+    return this.#running.get(requestId);
+  }
+
+  begin(requestId: RequestId, request: InFlightRequest): void {
+    this.#running.set(requestId, request);
+  }
+
+  end(requestId: RequestId): void {
+    this.#running.delete(requestId);
   }
 
   get size(): number {
