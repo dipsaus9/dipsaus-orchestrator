@@ -1,10 +1,10 @@
 ---
 id: DIPO-40
 title: Define the Worker contract and build the Claude CLI launch plan
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:32'
+updated_date: '2026-10-12 12:35'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -89,3 +89,9 @@ Review hardening (PR #30, fail closed, each with a unit test):
 - plan refuses a workdir or tmpDir that is / or equals or contains home, and a runDir, systemFile or mcpConfig inside the workdir.
 - plan refuses a mainCheckout or workdir holding * ? [ ] { } ( ) \ ! or control characters, because Claude Code documents no escaping for permission rules. Golden files updated.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Worker contract in workers/types.ts (0008 section 1, open WorkerKind incl. session, HostOp afterMs) and the Claude CLI launch plan: pure plan(spec, ctx) building argv, allowlisted env, claude-settings.json with the 0008 allow/deny rules, absolute main denies, sandbox block, credentials deny, no hooks; report schema; steer/answer/pause/stop/kill encoding. Fail-closed refusals for unsupported kinds, hook relay, worktree inside main, relative or rule-special paths, workdir at home or /, run files inside the worktree, flag-like values and dangerous tool variables. Flags checked read-only against Claude Code 2.1.296. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
