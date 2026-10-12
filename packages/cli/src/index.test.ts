@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
+import { fakeWorkspace } from "./fake-workspace";
 import { HELP, main, packageName, type CliDeps, type ClientCheck } from "./index";
 
 type Captured = { out: string[]; err: string[]; daemonCalls: string[][] };
@@ -32,6 +33,7 @@ function fakeDeps(overrides: { daemonCode?: number; clientChecks?: ClientCheck[]
     clientChecks: overrides.clientChecks ?? [{ name: "ink", run: () => undefined }],
     stamp: { version: "0.0.0-dev", commit: "0123456789ab", commitDate: "2026-10-12" },
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
+    workspace: fakeWorkspace(),
   };
   return { deps, captured };
 }

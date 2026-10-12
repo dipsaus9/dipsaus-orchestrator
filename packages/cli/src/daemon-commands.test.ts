@@ -5,6 +5,7 @@ import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { type DaemonControl, REPLY_TIMEOUT_MS, type DaemonSession } from "./daemon-commands";
+import { fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
 
 type Sent = { name: string; args: unknown };
@@ -46,6 +47,7 @@ function fake(connect: () => Promise<Handler>, daemon: DaemonControl = NO_LIFECY
     clientChecks: [],
     stamp: undefined,
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
+    workspace: fakeWorkspace(),
   };
   return { deps, out, err, sent, clock, closed: () => closed };
 }

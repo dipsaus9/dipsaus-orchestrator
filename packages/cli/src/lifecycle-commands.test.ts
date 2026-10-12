@@ -13,6 +13,7 @@ import type {
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl } from "./daemon-commands";
+import { fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
 
 const VERSION = "0.0.0-dev";
@@ -88,6 +89,7 @@ function fake(results: {
     clientChecks: [],
     stamp: { version: VERSION, commit: "0123456789ab", commitDate: "2026-10-12" },
     runtime: { bun: "1.4.2", os: "darwin", arch: "arm64" },
+    workspace: fakeWorkspace(),
   };
   return { deps, out, err, calls };
 }

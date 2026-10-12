@@ -64,7 +64,7 @@ export const STATUS_EXIT = { running: 0, unresponsive: 1, notRunning: 3 } as con
 
 type Subcommand = (args: readonly string[], deps: DaemonCommandDeps) => Promise<number>;
 
-function usage(deps: DaemonCommandDeps, message: string): number {
+export function usage(deps: Pick<DaemonCommandDeps, "writeError">, message: string): number {
   deps.writeError(`dipo: ${message}\nRun \`dipo --help\` for usage.`);
   return 2;
 }
@@ -319,13 +319,13 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
   ],
 ]);
 
-function engineFailure(deps: DaemonCommandDeps, error: EngineError): number {
+export function engineFailure(deps: DaemonCommandDeps, error: EngineError): number {
   deps.writeError(`dipo: ${error.code}: ${error.message}`);
   return 1;
 }
 
 /** Connects, runs one exchange under the reply deadline, and always closes the connection. */
-async function withDaemon(
+export async function withDaemon(
   deps: DaemonCommandDeps,
   run: (session: DaemonSession) => Promise<number>,
 ): Promise<number> {
