@@ -124,9 +124,14 @@ describe("interpret (0008 section 3)", () => {
       expect.objectContaining({ t: "started" }) as WorkerEvent,
     ]);
     expect(state.initRejected).toBeNull();
-    expect(run([init({ apiKeySource: "ANTHROPIC_API_KEY" })]).state.initRejected).toContain(
-      "apiKeySource",
-    );
+    const rejected = run([init({ apiKeySource: "ANTHROPIC_API_KEY" }), init()]);
+    expect(rejected.state.initRejected).toContain("apiKeySource");
+    // The neutral rejection comes once, before `started`, so the engine stops the worker at once.
+    expect(rejected.events.map((event) => event.t)).toEqual(["initRejected", "started"]);
+    expect(rejected.events[0]).toEqual({
+      t: "initRejected",
+      reason: "apiKeySource is ANTHROPIC_API_KEY, not none",
+    });
     expect(run([init({ model: "claude-sonnet-4-5" })]).state.initRejected).toContain(
       "claude-sonnet-4-5",
     );

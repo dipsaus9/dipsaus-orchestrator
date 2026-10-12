@@ -163,7 +163,13 @@ export type WorkerEvent =
       readonly creditsRequired?: boolean;
     }
   | { readonly t: "compacted"; readonly preTokens: number }
-  | { readonly t: "modelSwitched"; readonly from: string; readonly to: string };
+  | { readonly t: "modelSwitched"; readonly from: string; readonly to: string }
+  /**
+   * The worker failed its start checks (0008 section 2: key source, model). Emitted once, before
+   * any `started` of that init, so the engine can stop the worker at once instead of treating it
+   * as a live start; the result is `initRejected`.
+   */
+  | { readonly t: "initRejected"; readonly reason: string };
 
 export type WorkerOutcome =
   | "done"

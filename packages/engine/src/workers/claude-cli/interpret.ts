@@ -420,6 +420,8 @@ function init(value: unknown, state: ClaudeParseState): Step {
         initRejected: `model ${msg.model} is not the planned ${next.plannedModel}`,
       };
     }
+    // A neutral event, so the engine can stop the worker before it does anything (DIPO-45).
+    if (next.initRejected !== null) events.push({ t: "initRejected", reason: next.initRejected });
   }
 
   if (!next.started) {
