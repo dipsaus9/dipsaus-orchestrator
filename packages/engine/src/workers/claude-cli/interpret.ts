@@ -420,6 +420,8 @@ function init(value: unknown, state: ClaudeParseState): Step {
         initRejected: `model ${msg.model} is not the planned ${next.plannedModel}`,
       };
     }
+    // A neutral event, so the engine can stop the worker before it does anything (DIPO-45).
+    if (next.initRejected !== null) events.push({ t: "initRejected", reason: next.initRejected });
   }
 
   if (!next.started) {
@@ -490,13 +492,22 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       cacheCreate: usage.cache_creation_input_tokens,
       cacheRead: usage.cache_read_input_tokens,
     };
+    // The 1 hour part as `usage.cache_creation` reports it; the rest, or all of it when the
+    // split is missing, is the default 5 minute cache. The parts always add up to the total.
+    const oneHour = Math.min(
+      counted.cacheCreate,
+      usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+    );
     events.push({
       t: "usage",
       messageId: msg.message.id,
       model: msg.message.model,
       ...scope,
       input: counted.input,
+      output: usage.output_tokens,
       cacheCreate: counted.cacheCreate,
+      cacheCreate5m: counted.cacheCreate - oneHour,
+      cacheCreate1h: oneHour,
       cacheRead: counted.cacheRead,
     });
     next = {

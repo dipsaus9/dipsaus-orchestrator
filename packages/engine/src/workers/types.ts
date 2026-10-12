@@ -138,7 +138,17 @@ export type WorkerEvent =
       readonly model: string;
       readonly agentId?: string;
       readonly input: number;
+      /**
+       * Output as the message reports it. It may be a placeholder until the turn ends, so run
+       * totals take output only from `turn`; the per-message number is stored as reported.
+       */
+      readonly output: number;
+      /** Cache creation, the sum of the two parts below (0008 section 4). */
       readonly cacheCreate: number;
+      /** Cache creation for the 5 minute cache; all of it when the source gives no split. */
+      readonly cacheCreate5m: number;
+      /** Cache creation for the 1 hour cache. */
+      readonly cacheCreate1h: number;
       readonly cacheRead: number;
     }
   | {
@@ -163,7 +173,13 @@ export type WorkerEvent =
       readonly creditsRequired?: boolean;
     }
   | { readonly t: "compacted"; readonly preTokens: number }
-  | { readonly t: "modelSwitched"; readonly from: string; readonly to: string };
+  | { readonly t: "modelSwitched"; readonly from: string; readonly to: string }
+  /**
+   * The worker failed its start checks (0008 section 2: key source, model). Emitted once, before
+   * any `started` of that init, so the engine can stop the worker at once instead of treating it
+   * as a live start; the result is `initRejected`.
+   */
+  | { readonly t: "initRejected"; readonly reason: string };
 
 export type WorkerOutcome =
   | "done"
