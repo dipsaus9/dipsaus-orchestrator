@@ -9,6 +9,8 @@ import { join, resolve } from "node:path";
 
 import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { TestClient } from "../support/client";
+
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const TIMEOUT_MS = 20_000;
 
@@ -36,7 +38,7 @@ function start(env: Record<string, string>): Daemon {
   });
 }
 
-/** Waits until the daemon answers on its socket with its own PID and has opened the database. */
+/** Waits until the daemon answers engine.hello and daemon.status with its own PID and has opened the database. */
 async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
   const deadline = performance.now() + 10_000;
   const socket = join(dir, "run", "dipo.sock");
@@ -44,10 +46,16 @@ async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
   while (performance.now() < deadline) {
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
     try {
-      const response = await fetch("http://dipo/", { unix: socket });
-      const body = (await response.json()) as { pid: number };
-      const opened = readFileSync(log, "utf8").includes("opened state database");
-      if (body.pid === daemon.pid && opened) return;
+      const client = await TestClient.connect(socket);
+      try {
+        await client.hello();
+        const status = await client.read("daemon.status");
+        const pid = status.ok ? (status.result as { pid: number }).pid : null;
+        const opened = readFileSync(log, "utf8").includes("opened state database");
+        if (pid === daemon.pid && opened) return;
+      } finally {
+        await client.close();
+      }
     } catch {
       // Not bound yet.
     }
@@ -147,6 +155,102 @@ describe("dipo daemon --foreground", () => {
           );
         } finally {
           expect(await stop(daemon)).toBe(0);
+        }
+      });
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
+    "reports a live daemon as already running through engine.hello, not unresponsive",
+    async () => {
+      await withTempDir(async (dir) => {
+        const env = daemonEnv(dir);
+        const daemon = start(env);
+        try {
+          await waitUntilServing(dir, daemon);
+          const second = start(env);
+          const started = performance.now();
+          expect(await second.exited).toBe(0);
+          // Answered on the first handshake, not after the 5 s wait for an unresponsive daemon.
+          expect(performance.now() - started).toBeLessThan(4000);
+          expect(await new Response(second.stdout).text()).toContain(
+            `dipo daemon is already running (pid ${daemon.pid}`,
+          );
+          expect(await new Response(second.stderr).text()).not.toContain("does not answer");
+        } finally {
+          expect(await stop(daemon)).toBe(0);
+        }
+      });
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
+    "sends its lifecycle transitions to a subscribed client as daemon.state",
+    async () => {
+      await withTempDir(async (dir) => {
+        const daemon = start(daemonEnv(dir));
+        try {
+          await waitUntilServing(dir, daemon);
+          const client = await TestClient.connect(join(dir, "run", "dipo.sock"));
+          const hello = await client.hello();
+          if (!hello.ok) throw new Error(hello.error.message);
+          const { cursor } = hello.result as { cursor: { seq: number } };
+          expect(cursor.seq).toBe(2);
+          const subscribed = await client.subscribe("software", { ...cursor, seq: 0 } as never);
+          expect(subscribed.ok).toBe(true);
+          await client.waitForEvent("software", (e) => e.type === "stream.mark", "catch-up");
+          daemon.kill("SIGTERM");
+          await client.waitForEvent(
+            "software",
+            (e) => (e.data as { to?: string }).to === "draining",
+            "daemon.state to draining",
+          );
+          expect((await client.closed).code).toBe(1001);
+          const states = client
+            .events("software")
+            .filter((e) => e.type === "daemon.state")
+            .map((e) => e.data as { from: string; to: string; reason: string });
+          expect(states).toEqual([
+            { from: "starting", to: "recovering", reason: "running recovery steps" },
+            { from: "recovering", to: "running", reason: "recovered" },
+            { from: "running", to: "draining", reason: "SIGTERM" },
+          ]);
+          expect(client.invalid).toEqual([]);
+          expect(await daemon.exited).toBe(0);
+        } finally {
+          await stop(daemon);
+        }
+      });
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
+    "stops on daemon.stop after sending its reply and the draining state",
+    async () => {
+      await withTempDir(async (dir) => {
+        const daemon = start(daemonEnv(dir));
+        try {
+          await waitUntilServing(dir, daemon);
+          const client = await TestClient.connect(join(dir, "run", "dipo.sock"));
+          expect((await client.hello()).ok).toBe(true);
+          expect((await client.subscribe("software")).ok).toBe(true);
+          const reply = await client.command("daemon.stop", { stopWorkers: false });
+          expect(reply).toMatchObject({ ok: true, result: { state: "draining" }, changed: true });
+          await client.waitForEvent(
+            "software",
+            (e) => e.type === "daemon.state",
+            "daemon.state to draining",
+          );
+          expect((await client.closed).code).toBe(1001);
+          expect(client.invalid).toEqual([]);
+          expect(await daemon.exited).toBe(0);
+          expect(existsSync(join(dir, "state", "dipo.pid"))).toBe(false);
+          expect(existsSync(join(dir, "run", "dipo.sock"))).toBe(false);
+        } finally {
+          await stop(daemon);
         }
       });
     },
