@@ -36,8 +36,20 @@ export type {
   RuntimeRecord,
   SoftwareDirs,
 } from "./platform/paths";
-export { isDaemonCommand, isSameProcess, systemProcessProbe } from "./platform/process";
-export type { ProcessIdentity, ProcessInfo, ProcessProbe } from "./platform/process";
+export {
+  ChildProcesses,
+  isDaemonCommand,
+  isSameProcess,
+  killGroup,
+  systemProcessProbe,
+} from "./platform/process";
+export type {
+  ChildHandle,
+  ProcessIdentity,
+  ProcessInfo,
+  ProcessProbe,
+  SpawnChildOptions,
+} from "./platform/process";
 export { acquireLock, LockBreakError, PID_FILE } from "./platform/lock";
 export type { HeldLock, LockCheck, LockOutcome, PidRecord } from "./platform/lock";
 export { bindDaemonSocket, probeDaemonSocket, removeSocketFile } from "./platform/socket";

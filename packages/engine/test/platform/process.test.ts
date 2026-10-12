@@ -3,7 +3,13 @@
 
 import { describe, expect, it } from "bun:test";
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { withTempDir } from "@dipsaus-orchestrator/testkit";
+
 import {
+  ChildProcesses,
   isDaemonCommand,
   isSameProcess,
   parseBootTime,
@@ -131,5 +137,41 @@ describe("system probe", () => {
     expect(isSameProcess({ pid: process.pid, startTimeMs: first?.startTimeMs ?? 0 }, second)).toBe(
       true,
     );
+  });
+});
+
+describe("ChildProcesses (DIPO-68)", () => {
+  it("waits for every tracked child, including one tracked while waiting", async () => {
+    const children = new ChildProcesses();
+    await children.waitAll();
+    const first = children.spawn(["sleep", "0.2"]);
+    const waiting = children.waitAll();
+    const second = children.spawn(["sleep", "0.3"]);
+    expect(children.pids().toSorted()).toEqual([first.pid, second.pid].toSorted());
+    await waiting;
+    expect(first.exitCode).toBe(0);
+    expect(second.exitCode).toBe(0);
+    expect(children.size).toBe(0);
+  });
+
+  it("kills the whole process group of a child still running", async () => {
+    await withTempDir(async (dir) => {
+      const children = new ChildProcesses();
+      const grandchildFile = join(dir, "grandchild.pid");
+      const child = children.spawn([
+        "/bin/sh",
+        "-c",
+        `sleep 30 & echo $! > "${grandchildFile}"; wait`,
+      ]);
+      for (let i = 0; i < 100 && !existsSync(grandchildFile); i++) await Bun.sleep(20);
+      const grandchild = Number(readFileSync(grandchildFile, "utf8").trim());
+      expect(pidExists(grandchild)).toBe(true);
+
+      expect(children.killGroups("SIGKILL")).toEqual([child.pid]);
+      await children.waitAll();
+      expect(child.signalCode).toBe("SIGKILL");
+      for (let i = 0; i < 100 && pidExists(grandchild); i++) await Bun.sleep(20);
+      expect(pidExists(grandchild)).toBe(false);
+    });
   });
 });
