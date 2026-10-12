@@ -10,6 +10,7 @@ import {
   defineRead,
   ReadDescription,
 } from "./definition";
+import { ConfigErrorData } from "./config";
 import { Cursor, OfficeId } from "./ids";
 import { ContractVersion } from "./version";
 import { EvidenceMap } from "./work";
@@ -68,8 +69,14 @@ const OfficeResult = z.object({ office: OfficeId });
 export const officeOpen = defineCommand({
   name: "office.open",
   level: "software",
-  args: z.object({ path: z.string().min(1) }),
-  result: z.object({ office: OfficeId, registered: z.boolean() }), // registered: true when new
+  args: z.object({ path: z.string().min(1) }), // absolute; any worktree of the repository
+  result: z.object({
+    office: OfficeId,
+    registered: z.boolean(), // true when new
+    // Since minor 1: what the maintainer should know, also sent as `engine.notice` (a copied
+    // repository that got a new id, a network filesystem).
+    warnings: z.array(z.string()).optional(),
+  }),
   confirm: false,
   irreversible: false,
   since: 0,
@@ -122,15 +129,22 @@ export const officeRescan = defineCommand({
   since: 0,
 });
 
-// Re-reads the office configuration (0017 section 5). An invalid file keeps the previous one.
+// Re-reads the office configuration (0017 section 5, DIPO-27). An invalid file keeps the previous
+// configuration for running work, and new runs are refused until a valid reload. `configHash` is
+// the hash of the configuration in force, absent while the office never had a valid one.
 export const officeReloadConfig = defineCommand({
   name: "office.reloadConfig",
   level: "software",
   args: OfficeArgs,
-  result: z.object({ office: OfficeId, valid: z.boolean(), errors: z.array(z.string()) }),
+  result: z.object({
+    office: OfficeId,
+    valid: z.boolean(),
+    errors: z.array(ConfigErrorData),
+    configHash: z.string().optional(),
+  }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
 export const daemonStop = defineCommand({
