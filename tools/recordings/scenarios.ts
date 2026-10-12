@@ -7,11 +7,14 @@ import { join } from "node:path";
 
 import {
   claudeResult,
+  GH_KEYCHAIN_SERVICE,
   initialClaudeState,
   interpretClaudeLine,
   judgeSelfTest,
+  KEYCHAIN_TOOL,
   PROBE_GROUPS,
   selfTestBashCalls,
+  selfTestProbesFor,
   selfTestLayout,
 } from "../../packages/engine/src/index";
 import type {
@@ -380,10 +383,13 @@ function findTool(name: string): string {
   return realpathSync(found);
 }
 
-/** `gh auth token` outside any sandbox, output discarded: whether the probe can prove anything. */
-async function ghTokenReadableOutside(): Promise<boolean | null> {
+/**
+ * A Keychain read outside any sandbox, output discarded: whether the refusal inside it proves
+ * anything. True when the command succeeds, null when it cannot start.
+ */
+async function readableOutside(cmd: readonly string[]): Promise<boolean | null> {
   try {
-    const proc = Bun.spawn([captureTools().gh, "auth", "token"], {
+    const proc = Bun.spawn([...cmd], {
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
@@ -441,15 +447,37 @@ function verifySelfTest(probes: readonly ProbeName[]) {
       disk,
       bash,
       verdict,
+      // Which exec probe refused and how (exit code and stderr class) is in verdict.refused.
+      probes,
       ...(probes.includes("gh-token")
-        ? { ghTokenReadableOutsideSandbox: await ghTokenReadableOutside() }
+        ? {
+            ghTokenReadableOutsideSandbox: await readableOutside([
+              captureTools().gh,
+              "auth",
+              "token",
+            ]),
+          }
+        : {}),
+      ...(probes.includes("keychain")
+        ? {
+            keychainReadableOutsideSandbox: await readableOutside([
+              KEYCHAIN_TOOL,
+              "find-generic-password",
+              "-s",
+              GH_KEYCHAIN_SERVICE,
+            ]),
+          }
         : {}),
     };
   };
 }
 
 function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Scenario {
-  const probes = PROBE_GROUPS[name];
+  // The Keychain probe runs on macOS only, as in the engine.
+  const probes = selfTestProbesFor(
+    process.platform === "darwin" ? "darwin" : "linux",
+    PROBE_GROUPS[name],
+  );
   return {
     name,
     fixture: "greeter",
@@ -481,11 +509,11 @@ export const SCENARIOS: readonly Scenario[] = [
   ),
   selfTestScenario(
     "safety-pointer-write",
-    "The DIPO-43 self-test command under the launch plan as it is: opening the <worktree>/.git pointer for writing is refused inside the sandbox and the pointer is unchanged; the control write in the worktree succeeds; the session ends with a done report.",
+    "The DIPO-43 self-test command under the launch plan as it is: appending one byte to the <worktree>/.git pointer is refused inside the sandbox and the pointer is unchanged on disk; the control write in the worktree succeeds; the session ends with a done report.",
   ),
   selfTestScenario(
     "safety-gh-token",
-    "The DIPO-43 self-test command under the launch plan as it is: `gh auth token` (output discarded) exits non-zero inside the sandbox; the control write in the worktree succeeds; the session ends with a done report. checks.ghTokenReadableOutsideSandbox shows whether the token was readable outside it, which makes the refusal meaningful.",
+    "The DIPO-43 self-test command under the launch plan as it is: `gh auth token` and, on macOS, `/usr/bin/security find-generic-password -s gh:github.com` (output discarded) exit non-zero inside the sandbox; checks.verdict.refused records each exit code and stderr class; the control write in the worktree succeeds; the session ends with a done report. checks.ghTokenReadableOutsideSandbox and checks.keychainReadableOutsideSandbox show whether the token was readable outside it, which makes the refusal meaningful.",
   ),
 ];
 
