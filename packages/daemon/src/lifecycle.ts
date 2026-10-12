@@ -123,6 +123,9 @@ export class DaemonLifecycle {
         { state: this.#state, reason: this.#reason },
       );
     }
+    // Deliberate: `draining` starts no new work (0006 decision 7), so scheduling is off there too.
+    // Clients treat `daemon.state` to `draining` as the signal to reconnect with backoff (DIPO-24);
+    // the code is retryable, so a request sent meanwhile can succeed against the next daemon.
     if (this.#state === "draining") {
       return engineError("scheduling.off", "The daemon is stopping; no new work starts.", {
         state: this.#state,
