@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 20:47'
+updated_date: '2026-10-12 21:01'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -127,4 +127,10 @@ Open decision for the maintainer (gh and Keychain check), likely an ADR 0008 ame
 (b) keep the Keychain check out of the per-launch self-test and record it once as a maintainer-run safety recording;
 (c) run the credential check through the engine's srt sandbox (DIPO-37) instead of a Claude session, which tests srt's policy rather than Claude Code's Bash sandbox.
 AC #8 stays unchecked until this is decided and all three recordings pass.
+
+Approved approach (maintainer, ADR 0008 amendment merged in PR #50): option (a) in the session plus option (c) in the engine.
+- Session (self-test.ts): the gh-token and Keychain probes are gone from the session. The probe gh-config opens <home>/.config/gh/hosts.yml for reading and closes it at once without reading anything; only the errno of a failed open is kept. It passes only with EPERM (1) or EACCES (13). An open that succeeds refuses as unsafe; any other errno refuses as cannot run. The engine first confirms the file exists outside the sandbox; a missing file refuses before any session. A permission-layer denial of the Bash call stays cannot run. The exact-command and shape checks are kept.
+- Engine (workers/credential-check.ts): gh auth token and, on macOS, /usr/bin/security find-generic-password -s gh:github.com run through runSandboxedStep (dipo daemon sandbox-exec) under the verify-kind srt policy, each wrapped as /bin/sh -c 'exec "$0" "$@" >/dev/null 2>&1' so no output reaches the engine; no model is involved. Both must exit non-zero. Exit 0 holds the adapter as unsafe; startFailed, a timeout, a signal, or exit 126 or 127 holds it as cannot run. gh is the trusted absolute path from resolveSelfTestTools. In claudeLaunchChecks it runs after the settings check and before the session self-test. ClaudeLaunchCheckDeps gains platform, runStep and uid.
+- Capture: safety-gh-token now records the session's hosts.yml open (verdict.ghConfigErrno), ghConfigExistsOutsideSandbox, and engineCredentialCheck, the engine-side result run through the real systemSandboxHost.
+Live sessions for this split (with the maintainer's approval, haiku at low effort, temp fixture repos under DIPO_TMP), sessions 4 to 7 of the budget: safety-gitdir-write and safety-pointer-write each passed twice in a row. Their latest recordings are left untracked, not committed. I did not run safety-gh-token live: an earlier attempt at the credential probe was stopped by a safety classifier in my session, so its live capture, which includes the engine running gh auth token and the Keychain lookup under srt, is left to the maintainer. AC #8 stays unchecked until it passes.
 <!-- SECTION:NOTES:END -->
