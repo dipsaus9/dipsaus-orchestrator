@@ -7,6 +7,7 @@ describe("parseSandboxExecArgs", () => {
   it("reads the policy file and the command after --", () => {
     expect(parseSandboxExecArgs(["--policy", "/p.json", "--", "bun", "run", "verify"])).toEqual({
       policyPath: "/p.json",
+      cwd: undefined,
       command: ["bun", "run", "verify"],
     });
   });
@@ -14,7 +15,16 @@ describe("parseSandboxExecArgs", () => {
   it("keeps a -- inside the command", () => {
     expect(parseSandboxExecArgs(["--policy", "p", "--", "sh", "--", "-c"])).toEqual({
       policyPath: "p",
+      cwd: undefined,
       command: ["sh", "--", "-c"],
+    });
+  });
+
+  it("reads an absolute --cwd before --", () => {
+    expect(parseSandboxExecArgs(["--policy", "p", "--cwd", "/w", "--", "true"])).toEqual({
+      policyPath: "p",
+      cwd: "/w",
+      command: ["true"],
     });
   });
 
@@ -27,6 +37,8 @@ describe("parseSandboxExecArgs", () => {
       ["--policy", "", "--", "true"],
       ["--policy", "p", "true"],
       ["true"],
+      ["--policy", "p", "--cwd", "--", "true"],
+      ["--policy", "p", "--cwd", "rel", "--", "true"],
     ]) {
       expect(parseSandboxExecArgs(args)).toBeNull();
     }
@@ -40,7 +52,7 @@ describe("runDaemon sandbox-exec", () => {
       writeError: (line) => errors.push(line),
     });
     expect(code).toBe(2);
-    expect(errors.join("\n")).toContain("sandbox-exec --policy <file> -- <cmd>");
+    expect(errors.join("\n")).toContain("sandbox-exec --policy <file> [--cwd <dir>] -- <cmd>");
 
     const usage: string[] = [];
     await runDaemon(["nope"], { writeError: (line) => usage.push(line) });
