@@ -33,8 +33,10 @@ function field(schema: unknown, name: string): unknown {
 }
 
 describe("frozen minimal surface (0005 section 11)", () => {
-  it("contract version is 1.0", () => {
-    expect(CONTRACT_VERSION).toEqual({ major: 1, minor: 0 });
+  // A minor only adds (0005 section 11); the major is what a client of another binary must match.
+  it("contract major is 1", () => {
+    expect(CONTRACT_VERSION.major).toBe(1);
+    expect(Object.keys(CONTRACT_VERSION).toSorted()).toEqual(["major", "minor"]);
   });
 
   it("frame envelope: kind on every frame, requestId a ULID", () => {

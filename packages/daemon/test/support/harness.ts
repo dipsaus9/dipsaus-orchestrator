@@ -168,6 +168,7 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
       socket: socketPath,
       tools: options.tools ?? {},
       upgradePending: () => upgrade.pending,
+      loadedOffices: () => [],
       requestStop: (request) => stops.push(request),
     }),
     fixtureFeature,

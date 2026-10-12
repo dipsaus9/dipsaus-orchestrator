@@ -27,6 +27,14 @@ export interface ConfigError {
   readonly message: string;
 }
 
+/** `ConfigError` as a schema, for replies that carry configuration problems. */
+export const ConfigErrorData = z.object({
+  file: z.string(),
+  path: z.string(),
+  expected: z.string(),
+  message: z.string(),
+}) satisfies z.ZodType<ConfigError>;
+
 export function configError(
   file: string,
   path: string,

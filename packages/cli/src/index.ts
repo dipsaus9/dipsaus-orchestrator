@@ -17,6 +17,7 @@ import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
+import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import {
   compiledStamp,
   currentRuntime,
@@ -26,6 +27,7 @@ import {
   type BuildStamp,
   type Runtime,
 } from "./version";
+import { systemWorkspace, type Workspace } from "./workspace";
 
 export const packageName = "@dipsaus-orchestrator/cli";
 
@@ -41,6 +43,8 @@ export type CliDeps = {
   readonly clientChecks: readonly ClientCheck[];
   readonly stamp: BuildStamp | undefined;
   readonly runtime: Runtime;
+  /** The current directory, the terminal and git around it (`dipo office`, DIPO-27). */
+  readonly workspace: Workspace;
 };
 
 export const HELP = `dipo: run your software products with a model as your team
@@ -64,6 +68,17 @@ Usage:
                     (error, warn, info, debug or trace)
   dipo daemon resume-scheduling
                     leave safe mode so the daemon schedules work again
+  dipo office open [path]
+                    register the git repository with Backlog.md at path (default:
+                    the current directory) as an office
+  dipo office forget [--office <id>] [--yes]
+                    remove the office from the list; its repository and history
+                    are kept
+  dipo office reload-config [--office <id>]
+                    read the office configuration again; an invalid file keeps
+                    the previous one and refuses new runs
+
+Office commands use --office, else the office of the current directory.
 
 Commands that need the daemon start it unless daemon.autostart is false in
 <state>/config.yaml.
@@ -108,6 +123,7 @@ export function defaultDeps(): CliDeps {
       restart: (options) => restartDaemon(lifecycle, options),
     },
     clock: systemClock,
+    workspace: systemWorkspace(),
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
     stamp,
     runtime,
@@ -140,6 +156,11 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (subcommand !== undefined) {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return subcommand(args.slice(2), { ...deps, version });
+  }
+  const office = args[0] === "office" ? OFFICE_SUBCOMMANDS.get(args[1] ?? "") : undefined;
+  if (office !== undefined) {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return office(args.slice(2), { ...deps, version });
   }
   if (args[0] === "self-check" && args.length === 1) {
     return selfCheck(deps);

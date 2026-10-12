@@ -335,7 +335,7 @@ class Connection implements ConnectionSession {
         this.#command(frame);
         return;
       case "subscribe":
-        this.#subscribe(frame);
+        await this.#subscribe(frame);
         return;
       case "unsubscribe": {
         const subscription = this.#subscriptions.get(frame.stream);
@@ -401,7 +401,7 @@ class Connection implements ConnectionSession {
 
   // Streams
 
-  #subscribe(frame: Extract<ClientFrame, { kind: "subscribe" }>): void {
+  async #subscribe(frame: Extract<ClientFrame, { kind: "subscribe" }>): Promise<void> {
     const { requestId, stream } = frame;
     const filter = frame.filter ?? [];
     const previous = this.#subscriptions.get(stream);
@@ -436,15 +436,13 @@ class Connection implements ConnectionSession {
       return;
     }
     const office = OfficeId.parse(stream.slice("office:".length));
-    const handle = this.#deps.offices.get(office);
-    if (handle === undefined) {
-      this.#reply({
-        ok: false,
-        requestId,
-        error: engineError("office.unknown", `There is no open office ${office}.`, { office }),
-      });
+    // Subscribing loads the office's engine instance on first use (DIPO-27).
+    const access = await this.#deps.offices.load(office);
+    if (!access.ok) {
+      this.#reply({ ok: false, requestId, error: access.error });
       return;
     }
+    const handle = access.office;
     let after: Cursor;
     try {
       after = frame.after ?? headCursor(handle);
