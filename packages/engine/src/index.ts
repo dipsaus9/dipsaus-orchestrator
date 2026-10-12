@@ -38,13 +38,20 @@ export type {
 } from "./platform/paths";
 export {
   ChildProcesses,
+  detachedEnv,
   isDaemonCommand,
   isSameProcess,
   killGroup,
+  selfCommand,
+  signalGroup,
   systemProcessProbe,
+  systemSpawn,
+  systemSpawnDetached,
 } from "./platform/process";
 export type {
   ChildHandle,
+  DetachedSpawnOptions,
+  SpawnDetached,
   ProcessIdentity,
   ProcessInfo,
   ProcessProbe,
@@ -239,3 +246,47 @@ export {
   type EventSchema,
   type ScriptedWorkerOptions,
 } from "./workers/scripted";
+export {
+  EVENTS_FILE,
+  EXIT_FILE,
+  HOST_LOG_CAP_BYTES,
+  HOST_LOG_FILE,
+  HOST_OPS,
+  HOST_PROTOCOL_VERSION,
+  HOST_PROTOCOL_VERSIONS,
+  HostExitFileSchema,
+  hostSocketPath,
+  HOSTS_DIR,
+  LAUNCH_FILE,
+  RUN_ID_PATTERN,
+  type HostError,
+  type HostErrorCode,
+  type HostExitFile,
+  type HostLaunch,
+  type HostOpName,
+  type HostState,
+  type HostStatus,
+} from "./host/protocol";
+export { runWorkerHost, WorkerHost, type WorkerHostOptions } from "./host/main";
+export {
+  connectHost,
+  type ConnectHostOptions,
+  type ConnectHostResult,
+  type HostClient,
+  type HostReply,
+  type HostRequest,
+} from "./host/client";
+export {
+  hostAlive,
+  HostStartError,
+  launchWorkerHost,
+  recordHostExit,
+  recordWorkerHost,
+  RUN_DIR_ENV,
+  runDirectory,
+  startWorkerHost,
+  workerHostsOf,
+  type LaunchedHost,
+  type LaunchWorkerHostOptions,
+  type WorkerHostRow,
+} from "./runs/worker-hosts";

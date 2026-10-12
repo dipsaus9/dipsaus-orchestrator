@@ -53,10 +53,21 @@ describe("runDaemon", () => {
     }
   });
 
-  it("dispatches worker-host and wait-pid, which later stories build", async () => {
+  it("dispatches worker-host, which needs DIPO_RUN_DIR", async () => {
     const host = capture();
-    expect(await runDaemon(["worker-host", "run_01JZ0000000000000000000000"], host.io)).toBe(1);
-    expect(host.err.join("\n")).toContain("worker-host is not available");
+    expect(await runDaemon(["worker-host", "run_01JZ0000000000000000000000"], host.io)).toBe(2);
+    expect(host.err.join("\n")).toContain("DIPO_RUN_DIR");
+    const relative = capture({ env: { DIPO_RUN_DIR: "runs/x" } });
+    expect(await runDaemon(["worker-host", "run_01JZ0000000000000000000000"], relative.io)).toBe(2);
+  });
+
+  it("refuses a worker host with --no-orphans in BUN_OPTIONS", async () => {
+    const { io, err } = capture({ env: { BUN_OPTIONS: "--no-orphans", DIPO_RUN_DIR: "/x" } });
+    expect(await runDaemon(["worker-host", "run_01JZ0000000000000000000000"], io)).toBe(1);
+    expect(err.join("\n")).toContain("--no-orphans");
+  });
+
+  it("dispatches wait-pid, which a later story builds", async () => {
     const wait = capture();
     expect(await runDaemon(["wait-pid", "4242"], wait.io)).toBe(1);
     expect(wait.err.join("\n")).toContain("wait-pid is not available");
@@ -89,5 +100,9 @@ describe("noOrphansActive", () => {
     );
     expect(noOrphansActive({ execArgv: ["--no-orphans=true"], env: {} })).toBe(true);
     expect(noOrphansActive({ execArgv: [], env: { BUN_OPTIONS: " --no-orphans" } })).toBe(true);
+    expect(noOrphansActive({ execArgv: [], env: { BUN_FEATURE_FLAG_NO_ORPHANS: "1" } })).toBe(true);
+    expect(noOrphansActive({ execArgv: [], env: { BUN_FEATURE_FLAG_NO_ORPHANS: "0" } })).toBe(
+      false,
+    );
   });
 });

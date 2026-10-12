@@ -264,6 +264,79 @@
       }
     },
     {
+      "files": ["packages/engine/src/host/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "node:child_process",
+                "importNames": ["spawnSync", "execSync", "execFileSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "child_process",
+                "importNames": ["spawnSync", "execSync", "execFileSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "bun",
+                "importNames": ["spawnSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "bun:sqlite",
+                "message": "The worker host has no database code (0006 decision 8); the engine records what the host writes."
+              },
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "The worker host imports only the engine modules it needs, never the whole engine (0006 decision 8)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "**/db",
+                  "**/db/**",
+                  "**/sqlite",
+                  "**/sqlite-worker",
+                  "**/changelog/**",
+                  "**/commands/**",
+                  "**/stories/**",
+                  "**/runs/**"
+                ],
+                "message": "The worker host has no database or engine state code (0006 decision 8)."
+              },
+              {
+                "group": ["**/git", "**/git/**", "**/backlog", "**/backlog/**"],
+                "message": "The worker host has no git or Backlog code (0006 decision 8)."
+              },
+              {
+                "group": [
+                  "**/gate",
+                  "**/gate/**",
+                  "**/gates",
+                  "**/gates/**",
+                  "**/budget",
+                  "**/budget/**",
+                  "**/caps",
+                  "**/caps/**",
+                  "**/pricing",
+                  "**/pricing/**"
+                ],
+                "message": "The worker host has no budget, cap or gate logic (0006 decision 8)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/engine/src/platform/**"],
       "rules": {
         "no-restricted-globals": "off",
