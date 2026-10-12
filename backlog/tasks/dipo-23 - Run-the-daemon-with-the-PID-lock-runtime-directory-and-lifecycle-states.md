@@ -4,7 +4,7 @@ title: Run the daemon with the PID lock and runtime directory
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:15'
+updated_date: '2026-10-12 12:26'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -69,7 +69,7 @@ test_plan:
 - [x] #6 `platform/process.ts` checks PID identity by start time read with `LC_ALL=C TZ=UTC ps -o lstart=` with a tolerance of 2 s, or from field 22 of `/proc/<pid>/stat` on Linux, and treats a zombie as dead.
 - [x] #7 `runDaemon` refuses to start when `--no-orphans` is in `process.execArgv` or `BUN_OPTIONS`.
 - [x] #8 Logs are JSON lines with `ts`, `level`, `msg`, `component` and `office`/`run` when known, in `<logs>/daemon.log`, also on stderr in foreground; `code`, `token` and `session.token` fields are redacted at every level, and the logger is passed to modules that take one (DIPO-21).
-- [ ] #9 Implementation notes record the 0006 prototype results on Bun 1.4.2 in the compiled binary: macOS from the maintainer's machine, Linux from a CI job on `ubuntu-24.04`, including whether `ws+unix://` works; if it does not, the story stops there with the result in its notes for the maintainer to choose the transport.
+- [x] #9 Implementation notes record the 0006 prototype results on Bun 1.4.2 in the compiled binary: macOS from the maintainer's machine, Linux from a CI job on `ubuntu-24.04`, including whether `ws+unix://` works; if it does not, the story stops there with the result in its notes for the maintainer to choose the transport.
 - [x] #10 `DIPO_RUNTIME_DIR` overrides the runtime directory for tests, checked like any other candidate, so every test socket lives under `DIPO_TMP`.
 <!-- AC:END -->
 
@@ -93,4 +93,6 @@ Implementation (DIPO-23):
 - macOS (maintainer's machine, darwin-arm64, 2026-10-12): WebSocket upgrade on a Bun.serve unix socket with a ws+unix:// client WORKS (also the unix-websocket check of dipo self-check). Socket file mode after bind 0755; removed by server.stop(true) (1.3.5 left it). A second Bun.serve({ unix }) on a live path now FAILS with EADDRINUSE (1.3.5 took the path over); the daemon still unlinks a leftover dipo.sock before binding, and the lock stays the guard. A detached host (setsid, stdio ignore, BUN_OPTIONS removed) survives SIGKILL of its parent: yes. Compiled binaries read BUN_OPTIONS: yes, process.execArgv shows --no-orphans, and a non-detached grandchild was killed when its BUN_OPTIONS=--no-orphans parent was SIGKILLed, so the runDaemon refusal is needed. SQLite 3.51.0.
 - Linux (ubuntu-24.04 CI on a scratch branch): NOT RUN. Pushing the scratch branch DIPO-23/prototype-0006 (prototype script plus a push-triggered workflow) was refused by the session's permission check; it needs the maintainer. ws+unix:// in the compiled Linux binary is covered meanwhile by the dipo self-check unix-websocket check in the linux-x64 and linux-arm64 smoke jobs (ubuntu-24.04 runners) of the PR. Still open on Linux: second bind, detached host survival, BUN_OPTIONS, systemd-run --user --scope from a user unit, systemd-inhibit --mode=block with lingering (SSH cannot be reproduced in CI).
 - Not run on either platform: the file:// redirect on snap Firefox and Safari (needs a desktop browser; belongs with dipo web).
+
+Linux prototype results (AC #9), compiled Bun 1.4.2 binary on ubuntu-24.04 x64 and ubuntu-24.04-arm, scratch branch DIPO-23/prototype-0006, run 38248948581 (branch deleted afterwards). Identical on both: SQLite 3.53.2; ws+unix:// upgrade and echo works; socket created 0755 and removed on stop; a second Bun.serve bind on a live path fails with EADDRINUSE (as on macOS; ADR 0006 recorded success on 1.3.5); a detached host survives SIGKILL of its parent; compiled binaries read BUN_OPTIONS and --no-orphans there kills orphans, so the runDaemon refusal is needed; systemd-run --user --scope works from a shell and from inside a user unit (DIPO-37); systemd-inhibit --mode=block is refused by polkit ('Access denied') with lingering on, so 0006's retry with --mode=delay and the 'keep-awake not held' status are needed (DIPO-63). Not runnable in CI: systemd-inhibit over SSH and the file:// redirect on snap Firefox and Safari.
 <!-- SECTION:NOTES:END -->
