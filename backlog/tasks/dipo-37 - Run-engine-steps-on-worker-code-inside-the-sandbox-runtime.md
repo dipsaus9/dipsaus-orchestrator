@@ -4,7 +4,7 @@ title: Run engine steps on worker code inside the sandbox runtime
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 13:14'
+updated_date: '2026-10-12 13:25'
 labels:
   - test-before-merge
   - 'tier:L'
@@ -167,4 +167,34 @@ Manual test on macOS (updated; replaces the earlier steps):
    PATH=$T/wt/bin:$PATH $D daemon sandbox-exec --policy $T/p.json --cwd $T/wt -- true; echo $?
    -> "refused: untrusted paths: rg .../wt/bin/rg is writable by the step ...", 125; `ls $T` shows p.json.refused and no rg-ran.
 5. `cd - && rm -rf $T`.
+
+Review round 2 (re-review passed), final hardenings:
+
+1. Socket denies that would hide the step now refuse it. `translatePolicy` keeps every read deny, including one over the worktree or the temp root; nothing is skipped with a warning any more. The only exception is the SSH agent: when its directory would cover the worktree or temp root, only the socket file itself is denied. `sandbox-exec` refuses with exit 125 and the refusal file when a deny would hide its working directory, its TMPDIR (the temp root) or a write path. A literal deny matches a path at or under it; a glob matches per segment. The step reports this as startFailed. StepRequest no longer takes dipoDirs. The platform derives them from the daemon's environment with the DIPO-23 path rules (`systemDipoDirs`): the state and logs directories, the runtime directory in runtime.json, and every runtime candidate (DIPO_RUNTIME_DIR, XDG_RUNTIME_DIR/dipo on Linux, $TMPDIR/dipo on macOS, /tmp/dipo-<uid>). Tests: unit tests for `coveringDenies` and `denyMatches`. In CI, a step with DIPO_RUNTIME_DIR over the worktree gives startFailed ("read denies hide the step"), and dipo's socket in the derived runtime directory is unreachable.
+2. From-source trust: when sandbox-exec runs from source, the workspace root that holds packages/cli/src/main.ts and its node_modules become trust candidates, both in the daemon-side check and inside sandbox-exec. A step whose writable roots cover that code is refused (CI test: worktree = this repository, run from source, gives startFailed "the dipo source … is writable by the step"). The self-verify test (AC #11) therefore now builds the binary into a temp directory with scripts/build.ts and runs sandbox-exec from that binary.
+
+Not changed: the toolchainPaths default (narrowed in round 1) waits for the maintainer's 0008 decision.
+
+Manual test on macOS (current):
+1. `brew install ripgrep`.
+2. In the worktree: `bun install && DIPO_TEST_CI=1 bun test packages/engine/test/sandbox` -> 67 pass (self-verify registers on Linux only).
+3. `bun run build && D=$PWD/dist/dipo`, then:
+   T=$(mktemp -d /tmp/dipo-XXXXXX); mkdir -p $T/home/.ssh $T/main/.git $T/wt $T/s; echo SECRET > $T/home/.ssh/id
+   printf '{"network":{"allowedDomains":[],"deniedDomains":[],"strictAllowlist":true,"allowUnixSockets":["%s/s"]},"filesystem":{"denyRead":["%s/home/.ssh"],"allowWrite":["%s/wt","%s/s"],"denyWrite":["%s/main/.git"]}}\n' $T $T $T $T $T > $T/p.json
+   cd $T/wt
+   $D daemon sandbox-exec --policy $T/p.json -- sh -c 'echo hi > ok && cat ok'      -> hi
+   $D daemon sandbox-exec --policy $T/p.json -- sh -c 'echo x > ../main/.git/x'     -> Operation not permitted
+   $D daemon sandbox-exec --policy $T/p.json -- cat $T/home/.ssh/id                 -> Operation not permitted
+   $D daemon sandbox-exec --policy $T/p.json -- curl -sS -m 5 https://example.com   -> CONNECT tunnel failed, response 403
+   $D daemon sandbox-exec --policy $T/p.json -- sh -c 'exit 7'; echo $?             -> 7
+   echo piped | $D daemon sandbox-exec --policy $T/p.json -- cat                    -> piped
+   PATH=/usr/bin:/bin $D daemon sandbox-exec --policy $T/p.json -- true; echo $?    -> refused: ripgrep (rg) is not installed ..., 125
+4. Planted rg: mkdir -p $T/wt/bin; printf '#!/bin/sh\necho ran > %s/rg-ran\n' $T > $T/wt/bin/rg; chmod +x $T/wt/bin/rg
+   PATH=$T/wt/bin:$PATH $D daemon sandbox-exec --policy $T/p.json --cwd $T/wt -- true; echo $?
+   -> refused: untrusted paths: rg .../wt/bin/rg is writable by the step ..., 125; `ls $T` shows p.json.refused, no rg-ran.
+5. A deny that hides the step:
+   printf '{"network":{"allowedDomains":[],"deniedDomains":[],"strictAllowlist":true},"filesystem":{"denyRead":["%s"],"allowWrite":["%s/wt"],"denyWrite":[]}}\n' $T $T > $T/q.json
+   $D daemon sandbox-exec --policy $T/q.json --cwd $T/wt -- true; echo $?
+   -> refused: read denies hide the step: denyRead ... covers the working directory ..., 125
+6. `cd - && rm -rf $T`.
 <!-- SECTION:NOTES:END -->
