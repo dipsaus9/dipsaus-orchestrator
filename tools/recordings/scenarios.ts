@@ -14,6 +14,7 @@ import {
   KEYCHAIN_TOOL,
   PROBE_GROUPS,
   selfTestBashCalls,
+  SELF_TEST_SYSTEM_PROMPT,
   selfTestProbesFor,
   selfTestLayout,
 } from "../../packages/engine/src/index";
@@ -67,6 +68,10 @@ export interface Scenario {
    * prompts; the deny rules and the sandbox still bind (0008 "What binds").
    */
   readonly extraAllow?: readonly string[];
+  /** The appended system prompt; the fixture worker prompt by default. */
+  readonly systemPrompt?: string;
+  /** Runs before the session starts, after the fixture is built. */
+  readonly prepare?: (paths: CapturePaths) => void;
 }
 
 export const SYSTEM_PROMPT = [
@@ -488,6 +493,7 @@ function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Sc
     turns: [(paths) => selfTestLayout(selfTestPaths(paths), probes).prompt],
     expected,
     verify: verifySelfTest(probes),
+    systemPrompt: SELF_TEST_SYSTEM_PROMPT,
     timeoutMs: 300_000,
   };
 }

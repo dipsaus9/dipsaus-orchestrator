@@ -303,7 +303,9 @@ export async function capture(scenario: Scenario): Promise<string> {
       const turns = scenario.turns.map((turn) => turnText(turn, paths));
       const resumeTurns = (scenario.resumeTurns ?? []).map((turn) => turnText(turn, paths));
       const systemFile = join(runDir, "system.md");
-      writeFileSync(systemFile, SYSTEM_PROMPT);
+      const systemPrompt = scenario.systemPrompt ?? SYSTEM_PROMPT;
+      writeFileSync(systemFile, systemPrompt);
+      scenario.prepare?.(paths);
 
       const sessionId = randomUUID();
       const specFor = (resume: boolean, first: string): WorkerSpec => ({
@@ -377,7 +379,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         );
       }
 
-      const prompt = [SYSTEM_PROMPT, ...turns, ...resumeTurns].join("\n");
+      const prompt = [systemPrompt, ...turns, ...resumeTurns].join("\n");
       const meta: Meta = {
         scenario: scenario.name,
         source: "live",
