@@ -11,5 +11,8 @@
     "@dipsaus-orchestrator/contract": "workspace:*",
     "@dipsaus-orchestrator/daemon": "workspace:*",
     "@dipsaus-orchestrator/tui": "workspace:*"
+  },
+  "devDependencies": {
+    "@dipsaus-orchestrator/testkit": "workspace:*"
   }
 }

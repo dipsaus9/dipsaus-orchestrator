@@ -1,10 +1,13 @@
-// The `dipo` command line: `--version`, `--help`, the daemon-side forms and the hidden `self-check`;
-// later stories add subcommands. Daemon-side forms go through `runDaemon` (0004, 0006 decision 2);
-// every other subcommand will go through `client`.
+// The `dipo` command line: `--version`, `--help`, the daemon-side forms, the daemon subcommands and
+// the hidden `self-check`; later stories add subcommands. Daemon-side forms go through `runDaemon`
+// (0004, 0006 decision 2); every other subcommand goes through `client`.
 
+import { connectToDaemon, systemClock } from "@dipsaus-orchestrator/client/node";
+import type { Clock } from "@dipsaus-orchestrator/contract";
 import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
+import { type ConnectDaemon, DAEMON_SUBCOMMANDS } from "./daemon-commands";
 import {
   compiledStamp,
   currentRuntime,
@@ -23,6 +26,8 @@ export type CliDeps = {
   readonly writeLine: (line: string) => void;
   readonly writeError: (line: string) => void;
   readonly runDaemon: (argv: readonly string[]) => Promise<number>;
+  readonly connectDaemon: ConnectDaemon;
+  readonly clock: Clock;
   readonly clientChecks: readonly ClientCheck[];
   readonly stamp: BuildStamp | undefined;
   readonly runtime: Runtime;
@@ -34,6 +39,11 @@ Usage:
   dipo [options]
   dipo daemon --foreground [--log-level <level>]
                     run the daemon in this terminal; logs also go to stderr
+  dipo daemon log-level <level>
+                    set the running daemon's log level until it restarts
+                    (error, warn, info, debug or trace)
+  dipo daemon resume-scheduling
+                    leave safe mode so the daemon schedules work again
 
 Options:
   --version         print the version, commit, Bun version and platform
@@ -55,6 +65,14 @@ export function defaultDeps(): CliDeps {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
     runDaemon: (argv) => runDaemon(argv, { version }),
+    connectDaemon: async () => {
+      const { client } = await connectToDaemon({
+        client: { name: "dipo-cli", version },
+        origin: "cli",
+      });
+      return client;
+    },
+    clock: systemClock,
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
     stamp,
     runtime,
@@ -83,6 +101,8 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "daemon" && DAEMON_FORMS.has(args[1] ?? "")) {
     return deps.runDaemon(args.slice(1));
   }
+  const subcommand = args[0] === "daemon" ? DAEMON_SUBCOMMANDS.get(args[1] ?? "") : undefined;
+  if (subcommand !== undefined) return subcommand(args.slice(2), deps);
   if (args[0] === "self-check" && args.length === 1) {
     return selfCheck(deps);
   }
