@@ -1,9 +1,11 @@
 // Read-only file facts of a repository checkout for the scan (0013 section 3). It lists files
 // and asks git which paths it ignores. It never runs a repository script: the git calls disable
-// `core.fsmonitor`, the one config key that would make git run a repository-chosen command.
+// `core.fsmonitor` and `core.hooksPath`, so git runs no repository-chosen command.
 
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
+
+import { hardenedArgs, hardenedEnv } from "../git/hardened";
 
 export interface RepoFiles {
   /** Repo-relative POSIX paths of tracked and untracked, not ignored files. */
@@ -21,7 +23,8 @@ export type RepoFilesOptions = {
   env?: Record<string, string | undefined>;
 };
 
-const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off"];
+// Every scan git call is hardened like any engine git call (0008 section 2, DIPO-31). The scan finds
+// the repository from its root, so it runs without recorded paths (location `none`).
 
 function inside(root: string, path: string): string {
   const clean = normalize(path);
@@ -37,9 +40,10 @@ async function runGit(
   env: Record<string, string | undefined>,
   stdin?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["git", ...GIT_SAFE, ...args], {
+  const location = { kind: "none", cwd: root } as const;
+  const proc = Bun.spawn(["git", ...hardenedArgs(location, args)], {
     cwd: root,
-    env,
+    env: hardenedEnv(env, location),
     stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "pipe",
