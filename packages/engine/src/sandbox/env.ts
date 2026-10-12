@@ -1,7 +1,8 @@
 // The environment of a sandboxed step (0008 section 2: "an allowlisted environment"). Only the
 // names below pass from the daemon's environment; tokens such as `GH_TOKEN`, `NPM_TOKEN` and
 // `ANTHROPIC_API_KEY` never reach worker code. Runtime option variables (`BUN_OPTIONS`,
-// `NODE_OPTIONS`, `BUN_CONFIG_*`) are dropped even when the engine passes them as extras: they
+// `NODE_OPTIONS`, `BUN_CONFIG_*`, `BUN_FEATURE_FLAG_*` such as
+// `BUN_FEATURE_FLAG_NO_ORPHANS`) are dropped even when the engine passes them as extras: they
 // would change how `dipo` itself starts. `TMPDIR` and `DIPO_TMP` point at the step's temp root.
 
 /** Names passed through from the daemon's environment when set. */
@@ -21,7 +22,12 @@ export const STEP_ENV_ALLOWLIST = [
 
 /** True for a variable that changes how Bun or Node start; never set in a step. */
 export function isRuntimeOptionName(name: string): boolean {
-  return name === "BUN_OPTIONS" || name === "NODE_OPTIONS" || name.startsWith("BUN_CONFIG_");
+  return (
+    name === "BUN_OPTIONS" ||
+    name === "NODE_OPTIONS" ||
+    name.startsWith("BUN_CONFIG_") ||
+    name.startsWith("BUN_FEATURE_FLAG_")
+  );
 }
 
 /**

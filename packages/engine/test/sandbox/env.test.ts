@@ -32,6 +32,7 @@ describe("stepEnv", () => {
       BUN_OPTIONS: "--preload x",
       NODE_OPTIONS: "-r x",
       BUN_CONFIG_NO_CLEAR_TERMINAL_ON_RELOAD: "1",
+      BUN_FEATURE_FLAG_NO_ORPHANS: "1",
       TMPDIR: "/elsewhere",
     });
     expect(env).toEqual({
