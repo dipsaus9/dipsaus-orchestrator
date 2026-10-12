@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:08'
+updated_date: '2026-10-12 21:11'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -27,6 +27,9 @@ references:
   - test/lint-boundaries/
   - packages/engine/src/sandbox/step.ts
   - packages/engine/src/platform/sandbox.ts
+  - packages/engine/src/workers/credential-check.ts
+  - packages/engine/test/sandbox/
+  - tools/recordings/capture.ts
 documentation:
   - docs/decisions/0008-worker-adapter.md
 priority: high
@@ -140,4 +143,6 @@ Review fix (PR #46, unit tests only, no Claude session, no live credential run):
 - The engine credential check no longer passes vacuously. Each command runs as /bin/sh -c '"$0" "$@" >/dev/null 2>&1; echo "dipo-credential-exit $?"' inside srt. judgeCredentialStep requires a wrapper exit of 0 and stdout that is exactly that one marker line, and takes the program's exit code from the marker. A missing marker, extra output, a non-zero wrapper exit (125, 1 from an exception in sandbox-exec, 2 from a usage error), a timeout or startFailed hold the adapter as cannot run. Marker 0 holds it as unsafe. Marker 126 or 127 is cannot run. Any other non-zero marker passes as refused. Program output still goes to /dev/null.
 - runSandboxedStep: after exit 125, a refusal file that exists but cannot be read is now startFailed instead of exited. systemSandboxHost.readRefusal returns null only on ENOENT and throws otherwise. A missing refusal file with exit 125 stays an ordinary failure, because worker code may exit 125.
 - Linux limit: on Linux the check shows that the gh configuration is denied and that gh auth token fails in srt. It does not show that a token stored in the desktop keyring (Secret Service over D-Bus) is unreachable, because srt cannot filter D-Bus on Linux (0008 residual risk: system D-Bus stays reachable). A Linux keyring probe, for example a secret-tool lookup of gh's entry under srt, is a possible follow-up.
+
+Scope added at review: packages/engine/src/workers/credential-check.ts holds the engine-side credential check of the 2026-10-12 0008 amendment; packages/engine/test/sandbox/ holds the runSandboxedStep test for an unreadable refusal file; tools/recordings/capture.ts takes per-scenario system prompts and the engine-side check result for the safety captures.
 <!-- SECTION:NOTES:END -->
