@@ -1,10 +1,10 @@
 ---
 id: DIPO-26
 title: Load and validate office configuration from .dipo
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:05'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -16,6 +16,12 @@ references:
   - packages/engine/src/platform/yaml.ts
   - packages/engine/schema/
   - packages/engine/test/config/
+  - packages/engine/package.json
+  - bun.lock
+  - packages/engine/tsconfig.json
+  - packages/engine/src/index.ts
+  - packages/engine/scripts/write-schema.ts
+  - packages/engine/src/platform/self-check.ts
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0008-worker-adapter.md
@@ -76,19 +82,23 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `Bun.YAML.parse` is reached only through `platform/yaml.ts`; a file with more than one document is an error.
-- [ ] #2 Version 1 schemas are `z.strictObject`s; an unknown key, a wrong type or a missing `version` is an error naming the file, the key path and the expected type.
-- [ ] #3 Version 1 accepts exactly the M0 key paths listed in the context with their defaults, and a test that compares the schema's key paths with that list fails when a key is added to version 1 without a new version.
-- [ ] #4 `office.local.yaml` accepts only `timeouts.*`, `privacy.*` and `retention.*`; `privacy.*` or `retention.*` in `office.yaml` is an error pointing to `.dipo/office.local.yaml`.
-- [ ] #5 Merge order is defaults, `office.yaml`, allowed local keys, command flags; objects merge per key, lists and scalars replace.
-- [ ] #6 A file with a newer `version` than the binary is refused with a message to upgrade `dipo`.
-- [ ] #7 `configHash` is sha256 over the canonical JSON of the effective configuration, and the active local override keys are returned with it.
-- [ ] #8 `loadOfficeConfig(dir)` returns either the effective configuration with its hash and local override keys, or the list of errors, and never throws for a bad file, so the office (DIPO-27) can keep its previous configuration.
-- [ ] #9 `packages/engine/schema/office.schema.json` is generated with `z.toJSONSchema`, and a contract test fails when it differs from the export.
+- [x] #1 `Bun.YAML.parse` is reached only through `platform/yaml.ts`; a file with more than one document is an error.
+- [x] #2 Version 1 schemas are `z.strictObject`s; an unknown key, a wrong type or a missing `version` is an error naming the file, the key path and the expected type.
+- [x] #3 Version 1 accepts exactly the M0 key paths listed in the context with their defaults, and a test that compares the schema's key paths with that list fails when a key is added to version 1 without a new version.
+- [x] #4 `office.local.yaml` accepts only `timeouts.*`, `privacy.*` and `retention.*`; `privacy.*` or `retention.*` in `office.yaml` is an error pointing to `.dipo/office.local.yaml`.
+- [x] #5 Merge order is defaults, `office.yaml`, allowed local keys, command flags; objects merge per key, lists and scalars replace.
+- [x] #6 A file with a newer `version` than the binary is refused with a message to upgrade `dipo`.
+- [x] #7 `configHash` is sha256 over the canonical JSON of the effective configuration, and the active local override keys are returned with it.
+- [x] #8 `loadOfficeConfig(dir)` returns either the effective configuration with its hash and local override keys, or the list of errors, and never throws for a bad file, so the office (DIPO-27) can keep its previous configuration.
+- [x] #9 `packages/engine/schema/office.schema.json` is generated with `z.toJSONSchema`, and a contract test fails when it differs from the export.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S11 (DIPO-15). Before cutover: built by hand-run agents.
+
+Added scope (DIPO-26 implementer): packages/engine/package.json and bun.lock add zod 4.6.5 to the engine (same pin as contract) for the config schemas. packages/engine/tsconfig.json widens rootDir/include to src, scripts and test so the declared test/config/ tests and the schema writer are typechecked. packages/engine/src/index.ts exports the config module from the engine entry. packages/engine/scripts/write-schema.ts writes schema/office.schema.json (mirrors packages/contract/scripts/write-schema.ts; it needs Bun.spawnSync for oxfmt, which the lint bans in engine/src). packages/engine/src/platform/self-check.ts: its YAML probe called Bun.YAML.parse directly; it now goes through platform/yaml.ts so AC #1 holds and a test enforces it.
+
+Implementation (DIPO-26): engine/src/platform/yaml.ts parseYamlDocument (a top-level list and several documents both parse to an array; column-0 document markers after content decide). engine/src/config: schema.ts (OfficeConfigV1 effective schema, OfficeFileV1, OfficeLocalFileV1, OfficeOverridesV1 for command flags, all z.strictObject; file forms derived with every key optional), load.ts (resolveOfficeConfig pure, loadOfficeConfig(dir, {flags}) reads .dipo/; missing files are no layer per D9; errors are {file, path, expected, message} values), merge.ts (mergeLayer, canonicalJson, configHash sha256 hex), keys.ts (schema key paths with * for record names). Names fixed here where no ADR sets them: worktree.ports.{stride, named.*}, worktree.files entries {path, mode copy|link (default copy), required (default false)}, prompt.budgets.<section>.<S|M|L|XL> with sections context, contextItem, inputs, inputsFile, dependencies, background, handoff, feedbackItem, feedbackTotal, feedbackLogLines, diff, nudge, taskMessage (0014 section 4 values); sandbox.toolchainPaths written as ~/.bun, ~/.npm, ~/.cache (the ADR's <home>); story.tiers items restricted to S, M, L because version 1 has only those tier entries. Command flags may not set privacy.* or retention.* (their order is defaults < local only). Regenerate the schema with: bun packages/engine/scripts/write-schema.ts.
 <!-- SECTION:NOTES:END -->
