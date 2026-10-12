@@ -53,6 +53,7 @@
       "dependencies": {
         "@anthropic-ai/sandbox-runtime": "0.0.79",
         "@dipsaus-orchestrator/contract": "workspace:*",
+        "zod": "4.6.5",
       },
       "devDependencies": {
         "@dipsaus-orchestrator/testkit": "workspace:*",

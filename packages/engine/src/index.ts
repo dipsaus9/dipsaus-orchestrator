@@ -46,3 +46,32 @@ export { createLogger, DEFAULT_LOG_LEVEL, isLogLevel, LOG_LEVELS } from "./log/l
 export type { LogContext, LogFields, Logger, LogSink } from "./log/logger";
 export { DAEMON_LOG_FILE, openLogFile } from "./log/file";
 export type { LogFile } from "./log/file";
+export {
+  canonicalJson,
+  configHash,
+  FLAGS_SOURCE,
+  loadOfficeConfig,
+  LOCAL_ALLOWED_KEYS,
+  LOCAL_ONLY_KEYS,
+  mergeLayer,
+  OFFICE_CONFIG_VERSION,
+  OFFICE_DEFAULTS,
+  OFFICE_FILE,
+  OFFICE_LOCAL_FILE,
+  OfficeConfigV1,
+  OfficeFileV1,
+  OfficeLocalFileV1,
+  OfficeOverridesV1,
+  officeJsonSchema,
+  resolveOfficeConfig,
+  schemaKeyPaths,
+} from "./config";
+export type {
+  ConfigError,
+  OfficeConfig,
+  OfficeConfigResult,
+  OfficeConfigSources,
+  OfficeFile,
+  OfficeLocalFile,
+  OfficeOverrides,
+} from "./config";
