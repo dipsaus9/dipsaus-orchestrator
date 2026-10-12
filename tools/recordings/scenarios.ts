@@ -509,7 +509,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ),
   selfTestScenario(
     "safety-gh-token",
-    "The DIPO-43 self-test command under the launch plan as it is: opening <home>/.config/gh/hosts.yml for reading (closed at once, nothing read) fails with EPERM or EACCES inside the sandbox on a file that exists outside it (checks.ghConfigExistsOutsideSandbox); the control write in the worktree succeeds; the session ends with a done report. checks.engineCredentialCheck holds the engine-side half: gh auth token and, on macOS, the Keychain lookup run by the engine under srt (output to /dev/null) and their non-zero exit codes.",
+    "The DIPO-43 self-test command under the launch plan as it is: opening <home>/.config/gh/hosts.yml for reading (closed at once, nothing read) fails with EPERM or EACCES inside the sandbox on a file that exists outside it (checks.ghConfigExistsOutsideSandbox); the control write in the worktree succeeds; the session ends with a done report. checks.engineCredentialCheck holds the engine-side half: gh auth token and, on macOS, the Keychain lookup run by the engine under srt (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox (a wrapper failure without the marker holds the adapter).",
   ),
 ];
 
