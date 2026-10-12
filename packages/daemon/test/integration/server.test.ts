@@ -375,8 +375,9 @@ describe("software stream", () => {
     const h = await start();
     const client = await connect(h);
     okResult(await client.subscribe("software"));
-    await settle();
     const marks = () => client.events("software").filter((e) => e.type === "stream.mark");
+    // The catch-up mark is its own frame after the reply: wait for it rather than a fixed settle.
+    await client.waitFor(() => marks().length >= 1, "catch-up mark");
     expect(marks()).toHaveLength(1);
     h.clock.advance(14_999);
     await settle();

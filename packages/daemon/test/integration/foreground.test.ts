@@ -38,7 +38,12 @@ function start(env: Record<string, string>): Daemon {
   });
 }
 
-/** Waits until the daemon answers engine.hello and daemon.status with its own PID and has opened the database. */
+/**
+ * Waits until the daemon answers engine.hello and daemon.status with its own PID, has opened the
+ * database and has finished recovery. The database opens inside the first recovery step, so the
+ * log line alone comes before the `recovering -> running` transition, and a test that reads the
+ * software stream right after would race it (DIPO-68).
+ */
 async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
   const deadline = performance.now() + 10_000;
   const socket = join(dir, "run", "dipo.sock");
@@ -50,9 +55,10 @@ async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
       try {
         await client.hello();
         const status = await client.read("daemon.status");
-        const pid = status.ok ? (status.result as { pid: number }).pid : null;
+        const result = status.ok ? (status.result as { pid: number; state: string }) : null;
         const opened = readFileSync(log, "utf8").includes("opened state database");
-        if (pid === daemon.pid && opened) return;
+        const recovered = result?.state === "running" || result?.state === "safe";
+        if (result?.pid === daemon.pid && opened && recovered) return;
       } finally {
         await client.close();
       }
@@ -315,7 +321,7 @@ describe("dipo daemon --foreground", () => {
           expect(reply).toMatchObject({ ok: true, result: { state: "draining" }, changed: true });
           await client.waitForEvent(
             "software",
-            (e) => e.type === "daemon.state",
+            (e) => e.type === "daemon.state" && (e.data as { to?: string }).to === "draining",
             "daemon.state to draining",
           );
           expect((await client.closed).code).toBe(1001);
