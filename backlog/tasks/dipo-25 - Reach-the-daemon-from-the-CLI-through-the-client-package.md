@@ -4,7 +4,7 @@ title: Reach the daemon from the CLI through the client package
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:31'
+updated_date: '2026-10-12 12:33'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -60,7 +60,6 @@ test_plan:
 - [ ] #4 On disconnect the client reconnects with backoff from 0.5 s doubling to 5 s on an injected clock, re-subscribes after the last cursor, and re-sends an unanswered command with the same `requestId`.
 - [ ] #5 `dipo daemon log-level <level>` and `dipo daemon resume-scheduling` send `daemon.setLogLevel` and `daemon.resumeScheduling` through `client/node` and print the reply; an error prints its code and message and exits 1.
 - [ ] #6 With no daemon running, these commands exit non-zero with a message naming `dipo daemon start`; autostart arrives with DIPO-70.
-- [ ] #7 The client treats `<state>/runtime.json` as stale when no live daemon holds `dipo.pid` (DIPO-23 leaves it after a clean exit) and reports the daemon as not running; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes

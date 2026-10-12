@@ -4,7 +4,7 @@ title: 'Start, stop, restart and report the daemon from the CLI'
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:33'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -69,6 +69,7 @@ test_plan:
 - [ ] #6 `dipo daemon restart` uses `daemon.stop` for the same contract major and verified-PID SIGTERM for a different one, waits for the PID to exit, then starts the new daemon.
 - [ ] #7 A client whose binary version differs from the daemon's prints the restart hint of 0006 decision 14.
 - [ ] #8 The daemon checks its executable every 60 s and reports `upgrade pending` in `daemon.status` when it changed; with `daemon.autoRestartOnUpgrade: true` it drains and starts the new binary once no engine step (setup, install, verify, commit) is running.
+- [ ] #9 `lifecycle` treats a leftover `<state>/runtime.json` as stale when `dipo.pid` is missing or fails the DIPO-23 PID and start-time check, and `dipo daemon status` reports `not running` (or `stale` once leftovers are cleaned) with exit 3; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
