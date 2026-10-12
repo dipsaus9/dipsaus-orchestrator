@@ -4,7 +4,7 @@ title: Initialise an office's Backlog.md settings and migrate To Do stories
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 11:40'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -17,6 +17,7 @@ references:
   - packages/cli/src/
   - packages/engine/test/office/
   - packages/engine/src/features.ts
+  - packages/contract/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -71,6 +72,7 @@ test_plan:
 - [ ] #9 The contract command `office.init { office }` (DIPO-19), registered through the DIPO-22 registry, runs init and replies with `changed` and the PR or waiting branch; `dipo office init` sends it and prints that reply.
 - [ ] #10 While `In Review` or `Parked` is missing from the base's statuses, office load raises a notice and `officeStatusesReady(office)` returns a refusal message naming `dipo office init`, for `work.run` (DIPO-48) to refuse runs.
 - [ ] #11 Init never writes `.dipo/office.yaml`; without the file the built-in defaults apply.
+- [ ] #12 The contract definition of `office.init` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, and `commands.describe` lists it.
 <!-- AC:END -->
 
 ## Implementation Notes
