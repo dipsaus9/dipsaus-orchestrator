@@ -4,7 +4,7 @@ title: 'Enforce caps, park stories and stop workers'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:34'
+updated_date: '2026-10-12 21:48'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -75,6 +75,7 @@ test_plan:
 - [ ] #8 `dipo stop <ID>` asks for confirmation, as `commands.describe` marks `work.stop` with `confirm: true`.
 - [ ] #9 Before DIPO-59 lands, a report `blocked` with `needsPermission` (a call denied by `--permission-prompts none`) parks `needs-permission` with the tool and action as detail, keeping worktree, branch and session.
 - [ ] #10 The engine stops the worker at the first turn that ends `error_max_turns` (DIPO-42 keeps the outcome `capped` even if a later queued message finishes), so a later done report never overrides the cap; a test covers it.
+- [ ] #11 A `git.worktreeTampered` refusal (DIPO-38) parks the story `scope-violation` and no more git runs in that worktree (0008 section 2); a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
