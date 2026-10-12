@@ -1,5 +1,6 @@
-// The `dipo` command line. This story has only `--version`, `--help` and the hidden `self-check`;
-// later stories add subcommands. Daemon-side forms go through `runDaemon` (0004).
+// The `dipo` command line: `--version`, `--help`, the daemon-side forms and the hidden `self-check`;
+// later stories add subcommands. Daemon-side forms go through `runDaemon` (0004, 0006 decision 2);
+// every other subcommand will go through `client`.
 
 import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
@@ -31,20 +32,32 @@ export const HELP = `dipo: run your software products with a model as your team
 
 Usage:
   dipo [options]
+  dipo daemon --foreground [--log-level <level>]
+                    run the daemon in this terminal; logs also go to stderr
 
 Options:
   --version         print the version, commit, Bun version and platform
   --version --json  print the same fields as JSON
   -h, --help        print this help`;
 
+/** `dipo daemon` forms that run daemon-side code; the lifecycle subcommands go through `client`. */
+export const DAEMON_FORMS: ReadonlySet<string> = new Set([
+  "--foreground",
+  "worker-host",
+  "wait-pid",
+]);
+
 export function defaultDeps(): CliDeps {
+  const stamp = compiledStamp();
+  const runtime = currentRuntime();
+  const { version } = versionInfo(stamp, runtime);
   return {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
-    runDaemon: (argv) => runDaemon(argv),
+    runDaemon: (argv) => runDaemon(argv, { version }),
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
-    stamp: compiledStamp(),
-    runtime: currentRuntime(),
+    stamp,
+    runtime,
   };
 }
 
@@ -66,6 +79,9 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
       deps.writeLine(formatVersionJson(info));
       return 0;
     }
+  }
+  if (args[0] === "daemon" && DAEMON_FORMS.has(args[1] ?? "")) {
+    return deps.runDaemon(args.slice(1));
   }
   if (args[0] === "self-check" && args.length === 1) {
     return selfCheck(deps);

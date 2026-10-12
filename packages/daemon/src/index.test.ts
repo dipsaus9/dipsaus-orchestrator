@@ -1,22 +1,93 @@
 import { describe, expect, it } from "bun:test";
 
-import { packageName, runDaemon } from "./index";
+import * as daemon from "./index";
+import { noOrphansActive } from "./io";
 
-describe("daemon", () => {
-  it("names its package", () => {
-    expect(packageName).toBe("@dipsaus-orchestrator/daemon");
+const { runDaemon } = daemon;
+
+function capture(overrides: { env?: Record<string, string>; execArgv?: string[] } = {}) {
+  const out: string[] = [];
+  const err: string[] = [];
+  const io = {
+    writeLine: (line: string) => out.push(line),
+    writeError: (line: string) => err.push(line),
+    env: overrides.env ?? {},
+    execArgv: overrides.execArgv ?? [],
+  };
+  return { io, out, err };
+}
+
+describe("runDaemon", () => {
+  it("is the package's only export (0004)", () => {
+    expect(Object.keys(daemon)).toEqual(["runDaemon"]);
   });
 
-  it("rejects an unknown form with exit code 2", async () => {
-    const out: string[] = [];
-    const err: string[] = [];
-    const code = await runDaemon(["no-such-form"], {
-      writeLine: (line) => out.push(line),
-      writeError: (line) => err.push(line),
-      env: {},
-    });
-    expect(code).toBe(2);
+  it("rejects an unknown form with a usage message and exit code 2", async () => {
+    const { io, out, err } = capture();
+    expect(await runDaemon(["no-such-form"], io)).toBe(2);
     expect(out).toEqual([]);
-    expect(err.join("\n")).toContain("no-such-form");
+    const message = err.join("\n");
+    expect(message).toContain("no-such-form");
+    expect(message).toContain("dipo daemon --foreground");
+    expect(message).toContain("dipo daemon worker-host <run-id>");
+    expect(message).toContain("dipo daemon wait-pid <pid>");
+    expect(message).not.toContain("self-check");
+  });
+
+  it("rejects an empty form", async () => {
+    const { io, err } = capture();
+    expect(await runDaemon([], io)).toBe(2);
+    expect(err.join("\n")).toContain("usage:");
+  });
+
+  it("checks the worker-host and wait-pid arguments", async () => {
+    for (const argv of [
+      ["worker-host"],
+      ["worker-host", "nope"],
+      ["wait-pid", "-1"],
+      ["wait-pid"],
+    ]) {
+      const { io, err } = capture();
+      expect(await runDaemon(argv, io)).toBe(2);
+      expect(err.join("\n")).toContain("usage:");
+    }
+  });
+
+  it("dispatches worker-host and wait-pid, which later stories build", async () => {
+    const host = capture();
+    expect(await runDaemon(["worker-host", "run_01JZ0000000000000000000000"], host.io)).toBe(1);
+    expect(host.err.join("\n")).toContain("worker-host is not available");
+    const wait = capture();
+    expect(await runDaemon(["wait-pid", "4242"], wait.io)).toBe(1);
+    expect(wait.err.join("\n")).toContain("wait-pid is not available");
+  });
+
+  it("refuses --foreground when --no-orphans is in the Bun flags", async () => {
+    const { io, err } = capture({ execArgv: ["--no-orphans"] });
+    expect(await runDaemon(["--foreground"], io)).toBe(1);
+    expect(err.join("\n")).toContain("--no-orphans");
+  });
+
+  it("refuses --foreground when --no-orphans is in BUN_OPTIONS", async () => {
+    const { io, err } = capture({ env: { BUN_OPTIONS: "--smol --no-orphans" } });
+    expect(await runDaemon(["--foreground"], io)).toBe(1);
+    expect(err.join("\n")).toContain("BUN_OPTIONS");
+  });
+
+  it("rejects an unknown log level before touching any directory", async () => {
+    const { io, err } = capture({ env: { DIPO_HOME: "/nonexistent/dipo-never-created" } });
+    expect(await runDaemon(["--foreground", "--log-level", "loud"], io)).toBe(2);
+    expect(err.join("\n")).toContain("unknown log level");
+  });
+});
+
+describe("noOrphansActive", () => {
+  it("finds the flag only as a whole word", () => {
+    expect(noOrphansActive({ execArgv: [], env: {} })).toBe(false);
+    expect(noOrphansActive({ execArgv: [], env: { BUN_OPTIONS: "--no-orphans-like" } })).toBe(
+      false,
+    );
+    expect(noOrphansActive({ execArgv: ["--no-orphans=true"], env: {} })).toBe(true);
+    expect(noOrphansActive({ execArgv: [], env: { BUN_OPTIONS: " --no-orphans" } })).toBe(true);
   });
 });
