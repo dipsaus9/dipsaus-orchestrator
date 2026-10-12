@@ -14,6 +14,7 @@ export {
 export type { ConfigError, OfficeConfigResult, OfficeConfigSources } from "./load";
 export { canonicalJson, configHash, mergeLayer } from "./merge";
 export { schemaKeyPaths } from "./keys";
+export { loadSoftwareConfig, softwareConfigPath } from "./software";
 export {
   LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,

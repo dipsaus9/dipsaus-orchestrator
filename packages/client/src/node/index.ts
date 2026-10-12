@@ -1,6 +1,7 @@
-// `@dipsaus-orchestrator/client/node`: the Unix-socket transport and the way a local client finds
-// the daemon, the only client code that uses Bun and Node APIs (0004 and 0006 amendments of
-// 2026-10-12). The `lifecycle` module (start, stop, PID checks, autostart) joins it in DIPO-70.
+// `@dipsaus-orchestrator/client/node`: the Unix-socket transport, the way a local client finds the
+// daemon and the software configuration it reads (DIPO-69), the only client code that uses Bun
+// and Node APIs (0004 and 0006 amendments of 2026-10-12). The `lifecycle` module (start, stop,
+// PID checks, autostart) joins it in DIPO-70.
 
 import type { Clock, Origin } from "@dipsaus-orchestrator/contract";
 
@@ -10,6 +11,7 @@ import { type Env, readRuntimeInfo, type RuntimeInfo, stateDir } from "./runtime
 import { unixSocketTransport } from "./transport";
 
 export { systemClock } from "./clock";
+export { readSoftwareConfig, softwareConfigPath } from "./config";
 export { readRuntimeInfo, RUNTIME_FILE, stateDir } from "./runtime";
 export type { Env, RuntimeInfo } from "./runtime";
 export { unixSocketTransport } from "./transport";

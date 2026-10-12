@@ -3,6 +3,7 @@
 
 import type { z } from "zod";
 
+import { softwareConfigJsonSchema } from "./config";
 import {
   type CommandDefinition,
   describeCommand,
@@ -210,5 +211,6 @@ export function contractJsonSchemas(): Record<string, JsonSchema> {
     "commands.schema.json": document("command args and results", commands),
     "reads.schema.json": document("read args and results", reads),
     "events.schema.json": document("event data", events),
+    "config.schema.json": softwareConfigJsonSchema(),
   };
 }

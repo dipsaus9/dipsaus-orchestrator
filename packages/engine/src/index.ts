@@ -164,6 +164,7 @@ export {
   configHash,
   FLAGS_SOURCE,
   loadOfficeConfig,
+  loadSoftwareConfig,
   LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,
   mergeLayer,
@@ -178,6 +179,7 @@ export {
   officeJsonSchema,
   resolveOfficeConfig,
   schemaKeyPaths,
+  softwareConfigPath,
 } from "./config";
 export type {
   ConfigError,

@@ -178,6 +178,41 @@ describe("validation", () => {
     expect(error?.message).toContain("accepts only version, timeouts.*, privacy.*, retention.*");
   });
 
+  // The wording comes from the contract's configIssueErrors, with only the office.local.yaml
+  // top-level wording overridden (DIPO-69). These messages are pinned byte for byte.
+  it("keeps the exact unknown-key messages", () => {
+    expect(
+      errors(resolveOfficeConfig({ office: "version: 1\ntiers: { S: { loopz: 1 } }\n" })),
+    ).toEqual([
+      {
+        file: ".dipo/office.yaml",
+        path: "tiers.S.loopz",
+        expected: "one of the keys model, effort, budgetTokens, maxTurns, maxMinutes, loops",
+        message:
+          ".dipo/office.yaml: tiers.S.loopz: unknown key; expected one of the keys model, effort, budgetTokens, maxTurns, maxMinutes, loops",
+      },
+    ]);
+    expect(errors(resolveOfficeConfig({ local: "version: 1\ntiers: {}\n" }))).toEqual([
+      {
+        file: ".dipo/office.local.yaml",
+        path: "tiers",
+        expected: "one of the keys version, timeouts, privacy, retention",
+        message:
+          ".dipo/office.local.yaml: tiers: unknown key; .dipo/office.local.yaml accepts only version, timeouts.*, privacy.*, retention.*",
+      },
+    ]);
+    expect(errors(resolveOfficeConfig({ local: "version: 1\ntimeouts: { nope: 1 }\n" }))).toEqual([
+      {
+        file: ".dipo/office.local.yaml",
+        path: "timeouts.nope",
+        expected:
+          "one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, permissionWaitSeconds, scriptMinutes",
+        message:
+          ".dipo/office.local.yaml: timeouts.nope: unknown key; expected one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, permissionWaitSeconds, scriptMinutes",
+      },
+    ]);
+  });
+
   it("reports errors from every file at once", () => {
     const result = errors(
       resolveOfficeConfig({
