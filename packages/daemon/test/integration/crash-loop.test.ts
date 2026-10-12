@@ -4,7 +4,7 @@
 // shutdown signal, so no real signal or timer is involved.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { MANUAL_CLOCK_START, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -171,6 +171,30 @@ describe("dipo daemon --foreground and the crash counter", () => {
         expect(readCrashFile(state).running).toBeNull();
         expect(existsSync(join(state, "dipo.pid"))).toBe(false);
         expect(existsSync(join(dir, "run", "dipo.sock"))).toBe(false);
+      }),
+    20_000,
+  );
+
+  it(
+    "counts a failure between the lock and the socket bind as one crash at the next start",
+    () =>
+      withTempDir(async (dir) => {
+        const clock = new ManualClock();
+        const state = join(dir, "state");
+        // A non-empty directory where `dipo.sock` goes: removing the leftover socket fails, so the
+        // daemon exits 1 in `starting`, after taking the lock and before binding.
+        mkdirSync(join(dir, "run", "dipo.sock", "blocker"), { recursive: true, mode: 0o700 });
+        chmodSync(join(dir, "run"), 0o700);
+        const daemon = startInProcess(dir, clock);
+        expect(await daemon.exited).toBe(1);
+        expect(daemon.messages().some((m) => m.msg === "listening")).toBe(false);
+        expect(existsSync(join(state, "dipo.pid"))).toBe(false);
+        expect(readCrashFile(state).running).toMatchObject({ pid: process.pid });
+
+        // The next daemon is another process: the marker left behind is one crash.
+        const next = CrashCounter.open(state, { pid: process.pid, startTimeMs: 2 }, clock);
+        expect(next.previousCrashed).toBe(true);
+        expect(next.counter.recentCrashes).toBe(1);
       }),
     20_000,
   );

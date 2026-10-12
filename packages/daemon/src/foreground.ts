@@ -237,6 +237,18 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
   let clean = false;
   try {
     logger.info("daemon state", { to: lifecycle.state, reason: lifecycle.reason });
+    // The crash counter (0006 decision 7), opened right after the lock is taken so an unclean exit
+    // anywhere later, also early in `starting`, counts as a crash: a marker left by the previous
+    // daemon is one crash.
+    const opened = CrashCounter.open(stateDir, lock.record(), clock);
+    const crashes = opened.counter;
+    held.crashes = crashes;
+    if (opened.damaged) logger.warn("the crash counter was unreadable; starting it afresh");
+    if (opened.previousCrashed) {
+      logger.warn("the previous daemon did not exit cleanly", {
+        recentCrashes: crashes.recentCrashes,
+      });
+    }
     const uid = process.getuid?.() ?? -1;
     const tmpBase = io.env["DIPO_TMP"] || "/tmp";
     const choice = chooseRuntimeDir({
@@ -281,17 +293,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       version: record.version,
     });
     logger.info("listening", { socket: socketPath });
-
-    // The crash counter (0006 decision 7): a marker left by the previous daemon is one crash.
-    const opened = CrashCounter.open(stateDir, record, clock);
-    const crashes = opened.counter;
-    held.crashes = crashes;
-    if (opened.damaged) logger.warn("the crash counter was unreadable; starting it afresh");
-    if (opened.previousCrashed) {
-      logger.warn("the previous daemon did not exit cleanly", {
-        recentCrashes: crashes.recentCrashes,
-      });
-    }
 
     const tick = () => {
       held.lockTimer = clock.setTimeout(() => {
