@@ -1,0 +1,70 @@
+{
+  "scenario": "max-turns",
+  "source": "live",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "First turn ends error_max_turns (CLI backstop): outcome capped, park budget-exceeded with the turn cap named. A second queued message gets its own --max-turns limit.",
+  "usage_checksum": "cfa67c9b7dea412c28ba4cbe7de9f38320dd7894a186acbd2b90f520dccf08e2",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "1",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 625,
+  "prompt_sha256": "8ec3ad2017287378f133faf575900d30f1ef488ea77c7b288a156f48f7b4a50f",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 306
+    },
+    {
+      "t": 5293,
+      "op": "user",
+      "bytes": 287
+    },
+    {
+      "t": 9739,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": []
+}

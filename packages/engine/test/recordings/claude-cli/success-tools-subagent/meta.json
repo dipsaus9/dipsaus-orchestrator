@@ -1,0 +1,69 @@
+{
+  "scenario": "success-tools-subagent",
+  "source": "live",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Tool events, parent_tool_use_id on subagent messages, usage deduplicated by message id, subagent usage in modelUsage; done report.",
+  "usage_checksum": "618f524d3e3e118bceb02f794dde0e068e9a5c8735f1f18657afc47b7470c7e4",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "10",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,Glob,Agent",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 635,
+  "prompt_sha256": "429dc97bc5b5025eadc348b3352ff8e2a3d1e16976382b225cc735a862d249c8",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 511
+    },
+    {
+      "t": 10929,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [
+    "system/background_tasks_changed",
+    "system/thinking_tokens",
+    "system/task_updated"
+  ]
+}

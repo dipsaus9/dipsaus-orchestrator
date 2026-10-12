@@ -1,0 +1,15 @@
+{
+  "scenario": "start-failed",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Outcome startFailed: scheduling for this adapter stopped in all offices, engine.notice, the story stays Ready (0008 section 7).",
+  "usage_checksum": "7fcc48f9f98a3e0ed56669e18737ffb4e8b59b4d6fe401a3602a42ca883cad95",
+  "derivedFrom": "success-single",
+  "transform": "After system/init, a result error_during_execution with startup_failure_reason \"sandbox_unavailable\" and zeroed totals; exit 1.",
+  "cites": [
+    "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\"",
+    "startup_failure_reason value is illustrative; no live run showed one"
+  ]
+}
