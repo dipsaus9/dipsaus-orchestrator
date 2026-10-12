@@ -1,26 +1,27 @@
 ---
 id: DIPO-48
-title: Start a run for one Ready story
+title: Pick and claim one Ready story with work.run
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:34'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
-  - DIPO-30
   - DIPO-32
   - DIPO-36
-  - DIPO-39
+  - DIPO-38
   - DIPO-43
-  - DIPO-45
   - DIPO-47
+  - DIPO-71
+  - DIPO-72
 references:
   - packages/engine/src/run/
   - packages/engine/src/db/migrations/
   - packages/cli/src/
   - packages/engine/test/run/
+  - packages/engine/src/features.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -28,6 +29,7 @@ documentation:
   - docs/decisions/0010-backlog-and-git-integration.md
   - docs/decisions/0012-story-standard.md
   - docs/decisions/0013-repo-scan-and-script-standard.md
+  - docs/decisions/0014-worker-prompt-assembly.md
 priority: high
 type: feature
 ordinal: 48000
@@ -36,9 +38,9 @@ ordinal: 48000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: `work.run` (and `dipo run [ID]`) picks one Ready story from `origin/<base>` or the named one, runs the pickup re-check and claim, sets up the worktree, assembles the prompt, starts a worker host on the tier's model and caps, and reports phases `setup` and `build` as events.
+Outcome: `work.run` (and `dipo run [ID]`) picks one Ready story from `origin/<base>` or the named one, refuses or skips it with a stated reason when any office or story check says no, runs the pickup re-check and the claim, records the run, and emits `work.assigned` and `work.phase setup`.
 
-Context: M0 runs one story at a time; `maxAgents` above 1 is refused until M2. References: 0005 section 4 (`work.run` args, result, skips, failed re-check emits `story.state` to Refined), section 5 (`work.assigned`, `work.phase`); 0012 section 2 (Ready to In Progress, eligibility: Ready plus dependencies Done), section 3 (pickup mode); 0010 section 2 (Ready on `origin/<base>`, pending lane-b skip), section 7 (claim); 0013 section 2 (refuse when verify unresolved); 0008 section 9 (tier to caps); 0007 section 4 (`runs`, `run_steps`, `config_snapshots`).
+Context: M0 runs one story at a time; `maxAgents` above 1 is refused until M2. Starting the worker after the claim (setup, launch checks, prompt, host, ingestion, `work.phase build`) was split into DIPO-74 in the M0 review (DIPO-15). Earlier stories expose their run decisions as predicates that this story consumes (M0 review, DIPO-15): `configBlocksRuns` and the active-work check of `office.forget` (DIPO-27), `pendingLaneOp` (DIPO-34), `backlogCheckBlocked` (DIPO-35), `officeStatusesReady` (DIPO-36), `adapterHeld` (DIPO-43), `assembleContract` (DIPO-47), `verifyResolved` (DIPO-72), and the daemon's scheduling predicate (DIPO-68). The pickup decision is stored through DIPO-71. The `runs` table already holds the second run kind, `session`, with no story key, worktree or branch, used later for the M1 scan fallback, M3 interviews and M5 conversation; M0 starts only `story` runs (maintainer decision D12, DIPO-15; 0007 and 0008 amendments of 2026-10-12). `work.run` is added through the registration seam of DIPO-22. References: 0005 section 4 (`work.run` args, result, skips, failed re-check emits `story.state` to Refined), section 5 (`work.assigned`, `work.phase`); 0012 section 2 (Ready to In Progress, eligibility: Ready plus dependencies Done), section 3 (pickup mode); 0010 section 2 (Ready on `origin/<base>`, pending lane-b skip), section 7 (claim); 0013 section 2 (refuse when verify unresolved); 0014 section 4 (contract backstop handled like a failed re-check); 0008 section 9 (tier to caps); 0007 section 4 (`runs`, `run_steps`, `config_snapshots`).
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 
@@ -48,28 +50,30 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(engine) with a `success-single` replay, a Ready fixture story goes to In Progress with one claim commit and events `work.assigned`, `work.phase setup`, `work.phase build`."
+      check: "(engine) a Ready fixture story goes to In Progress with one claim commit, a stored pickup decision and events `work.assigned` and `work.phase setup`."
     - kind: "automated"
-      check: "(engine) a story with an open unknown edited in by hand fails the re-check and returns to Refined with the R15 message."
+      check: "(engine) a story with an open unknown edited in by hand fails the re-check and returns to Refined with the R15 message; a story over `prompt.contractMax` returns to Refined with the assembly error."
     - kind: "automated"
-      check: "(engine) a dependency not Done gives `dependency`; a pending lane-b operation gives `notRunnable`."
-    - kind: "manual"
-      check: "in a scratch office, set a fixture story Ready through the Backlog CLI and run `dipo run`"
-      expect: "prints the started story; `git worktree list` shows `<root>/<ID>` locked."
+      check: "(engine) a dependency not Done gives `dependency`; a pending lane-b operation and a failed backlog PR check each give `notRunnable`."
+    - kind: "automated"
+      check: "(engine) each refusal (unresolved verify, missing statuses, invalid configuration, adapter hold, `safe` state) refuses with its message; `office.forget` with an active run fails `office.busy`."
+    - kind: "automated"
+      check: "(unit) a `session` run row with no key, worktree or branch passes the schema test."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Migrations add `runs`, `run_steps` and `config_snapshots`.
-- [ ] #2 Without `stories`, the engine picks the first Ready story on `origin/<base>` by priority and ordinal whose dependencies are all Done; with `stories`, only those; `maxAgents` above 1 fails with `args.invalid`.
-- [ ] #3 Each story not started is a skip with a `SkipReason`: `notReady`, `dependency`, `notRunnable` (including a pending lane-b operation), `collision`, `capacity` or `pickupCheckFailed`.
-- [ ] #4 A failed pickup re-check moves the story to Refined through the backlog lane and emits `story.state` with the gate messages in `detail`.
-- [ ] #5 The run is refused when the run profile's verify is unresolved, the office statuses are missing (DIPO-36) or the configuration is invalid.
-- [ ] #6 A started run records tier, role `developer`, model, start SHA, branch, worktree, slot, budget unit and limit, loop cap, `config_hash` and run profile id.
-- [ ] #7 The engine emits `work.assigned`, `work.phase setup`, then `work.phase build` when the worker host starts, and keeps one active run per office.
-- [ ] #8 The worker starts with the tier's model, effort and caps, the DIPO-47 system file and task message, and an engine-made session id stored on the run.
-- [ ] #9 `dipo run [ID]` prints started and skipped stories with reasons.
+- [ ] #1 Migrations add `runs` (with `kind` `story` or `session` and a nullable `key`), `run_steps` and `config_snapshots`; a `session` run has no key, worktree or branch, and its usage is recorded under the office.
+- [ ] #2 Without `stories`, the engine indexes stories (DIPO-32), then picks the first Ready story on `origin/<base>` by priority and ordinal whose dependencies are all Done; with `stories`, only those; `maxAgents` above 1 fails with `args.invalid`.
+- [ ] #3 Each story not started is a skip with a `SkipReason`: `notReady`, `dependency`, `notRunnable` (including `pendingLaneOp` and `backlogCheckBlocked`), `collision`, `capacity` or `pickupCheckFailed`.
+- [ ] #4 The run is refused with the predicate's message when `verifyResolved`, `officeStatusesReady`, `configBlocksRuns` or `adapterHeld` refuses, and with the retryable `scheduling.off` in `safe`.
+- [ ] #5 A failed pickup re-check, stored through DIPO-71, moves the story to Refined through the backlog lane and emits `story.state` with the gate messages in `detail`.
+- [ ] #6 Before the claim, `assembleContract` (DIPO-47) runs; `prompt.contractTooLarge` moves the story to Refined like a failed pickup re-check, with the assembly error in `detail`.
+- [ ] #7 The engine registers its active-run check, so `office.forget` (DIPO-27) fails with `office.busy` while a run is active.
+- [ ] #8 A claimed run records kind `story`, tier, role `developer`, model, start SHA, branch, worktree, budget unit and limit, loop cap, `config_hash` and run profile id.
+- [ ] #9 The engine emits `work.assigned` and `work.phase setup`, and keeps one active run per office.
+- [ ] #10 `dipo run [ID]` prints started and skipped stories with reasons.
 <!-- AC:END -->
 
 ## Implementation Notes
