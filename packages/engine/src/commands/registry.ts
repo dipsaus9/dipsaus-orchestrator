@@ -13,15 +13,11 @@ import {
   type ReadDefinition,
   type RequestId,
 } from "@dipsaus-orchestrator/contract";
+import type { z } from "zod";
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { StoryIdentity } from "../stories/keys";
-
-/** The parsed type of a contract schema (zod's `output`, without importing zod here). */
-export type SchemaOutput<S> = S extends { _zod: { output: infer O } } ? O : unknown;
-/** What a handler may return for a result schema (zod's `input`). */
-export type SchemaInput<S> = S extends { _zod: { input: infer I } } ? I : unknown;
 
 /** What an office-level command handler gets. It runs inside the command's write transaction. */
 export interface CommandContext {
@@ -68,12 +64,12 @@ export type SoftwareCommandHandler<A, R> = (
 
 export interface OfficeCommandRegistration<D extends CommandDefinition> {
   readonly definition: D;
-  readonly handle: OfficeCommandHandler<SchemaOutput<D["args"]>, SchemaInput<D["result"]>>;
+  readonly handle: OfficeCommandHandler<z.output<D["args"]>, z.input<D["result"]>>;
 }
 
 export interface SoftwareCommandRegistration<D extends CommandDefinition> {
   readonly definition: D;
-  readonly handle: SoftwareCommandHandler<SchemaOutput<D["args"]>, SchemaInput<D["result"]>>;
+  readonly handle: SoftwareCommandHandler<z.output<D["args"]>, z.input<D["result"]>>;
 }
 
 /** What a read handler gets (0005 section 7). */
@@ -93,7 +89,7 @@ export type ReadHandler<A, R> = (ctx: ReadContext, args: A) => R;
 
 export interface ReadRegistration<D extends ReadDefinition> {
   readonly definition: D;
-  readonly handle: ReadHandler<SchemaOutput<D["args"]>, SchemaInput<D["result"]>>;
+  readonly handle: ReadHandler<z.output<D["args"]>, z.input<D["result"]>>;
 }
 
 /** The registry as a feature module's `register` sees it. */

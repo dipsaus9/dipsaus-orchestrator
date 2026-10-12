@@ -3,6 +3,7 @@
 // itself: no handler has to declare them, and the idempotency hash is always taken on keys.
 
 import { type EngineError, StoryRefValue } from "@dipsaus-orchestrator/contract";
+import { z } from "zod";
 
 import type { OfficeHandle } from "../db/office";
 import { resolveStoryRef, type StoryIdentity } from "../stories/keys";
@@ -13,43 +14,29 @@ export interface StoryRefField {
   readonly many: boolean;
 }
 
-// The part of a zod schema read here: its public `def`.
-interface SchemaNode {
-  def: {
-    type: string;
-    innerType?: SchemaNode;
-    element?: SchemaNode;
-    shape?: Readonly<Record<string, SchemaNode>>;
-  };
-}
-
-function unwrap(schema: SchemaNode): SchemaNode {
+function unwrap(schema: z.ZodType): z.ZodType {
   let node = schema;
-  for (
-    let def = node.def;
-    (def.type === "optional" || def.type === "default" || def.type === "nullable") &&
-    def.innerType !== undefined;
-    def = node.def
+  while (
+    node instanceof z.ZodOptional ||
+    node instanceof z.ZodDefault ||
+    node instanceof z.ZodNullable
   ) {
-    node = def.innerType;
+    node = node.unwrap() as z.ZodType;
   }
   return node;
 }
 
-const STORY_REF = StoryRefValue as unknown as SchemaNode;
-
 /** The fields of an object args schema typed `StoryRefValue` or an array of it. */
-export function findStoryRefFields(args: unknown): StoryRefField[] {
-  const root = unwrap(args as SchemaNode);
-  const shape = root.def.type === "object" ? root.def.shape : undefined;
-  if (shape === undefined) return [];
+export function findStoryRefFields(args: z.ZodType): StoryRefField[] {
+  const root = unwrap(args);
+  if (!(root instanceof z.ZodObject)) return [];
   const fields: StoryRefField[] = [];
-  for (const [field, schema] of Object.entries(shape)) {
+  for (const [field, schema] of Object.entries(root.shape as Record<string, z.ZodType>)) {
     const node = unwrap(schema);
-    if (node === STORY_REF) {
+    if (node === StoryRefValue) {
       fields.push({ field, many: false });
-    } else if (node.def.type === "array" && node.def.element !== undefined) {
-      if (unwrap(node.def.element) === STORY_REF) fields.push({ field, many: true });
+    } else if (node instanceof z.ZodArray && unwrap(node.element as z.ZodType) === StoryRefValue) {
+      fields.push({ field, many: true });
     }
   }
   return fields;
