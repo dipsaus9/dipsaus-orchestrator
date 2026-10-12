@@ -412,6 +412,29 @@ describe("stopDaemon", () => {
       expect(existsSync(join(w.state, "runtime.json"))).toBe(false);
     }));
 
+  it("--force cleans the runtime.json a daemon leaves when SIGTERM ends it within 10 s", () =>
+    withTempDir(async (dir) => {
+      const w = world(dir, {
+        connect: () => Promise.reject(new DaemonNotRunningError("/s", "silent")),
+        onSignal: (self, pid) => {
+          // The drain removes dipo.sock and dipo.pid, and leaves runtime.json behind.
+          self.procs.delete(pid);
+          rmSync(join(self.state, "dipo.pid"));
+        },
+      });
+      w.procs.set(DAEMON_PID, DAEMON_INFO);
+      writeLock(w.state);
+      writeRuntime(w.state);
+      expect(await stopDaemon(w.deps, { force: true })).toEqual({
+        kind: "stopped",
+        pid: DAEMON_PID,
+        killed: false,
+      });
+      expect(w.signals).toEqual([[DAEMON_PID, "SIGTERM"]]);
+      expect(existsSync(join(w.state, "runtime.json"))).toBe(false);
+      expect(await inspectDaemon(w.deps)).toEqual({ kind: "not running", cleaned: [] });
+    }));
+
   it("never signals a PID whose start time does not match dipo.pid", () =>
     withTempDir(async (dir) => {
       const w = world(dir);

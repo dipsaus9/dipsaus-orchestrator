@@ -369,19 +369,21 @@ async function stopObserved(
   const { record } = observed;
   const pid = record.pid;
   if (force) {
-    if (!(await signalVerified(deps, record, "SIGTERM"))) {
-      return { kind: "stopped", pid, killed: false };
+    let killed = false;
+    if (
+      (await signalVerified(deps, record, "SIGTERM")) &&
+      !(await waitForExit(deps, record, deps.timings.forceKillAfterMs))
+    ) {
+      await signalVerified(deps, record, "SIGKILL");
+      killed = true;
+      if (!(await waitForExit(deps, record, deps.timings.killWaitMs))) {
+        return { kind: "still running", pid };
+      }
     }
-    if (await waitForExit(deps, record, deps.timings.forceKillAfterMs)) {
-      return { kind: "stopped", pid, killed: false };
-    }
-    await signalVerified(deps, record, "SIGKILL");
-    if (!(await waitForExit(deps, record, deps.timings.killWaitMs))) {
-      return { kind: "still running", pid };
-    }
-    // A killed daemon leaves its lock and runtime.json behind; they are stale now.
+    // A drained daemon leaves runtime.json behind, a killed one also its lock; both are stale
+    // now, so the next `status` says `not running`.
     await inspectDaemon(deps);
-    return { kind: "stopped", pid, killed: true };
+    return { kind: "stopped", pid, killed };
   }
   if (observed.kind === "unresponsive") return { kind: "unresponsive", pid };
   if (observed.kind === "foreign") {
