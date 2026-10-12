@@ -1,10 +1,10 @@
 ---
 id: DIPO-44
 title: Host each worker in a detached process with an event file
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:31'
+updated_date: '2026-10-12 13:57'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -19,6 +19,11 @@ references:
   - packages/daemon/src/
   - packages/engine/test/host/
   - packages/engine/src/index.ts
+  - packages/engine/src/runs/
+  - packages/engine/src/platform/line-socket.ts
+  - packages/engine/src/db/schema.ts
+  - .oxlintrc.json
+  - test/lint-boundaries/
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
@@ -55,19 +60,29 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The engine spawns the host detached with stdio to files, `BUN_OPTIONS` removed, and records PID, start time, socket path and host protocol version in a new `worker_hosts` table.
-- [ ] #2 The host spawns the worker from the run's `LaunchPlan` through an injected `Spawn` (DIPO-18), writes the first stdin line, and appends each line as `{ t, ch, data }` to `events.ndjson`.
-- [ ] #3 The host socket `<runtime>/hosts/<run-id>.sock` accepts a versioned handshake with the run id and the ops write, signal, close stdin, status and watch, and nothing else; a watcher receives `advanced { offset }` after each append.
-- [ ] #4 When the worker exits, the host kills the worker's process group, so no child of the worker outlives the run, then writes `exit.json` with code, signal, final offset and time, and exits.
-- [ ] #5 The host contains no budget, gate, git or database code; a lint test fails when `host/` imports those modules.
-- [ ] #6 The run directory is `0700` and holds `events.ndjson`, `exit.json` and `host.log` capped at 5 MB by dropping the oldest half.
-- [ ] #7 Liveness checks use the DIPO-23 identity check of PID and start time, where a zombie counts as dead, never socket reachability.
-- [ ] #8 The host's main function runs in-process in tests with an injected spawn, so only the detach test needs a real child process.
-- [ ] #9 Delayed host signals (`HostOp` `afterMs`, DIPO-40) are cancelled when the worker exits, so a delayed SIGTERM or SIGKILL never reaches a reused PID; a test covers it.
+- [x] #1 The engine spawns the host detached with stdio to files, `BUN_OPTIONS` removed, and records PID, start time, socket path and host protocol version in a new `worker_hosts` table.
+- [x] #2 The host spawns the worker from the run's `LaunchPlan` through an injected `Spawn` (DIPO-18), writes the first stdin line, and appends each line as `{ t, ch, data }` to `events.ndjson`.
+- [x] #3 The host socket `<runtime>/hosts/<run-id>.sock` accepts a versioned handshake with the run id and the ops write, signal, close stdin, status and watch, and nothing else; a watcher receives `advanced { offset }` after each append.
+- [x] #4 When the worker exits, the host kills the worker's process group, so no child of the worker outlives the run, then writes `exit.json` with code, signal, final offset and time, and exits.
+- [x] #5 The host contains no budget, gate, git or database code; a lint test fails when `host/` imports those modules.
+- [x] #6 The run directory is `0700` and holds `events.ndjson`, `exit.json` and `host.log` capped at 5 MB by dropping the oldest half.
+- [x] #7 Liveness checks use the DIPO-23 identity check of PID and start time, where a zombie counts as dead, never socket reachability.
+- [x] #8 The host's main function runs in-process in tests with an injected spawn, so only the detach test needs a real child process.
+- [x] #9 Delayed host signals (`HostOp` `afterMs`, DIPO-40) are cancelled when the worker exits, so a delayed SIGTERM or SIGKILL never reaches a reused PID; a test covers it.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S28 (DIPO-15). Before cutover: built by hand-run agents.
+
+Implementation (DIPO-44):
+- Added references: packages/engine/src/runs/ (engine-side launch and the worker_hosts writes, kept out of host/ so the AC #5 lint holds), packages/engine/src/platform/line-socket.ts (Bun.listen/Bun.connect for the host socket, platform only), packages/engine/src/db/schema.ts (registers migration 3), .oxlintrc.json and test/lint-boundaries/ (the AC #5 lint rule and its test).
+- Host: packages/engine/src/host/ (protocol, main, steering, events, host-log, client). The engine writes launch.json (plan, socket path) into the run dir with mode 0600; the host reads and removes it at once because it holds the task message. The host gets the run dir from DIPO_RUN_DIR and its cwd.
+- Host socket protocol v1: NDJSON over a Unix stream socket. hello { versions[], run } -> hello { version, run, pid } or refused { error, versions } (run.mismatch, protocol.unsupported, frame.invalid). Ops: write, signal (afterMs), closeStdin, status, watch; anything else gets op.unknown. A watcher gets advanced { offset } after each append. DIPO-59 adds the hook relay as a new op behind the version handshake; WorkerHost.relayHook already writes ch hook lines.
+- events.ndjson lines are { t, ch, data } with t in ms since host start; stdout and stderr are split into lines with their newline kept (what interpret expects); the exit is appended as a ch exit line before exit.json (code, signal, finalOffset, at, startError when the spawn failed). exit.json is written by temp+rename.
+- At worker exit the host cancels delayed signals (AC #9), then SIGKILLs the worker's process group with signalGroup, which never falls back to the bare PID, waits up to 5 s for output to end, then writes the exit line and exit.json.
+- worker_hosts (migration 3): key (office_id, run_id, agent_id), so a reassign can add a second host for the run.
+- Finding: Bun 1.4.2 passes --no-orphans to child processes as BUN_FEATURE_FLAG_NO_ORPHANS=1 as well as through BUN_OPTIONS. Removing only BUN_OPTIONS left the host dying with a --no-orphans parent (seen in the CI detach test). detachedEnv strips both, and the daemon's noOrphansActive guard also checks the flag. The client lifecycle (DIPO-70) should strip it too when it starts the daemon. 0006 decision 8 names only BUN_OPTIONS, so the maintainer may want an amendment line.
+- Not in this story: the systemd transient scope for hosts under a user unit (0006 decision 8, under supervisors; goes with autostart DIPO-63) and the wiring into a run (DIPO-74).
 <!-- SECTION:NOTES:END -->
