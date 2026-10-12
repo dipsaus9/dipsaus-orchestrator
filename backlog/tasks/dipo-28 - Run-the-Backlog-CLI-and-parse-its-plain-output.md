@@ -4,7 +4,7 @@ title: Run the Backlog CLI and parse its plain output
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:25'
+updated_date: '2026-10-12 21:31'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -73,4 +73,6 @@ Implemented in packages/engine/src/backlog/: plain.ts (parser), runner.ts (allow
 - `Modified files:` is a trailer line after the notes, read off the end of the last of Definition of Done, Plan or Notes.
 - Fixtures recorded by packages/engine/test/backlog/record-plain.ts against a temp copy of the fixture project; the pinned CLI runs as `bun node_modules/backlog.md/cli.js`, so tests need no node.
 - The daemon's resolved tool path is not threaded into the feature (foreground.ts is outside References); the step uses `backlog` on the daemon PATH.
+
+Follow-up for a later story: the daemon should pass its resolved backlog path (tools.paths.backlog) into backlogFeature instead of relying on `backlog` from PATH.
 <!-- SECTION:NOTES:END -->
