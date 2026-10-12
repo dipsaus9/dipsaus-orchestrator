@@ -4,7 +4,7 @@ title: Ingest worker events from stored offsets into facts and usage
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:22'
+updated_date: '2026-10-12 14:30'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -23,6 +23,7 @@ references:
   - packages/engine/test/workers/scripts.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/index.ts
+  - packages/engine/test/workers/scripted.test.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -95,4 +96,12 @@ Decisions taken inside the ADRs:
 DIPO-42 follow-ups:
 - Init rejection: new neutral WorkerEvent `initRejected { reason }`, emitted before `started`; ingestion records it on `agents.init_rejected` and calls `onInitRejected` so the caller stops the worker and does not treat it as a live start (stop and park worker-failed: DIPO-74/DIPO-50).
 - Counter reset / resume double count: not solved here. Ingestion takes the adapter's `initialState` from the caller, so a resumed session must pass the stored totals and baseline (`initialState({ totals, baseline })`); choosing them, and telling a counter reset from restored spend, belongs to the resume story DIPO-51.
+
+Review fixes (PR #43):
+- Cache creation split (0007 section 4): the neutral `usage` event carries `output`, `cacheCreate5m` and `cacheCreate1h` (`cacheCreate` is their sum; the Claude event schema enforces it). The Claude adapter maps `usage.cache_creation.ephemeral_1h_input_tokens` (the DIPO-41 recordings keep both ephemeral fields); the rest, or all of it when the split is missing, counts as 5 minute. `usage_messages`, `usage_totals` and `usage_daily` have `cache_create_5m` and `cache_create_1h` (migration 4 changed in place, unmerged). In `usage_totals` the parts are sums over counted messages; `cache_create` takes the adapter's cumulative total at each turn end. Budget used stays input + output + cache_create.
+- `usage_messages.output` is the per-message `output_tokens` as reported (may be a placeholder); run totals take output only from turn ends.
+- `usage.updated` is marked sent only after its transaction commits, so a rolled-back one is sent again.
+- Each pass re-reads the last processed line (`last_line_bytes`, `last_line_hash`) and reports `ingest.fileChanged` when it no longer matches; the file identity is recorded as soon as the file exists, so a replacement before the first complete line is caught.
+- Added reference: test/workers/scripted.test.ts (schema refuses a usage event whose parts do not add up).
+- For later stories: DIPO-51 and DIPO-57 must call `finalizeAgentUsage` at run end when no exit line was ingested (host died); pending output per run assumes one agent at a time, multi-agent pending is a later concern.
 <!-- SECTION:NOTES:END -->
