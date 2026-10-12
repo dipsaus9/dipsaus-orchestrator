@@ -1,10 +1,10 @@
 ---
 id: DIPO-23
 title: Run the daemon with the PID lock and runtime directory
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:26'
+updated_date: '2026-10-12 12:27'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -95,4 +95,12 @@ Implementation (DIPO-23):
 - Not run on either platform: the file:// redirect on snap Firefox and Safari (needs a desktop browser; belongs with dipo web).
 
 Linux prototype results (AC #9), compiled Bun 1.4.2 binary on ubuntu-24.04 x64 and ubuntu-24.04-arm, scratch branch DIPO-23/prototype-0006, run 38248948581 (branch deleted afterwards). Identical on both: SQLite 3.53.2; ws+unix:// upgrade and echo works; socket created 0755 and removed on stop; a second Bun.serve bind on a live path fails with EADDRINUSE (as on macOS; ADR 0006 recorded success on 1.3.5); a detached host survives SIGKILL of its parent; compiled binaries read BUN_OPTIONS and --no-orphans there kills orphans, so the runDaemon refusal is needed; systemd-run --user --scope works from a shell and from inside a user unit (DIPO-37); systemd-inhibit --mode=block is refused by polkit ('Access denied') with lingering on, so 0006's retry with --mode=delay and the 'keep-awake not held' status are needed (DIPO-63). Not runnable in CI: systemd-inhibit over SSH and the file:// redirect on snap Firefox and Safari.
+
+The earlier 'Linux: NOT RUN' note is superseded by the Linux prototype results above (maintainer approved the scratch branch).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Daemon foundation: runDaemon form table (--foreground, worker-host and wait-pid stubs, hidden self-check), passwd-home state dirs with DIPO_HOME, runtime directory from the 0006 candidates with length, owner, mode and symlink checks and a mkdtemp fallback, runtime.json, PID identity by start time, PID lock steps 1-3 with stale-break and post-bind re-check, refusal under --no-orphans, JSON-line logger with redaction. Temporary HTTP identity handshake on dipo.sock until DIPO-24 serves engine.hello. macOS and Linux prototype results recorded; ws+unix:// works on both. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->

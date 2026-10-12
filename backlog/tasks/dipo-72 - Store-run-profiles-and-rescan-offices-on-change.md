@@ -4,7 +4,7 @@ title: Store run profiles and rescan offices on change
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:21'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -61,6 +61,7 @@ test_plan:
 - [ ] #3 `office.rescan` returns `{ scan: "started" }`, fails with `scan.running` while one runs, re-indexes stories (DIPO-32), and emits `scan.finished` with scripts and warnings.
 - [ ] #4 `dipo office rescan` prints the diff, the conformance level and each deviation.
 - [ ] #5 `verifyResolved(office)` returns the refusal message of a profile whose verify is unresolved, for `work.run` (DIPO-48) to use; no model is called.
+- [ ] #6 The fingerprint also hashes the local config modules a dev server config imports when ports are read from them (0013 amendment of 2026-10-12); a test shows a port change in such a module changes the fingerprint and triggers a rescan.
 <!-- AC:END -->
 
 ## Implementation Notes
