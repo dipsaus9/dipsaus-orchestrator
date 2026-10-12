@@ -1,10 +1,10 @@
 ---
 id: DIPO-69
 title: Load software-level configuration from the state directory
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 09:20'
-updated_date: '2026-10-12 14:35'
+updated_date: '2026-10-12 14:39'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -86,3 +86,9 @@ Review follow-up (PR #44):
 - DIPO-70's autostart must read <state>/config.yaml first with readSoftwareConfig (client/node) and, when it is invalid or newer, show the error instead of spawning a daemon that would exit 78.
 - The engine office loader's issueErrors is now built on the contract's configIssueErrors, with only the office.local.yaml top-level unknown-key wording as an override (unknownKeyProblem option); office messages are unchanged and pinned in packages/engine/test/config/load.test.ts.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Software-level configuration: strict v1 schema for <state>/config.yaml in packages/contract (daemon.autostart default true, daemon.autoRestartOnUpgrade default false), pure helpers with an injected YAML parser, JSON Schema export, key-path test per version; daemon reads it before the lock and exits 78 (EXIT_CONFIG) on an invalid or newer file; client/node readSoftwareConfig; both readers agree (root test); office loader errors built on the shared contract helpers. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
