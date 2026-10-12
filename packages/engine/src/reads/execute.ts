@@ -92,15 +92,10 @@ export async function executeRead(deps: ReadDeps, request: ReadRequest): Promise
   const officeId = officeOf(parsed.data);
   try {
     if (officeId === undefined) return run(deps, read, request, parsed.data, undefined);
-    const office = deps.offices.get(officeId);
-    if (office === undefined) {
-      return failure(
-        requestId,
-        engineError("office.unknown", `There is no open office ${officeId}.`, {
-          office: officeId,
-        }),
-      );
-    }
+    // A read loads the office's engine instance on first use, like a command (DIPO-27).
+    const access = await deps.offices.load(officeId);
+    if (!access.ok) return failure(requestId, access.error);
+    const office = access.office;
     return office.deferred(() => run(deps, read, request, parsed.data, office));
   } catch (thrown) {
     return failure(requestId, errorFromThrown(thrown));

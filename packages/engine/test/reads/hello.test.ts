@@ -15,11 +15,14 @@ import {
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
-import type { OfficeDirectory } from "../../src/commands/offices";
+import { type OfficeDirectory, officeUnknown } from "../../src/commands/offices";
 import { executeRead } from "../../src/reads/execute";
 import { capabilityFlags, helloFeature } from "../../src/reads/hello";
 
-const noOffices: OfficeDirectory = { get: () => undefined };
+const noOffices: OfficeDirectory = {
+  get: () => undefined,
+  load: async (office) => ({ ok: false, error: officeUnknown(office) }),
+};
 
 function provisional<D extends CommandDefinition>(definition: D): CommandDefinition {
   const { since: _since, ...rest } = definition;

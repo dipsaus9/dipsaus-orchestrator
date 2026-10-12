@@ -129,8 +129,39 @@ export type { RenderFn } from "./changelog/render";
 export { CommandError } from "./commands/errors";
 export { argsInvalid, executeCommand } from "./commands/execute";
 export type { ExecutorDeps } from "./commands/execute";
-export { stateOfficeDirectory } from "./commands/offices";
-export type { OfficeDirectory } from "./commands/offices";
+export { officeUnknown, stateOfficeDirectory } from "./commands/offices";
+export type { OfficeAccess, OfficeDirectory } from "./commands/offices";
+export {
+  BACKLOG_CONFIG,
+  isBacklogProject,
+  mainWorktreeOf,
+  MARKER_FILE,
+  markerPath,
+  networkFsType,
+  OFFICE_DIR,
+  officeDirectory,
+  officeFeature,
+  OfficeManager,
+  OfficeMarker,
+  readMarker,
+  resolveRepository,
+  writeMarker,
+} from "./office";
+export type {
+  ActiveWorkCheck,
+  GitRunner,
+  LoadStep,
+  LoadStepResult,
+  MarkerRead,
+  OfficeLoadContext,
+  OfficeManagerDeps,
+  OpenResult,
+  RegisteredActiveWorkCheck,
+  RegisteredLoadStep,
+  ReloadConfigResult,
+  Repository,
+  ResolveResult,
+} from "./office";
 export {
   buildRegistry,
   DuplicateRegistrationError,
