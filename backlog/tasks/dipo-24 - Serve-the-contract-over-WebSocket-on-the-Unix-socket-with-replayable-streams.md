@@ -4,7 +4,7 @@ title: Serve the contract over WebSocket on the Unix socket with replayable stre
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 12:31'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -19,6 +19,8 @@ references:
   - packages/daemon/test/
   - packages/daemon/src/
   - packages/engine/src/index.ts
+  - packages/engine/src/platform/socket.ts
+  - packages/engine/src/platform/lock.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -67,6 +69,7 @@ test_plan:
 - [ ] #7 `subscribe` to `software` or `office:<id>` replays entries after the cursor, then sends `stream.mark { caughtUp: true }`, then live events; an old or foreign cursor gets `stream.resetRequired { oldest }`.
 - [ ] #8 `stream.mark` is sent every 15 s on an idle subscription; `filter` prefixes drop matching event types.
 - [ ] #9 Office commands and reads in `starting` or `recovering` fail with retryable `engine.recovering`, and scheduling commands in `safe` with retryable `scheduling.off`.
+- [ ] #10 The PID lock's step-1 handshake moves to `engine.hello` over `ws+unix://` in the same change that replaces DIPO-23's temporary HTTP identity endpoint on `dipo.sock`, and `bindDaemonSocket`/`probeDaemonSocket` are removed; a test shows a live daemon is reported as running, not unresponsive.
 <!-- AC:END -->
 
 ## Implementation Notes
