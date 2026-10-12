@@ -2,7 +2,7 @@
 // (DIPO-41 AC #9). Every scenario runs on the `greeter` fixture with the cheapest model the launch
 // plan allows. Prompts are small and fixed; only their size and hash reach `meta.json`.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -11,9 +11,15 @@ import {
   interpretClaudeLine,
   judgeSelfTest,
   PROBE_GROUPS,
+  selfTestBashCalls,
   selfTestLayout,
 } from "../../packages/engine/src/index";
-import type { ClaudeParseState, ProbeName, SelfTestDisk } from "../../packages/engine/src/index";
+import type {
+  ClaudeParseState,
+  ProbeName,
+  SelfTestDisk,
+  SelfTestTools,
+} from "../../packages/engine/src/index";
 import type { Envelope } from "./format";
 import { isRecord } from "./format";
 
@@ -359,13 +365,25 @@ function selfTestPaths(paths: CapturePaths) {
     tmpDir: join(paths.root, "tmp"),
     // The temp repository is fresh for every capture.
     nonce: "capture",
+    tools: captureTools(),
   };
+}
+
+/** `perl` and `gh` as the engine runs them: absolute, symlinks resolved, from this PATH. */
+function captureTools(): SelfTestTools {
+  return { perl: findTool("perl"), gh: findTool("gh") };
+}
+
+function findTool(name: string): string {
+  const found = Bun.which(name);
+  if (found === null) throw new Error(`${name} is not on PATH; the self-test scenarios need it`);
+  return realpathSync(found);
 }
 
 /** `gh auth token` outside any sandbox, output discarded: whether the probe can prove anything. */
 async function ghTokenReadableOutside(): Promise<boolean | null> {
   try {
-    const proc = Bun.spawn(["gh", "auth", "token"], {
+    const proc = Bun.spawn([captureTools().gh, "auth", "token"], {
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
@@ -412,9 +430,16 @@ function verifySelfTest(probes: readonly ProbeName[]) {
       for (const event of step.events) if (event.t === "denied") denied.push(event.tool);
     }
     const outcome = claudeResult(state, exit).outcome;
-    const verdict = judgeSelfTest({ probes, outcome, denied, disk });
+    // Recordings redact tool inputs, so the exact-command check is taken here, on the raw stream.
+    const stdout = raw
+      .filter((line) => line.ch === "stdout")
+      .map((line) => `${JSON.stringify(line.data)}\n`)
+      .join("");
+    const bash = selfTestBashCalls(stdout, layout.command);
+    const verdict = judgeSelfTest({ probes, outcome, denied, bash, disk });
     return {
       disk,
+      bash,
       verdict,
       ...(probes.includes("gh-token")
         ? { ghTokenReadableOutsideSandbox: await ghTokenReadableOutside() }
