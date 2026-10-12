@@ -1,10 +1,10 @@
 ---
 id: DIPO-26
 title: Load and validate office configuration from .dipo
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:11'
+updated_date: '2026-10-12 12:12'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -104,3 +104,9 @@ Implementation (DIPO-26): engine/src/platform/yaml.ts parseYamlDocument (a top-l
 
 Review follow-up (PR #26): worktree.ports.stride defaults to 10 and is required in the effective configuration (0010 open question 6, answered 2026-10-10: stride 10, 20 slots); the earlier note listing it without a default is superseded. Correction to the prompt.budgets note: the letters in prompt.budgets.<section>.<S|M|L|XL> are the 0014 section 4 project size classes counted from git ls-files at pickup (S under 150 files, M under 500, L under 5,000, XL above), not story tiers; the schema says so in a description that reaches office.schema.json. sandbox.toolchainPaths entries must start with ~/ or /; a relative entry is a config error. DIPO-37 and DIPO-40 must expand ~ against the injected home directory, never the process environment. yaml.ts treats a second --- marker as a new document even with no content before it.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Office configuration from .dipo: platform/yaml.ts is the only YAML parser (multi-document refused); strict zod v1 schemas for office.yaml, office.local.yaml (timeouts, privacy, retention only) and command flags; merge defaults < office.yaml < office.local.yaml < flags with per-key object merge; errors as values naming file, key path and expected type; newer version refused with 'upgrade dipo'; configHash over canonical JSON; office.schema.json export with drift test. Fixed names: worktree.ports.stride (default 10) and named, worktree.files entries, prompt.budgets.<section>.<size class>, toolchainPaths must start with ~/ or /. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
