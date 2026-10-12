@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { packageName } from "./index";
+import { packageName } from "../../src/index";
 
 describe("client", () => {
   it("names its package", () => {
