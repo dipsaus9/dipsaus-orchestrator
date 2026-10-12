@@ -124,9 +124,14 @@ describe("interpret (0008 section 3)", () => {
       expect.objectContaining({ t: "started" }) as WorkerEvent,
     ]);
     expect(state.initRejected).toBeNull();
-    expect(run([init({ apiKeySource: "ANTHROPIC_API_KEY" })]).state.initRejected).toContain(
-      "apiKeySource",
-    );
+    const rejected = run([init({ apiKeySource: "ANTHROPIC_API_KEY" }), init()]);
+    expect(rejected.state.initRejected).toContain("apiKeySource");
+    // The neutral rejection comes once, before `started`, so the engine stops the worker at once.
+    expect(rejected.events.map((event) => event.t)).toEqual(["initRejected", "started"]);
+    expect(rejected.events[0]).toEqual({
+      t: "initRejected",
+      reason: "apiKeySource is ANTHROPIC_API_KEY, not none",
+    });
     expect(run([init({ model: "claude-sonnet-4-5" })]).state.initRejected).toContain(
       "claude-sonnet-4-5",
     );
@@ -163,14 +168,27 @@ describe("interpret (0008 section 3)", () => {
       assistant("msg-2", [{ type: "text", text: "b" }], { parent_tool_use_id: "toolu-9" }),
     ]);
     expect(events.filter((event) => event.t === "usage")).toEqual([
-      { t: "usage", messageId: "msg-1", model: MODEL, input: 2, cacheCreate: 100, cacheRead: 50 },
+      {
+        t: "usage",
+        messageId: "msg-1",
+        model: MODEL,
+        input: 2,
+        output: 7,
+        cacheCreate: 100,
+        cacheCreate5m: 100,
+        cacheCreate1h: 0,
+        cacheRead: 50,
+      },
       {
         t: "usage",
         messageId: "msg-2",
         model: MODEL,
         agentId: "toolu-9",
         input: 2,
+        output: 7,
         cacheCreate: 100,
+        cacheCreate5m: 100,
+        cacheCreate1h: 0,
         cacheRead: 50,
       },
     ]);
@@ -178,6 +196,40 @@ describe("interpret (0008 section 3)", () => {
     expect(state.live).toEqual({
       [MODEL]: { input: 4, output: 0, cacheCreate: 200, cacheRead: 100 },
     });
+  });
+
+  it("usage splits cache creation into 5 minute and 1 hour parts and keeps message output", () => {
+    const split = {
+      ...usage,
+      cache_creation: { ephemeral_5m_input_tokens: 30, ephemeral_1h_input_tokens: 70 },
+    };
+    const line = out({
+      type: "assistant",
+      message: {
+        model: MODEL,
+        id: "msg-3",
+        type: "message",
+        role: "assistant",
+        content: [],
+        usage: split,
+      },
+      parent_tool_use_id: null,
+      session_id: "session-1",
+    });
+    const { events } = run([line]);
+    expect(events).toEqual([
+      {
+        t: "usage",
+        messageId: "msg-3",
+        model: MODEL,
+        input: 2,
+        output: 7,
+        cacheCreate: 100,
+        cacheCreate5m: 30,
+        cacheCreate1h: 70,
+        cacheRead: 50,
+      },
+    ]);
   });
 
   it("result gives turn with the cumulative totals replacing the live numbers", () => {

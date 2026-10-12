@@ -337,3 +337,20 @@ export {
   type LaunchWorkerHostOptions,
   type WorkerHostRow,
 } from "./runs/worker-hosts";
+export {
+  FILE_CHANGED_CODE,
+  fileChangedRuns,
+  INGEST_DEFAULTS,
+  Ingestor,
+  type AdvancedSource,
+  type FileChangedReport,
+  type IngestAdapter,
+  type IngestHooks,
+  type IngestorOptions,
+  type IngestTarget,
+  type IngestTimings,
+  type PassResult,
+  type PassStatus,
+} from "./ingest/ingestor";
+export { outputText, toolLine } from "./ingest/output";
+export { budgetOf, finalizeAgentUsage, readUsage, type UsageScope } from "./ingest/usage";

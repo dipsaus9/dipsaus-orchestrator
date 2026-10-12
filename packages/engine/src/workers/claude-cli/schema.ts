@@ -44,6 +44,12 @@ export const AssistantMessage = z.object({
       cache_creation_input_tokens: Tokens,
       cache_read_input_tokens: Tokens,
       output_tokens: Tokens,
+      cache_creation: z
+        .object({
+          ephemeral_5m_input_tokens: Tokens.optional(),
+          ephemeral_1h_input_tokens: Tokens.optional(),
+        })
+        .optional(),
     }),
   }),
   parent_tool_use_id: z.string().nullable(),
@@ -233,15 +239,22 @@ export const ClaudeWorkerEventSchema = z.union([
     agentId: Name,
   }),
   z.strictObject({ t: z.literal("output"), text: z.string() }),
-  z.strictObject({
-    t: z.literal("usage"),
-    messageId: Name,
-    model: Name,
-    agentId: Name.exactOptional(),
-    input: Count,
-    cacheCreate: Count,
-    cacheRead: Count,
-  }),
+  z
+    .strictObject({
+      t: z.literal("usage"),
+      messageId: Name,
+      model: Name,
+      agentId: Name.exactOptional(),
+      input: Count,
+      output: Count,
+      cacheCreate: Count,
+      cacheCreate5m: Count,
+      cacheCreate1h: Count,
+      cacheRead: Count,
+    })
+    .refine((event) => event.cacheCreate === event.cacheCreate5m + event.cacheCreate1h, {
+      message: "cacheCreate is the sum of cacheCreate5m and cacheCreate1h",
+    }),
   z.strictObject({
     t: z.literal("turn"),
     report: WorkerReportSchema.nullable(),
@@ -265,4 +278,5 @@ export const ClaudeWorkerEventSchema = z.union([
   }),
   z.strictObject({ t: z.literal("compacted"), preTokens: Count }),
   z.strictObject({ t: z.literal("modelSwitched"), from: Name, to: Name }),
+  z.strictObject({ t: z.literal("initRejected"), reason: Name }),
 ]);
