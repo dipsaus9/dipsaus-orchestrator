@@ -4,7 +4,7 @@ title: Start the TUI with the office store and the office switcher
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:37'
+updated_date: '2026-10-12 12:02'
 labels:
   - 'tier:M'
   - test-before-merge
