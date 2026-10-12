@@ -4,7 +4,7 @@ title: Load software-level configuration from the state directory
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:20'
-updated_date: '2026-10-12 14:29'
+updated_date: '2026-10-12 14:35'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -79,4 +79,10 @@ Implementation (DIPO-69):
 - Added refs, with reasons: packages/engine/src/config/keys.ts (the pure schema walkers moved to packages/contract/src/config-keys.ts so client/node can describe errors the same way; keys.ts now re-exports them), packages/engine/src/config/load.ts (uses the contract's ConfigError and checkConfigDocument instead of its own copy; messages unchanged), packages/engine/src/platform/yaml.ts (keeps the only engine Bun.YAML call and delegates the one-document rule to the contract), packages/engine/src/config/index.ts and packages/engine/src/index.ts (export loadSoftwareConfig), packages/daemon/test/integration/foreground.test.ts (daemon reads the file at start and refuses a newer version), test/software-config/ (runs the daemon and client readers on the same files, like test/state-dir).
 - Daemon: runForeground loads <state>/config.yaml before the lock; an invalid file prints each error and exits 1. The settings are kept on the run for DIPO-70 (autoRestartOnUpgrade).
 - client/node: readSoftwareConfig(state) in src/node/config.ts, the second allowed Bun.YAML caller (the boundary test in engine/test/config/yaml.test.ts names both). DIPO-70 calls it before an autostart; no autostart exists yet.
+
+Review follow-up (PR #44):
+- A configuration refusal at daemon start (invalid or newer config.yaml) exits with EXIT_CONFIG = 78 (sysexits EX_CONFIG), exported from packages/contract (config.ts) so DIPO-63 and DIPO-70 can use it without importing the daemon.
+- DIPO-63 must keep launchd and systemd from restarting the daemon on exit 78: systemd RestartPreventExitStatus=78; for launchd, a KeepAlive policy that does not relaunch after a configuration exit (for example KeepAlive SuccessfulExit=false is not enough on its own; DIPO-63 picks the policy and tests it).
+- DIPO-70's autostart must read <state>/config.yaml first with readSoftwareConfig (client/node) and, when it is invalid or newer, show the error instead of spawning a daemon that would exit 78.
+- The engine office loader's issueErrors is now built on the contract's configIssueErrors, with only the office.local.yaml top-level unknown-key wording as an override (unknownKeyProblem option); office messages are unchanged and pinned in packages/engine/test/config/load.test.ts.
 <!-- SECTION:NOTES:END -->
