@@ -4,7 +4,7 @@ title: 'Read and write the dipo field block, reserved labels and branch slug'
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:44'
+updated_date: '2026-10-12 21:51'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -17,6 +17,7 @@ references:
   - packages/engine/test/backlog/
   - packages/engine/src/backlog/runner.ts
   - packages/engine/src/backlog/index.ts
+  - packages/engine/src/backlog/plain.ts
 documentation:
   - docs/decisions/0010-backlog-and-git-integration.md
   - docs/decisions/0012-story-standard.md
@@ -69,4 +70,8 @@ M0 breakdown draft number S14 (DIPO-15). Before cutover: built by hand-run agent
 Added refs: packages/engine/src/backlog/runner.ts (AC6: the runner now refuses -l, --label, --labels and --clear-labels on task edit and draft edit, so labels change only with --add-label and --remove-label; tested in runner.test.ts) and packages/engine/src/backlog/index.ts (exports the new fields and slug modules).
 
 Implementation: fields/block.ts holds the parser (locateBlock, parseFieldBlock; errors are FieldBlockError with rule R02 and a 1-based description line), the canonical emitter and the splice. fields/labels.ts reads tier, role and test-before-merge, returns every tier and role so the gate judges R16 and R17, and reports labels outside the grammar. fields/write.ts is the single write path (writeFields for task or draft, editLabels); it re-reads before writing, retries up to 3 times when the description changed, and compares the read back after trimming, since the CLI stores the description trimmed. Values compare by canonical emit, so an absent key equals a key set to undefined. slug.ts holds slug and branchFor. The per-worktree write queue is left to the callers (git queue, DIPO-31).
+
+Review fixes: added ref packages/engine/src/backlog/plain.ts. parseView takes normalize: false, so the write path splices the description as the CLI printed it. NFC normalisation is only for parsing and comparing, so NFD text outside the block is written back byte for byte. A CRLF ending on the opening and closing lines counts as the line ending, and the splice keeps CRLF. A line that is ```dipo only after trimming other trailing whitespace fails R02, so a stale block is never shadowed by an appended one. The pinned CLI stores descriptions with LF endings, so the read back compares after turning CRLF into LF.
+
+Every writeFields and editLabels call must go through the per-worktree serial git queue (DIPO-31); the caller (DIPO-34) owns that.
 <!-- SECTION:NOTES:END -->
