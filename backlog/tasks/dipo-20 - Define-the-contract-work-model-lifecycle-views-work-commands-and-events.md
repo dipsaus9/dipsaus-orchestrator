@@ -4,7 +4,7 @@ title: 'Define the contract work model: lifecycle, views, work commands and even
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:47'
+updated_date: '2026-10-12 11:48'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -70,4 +70,6 @@ Implementation (DIPO-20 branch):
 - OfficeSummary gains optional dayUsage and evidence (0009 section 8).
 - JSON Schema export adds work.schema.json; regenerated with bun run contract:schema.
 Choices to confirm: story.drop is confirm true but irreversible false (the static flag cannot depend on deleteBranch; clients ask typed confirmation when deleteBranch is true, 0009 section 5). work.answer keeps text required next to the optional decision. story.detail, office.usage and office.digest result shapes are a first cut for DIPO-52 and M1. office.switch (0005 section 7) is not defined here.
+
+After merging main (DIPO-18 exports a runtime type Signal), the watchdog signal schema is named WatchdogSignal with KNOWN_WATCHDOG_SIGNALS.
 <!-- SECTION:NOTES:END -->
