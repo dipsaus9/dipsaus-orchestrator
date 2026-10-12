@@ -4,6 +4,7 @@ title: 'Start, stop, restart and report the daemon from the CLI'
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:21'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -19,6 +20,8 @@ references:
   - packages/daemon/src/
   - packages/engine/src/platform/tools.ts
   - packages/engine/test/platform/
+  - packages/engine/src/index.ts
+  - packages/client/src/node/index.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
@@ -35,7 +38,7 @@ Outcome: the `lifecycle` module in `client/node` starts, stops, restarts and rep
 
 Context: split from DIPO-25 in the M0 review (DIPO-15); DIPO-25 keeps the protocol core and the transport. Autostart reads `daemon.autostart` from `<state>/config.yaml` (DIPO-69). The daemon resolves absolute paths of `claude`, `backlog`, `gh`, `rg` and `git` at start, so a launchd, systemd or SSH start uses the same tools as the maintainer's shell, and reports them in the `daemon.status` field defined in DIPO-19. The PID and start-time identity check is DIPO-23's. References: 0006 decisions 2 (client subcommands, `lifecycle` module), 5 (start, stop, `--force`, status outputs and exit codes), 14 (restart across versions, `upgrade pending`, `daemon.autoRestartOnUpgrade`) and the 2026-10-12 amendments (`client/node`, `<state>/config.yaml`); 0005 section 11 (frozen minimal surface); 0004 boundary rules and the 2026-10-12 amendment.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-70/start-stop-restart-report-daemon-from"

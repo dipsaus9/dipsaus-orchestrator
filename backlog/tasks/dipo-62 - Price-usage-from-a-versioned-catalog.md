@@ -4,7 +4,7 @@ title: Price usage from a versioned catalog
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:39'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:S'
   - after-cutover
@@ -31,9 +31,9 @@ Outcome: the binary ships versioned pricing catalogs that the daemon imports at 
 
 References: 0008 section 4 (catalog fields, estimated cost, cross-check); 0007 section 4 (`pricing_catalogs`, `pricing_rates`, micro-USD), "Usage" bullets; research idea 4.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-62/price-usage-from-versioned-catalog"

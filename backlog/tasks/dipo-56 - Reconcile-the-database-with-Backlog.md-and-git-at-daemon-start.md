@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -38,7 +38,7 @@ Outcome: in the daemon's `recovering` state and on `office.rescan`, the engine c
 
 Context: required before cutover (maintainer decision D14, DIPO-15; 0003 amendment of 2026-10-12), so dipo never builds itself on a database that may disagree with Backlog.md and git after a restart. Reconcile is a recovery step registered with the daemon's `recovering` state (DIPO-68) and is also called by `office.rescan` (DIPO-72). References: 0007 section 6 (steps 1 to 6, table); 0001 "Data ownership"; 0005 section 2 (identity), open question 7; 0010 failure case "worktree or branch changed by hand"; 0006 decision 7 (recovering).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-56/reconcile-database-backlog-md-git-at"

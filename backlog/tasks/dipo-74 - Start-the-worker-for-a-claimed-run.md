@@ -4,6 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -35,7 +36,7 @@ Outcome: after `work.run` claims a story, the engine sets up the worktree, runs 
 
 Context: split from DIPO-48 in the M0 review (DIPO-15); DIPO-48 keeps selection, refusals, the pickup re-check and the claim. M0 runs one story at a time. Ingestion is triggered by the host's `advanced` announcement with a 1 s `stat` poll as fallback (DIPO-45); this story wires it to each started run. References: 0005 section 5 (`work.phase`); 0008 sections 2 (launch checks before every launch), 7 (`startFailed`), 9 (tier to caps); 0010 section 7 (claim, then setup), section 8 (setup), failure case "Setup fails"; 0014 section 1 (system file and task message); 0006 decision 8 (worker host).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-74/start-worker-claimed-run"

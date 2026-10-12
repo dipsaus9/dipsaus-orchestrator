@@ -4,7 +4,7 @@ title: Capture scrubbed Claude recordings for adapter tests
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,7 +32,7 @@ Outcome: `bun run recordings:capture <scenario>` runs Claude with the adapter's 
 
 Context: 0008 lists unverified CLI behaviour to record before the adapter parser (DIPO-42) and the self-test (DIPO-43) rely on it. Hook-based scenarios (`permission-wait`, `needs-permission`) are captured with DIPO-59. References: 0017 section 2 (format, replay rules, scenario table, capture steps, scrubbing allowlist, decision fields, report exemption, secret scan, storage and refresh, `recordings:status`); 0008 "Consequences" (live checks before the first adapter story).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-41/capture-scrubbed-claude-recordings"

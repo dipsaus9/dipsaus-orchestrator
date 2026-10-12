@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:35'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -14,6 +14,7 @@ dependencies:
   - DIPO-45
   - DIPO-50
   - DIPO-51
+  - DIPO-52
 references:
   - packages/engine/src/hooks/
   - packages/engine/src/workers/claude-cli/
@@ -25,6 +26,7 @@ references:
   - packages/cli/src/
   - packages/engine/test/hooks/
   - packages/engine/test/recordings/claude-cli/
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
@@ -44,9 +46,9 @@ Outcome: `dipo hook <event>` relays Claude Code hook payloads to the worker host
 
 Context: answering a story parked `needs-permission` (allow once or deny, then resume) was split into DIPO-75 in the M0 review (DIPO-15). `dipo hook` is a hidden `runDaemon` form whose handshake is versioned, so a new binary can relay to a host an older binary started (maintainer decision D11, DIPO-15; 0004 and 0006 amendments of 2026-10-12). Hook payload formats and the reply format are Claude-specific and stay in the adapter; `engine/src/hooks` stays adapter-neutral (0008 amendment of 2026-10-12). The hook command is the binary's own `process.execPath`, so it works under launchd and systemd without `PATH`. The `permission-wait` recording is captured live by the maintainer, which is why this story is flagged test-before-merge. Commands, reads and the `questions` table are added through the registration seams of DIPO-22 and DIPO-27. References: 0008 section 5 (hook list, relay, presence rule, wait), section 3 (`requires_action` next to the hook); 0005 amendment (`QuestionView.kind`, `work.answer.decision`); 0007 section 4 (`questions`); 0017 scenario `permission-wait`.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-59/relay-claude-hooks-ask-maintainer"

@@ -4,7 +4,7 @@ title: Show the office overview and queue and run stories from the TUI
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -28,7 +28,7 @@ Outcome: the TUI's overview view (`1`) shows who works on what with phase, healt
 
 Context: desk, testing and cost views are M1. References: 0009 sections 4 (overview and queue layouts), 5 (run key `u`, read-your-writes, error footer, retry with the same request id), 6 (keys), 9 (width breakpoints, memoised rows, 10 Hz batching).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-54/show-office-overview-queue-run-stories"

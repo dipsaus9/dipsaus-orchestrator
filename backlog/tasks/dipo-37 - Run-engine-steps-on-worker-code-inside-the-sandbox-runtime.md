@@ -4,7 +4,7 @@ title: Run engine steps on worker code inside the sandbox runtime
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - test-before-merge
   - 'tier:L'
@@ -22,6 +22,7 @@ references:
   - packages/engine/package.json
   - packages/daemon/src/
   - .github/workflows/ci.yml
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -40,7 +41,7 @@ Outcome: install, setup, verify and other engine steps that run worker-written c
 
 Context: security boundary; it fails closed. `srt` is a Node CLI whose library form is a process-wide singleton with the network proxy in the wrapping process, so dipo bundles it as a library and runs each step in its own process through the hidden `runDaemon` form `dipo daemon sandbox-exec --policy <file> -- <cmd>`, which stays alive while the command runs (maintainer decision D11, DIPO-15; 0004, 0006 and 0008 amendments of 2026-10-12). DIPO-17's self-check only proves the library loads; this story adds a real `sandbox-exec` run to the four smoke jobs. Each step gets a short temp root that the policy opens for writes and Unix sockets, passed as `TMPDIR` and `DIPO_TMP`, so this repository's own tests (which create sockets under `DIPO_TMP`, DIPO-18) pass when dipo verifies itself after cutover. References: 0008 section 2 "Engine steps on worker-written code" (policy, Linux path rules, probe, the Ubuntu AppArmor check, fail-closed) and its 2026-10-12 amendment (`rg` on macOS and Linux), open question 10; 0010 amendment (install inside `srt`); 0014 section 3 (verify inside `srt`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-37/run-engine-steps-worker-code-inside"

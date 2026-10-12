@@ -4,6 +4,7 @@ title: Merge backlog PRs through the office merge slot
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:21'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -29,7 +30,7 @@ Outcome: the engine merges the office's backlog PR through a merge slot once its
 
 Context: split from DIPO-35 in the M0 review (DIPO-15); DIPO-35 keeps opening, updating and checking the PR. In M0 the engine opens and auto-merges backlog-lane PRs with no reviewer agent (M0 breakdown decision D4, DIPO-15). The merge slot serves backlog PRs only; story PRs use it from M1 (M0 breakdown decision D1, DIPO-15). The live test runs only when `DIPO_LIVE_REPO` names a scratch GitHub repository and is skipped otherwise. References: 0010 section 2 (lane b, rebuild closes the old PR), section 7 (Merge slot row, failure case "Backlog PR conflicts or is rejected"), open question 1; 0016 rule 2 (required checks, merge slot steps, lane-b PRs in the slot, held operations); 0002 amendment (backlog-only PRs auto-merge without the reviewer agent).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-73/merge-backlog-prs-through-office-merge"

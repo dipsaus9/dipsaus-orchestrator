@@ -4,7 +4,7 @@ title: Prepare the release pipeline as a dry run with an install script
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:37'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -35,9 +35,9 @@ Outcome: `release.yml` runs release-please and the four-target release build as 
 
 Context: replacing the binary by rename keeps a running daemon on its open file and never leaves a half-written binary (M0 review, DIPO-15; 0006 decision 14). References: 0016 rules 1 (shellcheck job), 3 (release-please, App token, `bump-minor-pre-major`, dry run until `v0.1.0`), 4 (environments, build, publish, attestations, post-release check), 7 (install script), 12 (autorelease rule in `CLAUDE.md`); 0017 section 1 and 0016 amendment (live smoke run before release).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-66/prepare-release-pipeline-as-dry-run"

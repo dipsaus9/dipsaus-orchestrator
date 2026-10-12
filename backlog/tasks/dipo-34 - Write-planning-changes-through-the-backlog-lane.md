@@ -4,7 +4,7 @@ title: Write planning changes through the backlog lane
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:29'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,7 +32,7 @@ Outcome: planning operations that belong to no story PR are journaled, applied t
 
 Context: M0's only caller is office init (DIPO-36). Opening the backlog PR, the structural check and auto-merge are DIPO-35 and DIPO-73 (M0 breakdown decision D4, DIPO-15). The run skip is exposed as a predicate that DIPO-48 uses, because `work.run` does not exist yet (M0 review, DIPO-15). References: 0010 section 2 (lane b, journal, rebuild, never force-push, pending-op skip, git queue ordering), section 2a step 1 (journal first); 0007 section 4 (`backlog_journal` states).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-34/write-planning-changes-through-backlog"

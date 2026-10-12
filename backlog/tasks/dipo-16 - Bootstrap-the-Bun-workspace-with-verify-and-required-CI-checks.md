@@ -4,7 +4,7 @@ title: Bootstrap the Bun workspace with verify and required CI checks
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:23'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -42,7 +42,7 @@ Outcome: the repository is a Bun workspace with the six packages of ADR 0004, a 
 
 Context: there is no code yet. This story sets the floor every later story builds on. Packages hold only an `index.ts` and one test each. References: 0004 "Repo layout", "Tooling and the verify command"; 0016 rule 1 (ci.yml, pr-title.yml), rule 2 (required checks); 0017 section 1 (`DIPO_TEST_CI`, `*.ci.test.ts`), section 4 (`randomize = true`, no retries). The Backlog CLI stays on 1.53.x on every machine (M0 review, D11, DIPO-15; 0016 amendment of 2026-10-12): the repository pins it as a devDependency (DIPO-18) and the maintainer installs the same version globally. Later stories add the packages named in the pinned versions table; this story records the versions.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-16/bootstrap-bun-workspace-verify-required"

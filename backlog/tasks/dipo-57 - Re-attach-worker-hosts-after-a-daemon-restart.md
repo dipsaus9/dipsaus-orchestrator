@@ -4,12 +4,13 @@ title: Re-attach worker hosts after a daemon restart
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
   - DIPO-45
+  - DIPO-51
   - DIPO-52
   - DIPO-56
   - DIPO-74
@@ -37,7 +38,7 @@ Outcome: after a daemon restart the engine re-attaches every active run's worker
 
 Context: required before cutover (maintainer decision D14, DIPO-15; 0003 amendment of 2026-10-12): once dipo builds itself, a daemon upgrade or restart must not lose the run that is building it. Re-attach is a recovery step registered with the daemon's `recovering` state (DIPO-68), after reconcile (DIPO-56). It also handles the `ingest.fileChanged` report of DIPO-45, which parks the run `interrupted` (M0 review, DIPO-15). The manual check uses `dipo watch` (DIPO-52), so it does not depend on the TUI stories. References: 0006 decision 7 (recovering), decision 8 (re-attach cases, never a new host while the old PID is alive, caps checked after catch-up); 0007 section 5 (host file changed means `interrupted`); 0008 section 8 (resume on `interrupted`); 0009 section 3 (`host-lost`, `follow-only`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-57/re-attach-worker-hosts-after-daemon"

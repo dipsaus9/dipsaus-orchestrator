@@ -4,7 +4,7 @@ title: Define the Worker contract and build the Claude CLI launch plan
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,7 +32,7 @@ Outcome: `engine/src/workers/types.ts` defines the adapter-neutral Worker contra
 
 Context: the capture tool (DIPO-41) runs Claude with this plan, so it comes first. `WorkerSpec.kind` is an open string so a later `session` run kind (a model session with no worktree or branch, for the M1 scan fallback, M3 interviews and M5 conversation) needs no contract change; M0 plans only `implement` (maintainer decision D12, DIPO-15). The `claude` path is the absolute one the daemon resolved at start (DIPO-70), so a launchd or systemd environment runs the same binary as the maintainer's shell. References: 0008 section 1 (interfaces), section 2 (launch flags, environment allowlist, tools and rules, sandbox block, absolute paths, `includeGitInstructions: false`, empty `attribution`), section 9 (tiers to caps); 0014 sections 1 and 5 (L1+L2 in `--append-system-prompt-file`, fixed tools, `--exclude-dynamic-system-prompt-sections`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-40/define-worker-contract-build-claude-cli"

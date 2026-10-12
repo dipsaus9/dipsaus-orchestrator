@@ -4,7 +4,7 @@ title: Run git through a hardened serial queue with a base read worktree
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:29'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -31,7 +31,7 @@ Outcome: each office runs its git operations one at a time through a queue, ever
 
 Context: claims, the backlog lane and the story index all use this. The minimum git version 2.38 is checked once per office load (M0 review, DIPO-15), because Done detection uses `git merge-tree --write-tree` (DIPO-58). References: 0010 section 7 (base and remote, worktree root, start point, lock retry, fetch failure), section 2 (`_base` worktree, reads for `run`); 0008 section 2 "Engine git calls" (hardened environment and flags); 0007 section 6 step 4 (fetch only when the remote answers).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-31/run-git-through-hardened-serial-queue"

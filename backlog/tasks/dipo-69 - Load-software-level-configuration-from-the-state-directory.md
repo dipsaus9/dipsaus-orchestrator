@@ -4,6 +4,7 @@ title: Load software-level configuration from the state directory
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:20'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,12 +14,13 @@ dependencies:
   - DIPO-25
   - DIPO-26
 references:
-  - packages/contract/src/software-config.ts
-  - packages/contract/schema/
   - packages/engine/src/config/software.ts
   - packages/client/src/node/config.ts
   - packages/engine/test/config/
   - packages/client/test/
+  - packages/contract/
+  - packages/daemon/src/
+  - packages/client/src/node/index.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -34,7 +36,7 @@ Outcome: dipo reads the software-level settings in `<state>/config.yaml` with on
 
 Context: new home story for software-level configuration, added in the M0 review (maintainer decision D11, DIPO-15; 0006 and 0017 amendments of 2026-10-12). Version 1 holds `daemon.autostart` (default `true`, used by client autostart in DIPO-70) and `daemon.autoRestartOnUpgrade` (default `false`, used by DIPO-70). `web.enabled` joins when the browser listener ships, and that addition bumps the file's `version` (0017 amendment). The schema lives in `packages/contract` (zod only, no I/O), so the daemon and `client/node` validate the same way; the daemon reads the file through `engine/src/platform/yaml.ts`, clients through `client/node`. References: 0017 section 5 (shell, strict schemas, versioning, JSON Schema export) and its 2026-10-12 amendments; 0006 decisions 3 (`<state>` anchor), 5 (`daemon.autostart`), 14 (`daemon.autoRestartOnUpgrade`) and the 2026-10-12 amendment.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-69/load-software-level-configuration-from"

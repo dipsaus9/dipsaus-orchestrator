@@ -4,7 +4,7 @@ title: Index office stories with stable story keys
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:29'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -35,7 +35,7 @@ Outcome: when an office loads and before each pickup, the engine reads every tas
 
 Context: this is the read side of reconcile needed for M0 runs; the full mismatch table with claims, parks and runs is DIPO-56. The minimal story view and office summary live here so events and `engine.hello` carry real views from the first indexed story; DIPO-52 adds waiting-on, gate messages, work views and health (M0 review, DIPO-15). A periodic fetch every `polling.fetchSeconds` (office configuration, DIPO-26) lets a story set Ready on the remote be seen without a manual rescan. References: 0009 section 3 (columns); 0005 section 2 (StoryKey, identity checks, renumbering, Removed observed by reconcile); 0007 sections 4 (`stories`, `story_aliases`, `backlog_mirror`), 6 step 3; 0010 section 2 (reads for `run` from `_base`), section 6 (archived and completed not active).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-32/index-office-stories-stable-story-keys"

@@ -4,6 +4,7 @@ title: Store run profiles and rescan offices on change
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:21'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -35,7 +36,7 @@ Outcome: the engine stores each office's run profile with its fingerprint, resca
 
 Context: split from DIPO-33 in the M0 review (DIPO-15); DIPO-33 keeps the pure detection. M0 scan is code only (M0 breakdown decision D8, DIPO-15). The scan at office load is an office load step and `office.rescan` a command, both added through the registration seams of DIPO-22 and DIPO-27 (`register(registry)` listed in `packages/engine/src/features.ts`), not by editing `commands/` or `office/`. References: 0013 sections 2 (`run` refusal), 4 (stored data, no env contents), 5 (fingerprint, triggers, story-branch scan rule); 0007 section 4 (`scans`, `run_profiles`, `run_capabilities`, `run_env_files`, `run_ports`, `run_extra_scripts`); 0005 (`office.rescan`, `scan.running`, `scan.finished`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-72/store-run-profiles-rescan-offices-change"

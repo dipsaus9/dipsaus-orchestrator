@@ -4,7 +4,7 @@ title: 'Derive story and work views, snapshots and a plain watch command'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -34,7 +34,7 @@ Outcome: the engine derives `StoryView` (column, waiting-on, gate messages), `Wo
 
 Context: evidence labels, the cost read and the digest read are M1. This story extends the minimal `deriveStoryView` and `OfficeSummary` of DIPO-32 with waiting-on, gate messages, work views and health; it replaces nothing else. The reads are added through the registration seam of DIPO-22 (M0 review, DIPO-15). References: 0005 sections 5 (views), 6 (derived only in the engine), 7 (reads), 8 (snapshot then subscribe without a gap); 0009 sections 3 (columns, health precedence, signals `quiet` and `no-output`), 9 (`dipo watch` plain text); 0008 section 3 (watchdog from `timeouts`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-52/derive-story-work-views-snapshots-plain"

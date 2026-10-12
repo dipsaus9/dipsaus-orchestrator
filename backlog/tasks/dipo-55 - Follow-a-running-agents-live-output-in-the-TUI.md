@@ -4,7 +4,7 @@ title: Follow a running agent's live output in the TUI
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 07:59'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -31,7 +31,7 @@ Outcome: Enter on a running story opens the live agent detail: facts on the left
 
 Context: steer, pause, reassign, discard and answer keys are M1. References: 0009 sections 4 (live agent detail layout, `cw`/`cr` usage), 5 (stop with confirmation), 6 (Esc back), 9 (only visible lines in state); 0005 sections 5 (`work.output` byte ranges), 7 (`work.outputRange`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-55/follow-running-agent-s-live-output-tui"

@@ -4,7 +4,7 @@ title: Host each worker in a detached process with an event file
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,7 @@ references:
   - packages/engine/src/db/migrations/
   - packages/daemon/src/
   - packages/engine/test/host/
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
@@ -34,7 +35,7 @@ Outcome: each run gets a detached worker host, `dipo daemon worker-host <run-id>
 
 Context: re-attach after a daemon restart is DIPO-57; the host already carries what it needs. The host replays recordings through DIPO-42's `FakeProcess` in tests, so this story depends on DIPO-42; the CI-only detach test uses a stub worker script instead of Claude (M0 review, DIPO-15). The `watch` op lets ingestion (DIPO-45) react to new lines without `fs.watch`. References: 0006 decision 8 (host role, socket, exit file, no engine logic, liveness by PID plus start time, `BUN_OPTIONS` removed), decision 3 (100-byte socket path); 0007 section 2 (run directory under `<git-common-dir>/dipo/runs/<run-id>/`, mode `0700`); 0017 section 2 (`ch` envelope reused for event lines).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-44/host-each-worker-detached-process-event"

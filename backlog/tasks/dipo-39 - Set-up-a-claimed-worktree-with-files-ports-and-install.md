@@ -4,7 +4,7 @@ title: 'Set up a claimed worktree with files, ports and install'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -33,7 +33,7 @@ Outcome: after a claim, the engine copies or links the configured gitignored fil
 
 Context: teardown is DIPO-58. The run profile comes from DIPO-72's stored profile. References: 0010 section 8 (files, install, setup, post_create, run environment), section 9 (slots and bind check), failure case "Setup fails", amendment from 0008 (settings copy, env-file notice); 0013 section 4 (env file facts); 0008 section 2 "Project settings" (dropped keys), "Env files".
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-39/set-up-claimed-worktree-files-ports"

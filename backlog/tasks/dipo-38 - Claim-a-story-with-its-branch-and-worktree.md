@@ -4,7 +4,7 @@ title: Claim a story with its branch and worktree
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -33,7 +33,7 @@ Outcome: the engine claims a story by creating its frozen branch and a locked wo
 
 Context: setup after the claim is DIPO-39. Reusing a released branch is included because a parked story's branch is kept. The free-disk check before a claim was added in the M0 review (DIPO-15); its 2 GB floor is a constant. The `claims` table here is what the backlog PR check (DIPO-35) reads for live claims. References: 0010 section 7 (start point, claim checks, lock, failure cases), section 2 (lane a, push after the claim commit, only the story's task file under `backlog/`), section 2a (released branch reuse with `origin/<base>` merge); 0007 section 4 (`claims`, `released_branches`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-38/claim-story-its-branch-worktree"

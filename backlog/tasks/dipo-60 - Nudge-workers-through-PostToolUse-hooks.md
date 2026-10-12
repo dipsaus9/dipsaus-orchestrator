@@ -4,7 +4,7 @@ title: Nudge workers through PostToolUse hooks
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:37'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:S'
   - after-cutover
@@ -33,9 +33,9 @@ Outcome: the engine answers `PostToolUse` and `SessionStart` hook calls with a s
 
 Context: the nudge is an adapter-neutral `encode` op and the Claude adapter maps it to `additionalContext`, so `engine/src/hooks` stays free of Claude formats (maintainer decision D11, DIPO-15; 0008 amendment of 2026-10-12). References: 0014 section 8 (triggers, texts, 300 characters, once per fact signature, 2 s limit, counted per run); 0008 section 1 (`encode`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-60/nudge-workers-through-posttooluse-hooks"

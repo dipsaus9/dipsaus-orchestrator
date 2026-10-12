@@ -4,7 +4,7 @@ title: Answer a needs-permission park with allow once or deny
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 09:35'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -35,9 +35,9 @@ Outcome: a story parked `needs-permission` carries a permission question that th
 
 Context: split from DIPO-59 in the M0 review (DIPO-15); DIPO-59 keeps the hook relay, the presence check, the `questions` table, `work.answer` for a waiting permission question, and `dipo answer`; this story extends `work.answer` to parked stories. M0 breakdown decision D10 (maintainer, 2026-10-12, DIPO-15): the allow-once flow through `work.answer` and `dipo answer` stays in M0 as an explicit exception to decision D2. It resumes only a story parked `needs-permission`; every other resume of a parked story stays M1. The park itself is written by DIPO-50; resume follows 0008 section 8 as built in DIPO-51. The `needs-permission` recording is captured live by the maintainer with the DIPO-41 tool. References: 0008 section 5 (blocked on a permission, allow once exactly matching, sandbox-bound actions), section 8 (resume); 0005 amendment (`QuestionView.kind`, `work.answer.decision`); 0017 scenario `needs-permission`.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-75/answer-needs-permission-park-allow-once"

@@ -4,7 +4,7 @@ title: Build the dipo binary and smoke-test it on four targets
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:23'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -16,12 +16,14 @@ references:
   - packages/cli/
   - .github/workflows/ci.yml
   - packages/daemon/src/
-  - packages/engine/src/platform/self-check.ts
   - packages/engine/package.json
   - packages/tui/src/self-check.ts
   - packages/tui/package.json
   - package.json
   - bun.lock
+  - packages/engine/src/platform/
+  - packages/engine/src/index.ts
+  - packages/tui/src/index.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -39,7 +41,7 @@ Outcome: `bun scripts/build.ts --target <t>` produces a signed `dipo` binary tha
 
 Context: the CLI has only `--version`, `--help` and the hidden `self-check` here; later stories add subcommands. The self-check finds a runtime feature that breaks under `bun build --compile` on day one instead of in a later story (M0 review, DIPO-15). Its engine checks run daemon-side through `runDaemon` and `engine/src/platform/` (0004 boundary rules); the Ink check runs through `tui`. The `srt` check only proves the library bundles and initialises; running a command inside it is the `dipo daemon sandbox-exec` form that DIPO-37 builds and adds to these smoke jobs (0004 and 0008 amendments of 2026-10-12). References: 0004 "Tooling" (build row, compile smoke test outside verify) and its 2026-10-12 amendment; 0016 rule 1 (smoke jobs), rule 5 (`dipo --version`), rule 6 (ad hoc signing); 0006 decision 9 (`Bun.serve` on a Unix socket, `ws+unix://`); 0007 section 1 (WAL, `VACUUM INTO` in a Bun Worker); 0009 section 1 (Ink in the compiled binary); 0017 section 5 (`Bun.YAML.parse`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-17/build-dipo-binary-smoke-test-it-four"

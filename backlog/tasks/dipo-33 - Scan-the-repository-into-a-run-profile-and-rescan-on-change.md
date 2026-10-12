@@ -4,7 +4,7 @@ title: Detect the run profile of a repository with pure scan code
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:29'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -27,7 +27,7 @@ Outcome: pure detection code turns the filesystem facts of a checkout into a run
 
 Context: M0 detection is code only; the AI fallback and the confirmation command are M1 (M0 breakdown decision D8, DIPO-15). Storing profiles, rescans, `office.rescan` and `dipo office rescan` were split into DIPO-72 in the M0 review (DIPO-15); `work.run` uses the refusal through DIPO-72. This repository resolves verify from its root `verify` script. References: 0013 sections 1 (standard scripts), 2 (levels, `run` refusal), 3 (detection order, conflicts as findings), 4 (stored data, no env contents), 5 (fingerprint inputs), 7 (env files and ports).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-33/scan-repository-into-run-profile-rescan"

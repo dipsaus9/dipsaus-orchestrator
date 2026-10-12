@@ -4,6 +4,7 @@ title: Store gate decisions and show them with dipo gate
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:21'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -15,9 +16,9 @@ references:
   - packages/engine/src/gate/store/
   - packages/engine/src/db/migrations/
   - packages/engine/src/features.ts
-  - packages/contract/src/
   - packages/cli/src/
   - packages/engine/test/gate/
+  - packages/contract/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -34,7 +35,7 @@ Outcome: the engine stores every pickup-mode gate evaluation with its rule resul
 
 Context: split from DIPO-30 in the M0 review (DIPO-15); DIPO-30 keeps the pure `evaluateGate`. The `ready` command is M3. In M0 the gate runs as the pickup re-check inside `work.run` (DIPO-48) and through this read-only check (M0 breakdown decision D3, DIPO-15). The structural check of the backlog PR (DIPO-35) matches a new `Ready` against a stored passing decision. The read is added through the registration seam of DIPO-22 (`register(registry)` listed in `packages/engine/src/features.ts`). References: 0007 section 4 (`gates`, `gate_decisions` with rule results and content hash); 0012 section 3 (decision stored in the local database); 0005 section 7 (reads) and section 11 (`since`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-71/store-gate-decisions-show-them-dipo-gate"

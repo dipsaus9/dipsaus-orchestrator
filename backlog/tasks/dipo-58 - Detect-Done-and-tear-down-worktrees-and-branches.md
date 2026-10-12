@@ -4,7 +4,7 @@ title: Detect Done and tear down worktrees and branches
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:37'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -35,9 +35,9 @@ Outcome: after a story's PR merges, the engine detects Done from the host's PR s
 
 Context: the host is reached through `platform/host.ts` (DIPO-35), polled at the office's `polling.prStateSeconds` (DIPO-26); `worker_notes` and `context_packs` come from DIPO-47 and DIPO-46 (M0 review, DIPO-15). References: 0010 section 7 ("Merge and Done", "Teardown", dirty worktree failure case), open question 8; 0007 section 7 (tier T rows deleted at teardown).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-58/detect-done-tear-down-worktrees-branches"

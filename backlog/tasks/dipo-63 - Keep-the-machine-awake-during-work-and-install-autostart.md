@@ -4,7 +4,7 @@ title: Keep the machine awake during work and install autostart
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:37'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -19,7 +19,9 @@ references:
   - packages/engine/test/keepawake/
   - packages/client/src/node/lifecycle/
   - packages/engine/src/host/
-  - packages/contract/src/
+  - packages/contract/
+  - packages/daemon/src/
+  - packages/client/src/node/index.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -33,11 +35,11 @@ ordinal: 63000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the daemon holds one idle-sleep assertion while work is active and releases it two minutes after, and `dipo daemon install|uninstall` sets up a launchd agent or systemd user unit that restarts the daemon after a crash.
 
-Context: `install`, `uninstall` and the supervisor paths live in the `lifecycle` module of `client/node` (DIPO-70; 0004 and 0006 amendments of 2026-10-12); `install` is named offline maintenance outside the contract. The unit carries the user's `PATH` so the daemon resolves the same tools as the shell (M0 review, DIPO-15). The keep-awake reason joins `daemon.status` in the contract. References: 0006 decision 12 (`caffeinate -i -w`, `systemd-inhibit` with `wait-pid`, polkit fallback to `delay`, status reason), decision 15 (plist and unit keys, lingering warning, start and stop through the supervisor), decision 8 (systemd scopes for worker hosts).
+Context: `install`, `uninstall` and the supervisor paths live in the `lifecycle` module of `client/node` (DIPO-70; 0004 and 0006 amendments of 2026-10-12); `install` is named offline maintenance outside the contract. The unit carries the user's `PATH` so the daemon resolves the same tools as the shell (M0 review, DIPO-15). The keep-awake reason joins `daemon.status` in the contract. This story implements the `wait-pid` `runDaemon` form that DIPO-23 dispatches, and the keep-awake holder in the daemon. References: 0006 decision 12 (`caffeinate -i -w`, `systemd-inhibit` with `wait-pid`, polkit fallback to `delay`, status reason), decision 15 (plist and unit keys, lingering warning, start and stop through the supervisor), decision 8 (systemd scopes for worker hosts).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-63/keep-machine-awake-during-work-install"

@@ -4,7 +4,7 @@ title: Pick and claim one Ready story with work.run
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -42,7 +42,7 @@ Outcome: `work.run` (and `dipo run [ID]`) picks one Ready story from `origin/<ba
 
 Context: M0 runs one story at a time; `maxAgents` above 1 is refused until M2. Starting the worker after the claim (setup, launch checks, prompt, host, ingestion, `work.phase build`) was split into DIPO-74 in the M0 review (DIPO-15). Earlier stories expose their run decisions as predicates that this story consumes (M0 review, DIPO-15): `configBlocksRuns` and the active-work check of `office.forget` (DIPO-27), `pendingLaneOp` (DIPO-34), `backlogCheckBlocked` (DIPO-35), `officeStatusesReady` (DIPO-36), `adapterHeld` (DIPO-43), `assembleContract` (DIPO-47), `verifyResolved` (DIPO-72), and the daemon's scheduling predicate (DIPO-68). The pickup decision is stored through DIPO-71. The `runs` table already holds the second run kind, `session`, with no story key, worktree or branch, used later for the M1 scan fallback, M3 interviews and M5 conversation; M0 starts only `story` runs (maintainer decision D12, DIPO-15; 0007 and 0008 amendments of 2026-10-12). `work.run` is added through the registration seam of DIPO-22. References: 0005 section 4 (`work.run` args, result, skips, failed re-check emits `story.state` to Refined), section 5 (`work.assigned`, `work.phase`); 0012 section 2 (Ready to In Progress, eligibility: Ready plus dependencies Done), section 3 (pickup mode); 0010 section 2 (Ready on `origin/<base>`, pending lane-b skip), section 7 (claim); 0013 section 2 (refuse when verify unresolved); 0014 section 4 (contract backstop handled like a failed re-check); 0008 section 9 (tier to caps); 0007 section 4 (`runs`, `run_steps`, `config_snapshots`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-48/start-run-one-ready-story"

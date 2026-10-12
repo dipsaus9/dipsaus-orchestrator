@@ -4,6 +4,7 @@ title: Move the daemon through its lifecycle states with drain and safe mode
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:20'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -13,6 +14,7 @@ references:
   - packages/daemon/src/
   - packages/engine/src/platform/process.ts
   - packages/daemon/test/
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -28,7 +30,7 @@ Outcome: the daemon moves through `starting`, `recovering`, `running`, `draining
 
 Context: split from DIPO-23 in the M0 review (DIPO-15), which keeps the PID lock, the runtime directory and the logs. This story keeps the state and its reason inside the daemon and exposes them; the `daemon.state` event on the software stream and the `daemon.*` commands are DIPO-24. Recovery work (migrations here, reconcile in DIPO-56, re-attach in DIPO-57) plugs in as recovery steps registered with the daemon. References: 0006 decision 7 (states, drain caps of 20 s and 60 s, safe mode, crash counter in `<state>`), decision 6 (clean exit removes `dipo.sock`, then `dipo.pid`), decision 8 (worker hosts keep running across a drain); 0005 section 10 (`engine.recovering`, `scheduling.off`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-68/move-daemon-through-its-lifecycle-states"

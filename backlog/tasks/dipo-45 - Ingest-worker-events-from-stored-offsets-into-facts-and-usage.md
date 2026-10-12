@@ -4,7 +4,7 @@ title: Ingest worker events from stored offsets into facts and usage
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,7 +32,7 @@ Outcome: the engine reads complete lines of each run's `events.ndjson` from the 
 
 Context: pricing of usage is DIPO-62; `est_cost_micros` stays empty until then. Starting ingestion for each new run is wired in DIPO-74, and parking a run whose event file changed is DIPO-57, so this story reports the change instead (M0 review, DIPO-15). Usage of a run with no story (a later `session` run, 0007 amendment of 2026-10-12) is stored under the office like any other run. References: 0007 sections 4 (`agents`, `usage_messages`, `usage_totals`, `usage_daily`, `output_chunks`, `ingest_cursors`), 5 (offset ingestion, host file changed means `interrupted`), 8 (privacy of stored output); 0005 section 6 (debounce 250 ms or 16 KiB, usage at most 1 per second, state changes flush output first); 0006 decision 8 (offset in the same transaction).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-45/ingest-worker-events-from-stored-offsets"

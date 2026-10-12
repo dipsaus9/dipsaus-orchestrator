@@ -4,7 +4,7 @@ title: Run the daemon with the PID lock and runtime directory
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:27'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,7 @@ references:
   - packages/engine/src/platform/lock.ts
   - packages/engine/src/log/
   - packages/cli/src/
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
@@ -31,9 +32,9 @@ ordinal: 23000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: `dipo daemon --foreground` runs one daemon per user, guarded by an `O_EXCL` PID lock with stale handling and a reliable PID identity check, in a checked `0700` runtime directory, with JSON-line logs, after recording the 0006 platform prototype results for the compiled binary.
 
-Context: first daemon story; it also runs the 0006 platform prototype checks and records the results in its implementation notes. The lifecycle states, drain and safe mode were split into DIPO-68 in the M0 review (DIPO-15). Log rotation and `dipo daemon logs` follow in DIPO-64. The prototype results gate DIPO-24: when `ws+unix://` fails in the compiled binary, DIPO-24 serves raw NDJSON frames over the Unix socket instead (M0 review, DIPO-15). The Linux results come from a CI job on `ubuntu-24.04` on a scratch branch that is never merged; the macOS results from the maintainer's machine. The PID identity check is shared: DIPO-44 (host liveness), DIPO-68 and DIPO-70 (stop `--force`) use it. `runDaemon` forms added later: `self-check` (DIPO-17), `sandbox-exec` (DIPO-37), `hook` (DIPO-59), `restore` (DIPO-76), per the 0004 and 0006 amendments of 2026-10-12. References: 0006 decisions 2 (`runDaemon` forms), 3 (anchor and runtime directories), 6 (lock, stale break, post-bind re-read, minute check, start time), 8 (`--no-orphans` refusal), 13 (log format, levels, redaction), "Consequences" (prototype list); 0007 section 1 (database opened only after the post-bind re-read).
+Context: first daemon story; it also runs the 0006 platform prototype checks and records the results in its implementation notes. The lifecycle states, drain and safe mode were split into DIPO-68 in the M0 review (DIPO-15). Log rotation and `dipo daemon logs` follow in DIPO-64. The prototype results gate DIPO-24 and DIPO-25: if `ws+unix://` fails in the compiled binary, the work stops there, this story is parked or blocked with the result, and the maintainer chooses the transport; there is no automatic fallback (maintainer decision D17, DIPO-15). Tests set `DIPO_RUNTIME_DIR` under `DIPO_TMP`, so sockets stay inside the sandboxed temp root. The Linux results come from a CI job on `ubuntu-24.04` on a scratch branch that is never merged; the macOS results from the maintainer's machine. The PID identity check is shared: DIPO-44 (host liveness), DIPO-68 and DIPO-70 (stop `--force`) use it. `runDaemon` forms added later: `self-check` (DIPO-17), `sandbox-exec` (DIPO-37), `hook` (DIPO-59), `restore` (DIPO-76), per the 0004 and 0006 amendments of 2026-10-12. References: 0006 decisions 2 (`runDaemon` forms), 3 (anchor and runtime directories), 6 (lock, stale break, post-bind re-read, minute check, start time), 8 (`--no-orphans` refusal), 13 (log format, levels, redaction), "Consequences" (prototype list); 0007 section 1 (database opened only after the post-bind re-read).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-23/run-daemon-pid-lock-runtime-directory"
@@ -41,7 +42,7 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) runtime directory choice for each candidate, length limit, squatted directory fallback."
+      check: "(unit) runtime directory choice for each candidate, length limit, squatted directory fallback; `DIPO_RUNTIME_DIR` under `DIPO_TMP` wins over every other candidate."
     - kind: "automated"
       check: "(integration) two starters race for the lock; exactly one runs; a stale record with a dead PID is broken."
     - kind: "automated"
@@ -64,7 +65,8 @@ test_plan:
 - [ ] #6 `platform/process.ts` checks PID identity by start time read with `LC_ALL=C TZ=UTC ps -o lstart=` with a tolerance of 2 s, or from field 22 of `/proc/<pid>/stat` on Linux, and treats a zombie as dead.
 - [ ] #7 `runDaemon` refuses to start when `--no-orphans` is in `process.execArgv` or `BUN_OPTIONS`.
 - [ ] #8 Logs are JSON lines with `ts`, `level`, `msg`, `component` and `office`/`run` when known, in `<logs>/daemon.log`, also on stderr in foreground; `code`, `token` and `session.token` fields are redacted at every level, and the logger is passed to modules that take one (DIPO-21).
-- [ ] #9 Implementation notes record the 0006 prototype results on Bun 1.4.2 in the compiled binary: macOS from the maintainer's machine, Linux from a CI job on `ubuntu-24.04`, including whether `ws+unix://` works.
+- [ ] #9 Implementation notes record the 0006 prototype results on Bun 1.4.2 in the compiled binary: macOS from the maintainer's machine, Linux from a CI job on `ubuntu-24.04`, including whether `ws+unix://` works; if it does not, the story stops there with the result in its notes for the maintainer to choose the transport.
+- [ ] #10 `DIPO_RUNTIME_DIR` overrides the runtime directory for tests, checked like any other candidate, so every test socket lives under `DIPO_TMP`.
 <!-- AC:END -->
 
 ## Implementation Notes

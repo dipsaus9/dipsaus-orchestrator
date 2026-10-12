@@ -4,7 +4,7 @@ title: Start the TUI with the office store and the office switcher
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -20,6 +20,8 @@ references:
   - packages/cli/src/
   - package.json
   - bun.lock
+  - packages/client/src/index.ts
+  - packages/client/test/
 documentation:
   - docs/decisions/0009-tui.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
@@ -35,7 +37,7 @@ Outcome: `dipo tui` opens an Ink 8 full-screen client that autostarts the daemon
 
 Context: first TUI story. Its first step is the throwaway prototype on a scratch branch, never merged; results go in the implementation notes, with the Linux results from a CI job on `ubuntu-24.04` (M0 review, DIPO-15). The `OfficeStore` belongs to the runtime-free client core so a future web client can reuse it (0004 amendment of 2026-10-12). Autostart comes from DIPO-70 and office summaries from DIPO-32. Ink and react are already bundled by DIPO-17's self-check. References: 0009 sections 1 (prototype checks 1 to 4, fallback trigger), 2 (thin client, store rules), 4 (office switcher), 6 (global keys), 7 (connection and daemon states), 9 (narrow terminals, `NO_COLOR`, `--ascii`, alternate screen, `--inline`); 0017 section 1 (TUI layer).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-53/start-tui-office-store-office-switcher"

@@ -4,7 +4,7 @@ title: Assemble worker prompts from templates and story data
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -31,7 +31,7 @@ Outcome: the engine renders the system file (L1 worker contract plus L2 built-in
 
 Context: the review kind and L5 nudges come later (M1 and DIPO-60); verify feedback items are added here because DIPO-49 sends them. The contract-size backstop returns an error that DIPO-48 handles before the claim, like a failed pickup re-check (0014 section 4; M0 review, DIPO-15). The `worker_notes` table lives here because the handoff block is its first reader; teardown (DIPO-58) deletes its rows. References: 0014 sections 1 (layers, template rules), 2 (sections, precedence sentence, what is left out, report fields), 4 (budgets, never-truncated contract, R26 backstop, drop order), 5 (byte-stable L1+L2, deterministic render), 6 (handoff block), 7 (verify feedback evidence); 0007 section 4 (`prompt_parts`).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-47/assemble-worker-prompts-from-templates"

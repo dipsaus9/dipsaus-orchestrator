@@ -4,7 +4,7 @@ title: 'Define the contract work model: lifecycle, views, work commands and even
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:25'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -30,7 +30,7 @@ Outcome: the contract holds the story and work model (lifecycle, park reasons, t
 
 Context: commands that M0 does not implement are still defined, because 0005 puts them in contract 1.0; they are provisional until they first ship with a `since` version, so renaming one is not a major change, and the engine hides them with capability flags (0005 amendment of 2026-10-12). `Tier`, `ParkReason` and `SkipReason` are open enums: the engine validates a tier against the office tier set, and clients render an unknown value generically (same amendment). References: 0005 sections 4 (work, story, gate, test commands, `SkipReason`), 5 (views, events, `WorkRef`), 7 (`office.snapshot`, `story.detail`, `work.outputRange`); 0008 amendments to 0005 (park reasons, `Usage.budget` in tokens, cache split, `QuestionView.kind`, `work.answer.decision`); 0009 sections 3 and 8 (phases, signals, `Health`, `Evidence`, `budgetShare`, `waitingOn`, `gateMessages`, `office.usage`, `office.digest`); 0010 section 3 (field block keys); 0012 F14, F16.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-20/define-contract-work-model-lifecycle"
@@ -55,7 +55,7 @@ test_plan:
 - [ ] #5 Office event schemas exist for every office row of the 0005 section 5 event table.
 - [ ] #6 `FieldBlock` is a `z.strictObject` with `branch`, `unknowns`, `test_plan` and `park` as 0010 section 3; a non-string text value fails with a message containing `quote this value`.
 - [ ] #7 The JSON Schema export of DIPO-19 includes the new schemas and its contract test passes.
-- [ ] #8 The commands and reads M0 does not build are marked `provisional: true` with no `since`: `work.steer`, `work.pause`, `work.reassign`, `work.discard`, `story.hold`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `office.usage` and `office.digest`; every other command and read of this story carries `since` 1.0.
+- [ ] #8 The commands and reads M0 does not build are marked `provisional: true` with no `since`: `work.steer`, `work.pause`, `work.resume` (until DIPO-61 ships it for held runs), `work.reassign`, `work.discard`, `story.hold`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `office.usage` and `office.digest`; every other command and read of this story carries `since` 1.0.
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -4,7 +4,7 @@ title: Handle worker outcomes and resume a crashed session once
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -33,7 +33,7 @@ Outcome: the engine acts on every Worker outcome of 0008 section 7 that M0 can m
 
 Context: automatic waiting for plan-limit resets is DIPO-61. The adapter hold belongs to DIPO-43; this story sets it for `startFailed` outcomes and does not build a second one (M0 review, DIPO-15). References: 0008 section 7 (outcome table, `worker-failed`, `startFailed` hold, plan-limit hold), section 8 (native resume first, `canResume`, full flag set on resume, remaining budget), section 2 (`system/init` check of `apiKeySource` and model, recorded classifier switch); 0014 section 6 (resume thresholds, handoff); 0017 scenarios `terminated`, `crash-*`, `init-rejected`, `start-failed`, `report-invalid`, `prompt-too-long`, `plan-limit-rejected`.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-51/handle-worker-outcomes-resume-crashed"

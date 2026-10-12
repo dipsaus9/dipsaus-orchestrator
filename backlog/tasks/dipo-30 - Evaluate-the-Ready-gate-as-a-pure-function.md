@@ -4,7 +4,7 @@ title: Evaluate the Ready gate as a pure function
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:29'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -30,7 +30,7 @@ Outcome: the engine evaluates rules R01a or R01b and R02 to R26 over a story, th
 
 Context: the `ready` command is M3. In M0 the gate runs as the pickup re-check inside `work.run` (DIPO-48) and through a read-only check command (M0 breakdown decision D3, DIPO-15). Storing decisions, the `story.gate` read and `dipo gate` were split into DIPO-71 in the M0 review (DIPO-15). The thresholds, tier set, type list and banned phrases come from the `story.*` keys of office configuration (DIPO-26); R16 checks the tier against the office tier set, since `Tier` is an open enum in the contract (0005 amendment of 2026-10-12). References: 0012 section 3 (definitions, rule table, messages, two modes), R26 amendment from 0014 section 4.
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-30/evaluate-ready-gate-as-pure-function"

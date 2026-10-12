@@ -4,7 +4,7 @@ title: Open the central state database with migrations
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:25'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/platform/sqlite-worker.ts
   - packages/engine/src/db/
   - packages/engine/test/db/
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0007-state-database.md
 priority: high
@@ -29,7 +30,7 @@ Outcome: the engine opens `<state>/dipo.db` through the platform module with the
 
 Context: one connection, used only by the daemon. Later stories add their tables as migrations. The module takes its logger as a parameter, because the daemon's log setup (DIPO-23) comes later (M0 review, DIPO-15). A transaction callback must be synchronous: an `await` inside it would let other offices' writes interleave on the one JS thread. References: 0007 sections 1 (connection, pragmas, network filesystem refusal, time budget), 2 (`<state>` layout), 3 (isolation by key, schema test), 9 (migrations), 10 (pre-migration `VACUUM INTO` in a Bun Worker, `quick_check` after unclean exit).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-21/open-central-state-database-migrations"

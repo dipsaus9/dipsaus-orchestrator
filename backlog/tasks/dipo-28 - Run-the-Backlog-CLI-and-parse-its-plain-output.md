@@ -4,7 +4,7 @@ title: Run the Backlog CLI and parse its plain output
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:27'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,7 +32,7 @@ Outcome: the engine runs only an allowlisted set of `backlog` subcommands, check
 
 Context: the engine never reads task files directly, except `backlog/config.yml` for the status list. The version check is an office load step, so this story depends on DIPO-27's load-step seam (M0 review, DIPO-15). The pin stays 1.53.x (M0 review, D11; 0016 amendment of 2026-10-12). References: 0010 section 1 (version, never-run list, parser rules, errors), section 6 (`completed/` and archived not active), facts 1 to 7; 0012 "Facts about Backlog.md CLI".
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-28/run-backlog-cli-parse-its-plain-output"

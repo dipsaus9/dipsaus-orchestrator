@@ -4,7 +4,7 @@ title: Open and forget offices
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:27'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -34,7 +34,7 @@ Outcome: `dipo office open [path]` registers a git repository with Backlog.md as
 
 Context: changing the office's Backlog.md settings is DIPO-36. This story adds the office load-step seam next to DIPO-22's command and read registry (M0 review, DIPO-15): the Backlog CLI version check (DIPO-28), the story index (DIPO-32), the scan (DIPO-72) and journal replay (DIPO-34) register as load steps. `office.reloadConfig` moved here from DIPO-26 in the M0 review; whether a run may start is decided in DIPO-48 from the predicates this story and others expose. References: 0017 section 5 (invalid configuration blocks new runs, running workers keep theirs, reload command); 0006 decision 4 (explicit registration, switching is client state, lazy loading), open question 2 (interactive prompt in an unregistered project); 0007 sections 2 (main worktree as office path, `<git-common-dir>/dipo/`, copy detection, network filesystem warning), 3 (`offices` table, `forgotten_at`, missing path notice); 0005 section 4 (`office.open`, `office.forget`, errors).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-27/open-forget-offices"

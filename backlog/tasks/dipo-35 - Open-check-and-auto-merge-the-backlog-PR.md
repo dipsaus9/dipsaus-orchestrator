@@ -4,7 +4,7 @@ title: Open and check the backlog PR
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:29'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -35,7 +35,7 @@ Outcome: the engine opens or updates one backlog-only PR per office for the open
 
 Context: added by M0 breakdown decision D4 (DIPO-15): in M0 the engine opens and auto-merges backlog-lane PRs, as 0010 decided. Merging through the merge slot was split into DIPO-73 in the M0 review (DIPO-15). The engine reaches the host through `gh` with the maintainer's own credentials, behind the platform module, never from a worker. The check reads stored gate decisions (DIPO-71) and live claims (DIPO-38). The run skip is a predicate that DIPO-48 uses. The live test runs only when `DIPO_LIVE_REPO` names a scratch GitHub repository and is skipped otherwise, because the end-to-end path through `dipo office init` needs DIPO-36, which comes after this story. References: 0010 section 2 (lane b: one backlog-only PR per office, structural check rules, check before merge and after a hand merge), open question 1 (auto-merge after the check); 0016 rule 1 (PR title grammar, scope `backlog`); 0002 amendment (backlog-only PRs auto-merge without the reviewer agent); 0008 section 2 (engine runs `gh` outside the sandbox).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-35/open-check-auto-merge-backlog-pr"

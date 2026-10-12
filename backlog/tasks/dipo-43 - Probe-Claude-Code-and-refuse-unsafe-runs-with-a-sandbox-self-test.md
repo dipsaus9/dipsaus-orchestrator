@@ -4,9 +4,10 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:32'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
+  - test-before-merge
 milestone: m-0
 dependencies:
   - DIPO-37
@@ -30,9 +31,9 @@ ordinal: 43000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: before every launch and resume the engine checks the Claude Code version and login, refuses project settings keys outside the allowlist, and runs a sandbox self-test under the run's policy; any failure refuses the run with `startFailed` and an `engine.notice`.
 
-Context: these checks are fail-closed; a failure is a hold, not a park. The run itself is wired in DIPO-74, so this story exposes the checks and the hold for that story to call (M0 review, DIPO-15). The third self-test probe is `gh auth token`, which must fail inside the sandbox; `gh auth status` also fails when only the network is closed, so it proves nothing about the token (0008 amendment of 2026-10-12). References: 0008 section 2 (minimum version 2.1.285, `claude auth status` with `authMethod: "claude.ai"`, project settings allowlist and refused keys, `sandbox` key never allowlisted, stripped keys reappearing, self-test of three probes), section 7 (`startFailed` row), section 11 (capabilities).
+Context: these checks are fail-closed; a failure is a hold, not a park. The run itself is wired in DIPO-74, so this story exposes the checks and the hold for that story to call (M0 review, DIPO-15). The third self-test probe is `gh auth token`, which must fail inside the sandbox; `gh auth status` also fails when only the network is closed, so it proves nothing about the token (0008 amendment of 2026-10-12). The live safety captures are a maintainer step, so this story is flagged test-before-merge (M0 review, DIPO-15). References: 0008 section 2 (minimum version 2.1.285, `claude auth status` with `authMethod: "claude.ai"`, project settings allowlist and refused keys, `sandbox` key never allowlisted, stripped keys reappearing, self-test of three probes), section 7 (`startFailed` row), section 11 (capabilities).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-43/probe-claude-code-refuse-unsafe-runs"
@@ -47,6 +48,9 @@ test_plan:
       check: "(engine) a failed self-test sets the adapter hold with the reason and emits the notice; a later passing check lifts it."
     - kind: "automated"
       check: "(engine) a fixture worktree whose `.claude/settings.json` holds `{\"hooks\":{}}` fails the launch checks with a notice naming `hooks` and the file."
+    - kind: "manual"
+      check: "maintainer runs `bun run recordings:capture safety-gitdir-write`, `safety-pointer-write` and `safety-gh-token` on the branch"
+      expect: "each recording is written with no secret, shows the write or `gh auth token` refused inside the sandbox, and the replay tests pass on it."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -59,7 +63,7 @@ test_plan:
 - [ ] #5 A refusal returns `startFailed`, sets an adapter hold with the failed check and the file or key, and emits an `engine.notice` naming them; `adapterHeld(adapter)` reports the hold for every office, and an explicit `work.run` repeats the checks and lifts the hold when they pass.
 - [ ] #6 This story owns the adapter hold: DIPO-51 sets the same hold for `startFailed` outcomes from the CLI, and DIPO-48 and DIPO-74 refuse new runs and keep the story Ready while it holds.
 - [ ] #7 The checks run before every launch and every resume.
-- [ ] #8 Recordings `safety-gitdir-write`, `safety-pointer-write` and `safety-gh-token` are captured with DIPO-41's tool and replayed in tests.
+- [ ] #8 Recordings `safety-gitdir-write`, `safety-pointer-write` and `safety-gh-token` are captured live by the maintainer with DIPO-41's tool, committed, and replayed in tests.
 <!-- AC:END -->
 
 ## Implementation Notes

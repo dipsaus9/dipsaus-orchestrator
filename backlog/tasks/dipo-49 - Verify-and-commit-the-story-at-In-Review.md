@@ -4,7 +4,7 @@ title: Verify and commit the story at In Review
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:34'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -36,7 +36,7 @@ Outcome: when the worker reports done, the engine checks every changed path agai
 
 Context: M0 delivery ends at In Review with the story branch pushed; the story PR and the reviewer stay manual until M1 (M0 breakdown decision D1, DIPO-15). Building-time base sync is not part of M0 runs except the re-claim merge of DIPO-38. This story owns the end of a run: every later outcome (DIPO-50, DIPO-51) ends through the same function, which writes the permanent `run_outcomes` row (M0 review, DIPO-15). References: 0010 section 7 (verify-and-commit row, code tree key, lockfile pairing amendment, push rule); 0014 section 3 (scope check at done, verify in `srt`, green and red paths, no mid-implementation commits, HEAD backstop after every turn); 0008 section 2 "Backstop after every turn"; 0007 section 4 (`verify_results`, `run_summaries`); 0002 (loops capped).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-49/verify-commit-story-at-review"

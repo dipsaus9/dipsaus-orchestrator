@@ -4,7 +4,7 @@ title: Retain and back up state and report table sizes
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:37'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -16,9 +16,9 @@ references:
   - packages/engine/src/retention/
   - packages/engine/src/backup/
   - packages/engine/src/features.ts
-  - packages/contract/src/
   - packages/cli/src/
   - packages/engine/test/retention/
+  - packages/contract/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -34,9 +34,9 @@ Outcome: each loaded office runs tiered retention in short batches, the daemon w
 
 Context: restore and purge were split into DIPO-76 in the M0 review (DIPO-15). `dipo stats` was placed here in the same review: 0007 names it for tuning retention, and it reads through a new contract read, `office.stats` (a minor addition), registered through the DIPO-22 seam; retention at office load is a load step through the DIPO-27 seam. References: 0007 sections 1 (50 ms slices), 7 (tiers D, R, T, S, P, replay floor, run directory deletion), 10 (backups, `quick_check`), "Size" (`dipo stats`); 0005 sections 7 (reads) and 8 (reset below the replay floor).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
-Built after cutover: dipo delivers this story itself (M0 breakdown decision D6, DIPO-15).
+Built after cutover: dipo delivers this story itself (M0 review decision D14, DIPO-15).
 
 ```dipo
 branch: "DIPO-65/retain-back-up-restore-purge-state"

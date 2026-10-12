@@ -4,7 +4,7 @@ title: Write the M0 implementation stories
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:43'
-updated_date: '2026-10-12 09:38'
+updated_date: '2026-10-12 09:52'
 labels: []
 milestone: m-0
 dependencies: []
@@ -99,4 +99,12 @@ Decisions taken during the fix-up that the maintainer may want to revisit:
 - New office config key names fixed in DIPO-26: `story.*` thresholds, `sandbox.*`, `polling.prStateSeconds` (60), `polling.fetchSeconds` (300), `timeouts.scriptMinutes.*`, `retention.shortDays`, `retention.stateDays`.
 - Each sandboxed step gets a short temp root passed as `TMPDIR` and `DIPO_TMP`; testkit creates its directories under `DIPO_TMP` when set (DIPO-18, DIPO-37).
 - `web.enabled` is not in version 1 of `config.yaml`; it joins with the browser listener and bumps the version.
+
+Final review round (2026-10-12):
+- D17 (maintainer, 2026-10-12): no automatic NDJSON fallback. If the `ws+unix://` prototype fails in the compiled binary, work on DIPO-23, DIPO-24 and DIPO-25 stops (the story parks or is blocked) and the maintainer chooses the transport. ADR 0006 is unchanged; no amendment.
+- Cutover gate: DIPO-37's self-verify check (this repository's verify inside the sandbox) is re-run green before cutover (docs/plan.md step 4).
+- Accepted gap until DIPO-61: a run held by a plan limit has no M0 way out except `work.stop`, which parks it `stopped`.
+- Scope fixes: package entry files (`packages/engine/src/index.ts`, `packages/tui/src/index.ts`, `packages/testkit/src/index.ts`, `packages/client/src/index.ts`, `packages/client/src/node/index.ts`) added where a story adds a public export; `packages/contract/` replaces contract file paths in DIPO-18, 61, 63, 65, 69, 71, 76; DIPO-69 also scopes `packages/daemon/src/`; DIPO-63 scopes `packages/daemon/src/` and implements `wait-pid`.
+- Dependencies: DIPO-57 on DIPO-51; DIPO-59 on DIPO-52.
+- DIPO-43 flagged test-before-merge (live safety captures); `worktree.maxSlots` (20) added to DIPO-26; `work.resume` provisional until DIPO-61; `office.purge` idempotency kept in memory (DIPO-76, 0005 line); DIPO-64 log reader in `client/node`; DIPO-67 devDependency import ban is a test script, not an oxlint rule; every story inherits "tests create temp files and sockets only under `DIPO_TMP`"; DIPO-23 has a `DIPO_RUNTIME_DIR` test override; stories after cutover cite D14 instead of D6.
 <!-- SECTION:NOTES:END -->

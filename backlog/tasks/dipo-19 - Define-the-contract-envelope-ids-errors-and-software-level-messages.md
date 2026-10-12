@@ -4,7 +4,7 @@ title: 'Define the contract envelope, ids, errors and software-level messages'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:25'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -30,7 +30,7 @@ Outcome: `packages/contract` holds the zod schemas for ids, frames, command and 
 
 Context: the work model (stories, runs, views) follows in DIPO-20 so each story stays reviewable. References: 0005 sections 2 (ids), 3 (envelopes and frames), 4 (`office.*`, `daemon.*` rows), 5 (software events, `stream.mark`, `engine.notice`), 7 (`engine.hello`, `commands.describe`, `daemon.status`), 10 (errors), 11 (versioning and frozen minimal surface); 0009 section 8 (`irreversible` in `commands.describe`); 0017 amendment to 0005 (config reload command); 0005 amendments of 2026-10-12 (`office.init` and `office.purge` as contract commands, provisional commands under section 11, reads in `commands.describe`); 0006 decision 5 (`daemon.status` fields) and the M0 review fix that reports resolved tool paths there (DIPO-15).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-19/define-contract-envelope-ids-errors"

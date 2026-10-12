@@ -4,7 +4,7 @@ title: Load and validate office configuration from .dipo
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:27'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -44,7 +44,7 @@ M0 key paths of version 1, with default and owner (names not set by an ADR are f
 - `permissions.ask` (`when-present`), `permissions.presentMinutes` (10): 0008 section 5.
 - `timeouts.workerStallMinutes` (20), `timeouts.workerQuietMinutes` (3), `timeouts.questionWaitMinutes` (15), `timeouts.permissionWaitSeconds` (300): 0008, 0009; `timeouts.scriptMinutes.<script>` (install 15, setup 10, post_create 10, verify 20): 0013 section 1.
 - `base` (none), `remote` (`origin`): 0010 section 7.
-- `worktree.root` (`../{repo}.worktrees`), `worktree.files`, `worktree.ports`, `worktree.env`, `worktree.post_create` (empty): 0010 section 8.
+- `worktree.root` (`../{repo}.worktrees`), `worktree.files`, `worktree.ports`, `worktree.env`, `worktree.post_create` (empty): 0010 section 8; `worktree.maxSlots` (20): 0010 section 9.
 - `scripts.<name>` (empty): 0013.
 - `story.types` (the 0012 F5 list), `story.tiers` (`[S, M, L]`), `story.bannedPhrases` (the 0012 R10 list), `story.titleMax` (100), `story.outcomeMin` (20), `story.criterionMin` (10), `story.slugMax` (40): 0012 section 3, used by the Ready gate (DIPO-30).
 - `prompt.budgets` (0014 section 4 values), `prompt.contractMax` (12,000): 0014 section 4.
@@ -54,7 +54,7 @@ M0 key paths of version 1, with default and owner (names not set by an ADR are f
 
 References: 0017 section 5 (YAML, location, precedence, local allowlist, validation, JSON Schema, versioning); 0008 section 9 (tiers, `worker`, `permissions`, `timeouts`); 0009 consequences (`workerQuietMinutes`, `workerStallMinutes`); 0010 sections 7 and 8 (`base`, remote, `worktree`); 0012 section 3 (types, tier set, banned phrases, thresholds); 0013 (`scripts`); 0014 section 4 (`prompt.budgets`, `prompt.contractMax`); 0007 amendment (privacy and retention local only).
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-26/load-validate-office-configuration-from"

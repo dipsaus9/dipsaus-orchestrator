@@ -4,14 +4,13 @@ title: 'Add the shared test kit for clocks, ids, temp repos and Backlog fixtures
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:25'
+updated_date: '2026-10-12 09:52'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
   - DIPO-16
 references:
-  - packages/contract/src/runtime.ts
   - packages/testkit/
   - packages/engine/src/platform/clock.ts
   - packages/engine/src/platform/ids.ts
@@ -21,6 +20,8 @@ references:
   - .oxlintrc.json
   - tsconfig.json
   - test/lint-boundaries/
+  - packages/contract/
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0001-foundational-decisions.md
   - docs/decisions/0004-language-and-runtime.md
@@ -39,7 +40,7 @@ Outcome: tests in every package can use a manual clock, sequential ids, isolated
 
 Context: 0017 needs these helpers in engine, daemon and client tests. A private `packages/testkit` workspace package holds them so no client test imports `engine` (see M0 breakdown decision D5, DIPO-15). The `Clock` and `IdSource` interfaces live in `packages/contract` as types only, so `testkit` implements them without importing `engine`; the engine platform module holds the system implementations. `Spawn` and `ChildProcess` join them so the worker host and the fake process (DIPO-42, DIPO-44) inject process creation through one type (M0 review, DIPO-15). `spawnSync` is banned in the daemon because it blocks every office on the one JS thread (0007 section 1). References: 0017 section 3 (`withTempRepo`, isolated git, bare remote, Backlog fixture, cleaned environment), section 4 (Clock, IdSource, lint ban, temp dirs and sockets); 0004 "Repo layout".
 
-Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
+Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`. Tests create temp files and sockets only under `DIPO_TMP` (testkit falls back to `/tmp` when it is unset).
 
 ```dipo
 branch: "DIPO-18/add-shared-test-kit-clocks-ids-temp"
