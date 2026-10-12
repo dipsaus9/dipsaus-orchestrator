@@ -137,9 +137,9 @@ describe("office resolution from the current directory", () => {
         const asked = cli(s, copy, repo.env, ["y", "y", "y"]);
         expect(await asked.run(["office", "forget"])).toBe(0);
         expect(asked.questions).toEqual([
-          `Forget office ${original} at ${copy}? Its repository and history are kept, and \`dipo office open\` brings it back. [y/N] `,
+          `Forget the office at ${copy}? Its repository and history are kept, and \`dipo office open\` brings it back. [y/N] `,
           `Open ${copy} as an office now? [y/N] `,
-          expect.stringMatching(new RegExp(`^Forget office off_\\w+ at ${copy}\\?`)),
+          expect.stringMatching(new RegExp(`^Forget the office at ${copy}\\?`)),
         ]);
         const rows = officeRows(s.state);
         expect(rows.map((row) => [row.path, row.forgotten_at === null])).toEqual([

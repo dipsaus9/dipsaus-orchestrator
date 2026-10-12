@@ -299,11 +299,15 @@ export class OfficeManager implements OfficeDirectory {
       throw new CommandError(error.code, error.message, error.details);
     }
     if (from !== undefined && canonicalPath(from) !== canonicalPath(row.path)) {
-      throw new CommandError("office.unknown", ` is not office , which is registered at .`, {
-        office: officeId,
-        from,
-        reason: "path",
-      });
+      throw new CommandError(
+        "office.unknown",
+        `${from} is not office ${officeId}, which is registered at ${row.path}.`,
+        {
+          office: officeId,
+          from,
+          reason: "path",
+        },
+      );
     }
     return row;
   }

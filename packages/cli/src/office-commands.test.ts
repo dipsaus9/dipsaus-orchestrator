@@ -190,11 +190,22 @@ describe("dipo office forget", () => {
       answers: ["yes"],
     });
     expect(await main(["office", "forget"], ctx.deps)).toBe(0);
-    expect(ctx.questions[0]).toContain(`Forget office ${OFFICE} at /work/app?`);
+    expect(ctx.questions[0]).toMatch(/^Forget the office at \/work\/app\? /);
     expect(ctx.sent).toEqual([
       { name: "office.forget", args: { office: OFFICE, from: "/work/app" } },
     ]);
     expect(ctx.out).toEqual([`forgot office ${OFFICE} at /work/app`]);
+  });
+
+  it("names the office id in the prompt only with --office", async () => {
+    const ctx = fake(() => ok({ office: OTHER, path: "/elsewhere" }), {
+      interactive: true,
+      answers: ["y"],
+    });
+    expect(await main(["office", "forget", "--office", OTHER], ctx.deps)).toBe(0);
+    expect(ctx.questions[0]).toMatch(new RegExp(`^Forget office ${OTHER}\\? `));
+    expect(ctx.sent).toEqual([{ name: "office.forget", args: { office: OTHER } }]);
+    expect(ctx.out).toEqual([`forgot office ${OTHER} at /elsewhere`]);
   });
 
   it("needs --yes in a script and sends nothing without it", async () => {

@@ -133,6 +133,9 @@ describe("the from path", () => {
           const reply = await send(s, name, { office, from: copy });
           expect(errorOf(reply)).toBe("office.unknown");
           expect(!reply.ok && reply.error.details).toEqual({ office, from: copy, reason: "path" });
+          expect(!reply.ok && reply.error.message).toBe(
+            `${copy} is not office ${office}, which is registered at ${repo.dir}.`,
+          );
         }
         expect(officeRows(s.state)[0]?.forgotten_at).toBeNull();
         expect(s.manager.loadedOffices()).toEqual([]);

@@ -176,7 +176,7 @@ async function forgetCommand(args: readonly string[], deps: OfficeCommandDeps): 
   if (typeof options === "string") return usage(deps, `office forget: ${options}`);
   // `office.forget` has `confirm: true`: every client asks first (0005 section 4).
   const confirm: Confirm = async (office, path) => {
-    const named = path === null ? `office ${office}` : `office ${office} at ${path}`;
+    const named = path === null ? `office ${office}` : `the office at ${path}`;
     if (options.yes) return true;
     if (!deps.workspace.interactive) {
       deps.writeError(
