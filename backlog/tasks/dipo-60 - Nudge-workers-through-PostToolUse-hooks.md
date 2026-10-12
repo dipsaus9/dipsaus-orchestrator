@@ -4,7 +4,7 @@ title: Nudge workers through PostToolUse hooks
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 09:37'
 labels:
   - 'tier:S'
   - after-cutover
@@ -16,7 +16,10 @@ references:
   - packages/engine/src/hooks/nudges.ts
   - packages/engine/src/prompts/feedback/
   - packages/engine/test/hooks/
+  - packages/engine/src/workers/types.ts
+  - packages/engine/src/workers/claude-cli/encode.ts
 documentation:
+  - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0014-worker-prompt-assembly.md
 priority: medium
 type: feature
@@ -26,9 +29,9 @@ ordinal: 60000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: the engine answers `PostToolUse` and `SessionStart` hook calls with a short `additionalContext` nudge only when a fact makes it relevant: a write outside scope, a stale context-pack file, budget past 80%, or an input changed on the base.
+Outcome: the engine answers `PostToolUse` and `SessionStart` hook calls with a short nudge (for Claude, `additionalContext`) only when a fact makes it relevant: a write outside scope, a stale context-pack file, budget past 80%, or an input changed on the base.
 
-References: 0014 section 8 (triggers, texts, 300 characters, once per fact signature, 2 s limit, counted per run).
+Context: the nudge is an adapter-neutral `encode` op and the Claude adapter maps it to `additionalContext`, so `engine/src/hooks` stays free of Claude formats (maintainer decision D11, DIPO-15; 0008 amendment of 2026-10-12). References: 0014 section 8 (triggers, texts, 300 characters, once per fact signature, 2 s limit, counted per run); 0008 section 1 (`encode`).
 
 Inherited rules (M0 breakdown, DIPO-15): `bun run verify` is green on the branch and on `main` after merge, and CI `ci-ok` and `pr-title` pass. Engine code reaches Bun APIs only through `packages/engine/src/platform/`. Engine time and ids come only from the injected `Clock` and `IdSource`. Database changes are new numbered migrations, never edits of a merged one. New contract shapes are additive minor changes with fixtures. Local `bun test` stays under about 60 seconds; slower tests are `*.ci.test.ts`.
 
@@ -41,6 +44,8 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) each trigger with a fact gives its text; the same signature twice gives one nudge."
+    - kind: "automated"
+      check: "(unit) the Claude adapter's `encode` of a `nudge` op gives the hook reply with `additionalContext` holding the text."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -50,6 +55,7 @@ test_plan:
 - [ ] #2 A nudge is at most 300 characters and sent once per fact signature per session.
 - [ ] #3 The hook answers within 2 s and prints nothing on any failure.
 - [ ] #4 Nudges are counted per run in `prompt_parts`.
+- [ ] #5 `SteerOp` gains the neutral op `{ kind: "nudge", text }`; the Claude CLI adapter's `encode` turns it into `additionalContext` on the pending `PostToolUse` or `SessionStart` hook reply, and `engine/src/hooks/nudges.ts` emits only the neutral op.
 <!-- AC:END -->
 
 ## Implementation Notes
