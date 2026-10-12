@@ -49,6 +49,8 @@ export interface Meta {
   readonly steering?: readonly SteerRecord[];
   /** Message types or hook events the allowlist did not know; redacted whole. */
   readonly unknown_types?: readonly string[];
+  /** Diagnostic changes to the run settings file, when a scenario needs one. */
+  readonly settings_patch?: readonly string[];
   /** Findings the capture checked on disk or in the stream (AC #9 live checks). */
   readonly checks?: Readonly<Record<string, unknown>>;
   readonly derivedFrom?: string;
@@ -118,6 +120,11 @@ export function writeRecording(
   mkdirSync(target, { recursive: true });
   writeFileSync(join(target, STREAM_FILE), streamText);
   writeFileSync(join(target, META_FILE), metaText);
+  // `meta.json` is a checked-in JSON file, so it follows the repository formatter (oxfmt).
+  Bun.spawnSync([join(REPO_ROOT, "node_modules/.bin/oxfmt"), join(target, META_FILE)], {
+    stdout: "ignore",
+    stderr: "inherit",
+  });
   return target;
 }
 

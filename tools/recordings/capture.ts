@@ -17,6 +17,7 @@ import {
   encodeClaudeOp,
   OFFICE_DEFAULTS,
   planClaudeLaunch,
+  SETTINGS_FILE,
   systemClock,
   WORKER_REPORT_JSON_SCHEMA,
 } from "../../packages/engine/src/index";
@@ -225,6 +226,15 @@ async function runProcess(
   });
 }
 
+/** Adds a diagnostic scenario's extra allow rules to the run settings file. */
+function withExtraAllow(name: string, content: string, scenario: Scenario): string {
+  const extra = scenario.extraAllow ?? [];
+  if (name !== SETTINGS_FILE || extra.length === 0) return content;
+  const settings = JSON.parse(content) as { permissions: { allow: string[] } };
+  settings.permissions.allow.push(...extra);
+  return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
 function fixtureHash(dir: string): string {
   const hash = createHash("sha256");
   const walk = (path: string) => {
@@ -336,7 +346,9 @@ export async function capture(scenario: Scenario): Promise<string> {
       const start = performance.now();
       const run = { lines: [] as Envelope[], steering: [] as SteerRecord[] };
       for (const [launch, processTurns, resume] of launches) {
-        for (const file of launch.files) writeFileSync(join(runDir, file.name), file.content);
+        for (const file of launch.files) {
+          writeFileSync(join(runDir, file.name), withExtraAllow(file.name, file.content, scenario));
+        }
         await runProcess(launch, scenario, processTurns, start, resume, run);
       }
       const checks =
@@ -382,7 +394,18 @@ export async function capture(scenario: Scenario): Promise<string> {
         processes: launches.length,
         steering: run.steering,
         unknown_types: scrubber.report.unknownTypes,
-        ...(checks === undefined ? {} : { checks }),
+        ...((scenario.extraAllow ?? []).length > 0
+          ? { settings_patch: [`permissions.allow += ${JSON.stringify(scenario.extraAllow)}`] }
+          : {}),
+        // Findings may quote Claude Code's own messages, so their paths are normalised too.
+        ...(checks === undefined
+          ? {}
+          : {
+              checks: JSON.parse(scrubber.normalisePaths(JSON.stringify(checks))) as Record<
+                string,
+                unknown
+              >,
+            }),
       };
       const streamText = serializeStream(lines);
       const metaText = serializeMeta(meta);
