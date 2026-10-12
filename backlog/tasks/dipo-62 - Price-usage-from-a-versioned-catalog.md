@@ -4,7 +4,7 @@ title: Price usage from a versioned catalog
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 14:42'
 labels:
   - 'tier:S'
   - after-cutover
@@ -51,6 +51,7 @@ test_plan:
 - [ ] #2 The daemon imports any catalog version it lacks at open, verifies its checksum, and never edits an imported version.
 - [ ] #3 `usage_totals.est_cost_micros` and `pricing_version` are filled at each update.
 - [ ] #4 A difference above 10% between the estimate and the CLI's `costUSD` for a run raises one notice.
+- [ ] #5 Pricing reads `cache_create_5m` and `cache_create_1h` directly (their sum equals `cache_create`, DIPO-45). Spend the adapter reports beyond the per-message sums (aborted turns) is stored as 5-minute writes, so the estimate can be slightly low for 1-hour-heavy sessions; this is recorded as a known approximation in the pricing module's notes.
 <!-- AC:END -->
 
 ## Implementation Notes
