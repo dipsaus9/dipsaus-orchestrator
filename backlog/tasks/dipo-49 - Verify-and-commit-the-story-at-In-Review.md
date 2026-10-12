@@ -4,9 +4,10 @@ title: Verify and commit the story at In Review
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 07:59'
 labels:
   - 'tier:M'
+  - test-before-merge
 milestone: m-0
 dependencies:
   - DIPO-48
@@ -54,7 +55,7 @@ test_plan:
     - kind: "automated"
       check: "(engine) a worker turn that moves HEAD parks `scope-violation`."
     - kind: "manual"
-      check: "run one fixture story in a scratch office"
+      check: "in a scratch office (a clone of a fixture repository with a remote, opened with `dipo office open` and initialised with `dipo office init`), set one small fixture story Ready with `backlog task edit <ID> -s Ready`, merge that change, run `dipo run <ID>` and wait until `dipo watch <ID>` shows In Review, then run `git log --oneline origin/main..<ID>/<slug>` and `git ls-remote --heads origin <ID>/<slug>`"
       expect: "`git log` on the story branch shows the claim commit, one code commit and the In Review commit, and the remote has the branch."
 ```
 <!-- SECTION:DESCRIPTION:END -->

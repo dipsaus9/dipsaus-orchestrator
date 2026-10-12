@@ -4,9 +4,10 @@ title: 'Open, check and auto-merge the backlog PR'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:49'
+updated_date: '2026-10-12 07:58'
 labels:
   - 'tier:M'
+  - test-before-merge
 milestone: m-0
 dependencies:
   - DIPO-30
@@ -52,7 +53,7 @@ test_plan:
     - kind: "automated"
       check: "(engine) a hand merge with a failing check emits a notice and `run` skips the affected story."
     - kind: "manual"
-      check: "in a scratch GitHub repository registered as an office, run `dipo office init`"
+      check: "create a scratch GitHub repository with this repository's `ci.yml` and `pr-title.yml` and the required checks `ci-ok` and `pr-title`, clone it, run `dipo office open` in the clone, then `dipo office init`"
       expect: "a `chore(backlog): ...` PR opens, `ci-ok` and `pr-title` go green, and the engine squash-merges it without a reviewer."
 ```
 <!-- SECTION:DESCRIPTION:END -->

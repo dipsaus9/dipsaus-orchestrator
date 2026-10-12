@@ -4,9 +4,10 @@ title: Follow a running agent's live output in the TUI
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-11 18:59'
+updated_date: '2026-10-12 07:59'
 labels:
   - 'tier:M'
+  - test-before-merge
 milestone: m-0
 dependencies:
   - DIPO-54
@@ -42,8 +43,8 @@ test_plan:
     - kind: "automated"
       check: "(TUI) `X` then `y` sends `work.stop` with the story id."
     - kind: "manual"
-      check: "during a scratch run, open the story with Enter"
-      expect: "worker output streams in the right pane; press `v` after the worker reports done -> verify output is shown."
+      check: "in a scratch office with one Ready fixture story, run `dipo run <ID>`, open `dipo tui`, select the story in the overview (`1`) and press Enter; after the worker reports done press `v`, then press `X` and answer no"
+      expect: "worker output streams in the right pane within a second of the worker writing it; after `v` the verify output is shown; answering no to `X` leaves the run going; Esc returns to the overview."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
