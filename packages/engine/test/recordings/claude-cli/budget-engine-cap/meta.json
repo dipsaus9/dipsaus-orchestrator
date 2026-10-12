@@ -1,0 +1,13 @@
+{
+  "scenario": "budget-engine-cap",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "The engine sees budget tokens (input + output + cache creation) pass the tier's budgetTokens, stops the worker and parks budget-exceeded; never raises the budget.",
+  "usage_checksum": "618f524d3e3e118bceb02f794dde0e068e9a5c8735f1f18657afc47b7470c7e4",
+  "derivedFrom": "success-tools-subagent",
+  "transform": "The stream unchanged; meta.testConfig sets the tier budget to half the recorded budget tokens.",
+  "testConfig": {
+    "budgetTokens": 8190
+  }
+}

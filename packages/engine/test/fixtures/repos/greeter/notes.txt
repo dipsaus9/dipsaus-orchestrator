@@ -1,0 +1,2 @@
+greeter notes
+The greeting word is fixed by the fixture: hello.

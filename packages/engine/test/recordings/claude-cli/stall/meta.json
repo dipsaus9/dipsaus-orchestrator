@@ -1,0 +1,10 @@
+{
+  "scenario": "stall",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Stall detection fires on the injected clock (timeouts.workerStallMinutes, default 20).",
+  "usage_checksum": "618f524d3e3e118bceb02f794dde0e068e9a5c8735f1f18657afc47b7470c7e4",
+  "derivedFrom": "success-tools-subagent",
+  "transform": "A 30-minute gap in t after the first assistant message."
+}

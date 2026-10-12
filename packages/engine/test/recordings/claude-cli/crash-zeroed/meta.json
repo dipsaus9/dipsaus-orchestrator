@@ -1,0 +1,14 @@
+{
+  "scenario": "crash-zeroed",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Usage recovered from earlier assistant messages, not overwritten with zero (0017 source 5).",
+  "usage_checksum": "4b86b3e47a3994e0a8fd3b8d5e70cc3aaa0f29a0462483a919e3a25193aeca4e",
+  "derivedFrom": "success-tools-subagent",
+  "transform": "The result becomes error_during_execution with zeroed totals and no report; exit 1.",
+  "cites": [
+    "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\""
+  ]
+}

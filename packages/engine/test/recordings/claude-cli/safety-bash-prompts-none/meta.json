@@ -1,0 +1,105 @@
+{
+  "scenario": "safety-bash-prompts-none",
+  "source": "live",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "The sandbox probes under the launch plan as it is (first AC #9 run, six probe commands): with --permission-prompts none and no Bash allow rule, every Bash call is denied by the permission layer before the sandbox runs it (decision_reason_type asyncAgent), so the go/no-go is inconclusive here; see safety-main-git.",
+  "usage_checksum": "2988dfdb01774fbcd8b84defa11a5ecb55d6cde4bea49ef8ea1efc01fddfd80d",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "12",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Bash",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 1543,
+  "prompt_sha256": "875cdf8f4dd29070a7eb97864986439fd604e3b5cd680bb46cfd2be981633a4d",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 1490
+    },
+    {
+      "t": 16275,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "checks": {
+    "mainGitFileWritten": false,
+    "worktreeAdminFileWritten": false,
+    "refWritten": false,
+    "objectWritten": false,
+    "pointerChanged": false,
+    "controlWrittenInWorktree": false,
+    "bashResults": [
+      {
+        "isError": true,
+        "kind": "permission-denied"
+      },
+      {
+        "isError": true,
+        "kind": "permission-denied"
+      },
+      {
+        "isError": true,
+        "kind": "permission-denied"
+      },
+      {
+        "isError": true,
+        "kind": "permission-denied"
+      },
+      {
+        "isError": true,
+        "kind": "permission-denied"
+      },
+      {
+        "isError": true,
+        "kind": "permission-denied"
+      },
+      {
+        "isError": false,
+        "kind": "other"
+      }
+    ],
+    "denyWriteHolds": false,
+    "conclusive": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "scenario": "start-failed-auth",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Outcome startFailed (0008 section 7).",
+  "usage_checksum": "cfb84f4d557bc9766692c87d0129fc3144ee1168d62c689dabaa4ea1ab1471cc",
+  "derivedFrom": "success-single",
+  "transform": "An assistant message with error \"authentication_failed\", then a failed result; exit 1.",
+  "cites": [
+    "Claude Code docs, Agent SDK TypeScript reference: SDKAssistantMessage error (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\""
+  ]
+}
