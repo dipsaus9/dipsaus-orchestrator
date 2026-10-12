@@ -360,8 +360,10 @@ export function systemSandboxHost(
     readRefusal: async (policyPath) => {
       try {
         return (await readFile(refusalPathFor(policyPath), "utf8")).trim();
-      } catch {
-        return null;
+      } catch (error) {
+        // No file: sandbox-exec did not refuse. Any other error is an unreadable refusal.
+        if ((error as { code?: string }).code === "ENOENT") return null;
+        throw error;
       }
     },
   };

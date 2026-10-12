@@ -75,7 +75,10 @@ export interface SandboxHost {
     readonly cwd: string;
     readonly env: Readonly<Record<string, string>>;
   }): ChildProcess;
-  /** The reason `sandbox-exec` wrote to the refusal file of a policy, or null. */
+  /**
+   * The reason `sandbox-exec` wrote to the refusal file of a policy, or null when there is no
+   * such file; throws when the file exists but cannot be read.
+   */
   readRefusal(policyPath: string): Promise<string | null>;
 }
 
@@ -208,7 +211,15 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
     if (killTimer !== undefined) deps.clock.clearTimeout(killTimer);
 
     if (exit.code === SANDBOX_REFUSED_EXIT_CODE) {
-      const refusal = await deps.host.readRefusal(policyPath).catch(() => null);
+      let refusal: string | null;
+      try {
+        refusal = await deps.host.readRefusal(policyPath);
+      } catch (error) {
+        // An unreadable refusal file cannot show the command ran: fail closed.
+        return startFailed(
+          `sandbox-exec exited ${SANDBOX_REFUSED_EXIT_CODE} and its refusal file could not be read: ${message(error)}`,
+        );
+      }
       if (refusal !== null) return startFailed(`sandbox refused to start: ${refusal}`);
     }
     return {
