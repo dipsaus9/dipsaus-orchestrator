@@ -4,7 +4,10 @@
 // process match within a tolerance of 2 s. A zombie counts as dead. The lock (DIPO-23), host
 // liveness (DIPO-44), drain (DIPO-68) and `stop --force` (DIPO-70) share this check.
 
+import { closeSync, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+
+import type { ChildStdin, Signal, Spawn } from "@dipsaus-orchestrator/contract";
 
 import type { DipoPlatform } from "./paths";
 
@@ -266,3 +269,134 @@ export function killGroup(pid: number, signal: NodeJS.Signals): boolean {
     }
   }
 }
+
+/**
+ * Signals the process group `pgid` and nothing else. Unlike `killGroup` there is no fallback to
+ * the single PID: once a worker has exited its PID may be reused, but a group ID is never reused
+ * while a member of the group lives, so a group signal cannot reach an unrelated process
+ * (DIPO-44). Returns false when no member of the group is left.
+ */
+export function signalGroup(pgid: number, signal: NodeJS.Signals): boolean {
+  if (!Number.isSafeInteger(pgid) || pgid <= 1) return false;
+  try {
+    process.kill(-pgid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Variables that carry Bun flags into a child. A Bun started with `--no-orphans` passes it on as
+ * `BUN_FEATURE_FLAG_NO_ORPHANS=1` as well as through `BUN_OPTIONS` (seen on Bun 1.4.2, DIPO-44),
+ * and a child that inherits either one dies with its parent.
+ */
+export const BUN_FLAG_VARIABLES: readonly string[] = ["BUN_OPTIONS", "BUN_FEATURE_FLAG_NO_ORPHANS"];
+
+/**
+ * The environment of a process the daemon starts detached: `BUN_OPTIONS` and the propagated
+ * `--no-orphans` flag removed (0006 decision 8).
+ */
+export function detachedEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value !== undefined && !BUN_FLAG_VARIABLES.includes(name)) out[name] = value;
+  }
+  return out;
+}
+
+export interface DetachedSpawnOptions {
+  readonly cmd: readonly [string, ...string[]];
+  readonly cwd: string;
+  /** The complete environment, Bun flag variables already removed (`detachedEnv`). */
+  readonly env: Readonly<Record<string, string>>;
+  /** Stdout and stderr are appended to this file (mode 0600); stdin is `/dev/null`. */
+  readonly outputFile: string;
+}
+
+/** Starts a process that outlives the daemon; returns its PID. Injectable for tests. */
+export type SpawnDetached = (options: DetachedSpawnOptions) => { readonly pid: number };
+
+/**
+ * Starts `cmd` in its own session and process group (`setsid`) with stdio on files, so it keeps
+ * running when the daemon exits or is killed (0006 decision 8). It is not tracked in
+ * `ChildProcesses`: a drain must leave it running.
+ */
+export const systemSpawnDetached: SpawnDetached = (options) => {
+  const fd = openSync(options.outputFile, "a", 0o600);
+  try {
+    const child = Bun.spawn({
+      cmd: [...options.cmd],
+      cwd: options.cwd,
+      env: { ...options.env },
+      stdin: "ignore",
+      stdout: fd,
+      stderr: fd,
+      detached: true,
+    });
+    child.unref();
+    return { pid: child.pid };
+  } finally {
+    closeSync(fd);
+  }
+};
+
+/**
+ * How this process runs `dipo` again: the compiled binary alone, or Bun with the entry script when
+ * running from source.
+ */
+export function selfCommand(): [string, ...string[]] {
+  const main = Bun.main;
+  return main.startsWith("/$bunfs/") ? [process.execPath] : [process.execPath, main];
+}
+
+const textEncoder = new TextEncoder();
+
+/**
+ * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
+ * stderr are always piped. With `detached` the child leads its own session and process group, so
+ * `signalGroup(child.pid)` reaches its descendants too.
+ */
+export const systemSpawn: Spawn = (options) => {
+  const child = Bun.spawn({
+    cmd: [...options.cmd],
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: { ...options.env } }),
+    stdin: options.stdin === "pipe" ? "pipe" : "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    detached: options.detached === true,
+  });
+  const sink = options.stdin === "pipe" ? (child.stdin as Bun.FileSink) : null;
+  const stdin: ChildStdin | null =
+    sink === null
+      ? null
+      : {
+          write: (chunk) => {
+            sink.write(typeof chunk === "string" ? textEncoder.encode(chunk) : chunk);
+            void sink.flush();
+          },
+          end: () => {
+            void sink.end();
+          },
+        };
+  return {
+    pid: child.pid,
+    stdin,
+    stdout: child.stdout as ReadableStream<Uint8Array>,
+    stderr: child.stderr as ReadableStream<Uint8Array>,
+    exited: child.exited.then(() => ({
+      code: child.signalCode === null ? child.exitCode : null,
+      signal: child.signalCode ?? null,
+    })),
+    kill: (signal: Signal = "SIGTERM") => {
+      try {
+        child.kill(signal);
+      } catch {
+        // Already gone.
+      }
+    },
+  };
+};

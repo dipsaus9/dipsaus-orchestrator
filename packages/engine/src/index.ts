@@ -38,13 +38,20 @@ export type {
 } from "./platform/paths";
 export {
   ChildProcesses,
+  detachedEnv,
   isDaemonCommand,
   isSameProcess,
   killGroup,
+  selfCommand,
+  signalGroup,
   systemProcessProbe,
+  systemSpawn,
+  systemSpawnDetached,
 } from "./platform/process";
 export type {
   ChildHandle,
+  DetachedSpawnOptions,
+  SpawnDetached,
   ProcessIdentity,
   ProcessInfo,
   ProcessProbe,
@@ -182,6 +189,51 @@ export type {
   OfficeOverrides,
 } from "./config";
 export {
+  DENY_ALL_SETTINGS,
+  evaluateProbe,
+  expandHome,
+  KILL_GRACE_MS,
+  linuxLiteralPath,
+  MIN_BWRAP_VERSION,
+  OUTPUT_LIMIT_BYTES,
+  parseBwrapVersion,
+  refusalPathFor,
+  runSandboxedStep,
+  SANDBOX_REFUSED_EXIT_CODE,
+  SANDBOX_REFUSED_MARKER,
+  EXTRA_SECRET_HOME_PATHS,
+  isRuntimeOptionName,
+  SECRET_HOME_PATHS,
+  STEP_ENV_ALLOWLIST,
+  stepEnv,
+  translatePolicy,
+  trustViolations,
+  writableRoots,
+} from "./sandbox";
+export type {
+  CapturedOutput,
+  ProbeResult,
+  SandboxFacts,
+  SandboxHost,
+  SandboxRun,
+  SandboxTools,
+  SrtSettings,
+  StepDeps,
+  StepPolicyKind,
+  StepRequest,
+  StepResult,
+  TranslatedPolicy,
+} from "./sandbox";
+export {
+  dipoCommand,
+  probeSandbox,
+  sandboxExecArgv,
+  STEP_TEMP_PREFIX,
+  systemSandboxHost,
+} from "./platform/sandbox";
+export { runSandboxExec } from "./platform/sandbox-exec";
+export type { SandboxExecOptions } from "./platform/sandbox-exec";
+export {
   KNOWN_WORKER_KINDS,
   PlanError,
   type AdapterStatus,
@@ -239,3 +291,47 @@ export {
   type EventSchema,
   type ScriptedWorkerOptions,
 } from "./workers/scripted";
+export {
+  EVENTS_FILE,
+  EXIT_FILE,
+  HOST_LOG_CAP_BYTES,
+  HOST_LOG_FILE,
+  HOST_OPS,
+  HOST_PROTOCOL_VERSION,
+  HOST_PROTOCOL_VERSIONS,
+  HostExitFileSchema,
+  hostSocketPath,
+  HOSTS_DIR,
+  LAUNCH_FILE,
+  RUN_ID_PATTERN,
+  type HostError,
+  type HostErrorCode,
+  type HostExitFile,
+  type HostLaunch,
+  type HostOpName,
+  type HostState,
+  type HostStatus,
+} from "./host/protocol";
+export { runWorkerHost, WorkerHost, type WorkerHostOptions } from "./host/main";
+export {
+  connectHost,
+  type ConnectHostOptions,
+  type ConnectHostResult,
+  type HostClient,
+  type HostReply,
+  type HostRequest,
+} from "./host/client";
+export {
+  hostAlive,
+  HostStartError,
+  launchWorkerHost,
+  recordHostExit,
+  recordWorkerHost,
+  RUN_DIR_ENV,
+  runDirectory,
+  startWorkerHost,
+  workerHostsOf,
+  type LaunchedHost,
+  type LaunchWorkerHostOptions,
+  type WorkerHostRow,
+} from "./runs/worker-hosts";
