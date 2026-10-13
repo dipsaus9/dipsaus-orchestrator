@@ -1,11 +1,11 @@
 // CI only (0017 section 1): the slower claim cases against real temporary repositories, a bare
 // remote and the pinned Backlog CLI (DIPO-38; 0010 sections 2 and 2a), kept out of the local suite
 // for its time budget (DIPO-77): the reuse of a released branch with the base merged in or a code
-// conflict, and claims that fail after the worktree exists with a foreign commit on the branch, a
-// tip the claim cannot name, or a reused branch to move back.
+// conflict after a real release and push, and claims that fail after the worktree exists with a
+// tip the claim cannot name, or a reused branch to move back and claim again. Fast local versions
+// of the same rules are in claim-reuse.test.ts.
 
 import { describe, expect, it } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -18,8 +18,6 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import { type GitCall, type GitResult, type GitSettings, spawnGitExec } from "../../src/git";
-import { OfficeHandle } from "../../src/db/office";
-import type { RunResult, SqlParams } from "../../src/platform/sqlite";
 import { systemSpawn } from "../../src/platform/process";
 import {
   CLAIM_NOTICES,
@@ -133,28 +131,6 @@ function afterClaimCommit(args: readonly string[], seen: readonly (readonly stri
   );
 }
 
-/** An office handle whose write of the claim commit fails, after running `before`. */
-class FailingOffice extends OfficeHandle {
-  constructor(
-    s: ClaimSetup,
-    readonly before: () => void,
-  ) {
-    super(s.t.state.connection, s.office.officeId);
-  }
-
-  override run(sql: string, params: SqlParams = {}): RunResult {
-    if (sql.includes("claim_sha = coalesce") && params["claim_sha"] !== null) {
-      this.before();
-      throw new Error("injected database failure");
-    }
-    return super.run(sql, params);
-  }
-}
-
-function failingOffice(s: ClaimSetup, before: () => void = () => {}): OfficeHandle {
-  return new FailingOffice(s, before);
-}
-
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("reusing a released branch", () => {
     it("reuses it with the base merged in before the claim commit", async () => {
@@ -221,32 +197,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
   });
 
   describe("a claim that fails after the worktree exists", () => {
-    it("leaves a foreign commit on top of the claim commit and reports the branch", async () => {
-      await withTempRepo(async (repo) => {
-        await publish(repo);
-        const s = await claimSetup(repo);
-        const key = s.key();
-        const path = join(s.git.worktreeRoot(), TASK_1);
-        // Someone commits on the branch right after the claim commit, then the claim fails.
-        const office = failingOffice(s, () => {
-          execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "foreign"], {
-            cwd: path,
-            env: repo.env,
-          });
-        });
-
-        await caught(claimStory(s.deps({ office }), s.request(key)));
-
-        expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toEqual([
-          `${TASK_1}: status In Progress`,
-          "foreign",
-        ]);
-        const codes = notices(s.office).map((n) => n.code);
-        expect(codes).toEqual([CLAIM_NOTICES.leftover]);
-        expect(notices(s.office)[0]?.text).toContain("is not a commit this claim made");
-      }, FIXTURE);
-    });
-
     it("names a branch it could not roll back as left over from the story's failed claim", async () => {
       await withTempRepo(async (repo) => {
         await publish(repo);
