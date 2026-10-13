@@ -21,7 +21,9 @@ const REDACTED_KEYS = new Set(["code", "token", "session.token"]);
 
 /**
  * Field names for prompts, worker output and command bodies, which appear only in `debug` and
- * `trace` lines (0006 decision 13). Code that logs such content uses one of these names.
+ * `trace` lines (0006 decision 13). The guard works by name only and no lint rule checks call
+ * sites: later stories that log prompts, worker output or command bodies must put them in a field
+ * with one of these names, or they show at every level.
  */
 export const DEBUG_ONLY_KEYS: ReadonlySet<string> = new Set([
   "prompt",
