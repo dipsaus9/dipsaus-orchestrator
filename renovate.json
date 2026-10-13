@@ -1,0 +1,73 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Decision 0016 rules 10 and 11. Checked by scripts/renovate-config.test.ts.",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":semanticCommits",
+    "schedule:weekly"
+  ],
+  "minimumReleaseAge": "3 days",
+  "automerge": false,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "automerge": false
+  },
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "automergeType": "pr",
+    "schedule": ["* 0-3 1 * *"]
+  },
+  "packageRules": [
+    {
+      "description": "TypeScript tooling group.",
+      "matchPackageNames": ["oxlint", "oxfmt", "typescript"],
+      "groupName": "TypeScript tooling"
+    },
+    {
+      "description": "Bun group: the runtime in .bun-version, engines.bun and @types/bun move together.",
+      "matchDepNames": ["bun", "@types/bun"],
+      "groupName": "Bun"
+    },
+    {
+      "description": "GitHub Actions group: digests, minors and majors.",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "The only automerge rule: devDependency minor and patch updates (rule 11, first row).",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "The Bun group carries the Bun version and never automerges.",
+      "matchDepNames": ["bun", "@types/bun"],
+      "automerge": false
+    },
+    {
+      "description": "Actions run with workflow permissions and never automerge.",
+      "matchManagers": ["github-actions"],
+      "automerge": false
+    },
+    {
+      "description": "Runtime dependencies are compiled into dipo and never automerge.",
+      "matchDepTypes": ["dependencies"],
+      "automerge": false
+    },
+    {
+      "description": "Majors never automerge.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "backlog.md stays on 1.53.x and never automerges: the engine refuses other Backlog CLI versions, and an update re-records the parser fixtures (0016 amendment of 2026-10-12).",
+      "matchPackageNames": ["backlog.md"],
+      "allowedVersions": "1.53.x",
+      "automerge": false
+    }
+  ]
+}

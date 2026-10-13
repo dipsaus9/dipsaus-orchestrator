@@ -7,7 +7,7 @@ import { writeFileSync } from "node:fs";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
-import { recordUsageMessage } from "../../src/ingest/usage";
+import { applyTurnTotals, finalizeAgentUsage, recordUsageMessage } from "../../src/ingest/usage";
 import type { Rates } from "../../src/pricing/catalog";
 import type { PriceBook } from "../../src/pricing/estimate";
 import {
@@ -77,14 +77,61 @@ function scaled(book: PriceBook | null, factor: number): PriceBook {
   if (book === null) throw new Error("no catalog imported");
   const haiku = book.models.get("claude-haiku-5-5");
   if (haiku === undefined) throw new Error("no Haiku 5.5 rates");
-  const rates: Rates = {
-    input: Math.round(haiku.input * factor),
-    output: Math.round(haiku.output * factor),
-    cacheWrite5m: Math.round(haiku.cacheWrite5m * factor),
-    cacheWrite1h: Math.round(haiku.cacheWrite1h * factor),
-    cacheRead: Math.round(haiku.cacheRead * factor),
+  const scale = (rates: Rates): Rates => ({
+    input: Math.round(rates.input * factor),
+    output: Math.round(rates.output * factor),
+    cacheWrite5m: Math.round(rates.cacheWrite5m * factor),
+    cacheWrite1h: Math.round(rates.cacheWrite1h * factor),
+    cacheRead: Math.round(rates.cacheRead * factor),
+  });
+  const long = (book.longPrompt.get("claude-haiku-5-5") ?? []).map((set) => ({
+    ...scale(set),
+    over: set.over,
+  }));
+  return {
+    version: "test",
+    models: new Map([["claude-haiku-5-5", scale(haiku)]]),
+    longPrompt: new Map([["claude-haiku-5-5", long]]),
   };
-  return { version: "test", models: new Map([["claude-haiku-5-5", rates]]) };
+}
+
+const HAIKU = "claude-haiku-5-5";
+/** No long-prompt rates; per million: $2.00 input, $2.50 and $4.00 writes, $0.10 reads. */
+const SONNET = "claude-sonnet-5-5";
+
+/**
+ * Records messages of one model for the fixture's agent, each with input 1000, 1000 5 minute and
+ * 2000 1 hour writes and the given reads, so its prompt size is 4000 plus the reads; prices the
+ * agent and returns the row's estimate.
+ */
+function priceMessages(f: IngestFixture, model: string, reads: readonly number[]): number | null {
+  const scope = target(f, claude, initialState() as unknown as ParseState);
+  f.office.immediate(() => {
+    f.office.run(
+      `insert or ignore into agents (office_id, agent_id, run_id, role, model, started_at)
+       values ($office_id, $agent, $run, 'developer', $model, 0)`,
+      { agent: f.agent, run: f.run, model },
+    );
+    reads.forEach((read, index) => {
+      recordUsageMessage(
+        f.office,
+        scope,
+        {
+          messageId: `msg-${model}-${index}`,
+          model,
+          input: 1000,
+          output: 0,
+          cacheCreate: 3000,
+          cacheCreate5m: 1000,
+          cacheCreate1h: 2000,
+          cacheRead: read,
+        },
+        0,
+      );
+    });
+    priceAgentUsage(f.office, f.t.state.pricing, f.run, f.agent);
+  });
+  return pricedRows(f).find((row) => row.model === model)?.est_cost_micros ?? null;
 }
 
 describe("estimated cost of a recording", () => {
@@ -145,7 +192,11 @@ describe("estimated cost of a recording", () => {
 
   it("a model the catalog lacks keeps a null estimate and raises the stale-catalog notice", () =>
     withTempDir(async (dir) => {
-      const f = await replay(dir, "success-single", () => ({ version: "9", models: new Map() }));
+      const f = await replay(dir, "success-single", () => ({
+        version: "9",
+        models: new Map(),
+        longPrompt: new Map(),
+      }));
       expect(pricedRows(f)).toEqual([
         {
           model: "claude-haiku-5-5",
@@ -164,6 +215,64 @@ describe("estimated cost of a recording", () => {
       const f = await replay(dir, "success-single", () => null);
       expect(pricedRows(f)[0]?.est_cost_micros).toBeNull();
       expect(notices(f)).toEqual([]);
+    }));
+});
+
+describe("long-prompt rates per message (DIPO-78)", () => {
+  // Claude Haiku 5.5 per million, base: $0.10 input, $0.125 and $0.20 writes, $0.01 reads;
+  // over 100,000 prompt tokens: $0.50, $0.625 and $1.00, $0.05.
+  it("a Haiku 5.5 message just under the threshold is priced at base rates", () =>
+    withTempDir(async (dir) => {
+      // Prompt 99,999: 100 + 125 + 400 + 959.99 = 1584.99.
+      expect(priceMessages(await ingestFixture(dir), HAIKU, [95_999])).toBe(1585);
+    }));
+
+  it("a Haiku 5.5 message at the threshold is priced at base rates", () =>
+    withTempDir(async (dir) => {
+      // Prompt 100,000 is not over 100,000: 100 + 125 + 400 + 960 = 1585.
+      expect(priceMessages(await ingestFixture(dir), HAIKU, [96_000])).toBe(1585);
+    }));
+
+  it("a Haiku 5.5 message over the threshold is priced at the long-prompt rates", () =>
+    withTempDir(async (dir) => {
+      // Prompt 100,001: 500 + 625 + 2000 + 4800.05 = 7925.05.
+      expect(priceMessages(await ingestFixture(dir), HAIKU, [96_001])).toBe(7925);
+    }));
+
+  it("a model without long-prompt rates is priced at base rates under, at and over 100,000", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      // Under 99,999: 2000 + 2500 + 8000 + 9599.9; at 100,000: + 9600; over 100,001: + 9600.1.
+      // 22099.9 + 22100 + 22100.1 = 66300.
+      expect(priceMessages(f, SONNET, [95_999, 96_000, 96_001])).toBe(66_300);
+    }));
+
+  it("run and daily totals sum per-message estimates; spend beyond the messages is at base", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      // One message under (1584.99) and one over (7925.05) the threshold: 9510.04. Re-pricing
+      // the aggregate (prompt 200,000) at either rate set would give 3170 or 15850.
+      expect(priceMessages(f, HAIKU, [95_999, 96_001])).toBe(9510);
+      const scope = target(f, claude, initialState() as unknown as ParseState);
+      f.office.immediate(() => {
+        // The turn end reports 1000 more cache writes (an aborted turn's, stored as 5 minute
+        // writes) and output 1000 that no message carries: 125 + 500 at base rates.
+        applyTurnTotals(
+          f.office,
+          scope,
+          { [HAIKU]: { input: 2000, output: 1000, cacheCreate: 7000, cacheRead: 192_000 } },
+          { model: HAIKU, count: 1 },
+          0,
+        );
+        priceAgentUsage(f.office, f.t.state.pricing, f.run, f.agent);
+        finalizeAgentUsage(f.office, f.run, f.agent, 0);
+      });
+      // 9510.04 + 125 + 500 = 10135.04.
+      expect(pricedRows(f)[0]?.est_cost_micros).toBe(10_135);
+      const daily = f.office.get<{ est_cost_micros: number }>(
+        "select est_cost_micros from usage_daily where office_id = $office_id",
+      );
+      expect(daily?.est_cost_micros).toBe(10_135);
     }));
 });
 

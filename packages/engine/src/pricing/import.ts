@@ -12,7 +12,7 @@ import {
   type Rates,
   type ShippedCatalog,
 } from "./catalog";
-import type { PriceBook } from "./estimate";
+import type { PriceBook, PromptRates } from "./estimate";
 
 export interface ImportResult {
   /** Versions imported by this call. */
@@ -98,6 +98,7 @@ export function importCatalogs(
 
 interface RateRow {
   model: string;
+  prompt_over: number;
   input: number;
   output: number;
   cache_write_5m: number;
@@ -105,30 +106,40 @@ interface RateRow {
   cache_read: number;
 }
 
-/** The base rates of the newest imported catalog, or null when none is imported. */
+/**
+ * Every rate set of the newest imported catalog (DIPO-78): the base rates (`prompt_over = 0`)
+ * and each long-prompt set, or null when no catalog is imported. Long-prompt sets of a model
+ * without base rates are left out, so the model prices as unknown.
+ */
 export function loadPriceBook(db: SqlRunner): PriceBook | null {
   const latest = db.get<{ version: number | null }>(
     "select max(version) as version from pricing_catalogs",
   );
   if (latest?.version === null || latest?.version === undefined) return null;
   const rows = db.all<RateRow>(
-    `select model, input, output, cache_write_5m, cache_write_1h, cache_read
-     from pricing_rates where version = $version and prompt_over = 0`,
+    `select model, prompt_over, input, output, cache_write_5m, cache_write_1h, cache_read
+     from pricing_rates where version = $version order by model, prompt_over`,
     { version: latest.version },
   );
-  return {
-    version: String(latest.version),
-    models: new Map(
-      rows.map((row) => [
-        row.model,
-        {
-          input: row.input,
-          output: row.output,
-          cacheWrite5m: row.cache_write_5m,
-          cacheWrite1h: row.cache_write_1h,
-          cacheRead: row.cache_read,
-        },
-      ]),
-    ),
-  };
+  const models = new Map<string, Rates>();
+  const longPrompt = new Map<string, PromptRates[]>();
+  for (const row of rows) {
+    const rates: Rates = {
+      input: row.input,
+      output: row.output,
+      cacheWrite5m: row.cache_write_5m,
+      cacheWrite1h: row.cache_write_1h,
+      cacheRead: row.cache_read,
+    };
+    if (row.prompt_over === 0) {
+      models.set(row.model, rates);
+    } else if (models.has(row.model)) {
+      // Rows come ordered by prompt_over, so the base row of a model is always seen first.
+      longPrompt.set(row.model, [
+        ...(longPrompt.get(row.model) ?? []),
+        { ...rates, over: row.prompt_over },
+      ]);
+    }
+  }
+  return { version: String(latest.version), models, longPrompt };
 }
