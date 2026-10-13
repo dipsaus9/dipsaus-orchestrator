@@ -44,6 +44,7 @@ import { type DiskProbe, formatGigabytes } from "../platform/disk";
 
 import {
   type ClaimRecord,
+  failedClaimOf,
   findClaim,
   insertClaim,
   keysTrackingBranch,
@@ -187,7 +188,9 @@ export async function claimStory(deps: ClaimDeps, request: ClaimRequest): Promis
       const why =
         others.length > 0
           ? `it is tracked for another story (${others.join(", ")})`
-          : "dipo did not create it";
+          : failedClaimOf(deps.office, request.key, request.branch) !== null
+            ? "it is left over from an earlier failed claim of this story that dipo could not roll back"
+            : "dipo did not create it";
       return skip(
         deps,
         request,
@@ -236,15 +239,29 @@ export async function claimStory(deps: ClaimDeps, request: ClaimRequest): Promis
       throw failed(["worktree", "add"], add);
     }
 
-    const startSha = released === null ? baseSha : (local as string);
-    return completeClaim(deps, git, request, {
+    const created: Created = {
       path,
       base,
       baseRef,
       baseSha,
-      startSha,
+      startSha: released === null ? baseSha : (local as string),
       released,
       hasRemote,
+    };
+    if (released === null) return completeClaim(deps, git, request, created);
+    // A reused branch starts at what the new worktree checked out.
+    let head: string;
+    try {
+      head = (
+        await git.ok(deps.git.worktreeLocation(path), ["rev-parse", "--verify", "HEAD"])
+      ).trim();
+    } catch (error) {
+      await rollback(deps, git, request, created, false);
+      throw error;
+    }
+    return completeClaim(deps, git, request, {
+      ...created,
+      startSha: head,
     });
   });
 }
@@ -441,8 +458,9 @@ async function push(deps: ClaimDeps, git: GitSession, request: ClaimRequest): Pr
 
 /**
  * Undoes a claim that failed after `git worktree add`: unpin, unlock and remove the worktree,
- * delete a new branch only while it still points at its start, end the claim record and reopen a
- * reused release. Each step is best effort, so the original error is what the caller sees.
+ * delete a new branch (or move a reused one back to its start) when its tip is the start or a
+ * descendant this claim made, end the claim record and reopen a reused release. Each step is best
+ * effort, so the original error is what the caller sees.
  */
 async function rollback(
   deps: ClaimDeps,
@@ -458,8 +476,23 @@ async function rollback(
   };
   await quiet(["worktree", "unlock", path]);
   await quiet(["worktree", "remove", "--force", path]);
-  if (released === null) {
-    await quiet(["update-ref", "-d", `refs/heads/${request.branch}`, created.startSha]);
+  // Every commit between the start and the tip was made by this claim (the claim commit, the
+  // base merge of a reused branch): the branch was cut or checked out inside this queue item, and
+  // no worker has run. A new branch is deleted, a reused one goes back to its start; both only
+  // while the ref still holds the tip read here.
+  const ref = `refs/heads/${request.branch}`;
+  const tip = await revParse(git, ref).catch(() => null);
+  if (tip !== null) {
+    const ours =
+      tip === created.startSha ||
+      (await git
+        .step(git.repository, ["merge-base", "--is-ancestor", created.startSha, tip])
+        .then((result) => result.code === 0)
+        .catch(() => false));
+    if (ours && released === null) await quiet(["update-ref", "-d", ref, tip]);
+    else if (ours && tip !== created.startSha) {
+      await quiet(["update-ref", ref, created.startSha, tip]);
+    }
   }
   if (!recorded) return;
   const at = deps.clock.now();

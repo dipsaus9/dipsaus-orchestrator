@@ -166,6 +166,22 @@ export function hasLiveClaim(office: OfficeHandle, key: StoryKey): boolean {
   return liveClaimOf(office, key) !== null;
 }
 
+/** The latest claim of the story on `branch` that failed and was rolled back, or null. */
+export function failedClaimOf(
+  office: OfficeHandle,
+  key: StoryKey,
+  branch: string,
+): ClaimRecord | null {
+  const row = office.get<ClaimRow>(
+    `select ${COLUMNS} from claims
+     where office_id = $office_id and key = $key and branch = $branch
+       and release_reason = 'claim-failed'
+     order by released_at desc limit 1`,
+    { key, branch },
+  );
+  return row === null ? null : toRecord(row);
+}
+
 /** Every live claim of the office, oldest first. */
 export function liveClaims(office: OfficeHandle): ClaimRecord[] {
   return office

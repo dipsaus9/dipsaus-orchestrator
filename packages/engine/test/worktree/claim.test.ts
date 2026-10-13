@@ -403,6 +403,103 @@ describe("reusing a released branch", () => {
   });
 });
 
+/** An executor that fails the calls `fail` picks (with `seen`, the earlier calls' arguments). */
+function failing(
+  fail: (args: readonly string[], seen: readonly (readonly string[])[]) => boolean,
+): (call: GitCall) => Promise<GitResult> {
+  const real = spawnGitExec(systemSpawn);
+  const seen: (readonly string[])[] = [];
+  return async (call) => {
+    const injected = fail(call.args, seen);
+    seen.push(call.args);
+    if (injected) return { code: 128, stdout: "", stderr: "fatal: injected failure" };
+    return real(call);
+  };
+}
+
+/** The `rev-parse --verify HEAD` that reads the claim commit, after `git commit` ran. */
+function afterClaimCommit(args: readonly string[], seen: readonly (readonly string[])[]): boolean {
+  return (
+    args.includes("rev-parse") &&
+    args.at(-1) === "HEAD" &&
+    seen.some((earlier) => earlier.includes("commit"))
+  );
+}
+
+describe("a claim that fails after the worktree exists", () => {
+  it("rolls back a new branch that already holds the claim commit", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const broken = secondGit(repo, s, rootedAt("../repo.worktrees"), failing(afterClaimCommit));
+      const request = s.request(key);
+
+      const error = await caught(claimStory(s.deps({ git: broken }), request));
+
+      expect((error as GitError).message).toContain("injected failure");
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(existsSync(join(s.git.worktreeRoot(), TASK_1))).toBe(false);
+      expect(findClaim(s.office, request.runId)?.releaseReason).toBe("claim-failed");
+      expect(hasLiveClaim(s.office, key)).toBe(false);
+      claimed(await claimStory(s.deps(), s.request(key)));
+    }, FIXTURE);
+  });
+
+  it("names a branch it could not roll back as left over from the story's failed claim", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const broken = secondGit(
+        repo,
+        s,
+        rootedAt("../repo.worktrees"),
+        failing((args, seen) => afterClaimCommit(args, seen) || args.includes("update-ref")),
+      );
+      await caught(claimStory(s.deps({ git: broken }), s.request(key)));
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+
+      const outcome = await claimStory(s.deps(), s.request(key));
+
+      expect(outcome).toMatchObject({ ok: false, reason: "collision" });
+      expect(outcome.ok ? "" : outcome.notice).toContain(
+        "left over from an earlier failed claim of this story",
+      );
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+    }, FIXTURE);
+  });
+
+  it("moves a reused branch back to its kept tip after the base merge and reopens the release", async () => {
+    await withBareRemote(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const kept = await claimWorkRelease(repo, s, key, "work.txt", "work\n");
+      const other = await otherClone(repo);
+      writeFileSync(join(other, "other.txt"), "other\n");
+      await git(other, repo.home, "add", "other.txt");
+      await git(other, repo.home, "commit", "--quiet", "-m", "other");
+      await git(other, repo.home, "push", "--quiet", "origin", "HEAD:main");
+      // Fails the status check of the claim commit, after the merge of origin/main.
+      const broken = secondGit(
+        repo,
+        s,
+        rootedAt("../repo.worktrees"),
+        failing((args, seen) => args.includes("status") && seen.some((a) => a.includes("merge"))),
+      );
+
+      await caught(claimStory(s.deps({ git: broken }), s.request(key)));
+
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(kept);
+      expect(releasedBranchFor(s.office, key, BRANCH_1)).not.toBeNull();
+      const again = claimed(await claimStory(s.deps(), s.request(key))).claim;
+      expect(again.reused).toBe(true);
+      expect(again.startSha).toBe(kept);
+    }, FIXTURE);
+  });
+});
+
 describe("the claim and the planning lane in the office git queue", () => {
   it("skips a story whose lane-b operation was journaled first", async () => {
     await withBareRemote(async (repo) => {
