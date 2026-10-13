@@ -142,8 +142,11 @@ export function repoOfRemoteUrl(url: string): string | null {
   } else {
     return null;
   }
+  // Trailing slashes by a loop: `/\/+$/` backtracks on many slashes.
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") end--;
   const parts = path
-    .replace(/\/+$/, "")
+    .slice(0, end)
     .replace(/\.git$/, "")
     .split("/");
   if (parts.length !== 2 || parts.some((part) => !/^[A-Za-z0-9._-]+$/.test(part))) return null;

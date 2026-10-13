@@ -15,12 +15,19 @@ function clean(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** The text without trailing full stops; a loop, because `/\.+$/` backtracks on many dots. */
+function trimStops(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === ".") end--;
+  return text.slice(0, end);
+}
+
 /** The summary: every operation when they fit, else a count and as many subjects as fit. */
 export function prSummary(ops: readonly TitleOp[]): string {
   const parts = ops.map((op) => clean(`${op.kind} ${op.subject}`));
   if (parts.length === 0) return "update the backlog";
   const all = parts.join(", ");
-  if ([...all].length <= MAX_SUBJECT) return all.replace(/\.+$/, "");
+  if ([...all].length <= MAX_SUBJECT) return trimStops(all);
   const subjects = [...new Set(ops.map((op) => clean(op.subject)))];
   const head = `${ops.length} backlog operations on `;
   let shown = 0;
@@ -33,7 +40,7 @@ export function prSummary(ops: readonly TitleOp[]): string {
     shown = n;
   }
   if (shown === 0) text = [...text].slice(0, MAX_SUBJECT).join("");
-  return text.replace(/\.+$/, "");
+  return trimStops(text);
 }
 
 export function prTitle(ops: readonly TitleOp[]): string {
