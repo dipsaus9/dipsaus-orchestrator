@@ -205,6 +205,8 @@ describe("views", () => {
 });
 
 describe("office commands and reads", () => {
+  // Shipped after minor 0, by name.
+  const shippedLater: Record<string, number> = { "office.stats": 1, "story.gate": 1 };
   const provisional = [
     "work.steer",
     "work.pause",
@@ -248,6 +250,7 @@ describe("office commands and reads", () => {
         "office.usage",
         "office.digest",
         "story.gate",
+        "office.stats",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);
@@ -256,23 +259,16 @@ describe("office commands and reads", () => {
     }
   });
 
-  // Added in minor 1 (DIPO-71).
-  const sinceMinor1 = ["story.gate"];
-
   for (const definition of [...officeCommands, ...officeReads]) {
     if (provisional.includes(definition.name)) {
       it(`${definition.name} is provisional with no since`, () => {
         expect(definition.provisional).toBe(true);
         expect(definition.since).toBeUndefined();
       });
-    } else if (sinceMinor1.includes(definition.name)) {
-      it(`${definition.name} ships with since 1.1`, () => {
-        expect(definition.since).toBe(1);
-        expect(definition.provisional).toBeUndefined();
-      });
     } else {
-      it(`${definition.name} ships with since 1.0`, () => {
-        expect(definition.since).toBe(0);
+      const since = shippedLater[definition.name] ?? 0;
+      it(`${definition.name} ships with since 1.${since}`, () => {
+        expect(definition.since).toBe(since);
         expect(definition.provisional).toBeUndefined();
       });
     }

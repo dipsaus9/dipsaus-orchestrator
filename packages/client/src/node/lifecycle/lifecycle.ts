@@ -41,7 +41,7 @@ import { daemonEnv, selfCommand, type SpawnDaemon, systemSpawnDaemon } from "./s
 export type DaemonStatusResult = z.output<typeof daemonStatus.result>;
 
 /** What the lifecycle needs from a connection to the daemon. */
-export type DaemonSession = Pick<DipoClient, "read" | "command" | "close" | "hello">;
+export type DaemonSession = Pick<DipoClient, "read" | "command" | "subscribe" | "close" | "hello">;
 
 /** Waits, in ms; tests shorten them. The defaults are 0006 decisions 5 and 6. */
 export interface LifecycleTimings {

@@ -8,7 +8,12 @@ import { ingest } from "./migrations/0004-ingest";
 import { backlogJournal } from "./migrations/0005-backlog-journal";
 import { backlogMirror } from "./migrations/0006-backlog-mirror";
 import { contextPacks } from "./migrations/0007-context-packs";
-import { gates } from "./migrations/0008-gates";
+import { runProfiles } from "./migrations/0008-run-profiles";
+import { promptPartsWorkerNotes } from "./migrations/0009-prompt-parts-worker-notes";
+import { claims } from "./migrations/0010-claims";
+import { pricing } from "./migrations/0011-pricing";
+import { retentionIndexes } from "./migrations/0012-retention-indexes";
+import { gates } from "./migrations/0013-gates";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -52,5 +57,10 @@ create table offices (
   backlogJournal,
   backlogMirror,
   contextPacks,
+  runProfiles,
+  promptPartsWorkerNotes,
+  claims,
+  pricing,
+  retentionIndexes,
   gates,
 ];

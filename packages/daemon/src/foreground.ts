@@ -27,12 +27,14 @@ import {
   ensurePrivateDir,
   FEATURES,
   GateStore,
+  hasLiveClaim,
   helloFeature,
   helloHandshake,
   isLogLevel,
   lingeringEnabled,
   loadSoftwareConfig,
   LOG_LEVELS,
+  MaintenanceScheduler,
   MemoryRequestTable,
   officeFeature,
   officeSummarySource,
@@ -44,11 +46,14 @@ import {
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
+  RunProfiles,
+  Retention,
   runtimeCandidates,
   selfCommand,
   serveUnixSocket,
   SOCKET_FILE,
   SoftwareStream,
+  StoryClaims,
   StoryIndex,
   systemExecutableStamp,
   systemProcessProbe,
@@ -293,6 +298,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     lockTimer: TimerHandle | null;
     stableTimer: TimerHandle | null;
     storyIndex: StoryIndex | null;
+    retention: Retention | null;
+    maintenance: MaintenanceScheduler | null;
   } = {
     socket: null,
     database: null,
@@ -300,6 +307,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     lockTimer: null,
     stableTimer: null,
     storyIndex: null,
+    retention: null,
+    maintenance: null,
   };
   let lockLost = false;
   let clean = false;
@@ -388,9 +397,17 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     // The planning lane (DIPO-34): its replay load step needs the office git, so it follows
     // engineGit.feature. The `backlog` on the daemon PATH, as for the version check.
+    // Story claims (DIPO-38): their load step pins live claims' worktree snapshots on the office
+    // git, so it follows engineGit.feature. The lane refuses a story with a live claim.
+    const claims = new StoryClaims({
+      cli: { spawn: systemSpawn },
+      git: (office) => engineGit.forOffice(office),
+      onChanged: (office) => server?.notifyOffice(office),
+    });
     const lane = new BacklogLane({
       cli: { spawn: systemSpawn },
       git: (office) => engineGit.forOffice(office),
+      liveClaim: hasLiveClaim,
       onChanged: (office) => server?.notifyOffice(office),
     });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
@@ -413,14 +430,33 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       clock,
       ids,
     });
+    // The run profile (DIPO-72): scanned at load after the story index fetched, and on
+    // `office.rescan`, which also indexes the stories again.
+    const runProfiles = new RunProfiles({
+      git: engineGit,
+      stories: storyIndex,
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "scan" }),
+    });
+    // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
+    // loaded, with the `retention.*` periods of the configuration in force.
+    const retention = new Retention({
+      offices,
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "retention" }),
+    });
+    held.retention = retention;
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
     const summaries = officeSummarySource(() => held.database);
     const registry: Registry = engineRegistry([
       ...FEATURES,
       engineGit.feature,
+      claims.feature,
       lane.feature,
       storyIndex.feature,
       gates.feature,
+      runProfiles.feature,
+      retention.feature,
       officeFeature(offices),
       helloFeature({
         engineVersion: io.version,
@@ -547,6 +583,25 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         crashes.reset();
         logger.info("stable for 10 minutes; crash counter reset");
       }, STABLE_RUN_MS);
+      // The daily backup and maintenance (DIPO-65, 0007 sections 7 and 10). Idle means no engine
+      // step is running and no loaded office reports active work.
+      const maintenance = new MaintenanceScheduler({
+        database: () => held.database,
+        clock,
+        idle: () =>
+          children.size === 0 &&
+          offices.loadedOffices().every((office) => {
+            const handle = offices.get(office);
+            return (
+              handle === undefined ||
+              registry.activeWorkChecks().every(({ check }) => !check(handle))
+            );
+          }),
+        logger: logger.child({ component: "maintenance" }),
+      });
+      held.maintenance = maintenance;
+      void stops.promise.then(() => maintenance.stop());
+      maintenance.start();
     }
 
     const request = await stops.promise;
@@ -567,6 +622,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
     upgrade?.stop();
     held.storyIndex?.stop();
+    // A retention pass or backup still running finishes before the database closes.
+    await held.retention?.stop();
+    await held.maintenance?.stop();
     // Clean exit: remove dipo.sock, then dipo.pid (0006 decision 6). A daemon that lost the lock
     // leaves the socket path alone: it may belong to the daemon that holds the lock now. The
     // connections close (1001) before the database, so no request reaches a closed database.

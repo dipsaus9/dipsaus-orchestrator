@@ -1,4 +1,4 @@
-// Migration 8 (DIPO-71): `gates` and `gate_decisions` (0007 section 4). A gate is one point where
+// Migration 13 (DIPO-71): `gates` and `gate_decisions` (0007 section 4). A gate is one point where
 // a story waits for a decision: its kind (`ready`, `pickup`, `review`, `test`, `merge`,
 // `backlog-pr`; for the Ready gate the kind is the mode), the story key, the run when there is
 // one, when it opened, who it waits on until decided, and a summary. A decision records approved
@@ -9,7 +9,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const gates: SqlMigration = {
-  version: 8,
+  version: 13,
   name: "gates",
   sql: `
 create table gates (

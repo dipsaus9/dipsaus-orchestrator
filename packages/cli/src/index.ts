@@ -18,7 +18,9 @@ import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
 import { gateCommand } from "./gate-command";
+import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { statsCommand } from "./stats-command";
 import {
   compiledStamp,
   currentRuntime,
@@ -46,6 +48,8 @@ export type CliDeps = {
   readonly runtime: Runtime;
   /** The current directory, the terminal and git around it (`dipo office`, DIPO-27). */
   readonly workspace: Workspace;
+  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (DIPO-64). */
+  readonly logs?: DaemonLogsDeps;
 };
 
 export const HELP = `dipo: run your software products with a model as your team
@@ -64,6 +68,10 @@ Usage:
                     stale (exit 3)
   dipo daemon --foreground [--log-level <level>]
                     run the daemon in this terminal; logs also go to stderr
+  dipo daemon logs [-f] [--office <id>] [--run <id>] [--level <level>]
+                    print daemon.log and its rotated files, also with the daemon
+                    stopped; -f keeps following, --level keeps that level and
+                    the more severe ones
   dipo daemon log-level <level>
                     set the running daemon's log level until it restarts
                     (error, warn, info, debug or trace)
@@ -82,6 +90,12 @@ Usage:
                     check a story against the Ready gate on the office's base
                     branch without storing anything; prints "ready <ID> passed"
                     or each failure, and exits 1 when any rule fails
+  dipo office rescan [--office <id>]
+                    scan the office's run profile again and print what changed,
+                    its conformance level and each deviation
+  dipo stats [--office <id>]
+                    print the rows and approximate bytes of each table of the
+                    office, to tune retention.shortDays and retention.stateDays
 
 Office commands use --office, else the office of the current directory.
 
@@ -170,6 +184,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "gate") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return gateCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "stats") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return statsCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "self-check" && args.length === 1) {
     return selfCheck(deps);

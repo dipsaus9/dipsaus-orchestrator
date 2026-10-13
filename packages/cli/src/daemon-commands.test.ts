@@ -38,7 +38,12 @@ function fake(connect: () => Promise<Handler>, daemon: DaemonControl = NO_LIFECY
           sent.push(message);
           return handler(message);
         }) as DaemonSession["command"],
-        read: () => Promise.reject(new Error("read must not be called")),
+        subscribe: () => {
+          throw new Error("subscribe must not be called");
+        },
+        read: (async () => {
+          throw new Error("read must not be called");
+        }) as DaemonSession["read"],
         close: () => void (closed += 1),
       };
       return session;

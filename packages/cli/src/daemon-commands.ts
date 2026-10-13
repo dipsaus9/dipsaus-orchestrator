@@ -1,6 +1,7 @@
 // `dipo daemon` client subcommands (0006 decisions 2, 5 and 14). `start`, `stop`, `restart` and
 // `status` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
-// send one contract command each, starting the daemon first unless `daemon.autostart` is false.
+// send one contract command each, starting the daemon first unless `daemon.autostart` is false;
+// `logs` reads the log files directly and never talks to the daemon (DIPO-64).
 
 import type { DipoClient } from "@dipsaus-orchestrator/client";
 import { ClientError } from "@dipsaus-orchestrator/client";
@@ -9,6 +10,7 @@ import {
   DaemonNotRunningError,
   DaemonStartError,
   describeStartFailure,
+  logsDir,
   SoftwareConfigError,
   versionHint,
   type DaemonObservation,
@@ -27,8 +29,10 @@ import {
   LogLevel,
 } from "@dipsaus-orchestrator/contract";
 
+import { type DaemonLogsDeps, logsCommand } from "./logs-command";
+
 /** What a daemon subcommand needs from a connected client. */
-export type DaemonSession = Pick<DipoClient, "command" | "read" | "close">;
+export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
 
 /**
  * Connects to the daemon, starting it first when autostart allows (DIPO-70). Throws
@@ -52,6 +56,8 @@ export interface DaemonCommandDeps {
   readonly clock: Clock;
   /** This binary's version, for the restart hint of 0006 decision 14. */
   readonly version: string;
+  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (0006 decision 3). */
+  readonly logs?: DaemonLogsDeps;
 }
 
 /** How long a subcommand waits for its reply, reconnects included. */
@@ -287,6 +293,13 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
   ],
   ["status", statusCommand],
   [
+    "logs",
+    (args, deps) =>
+      logsCommand(args, { ...deps, logs: deps.logs ?? { dir: logsDir() } }, (message) =>
+        usage(deps, message),
+      ),
+  ],
+  [
     "log-level",
     async (args, deps) => {
       const level = LogLevel.safeParse(args[0]);
@@ -324,10 +337,14 @@ export function engineFailure(deps: DaemonCommandDeps, error: EngineError): numb
   return 1;
 }
 
-/** Connects, runs one exchange under the reply deadline, and always closes the connection. */
+/**
+ * Connects, runs one exchange under the reply deadline (`timeoutMs`, `REPLY_TIMEOUT_MS` by
+ * default), and always closes the connection.
+ */
 export async function withDaemon(
   deps: DaemonCommandDeps,
   run: (session: DaemonSession) => Promise<number>,
+  timeoutMs: number = REPLY_TIMEOUT_MS,
 ): Promise<number> {
   let session: DaemonSession;
   try {
@@ -338,9 +355,9 @@ export async function withDaemon(
   let timer: ReturnType<Clock["setTimeout"]> | null = null;
   const deadline = new Promise<number>((resolve) => {
     timer = deps.clock.setTimeout(() => {
-      deps.writeError(`dipo: the daemon did not answer within ${REPLY_TIMEOUT_MS / 1000} s.`);
+      deps.writeError(`dipo: the daemon did not answer within ${timeoutMs / 1000} s.`);
       resolve(1);
-    }, REPLY_TIMEOUT_MS);
+    }, timeoutMs);
   });
   try {
     return await Promise.race([run(session), deadline]);

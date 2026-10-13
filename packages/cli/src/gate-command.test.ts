@@ -37,6 +37,9 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
     connectDaemon: async () => {
       const session: DaemonSession = {
         command: () => Promise.reject(new Error("command must not be called")),
+        subscribe: () => {
+          throw new Error("subscribe must not be called");
+        },
         read: (async (definition: { name: string }, args: unknown) => {
           const message = { name: definition.name, args };
           sent.push(message);
