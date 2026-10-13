@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:04'
+updated_date: '2026-10-13 12:11'
 labels:
   - 'tier:M'
   - after-cutover
@@ -80,4 +80,6 @@ Implementation notes:
 - `publish` and `post-release` are written but run only when `release-please` outputs `publish == true`, which it never does while `DRY_RUN: "true"`. The switch to real releases: `DRY_RUN: "false"` plus `push: branches: [main]`.
 - The release build has no dependency cache (installs from bun.lock only).
 - shellcheck is not installed locally; a scratchpad copy of shellcheck 0.11.0 and actionlint 1.7.12 found no issues in install.sh, ci.yml, release.yml or the existing stub-worker.sh.
+
+Review advisory fixed: release.yml now rejects a `tag` input outside `^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]*)?$` (bash `[[ =~ ]]` on the whole value, so no newline passes), and the decide step writes build, publish, ref and tag with one printf each instead of piping through `tr`. actionlint 1.7.12 and shellcheck 0.11.0 (scratchpad copies) report nothing.
 <!-- SECTION:NOTES:END -->
