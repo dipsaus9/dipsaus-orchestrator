@@ -36,8 +36,10 @@ export {
 export { GitQueue } from "./queue";
 export {
   clockSleep,
+  EXTERNAL_STEP_TIMEOUT_MS,
   GitError,
   heldLock,
+  isTimedOut,
   LOCK_RETRY_DELAYS_MS,
   runGitStep,
   runGitStepOk,
