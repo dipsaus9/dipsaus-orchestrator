@@ -1,7 +1,8 @@
 // Claiming a story (0010 sections 2, 2a and 7): the engine creates the story's frozen branch and a
 // locked worktree at `<root>/<ID>` from `origin/<base>`, commits `<ID>: status In Progress` there
 // through the Backlog CLI, pushes the branch and records the claim. Setup after the claim (files,
-// ports, install) is DIPO-39.
+// ports, install) is `setup.ts` (DIPO-39); it runs outside this queue item, so a long install does
+// not hold the office's git queue, and a failed setup undoes the claim with `rollbackClaim`.
 //
 // Order and atomicity:
 // - Before anything is created, the free space on the worktree root's filesystem is checked
@@ -45,6 +46,7 @@ import { type DiskProbe, formatGigabytes } from "../platform/disk";
 import {
   type ClaimRecord,
   failedClaimOf,
+  type FAILED_CLAIM_REASONS,
   findClaim,
   insertClaim,
   keysTrackingBranch,
@@ -463,22 +465,45 @@ async function push(deps: ClaimDeps, git: GitSession, request: ClaimRequest): Pr
   return false;
 }
 
+/** What a rollback needs from the claim's dependencies. */
+export type RollbackDeps = Pick<ClaimDeps, "officeId" | "office" | "git" | "clock" | "onChanged">;
+
+/** The claim a rollback undoes. */
+export interface RollbackTarget {
+  readonly key: StoryKey;
+  readonly story: string;
+  readonly branch: string;
+  readonly runId: RunId;
+  /** The worktree path. */
+  readonly path: string;
+  /** The commit the worktree started from. */
+  readonly startSha: string;
+  /** The release a reused branch came from, reopened by the rollback; null for a new branch. */
+  readonly released: ReleasedBranch | null;
+  /** True when the claim row exists; the rollback ends it with `reason`. */
+  readonly recorded: boolean;
+  /** The commits this claim made on the branch: its start, a base merge, the claim commit. */
+  readonly made: readonly string[];
+  /** The `release_reason` the claim row gets: `claim-failed`, or `setup-failed` (DIPO-39). */
+  readonly reason: (typeof FAILED_CLAIM_REASONS)[number];
+  /** Leave the branch ref as it is (a reused branch whose claim commit is already pushed). */
+  readonly keepRef?: boolean;
+}
+
 /**
  * Undoes a claim that failed after `git worktree add`: unpin, unlock and remove the worktree,
  * delete a new branch (or move a reused one back to its start) when the worktree is gone and the
  * tip is one of the commits this claim made, else leave the ref and put a `claim.leftover` notice
  * on the office; end the claim record and reopen a reused release. Each step is best effort, so
- * the original error is what the caller sees.
+ * the original error is what the caller sees. Runs inside the caller's git queue item. Returns
+ * true when the branch is back where it was before the claim (gone, or at its start).
  */
-async function rollback(
-  deps: ClaimDeps,
+export async function rollbackClaim(
+  deps: RollbackDeps,
   git: GitSession,
-  request: ClaimRequest,
-  created: Created,
-  recorded: boolean,
-  made: readonly string[] = [created.startSha],
-): Promise<void> {
-  const { path, released } = created;
+  target: RollbackTarget,
+): Promise<boolean> {
+  const { path, released } = target;
   deps.git.unpinWorktree(path);
   const quiet = async (args: readonly string[]): Promise<void> => {
     await git.step(git.repository, args).catch(() => undefined);
@@ -488,39 +513,65 @@ async function rollback(
   // A new branch is deleted, a reused one goes back to its start, only when the worktree is gone
   // and the tip is a commit this claim made (`made`); each ref change is guarded by the tip read
   // here. Anything else is left as it is and reported.
-  const ref = `refs/heads/${request.branch}`;
+  const ref = `refs/heads/${target.branch}`;
   const tip = await revParse(git, ref).catch(() => null);
-  const restored = released === null ? tip === null : tip === created.startSha;
-  if (!restored) {
+  let restored = released === null ? tip === null : tip === target.startSha;
+  if (!restored && target.keepRef !== true) {
     let leftBecause: string | null = null;
     if (deps.git.adminDirOf(path) !== null) {
       leftBecause = `its worktree ${path} could not be removed`;
-    } else if (tip === null || !made.includes(tip)) {
+    } else if (tip === null || !target.made.includes(tip)) {
       leftBecause = `its tip ${tip ?? "(unreadable)"} is not a commit this claim made`;
     } else {
       const args =
         released === null
           ? ["update-ref", "-d", ref, tip]
-          : ["update-ref", ref, created.startSha, tip];
+          : ["update-ref", ref, target.startSha, tip];
       const result = await git.step(git.repository, args).catch(() => null);
-      if (result?.code !== 0) {
+      if (result?.code === 0) {
+        restored = true;
+      } else {
         leftBecause = `\`git ${args.join(" ")}\` failed (${result?.stderr.trim() || "no result"})`;
       }
     }
     if (leftBecause !== null) {
-      const text = `The claim of ${request.story} failed and dipo could not roll back the branch ${request.branch}: ${leftBecause}. It is left as it is; check it and remove or reset it by hand.`;
-      writeWith(deps, () => [notice("warn", CLAIM_NOTICES.leftover, text, request.key)]);
+      const text = `The claim of ${target.story} failed and dipo could not roll back the branch ${target.branch}: ${leftBecause}. It is left as it is; check it and remove or reset it by hand.`;
+      writeWith(deps, () => [notice("warn", CLAIM_NOTICES.leftover, text, target.key)]);
     }
   }
-  if (!recorded) return;
+  if (!target.recorded) return restored;
   const at = deps.clock.now();
   deps.office.immediate(() => {
     deps.office.run(
-      `update claims set released_at = $at, release_reason = 'claim-failed'
+      `update claims set released_at = $at, release_reason = $reason
        where office_id = $office_id and run_id = $run`,
-      { at, run: request.runId },
+      { at, run: target.runId, reason: target.reason },
     );
     if (released !== null) markReclaimed(deps.office, released, null, null);
+  });
+  return restored;
+}
+
+/** Rolls back a claim that failed inside `claimStory`. */
+async function rollback(
+  deps: ClaimDeps,
+  git: GitSession,
+  request: ClaimRequest,
+  created: Created,
+  recorded: boolean,
+  made: readonly string[] = [created.startSha],
+): Promise<void> {
+  await rollbackClaim(deps, git, {
+    key: request.key,
+    story: request.story,
+    branch: request.branch,
+    runId: request.runId,
+    path: created.path,
+    startSha: created.startSha,
+    released: created.released,
+    recorded,
+    made,
+    reason: "claim-failed",
   });
 }
 
@@ -620,7 +671,7 @@ function repoPath(worktree: string, file: string): string {
   return rel.split(sep).join("/");
 }
 
-function notice(
+export function notice(
   level: "info" | "warn" | "error",
   code: string,
   text: string,
@@ -630,7 +681,7 @@ function notice(
 }
 
 /** Runs `fn` in one transaction and appends the entries it returns. */
-function writeWith(deps: ClaimDeps, fn: () => ReturnType<typeof notice>[] | void): void {
+export function writeWith(deps: RollbackDeps, fn: () => ReturnType<typeof notice>[] | void): void {
   const at = deps.clock.now();
   const appended = deps.office.immediate(() => {
     const entries = fn() ?? [];

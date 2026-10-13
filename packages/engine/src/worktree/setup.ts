@@ -1,0 +1,455 @@
+// Setting up a claimed worktree (0010 sections 8 and 9, its 0008 amendment; 0013 section 4). After
+// `claimStory` (DIPO-38) the engine, in order:
+//
+// 1. takes the lowest free machine-wide port slot (`slots.ts`) and builds the run environment
+//    (`run-env.ts`);
+// 2. places the configured gitignored files and the filtered `.claude/settings.local.json`
+//    (`files.ts`), and the first time an office gets env files, shows the development-secrets
+//    notice once with the list of files;
+// 3. checks the free space again (below `MIN_FREE_BYTES` fails setup with a log line naming it);
+// 4. runs install from the run profile, then the profile's `setup` script, then each
+//    `worktree.post_create` argument list, each through the sandboxed step runner (DIPO-37) with
+//    the run environment, never through a shell. Install gets the install policy (its registry
+//    hosts); `setup` and `post_create` get the closed-network policy.
+//
+// Any failure rolls the claim back (`rollbackClaim`): the slot is freed, the worktree removed,
+// the branch deleted only while it still points at a commit the claim made (its start or the
+// recorded claim commit), the pushed claim branch deleted on the remote only while it still points
+// at what the claim pushed, and the claim row ended as `setup-failed`. The story stays Ready: the
+// claim commit lived only on the branch. The caller gets a `pickupCheckFailed` skip with the setup
+// log. The log names paths, commands and exit codes, never file contents.
+//
+// Setup runs outside the claim's git queue item, so a long install does not hold the office's
+// git queue; each git step it needs (`check-ignore`, the rollback) is a queue item of its own.
+
+import type { SkipReason } from "@dipsaus-orchestrator/contract";
+
+import type { OfficeConfig } from "../config";
+import { FETCH_CONFIG, type GitLocation } from "../git/hardened";
+import type { GitSession } from "../git/office";
+import { EXTERNAL_STEP_TIMEOUT_MS, type GitResult, isTimedOut } from "../git/runner";
+import { type DiskProbe, formatGigabytes } from "../platform/disk";
+import type { CommandSpec, RunProfile } from "../scan/detect";
+import type { CapturedOutput, StepRequest, StepResult } from "../sandbox/step";
+import type { StepPolicyKind } from "../sandbox/policy";
+
+import { MIN_FREE_BYTES, notice, type RollbackDeps, rollbackClaim, writeWith } from "./claim";
+import { type FileStepResult, placeFiles } from "./files";
+import { type ClaimRecord, releaseReclaimedBy } from "./records";
+import { buildRunEnv } from "./run-env";
+import type { SlotTable } from "./slots";
+
+/** `engine.notice` codes of setup. */
+export const SETUP_NOTICES = {
+  failed: "setup.failed",
+  envFiles: "setup.envFiles",
+  fileSkipped: "setup.fileSkipped",
+  settingsNotCopied: "setup.settingsNotCopied",
+  remoteLeftover: "setup.remoteLeftover",
+} as const;
+
+/** The development-secrets rule (0008 section 2, "Env files"; open question 8). */
+export const ENV_FILES_RULE = "worktree env files hold development secrets only";
+
+/** Characters of a failed step's stdout and stderr kept in the setup log. */
+export const STEP_OUTPUT_TAIL = 4000;
+
+/** Paths per `git check-ignore` call. */
+const CHECK_IGNORE_BATCH = 200;
+
+export interface SetupDeps extends RollbackDeps {
+  readonly disk: DiskProbe;
+  /** The machine-wide slot table in `<state>`. */
+  readonly slots: SlotTable;
+  /** Runs one sandboxed step: `runSandboxedStep` with the daemon's step dependencies. */
+  readonly runStep: (request: StepRequest) => Promise<StepResult>;
+}
+
+/** The daemon's facts a sandboxed step needs. */
+export interface SetupHost {
+  readonly home: string;
+  readonly uid: number;
+  /** The daemon's environment; only the step allowlist passes. */
+  readonly env: Readonly<Record<string, string | undefined>>;
+}
+
+export interface SetupRequest {
+  /** The claim `claimStory` returned. */
+  readonly claim: ClaimRecord;
+  readonly config: Pick<OfficeConfig, "worktree" | "timeouts" | "sandbox">;
+  /** The office's stored run profile (DIPO-72); null before its first scan. */
+  readonly profile: RunProfile | null;
+  readonly host: SetupHost;
+}
+
+export interface SetupDone {
+  readonly ok: true;
+  readonly slot: number;
+  /** The run environment for every later process in the worktree. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly files: FileStepResult;
+  readonly log: readonly string[];
+}
+
+export interface SetupSkip {
+  readonly ok: false;
+  readonly reason: SkipReason;
+  /** The notice put on the office. */
+  readonly notice: string;
+  readonly code: string;
+  /** The setup log, one line per entry. */
+  readonly log: string;
+}
+
+export type SetupOutcome = SetupDone | SetupSkip;
+
+/** A setup failure with its reason for the notice. */
+class SetupFailure extends Error {}
+
+/** Sets up the claimed worktree; see the file comment. Never throws for a setup failure. */
+export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Promise<SetupOutcome> {
+  const { claim, config, profile } = request;
+  const log: string[] = [];
+  try {
+    const slot = deps.slots.take(
+      {
+        office: deps.officeId,
+        story: claim.story,
+        worktree: claim.worktree,
+        takenAt: deps.clock.now(),
+      },
+      config.worktree.maxSlots,
+    );
+    if (slot === null) {
+      throw new SetupFailure(
+        `every port slot from 1 to ${config.worktree.maxSlots} is taken by another worktree`,
+      );
+    }
+    log.push(`slot: ${slot} (port offset ${slot * config.worktree.ports.stride})`);
+    const env = buildRunEnv({
+      slot,
+      stride: config.worktree.ports.stride,
+      story: claim.story,
+      worktree: claim.worktree,
+      named: config.worktree.ports.named,
+      devPort: devPortOf(profile),
+      env: config.worktree.env,
+    });
+
+    const files = await placeFiles({
+      main: deps.git.mainWorktree,
+      worktree: claim.worktree,
+      files: config.worktree.files,
+      ignored: (paths) => ignoredIn(deps, claim.worktree, paths),
+      envFiles: new Set(profile?.envFiles.map((file) => file.path) ?? []),
+    });
+    log.push(...files.log);
+    fileNotices(deps, claim, files);
+
+    if (profile === null) {
+      throw new SetupFailure("the office has no run profile yet; rescan the office");
+    }
+
+    const free = await deps.disk.freeBytes(claim.worktree);
+    if (free < MIN_FREE_BYTES) {
+      log.push(
+        `disk: the filesystem holding ${claim.worktree} has ${formatGigabytes(free)} free, less than the ${formatGigabytes(MIN_FREE_BYTES)} install needs`,
+      );
+      throw new SetupFailure(
+        `only ${formatGigabytes(free)} free before install, less than ${formatGigabytes(MIN_FREE_BYTES)}`,
+      );
+    }
+    log.push(`disk: ${formatGigabytes(free)} free before install`);
+
+    const run = (spec: CommandSpec, kind: StepPolicyKind, script: string) =>
+      runCommands(deps, request, env, log, { spec, kind, script });
+
+    const install = profile.capabilities.install;
+    if (install.status === "resolved") {
+      await run(install.value, "install", "install");
+    } else if (install.status === "conflict") {
+      throw new SetupFailure("the run profile's install is in conflict; confirm one in the office");
+    } else {
+      log.push("install: none in the run profile");
+    }
+    const setup = profile.capabilities.setup;
+    if (setup.status === "resolved") {
+      await run(setup.value, "verify", "setup");
+    } else if (setup.status === "conflict") {
+      throw new SetupFailure("the run profile's setup is in conflict; confirm one in the office");
+    }
+    for (const command of config.worktree.post_create) {
+      await run({ commands: [command], cwd: "." }, "verify", "post_create");
+    }
+    log.push("setup: done");
+    return { ok: true, slot, env, files, log };
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    if (!(error instanceof SetupFailure)) log.push(`setup: ${why}`);
+    return rollBack(deps, claim, why, log);
+  }
+}
+
+/** The dev port of the root package, else the first the scan found; null when none. */
+function devPortOf(profile: RunProfile | null): number | null {
+  const ports = profile?.devPorts ?? [];
+  return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
+}
+
+interface Step {
+  readonly spec: CommandSpec;
+  readonly kind: StepPolicyKind;
+  readonly script: string;
+}
+
+/** Runs each argument list of `step` in order; the first failure throws `SetupFailure`. */
+async function runCommands(
+  deps: SetupDeps,
+  request: SetupRequest,
+  env: Readonly<Record<string, string>>,
+  log: string[],
+  step: Step,
+): Promise<void> {
+  if (step.spec.cwd !== ".") {
+    log.push(`${step.script}: working directory ${step.spec.cwd}`);
+    throw new SetupFailure(
+      `${step.script} runs in ${step.spec.cwd}, but setup runs commands only at the worktree root`,
+    );
+  }
+  for (const command of step.spec.commands) {
+    const [program, ...args] = command;
+    if (program === undefined) continue;
+    const shown = command.join(" ");
+    log.push(`${step.script}: $ ${shown}`);
+    const result = await deps.runStep({
+      kind: step.kind,
+      script: step.script,
+      command: [program, ...args],
+      worktree: request.claim.worktree,
+      mainCheckout: deps.git.mainWorktree,
+      home: request.host.home,
+      uid: request.host.uid,
+      sandbox: {
+        installCachePaths: request.config.sandbox.installCachePaths,
+        registryHosts: request.config.sandbox.registryHosts,
+      },
+      scriptMinutes: request.config.timeouts.scriptMinutes,
+      env: request.host.env,
+      extraEnv: env,
+    });
+    if (result.outcome === "startFailed") {
+      log.push(`${step.script}: did not start: ${result.reason}`);
+      throw new SetupFailure(`${step.script} (${shown}) did not start: ${result.reason}`);
+    }
+    for (const warning of result.warnings) log.push(`${step.script}: sandbox: ${warning}`);
+    if (result.code === 0 && !result.timedOut) {
+      log.push(`${step.script}: exit 0`);
+      continue;
+    }
+    const ended = result.timedOut
+      ? `timed out after ${request.config.timeouts.scriptMinutes[step.script]} min`
+      : result.code === null
+        ? `ended by ${result.signal ?? "a signal"}`
+        : `exit ${result.code}`;
+    log.push(`${step.script}: ${ended}`);
+    pushOutput(log, step.script, "stdout", result.stdout);
+    pushOutput(log, step.script, "stderr", result.stderr);
+    throw new SetupFailure(`${step.script} (${shown}) failed: ${ended}`);
+  }
+}
+
+function pushOutput(log: string[], script: string, name: string, output: CapturedOutput): void {
+  const text = output.text.trimEnd();
+  if (text === "") return;
+  const cut = text.length > STEP_OUTPUT_TAIL || output.truncated;
+  log.push(`${script}: ${name}${cut ? " (tail)" : ""}:`);
+  log.push(text.length > STEP_OUTPUT_TAIL ? text.slice(-STEP_OUTPUT_TAIL) : text);
+}
+
+/** The paths among `paths` that git ignores in the worktree, through the office's git queue. */
+async function ignoredIn(
+  deps: SetupDeps,
+  worktree: string,
+  paths: readonly string[],
+): Promise<ReadonlySet<string>> {
+  return deps.git.run(async (git) => {
+    const location = deps.git.worktreeLocation(worktree);
+    const ignored = new Set<string>();
+    for (let start = 0; start < paths.length; start += CHECK_IGNORE_BATCH) {
+      const batch = paths.slice(start, start + CHECK_IGNORE_BATCH);
+      for (const path of await checkIgnore(git, location, batch)) ignored.add(path);
+    }
+    return ignored;
+  });
+}
+
+/**
+ * `git check-ignore -- <paths>`: the same rule as `check-ignore -q` per path, batched. Exit 0
+ * prints the ignored paths one per line, exit 1 means none is ignored; tracked paths are never
+ * printed. `files.ts` refuses names git would quote, so each line is a path as given.
+ */
+async function checkIgnore(
+  git: GitSession,
+  location: GitLocation,
+  paths: readonly string[],
+): Promise<string[]> {
+  const result = await git.step(location, ["check-ignore", "--", ...paths]);
+  if (result.code === 1) return [];
+  if (result.code !== 0) {
+    throw new SetupFailure(
+      `git check-ignore failed: ${result.stderr.trim() || `exit ${result.code}`}`,
+    );
+  }
+  return result.stdout.split("\n").filter((path) => path !== "");
+}
+
+/** The notices of step 1: env files once per office, skipped optional files, settings left out. */
+function fileNotices(deps: SetupDeps, claim: ClaimRecord, files: FileStepResult): void {
+  writeWith(deps, () => {
+    const entries = [];
+    for (const path of files.skipped) {
+      entries.push(
+        notice(
+          "info",
+          SETUP_NOTICES.fileSkipped,
+          `${claim.story}: ${path} from worktree.files is not in the main checkout and is optional, so setup skipped it.`,
+          claim.key,
+        ),
+      );
+    }
+    if (files.settings !== null && !files.settings.copied) {
+      entries.push(
+        notice(
+          "warn",
+          SETUP_NOTICES.settingsNotCopied,
+          `${claim.story}: .claude/settings.local.json was not copied into the worktree: ${files.settings.why}.`,
+          claim.key,
+        ),
+      );
+    }
+    if (files.envFiles.length > 0) {
+      const first = deps.office.run(
+        `insert into once_notices (office_id, code, shown_at)
+         values ($office_id, $code, $at) on conflict do nothing`,
+        { code: SETUP_NOTICES.envFiles, at: deps.clock.now() },
+      );
+      if (first.changes > 0) {
+        entries.push(
+          notice(
+            "warn",
+            SETUP_NOTICES.envFiles,
+            `Setup copied env files into the worktree of ${claim.story}: ${files.envFiles.join(", ")}. Rule: ${ENV_FILES_RULE}. A worker's scripts can read them, so keep production secrets out of them. dipo shows this once per office.`,
+            claim.key,
+          ),
+        );
+      }
+    }
+    return entries;
+  });
+}
+
+/** Undoes the claim after a failed setup and returns the `pickupCheckFailed` skip. */
+async function rollBack(
+  deps: SetupDeps,
+  claim: ClaimRecord,
+  why: string,
+  log: string[],
+): Promise<SetupSkip> {
+  try {
+    deps.slots.free(claim.worktree);
+  } catch (error) {
+    log.push(`rollback: the slot could not be freed: ${String(error)}`);
+  }
+  const released = claim.reused ? releaseReclaimedBy(deps.office, claim.runId) : null;
+  const pushed = claim.pushedAt !== null;
+  // A reused branch whose claim commit is already pushed keeps its ref: moving it back would need
+  // a force push, which the engine never does (0010 section 7).
+  const keepRef = claim.reused && pushed;
+  const made = [claim.startSha, ...(claim.claimSha === null ? [] : [claim.claimSha])];
+  await deps.git.run(async (git) => {
+    const restored = await rollbackClaim(deps, git, {
+      key: claim.key,
+      story: claim.story,
+      branch: claim.branch,
+      runId: claim.runId,
+      path: claim.worktree,
+      startSha: claim.startSha,
+      released,
+      recorded: true,
+      made,
+      reason: "setup-failed",
+      keepRef,
+    });
+    log.push(
+      keepRef
+        ? `rollback: worktree removed; ${claim.branch} kept at its pushed tip`
+        : restored
+          ? `rollback: worktree removed; ${claim.branch} ${claim.reused ? "back at its start" : "deleted"}`
+          : `rollback: worktree removed; ${claim.branch} left as it is`,
+    );
+    if (pushed && !claim.reused && restored) {
+      await deleteRemoteBranch(deps, git, claim, claim.claimSha ?? claim.startSha, log);
+    }
+  });
+  const text = `${claim.story} was not started: setup failed (${why}). The worktree was removed and the story stays Ready.`;
+  log.push(`setup: failed: ${why}`);
+  writeWith(deps, () => [notice("warn", SETUP_NOTICES.failed, text, claim.key)]);
+  return {
+    ok: false,
+    reason: "pickupCheckFailed",
+    notice: text,
+    code: SETUP_NOTICES.failed,
+    log: log.join("\n"),
+  };
+}
+
+/**
+ * Deletes the pushed claim branch on the remote, only while it still points at `pushedSha`
+ * (`--force-with-lease` with that value; a moved branch is refused and reported, never deleted).
+ */
+async function deleteRemoteBranch(
+  deps: SetupDeps,
+  git: GitSession,
+  claim: ClaimRecord,
+  pushedSha: string,
+  log: string[],
+): Promise<void> {
+  const { remote } = deps.git.settings;
+  const ref = `refs/heads/${claim.branch}`;
+  const result = await git
+    .step(
+      git.repository,
+      [
+        "push",
+        "--quiet",
+        "--no-verify",
+        "--delete",
+        `--force-with-lease=${ref}:${pushedSha}`,
+        remote,
+        ref,
+      ],
+      { config: FETCH_CONFIG, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
+    )
+    .catch((error: unknown): GitResult => {
+      if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
+      return {
+        code: null,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : String(error),
+      };
+    });
+  if (result.code === 0) {
+    log.push(`rollback: ${claim.branch} deleted on ${remote}`);
+    return;
+  }
+  const detail = result.stderr.trim() || `exit ${result.code}`;
+  log.push(`rollback: ${claim.branch} could not be deleted on ${remote}: ${detail}`);
+  writeWith(deps, () => [
+    notice(
+      "warn",
+      SETUP_NOTICES.remoteLeftover,
+      `Setup of ${claim.story} failed and dipo could not delete the pushed branch ${claim.branch} on ${remote} (${detail}). Delete it by hand (\`git push ${remote} --delete ${claim.branch}\`) before the story runs again.`,
+      claim.key,
+    ),
+  ]);
+}
