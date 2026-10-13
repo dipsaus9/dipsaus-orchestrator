@@ -401,7 +401,12 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
   "office.forget": { args: { office: ids.office }, result: { office: ids.office } },
   "office.init": {
     args: { office: ids.office },
-    result: { office: ids.office, pr: { number: 12, url: "https://github.com/o/r/pull/12" } },
+    result: {
+      office: ids.office,
+      pr: { number: 12, url: "https://github.com/o/r/pull/12" },
+      branch: "dipo/backlog-20261012T091500",
+      leftAlone: ["DIPO-36"],
+    },
   },
   "office.purge": { args: { office: ids.office }, result: { office: ids.office } },
   "office.rescan": { args: {}, result: { scan: "started" } },

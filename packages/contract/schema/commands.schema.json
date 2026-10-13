@@ -92,6 +92,15 @@
         },
         "branch": {
           "type": "string"
+        },
+        "waiting": {
+          "type": "string"
+        },
+        "leftAlone": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": ["office"]

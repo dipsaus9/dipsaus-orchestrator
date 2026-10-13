@@ -96,7 +96,12 @@ export const officeForget = defineCommand({
   since: 0,
 });
 
-// Runs office init (0010 section 6). The result is shaped by the story that builds it (DIPO-36).
+// Since minor 1 (DIPO-36): runs office init (0010 section 6) through one backlog PR. `changed` in
+// the reply is false when every step was already on the base or on the open backlog branch. `pr`
+// is the open backlog PR of the init steps; without one, `branch` is the engine branch waiting for
+// it and `waiting` says why (no remote, `gh` unusable, the merge slot holds it, a failed apply).
+// `leftAlone` lists the `To Do` stories init did not migrate because each is in progress on its
+// own branch.
 export const officeInit = defineCommand({
   name: "office.init",
   level: "software",
@@ -104,11 +109,13 @@ export const officeInit = defineCommand({
   result: z.object({
     office: OfficeId,
     pr: z.object({ number: z.int().positive(), url: z.string() }).optional(),
-    branch: z.string().optional(), // the branch waiting for a PR, when none is open yet
+    branch: z.string().optional(),
+    waiting: z.string().optional(),
+    leftAlone: z.array(z.string()).optional(),
   }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
 // Deletes the office's rows and its `<git-common-dir>/dipo/` directory (0007 section 3). Its

@@ -210,6 +210,7 @@ export * from "./git";
 export * from "./backlog/lane";
 export * from "./backlog/pr";
 export * from "./merge-slot";
+export * from "./office/init";
 export * from "./worktree";
 export { formatGigabytes, systemDiskProbe } from "./platform/disk";
 export type { DiskProbe } from "./platform/disk";

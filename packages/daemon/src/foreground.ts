@@ -34,6 +34,7 @@ import {
   hasLiveClaim,
   helloFeature,
   helloHandshake,
+  initKind,
   isLogLevel,
   KeepAwake,
   KeepAwakeHolder,
@@ -44,6 +45,7 @@ import {
   MemoryRequestTable,
   MergeSlot,
   officeFeature,
+  OfficeInit,
   officeSummarySource,
   OfficeManager,
   openLogFile,
@@ -503,6 +505,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const lane: BacklogLane = new BacklogLane({
       cli: { spawn: systemSpawn },
       git: (office) => engineGit.forOffice(office),
+      // Office init's steps (DIPO-36) are lane operations of their own kind.
+      kinds: [initKind()],
       liveClaim: hasLiveClaim,
       onChanged: (office) => server?.notifyOffice(office),
       onFlushed: async (office, report) => {
@@ -510,6 +514,18 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         mergeSlot.kick(office);
       },
       held: (office) => mergeSlot.holding(office),
+    });
+    // Office init (DIPO-36): `office.init` reads the base and submits its steps to the lane, whose
+    // flush opens the backlog PR and kicks the merge slot. Its load step, which raises a notice
+    // while the base lacks the statuses runs need, follows the story index's fetch.
+    const officeInit = new OfficeInit({
+      offices,
+      lane: (office) => lane.forOffice(office),
+      git: (office) => engineGit.forOffice(office),
+      cli: { spawn: systemSpawn },
+      clock,
+      prWaiting: (office) => backlogPrs.waiting(office),
+      onChanged: (office) => server?.notifyOffice(office),
     });
     // The merge slot (DIPO-73): merges the office's backlog PR once `ci-ok`, `pr-title` and the
     // structural check pass, polling every `polling.prStateSeconds`; it holds new lane operations
@@ -521,6 +537,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       offices,
       clock,
       onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "merge-slot" }),
     });
     held.mergeSlot = mergeSlot;
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
@@ -577,6 +594,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lane.feature,
       storyIndex.feature,
       mergeSlot.feature,
+      officeInit.feature,
       gates.feature,
       runProfiles.feature,
       retention.feature,

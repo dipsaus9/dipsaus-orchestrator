@@ -69,4 +69,8 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "S",
     rule: "cleared more than stateDays ago; a block still in force is kept",
   },
+  backlog_config_previous: {
+    tier: "P",
+    rule: "kept until purge, so `office uninstall` can restore the settings office init changed",
+  },
 };

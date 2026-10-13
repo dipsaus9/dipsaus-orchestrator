@@ -49,7 +49,7 @@ export function prTitle(ops: readonly TitleOp[]): string {
 
 export function prBody(ops: readonly TitleOp[]): string {
   return [
-    "Planning changes from dipo's backlog lane (0010 section 2, lane b). This PR changes only `backlog/`.",
+    "Planning changes from dipo's backlog lane (0010 section 2, lane b). This PR changes only `backlog/`, except a new `.dipo/.gitignore` from office init.",
     "",
     ...ops.map((op) => `- \`backlog: ${clean(op.kind)} ${clean(op.subject)}\``),
     "",

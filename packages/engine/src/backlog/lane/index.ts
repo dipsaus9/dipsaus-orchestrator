@@ -24,6 +24,7 @@ export {
 } from "./lane";
 export type {
   BacklogLaneDeps,
+  BaseRef,
   FlushReport,
   OfficeLaneOptions,
   Waiting,

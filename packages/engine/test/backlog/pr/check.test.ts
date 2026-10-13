@@ -117,6 +117,26 @@ describe("checkBacklogPr", () => {
     ]);
   });
 
+  it("passes a new .dipo/.gitignore from office init, and fails one the PR changes (DIPO-36)", () => {
+    const paths = ["backlog/config.yml", ".dipo/.gitignore"];
+    expect(checkBacklogPr({ paths, added: [".dipo/.gitignore"], tasks: [] }, NO_FACTS).passed).toBe(
+      true,
+    );
+    expect(checkBacklogPr({ paths, tasks: [] }, NO_FACTS).failures).toEqual([
+      {
+        rule: "backlog-only",
+        message: "the PR changes paths outside backlog/: .dipo/.gitignore",
+      },
+    ]);
+    // Only that one file may be added outside backlog/.
+    expect(
+      checkBacklogPr(
+        { paths: [".dipo/office.yaml"], added: [".dipo/office.yaml"], tasks: [] },
+        NO_FACTS,
+      ).passed,
+    ).toBe(false);
+  });
+
   it("fails a task that does not parse, and one whose field block is invalid (R02)", () => {
     const result = checkBacklogPr(
       {

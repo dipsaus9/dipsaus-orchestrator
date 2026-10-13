@@ -1,10 +1,11 @@
 ---
 id: DIPO-36
 title: Initialise an office's Backlog.md settings and migrate To Do stories
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:40'
+updated_date: '2026-10-13 21:21'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +19,15 @@ references:
   - packages/engine/test/office/
   - packages/engine/src/features.ts
   - packages/contract/
+  - packages/daemon/src/foreground.ts
+  - packages/engine/src/backlog/lane/
+  - packages/engine/src/backlog/pr/
+  - packages/engine/test/backlog/pr/
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/merge-slot/slot.ts
+  - packages/engine/test/merge-slot/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -61,22 +71,37 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Step 1 rewrites only the `statuses:` line of `backlog/config.yml` to hold both the old statuses and `Refined`, `Ready`, `In Progress`, `In Review`, `Parked`, `Done`, and checks the result with `config get statuses`.
-- [ ] #2 Step 2 sets `defaultStatus` to `Refined` through the CLI.
-- [ ] #3 Step 3 moves every `To Do` task to `Refined` with `task edit -s Refined`; tasks `In Progress` on their own branches are left alone and listed.
-- [ ] #4 `check_active_branches: true`, `remote_operations: true` and `auto_commit: false` are set when they differ.
-- [ ] #5 `.dipo/.gitignore` with the single line `office.local.yaml` is added only if absent.
-- [ ] #6 Previous values are stored in `backlog_config_previous`.
-- [ ] #7 All steps are lane-b operations on one engine branch and one backlog PR, which the engine opens and auto-merges after the structural check (DIPO-35, DIPO-73); running init twice adds no commits.
-- [ ] #8 A later init run, once no task uses `To Do`, sets the 0012 status list alone.
-- [ ] #9 The contract command `office.init { office }` (DIPO-19), registered through the DIPO-22 registry, runs init and replies with `changed` and the PR or waiting branch; `dipo office init` sends it and prints that reply.
-- [ ] #10 While `In Review` or `Parked` is missing from the base's statuses, office load raises a notice and `officeStatusesReady(office)` returns a refusal message naming `dipo office init`, for `work.run` (DIPO-48) to refuse runs.
-- [ ] #11 Init never writes `.dipo/office.yaml`; without the file the built-in defaults apply.
-- [ ] #12 The contract definition of `office.init` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, and `commands.describe` lists it.
+- [x] #1 Step 1 rewrites only the `statuses:` line of `backlog/config.yml` to hold both the old statuses and `Refined`, `Ready`, `In Progress`, `In Review`, `Parked`, `Done`, and checks the result with `config get statuses`.
+- [x] #2 Step 2 sets `defaultStatus` to `Refined` through the CLI.
+- [x] #3 Step 3 moves every `To Do` task to `Refined` with `task edit -s Refined`; tasks `In Progress` on their own branches are left alone and listed.
+- [x] #4 `check_active_branches: true`, `remote_operations: true` and `auto_commit: false` are set when they differ.
+- [x] #5 `.dipo/.gitignore` with the single line `office.local.yaml` is added only if absent.
+- [x] #6 Previous values are stored in `backlog_config_previous`.
+- [x] #7 All steps are lane-b operations on one engine branch and one backlog PR, which the engine opens and auto-merges after the structural check (DIPO-35, DIPO-73); running init twice adds no commits.
+- [x] #8 A later init run, once no task uses `To Do`, sets the 0012 status list alone.
+- [x] #9 The contract command `office.init { office }` (DIPO-19), registered through the DIPO-22 registry, runs init and replies with `changed` and the PR or waiting branch; `dipo office init` sends it and prints that reply.
+- [x] #10 While `In Review` or `Parked` is missing from the base's statuses, office load raises a notice and `officeStatusesReady(office)` returns a refusal message naming `dipo office init`, for `work.run` (DIPO-48) to refuse runs.
+- [x] #11 Init never writes `.dipo/office.yaml`; without the file the built-in defaults apply.
+- [x] #12 The contract definition of `office.init` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, and `commands.describe` lists it.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-M0 breakdown draft number S20 (DIPO-15). Before cutover: built by hand-run agents.
+Built in packages/engine/src/office/init/ (OfficeInit, the lane kind `init`, backlog_config_previous in migration 17, officeStatusesReady), wired in the daemon, `dipo office init` in the CLI, `office.init` shipped in contract minor 1 (unreleased, no bump).
+
+Decisions taken while building:
+- Step order on the branch: statuses, defaultStatus, settings (checkActiveBranches, remoteOperations, autoCommit), To Do migration, .dipo/.gitignore. The settings step runs before the migration so a CLI with autoCommit on cannot commit the migration's edits itself.
+- A To Do task counts as in progress on its own branch when a local or remote branch named `<ID>/...` exists (the F15 frozen branch shape); such tasks are left alone, listed in the reply (`leftAlone`) and in an engine.notice.
+- Step 4 (0012 list alone) is planned when no task on the base uses To Do; statuses outside 0012 that tasks still use are kept.
+- Only steps that differ on the base are journaled, and a step already open in the journal with the same target is not journaled again, so a second run adds no commit.
+- The structural check (DIPO-35) now allows a PR to add `.dipo/.gitignore` (never change or remove it): 0010's amendment puts that file in the office-init backlog PR.
+- officeStatusesReady reads backlog/config.yml on <remote>/<base> (local <base> without a remote) with git cat-file; the load step office.statuses raises office.statusesMissing.
+- The merge happens through the merge slot's poll while the daemon runs; after a daemon restart the poll resumes when the office loads again (first office command), since loading offices at daemon start is DIPO-56.
+
+Review round 1: scope additions recorded as References (daemon wiring, backlog lane atBase, backlog PR check exception for adding .dipo/.gitignore, migration registration, engine re-export, retention row). leftAlone notice and CLI line now say a <ID>/... branch exists and how to unblock a leftover one.
+
+Live test fix: the merge slot's poll ended at its first timer because it called the office manager's config() detached from the manager (TypeError on this.#instances), so a backlog PR whose checks were pending at the kick never merged. The poll now calls it on the directory, re-arms even when a poll throws, and logs each tick's outcome at debug level. Scope additions: packages/engine/src/merge-slot/slot.ts, packages/engine/test/merge-slot/.
+
+Live test 2026-10-13 on dipsaus9/dipo-scratch-backlog (build 7fda247): after a daemon restart the merge slot merged init PR #4; the next init opened PR #5 (chore(backlog): init statuses, removes To Do only); a further init reported the open PR and changed nothing. The live test also found the merge-slot poll bug from DIPO-73 (detached OfficeManager.config call), fixed on this branch.
 <!-- SECTION:NOTES:END -->
