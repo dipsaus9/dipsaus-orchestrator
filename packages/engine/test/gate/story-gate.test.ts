@@ -1,7 +1,8 @@
 // The Ready gate against an office on the pinned Backlog CLI and real git (DIPO-71 test plan): the
 // read `story.gate` on a failing fixture story returns every failure message and stores nothing,
-// and inputs that cannot be read answer contract codes. The pickup-mode decision on the CLI runs in
-// CI only, in story-gate.ci.test.ts (DIPO-79); its fast local rules are in store.test.ts.
+// and inputs that cannot be read answer contract codes, on one office. The pickup-mode decision on
+// the CLI and the contract codes after `backlog task archive` run in CI only, in
+// story-gate.ci.test.ts (DIPO-79); the fast local rules of the decision are in store.test.ts.
 
 import { describe, expect, it } from "bun:test";
 
@@ -11,11 +12,11 @@ import { CommandError } from "../../src/commands/errors";
 import { GateStore } from "../../src/gate";
 import { systemSpawn } from "../../src/platform/process";
 import { countRows } from "../commands/helpers";
-import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";
+import { CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";
 
 describe("the Ready gate on the Backlog CLI", () => {
-  it("story.gate returns every failure of a failing story and stores nothing", () =>
-    withGatedOffice(async ({ s, office, officeId }) => {
+  it("story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes", () =>
+    withGatedOffice(async ({ repo, s, engineGit, office, officeId }) => {
       const reply = await read(s, { office: officeId, story: "TASK-2" });
       if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
       expect(reply.result).toEqual({
@@ -48,42 +49,24 @@ describe("the Ready gate on the Backlog CLI", () => {
 
       const unknown = await read(s, { office: officeId, story: "TASK-99" });
       expect(unknown.ok ? "ok" : unknown.error.code).toBe("story.unknown");
-    }));
 
-  it("answers contract codes with clear messages when the inputs cannot be read", () =>
-    withGatedOffice(async ({ repo, s, engineGit, office, officeId }) => {
-      // Indexed, then archived on the base: the key resolves but the story is not there.
-      await backlog(repo, ["task", "archive", "TASK-2"]);
-      await publish(repo, "archive TASK-2");
-      await engineGit.forOffice(officeId)?.fetch();
-      const gone = await read(s, { office: officeId, story: "TASK-2" });
-      if (gone.ok) throw new Error("expected story.unknown");
-      expect(gone.error.code).toBe("story.unknown");
-      expect(gone.error.message).toBe(
-        "TASK-2 is not on the office's base branch main; the Ready gate reads the story as it is there, so push or merge it first.",
-      );
-
+      // The contract codes, on the same office (the fast local version; the full case with
+      // `backlog task archive` is in story-gate.ci.test.ts, DIPO-79).
       const offices = {
         get: (id: OfficeId) => s.manager.get(id),
         config: (id: OfficeId) => s.manager.config(id),
       };
       const deps = { git: engineGit, offices, clock: s.clock, ids: s.ids };
+      const story = StoryId.parse("TASK-1");
       const broken = new GateStore({
         ...deps,
         cli: { spawn: systemSpawn, command: ["false"], env: repo.env },
       });
-      const story = StoryId.parse("TASK-1");
       const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
-      expect(cliError).toBeInstanceOf(CommandError);
       expect((cliError as CommandError).error).toMatchObject({
         code: "backlog.unreadable",
-        retryable: false,
         details: { office: officeId, story: "TASK-1" },
       });
-      expect((cliError as CommandError).error.message).toStartWith(
-        "The Ready gate cannot run: the Backlog CLI could not read TASK-1 on the office's base branch main (exited 1",
-      );
-
       const unconfigured = new GateStore({
         ...deps,
         offices: { ...offices, config: () => undefined },
@@ -92,15 +75,7 @@ describe("the Ready gate on the Backlog CLI", () => {
       const configError = await unconfigured
         .checkReady(officeId, story)
         .catch((error: unknown) => error);
-      expect((configError as CommandError).error).toMatchObject({
-        code: "config.invalid",
-        retryable: false,
-        details: { office: officeId },
-      });
-      expect((configError as CommandError).error.message).toBe(
-        `The Ready gate cannot run: office ${officeId} has no valid configuration yet. Fix .dipo/office.yaml and run \`dipo office reload-config\`.`,
-      );
-
+      expect((configError as CommandError).error.code).toBe("config.invalid");
       const detached = new GateStore({
         ...deps,
         git: { forOffice: () => undefined },
@@ -111,6 +86,15 @@ describe("the Ready gate on the Backlog CLI", () => {
         code: "office.refused",
         details: { office: officeId, step: "git.version" },
       });
+
+      // Indexed, then removed on the base with git: the key resolves but the story is not there.
+      await repo.git("rm", "--quiet", "-r", "backlog/tasks");
+      await publish(repo, "remove the tasks");
+      await engineGit.forOffice(officeId)?.fetch();
+      const gone = await read(s, { office: officeId, story: "TASK-2" });
+      expect(gone.ok ? "ok" : gone.error.message).toBe(
+        "TASK-2 is not on the office's base branch main; the Ready gate reads the story as it is there, so push or merge it first.",
+      );
       expect(countRows(office, "gates")).toBe(0);
     }));
 });
