@@ -1,10 +1,11 @@
 ---
 id: DIPO-58
 title: Detect Done and tear down worktrees and branches
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 13:46'
 labels:
   - 'tier:M'
   - after-cutover
@@ -51,16 +52,34 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PR state is read through `platform/host.ts` every `polling.prStateSeconds` from office configuration.
-- [ ] #2 Done is detected from the host PR state, or when `git merge-tree --write-tree origin/<base> <branch>` returns the tree of `origin/<base>`, never by ancestry.
-- [ ] #3 Teardown unlocks and runs `git worktree remove` without `--force`; a dirty or locked worktree keeps everything and raises a notice listing the files.
-- [ ] #4 The local branch is deleted with `-D` only after Done is detected, then `git push origin --delete <branch>`; a missing remote branch is accepted.
-- [ ] #5 The slot is freed and `worker_notes` and `context_packs` for the worktree are deleted.
-- [ ] #6 Parked stories keep worktree, branch and slot.
+- [x] #1 PR state is read through `platform/host.ts` every `polling.prStateSeconds` from office configuration.
+- [x] #2 Done is detected from the host PR state, or when `git merge-tree --write-tree origin/<base> <branch>` returns the tree of `origin/<base>`, never by ancestry.
+- [x] #3 Teardown unlocks and runs `git worktree remove` without `--force`; a dirty or locked worktree keeps everything and raises a notice listing the files.
+- [x] #4 The local branch is deleted with `-D` only after Done is detected, then `git push origin --delete <branch>`; a missing remote branch is accepted.
+- [x] #5 The slot is freed and `worker_notes` and `context_packs` for the worktree are deleted.
+- [x] #6 Parked stories keep worktree, branch and slot.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S42 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+Scope additions (files outside References):
+- packages/daemon/src/foreground.ts: wires StoryTeardown into the daemon (its own GhHost on the daemon PATH, the <state>/slots.json SlotTable, load step after claims.feature, stopped on exit), so the Done poll runs every polling.prStateSeconds (AC #1).
+- packages/engine/test/platform/host.test.ts: a test for the new GhHost.findMergedPr (gh pr list --head --state merged).
+
+Where the ACs are met:
+- AC #1: worktree/done.ts StoryTeardown arms a timer per office at polling.prStateSeconds of the configuration in force (re-read each interval); detection asks PrStateHost.findMergedPr (platform/host.ts, additive interface, GhHost implements it; CodeHost unchanged).
+- AC #2: worktree/teardown.ts detectDone: a merged PR into the claim's base whose head is the local tip (or the branch is gone), else git merge-tree --write-tree origin/<base> refs/heads/<branch> exit 0 whose tree equals origin/<base>^{tree}. No ancestry test. A branch still at its start SHA is never Done by merge-tree (it has nothing of its own).
+- AC #3: tearDown unlocks only its own lock (dipo <run-id>), runs git worktree remove without --force; a refusal re-locks and keeps claim, branch, slot and tier T rows; a foreign lock is not touched; the teardown.kept notice lists the files git status reports, once per claim and cause.
+- AC #4: git branch -D only inside tearDown after detection and after the worktree is gone, then git push <remote> --delete <branch>; 'remote ref does not exist' is accepted, another failure is a teardown.remoteBranch notice.
+- AC #5: after the git steps, one transaction releases the claim (reason done) and deletes worker_notes and context_packs of the worktree; then SlotTable.free.
+- AC #6: a Done claim whose story status in its worktree is Parked keeps everything with a teardown.parked notice.
+
+Notes:
+- No migration and no contract change: release_reason 'done' fits claims; notice codes are engine.notice codes (teardown.done, teardown.kept, teardown.parked, teardown.remoteBranch, done.checkFailed, done.unmergedCommits).
+- A Done claim whose run still has a live worker host waits (notice once).
+- Every step is idempotent: a crash after the worktree or branch went is finished by the next poll (host merged with the branch gone counts as Done).
+- Tests: test/worktree/teardown.test.ts (fake git and host, about 0.25 s); test/worktree/teardown.ci.test.ts (real squash merge on a bare remote, detection by merge-tree, teardown of worktree and both branches; dirty worktree kept with a notice, then torn down once clean).
 <!-- SECTION:NOTES:END -->
