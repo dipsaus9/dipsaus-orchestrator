@@ -4,7 +4,7 @@ title: Store gate decisions and show them with dipo gate
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 11:29'
+updated_date: '2026-10-13 11:31'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -95,4 +95,6 @@ Review round 3 (maintainer decision B):
 - Contract: new list OFFICE_ERROR_CODES in packages/contract/src/errors.ts with config.invalid and backlog.unreadable (minor 1, unreleased). story.gate answers config.invalid (no valid office configuration) and backlog.unreadable (Backlog CLI, refusal or parse failure on the base); story.unknown and office.refused step git.version are unchanged.
 - Merged origin/main; the gates migration is now 13 (0013-gates.ts).
 - Scope additions: packages/engine/src/retention/policy.ts lists gates and gate_decisions as tier S; packages/engine/src/retention/run.ts deletes gate decisions decided before the state cutoff and decided gates left without a decision (a waiting gate is kept), tested in packages/engine/test/retention/retention.test.ts.
+
+- docs/decisions/0005-command-and-event-model.md: one dated amendment line for config.invalid and backlog.unreadable (maintainer approved option B on 2026-10-13).
 <!-- SECTION:NOTES:END -->
