@@ -131,18 +131,18 @@ describe("redaction", () => {
   });
 });
 
-describe("prompts, worker output and command bodies (DIPO-64)", () => {
-  const content = () => ({
-    prompt: "secret-prompt",
-    output: "secret-output",
-    stdout: "secret-stdout",
-    stderr: "secret-stderr",
-    body: { text: "secret-body" },
-    args: { title: "secret-args" },
-    nested: [{ prompt: "secret-nested" }],
-    kept: "visible",
-  });
+const content = () => ({
+  prompt: "secret-prompt",
+  output: "secret-output",
+  stdout: "secret-stdout",
+  stderr: "secret-stderr",
+  body: { text: "secret-body" },
+  args: { title: "secret-args" },
+  nested: [{ prompt: "secret-nested" }],
+  kept: "visible",
+});
 
+describe("prompts, worker output and command bodies (DIPO-64)", () => {
   for (const level of ["error", "warn", "info"] as const) {
     it(`are replaced in ${level} lines, at any depth`, () => {
       const { logger, lines, parsed } = memory("trace");
