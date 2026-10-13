@@ -1,10 +1,11 @@
 ---
 id: DIPO-79
 title: Bring the local test suite back under its time budget again
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-13 14:03'
-updated_date: '2026-10-13 14:03'
+updated_date: '2026-10-13 14:38'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -31,8 +32,14 @@ Context: DIPO-77 did the first round. Since then DIPO-35, 39, 58, 63, 71, 73 and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Local `bun test` (no DIPO_TEST_CI) finishes in about 45 seconds or less on the maintainer's machine, measured before and after in the PR body, with the 15 slowest test files listed before and after
-- [ ] #2 Every moved test still runs and passes in `DIPO_TEST_CI=1 bun test`; CI runs every test that ran before the move
-- [ ] #3 No test is deleted and no production code changes; every rule whose full test moved to CI keeps a fast local test (0017)
-- [ ] #4 packages/testkit/README.md names the per-test budget that triggers a move, so later stories keep the suite under budget
+- [x] #1 Local `bun test` (no DIPO_TEST_CI) finishes in about 45 seconds or less on the maintainer's machine, measured before and after in the PR body, with the 15 slowest test files listed before and after
+- [x] #2 Every moved test still runs and passes in `DIPO_TEST_CI=1 bun test`; CI runs every test that ran before the move
+- [x] #3 No test is deleted and no production code changes; every rule whose full test moved to CI keeps a fast local test (0017)
+- [x] #4 packages/testkit/README.md names the per-test budget that triggers a move, so later stories keep the suite under budget
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Local bun test median 54.77 s before (54.10, 54.77, 58.55), 44.76 s after (44.64, 44.76, 45.95). Full DIPO_TEST_CI=1 bun test: 2168 tests before, 2171 after (three new fast local versions; nothing deleted). Scope additions: none; the new helper modules (test/gate/gated-office.ts, test/git/helpers.ts, test/worktree/setup-harness.ts) are under packages/*/test/.
+<!-- SECTION:NOTES:END -->
