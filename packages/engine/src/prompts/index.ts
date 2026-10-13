@@ -58,5 +58,8 @@ export {
   slotsOf,
   TASK_TEMPLATES,
   templateProblems,
+  neutraliseTags,
+  PROMPT_TAGS,
+  rendered,
 } from "./templates";
-export type { BuiltInRole, ContractKind } from "./templates";
+export type { BuiltInRole, ContractKind, Rendered } from "./templates";

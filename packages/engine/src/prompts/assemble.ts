@@ -19,7 +19,7 @@ import { cutHead } from "./cut";
 import type { FeedbackItem } from "./feedback";
 import { renderHandoff, type HandoffFacts } from "./handoff";
 import type { PromptStory } from "./story";
-import { renderTemplate, TASK_TEMPLATES } from "./templates";
+import { rendered, renderTemplate, TASK_TEMPLATES } from "./templates";
 
 /** The budgets of one size class, in characters (lines for `feedbackLogLines`). */
 export interface TaskBudgets {
@@ -173,7 +173,7 @@ function contextSection(pack: ContextPack, keep: number, stale: ReadonlySet<stri
   const dropped = pack.items.length - keep;
   if (dropped > 0) shown.push(leftOut(dropped, dropped === 1 ? "context item" : "context items"));
   return renderTemplate(TASK_TEMPLATES.context, {
-    items: shown.length === 0 ? "No context items for this story." : shown.join("\n"),
+    items: shown.length === 0 ? "No context items for this story." : rendered(shown.join("\n")),
   });
 }
 
@@ -234,7 +234,7 @@ function inputsSection(
   if (dropped > 0) items.push(leftOut(dropped, dropped === 1 ? "input file" : "input files"));
   return renderTemplate(TASK_TEMPLATES.inputs, {
     paths: paths.join("\n"),
-    items: items.join("\n"),
+    items: rendered(items.join("\n")),
   });
 }
 

@@ -95,11 +95,59 @@ export function normaliseNewlines(text: string): string {
 }
 
 /**
- * Fills every slot of `template` from `values`. A line that holds only a slot whose value is
- * empty is left out, so an empty list leaves no blank line. Throws when a slot has no value or a
- * value has no slot, so templates and code cannot drift apart. The result ends without a newline.
+ * The tag names the prompts use: every task message section and the context `item`. Slot text
+ * may not open or close one of them, so story text cannot end a section early and start another.
  */
-export function renderTemplate(template: string, values: Readonly<Record<string, string>>): string {
+export const PROMPT_TAGS: readonly string[] = [
+  "context",
+  "inputs",
+  "dependencies",
+  "background",
+  "handoff",
+  "story",
+  "outcome",
+  "criteria",
+  "scope",
+  "test_plan",
+  "answers",
+  "instructions",
+  "feedback",
+  "item",
+];
+
+const TAG = new RegExp(`<(/?)(${PROMPT_TAGS.join("|")})(?=[\\s/>]|$)`, "gi");
+
+/**
+ * `text` with every opening or closing prompt tag neutralised: `</criteria>` becomes
+ * `<\/criteria>` and `<item` becomes `<\item`. Idempotent.
+ */
+export function neutraliseTags(text: string): string {
+  return text.replace(TAG, (_, slash: string, name: string) => `<\\${slash}${name}`);
+}
+
+/** Text code already rendered from templates; `renderTemplate` inserts it as is. */
+export interface Rendered {
+  readonly rendered: string;
+}
+
+/** Marks text built from rendered templates (and engine markers) as safe to insert as is. */
+export const rendered = (text: string): Rendered => ({ rendered: text });
+
+/**
+ * Fills every slot of `template` from `values`. A plain string value is data: its prompt tags are
+ * neutralised (`neutraliseTags`), in this one place for every slot. A `Rendered` value is
+ * template output and goes in as is. A line that holds only a slot whose value is empty is left
+ * out, so an empty list leaves no blank line. Throws when a slot has no value or a value has no
+ * slot, so templates and code cannot drift apart. The result ends without a newline.
+ */
+export function renderTemplate(
+  template: string,
+  input: Readonly<Record<string, string | Rendered>>,
+): string {
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    values[key] = typeof value === "string" ? neutraliseTags(value) : value.rendered;
+  }
   const problems = templateProblems(template);
   if (problems.length > 0) {
     throw new Error(`template holds syntax other than named slots: ${problems.join(", ")}`);
