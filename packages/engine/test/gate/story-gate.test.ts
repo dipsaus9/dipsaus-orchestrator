@@ -1,137 +1,17 @@
 // The Ready gate against an office on the pinned Backlog CLI and real git (DIPO-71 test plan): the
 // read `story.gate` on a failing fixture story returns every failure message and stores nothing,
-// and a pickup-mode `recordGateDecision` stores one decision with every rule result and the
-// content hash, found again by `findPassingDecision` once the story passes.
+// and inputs that cannot be read answer contract codes. The pickup-mode decision on the CLI runs in
+// CI only, in story-gate.ci.test.ts (DIPO-79); its fast local rules are in store.test.ts.
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 
-import { type OfficeId, type ReadReply, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
-import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
+import { type OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 
 import { CommandError } from "../../src/commands/errors";
-import type { OfficeHandle } from "../../src/db/office";
-import {
-  findPassingDecision,
-  gateConfigOf,
-  gateContentHash,
-  gateDecisionsOf,
-  GateStore,
-  readGateInput,
-  ruleNamesFor,
-} from "../../src/gate";
-import { EngineGit } from "../../src/git";
+import { GateStore } from "../../src/gate";
 import { systemSpawn } from "../../src/platform/process";
-import { executeRead } from "../../src/reads/execute";
-import { StoryIndex } from "../../src/stories/feature";
-import { BACKLOG_CLI } from "../backlog/helpers";
 import { countRows } from "../commands/helpers";
-import {
-  BACKLOG_FIXTURE,
-  nextRequestId,
-  type OfficeSetup,
-  officeSetup,
-  resultOf,
-  send,
-} from "../office/helpers";
-import { keyOf } from "../stories/helpers";
-
-interface Gated {
-  readonly repo: TempRepoWithRemote;
-  readonly s: OfficeSetup;
-  readonly engineGit: EngineGit;
-  readonly index: StoryIndex;
-  readonly gates: GateStore;
-  readonly officeId: OfficeId;
-  readonly office: OfficeHandle;
-}
-
-const CLI = (repo: TempRepoWithRemote) => ({
-  spawn: systemSpawn,
-  command: BACKLOG_CLI,
-  env: repo.env,
-});
-
-async function backlog(repo: TempRepoWithRemote, args: string[]): Promise<void> {
-  const result = await repo.run([...BACKLOG_CLI, ...args], repo.dir);
-  if (result.exitCode !== 0) {
-    throw new Error(`backlog ${args.join(" ")} failed: ${result.stderr}${result.stdout}`);
-  }
-}
-
-async function publish(repo: TempRepoWithRemote, message: string): Promise<void> {
-  await repo.commitAll(message);
-  await repo.git("push", "--quiet", "origin", "main");
-}
-
-/** The Backlog fixture on a bare `origin`, loaded as an office with the index and the gate. */
-function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> {
-  return withBareRemote(
-    async (repo) => {
-      mkdirSync(join(repo.dir, "backlog", "archive", "tasks"), { recursive: true });
-      await repo.commitAll("fixture");
-      await repo.git("push", "--quiet", "-u", "origin", "main");
-      await repo.git("remote", "set-head", "origin", "main");
-
-      const engineGit = new EngineGit({ spawn: systemSpawn, env: repo.env });
-      let setup: OfficeSetup | undefined;
-      const offices = {
-        get: (office: OfficeId) => setup?.manager.get(office),
-        config: (office: OfficeId) => setup?.manager.config(office),
-      };
-      const index = new StoryIndex({ git: engineGit, cli: CLI(repo), offices });
-      const loaded = (): OfficeSetup => {
-        if (setup === undefined) throw new Error("the office setup is not built yet");
-        return setup;
-      };
-      // The setup builds its clock and ids; the store reads them when it runs.
-      const gates = new GateStore({
-        git: engineGit,
-        cli: CLI(repo),
-        offices,
-        get clock() {
-          return loaded().clock;
-        },
-        get ids() {
-          return loaded().ids;
-        },
-      });
-      const s = await officeSetup(repo.root, {
-        features: [engineGit.feature, index.feature, gates.feature],
-      });
-      setup = s;
-      try {
-        const { office: officeId } = resultOf<{ office: OfficeId }>(
-          await send(s, "office.open", { path: repo.dir }),
-        );
-        const access = await s.manager.load(officeId);
-        if (!access.ok) throw new Error(`${access.error.code}: ${access.error.message}`);
-        await fn({ repo, s, engineGit, index, gates, officeId, office: access.office });
-      } finally {
-        index.stop();
-        s.state.close();
-      }
-    },
-    { fixture: BACKLOG_FIXTURE },
-  );
-}
-
-function read(s: OfficeSetup, args: unknown): Promise<ReadReply> {
-  return executeRead(
-    { registry: s.registry, offices: s.manager, clock: s.clock },
-    { requestId: nextRequestId(), name: "story.gate", args },
-  );
-}
-
-function key(office: OfficeHandle, id: string): StoryKey {
-  return StoryKey.parse(keyOf(office, id));
-}
-
-const failed = (id: string, rule: string, message: string) => ({
-  rule,
-  message: `ready ${id} failed ${rule}: ${message}`,
-});
+import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";
 
 describe("the Ready gate on the Backlog CLI", () => {
   it("story.gate returns every failure of a failing story and stores nothing", () =>
@@ -232,62 +112,5 @@ describe("the Ready gate on the Backlog CLI", () => {
         details: { office: officeId, step: "git.version" },
       });
       expect(countRows(office, "gates")).toBe(0);
-    }));
-
-  it("a pickup-mode evaluation stores one decision with every rule result and the hash", () =>
-    withGatedOffice(async ({ repo, s, engineGit, index, gates, office, officeId }) => {
-      const task1 = key(office, "TASK-1");
-      const rejected = await gates.recordGateDecision(officeId, task1, "pickup");
-      expect(rejected.passed).toBe(false);
-      expect(rejected.mode).toBe("pickup");
-      expect(rejected.result.failures.map((f) => f.rule)).toEqual(["R06", "R07", "R11"]);
-      expect(rejected.ruleResults.map((r) => r.rule)).toEqual(ruleNamesFor("pickup"));
-      expect(rejected.ruleResults.filter((r) => !r.passed).map((r) => r.rule)).toEqual([
-        "R06",
-        "R07",
-        "R11",
-      ]);
-      expect(gateDecisionsOf(office, task1)).toEqual([
-        {
-          gate: rejected.gate,
-          key: task1,
-          mode: "pickup",
-          passed: false,
-          ruleResults: rejected.ruleResults,
-          contentHash: rejected.contentHash,
-          decidedAt: s.clock.now(),
-        },
-      ]);
-      const git = engineGit.forOffice(officeId);
-      const config = s.manager.config(officeId);
-      if (git === undefined || config === undefined) throw new Error("office not loaded");
-      const base = await git.ensureBaseWorktree();
-      const input = await readGateInput(CLI(repo), base.path, "TASK-1", gateConfigOf(config));
-      expect(rejected.contentHash).toBe(gateContentHash(input.story));
-      expect(findPassingDecision(office, task1, rejected.contentHash)).toBeUndefined();
-
-      await backlog(repo, ["milestone", "add", "M0 Walking skeleton"]);
-      await backlog(repo, [
-        "task",
-        "edit",
-        "TASK-1",
-        "--type",
-        "feature",
-        "-m",
-        "m-0",
-        "--ref",
-        "packages/export/",
-      ]);
-      await publish(repo, "make TASK-1 pass the gate");
-      await git.fetch();
-      await index.indexStories(officeId);
-
-      s.clock.advance(1000);
-      const approved = await gates.recordGateDecision(officeId, task1, "pickup");
-      expect(approved.result.failures).toEqual([]);
-      expect(approved.passed).toBe(true);
-      expect(approved.contentHash).not.toBe(rejected.contentHash);
-      expect(countRows(office, "gate_decisions")).toBe(2);
-      expect(findPassingDecision(office, task1, approved.contentHash)?.gate).toBe(approved.gate);
     }));
 });
