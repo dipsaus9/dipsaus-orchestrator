@@ -32,8 +32,8 @@ import {
   loadSoftwareConfig,
   LOG_LEVELS,
   MemoryRequestTable,
-  noOfficeSummaries,
   officeFeature,
+  officeSummarySource,
   OfficeManager,
   openLogFile,
   openStateDatabase,
@@ -47,6 +47,7 @@ import {
   serveUnixSocket,
   SOCKET_FILE,
   SoftwareStream,
+  StoryIndex,
   systemExecutableStamp,
   systemProcessProbe,
   systemSpawn,
@@ -289,7 +290,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     crashes: CrashCounter | null;
     lockTimer: TimerHandle | null;
     stableTimer: TimerHandle | null;
-  } = { socket: null, database: null, crashes: null, lockTimer: null, stableTimer: null };
+    storyIndex: StoryIndex | null;
+  } = {
+    socket: null,
+    database: null,
+    crashes: null,
+    lockTimer: null,
+    stableTimer: null,
+    storyIndex: null,
+  };
   let lockLost = false;
   let clean = false;
   let upgrade: UpgradeWatcher | null = null;
@@ -375,15 +384,28 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       spawn: systemSpawn,
       ...(tools.paths.git === undefined ? {} : { git: tools.paths.git }),
     });
+    // The story index (DIPO-32): indexes each office at load, after the git load step, and polls
+    // its remote every `polling.fetchSeconds`, with the `backlog` this daemon found on its PATH.
+    const storyIndex = new StoryIndex({
+      git: engineGit,
+      cli: { spawn: systemSpawn },
+      offices,
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "stories" }),
+    });
+    held.storyIndex = storyIndex;
+    // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
+    const summaries = officeSummarySource(() => held.database);
     const registry: Registry = engineRegistry([
       ...FEATURES,
       engineGit.feature,
+      storyIndex.feature,
       officeFeature(offices),
       helloFeature({
         engineVersion: io.version,
         daemonState: () => lifecycle.state,
         softwareCursor: () => software.head(),
-        officeSummaries: noOfficeSummaries,
+        officeSummaries: summaries,
       }),
       controlFeature({
         lifecycle,
@@ -408,7 +430,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       softwareRequests: new MemoryRequestTable(clock),
       lifecycle,
       software,
-      officeSummaries: noOfficeSummaries,
+      officeSummaries: summaries,
       engineVersion: io.version,
       logger: logger.child({ component: "server" }),
     });
@@ -523,6 +545,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     if (held.lockTimer !== null) clock.clearTimeout(held.lockTimer);
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
     upgrade?.stop();
+    held.storyIndex?.stop();
     // Clean exit: remove dipo.sock, then dipo.pid (0006 decision 6). A daemon that lost the lock
     // leaves the socket path alone: it may belong to the daemon that holds the lock now. The
     // connections close (1001) before the database, so no request reaches a closed database.
