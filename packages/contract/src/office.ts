@@ -347,6 +347,25 @@ export const officeDigest = defineRead({
   provisional: true,
 });
 
+// Size of one office-scoped table for one office (0007 "Size"): its row count and the approximate
+// bytes of its column data, so the retention periods can be tuned. Not a file size: indexes, page
+// overhead and free pages are not counted.
+export const TableStats = z.object({
+  table: z.string(),
+  rows: Count,
+  bytes: Count,
+});
+export type TableStats = z.infer<typeof TableStats>;
+
+// Row count and approximate bytes of each office-scoped table of the office, by table name
+// (minor 1, DIPO-65) [`dipo stats`].
+export const officeStats = defineRead({
+  name: "office.stats",
+  args: OfficeArgs,
+  result: z.object({ office: OfficeId, tables: z.array(TableStats) }),
+  since: 1,
+});
+
 // Events (office stream, 0005 section 5)
 
 // `detail` holds gate failure messages, for example a failed pickup re-check.
@@ -525,6 +544,7 @@ export const officeReads = [
   workOutputRange,
   officeUsage,
   officeDigest,
+  officeStats,
 ] as const;
 
 export const officeEvents = [

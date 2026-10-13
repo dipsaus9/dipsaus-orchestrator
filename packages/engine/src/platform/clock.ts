@@ -11,3 +11,11 @@ export const systemClock: Clock = {
     globalThis.setTimeout(callback, delayMs) as unknown as TimerHandle,
   clearTimeout: (handle) => globalThis.clearTimeout(handle as unknown as NativeTimer),
 };
+
+/**
+ * Resolves after pending I/O callbacks had their turn. Jobs that work in slices (retention,
+ * maintenance, 0007 section 1) await it between slices, so other offices' requests run in between.
+ */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}

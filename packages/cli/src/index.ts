@@ -19,6 +19,7 @@ import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { statsCommand } from "./stats-command";
 import {
   compiledStamp,
   currentRuntime,
@@ -87,6 +88,9 @@ Usage:
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
+  dipo stats [--office <id>]
+                    print the rows and approximate bytes of each table of the
+                    office, to tune retention.shortDays and retention.stateDays
 
 Office commands use --office, else the office of the current directory.
 
@@ -171,6 +175,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (office !== undefined) {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return office(args.slice(2), { ...deps, version });
+  }
+  if (args[0] === "stats") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return statsCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "self-check" && args.length === 1) {
     return selfCheck(deps);
