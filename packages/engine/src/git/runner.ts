@@ -2,7 +2,7 @@
 // lock rule of 0010 section 7: a held `index.lock` or ref lock is retried three times with backoff,
 // then the step fails. Lock files are never deleted; another git process owns them.
 
-import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
+import type { Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { type GitLocation, hardenedArgs, hardenedCwd, hardenedEnv } from "./hardened";
 
@@ -10,6 +10,11 @@ import { type GitLocation, hardenedArgs, hardenedCwd, hardenedEnv } from "./hard
 export interface GitStepOptions {
   readonly config?: readonly (readonly [string, string])[];
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Kills the step after this long on the runner's clock and fails it with `git.timedOut`. For
+   * steps that may wait on something outside the engine: a signing program, a credential prompt.
+   */
+  readonly timeoutMs?: number;
 }
 
 /** One git process to start: the arguments after `git`, its environment and working directory. */
@@ -17,6 +22,8 @@ export interface GitCall {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
   readonly cwd: string;
+  /** Aborted when the step timed out; the executor kills the process. */
+  readonly signal?: AbortSignal;
 }
 
 export interface GitResult {
@@ -32,6 +39,8 @@ export type GitExec = (call: GitCall) => Promise<GitResult>;
 export function spawnGitExec(spawn: Spawn, git = "git"): GitExec {
   return async (call) => {
     const child = spawn({ cmd: [git, ...call.args], cwd: call.cwd, env: call.env });
+    if (call.signal?.aborted === true) child.kill("SIGKILL");
+    else call.signal?.addEventListener("abort", () => child.kill("SIGKILL"), { once: true });
     const [stdout, stderr, exit] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
@@ -79,6 +88,42 @@ export interface GitStepRunner {
   /** The daemon's environment, which every hardened call starts from. */
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly sleep: Sleep;
+  /** The clock step timeouts run on; a step with `timeoutMs` needs it. */
+  readonly clock?: Clock;
+}
+
+/** Runs one call, killed and failed with `git.timedOut` after `timeoutMs` on `clock`. */
+async function execWithTimeout(
+  runner: GitStepRunner,
+  call: GitCall,
+  args: readonly string[],
+  timeoutMs: number | undefined,
+): Promise<GitResult> {
+  if (timeoutMs === undefined) return runner.exec(call);
+  const clock = runner.clock;
+  if (clock === undefined) throw new Error("a git step with a timeout needs the runner's clock");
+  const controller = new AbortController();
+  let timer: TimerHandle | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = clock.setTimeout(() => {
+      controller.abort();
+      reject(
+        new GitError(
+          "git.timedOut",
+          `git ${args.join(" ")} did not finish within ${Math.round(timeoutMs / 1000)} s and was killed.`,
+          false,
+          { args: [...args], timeoutMs },
+        ),
+      );
+    }, timeoutMs);
+  });
+  try {
+    // A killed git may leave a child (a signing program) holding its pipes, so the step does not
+    // wait for the process's output once the timeout fired.
+    return await Promise.race([runner.exec({ ...call, signal: controller.signal }), timedOut]);
+  } finally {
+    if (timer !== undefined) clock.clearTimeout(timer);
+  }
 }
 
 /**
@@ -98,7 +143,7 @@ export async function runGitStep(
     cwd: hardenedCwd(location),
   };
   for (let attempt = 0; ; attempt += 1) {
-    const result = await runner.exec(call);
+    const result = await execWithTimeout(runner, call, args, options.timeoutMs);
     const lock = result.code === 0 ? null : heldLock(result.stderr);
     if (lock === null) return result;
     const delay = LOCK_RETRY_DELAYS_MS[attempt];
@@ -131,4 +176,15 @@ export async function runGitStepOk(
     );
   }
   return result.stdout;
+}
+
+/**
+ * The timeout of engine git steps that may wait on something outside the engine: a commit that
+ * signs, a fetch or push that authenticates. Such a step never holds the office queue forever.
+ */
+export const EXTERNAL_STEP_TIMEOUT_MS = 60_000;
+
+/** True when `error` is a step killed by its timeout. */
+export function isTimedOut(error: unknown): error is GitError {
+  return error instanceof GitError && error.code === "git.timedOut";
 }

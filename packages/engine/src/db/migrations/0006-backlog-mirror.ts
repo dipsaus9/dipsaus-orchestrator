@@ -1,4 +1,4 @@
-// Migration 5 (DIPO-32): `backlog_mirror`, the cache of what the story index last read from
+// Migration 6 (DIPO-32): `backlog_mirror`, the cache of what the story index last read from
 // Backlog.md for each story key (0007 section 4). It is never a source of truth: Backlog.md is.
 // One row per key, overwritten on every pass: content hash, status as the CLI printed it, kind
 // (task or draft), title, tier and role from the reserved labels, every label as a JSON array, the
@@ -7,7 +7,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const backlogMirror: SqlMigration = {
-  version: 5,
+  version: 6,
   name: "backlog_mirror",
   sql: `
 create table backlog_mirror (

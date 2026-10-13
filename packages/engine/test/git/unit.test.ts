@@ -12,6 +12,7 @@ import {
   checkGitVersion,
   FETCH_CONFIG,
   DROPPED_GIT_ENV,
+  EXTERNAL_STEP_TIMEOUT_MS,
   GitError,
   type GitCall,
   type GitExec,
@@ -22,6 +23,7 @@ import {
   hardenedEnv,
   heldLock,
   isInside,
+  isTimedOut,
   LOCK_RETRY_DELAYS_MS,
   OfficeGit,
   parseGitVersion,
@@ -341,5 +343,60 @@ describe("the base", () => {
     const error = (await git.resolveBase().catch((thrown: unknown) => thrown)) as GitError;
     expect(error.code).toBe("git.baseUnknown");
     expect(error.message).toContain("Set `base`");
+  });
+});
+
+/** An executor whose process never ends unless the step's signal kills it. */
+function hangingExec(): { exec: GitExec; killed: string[] } {
+  const killed: string[] = [];
+  return {
+    killed,
+    exec: (call) =>
+      new Promise<GitResult>(() => {
+        call.signal?.addEventListener("abort", () => killed.push(call.args.join(" ")));
+      }),
+  };
+}
+
+describe("step timeout", () => {
+  it("kills a step after its timeout on the injected clock and fails it with git.timedOut", async () => {
+    const clock = new ManualClock();
+    const { exec, killed } = hangingExec();
+    const step = runGitStep({ exec, env: {}, sleep: async () => {}, clock }, REPO, ["push"], {
+      timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
+    }).catch((error: unknown) => error);
+    clock.advance(EXTERNAL_STEP_TIMEOUT_MS - 1);
+    expect(killed).toEqual([]);
+    clock.advance(1);
+    const error = (await step) as GitError;
+    expect(isTimedOut(error)).toBe(true);
+    expect(error.message).toContain("did not finish within 60 s");
+    expect(killed).toHaveLength(1);
+  });
+
+  it("records a fetch that timed out as a failed fetch", async () => {
+    const clock = new ManualClock();
+    const { exec } = hangingExec();
+    const git = new OfficeGit({
+      officeId: "off_x" as OfficeId,
+      mainWorktree: "/repo",
+      commonDir: "/repo/.git",
+      settings: { remote: "origin", base: "main" },
+      runner: {
+        exec: (call) => {
+          if (!call.args.includes("fetch"))
+            return Promise.resolve({ code: 1, stdout: "", stderr: "" });
+          // The fetch waits; time passes on the injected clock.
+          queueMicrotask(() => clock.advance(EXTERNAL_STEP_TIMEOUT_MS));
+          return exec(call);
+        },
+        env: {},
+        sleep: async () => {},
+      },
+      clock,
+    });
+    const outcome = await git.fetch();
+    expect(outcome.ok).toBe(false);
+    expect(git.lastFetch).toMatchObject({ ok: false });
   });
 });

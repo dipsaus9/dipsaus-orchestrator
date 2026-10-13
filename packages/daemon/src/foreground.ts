@@ -15,6 +15,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import {
   acquireLock,
+  BacklogLane,
   ChildProcesses,
   chooseRuntimeDir,
   createLogger,
@@ -384,8 +385,16 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       spawn: systemSpawn,
       ...(tools.paths.git === undefined ? {} : { git: tools.paths.git }),
     });
-    // The story index (DIPO-32): indexes each office at load, after the git load step, and polls
-    // its remote every `polling.fetchSeconds`, with the `backlog` this daemon found on its PATH.
+    // The planning lane (DIPO-34): its replay load step needs the office git, so it follows
+    // engineGit.feature. The `backlog` on the daemon PATH, as for the version check.
+    const lane = new BacklogLane({
+      cli: { spawn: systemSpawn },
+      git: (office) => engineGit.forOffice(office),
+      onChanged: (office) => server?.notifyOffice(office),
+    });
+    // The story index (DIPO-32): indexes each office at load, after the git load step and the
+    // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
+    // daemon found on its PATH.
     const storyIndex = new StoryIndex({
       git: engineGit,
       cli: { spawn: systemSpawn },
@@ -399,6 +408,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const registry: Registry = engineRegistry([
       ...FEATURES,
       engineGit.feature,
+      lane.feature,
       storyIndex.feature,
       officeFeature(offices),
       helloFeature({
