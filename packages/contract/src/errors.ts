@@ -50,10 +50,21 @@ export const SOFTWARE_ERROR_CODES = [
   "daemon.notSafe",
 ] as const;
 
+// Specific codes of office-level commands and reads. Since minor 1 (DIPO-71): `config.invalid`
+// when the office has no valid configuration, so the command or read cannot run, and
+// `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the office's
+// base branch.
+export const OFFICE_ERROR_CODES = ["config.invalid", "backlog.unreadable"] as const;
+
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];
 export type RetryableErrorCode = (typeof RETRYABLE_ERROR_CODES)[number];
 export type SoftwareErrorCode = (typeof SOFTWARE_ERROR_CODES)[number];
-export type KnownErrorCode = GenericErrorCode | RetryableErrorCode | SoftwareErrorCode;
+export type OfficeErrorCode = (typeof OFFICE_ERROR_CODES)[number];
+export type KnownErrorCode =
+  | GenericErrorCode
+  | RetryableErrorCode
+  | SoftwareErrorCode
+  | OfficeErrorCode;
 
 export function isRetryableErrorCode(code: string): boolean {
   return (RETRYABLE_ERROR_CODES as readonly string[]).includes(code);

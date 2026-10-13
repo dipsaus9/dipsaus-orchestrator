@@ -26,6 +26,7 @@ import {
   engineRegistry,
   ensurePrivateDir,
   FEATURES,
+  GateStore,
   hasLiveClaim,
   helloFeature,
   helloHandshake,
@@ -420,6 +421,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "stories" }),
     });
     held.storyIndex = storyIndex;
+    // The Ready gate (DIPO-71): the read `story.gate` and stored decisions, read on `_base` with
+    // the office git and the `backlog` this daemon found on its PATH.
+    const gates = new GateStore({
+      git: engineGit,
+      cli: { spawn: systemSpawn },
+      offices,
+      clock,
+      ids,
+    });
     // The run profile (DIPO-72): scanned at load after the story index fetched, and on
     // `office.rescan`, which also indexes the stories again.
     const runProfiles = new RunProfiles({
@@ -444,6 +454,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       claims.feature,
       lane.feature,
       storyIndex.feature,
+      gates.feature,
       runProfiles.feature,
       retention.feature,
       officeFeature(offices),

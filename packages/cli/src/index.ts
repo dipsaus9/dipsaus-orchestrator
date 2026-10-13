@@ -17,6 +17,7 @@ import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
+import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { statsCommand } from "./stats-command";
@@ -85,6 +86,10 @@ Usage:
   dipo office reload-config [--office <id>]
                     read the office configuration again; an invalid file keeps
                     the previous one and refuses new runs
+  dipo gate <id> [--office <id>]
+                    check a story against the Ready gate on the office's base
+                    branch without storing anything; prints "ready <ID> passed"
+                    or each failure, and exits 1 when any rule fails
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
@@ -175,6 +180,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (office !== undefined) {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return office(args.slice(2), { ...deps, version });
+  }
+  if (args[0] === "gate") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return gateCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "stats") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

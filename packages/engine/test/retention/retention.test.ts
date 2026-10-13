@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import { OfficeId } from "@dipsaus-orchestrator/contract";
+import { OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries, cursorAt, readLogState } from "../../src/changelog/log";
@@ -14,10 +14,12 @@ import { replay } from "../../src/changelog/replay";
 import { buildRegistry } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
+import { storeGateDecision } from "../../src/gate";
 import { officeDirectory } from "../../src/office/marker";
 import { Retention, RETENTION_INTERVAL_MS, RETENTION_STEP } from "../../src/retention/feature";
 import { DAY_MS, runRetention } from "../../src/retention/run";
 import { MAX_BATCH_ROWS } from "../../src/retention/slices";
+import { addStory } from "../../src/stories/keys";
 import { runDirectory } from "../../src/runs/worker-hosts";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
@@ -256,6 +258,50 @@ describe("retention of run rows", () => {
       expect(ids("select run_id as id from prompt_parts where office_id = $office_id")).toEqual([
         "run-long",
       ]);
+    }));
+
+  it("deletes gate decisions and their decided gates after the state tier (DIPO-71)", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      const story = office.immediate(() =>
+        addStory(office, t.ids, { story: StoryId.parse("DIPO-7") }, day(0)),
+      );
+      const decide = (at: number) =>
+        office.immediate(
+          () =>
+            storeGateDecision(office, t.ids, {
+              key: story.key,
+              result: { mode: "pickup", passed: true, failures: [] },
+              contentHash: "0".repeat(64),
+              at,
+            }).gate,
+        );
+      decide(day(0));
+      const recent = decide(day(300));
+      office.immediate(() =>
+        office.run(
+          `insert into gates (office_id, gate_id, kind, key, opened_at, waiting_on, summary)
+           values ($office_id, 'gat-waiting', 'review', $key, $at, 'maintainer', 'waiting')`,
+          { key: story.key, at: day(0) },
+        ),
+      );
+      t.clock.advanceTo(day(400));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toMatchObject({ gate_decisions: 1, gates: 1 });
+      const ids = (sql: string) => office.all<{ id: unknown }>(sql).map((row) => row.id);
+      expect(ids("select gate_id as id from gate_decisions where office_id = $office_id")).toEqual([
+        recent,
+      ]);
+      expect(
+        ids("select gate_id as id from gates where office_id = $office_id order by opened_at desc"),
+      ).toEqual([recent, "gat-waiting"]);
     }));
 
   it("deletes reclaimed released branches and pricing checks after the state tier", () =>

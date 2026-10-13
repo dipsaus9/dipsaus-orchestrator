@@ -1,6 +1,7 @@
 // The read executor (0005 section 7). Reads change no facts. Args are validated like command args;
 // a read whose args name an `office` gets that office's handle and runs in one deferred
-// transaction, so a snapshot and its cursor match; story references resolve as for commands.
+// transaction, so a snapshot and its cursor match; story references resolve as for commands. A
+// waiting read (DIPO-71) resolves its references in that transaction and runs its handler after it.
 
 import {
   type Clock,
@@ -35,19 +36,24 @@ function officeOf(args: unknown): OfficeId | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-function run(
+type Prepared =
+  | { readonly ok: true; readonly ctx: ReadContext; readonly args: unknown }
+  | { readonly ok: false; readonly reply: ReadReply };
+
+/** Resolves the story references and builds the handler's context. */
+function prepare(
   deps: ReadDeps,
   read: RegisteredRead,
   request: ReadRequest,
   args: unknown,
   office: OfficeHandle | undefined,
-): ReadReply {
+): Prepared {
   const { requestId } = request;
   let stories: ReadContext["stories"] = new Map();
   let resolvedArgs = args;
   if (office !== undefined) {
     const resolved = resolveStoryRefs(office, findStoryRefFields(read.definition.args), args);
-    if (!resolved.ok) return failure(requestId, resolved.error);
+    if (!resolved.ok) return { ok: false, reply: failure(requestId, resolved.error) };
     stories = resolved.stories;
     resolvedArgs = resolved.args;
   }
@@ -58,13 +64,46 @@ function run(
     registry: deps.registry,
     ...(office === undefined ? {} : { office }),
   };
-  const parsed = read.definition.result.safeParse(read.handle(ctx, resolvedArgs));
+  return { ok: true, ctx, args: resolvedArgs };
+}
+
+function reply(read: RegisteredRead, request: ReadRequest, result: unknown): ReadReply {
+  const parsed = read.definition.result.safeParse(result);
   if (!parsed.success) {
     throw new Error(
       `${read.definition.name} returned a result that does not match its schema: ${parsed.error.message}`,
     );
   }
-  return { ok: true, requestId, result: parsed.data };
+  return { ok: true, requestId: request.requestId, result: parsed.data };
+}
+
+/** Runs a synchronous read; for an office read the caller wraps it in a deferred transaction. */
+function run(
+  deps: ReadDeps,
+  read: RegisteredRead & { readonly waits: false },
+  request: ReadRequest,
+  args: unknown,
+  office: OfficeHandle | undefined,
+): ReadReply {
+  const prepared = prepare(deps, read, request, args, office);
+  if (!prepared.ok) return prepared.reply;
+  return reply(read, request, read.handle(prepared.ctx, prepared.args));
+}
+
+/** Runs a waiting read: references resolve in one deferred transaction, the handler after it. */
+async function runWaiting(
+  deps: ReadDeps,
+  read: RegisteredRead & { readonly waits: true },
+  request: ReadRequest,
+  args: unknown,
+  office: OfficeHandle | undefined,
+): Promise<ReadReply> {
+  const prepared =
+    office === undefined
+      ? prepare(deps, read, request, args, undefined)
+      : office.deferred(() => prepare(deps, read, request, args, office));
+  if (!prepared.ok) return prepared.reply;
+  return reply(read, request, await read.handle(prepared.ctx, prepared.args));
 }
 
 /**
@@ -91,12 +130,17 @@ export async function executeRead(deps: ReadDeps, request: ReadRequest): Promise
   }
   const officeId = officeOf(parsed.data);
   try {
-    if (officeId === undefined) return run(deps, read, request, parsed.data, undefined);
-    // A read loads the office's engine instance on first use, like a command (DIPO-27).
-    const access = await deps.offices.load(officeId);
-    if (!access.ok) return failure(requestId, access.error);
-    const office = access.office;
-    return office.deferred(() => run(deps, read, request, parsed.data, office));
+    let office: OfficeHandle | undefined;
+    if (officeId !== undefined) {
+      // A read loads the office's engine instance on first use, like a command (DIPO-27).
+      const access = await deps.offices.load(officeId);
+      if (!access.ok) return failure(requestId, access.error);
+      office = access.office;
+    }
+    if (read.waits) return await runWaiting(deps, read, request, parsed.data, office);
+    if (office === undefined) return run(deps, read, request, parsed.data, undefined);
+    const handle = office;
+    return handle.deferred(() => run(deps, read, request, parsed.data, handle));
   } catch (thrown) {
     return failure(requestId, errorFromThrown(thrown));
   }
