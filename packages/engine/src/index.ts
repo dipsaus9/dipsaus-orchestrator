@@ -512,3 +512,27 @@ export {
 } from "./ingest/ingestor";
 export { outputText, toolLine } from "./ingest/output";
 export { budgetOf, finalizeAgentUsage, readUsage, type UsageScope } from "./ingest/usage";
+export * from "./keepawake/index";
+export {
+  keepAwakeCommand,
+  KeepAwakeMissingError,
+  systemSpawnKeepAwake,
+  WAIT_PID_POLL_MS,
+  waitForPidExit,
+  type InhibitMode,
+  type KeepAwakeCommandOptions,
+  type KeepAwakeExit,
+  type KeepAwakeProcess,
+  type SpawnKeepAwake,
+} from "./platform/keepawake";
+export {
+  bootoutOwnLaunchdJob,
+  LAUNCHD_LABEL,
+  SYSTEMD_UNIT,
+  systemdScopeCommand,
+  systemReadCgroup,
+  underLaunchdJob,
+  underSystemdUnit,
+  type BootoutOptions,
+  type ReadCgroup,
+} from "./platform/supervisor";
