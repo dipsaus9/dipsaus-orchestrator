@@ -4,7 +4,7 @@ title: 'Set up a claimed worktree with files, ports and install'
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 11:30'
+updated_date: '2026-10-13 11:40'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -70,8 +70,8 @@ test_plan:
 M0 breakdown draft number S23 (DIPO-15). Before cutover: built by hand-run agents.
 
 Scope additions:
-- packages/engine/src/db/migrations/0013-once-notices.ts: new migration 13, table once_notices, records that the env-file notice (AC #4) was shown once per office (renumbered from 11 after DIPO-65 took 11 and 12; DIPO-71 takes 14).
-- packages/engine/src/db/schema.ts: registers migration 13 in MIGRATIONS.
+- packages/engine/src/db/migrations/0014-once-notices.ts: new migration 14, table once_notices, records that the env-file notice (AC #4) was shown once per office (renumbered from 11: DIPO-65 took 11 and 12, DIPO-71 took 13).
+- packages/engine/src/db/schema.ts: registers migration 14 in MIGRATIONS.
 - packages/engine/src/retention/policy.ts: once_notices is tier P (kept until office purge), as the retention policy test requires for every office-scoped table.
 - packages/engine/src/worktree/claim.ts and feature.ts (DIPO-38 code, inside References): claimStory takes an optional setup hook and runs in three steps, as 0010 section 7 orders (setup, then the claim commit, then the push). Queue item A: re-check, claim checks, worktree add, lock, live claim record, base merge of a reused branch. Then setup outside the git queue. Queue item C: re-check that the claim is still live and the worktree snapshot unchanged, then the claim commit and the push. A failed setup rolls back in its own queue item with nothing committed or pushed: a new branch is deleted only while it points at its start SHA, a reused branch goes back to exactly where it was released and its release is reopened; the claim row ends as setup-failed and the skip is pickupCheckFailed with the setup log. StoryClaims.claim passes the hook through.
 - packages/engine/src/worktree/records.ts: failedClaimOf also matches setup-failed.
@@ -83,4 +83,6 @@ Re-check follow-up:
 - claim_sha is now recorded after every finished claim (the tip when the status was already In Progress). A live claim with claim_sha null is therefore one whose setup never finished. The claims load step (StoryClaims.recover, packages/engine/src/worktree/feature.ts) rolls such claims back after a daemon restart: worktree removed, branch restored, row set to setup-failed, slot freed when StoryClaimsDeps.slots is given, and a claim.setupInterrupted notice.
 - Each worktree file is opened with O_NOFOLLOW, its fstat device and inode are compared with the check, and its bytes are streamed from that descriptor to an O_EXCL | O_NOFOLLOW destination.
 - The setup.failed notice names files that setup left unignored and suggests a frozen install.
+
+AC #2: worktree files are streamed through a fixed-size memory buffer from the source descriptor to the destination; the contents pass through memory but are never inspected, hashed or logged.
 <!-- SECTION:NOTES:END -->
