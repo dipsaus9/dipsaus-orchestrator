@@ -1,0 +1,9 @@
+{"ts":"2026-10-13T08:00:00.000Z","level":"info","msg":"daemon starting","component":"daemon","pid":4242,"version":"0.1.0"}
+{"ts":"2026-10-13T08:00:00.010Z","level":"debug","msg":"frame received","component":"transport","kind":"command","name":"office.list"}
+{"ts":"2026-10-13T08:00:01.000Z","level":"info","msg":"office loaded","component":"office","office":"off_alpha","path":"/work/alpha"}
+{"ts":"2026-10-13T08:00:02.000Z","level":"warn","msg":"office refused","component":"office","office":"off_beta","code":"[redacted]"}
+{"ts":"2026-10-13T08:00:03.000Z","level":"info","msg":"worker started","component":"worker-host","office":"off_alpha","run":"run_1","workerPid":77}
+{"ts":"2026-10-13T08:00:04.000Z","level":"trace","msg":"worker event","component":"worker-host","office":"off_alpha","run":"run_1","output":"hello"}
+{"ts":"2026-10-13T08:00:05.000Z","level":"error","msg":"worker exited","component":"worker-host","office":"off_alpha","run":"run_2","exitCode":1}
+not json: a torn line
+{"ts":"2026-10-13T08:00:06.000Z","level":"info","msg":"daemon stopped","component":"daemon","log":"/logs/daemon.log"}
