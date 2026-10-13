@@ -1,10 +1,10 @@
 ---
 id: DIPO-32
 title: Index office stories with stable story keys
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:48'
+updated_date: '2026-10-13 07:11'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -95,3 +95,9 @@ Follow-ups:
 - Batch-created stories sharing a created minute (Backlog.md dates have minute precision) will often be judged ambiguous and close as Removed with new keys; DIPO-56 may add a tiebreak (for example title or content hash).
 - Each pass reads every story through a per-story Backlog CLI view (one process per story); cost grows with the backlog size and may need a bulk read later.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Story index: migration 6 backlog_mirror; on office load and on a poll when _base moved the engine reads every task and draft from _base through the Backlog CLI inside one git queue item, matches stable story keys by current id, frozen branch and created date (ambiguous dates give story.ambiguous and new keys), emits story.renumbered and story.state with the derived StoryView, closes vanished keys as Removed, and serves real office summaries to engine.hello; the office still loads with stories.notIndexed when reading fails. Load order git.version, lane replay, stories.index. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
