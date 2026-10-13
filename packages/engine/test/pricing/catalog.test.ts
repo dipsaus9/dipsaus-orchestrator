@@ -16,6 +16,9 @@ import {
   canonicalModel,
   costMicros,
   estimateMicros,
+  longPromptRates,
+  messagesCostMicros,
+  ratesFor,
   type PriceBook,
 } from "../../src/pricing/estimate";
 
@@ -126,9 +129,80 @@ describe("estimate arithmetic", () => {
     expect(canonicalModel("claude-sonnet-4-5-20250929")).toBe("claude-sonnet-4-5");
     expect(canonicalModel("claude-opus-4-7[1m]")).toBe("claude-opus-4-7");
     expect(canonicalModel("claude-haiku-5-5")).toBe("claude-haiku-5-5");
-    const book: PriceBook = { version: "1", models: new Map([["claude-sonnet-4-5", rates]]) };
+    const book: PriceBook = {
+      version: "1",
+      models: new Map([["claude-sonnet-4-5", rates]]),
+      longPrompt: new Map(),
+    };
     const tokens = { input: 10, output: 0, cacheCreate5m: 0, cacheCreate1h: 0, cacheRead: 0 };
     expect(estimateMicros(book, "claude-sonnet-4-5-20250929", tokens)).toBe(1);
     expect(estimateMicros(book, "claude-unknown-1", tokens)).toBeNull();
+  });
+});
+
+describe("long-prompt rates (DIPO-78)", () => {
+  const base = {
+    input: 100_000,
+    output: 500_000,
+    cacheWrite5m: 125_000,
+    cacheWrite1h: 200_000,
+    cacheRead: 10_000,
+  };
+  const long = { ...base, input: 500_000, output: 2_500_000, over: 100_000 };
+  const longer = { ...base, input: 900_000, over: 200_000 };
+  const book: PriceBook = {
+    version: "1",
+    models: new Map([
+      ["claude-haiku-5-5", base],
+      ["claude-sonnet-5-5", base],
+    ]),
+    longPrompt: new Map([["claude-haiku-5-5", [long, longer]]]),
+  };
+  const none = { input: 0, output: 0, cacheCreate5m: 0, cacheCreate1h: 0, cacheRead: 0 };
+
+  it("select the set with the highest threshold below the prompt size", () => {
+    expect(ratesFor(book, "claude-haiku-5-5", 100_000)).toBe(base);
+    expect(ratesFor(book, "claude-haiku-5-5", 100_001)).toBe(long);
+    expect(ratesFor(book, "claude-haiku-5-5", 200_001)).toBe(longer);
+    expect(ratesFor(book, "claude-haiku-5-5-20261001", 150_000)).toBe(long);
+    expect(ratesFor(book, "claude-haiku-5-5")).toBe(base);
+    expect(ratesFor(book, "claude-sonnet-5-5", 500_000)).toBe(base);
+    expect(longPromptRates(book, "claude-sonnet-5-5")).toEqual([]);
+    expect(ratesFor(book, "claude-unknown-1", 500_000)).toBeNull();
+  });
+
+  it("sum per-band costs, pricing tokens beyond the bands at base rates, rounding once", () => {
+    // Band at base: input 3 -> 0.3. Band at long: input 3 -> 1.5. Totals hold 4 more input,
+    // priced at base: 0.4. 0.3 + 1.5 + 0.4 = 2.2 -> 2; rounding each part would give 0 + 2 + 0.
+    const bands = [
+      { tokens: { ...none, input: 3 }, rates: base },
+      { tokens: { ...none, input: 3 }, rates: long },
+    ];
+    expect(messagesCostMicros(bands, { ...none, input: 10 }, base)).toBe(2);
+  });
+
+  it("scale a field down to the totals when the messages hold more of it", () => {
+    // Messages report output 10 at base (5 micros) and 10 at long (25); totals hold output 4,
+    // so the 30 micros are scaled by 4/20: 6.
+    const bands = [
+      { tokens: { ...none, output: 10 }, rates: base },
+      { tokens: { ...none, output: 10 }, rates: long },
+    ];
+    expect(messagesCostMicros(bands, { ...none, output: 4 }, base)).toBe(6);
+    expect(messagesCostMicros(bands, none, base)).toBe(0);
+  });
+
+  it("equal costMicros of the totals for one band at base rates", () => {
+    const totals = {
+      input: 12,
+      output: 1285,
+      cacheCreate5m: 5354,
+      cacheCreate1h: 9730,
+      cacheRead: 20916,
+    };
+    const part = { ...totals, output: 300, cacheRead: 916 };
+    expect(messagesCostMicros([{ tokens: part, rates: base }], totals, base)).toBe(
+      costMicros(totals, base),
+    );
   });
 });
