@@ -143,6 +143,45 @@ export function renumberStory(
   if (current === null) throw new Error(`Cannot renumber unknown story key ${key}.`);
   const from = current.story;
   if (from === to) return { from, to };
+  applyRenumber(office, key, from, to, at);
+  return { from, to };
+}
+
+export interface StoryMove {
+  readonly key: StoryKey;
+  readonly from: StoryId;
+  readonly to: StoryId;
+}
+
+/**
+ * Renumbers several stories at once, as reconcile finds them (0005 section 2). Ids may move in a
+ * chain or a swap (A to B while B goes to C), so every moved story first takes its own key as a
+ * placeholder id, which no Backlog.md id can equal, and then its new id.
+ */
+export function renumberStories(
+  office: OfficeHandle,
+  moves: readonly StoryMove[],
+  at: number,
+): void {
+  const real = moves.filter((move) => move.from !== move.to);
+  for (const { key } of real) {
+    office.run(
+      "update stories set story_id = $key where office_id = $office_id and key = $key and removed_at is null",
+      { key },
+    );
+  }
+  for (const { key, from, to } of real) applyRenumber(office, key, from, to, at);
+  // A later move may have made an earlier move's new id its former id: retire that alias too.
+  for (const { key, to } of real) retireAliases(office, to, key, at);
+}
+
+function applyRenumber(
+  office: OfficeHandle,
+  key: StoryKey,
+  from: StoryId,
+  to: StoryId,
+  at: number,
+): void {
   office.run(
     `insert into story_aliases (office_id, key, story_id, valid_from) values ($office_id, $key, $from, $at)
      on conflict (office_id, key, story_id) do update set valid_from = $at, retired_at = null`,
@@ -158,7 +197,6 @@ export function renumberStory(
     { key, to, at },
   );
   retireAliases(office, to, key, at);
-  return { from, to };
 }
 
 /** Closes a story's key (`Removed`); its id may later become another story's current id. */
