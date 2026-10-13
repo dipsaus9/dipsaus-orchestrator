@@ -1,10 +1,10 @@
 ---
 id: DIPO-47
 title: Assemble worker prompts from templates and story data
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 08:27'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -51,19 +51,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Templates under `packages/engine/src/prompts/` hold named slots only; a test fails when a template contains a conditional or loop syntax.
-- [ ] #2 The rendered L1+L2 file is byte-identical for every story with the same role and engine version, and contains no id, date, path or count.
-- [ ] #3 The task message holds `context`, `inputs`, `dependencies`, `background`, `handoff`, `story`, `outcome`, `criteria`, `scope`, `test_plan`, `answers`, `instructions`, `feedback` in that order, each in its tag, each present only under its 0014 condition.
-- [ ] #4 Story contract sections are never truncated; `assembleContract(story)` measures them on their own, and over `prompt.contractMax` assembly fails with `prompt.contractTooLarge` naming the size and the limit; moving the story to Refined is DIPO-48.
-- [ ] #5 Over the total cap, sections drop in the order dependencies, background, context tail, inputs content, each with a marker.
-- [ ] #6 A verify feedback item holds the failing step and command, exit code, last 60 output lines and `file:line` locations parsed from tsc, oxlint and bun test output.
-- [ ] #7 A handoff block holds `git log --oneline <base>..HEAD`, `git diff --stat HEAD`, untracked files, criteria status, last verify result, open feedback and worker notes up to 1,500 characters.
-- [ ] #8 A migration adds `prompt_parts` and `worker_notes`; per run and agent the sha256, bytes and estimated tokens of each part are stored and no prompt text is; the `notes` of a worker report are stored per worktree in `worker_notes` and read back for the handoff block.
-- [ ] #9 Golden files cover the rendered L1+L2 and a sample L4 for a fixture story.
+- [x] #1 Templates under `packages/engine/src/prompts/` hold named slots only; a test fails when a template contains a conditional or loop syntax.
+- [x] #2 The rendered L1+L2 file is byte-identical for every story with the same role and engine version, and contains no id, date, path or count.
+- [x] #3 The task message holds `context`, `inputs`, `dependencies`, `background`, `handoff`, `story`, `outcome`, `criteria`, `scope`, `test_plan`, `answers`, `instructions`, `feedback` in that order, each in its tag, each present only under its 0014 condition.
+- [x] #4 Story contract sections are never truncated; `assembleContract(story)` measures them on their own, and over `prompt.contractMax` assembly fails with `prompt.contractTooLarge` naming the size and the limit; moving the story to Refined is DIPO-48.
+- [x] #5 Over the total cap, sections drop in the order dependencies, background, context tail, inputs content, each with a marker.
+- [x] #6 A verify feedback item holds the failing step and command, exit code, last 60 output lines and `file:line` locations parsed from tsc, oxlint and bun test output.
+- [x] #7 A handoff block holds `git log --oneline <base>..HEAD`, `git diff --stat HEAD`, untracked files, criteria status, last verify result, open feedback and worker notes up to 1,500 characters.
+- [x] #8 A migration adds `prompt_parts` and `worker_notes`; per run and agent the sha256, bytes and estimated tokens of each part are stored and no prompt text is; the `notes` of a worker report are stored per worktree in `worker_notes` and read back for the handoff block.
+- [x] #9 Golden files cover the rendered L1+L2 and a sample L4 for a fixture story.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S31 (DIPO-15). Before cutover: built by hand-run agents.
+
+Scope additions: packages/engine/src/db/schema.ts (registers migration 9 in MIGRATIONS; the migration list lives there, next to the referenced migrations directory).
+
+Delivered: packages/engine/src/prompts/ (templates under contract/, roles/, task/, feedback/; renderSystemFile, assembleContract, assembleTaskMessage, verifyFeedback, gatherHandoff/renderHandoff, recordWorkerNotes/latestWorkerNotes/forgetWorkerNotes, promptParts/recordPromptParts), migration 0009 (prompt_parts, worker_notes), tests and golden files in packages/engine/test/prompts/.
+
+Design choices: assembleContract(story, contractMax) measures the contract with the same count as R26 (contractCharacters) so gate and backstop agree, and throws ContractTooLargeError with code prompt.contractTooLarge (an engine error, not a contract error code; DIPO-48 consumes it). Templates are bundled with text imports, so the compiled binary carries them. prompt_parts stores parts system, task and task.<section>; tokens are estimated at 4 characters per token. worker_notes keeps one row per worktree and agent; the handoff reads the newest. The L1 contract holds no digits, so the notes cap is stated in words.
 <!-- SECTION:NOTES:END -->

@@ -1,4 +1,4 @@
-// Migration 8 (DIPO-62): the pricing catalogs (0007 section 4, 0008 section 4).
+// Migration 11 (DIPO-62): the pricing catalogs (0007 section 4, 0008 section 4).
 //
 // `pricing_catalogs` and `pricing_rates` are software-wide (0007 section 3) and kept forever. A
 // catalog version is imported once from the binary and never edited: triggers refuse updates and
@@ -11,7 +11,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const pricing: SqlMigration = {
-  version: 8,
+  version: 11,
   name: "pricing_catalogs, pricing_rates and pricing_checks",
   sql: `
 create table pricing_catalogs (

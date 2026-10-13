@@ -188,6 +188,9 @@ export { findStoryRefFields, resolveStoryRefs } from "./commands/story-refs";
 export { engineRegistry, FEATURES } from "./features";
 export * from "./git";
 export * from "./backlog/lane";
+export * from "./worktree";
+export { formatGigabytes, systemDiskProbe } from "./platform/disk";
+export type { DiskProbe } from "./platform/disk";
 export { executeRead } from "./reads/execute";
 export type { ReadDeps } from "./reads/execute";
 export {
@@ -198,6 +201,8 @@ export {
   noOfficeSummaries,
 } from "./reads/hello";
 export type { HelloSource, OfficeSummarySource } from "./reads/hello";
+export { currentProfile, diffProfiles, RunProfiles, SCAN_STEP, verifyResolved } from "./scan";
+export type { RunProfilesDeps, ScanOutcome, ScanTrigger, StoredProfile } from "./scan";
 export {
   addStory,
   applyIndex,

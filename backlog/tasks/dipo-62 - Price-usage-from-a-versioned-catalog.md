@@ -4,7 +4,7 @@ title: Price usage from a versioned catalog
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:35'
+updated_date: '2026-10-13 08:38'
 labels:
   - 'tier:S'
   - after-cutover
@@ -62,18 +62,18 @@ M0 breakdown draft number S46 (DIPO-15). After cutover: built by dipo itself, no
 Implementation (DIPO-62):
 - Catalog: packages/engine/src/pricing/catalog-1.json, rates in micro-USD per million tokens, read 2026-10-13 from https://platform.claude.com/docs/en/about-claude/pricing (0008 source 14). Effective date and source URL are catalog-level fields (0007 pricing_catalogs). Model ids derived from the page's model names (Claude Haiku 5.5 -> claude-haiku-5-5, matching recordings' canonicalModel). Claude Mythos 5/5.1 (limited availability) and Claude Haiku 3.5 (different id scheme, retired) are left out. Haiku 5.5 long-prompt rates (prompts over 100,000 tokens) are kept in the catalog and pricing_rates.prompt_over but not applied (estimates use base rates).
 - Checksums: sha256 over the catalog JSON, released checksum recorded in pricing/catalog.ts; checked at import, and against the checksum a database already holds. Triggers refuse updates and deletes of imported catalogs.
-- Migration 8: pricing_catalogs, pricing_rates (software-wide), usage_totals.cli_cost_micros, pricing_checks (one stale-catalog notice per run). Number 8 may be renumbered at merge (open PRs also use 8).
+- Migration 11 (0011-pricing.ts): pricing_catalogs, pricing_rates (software-wide), usage_totals.cli_cost_micros, pricing_checks (one stale-catalog notice per run). Renumbered from 8 after main took 8 to 10.
 - Cross-check: notice code pricing.catalogStale (engine.notice, warn). A turn end that kept live numbers above the CLI's totals (aborted or crashed turn, recording pause-now) clears the agent's CLI cost, so no false notice is raised.
 - Known approximations are in the header of packages/engine/src/pricing/index.ts (AC 5).
 
 Scope additions:
 - packages/engine/src/workers/claude-cli/{schema,interpret}.ts and workers/types.ts: read modelUsage costUSD and carry the CLI cost on the turn event (costUsd), run-cumulative like the token totals. Needed for AC 4; 0008 section 4 asks the engine to store costUSD.
-- packages/engine/src/ingest/ingestor.ts: optional pricing option; prices usage and runs the cross-check in the pass transaction.
+- packages/engine/src/ingest/ingestor.ts: required pricing option (a PriceBook or explicit null); prices usage and runs the cross-check in the pass transaction.
 - packages/engine/src/db/database.ts: imports catalogs after migrations and exposes StateDatabase.pricing.
 - packages/engine/tsconfig.json: include src/**/*.json so tsc -b accepts the catalog import.
 
 Scope additions (review of PR #69):
-- packages/engine/src/db/schema.ts: registers migration 8 (pricing) in MIGRATIONS; every migration is listed there.
+- packages/engine/src/db/schema.ts: registers migration 11 (pricing) in MIGRATIONS; every migration is listed there.
 - packages/engine/src/index.ts: the pricing exports were removed again; nothing outside the engine uses them.
 - IngestorOptions.pricing is now required (PriceBook or explicit null), so the wiring story cannot drop it silently; packages/engine/test/ingest/ingest.test.ts passes the imported catalog.
 - recordCliCost returns the models whose cost matched no usage row; the ingestor logs a warning for each.
