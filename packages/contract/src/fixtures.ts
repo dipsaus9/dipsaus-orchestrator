@@ -362,7 +362,13 @@ export const invalidFieldBlocks: Record<string, unknown> = {
 export const commandFixtures: Record<string, { args: unknown; result: unknown }> = {
   "office.open": {
     args: { path: "/Users/me/code/dipsaus-orchestrator" },
-    result: { office: ids.office, registered: true },
+    result: {
+      office: ids.office,
+      registered: true,
+      warnings: [
+        "/Users/me/code/dipsaus-orchestrator is on a network filesystem (nfs); another machine opening it has its own state, and nothing guards its worktrees and branches.",
+      ],
+    },
   },
   "office.forget": { args: { office: ids.office }, result: { office: ids.office } },
   "office.init": {
@@ -376,7 +382,15 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
     result: {
       office: ids.office,
       valid: false,
-      errors: [".dipo/office.yaml: caps.maxAgents: expected number"],
+      errors: [
+        {
+          file: ".dipo/office.yaml",
+          path: "caps.maxAgents",
+          expected: "integer",
+          message: ".dipo/office.yaml: caps.maxAgents: expected integer, got string",
+        },
+      ],
+      configHash: "9f2c4e0b7a1d3f5e8c6b4a2d0e1f3a5c7b9d1e3f5a7c9e1b3d5f7a9c1e3b5d7f",
     },
   },
   "daemon.stop": { args: { stopWorkers: false }, result: { state: "draining" } },

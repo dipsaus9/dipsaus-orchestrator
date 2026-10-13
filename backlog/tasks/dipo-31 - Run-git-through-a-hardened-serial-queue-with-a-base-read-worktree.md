@@ -1,10 +1,10 @@
 ---
 id: DIPO-31
 title: Run git through a hardened serial queue with a base read worktree
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 21:42'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -15,6 +15,11 @@ references:
   - packages/engine/src/git/
   - packages/engine/test/git/
   - packages/engine/src/features.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/office/repository.ts
+  - packages/engine/src/platform/repo-files.ts
+  - packages/daemon/src/foreground.ts
+  - packages/testkit/src/git.ts
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0008-worker-adapter.md
@@ -53,19 +58,40 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An office load step (DIPO-27 seam) checks `git --version` is at least 2.38, which `merge-tree --write-tree` needs, and refuses the office with a notice naming the version otherwise.
-- [ ] #2 Every engine git call runs with `GIT_CONFIG_NOSYSTEM=1`, `-c core.hooksPath=/dev/null -c core.fsmonitor=false`, and `GIT_DIR`/`GIT_COMMON_DIR` from paths recorded by the engine, never read from a worktree.
-- [ ] #3 The office git queue runs one item at a time; an item may hold several git steps; a test proves two submitted items never interleave.
-- [ ] #4 The base is `base` from configuration, else `refs/remotes/origin/HEAD`; with neither, operations that need it fail with a clear error.
-- [ ] #5 The worktree root defaults to `../<repo>.worktrees`, resolves to an absolute path, and is refused when it lies inside the main checkout.
-- [ ] #6 `ensureBaseWorktree` creates or moves `<root>/_base`, detached at `origin/<base>`, after every fetch that moves the base.
-- [ ] #7 A held `index.lock` or ref lock is retried three times with backoff, then the step fails; lock files are never deleted.
-- [ ] #8 A failed fetch makes pickup and planning pushes wait with a retryable error while other work continues.
-- [ ] #9 The engine never writes the maintainer's main checkout: a test runs every queue operation and compares the main checkout's `git status --porcelain` before and after.
+- [x] #1 An office load step (DIPO-27 seam) checks `git --version` is at least 2.38, which `merge-tree --write-tree` needs, and refuses the office with a notice naming the version otherwise.
+- [x] #2 Every engine git call runs with `GIT_CONFIG_NOSYSTEM=1`, `-c core.hooksPath=/dev/null -c core.fsmonitor=false`, and `GIT_DIR`/`GIT_COMMON_DIR` from paths recorded by the engine, never read from a worktree.
+- [x] #3 The office git queue runs one item at a time; an item may hold several git steps; a test proves two submitted items never interleave.
+- [x] #4 The base is `base` from configuration, else `refs/remotes/origin/HEAD`; with neither, operations that need it fail with a clear error.
+- [x] #5 The worktree root defaults to `../<repo>.worktrees`, resolves to an absolute path, and is refused when it lies inside the main checkout.
+- [x] #6 `ensureBaseWorktree` creates or moves `<root>/_base`, detached at `origin/<base>`, after every fetch that moves the base.
+- [x] #7 A held `index.lock` or ref lock is retried three times with backoff, then the step fails; lock files are never deleted.
+- [x] #8 A failed fetch makes pickup and planning pushes wait with a retryable error while other work continues.
+- [x] #9 The engine never writes the maintainer's main checkout: a test runs every queue operation and compares the main checkout's `git status --porcelain` before and after.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S16 (DIPO-15). Before cutover: built by hand-run agents.
+
+DIPO-31 implementation (2026-10-12):
+- packages/engine/src/git/: version check (2.38 minimum), hardened calls (GIT_CONFIG_NOSYSTEM=1, -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.quotePath=off, --no-pager, GIT_TERMINAL_PROMPT=0, LC_ALL=C, inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_CONFIG_PARAMETERS and similar dropped), per-office serial GitQueue, lock retry (3 retries, 100/400/1600 ms on the injected clock, lock files never deleted), base resolution (config base, else refs/remotes/<remote>/HEAD, else git.baseUnknown), worktree root (default ../{repo}.worktrees, absolute, git.rootInsideCheckout when inside the main checkout), ensureBaseWorktree and fetch (moves <root>/_base, detached at <remote>/<base>), fetch gate assertFetched (retryable git.fetchFailed).
+- Repository-level calls run as git --bare with cwd and GIT_DIR/GIT_COMMON_DIR the recorded common dir, so no engine call has the main checkout as its work tree. Worktree calls take GIT_DIR from the admin dir found under the recorded common dir and refuse (git.worktreeChanged) when <worktree>/.git no longer points at it.
+- features.ts lists engineGit.feature, whose load step git.version checks git --version once per office load and records the office's paths; later stories reach the queue through engineGit.forOffice(office).
+- Added refs: packages/engine/src/index.ts (exports the git module), packages/engine/src/office/repository.ts and packages/engine/src/platform/repo-files.ts (AC 2: their read-only discovery and scan git calls now use the same hardening; discovery cannot use recorded paths, it finds them).
+- Follow-ups: git.fetchFailed is retryable but not yet in the contract's RETRYABLE_ERROR_CODES; the command that surfaces it (DIPO-48 pickup, DIPO-34 planning push) adds it. OfficeGit takes configuration at office load; office.reloadConfig does not yet call configure(). safe.directory is not overridden (0008 does not ask for it; the daemon runs as the repository owner).
+
+Review hardening (2026-10-12):
+- Inherited env also drops GIT_CONFIG_COUNT, every GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n, GIT_CONFIG_GLOBAL, GIT_EXEC_PATH, GIT_TEMPLATE_DIR, GIT_REPLACE_REF_BASE, GIT_SHALLOW_FILE and GIT_ATTR_SOURCE. GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS and SSH_ASKPASS are kept on purpose from the daemon's (maintainer's) environment, so fetch and push authenticate as the maintainer (KEPT_AUTH_ENV in git/hardened.ts).
+- _base checkouts (worktree add, checkout) run with GIT_LFS_SKIP_SMUDGE=1 and -c filter.lfs.process= -c filter.lfs.smudge=; fetch runs with -c protocol.ext.allow=never (other protocols keep git's defaults); worktree add runs with -c worktree.useRelativePaths=false, and adminDirOf/worktreeLocation resolve a relative gitdir against the directory of the file that holds it.
+- The daemon builds EngineGit in foreground.ts with the git path it resolved from PATH and adds its feature to the registry; features.ts is back to main. platform/repo-files.ts reuses hardenedArgs/hardenedEnv (kind none).
+- testkit isolatedEnv sets XDG_CONFIG_HOME under the temp home, because engine git now drops GIT_CONFIG_GLOBAL and must not find the maintainer's XDG git config in tests.
+- For DIPO-38/DIPO-74: before each engine call in a story worktree, compare the admin dir's commondir and gitdir files, and the worktree's .git pointer, against a run-start snapshot (0008 section 2); worktreeLocation only checks the pointer today.
+- Residual repository-config keys accepted (the repo config lives in the common dir, which the worker cannot write): remote url and uploadpack/receivepack, core.sshCommand, credential helpers, http.*, url.*.insteadOf.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hardened git through a serial queue per office in packages/engine/src/git: git 2.38+ load step; every engine call with NOSYSTEM, hooksPath=/dev/null, fsmonitor off, no pager, LC_ALL=C, no terminal prompt, and a scrubbed environment (auth variables kept); repository calls as --bare with recorded GIT_DIR/GIT_COMMON_DIR so the main checkout is never touched; worktree calls with the admin dir from the recorded common dir and a pointer check; lock retries 100/400/1600 ms without deleting lock files; base from config or origin HEAD; worktree root outside the checkout; _base read worktree kept at origin/<base> with LFS smudge off; fetch with protocol.ext never and a retryable git.fetchFailed; EngineGit built by the daemon with its resolved git path. Reviewer pass. Follow-ups: run-start snapshot of commondir/gitdir for story worktrees (DIPO-38/74), git.fetchFailed in the contract's retryable codes, reloadConfig reaching OfficeGit.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,0 +1,69 @@
+File: /fixture/backlog/tasks/task-1.1 - Ship-the-full-export.md
+
+Task TASK-1.1 - Ship the full export
+==================================================
+
+Status: ◒ In Progress
+Priority: High
+Type: feature
+Ordinal: 4000
+Assignee: @alice
+Created: 2026-10-12 21:23 (UTC)
+Updated: 2026-10-12 21:23 (UTC)
+Due: 2026-12-01
+Labels: tier:M, role:developer, test-before-merge
+Milestone: m-0
+Parent: TASK-1 - Add the CSV export command
+References: packages/a/, packages/b.ts
+Documentation: docs/x.md, https://example.com/y
+
+Dependency Graph:
+--------------------------------------------------
+Depends on (2 direct, 3 total):
+├─ TASK-1 - Add the CSV export command [Ready]
+└─ TASK-2 - Rename the export setting [Refined]
+   └─ TASK-3 - Export stories as JSON [Parked]
+
+Description:
+--------------------------------------------------
+Outcome: the full export ships with every field set.
+
+Free context line.
+
+```dipo
+branch: "TASK-1.1/ship-the-full-export"
+unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) every field"
+```
+
+Acceptance Criteria:
+--------------------------------------------------
+- [x] #1 First criterion
+- [ ] #2 Second criterion
+
+Definition of Done:
+--------------------------------------------------
+- [ ] #1 Docs updated
+
+Implementation Plan:
+--------------------------------------------------
+Step one
+
+Implementation Notes:
+--------------------------------------------------
+Some notes
+
+Modified files: packages/a/z.ts
+
+Comments:
+--------------------------------------------------
+#1 - @bob - 2026-10-12 21:23 (UTC)
+A comment here
+
+Final Summary:
+--------------------------------------------------
+Done summary
+

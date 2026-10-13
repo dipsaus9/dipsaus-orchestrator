@@ -2,7 +2,8 @@
 // `register(registry)`, which adds its handlers next to the contract definition they serve: args and
 // result schemas, `since` or `provisional`, and for commands `confirm` and `irreversible`.
 // `features.ts` lists the modules, so a later story adds a command or read in its own directory
-// plus one line there, without editing `commands/` or `reads/`.
+// plus one line there, without editing `commands/` or `reads/`. Modules also add office load steps
+// and active-work checks here (DIPO-27), which `office/` runs without knowing the modules.
 
 import {
   checkVersioning,
@@ -17,6 +18,12 @@ import type { z } from "zod";
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import type {
+  ActiveWorkCheck,
+  LoadStep,
+  RegisteredActiveWorkCheck,
+  RegisteredLoadStep,
+} from "../office/steps";
 import type { StoryIdentity } from "../stories/keys";
 
 /** What an office-level command handler gets. It runs inside the command's write transaction. */
@@ -99,6 +106,10 @@ export interface FeatureRegistry {
     registration: SoftwareCommandRegistration<D>,
   ): void;
   addRead<D extends ReadDefinition>(registration: ReadRegistration<D>): void;
+  /** A step every office load runs, after the steps registered before it (DIPO-27). */
+  registerLoadStep(name: string, run: LoadStep): void;
+  /** A check `office.forget` asks; any that reports work refuses with `office.busy`. */
+  registerActiveWorkCheck(name: string, check: ActiveWorkCheck): void;
 }
 
 /** A feature module listed in `features.ts`. */
@@ -131,7 +142,7 @@ export interface RegisteredRead {
 /** A command or read name registered by two modules; startup fails naming both. */
 export class DuplicateRegistrationError extends Error {
   constructor(
-    readonly kind: "command" | "read",
+    readonly kind: "command" | "read" | "load step" | "active-work check",
     readonly registeredName: string,
     readonly modules: readonly [string, string],
   ) {
@@ -153,6 +164,18 @@ export class InvalidRegistrationError extends Error {
 export class Registry {
   readonly #commands = new Map<string, RegisteredCommand>();
   readonly #reads = new Map<string, RegisteredRead>();
+  readonly #loadSteps = new Map<string, RegisteredLoadStep>();
+  readonly #activeWorkChecks = new Map<string, RegisteredActiveWorkCheck>();
+
+  /** Office load steps, in registration order. */
+  loadSteps(): RegisteredLoadStep[] {
+    return [...this.#loadSteps.values()];
+  }
+
+  /** Active-work checks, in registration order. */
+  activeWorkChecks(): RegisteredActiveWorkCheck[] {
+    return [...this.#activeWorkChecks.values()];
+  }
 
   command(name: string): RegisteredCommand | undefined {
     return this.#commands.get(name);
@@ -217,6 +240,23 @@ export class Registry {
           definition,
           handle: handle as ReadHandler<unknown, unknown>,
         });
+      },
+      registerLoadStep: (name, run) => {
+        const existing = this.#loadSteps.get(name);
+        if (existing !== undefined) {
+          throw new DuplicateRegistrationError("load step", name, [existing.module, module]);
+        }
+        this.#loadSteps.set(name, { module, name, run });
+      },
+      registerActiveWorkCheck: (name, check) => {
+        const existing = this.#activeWorkChecks.get(name);
+        if (existing !== undefined) {
+          throw new DuplicateRegistrationError("active-work check", name, [
+            existing.module,
+            module,
+          ]);
+        }
+        this.#activeWorkChecks.set(name, { module, name, check });
       },
     });
   }

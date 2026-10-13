@@ -208,7 +208,8 @@ async function handleSoftwareCommand(
  * Runs one command and returns its one reply. Unknown or unbuilt commands fail with
  * `capability.missing`; a conversation command without `confirmed` with `confirmation.required`;
  * bad args with `args.invalid` and the zod issues; an office-level command without `office` with
- * `args.invalid` and with an unknown or forgotten office with `office.unknown`.
+ * `args.invalid`, with an unknown or forgotten office with `office.unknown`, and with an office
+ * whose engine instance would not load with that refusal (`office.refused`, `office.pathMissing`).
  */
 export async function executeCommand(
   deps: ExecutorDeps,
@@ -233,7 +234,8 @@ export async function executeCommand(
       ),
     );
   }
-  if (command.level === "office" && request.office === undefined) {
+  const officeId = request.office;
+  if (command.level === "office" && officeId === undefined) {
     return failure(
       requestId,
       argsInvalid(`${request.name} is an office-level command and needs an office.`),
@@ -249,14 +251,9 @@ export async function executeCommand(
   if (command.level === "software") {
     return runSoftwareCommand(deps, command, request, parsed.data);
   }
-  const office = request.office === undefined ? undefined : deps.offices.get(request.office);
-  if (office === undefined) {
-    return failure(
-      requestId,
-      engineError("office.unknown", `There is no open office ${String(request.office)}.`, {
-        office: request.office,
-      }),
-    );
-  }
-  return runOfficeCommand(deps, command, office, request, parsed.data);
+  if (officeId === undefined) return failure(requestId, argsInvalid("No office."));
+  // The office's engine instance loads on its first command (0006 decision 4, DIPO-27).
+  const access = await deps.offices.load(officeId);
+  if (!access.ok) return failure(requestId, access.error);
+  return runOfficeCommand(deps, command, access.office, request, parsed.data);
 }

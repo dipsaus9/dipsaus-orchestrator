@@ -4,7 +4,7 @@ title: Claim a story with its branch and worktree
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-12 21:48'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,8 @@ references:
   - packages/engine/src/db/migrations/
   - packages/engine/test/worktree/
   - packages/engine/src/platform/disk.ts
+  - packages/engine/src/git/
+  - packages/engine/test/git/
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0010-backlog-and-git-integration.md
@@ -61,6 +63,7 @@ test_plan:
 - [ ] #6 A ref released for the same StoryKey is reused with `git worktree add <path> <branch>` and `origin/<base>` is merged into it before the claim commit; a code conflict is aborted and recorded as first feedback for the worker.
 - [ ] #7 A ref tracked for another StoryKey or unknown to the engine is a `collision` skip with a notice and is never deleted; an existing worktree path is a skip with a notice and is not touched.
 - [ ] #8 The pickup re-check and the claim run in the same git-queue item, so a lane-b operation lands either before (skip) or after (refused by the live-claim check).
+- [ ] #9 At claim the engine records a snapshot of the story worktree's admin dir `commondir` and `gitdir` and its `.git` pointer (0008 section 2); the git layer refuses every later engine git call in that worktree when one differs, with the typed error `git.worktreeTampered`. A test tampers with each of `commondir`, `gitdir` and the `.git` pointer and sees the refusal; DIPO-31's pointer check alone covers only `_base`.
 <!-- AC:END -->
 
 ## Implementation Notes

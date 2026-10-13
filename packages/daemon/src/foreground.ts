@@ -15,12 +15,14 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import {
   acquireLock,
+  BacklogLane,
   ChildProcesses,
   chooseRuntimeDir,
   createLogger,
   createSystemIds,
   currentPlatform,
   detachedEnv,
+  EngineGit,
   engineRegistry,
   ensurePrivateDir,
   FEATURES,
@@ -32,6 +34,8 @@ import {
   LOG_LEVELS,
   MemoryRequestTable,
   noOfficeSummaries,
+  officeFeature,
+  OfficeManager,
   openLogFile,
   openStateDatabase,
   passwdHome,
@@ -44,9 +48,9 @@ import {
   serveUnixSocket,
   SOCKET_FILE,
   SoftwareStream,
-  stateOfficeDirectory,
   systemExecutableStamp,
   systemProcessProbe,
+  systemSpawn,
   systemSpawnDetached,
   writeRuntimeRecord,
   type FeatureModule,
@@ -55,7 +59,7 @@ import {
   type HeldLock,
   type Logger,
   type LogFile,
-  type OfficeDirectory,
+  type Registry,
   type PidRecord,
   type ServedSocket,
   type StateDatabase,
@@ -349,13 +353,41 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const watcher = upgrade;
     void stops.promise.then(() => watcher.stop());
     // Office commands reach the database only once the migrations step opened it; until then the
-    // lifecycle gate answers them with engine.recovering.
-    const offices: OfficeDirectory = {
-      get: (office) =>
-        held.database === null ? undefined : stateOfficeDirectory(held.database).get(office),
-    };
-    const registry = engineRegistry([
+    // lifecycle gate answers them with engine.recovering. Office engine instances load lazily on
+    // first use (0006 decision 4, DIPO-27).
+    const ids = createSystemIds(clock);
+    let server: ContractServer | null = null;
+    const offices = new OfficeManager({
+      database: () => held.database,
+      registry: () => registry,
+      software,
+      clock,
+      ids,
+      git: {
+        spawn: systemSpawn,
+        ...(tools.paths.git === undefined ? {} : { git: tools.paths.git }),
+      },
+      logger: logger.child({ component: "office" }),
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+    });
+    // The engine's git (DIPO-31): one serial queue per loaded office, with the git this daemon
+    // resolved from its PATH, so every office uses the same binary.
+    const engineGit = new EngineGit({
+      spawn: systemSpawn,
+      ...(tools.paths.git === undefined ? {} : { git: tools.paths.git }),
+    });
+    // The planning lane (DIPO-34): its replay load step needs the office git, so it follows
+    // engineGit.feature. The `backlog` on the daemon PATH, as for the version check.
+    const lane = new BacklogLane({
+      cli: { spawn: systemSpawn },
+      git: (office) => engineGit.forOffice(office),
+      onChanged: (office) => server?.notifyOffice(office),
+    });
+    const registry: Registry = engineRegistry([
       ...FEATURES,
+      engineGit.feature,
+      lane.feature,
+      officeFeature(offices),
       helloFeature({
         engineVersion: io.version,
         daemonState: () => lifecycle.state,
@@ -372,15 +404,16 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         socket: socketPath,
         tools: tools.paths,
         upgradePending: () => watcher.pending,
+        loadedOffices: () => offices.loadedOffices(),
         requestStop: (request) => stops.request(request),
       }),
       ...(options.features ?? []),
     ]);
-    const server = new ContractServer({
+    const contract = new ContractServer({
       registry,
       offices,
       clock,
-      ids: createSystemIds(clock),
+      ids,
       softwareRequests: new MemoryRequestTable(clock),
       lifecycle,
       software,
@@ -388,7 +421,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       engineVersion: io.version,
       logger: logger.child({ component: "server" }),
     });
-    held.socket = serveUnixSocket(socketPath, (connection) => server.accept(connection));
+    server = contract;
+    held.socket = serveUnixSocket(socketPath, (connection) => contract.accept(connection));
 
     // The stale-break window (0006 decision 6): re-read the lock after binding and before
     // touching any state. The database stays closed when the lock is not ours (0007 section 1).
