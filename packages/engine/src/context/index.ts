@@ -60,6 +60,7 @@ export type {
   ContextReason,
   ContextRequest,
   FileContent,
+  FileRefusal,
   InputsPart,
   ProviderState,
   ProviderStatus,

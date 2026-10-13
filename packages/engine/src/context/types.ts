@@ -15,8 +15,17 @@ export interface Workspace {
   trackedFiles(): Promise<readonly string[]>;
   /** Tracked plus untracked, not ignored, repo-relative paths, sorted. */
   files(): Promise<readonly string[]>;
-  /** The bytes of a repo-relative file, or undefined when it is missing or not a file. */
-  readFile(path: string): Promise<Uint8Array | undefined>;
+  /**
+   * The bytes of a repo-relative file, undefined when it is missing or a directory, or a
+   * refusal when the workspace will not read it (a link, a hard link, a secret, a path that
+   * leaves the work tree).
+   */
+  readFile(path: string): Promise<Uint8Array | FileRefusal | undefined>;
+}
+
+/** Why a workspace refused to read a file. */
+export interface FileRefusal {
+  readonly refused: string;
 }
 
 export type ProviderState = "ready" | "stale" | "missing" | "error";
@@ -49,9 +58,10 @@ export interface ContextRequest {
 
 /**
  * `text` holds the file (or its head); `binary` and `unreadable` files have empty `text`. A
- * `secret` file (a 0008 secret name such as `.env*`) is listed only: never read, empty `text`.
+ * `secret` file (a 0008 secret path such as `.env*`) is listed only: never read, empty `text`. A
+ * `refused` file is listed only because the workspace would not read it; the reason carries why.
  */
-export type FileContent = "text" | "binary" | "unreadable" | "secret";
+export type FileContent = "text" | "binary" | "unreadable" | "secret" | "refused";
 
 /** Why an item is in the pack. */
 export type ContextReason =
@@ -61,6 +71,8 @@ export type ContextReason =
       readonly scope: string;
       readonly content: FileContent;
       readonly truncated: boolean;
+      /** Why the workspace would not read it; set only when `content` is `refused`. */
+      readonly refusal?: string;
     }
   /** A scope directory: `text` is its breadth-first entry list, one path per line. */
   | {
@@ -95,6 +107,8 @@ export type ContextReason =
       readonly input: string;
       readonly content: FileContent;
       readonly truncated: boolean;
+      /** Why the workspace would not read it; set only when `content` is `refused`. */
+      readonly refusal?: string;
     }
   /** An input whose content did not fit the inputs budget: listed only. */
   | { readonly kind: "input-listed"; readonly input: string }

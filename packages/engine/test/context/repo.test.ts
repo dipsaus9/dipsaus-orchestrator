@@ -3,7 +3,7 @@
 // neighbours, and the pack is recorded in `context_packs` with the head sha and blob ids.
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -23,7 +23,9 @@ import {
   packDigest,
   recordContextPack,
   sizeClassOfWorkspace,
+  type FileRefusal,
 } from "../../src/context";
+import { readInside } from "../../src/context/workspace";
 import { openStateDatabase } from "../../src/db/database";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -46,6 +48,10 @@ const FIXTURE = {
   "packages/tui/src/app.ts": "export {};\n",
   "docs/notes.md": "# Notes\n",
 };
+
+function textOf(read: Uint8Array | FileRefusal | undefined): string | FileRefusal | undefined {
+  return read instanceof Uint8Array ? new TextDecoder().decode(read) : read;
+}
 
 function workspaceOf(repo: TempRepo) {
   const dir = realpathSync(repo.dir);
@@ -146,7 +152,10 @@ describe("default provider on a repository", () => {
           ].join("\n"),
         );
         expect(pack.items[1]?.text).toBe("");
-        expect(pack.items[1]?.reason).toMatchObject({ content: "unreadable" });
+        expect(pack.items[1]?.reason).toMatchObject({
+          content: "refused",
+          refusal: "symbolic link",
+        });
         expect(pack.inputs.items[0]?.text).toBe("# Notes\n");
 
         const blobs = (
@@ -256,8 +265,8 @@ describe("workspace reads on a repository", () => {
           ".env\nconfig/.env.production",
         );
         const ws = workspaceOf(repo);
-        expect(await ws.readFile(".env")).toBeUndefined();
-        expect(await ws.readFile("config/.env.production")).toBeUndefined();
+        expect(await ws.readFile(".env")).toEqual({ refused: "secret path" });
+        expect(await ws.readFile("config/.env.production")).toEqual({ refused: "secret path" });
         const pack = await createDefaultProvider({ workspace: ws }).gather(
           request({ scope: [".env"], inputs: ["config/"] }),
           12_000,
@@ -295,21 +304,127 @@ describe("workspace reads on a repository", () => {
         async (repo) => {
           await repo.commitAll("first");
           const ws = workspaceOf(repo);
-          expect(new TextDecoder().decode(await ws.readFile("src/a.ts"))).toBe("inside\n");
+          expect(textOf(await ws.readFile("src/a.ts"))).toBe("inside\n");
           mkdirSync(join(outside, "src"));
           writeFileSync(join(outside, "src/a.ts"), "outside\n");
           renameSync(join(repo.dir, "src"), join(repo.dir, "src-moved"));
           symlinkSync(join(outside, "src"), join(repo.dir, "src"));
-          expect(await ws.readFile("src/a.ts")).toBeUndefined();
+          expect(await ws.readFile("src/a.ts")).toEqual({
+            refused: "resolves outside the work tree",
+          });
           const pack = await createDefaultProvider({ workspace: ws }).gather(
             request({ scope: ["src/a.ts"] }),
             12_000,
           );
           expect(pack.items[0]?.text).toBe("");
-          expect(pack.items[0]?.reason).toMatchObject({ content: "unreadable" });
+          expect(pack.items[0]?.reason).toMatchObject({
+            content: "refused",
+            refusal: "resolves outside the work tree",
+          });
           expect(pack.blobIds).toEqual({});
         },
         { fixture: { "src/a.ts": "inside\n" } },
       ),
+    ));
+
+  it("refuses a hard link to a file outside the work tree", () =>
+    withTempDir(async (outside) =>
+      withTempRepo(async (repo) => {
+        await repo.commitAll("first");
+        writeFileSync(join(outside, "secret.txt"), "PASSWORD=hunter2\n");
+        linkSync(join(outside, "secret.txt"), join(repo.dir, "notes.txt"));
+        const ws = workspaceOf(repo);
+        expect(await ws.readFile("notes.txt")).toEqual({ refused: "hard link" });
+        const pack = await createDefaultProvider({ workspace: ws }).gather(
+          request({ inputs: ["notes.txt"] }),
+          12_000,
+        );
+        expect(pack.inputs.items[0]).toEqual({
+          path: "notes.txt",
+          text: "",
+          reason: {
+            kind: "input-file",
+            input: "notes.txt",
+            content: "refused",
+            truncated: false,
+            refusal: "hard link",
+          },
+        });
+        expect(pack.blobIds).toEqual({});
+        expect(encodePack(pack).includes("hunter2")).toBe(false);
+      }),
+    ));
+
+  it("refuses a hard link to an in-tree .env under a harmless name", () =>
+    withTempRepo(
+      async (repo) => {
+        await repo.commitAll("first");
+        linkSync(join(repo.dir, ".env"), join(repo.dir, "src/config.ts"));
+        const ws = workspaceOf(repo);
+        expect(await ws.readFile("src/config.ts")).toEqual({ refused: "hard link" });
+        const pack = await createDefaultProvider({ workspace: ws }).gather(
+          request({ scope: ["src/config.ts"] }),
+          12_000,
+        );
+        expect(pack.items[0]?.reason).toEqual({
+          kind: "scope-file",
+          scope: "src/config.ts",
+          content: "refused",
+          truncated: false,
+          refusal: "hard link",
+        });
+        expect(encodePack(pack).includes("hunter2")).toBe(false);
+      },
+      { fixture: { ".env": "PASSWORD=hunter2\n", "src/a.ts": "a\n" } },
+    ));
+
+  it("refuses a file under a secret directory and a link that resolves to a secret", () =>
+    withTempRepo(
+      async (repo) => {
+        await repo.commitAll("first");
+        symlinkSync(".ssh", join(repo.dir, "keys"));
+        const ws = workspaceOf(repo);
+        expect(await ws.readFile(".ssh/config")).toEqual({ refused: "secret path" });
+        expect(await ws.readFile("keys/config")).toEqual({ refused: "resolves to a secret path" });
+      },
+      { fixture: { ".ssh/config": "Host *\n", "src/a.ts": "a\n" } },
+    ));
+
+  it("refuses a file swapped for a link between the checks and the open", () =>
+    withTempDir(async (outside) =>
+      withTempRepo(
+        async (repo) => {
+          await repo.commitAll("first");
+          const dir = realpathSync(repo.dir);
+          writeFileSync(join(outside, "secret.txt"), "PASSWORD=hunter2\n");
+          const swapped = await readInside(dir, "src/a.ts", {
+            beforeOpen: async () => {
+              renameSync(join(dir, "src/a.ts"), join(dir, "src/a.moved"));
+              symlinkSync(join(outside, "secret.txt"), join(dir, "src/a.ts"));
+            },
+          });
+          expect(swapped).toEqual({ refused: "symbolic link" });
+          // A symbolic link found by lstat is refused before any open.
+          expect(await readInside(dir, "src/a.ts")).toEqual({ refused: "symbolic link" });
+        },
+        { fixture: { "src/a.ts": "inside\n" } },
+      ),
+    ));
+
+  it("refuses a file replaced by another regular file between the checks and the open", () =>
+    withTempRepo(
+      async (repo) => {
+        await repo.commitAll("first");
+        const dir = realpathSync(repo.dir);
+        const swapped = await readInside(dir, "src/a.ts", {
+          beforeOpen: async () => {
+            writeFileSync(join(dir, "src/other.ts"), "other\n");
+            renameSync(join(dir, "src/other.ts"), join(dir, "src/a.ts"));
+          },
+        });
+        expect(swapped).toEqual({ refused: "changed while being read" });
+        expect(textOf(await readInside(dir, "src/a.ts"))).toBe("other\n");
+      },
+      { fixture: { "src/a.ts": "inside\n" } },
     ));
 });

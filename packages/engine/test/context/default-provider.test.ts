@@ -353,7 +353,7 @@ describe("gatherContext: a backend that throws", () => {
 });
 
 describe("default provider: secret files", () => {
-  it("matches the 0008 secret names on the last path segment only", () => {
+  it("matches the 0008 secret names, and every path under a secret directory", () => {
     for (const path of [
       ".env",
       "app/.env.local",
@@ -364,10 +364,11 @@ describe("default provider: secret files", () => {
       "certs/server.pem",
       "keys/id_rsa",
       "keys/id_ed25519.pub",
+      "docs/.env-guide/notes.md",
     ]) {
       expect(isSecretPath(path)).toBe(true);
     }
-    for (const path of ["src/env.ts", "docs/.env-guide/notes.md", "pem.ts", "src/id.ts"]) {
+    for (const path of ["src/env.ts", "docs/env-guide/notes.md", "pem.ts", "src/id.ts"]) {
       expect(isSecretPath(path)).toBe(false);
     }
   });

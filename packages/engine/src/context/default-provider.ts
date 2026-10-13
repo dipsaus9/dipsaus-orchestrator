@@ -122,12 +122,16 @@ interface FileText {
   readonly content: FileContent;
   readonly text: string;
   readonly bytes: Uint8Array | undefined;
+  readonly refusal?: string;
 }
 
 async function readText(ws: Workspace, path: string): Promise<FileText> {
   if (isSecretPath(path)) return { content: "secret", text: "", bytes: undefined };
   const bytes = await ws.readFile(path);
   if (bytes === undefined) return { content: "unreadable", text: "", bytes };
+  if (!(bytes instanceof Uint8Array)) {
+    return { content: "refused", text: "", bytes: undefined, refusal: bytes.refused };
+  }
   if (bytes.includes(0)) return { content: "binary", text: "", bytes };
   return { content: "text", text: decoder.decode(bytes).replaceAll("\r\n", "\n"), bytes };
 }
@@ -216,6 +220,7 @@ async function gatherDefault(
             scope: entry.path,
             content: file.content,
             truncated: cut.truncated,
+            ...(file.refusal === undefined ? {} : { refusal: file.refusal }),
           },
         },
         full: file.text,
@@ -387,7 +392,13 @@ async function gatherInputs(
         path: file,
         ...(cut.truncated ? { range: { from: 1, to: cut.lines } } : {}),
         text: cut.text,
-        reason: { kind: "input-file", input, content: read.content, truncated: cut.truncated },
+        reason: {
+          kind: "input-file",
+          input,
+          content: read.content,
+          truncated: cut.truncated,
+          ...(read.refusal === undefined ? {} : { refusal: read.refusal }),
+        },
       });
       used += cut.text.length;
     }
