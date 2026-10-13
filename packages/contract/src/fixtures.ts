@@ -473,6 +473,7 @@ export const eventFixtures: Record<string, unknown> = {
     warnings: [],
     trigger: "rescan",
     level: "conforming",
+    deviations: [],
     diff: ["~ verify: bun run test [standard, package.json scripts.test] -> bun run verify"],
   },
   "engine.notice": { level: "warn", code: "reconcile.mismatch", text: "DIPO-3 vanished." },

@@ -335,6 +335,7 @@ export class RunProfiles {
           ],
           trigger: options.trigger,
           level: profile.conformance.level,
+          deviations: profile.conformance.deviations.map((d) => d.message),
           diff,
         },
       };

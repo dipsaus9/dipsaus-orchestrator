@@ -269,9 +269,10 @@ export const ConformanceLevel = openEnum(["conforming", "partial", "non-standard
 export type ConformanceLevel = z.infer<typeof ConformanceLevel>;
 
 // Run knowledge; the shape is owned by the scan (0013). `scripts` holds the resolved capabilities
-// by name and `warnings` each deviation from the standard. Since minor 1 (DIPO-72), all optional:
-// `trigger`, the conformance `level`, the `diff` from the previous profile (one line per changed
-// fact) and `error` when the scan failed (no profile is stored then).
+// by name, `warnings` what the maintainer should know, each deviation included. Since minor 1
+// (DIPO-72), all optional: `trigger`, the conformance `level`, the `deviations` alone, the `diff`
+// from the previous profile (one line per changed fact) and `error` when the scan failed (no
+// profile is stored then).
 export const scanFinished = defineEvent({
   type: "scan.finished",
   stream: "office",
@@ -281,6 +282,7 @@ export const scanFinished = defineEvent({
     warnings: z.array(z.string()),
     trigger: ScanTrigger.optional(),
     level: ConformanceLevel.optional(),
+    deviations: z.array(z.string()).optional(),
     diff: z.array(z.string()).optional(),
     error: z.string().optional(),
   }),

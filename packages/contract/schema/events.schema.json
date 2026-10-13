@@ -157,6 +157,12 @@
             }
           ]
         },
+        "deviations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "diff": {
           "type": "array",
           "items": {

@@ -10,6 +10,6 @@ export const ContractVersion = z.object({
 export type ContractVersion = z.infer<typeof ContractVersion>;
 
 // Minor 1 (DIPO-27): `office.reloadConfig` ships and `office.open` replies with `warnings`.
-// Also in minor 1 (DIPO-72): `office.rescan` is built and `scan.finished` carries `trigger`,
-// `level`, `diff` and `error`.
+// Also in minor 1 (DIPO-72): `scan.finished` carries `trigger`, `level`, `deviations`, `diff` and
+// `error`.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
