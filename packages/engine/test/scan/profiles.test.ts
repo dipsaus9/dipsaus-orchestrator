@@ -327,7 +327,8 @@ describe("office.rescan", () => {
       resultOf(await send(s, "office.rescan", {}, officeId));
       // The office loads again (a new handle) while the rescan runs: the load step tracks it anew.
       const step = s.registry.loadSteps().find((entry) => entry.name === SCAN_STEP);
-      const reload = step?.run({
+      if (!step) throw new Error(`load step ${SCAN_STEP} is not registered`);
+      const reload = step.run({
         officeId,
         office: new OfficeHandle(s.state.connection, officeId),
         path: repo.dir,
