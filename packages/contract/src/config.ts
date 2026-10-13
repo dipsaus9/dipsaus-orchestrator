@@ -209,6 +209,14 @@ export function checkConfigDocument(
  */
 export const EXIT_CONFIG = 78;
 
+/**
+ * The installed autostart (0006 decision 15, DIPO-63): the launchd agent's label and the systemd
+ * user unit. The client writes them (`dipo daemon install`); the daemon recognises its supervisor
+ * by them. Shared here because `client` may not import `engine` (0004).
+ */
+export const LAUNCHD_LABEL = "dipo.daemon";
+export const SYSTEMD_UNIT = "dipo.service";
+
 /** The file name under `<state>`. */
 export const SOFTWARE_CONFIG_FILE = "config.yaml";
 
