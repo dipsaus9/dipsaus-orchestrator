@@ -1,10 +1,10 @@
 ---
 id: DIPO-34
 title: Write planning changes through the backlog lane
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 06:27'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -17,6 +17,8 @@ references:
   - packages/engine/src/db/migrations/
   - packages/engine/test/backlog/lane/
   - packages/engine/src/features.ts
+  - packages/daemon/src/foreground.ts
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0010-backlog-and-git-integration.md
@@ -71,4 +73,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S19 (DIPO-15). Before cutover: built by hand-run agents.
+
+Added refs: packages/daemon/src/foreground.ts, because the lane's journal-replay load step needs the office's OfficeGit, which the git.version load step attaches; the daemon registers engineGit.feature after FEATURES, so the lane feature is registered right after it there. packages/engine/src/index.ts, to export the lane from the engine package entry.
 <!-- SECTION:NOTES:END -->
