@@ -1,10 +1,10 @@
 ---
 id: DIPO-43
 title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 07:28'
+updated_date: '2026-10-13 07:45'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -72,11 +72,11 @@ test_plan:
 - [x] #1 `probe()` runs `claude --version` and `claude auth status` and refuses a version below 2.1.285 or any `authMethod` other than `claude.ai`, naming the value.
 - [x] #2 The settings check reads the worktree's `.claude/settings.json` and `.claude/settings.local.json` and refuses any top-level or `permissions.*` key not in the engine safe list or `worker.allowProjectSettings`; a `sandbox` key always refuses.
 - [x] #3 A key stripped at setup that reappears refuses the run.
-- [x] #4 The self-test runs three sandboxed commands under the run's settings: a write under `<main>/.git`, a write to the `<worktree>/.git` pointer, and `gh auth token`; any success, or a self-test that cannot run, refuses the run.
+- [x] #4 The self-test (0008 amendment of 2026-10-13) runs sandboxed write probes in a session under the run's settings (writes under `<main>/.git` and to the `<worktree>/.git` pointer) plus a control write, and the engine runs `gh auth token` and, on macOS, the Keychain lookup under `srt`; any success, or a self-test that cannot run, refuses the run. A unit test checks every run settings file carries the Keychain and credential denies.
 - [x] #5 A refusal returns `startFailed`, sets an adapter hold with the failed check and the file or key, and emits an `engine.notice` naming them; `adapterHeld(adapter)` reports the hold for every office, and an explicit `work.run` repeats the checks and lifts the hold when they pass.
 - [x] #6 This story owns the adapter hold: DIPO-51 sets the same hold for `startFailed` outcomes from the CLI, and DIPO-48 and DIPO-74 refuse new runs and keep the story Ready while it holds.
 - [x] #7 The checks run before every launch and every resume.
-- [ ] #8 Recordings `safety-gitdir-write`, `safety-pointer-write` and `safety-gh-token` are captured live by the maintainer with DIPO-41's tool, committed, and replayed in tests.
+- [x] #8 Recordings `safety-gitdir-write`, `safety-pointer-write` and `safety-gh-token` are captured live by the maintainer with DIPO-41's tool, committed, and replayed in tests.
 <!-- AC:END -->
 
 ## Implementation Notes
