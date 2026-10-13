@@ -84,7 +84,16 @@ export interface TranslatedPolicy {
 }
 
 /** The secret paths of 0008 section 2, relative to the home directory. */
-export const SECRET_HOME_PATHS = [".ssh", ".aws", ".config/gh", ".gnupg", ".netrc"] as const;
+export const SECRET_HOME_PATHS = [
+  ".ssh",
+  ".aws",
+  ".config/gh",
+  ".gnupg",
+  ".netrc",
+  // srt 0.0.79 lets a sandboxed `security` reach the login Keychain unless its files are
+  // read-denied (0008 amendment of 2026-10-13, DIPO-43 live checks).
+  "Library/Keychains",
+] as const;
 
 /** Secret paths beyond 0008's list (DIPO-37 review; an ADR amendment is proposed). */
 export const EXTRA_SECRET_HOME_PATHS = [
