@@ -3,7 +3,7 @@
 // commit and the remote ref; a lost race; collisions that delete nothing; the reuse of a released
 // branch with the base merged in; the free-space check; the ordering against the planning lane;
 // and the refusal of git calls in a worktree whose git links changed.
-// The slower cases run in CI only, in claim.ci.test.ts (DIPO-77).
+// The slower cases run in CI only, in claim.ci.test.ts (DIPO-77, DIPO-79).
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -11,7 +11,6 @@ import { join } from "node:path";
 
 import { git, withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { EDIT_KIND, editKind, LaneError, OfficeLane } from "../../src/backlog/lane";
 import {
   type GitCall,
   GitError,
@@ -39,6 +38,7 @@ import {
   type ClaimSetup,
   filesOf,
   inRemote,
+  laneOf,
   notices,
   otherClone,
   publish,
@@ -78,26 +78,22 @@ async function caught(promise: Promise<unknown>): Promise<unknown> {
 }
 
 describe("claiming a story", () => {
-  it("creates the branch and a locked worktree from origin/main, commits only the task file and pushes", async () => {
-    await withBareRemote(async (repo) => {
+  // The fast local version of the claim; the full one from origin/main with the push is in
+  // claim.ci.test.ts (DIPO-79).
+  it("claims without a remote from the local base: a locked worktree, one claim commit of only the task file, no push; then skips its own live claim", async () => {
+    await withTempRepo(async (repo) => {
       await publish(repo);
       const main = (await repo.git("rev-parse", "HEAD")).trim();
       const s = await claimSetup(repo);
       const key = s.key();
       const request = s.request(key);
-
       const outcome = claimed(await claimStory(s.deps(), request));
       const claim = outcome.claim;
-
-      expect(outcome.pushed).toBe(true);
+      expect(outcome.pushed).toBe(false);
       expect(claim.worktree).toBe(join(s.git.worktreeRoot(), TASK_1));
       expect(claim.startSha).toBe(main);
-      expect(claim.baseSha).toBe(main);
       expect(claim.reused).toBe(false);
-      expect(claim.firstFeedback).toBeNull();
       expect(hasLiveClaim(s.office, key)).toBe(true);
-
-      // One claim commit on the branch, changing only the story's task file.
       expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toEqual([
         `${TASK_1}: status In Progress`,
       ]);
@@ -107,35 +103,25 @@ describe("claiming a story", () => {
       expect(readFileSync(join(claim.worktree, TASK_FILE_1), "utf8")).toContain(
         "status: In Progress",
       );
-
-      // The remote has the branch at the claim commit, pushed without force.
-      expect((await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim()).toBe(tip);
-      expect(claim.pushedAt).not.toBeNull();
-
-      // The worktree is locked with the run id.
-      const list = await repo.git("worktree", "list", "--porcelain");
-      const entry = list
+      const entry = (await repo.git("worktree", "list", "--porcelain"))
         .split("\n\n")
         .find((block) => block.includes(`worktree ${claim.worktree}`));
       expect(entry).toContain(`locked dipo ${request.runId}`);
-      expect(entry).toContain(`branch refs/heads/${BRANCH_1}`);
-
-      // The main checkout stays on main with no change.
       expect((await repo.git("rev-parse", "HEAD")).trim()).toBe(main);
       expect(await repo.git("status", "--porcelain")).toBe("");
       expect(notices(s.office)).toEqual([]);
-    }, FIXTURE);
-  });
 
-  it("claims without a remote from the local base and pushes nothing", async () => {
-    await withTempRepo(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const outcome = claimed(await claimStory(s.deps(), s.request(s.key())));
-      expect(outcome.pushed).toBe(false);
-      expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toEqual([
-        `${TASK_1}: status In Progress`,
-      ]);
+      // Its own live claim is skipped silently, and the ref tracked for this story is a collision
+      // for another one, with a notice naming it. The full case with a remote is in
+      // claim.ci.test.ts (DIPO-79).
+      const again = await claimStory(s.deps(), s.request(key));
+      expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
+      expect(notices(s.office)).toEqual([]);
+      const other = await claimStory(s.deps(), s.request(s.key()));
+      expect(other).toMatchObject({ ok: false, reason: "collision" });
+      expect(other.ok ? "" : other.notice).toContain(`tracked for another story (${key})`);
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
+      expect(liveClaims(s.office)).toHaveLength(1);
     }, FIXTURE);
   });
 
@@ -243,26 +229,6 @@ describe("claim collisions", () => {
     }, FIXTURE);
   });
 
-  it("skips its own live claim silently, and a ref tracked for another story with a notice naming it", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const first = s.key();
-      claimed(await claimStory(s.deps(), s.request(first)));
-      const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
-
-      const again = await claimStory(s.deps(), s.request(first));
-      expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
-      expect(notices(s.office)).toEqual([]);
-
-      const outcome = await claimStory(s.deps(), s.request(s.key()));
-      expect(outcome).toMatchObject({ ok: false, reason: "collision" });
-      expect(outcome.ok ? "" : outcome.notice).toContain(`tracked for another story (${first})`);
-      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
-      expect(liveClaims(s.office)).toHaveLength(1);
-    }, FIXTURE);
-  });
-
   it("skips an existing worktree path and leaves the directory alone", async () => {
     await withBareRemote(async (repo) => {
       await publish(repo);
@@ -284,19 +250,6 @@ describe("claim collisions", () => {
     }, FIXTURE);
   });
 });
-
-/** The planning lane of the setup's office, refusing stories with a live claim. */
-function laneOf(s: ClaimSetup): OfficeLane {
-  return new OfficeLane({
-    officeId: s.office.officeId,
-    office: s.office,
-    git: s.git,
-    cli: s.cli,
-    clock: s.t.clock,
-    kinds: new Map([[EDIT_KIND, editKind(EDIT_KIND)]]),
-    liveClaim: hasLiveClaim,
-  });
-}
 
 /** An executor that fails the calls `fail` picks (with `seen`, the earlier calls' arguments). */
 function failing(
@@ -401,33 +354,6 @@ describe("the claim and the planning lane in the office git queue", () => {
       });
       expect(outcome.ok ? "" : outcome.notice).toContain("pending backlog PR");
       expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
-    }, FIXTURE);
-  });
-
-  it("runs a lane-b operation submitted during the pickup re-check after the claim, which refuses it", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      // The pickup re-check runs inside the claim's queue item, so a journal item submitted from
-      // it cannot interleave: it waits for the claim to finish and then meets the live claim.
-      let journal: Promise<unknown> | undefined;
-      const outcome = await claimStory(s.deps(), {
-        ...s.request(key),
-        recheck: () => {
-          journal ??= laneOf(s)
-            .journal({ kind: "edit", key, subject: TASK_1, target: { status: "Refined" } })
-            .then(
-              () => "journaled",
-              (error: unknown) => error,
-            );
-          return null;
-        },
-      });
-      const journaled = await journal;
-      expect(outcome.ok).toBe(true);
-      expect(journaled).toBeInstanceOf(LaneError);
-      expect((journaled as LaneError).code).toBe("backlog.lane.liveClaim");
     }, FIXTURE);
   });
 
