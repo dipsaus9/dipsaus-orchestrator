@@ -4,7 +4,7 @@ title: Assemble worker prompts from templates and story data
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:10'
+updated_date: '2026-10-13 08:27'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -67,9 +67,9 @@ test_plan:
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S31 (DIPO-15). Before cutover: built by hand-run agents.
 
-Scope additions: packages/engine/src/db/schema.ts (registers migration 8 in MIGRATIONS; the migration list lives there, next to the referenced migrations directory).
+Scope additions: packages/engine/src/db/schema.ts (registers migration 9 in MIGRATIONS; the migration list lives there, next to the referenced migrations directory).
 
-Delivered: packages/engine/src/prompts/ (templates under contract/, roles/, task/, feedback/; renderSystemFile, assembleContract, assembleTaskMessage, verifyFeedback, gatherHandoff/renderHandoff, recordWorkerNotes/latestWorkerNotes/forgetWorkerNotes, promptParts/recordPromptParts), migration 0008 (prompt_parts, worker_notes), tests and golden files in packages/engine/test/prompts/.
+Delivered: packages/engine/src/prompts/ (templates under contract/, roles/, task/, feedback/; renderSystemFile, assembleContract, assembleTaskMessage, verifyFeedback, gatherHandoff/renderHandoff, recordWorkerNotes/latestWorkerNotes/forgetWorkerNotes, promptParts/recordPromptParts), migration 0009 (prompt_parts, worker_notes), tests and golden files in packages/engine/test/prompts/.
 
 Design choices: assembleContract(story, contractMax) measures the contract with the same count as R26 (contractCharacters) so gate and backstop agree, and throws ContractTooLargeError with code prompt.contractTooLarge (an engine error, not a contract error code; DIPO-48 consumes it). Templates are bundled with text imports, so the compiled binary carries them. prompt_parts stores parts system, task and task.<section>; tokens are estimated at 4 characters per token. worker_notes keeps one row per worktree and agent; the handoff reads the newest. The L1 contract holds no digits, so the notes cap is stated in words.
 <!-- SECTION:NOTES:END -->
