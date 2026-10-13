@@ -9,6 +9,7 @@ import { backlogJournal } from "./migrations/0005-backlog-journal";
 import { backlogMirror } from "./migrations/0006-backlog-mirror";
 import { contextPacks } from "./migrations/0007-context-packs";
 import { runProfiles } from "./migrations/0008-run-profiles";
+import { promptPartsWorkerNotes } from "./migrations/0009-prompt-parts-worker-notes";
 import { claims } from "./migrations/0010-claims";
 
 /**
@@ -54,5 +55,6 @@ create table offices (
   backlogMirror,
   contextPacks,
   runProfiles,
+  promptPartsWorkerNotes,
   claims,
 ];
