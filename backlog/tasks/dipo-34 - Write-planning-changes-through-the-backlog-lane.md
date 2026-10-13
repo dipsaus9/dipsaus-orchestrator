@@ -4,7 +4,7 @@ title: Write planning changes through the backlog lane
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:37'
+updated_date: '2026-10-13 06:56'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -20,6 +20,10 @@ references:
   - packages/daemon/src/foreground.ts
   - packages/engine/src/index.ts
   - packages/engine/src/db/schema.ts
+  - packages/engine/src/git/runner.ts
+  - packages/engine/src/git/office.ts
+  - packages/engine/src/git/index.ts
+  - packages/engine/test/git/
 documentation:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0010-backlog-and-git-integration.md
@@ -88,4 +92,13 @@ Implementation (packages/engine/src/backlog/lane/):
 - `pendingLaneOp(office, key)` returns { reason: notRunnable, notice: "pending backlog PR", ops } while an entry is pending/applied/committed/pushed. `recordPrRef` is the hook for DIPO-35.
 - Load step `backlog.lane.replay` (registered in the daemon right after engineGit.feature) replays open entries before any other queue item; a failure is an engine.notice and the office still loads.
 - Without a remote the branch stays local; `waiting()` and the flush report name the branch and commits, and a `backlog.lane.waiting` notice is emitted.
+
+Review fixes (PR #60):
+- Added refs packages/engine/src/git/runner.ts, office.ts, index.ts and test/git/: a git step takes `timeoutMs` on the runner's injected clock (`EXTERNAL_STEP_TIMEOUT_MS` = 60 s); on timeout the process is killed (SIGKILL through an abort signal) and the step fails with `git.timedOut`. OfficeGit passes its clock to the runner; a fetch that times out is recorded as a failed fetch.
+- The lane's `git commit` and push run with that timeout. A commit that times out, or fails on its identity or signature, leaves the op journaled and posts a `backlog.lane.commitStuck` engine.notice naming commit.gpgsign, user.signingkey, gpg.program, user.name and user.email. A push that times out keeps the commits waiting (pushFailed) with a commitStuck notice naming credentials. Signing behaviour is unchanged: the commit is a plain `git commit`.
+- Every failed flush posts an engine.notice (`backlog.lane.flushFailed`, or `backlog.lane.replayFailed` in the load step) and throws `LaneFlushError`; the replay step adds no second notice.
+- HEAD of `_backlog` is compared before and after each op's CLI apply. If the CLI committed by itself (Backlog.md `auto_commit` on), its commit is reset away and the op is dropped with a notice naming auto_commit (DIPO-36 sets it off).
+- Without a remote and without a configured `base`, `journal` and `flush` refuse the lane with a `backlog.lane.baseUnset` notice asking to set `base`; the main checkout's HEAD is never used as the base.
+- New tests (test/backlog/lane/failures.test.ts, replay.test.ts, test/git/unit.test.ts): commit timeout via a hanging gpg.program, push timeout via a hanging receive-pack, flush failure notice outside replay, auto_commit undo, base refusal, replay failure at load (notice, office still loads), the some-merged rebuild path, an idempotent op closed as merged, runner and fetch timeouts.
+- Commit signing for engine commits is a maintainer decision.
 <!-- SECTION:NOTES:END -->
