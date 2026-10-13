@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 16:05'
+updated_date: '2026-10-13 16:09'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -19,6 +19,13 @@ references:
   - packages/engine/test/office/
   - packages/engine/src/features.ts
   - packages/contract/
+  - packages/daemon/src/foreground.ts
+  - packages/engine/src/backlog/lane/
+  - packages/engine/src/backlog/pr/
+  - packages/engine/test/backlog/pr/
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/retention/policy.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -89,4 +96,6 @@ Decisions taken while building:
 - The structural check (DIPO-35) now allows a PR to add `.dipo/.gitignore` (never change or remove it): 0010's amendment puts that file in the office-init backlog PR.
 - officeStatusesReady reads backlog/config.yml on <remote>/<base> (local <base> without a remote) with git cat-file; the load step office.statuses raises office.statusesMissing.
 - The merge happens through the merge slot's poll while the daemon runs; after a daemon restart the poll resumes when the office loads again (first office command), since loading offices at daemon start is DIPO-56.
+
+Review round 1: scope additions recorded as References (daemon wiring, backlog lane atBase, backlog PR check exception for adding .dipo/.gitignore, migration registration, engine re-export, retention row). leftAlone notice and CLI line now say a <ID>/... branch exists and how to unblock a leftover one.
 <!-- SECTION:NOTES:END -->
