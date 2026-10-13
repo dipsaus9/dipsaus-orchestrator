@@ -4,7 +4,7 @@ title: Store run profiles and rescan offices on change
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 08:12'
+updated_date: '2026-10-13 08:17'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -80,4 +80,6 @@ Scope additions:
 - packages/daemon/src/foreground.ts: the daemon loads `RunProfiles` after the story index.
 - packages/engine/src/index.ts: exports.
 - packages/client/src/node/lifecycle/lifecycle.ts (`DaemonSession` adds `subscribe`), packages/cli/src/daemon-commands.ts (`DaemonSession` adds `subscribe`; `withDaemon` takes an optional deadline), and the session fakes in packages/client/test/unit/lifecycle.test.ts, packages/cli/src/daemon-commands.test.ts and test/office-resolution/office-resolution.test.ts.
+
+Scope addition (review): packages/engine/src/db/schema.ts registers migration 8.
 <!-- SECTION:NOTES:END -->
