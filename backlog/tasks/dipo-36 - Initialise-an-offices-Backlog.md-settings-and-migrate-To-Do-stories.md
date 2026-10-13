@@ -1,10 +1,11 @@
 ---
 id: DIPO-36
 title: Initialise an office's Backlog.md settings and migrate To Do stories
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 11:40'
+updated_date: '2026-10-13 15:41'
 labels:
   - 'tier:M'
 milestone: m-0
