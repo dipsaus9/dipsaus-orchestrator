@@ -34,6 +34,8 @@ export {
   resolveWorktreeRoot,
 } from "./paths";
 export { GitQueue } from "./queue";
+export { changedLinks, readWorktreeSnapshot, worktreeTampered } from "./snapshot";
+export type { SnapshotLink, WorktreeSnapshot } from "./snapshot";
 export {
   clockSleep,
   EXTERNAL_STEP_TIMEOUT_MS,
