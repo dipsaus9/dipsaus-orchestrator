@@ -28,10 +28,14 @@ jobs:
         with:
           bun-version-file: .bun-version
       # `bun audit` reads `bun.lock`; no install is needed.
+      # Ignored advisories (maintainer decision, 2026-10-13); remove each once a fixed version ships:
+      # - GHSA-86w9-cpqp-85rv: node-forge <=1.4.0 via @anthropic-ai/sandbox-runtime 0.0.79. No
+      #   fixed node-forge or sandbox-runtime release exists yet; Renovate's vulnerability alert
+      #   opens a PR when one does.
       - name: bun audit --audit-level=high
         run: |
           set +e
-          bun audit --audit-level=high > audit.txt 2>&1
+          bun audit --audit-level=high --ignore=GHSA-86w9-cpqp-85rv > audit.txt 2>&1
           code=$?
           set -e
           cat audit.txt
