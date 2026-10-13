@@ -7,7 +7,8 @@
 // from origin/main with the push (fast local version: the claim without a remote in claim.test.ts),
 // and a lane-b operation submitted during the pickup re-check, which waits for the claim and meets
 // the live claim (fast local versions: the journaled-first skip in claim.test.ts and the live-claim
-// refusal in backlog/lane/lane.test.ts).
+// refusal in backlog/lane/lane.test.ts); and the skip of a story's own live claim and of a ref
+// tracked for another story with a remote (fast local version: the claim without a remote).
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,6 +31,7 @@ import {
   type ClaimOutcome,
   findClaim,
   hasLiveClaim,
+  liveClaims,
   releaseClaim,
   releasedBranchFor,
 } from "../../src/worktree";
@@ -139,7 +141,29 @@ function afterClaimCommit(args: readonly string[], seen: readonly (readonly stri
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("claiming a story", () => {
+  describe("claiming a story", () => {});
+
+  describe("claim collisions", () => {
+    it("skips its own live claim silently, and a ref tracked for another story with a notice naming it", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const first = s.key();
+        claimed(await claimStory(s.deps(), s.request(first)));
+        const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
+
+        const again = await claimStory(s.deps(), s.request(first));
+        expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
+        expect(notices(s.office)).toEqual([]);
+
+        const outcome = await claimStory(s.deps(), s.request(s.key()));
+        expect(outcome).toMatchObject({ ok: false, reason: "collision" });
+        expect(outcome.ok ? "" : outcome.notice).toContain(`tracked for another story (${first})`);
+        expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
+        expect(liveClaims(s.office)).toHaveLength(1);
+      }, FIXTURE);
+    });
+
     it("creates the branch and a locked worktree from origin/main, commits only the task file and pushes", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);

@@ -80,7 +80,7 @@ async function caught(promise: Promise<unknown>): Promise<unknown> {
 describe("claiming a story", () => {
   // The fast local version of the claim; the full one from origin/main with the push is in
   // claim.ci.test.ts (DIPO-79).
-  it("claims without a remote from the local base: a locked worktree, one claim commit of only the task file, no push", async () => {
+  it("claims without a remote from the local base: a locked worktree, one claim commit of only the task file, no push; then skips its own live claim", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const main = (await repo.git("rev-parse", "HEAD")).trim();
@@ -110,6 +110,18 @@ describe("claiming a story", () => {
       expect((await repo.git("rev-parse", "HEAD")).trim()).toBe(main);
       expect(await repo.git("status", "--porcelain")).toBe("");
       expect(notices(s.office)).toEqual([]);
+
+      // Its own live claim is skipped silently, and the ref tracked for this story is a collision
+      // for another one, with a notice naming it. The full case with a remote is in
+      // claim.ci.test.ts (DIPO-79).
+      const again = await claimStory(s.deps(), s.request(key));
+      expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
+      expect(notices(s.office)).toEqual([]);
+      const other = await claimStory(s.deps(), s.request(s.key()));
+      expect(other).toMatchObject({ ok: false, reason: "collision" });
+      expect(other.ok ? "" : other.notice).toContain(`tracked for another story (${key})`);
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
+      expect(liveClaims(s.office)).toHaveLength(1);
     }, FIXTURE);
   });
 
@@ -214,26 +226,6 @@ describe("claim collisions", () => {
       expect(outcome.ok ? "" : outcome.notice).toContain("on origin");
       expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
       expect(await inRemote(repo, "ls-remote", "--heads", ".")).toContain(BRANCH_1);
-    }, FIXTURE);
-  });
-
-  it("skips its own live claim silently, and a ref tracked for another story with a notice naming it", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const first = s.key();
-      claimed(await claimStory(s.deps(), s.request(first)));
-      const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
-
-      const again = await claimStory(s.deps(), s.request(first));
-      expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
-      expect(notices(s.office)).toEqual([]);
-
-      const outcome = await claimStory(s.deps(), s.request(s.key()));
-      expect(outcome).toMatchObject({ ok: false, reason: "collision" });
-      expect(outcome.ok ? "" : outcome.notice).toContain(`tracked for another story (${first})`);
-      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
-      expect(liveClaims(s.office)).toHaveLength(1);
     }, FIXTURE);
   });
 
