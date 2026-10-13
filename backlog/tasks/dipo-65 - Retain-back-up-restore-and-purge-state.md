@@ -4,7 +4,7 @@ title: Retain and back up state and report table sizes
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:33'
+updated_date: '2026-10-13 08:50'
 labels:
   - 'tier:M'
   - after-cutover
@@ -76,4 +76,10 @@ Scope additions (DIPO-65):
 - packages/daemon/src/foreground.ts: wires Retention (load step and hourly timer) and MaintenanceScheduler (daily backup and maintenance), and waits for both before the database closes.
 - packages/cli/src/daemon-commands.ts (DaemonSession includes read), office-commands.ts (exports withOffice, parseOptions, Act), and read stubs in the session fakes of daemon-commands.test.ts, office-commands.test.ts and test/office-resolution/office-resolution.test.ts. Same change as open PR #66 (DIPO-71).
 - packages/contract/schema/reads.schema.json regenerated for office.stats.
+
+Scope additions (review of PR #70):
+- packages/engine/test/backup/backup.test.ts: tests of engine/src/backup/ (daily backup through the Worker, pruning, maintenance, scheduler); References name engine/test/retention/ only.
+- The retention migration is now 12 (0012-retention-indexes.ts) after merging main with migrations 8-11.
+- engine/src/retention/policy.ts and run.ts name tiers for the tables main added: scans, claims, prompt_parts (S, aged), run profile tables (P), worker_notes (T). released_branches and pricing_checks are not aged until a tier is decided (open points).
+- packages/cli/src/stats-command.test.ts session fake carries a subscribe stub, as main's DaemonSession includes subscribe.
 <!-- SECTION:NOTES:END -->
