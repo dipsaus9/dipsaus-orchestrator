@@ -1,10 +1,11 @@
 ---
 id: DIPO-66
 title: Prepare the release pipeline as a dry run with an install script
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 11:49'
 labels:
   - 'tier:M'
   - after-cutover
