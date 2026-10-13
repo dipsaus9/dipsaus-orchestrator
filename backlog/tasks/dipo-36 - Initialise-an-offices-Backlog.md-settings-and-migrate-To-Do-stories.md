@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 16:09'
+updated_date: '2026-10-13 18:47'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -26,6 +26,8 @@ references:
   - packages/engine/src/db/schema.ts
   - packages/engine/src/index.ts
   - packages/engine/src/retention/policy.ts
+  - packages/engine/src/merge-slot/slot.ts
+  - packages/engine/test/merge-slot/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -98,4 +100,6 @@ Decisions taken while building:
 - The merge happens through the merge slot's poll while the daemon runs; after a daemon restart the poll resumes when the office loads again (first office command), since loading offices at daemon start is DIPO-56.
 
 Review round 1: scope additions recorded as References (daemon wiring, backlog lane atBase, backlog PR check exception for adding .dipo/.gitignore, migration registration, engine re-export, retention row). leftAlone notice and CLI line now say a <ID>/... branch exists and how to unblock a leftover one.
+
+Live test fix: the merge slot's poll ended at its first timer because it called the office manager's config() detached from the manager (TypeError on this.#instances), so a backlog PR whose checks were pending at the kick never merged. The poll now calls it on the directory, re-arms even when a poll throws, and logs each tick's outcome at debug level. Scope additions: packages/engine/src/merge-slot/slot.ts, packages/engine/test/merge-slot/.
 <!-- SECTION:NOTES:END -->
