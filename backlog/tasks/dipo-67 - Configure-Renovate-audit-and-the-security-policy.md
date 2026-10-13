@@ -1,11 +1,11 @@
 ---
 id: DIPO-67
 title: 'Configure Renovate, audit and the security policy'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 11:54'
+updated_date: '2026-10-13 11:59'
 labels:
   - 'tier:S'
   - after-cutover
@@ -72,4 +72,6 @@ Scope additions: none. Every changed file is in References; .oxlintrc.json neede
 Implementation: renovate.json (AC #1, #2) checked by scripts/renovate-config.test.ts, which replays packageRules in order per update kind and refuses matchers it cannot replay; config also validated with renovate-config-validator --strict (renovate@latest, local run). backlog.md: allowedVersions 1.53.x plus automerge false. audit.yml (AC #3): audit job contents: read, report job issues: write on scheduled failures only; it creates the security label when missing; workflow_dispatch added for a manual run (report does not run on it). SECURITY.md (AC #4). scripts/check-runtime-imports.test.ts (AC #5): Bun.Transpiler.scanImports over packages/*/src, test files excepted; passes on main with no violations.
 Finding: bun audit --audit-level=high fails on main today: node-forge 1.4.0 (GHSA-86w9-cpqp-85rv, high) via @anthropic-ai/sandbox-runtime 0.0.79 in engine. Not changed here; the first daily run will open the security issue.
 AC #3 CI proof (a PR touching bun.lock) is not exercised by this PR, which does not change bun.lock.
+
+Maintainer decision (2026-10-13): audit.yml ignores GHSA-86w9-cpqp-85rv (node-forge <=1.4.0 via @anthropic-ai/sandbox-runtime 0.0.79; no fixed release exists). Remove the ignore once a fix ships. The story's own task file is bookkeeping outside References.
 <!-- SECTION:NOTES:END -->
