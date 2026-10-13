@@ -96,6 +96,19 @@ describe("the merge slot's bounds", () => {
       ]);
       expect(pendingLaneOp(s.office, s.keys.one)).toBeNull();
       expect(pendingLaneOp(s.office, s.keys.two)).not.toBeNull();
+      // The left-out operation still names the deleted branch, so the slot flushes right away and
+      // the lane applies it again on a new branch, although no operation is pending.
+      expect(s.flushes).toEqual([{ rebuild: undefined, heldThen: null }]);
+    });
+  });
+
+  it("does not flush after a merge that left nothing behind", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      s.host.checks = GREEN;
+      expect(await s.slot.tick(s.officeId)).toBe("merged");
+      expect(s.flushes).toEqual([]);
     });
   });
 

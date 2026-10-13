@@ -494,9 +494,14 @@ export class MergeSlot {
     // Only operations whose commit is in the merged head merged; any other stays open, and the
     // lane applies it again on a new branch (its old branch is deleted below).
     const merged: number[] = [];
+    let leftOut = false;
     for (const entry of openEntries(handle)) {
-      if (entry.branch !== slot.branch || entry.commit === null) continue;
-      if (await git.inHead(entry.commit, slot.head)) merged.push(entry.opId);
+      if (entry.branch !== slot.branch) continue;
+      if (entry.commit !== null && (await git.inHead(entry.commit, slot.head))) {
+        merged.push(entry.opId);
+      } else {
+        leftOut = true;
+      }
     }
     const now = this.#deps.clock.now();
     this.#write(office, handle, () => {
@@ -516,7 +521,9 @@ export class MergeSlot {
       if (key.startsWith(`${slot.number}:`)) state.noticed.delete(key);
     }
     await git.deleteBranch(slot.branch).catch(() => undefined);
-    await this.#release(state, handle, lane);
+    // An operation left out still names the deleted branch: flush now, so the lane applies it again
+    // on a new branch instead of at the next backlog change.
+    await this.#release(state, handle, lane, leftOut);
   }
 
   /**
@@ -547,9 +554,14 @@ export class MergeSlot {
   }
 
   /** Lets go of the slot and applies the operations it held. */
-  async #release(state: OfficeSlot, handle: OfficeHandle, lane: OfficeLane): Promise<void> {
+  async #release(
+    state: OfficeSlot,
+    handle: OfficeHandle,
+    lane: OfficeLane,
+    flush = false,
+  ): Promise<void> {
     state.slot = null;
-    if (!openEntries(handle).some((entry) => entry.state === "pending")) return;
+    if (!flush && !openEntries(handle).some((entry) => entry.state === "pending")) return;
     // The flush puts its own notice on the office when it fails.
     await lane.flush().catch(() => undefined);
   }
