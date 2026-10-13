@@ -4,7 +4,7 @@ title: Claim a story with its branch and worktree
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:17'
+updated_date: '2026-10-13 08:22'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -78,4 +78,6 @@ Choices: an existing worktree path and a lost cannot-lock-ref race are skipped w
 Scope addition: packages/engine/src/db/schema.ts registers migration 8 (claims) in MIGRATIONS.
 
 Review follow-up: a failed claim's rollback deletes a new branch (or moves a reused one back to its start) when its tip is the start or a descendant this claim made inside the queue item (claim commit, base merge), with update-ref guarded by the tip it read. A branch left behind by a failed claim of the same story is named as such in the collision notice. A reused branch's start_sha is the HEAD of the new worktree after worktree add.
+
+Rollback hardening (re-check): rollback moves the branch ref only when the worktree is gone and the tip is one of the commits the claim itself made, collected as made (start, base merge commit, claim commit); otherwise the ref stays and a claim.leftover notice names the branch and why. This replaces the merge-base --is-ancestor rule of the earlier follow-up.
 <!-- SECTION:NOTES:END -->
