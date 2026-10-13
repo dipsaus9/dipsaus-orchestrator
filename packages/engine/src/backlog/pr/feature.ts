@@ -130,7 +130,7 @@ export class BacklogPrs {
       if (pr === null) throw new Error(`Office ${office} has no backlog PR #${number}.`);
       const head = await lane.git.run((git) => this.#revParse(git, `refs/heads/${pr.branch}`));
       if (head === null) throw new Error(`The backlog branch ${pr.branch} no longer exists.`);
-      return this.#check(office, lane, pr, head, "open");
+      return this.#check(office, lane, pr, head);
     });
   }
 
@@ -186,8 +186,7 @@ export class BacklogPrs {
       return;
     }
     this.#setWaiting(office, null);
-    if (record.checkedHead !== where.head)
-      await this.#check(office, lane, record, where.head, "open");
+    if (record.checkedHead !== where.head) await this.#check(office, lane, record, where.head);
   }
 
   /** The open PR of `branch`: the stored one, one the host has open, or a new one. */
@@ -290,7 +289,6 @@ export class BacklogPrs {
         this.#write(office, () => closePrRecord(handle, record.number, "closed", now));
         continue;
       }
-      this.#write(office, () => closePrRecord(handle, record.number, "merged", now));
       const head = pr.headSha !== "" ? pr.headSha : record.checkedHead;
       const present =
         head !== null && (await lane.git.run((git) => this.#revParse(git, head))) !== null;
@@ -302,9 +300,12 @@ export class BacklogPrs {
             `The backlog PR #${record.number} merged, but its head ${head ?? "(unknown)"} is not in the local repository, so dipo could not check it again.`,
           ),
         ]);
+        this.#write(office, () => closePrRecord(handle, record.number, "merged", now));
         continue;
       }
-      await this.#check(office, lane, record, head, "merged");
+      // The PR is recorded merged only together with its check result: a check that throws leaves
+      // it open, so the next sync checks it again.
+      await this.#check(office, lane, record, head, { mergeCommit: pr.mergeCommit });
     }
   }
 
@@ -315,22 +316,22 @@ export class BacklogPrs {
     lane: OfficeLane,
     record: BacklogPrRecord,
     head: string,
-    mode: "open" | "merged",
+    merged: { readonly mergeCommit: string | null } | null = null,
   ): Promise<CheckResult> {
+    const mode = merged === null ? "open" : "merged";
     const handle = this.#handle(office);
     let diff: PrDiff;
+    let base = "";
     try {
       diff = await lane.git.run(async (git) => {
-        const baseName = await this.#baseName(git, lane);
-        const baseRef = `refs/remotes/${lane.git.settings.remote}/${baseName}`;
-        const mergeBase = (await git.ok(git.repository, ["merge-base", head, baseRef])).trim();
+        base = await this.#diffBase(git, lane, record, head, merged);
         const location = lane.git.worktreeLocation(lane.worktreePath());
         if (location.kind !== "worktree") throw new Error("expected the backlog worktree");
         return collectPrDiff({
           git,
           worktree: location,
           cli: this.#deps.cli,
-          base: mergeBase,
+          base,
           head,
         });
       });
@@ -348,8 +349,11 @@ export class BacklogPrs {
     const result = checkBacklogPr(diff, factsFor(handle, diff));
     const now = this.#deps.clock.now();
     this.#write(office, () => {
-      recordCheck(handle, record.number, { head, ...result }, now);
-      if (mode === "merged") settleBlocks(handle, record.number, result, now);
+      recordCheck(handle, record.number, { head, base, ...result }, now);
+      if (mode === "merged") {
+        settleBlocks(handle, record.number, result, now);
+        closePrRecord(handle, record.number, "merged", now);
+      }
       if (result.passed) return [];
       return result.failures.map((failure) =>
         notice(
@@ -363,6 +367,42 @@ export class BacklogPrs {
       );
     });
     return result;
+  }
+
+  /**
+   * The commit the head is diffed against. An open PR: the merge base of the head and
+   * `<remote>/<base>`. A merged PR: the base the last check of this head used; else, for a head
+   * never checked, the merge base of the head and the merge commit's first parent (the base before
+   * the merge, for a merge commit, a squash or a rebase alike); else the merge base with
+   * `<remote>/<base>`. After a merge commit that last one is the head itself, which would check an
+   * empty diff, so that case throws instead.
+   */
+  async #diffBase(
+    git: GitSession,
+    lane: OfficeLane,
+    record: BacklogPrRecord,
+    head: string,
+    merged: { readonly mergeCommit: string | null } | null,
+  ): Promise<string> {
+    const mergeBase = async (other: string) =>
+      (await git.ok(git.repository, ["merge-base", head, other])).trim();
+    const baseRef = `refs/remotes/${lane.git.settings.remote}/${await this.#baseName(git, lane)}`;
+    if (merged === null) return mergeBase(baseRef);
+    if (record.checkedBase !== null && record.checkedHead === head) return record.checkedBase;
+    if (merged.mergeCommit !== null) {
+      const parent = await this.#revParse(git, `${merged.mergeCommit}^1`);
+      if (parent !== null) {
+        const base = await mergeBase(parent);
+        if (base !== head) return base;
+      }
+    }
+    const base = await mergeBase(baseRef);
+    if (base === head) {
+      throw new Error(
+        `the merged head ${head} is already on ${baseRef} and dipo has no record of the base it was cut from, so the PR's own changes cannot be told apart`,
+      );
+    }
+    return base;
   }
 
   // ---- helpers -------------------------------------------------------------------------------

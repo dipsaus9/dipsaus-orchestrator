@@ -1,7 +1,9 @@
 // Migration 15 (DIPO-35): the office's backlog PRs and the stories a failed check blocks (0010
 // section 2, lane b). `backlog_prs` holds each backlog-only PR the engine opened: its number, URL
 // and branch, whether it is open, merged or closed, and the last structural check: the head it ran
-// on, passed or failed, every failure as JSON, and the keys of the tasks it touched.
+// on, the base commit it diffed against (so a merge by hand is checked against the same base,
+// whatever kind of merge the host made), passed or failed, every failure as JSON, and the keys of
+// the tasks it touched.
 // `backlog_pr_blocks` holds the stories a failed check on a merged PR blocks from `work.run` until a
 // later backlog PR that touches them merges with a passing check (`cleared_at`).
 
@@ -19,6 +21,7 @@ create table backlog_prs (
   title text not null,
   state text not null check (state in ('open', 'merged', 'closed')),
   checked_head text,
+  checked_base text,
   check_state text not null check (check_state in ('pending', 'passed', 'failed')),
   failures text not null,
   touched text not null,

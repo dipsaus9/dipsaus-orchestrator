@@ -46,6 +46,8 @@ export interface HostPr {
   readonly headSha: string;
   readonly base: string;
   readonly title: string;
+  /** The merge commit once merged (a squash, rebase or merge commit), else null. */
+  readonly mergeCommit: string | null;
 }
 
 export interface NewPr {
@@ -165,7 +167,7 @@ function ghEnv(base: Readonly<Record<string, string | undefined>>): Record<strin
   };
 }
 
-const PR_FIELDS = "number,url,state,headRefName,headRefOid,baseRefName,title";
+const PR_FIELDS = "number,url,state,headRefName,headRefOid,baseRefName,title,mergeCommit";
 
 interface PrJson {
   number?: unknown;
@@ -175,6 +177,14 @@ interface PrJson {
   headRefOid?: unknown;
   baseRefName?: unknown;
   title?: unknown;
+  mergeCommit?: unknown;
+}
+
+/** The `oid` of gh's `mergeCommit` object, or null. */
+function mergeOid(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) return null;
+  const oid = (value as { oid?: unknown }).oid;
+  return typeof oid === "string" && oid !== "" ? oid : null;
 }
 
 function prOf(json: PrJson): HostPr {
@@ -197,6 +207,7 @@ function prOf(json: PrJson): HostPr {
     headSha: String(json.headRefOid ?? ""),
     base: String(json.baseRefName ?? ""),
     title: String(json.title ?? ""),
+    mergeCommit: mergeOid(json.mergeCommit),
   };
 }
 

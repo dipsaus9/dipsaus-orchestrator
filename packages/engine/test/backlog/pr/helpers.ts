@@ -3,7 +3,7 @@
 // in place of `gh`. No test reaches GitHub.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import type { TempRepoWithRemote } from "@dipsaus-orchestrator/testkit";
+import { git, type TempRepoWithRemote } from "@dipsaus-orchestrator/testkit";
 
 import { OfficeLane } from "../../../src/backlog/lane";
 import { BacklogPrs } from "../../../src/backlog/pr";
@@ -15,7 +15,7 @@ import {
   type NewPr,
   type RequiredCheck,
 } from "../../../src/platform/host";
-import { laneSetup, type LaneSetup } from "../lane/helpers";
+import { laneSetup, type LaneSetup, otherClone } from "../lane/helpers";
 
 export const REPO = "o/r";
 export const REMOTE_URL = `https://github.com/${REPO}.git`;
@@ -54,6 +54,7 @@ export class FakeHost implements CodeHost {
       headSha: "",
       base: pr.base,
       title: pr.title,
+      mergeCommit: null,
     };
     this.prs.set(number, created);
     return created;
@@ -86,11 +87,11 @@ export class FakeHost implements CodeHost {
     return [];
   }
 
-  /** Marks the PR merged by hand at `headSha`, as the host would report it. */
-  mergedByHand(number: number, headSha: string): void {
+  /** Marks the PR merged by hand at `headSha` (with its merge commit), as the host reports it. */
+  mergedByHand(number: number, headSha: string, mergeCommit: string | null = null): void {
     const pr = this.prs.get(number);
     if (pr === undefined) throw new Error(`no PR #${number}`);
-    this.prs.set(number, { ...pr, state: "merged", headSha });
+    this.prs.set(number, { ...pr, state: "merged", headSha, mergeCommit });
   }
 }
 
@@ -131,3 +132,39 @@ export async function prSetup(repo: TempRepoWithRemote | null, base: LaneSetup):
 }
 
 export { laneSetup };
+
+/**
+ * Merges `branch` into `main` on the remote with a merge commit, as the host's "Create a merge
+ * commit" does, and returns it. Written with plumbing in the bare remote, which is fast; `main` must
+ * not have moved since the branch was cut, so the merged tree is the branch's tree.
+ */
+export async function mergeCommitOnRemote(
+  repo: TempRepoWithRemote,
+  branch: string,
+): Promise<string> {
+  const run = (...args: string[]) => git(repo.remote, repo.home, ...args).then((out) => out.trim());
+  const merge = await run(
+    "commit-tree",
+    `refs/heads/${branch}^{tree}`,
+    "-p",
+    "refs/heads/main",
+    "-p",
+    `refs/heads/${branch}`,
+    "-m",
+    `Merge ${branch}`,
+  );
+  await run("update-ref", "refs/heads/main", merge);
+  return merge;
+}
+
+/** Rebases `branch` onto `main` on the remote and fast-forwards `main`, as a rebase merge does. */
+export async function rebaseMergeOnRemote(
+  repo: TempRepoWithRemote,
+  branch: string,
+): Promise<string> {
+  const other = await otherClone(repo);
+  await git(other, repo.home, "checkout", "--quiet", "-B", "rebased", `origin/${branch}`);
+  await git(other, repo.home, "rebase", "--quiet", "main");
+  await git(other, repo.home, "push", "--quiet", "origin", "rebased:main");
+  return (await git(other, repo.home, "rev-parse", "HEAD")).trim();
+}

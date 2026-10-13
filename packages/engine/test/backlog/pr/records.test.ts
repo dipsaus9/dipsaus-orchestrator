@@ -41,7 +41,12 @@ describe("backlog PR records", () => {
       });
       expect(backlogPrMergeable(office, 3, "aaa")).toBe(false);
       office.immediate(() =>
-        recordCheck(office, 3, { head: "aaa", passed: true, failures: [], touched: [KEY] }, 2),
+        recordCheck(
+          office,
+          3,
+          { head: "aaa", base: "base", passed: true, failures: [], touched: [KEY] },
+          2,
+        ),
       );
       expect(backlogPrMergeable(office, 3, "aaa")).toBe(true);
       expect(backlogPrMergeable(office, 3, "bbb")).toBe(false);
@@ -49,7 +54,7 @@ describe("backlog PR records", () => {
         recordCheck(
           office,
           3,
-          { head: "bbb", passed: false, failures: [FAILURE], touched: [KEY] },
+          { head: "bbb", base: "base", passed: false, failures: [FAILURE], touched: [KEY] },
           3,
         ),
       );

@@ -88,6 +88,7 @@ describe("gh calls", () => {
       headSha: PR_JSON.headRefOid,
       base: "main",
       title: PR_JSON.title,
+      mergeCommit: null,
     });
     const calls = stub.calls.map((call) => call.cmd.slice(1));
     expect(calls[1]).toEqual([

@@ -18,6 +18,8 @@ export interface BacklogPrRecord {
   readonly state: BacklogPrState;
   /** The head commit the last check ran on, or null before the first. */
   readonly checkedHead: string | null;
+  /** The base commit the last check diffed the head against, or null before the first. */
+  readonly checkedBase: string | null;
   readonly check: CheckState;
   readonly failures: readonly CheckFailure[];
   /** The keys of the tasks the last check saw changed. */
@@ -35,6 +37,7 @@ interface PrRow {
   title: string;
   state: BacklogPrState;
   checked_head: string | null;
+  checked_base: string | null;
   check_state: CheckState;
   failures: string;
   touched: string;
@@ -44,8 +47,8 @@ interface PrRow {
   closed_at: number | null;
 }
 
-const COLUMNS = `pr_number, url, branch, title, state, checked_head, check_state, failures, touched,
-  opened_at, updated_at, checked_at, closed_at`;
+const COLUMNS = `pr_number, url, branch, title, state, checked_head, checked_base, check_state, failures,
+  touched, opened_at, updated_at, checked_at, closed_at`;
 
 function toRecord(row: PrRow): BacklogPrRecord {
   return {
@@ -55,6 +58,7 @@ function toRecord(row: PrRow): BacklogPrRecord {
     title: row.title,
     state: row.state,
     checkedHead: row.checked_head,
+    checkedBase: row.checked_base,
     check: row.check_state,
     failures: JSON.parse(row.failures) as CheckFailure[],
     touched: JSON.parse(row.touched) as StoryKey[],
@@ -108,12 +112,13 @@ export function setTitle(office: OfficeHandle, number: number, title: string, no
   );
 }
 
-/** Stores a check result for the head it ran on. */
+/** Stores a check result for the head it ran on and the base it diffed against. */
 export function recordCheck(
   office: OfficeHandle,
   number: number,
   result: {
     head: string;
+    base: string;
     passed: boolean;
     failures: readonly CheckFailure[];
     touched: readonly StoryKey[];
@@ -121,12 +126,13 @@ export function recordCheck(
   now: number,
 ): void {
   office.run(
-    `update backlog_prs set checked_head = $head, check_state = $state, failures = $failures,
+    `update backlog_prs set checked_head = $head, checked_base = $base, check_state = $state, failures = $failures,
        touched = $touched, checked_at = $now, updated_at = $now
      where office_id = $office_id and pr_number = $number`,
     {
       number,
       head: result.head,
+      base: result.base,
       state: result.passed ? "passed" : "failed",
       failures: JSON.stringify(result.failures),
       touched: JSON.stringify(result.touched),
