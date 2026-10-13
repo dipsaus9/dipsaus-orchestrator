@@ -4,7 +4,7 @@ title: Store gate decisions and show them with dipo gate
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 08:10'
+updated_date: '2026-10-13 08:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -82,4 +82,12 @@ Design notes:
 - The content hash leaves out status, so a ready-mode decision taken at Refined matches the story after it is set to Ready.
 - A rule decision is one gates row (kind = mode) plus one gate_decisions row (approved/rejected, decided_by rule, rule_results JSON of every rule with passed and messages). No change-log entry is written.
 - Migration 8 (gates). DIPO-72 runs in parallel and may also take 8; whichever merges second renumbers.
+
+Scope additions (review round 1):
+- packages/engine/src/db/schema.ts: lists migration 8 (gates) in MIGRATIONS, the one place migrations are registered.
+- packages/engine/src/gate/index.ts: re-exports the new gate/store module next to evaluateGate.
+- packages/engine/src/index.ts: exports GateStore and the decision helpers so the daemon (and DIPO-48) can reach them through the package entry.
+- packages/engine/test/commands/registry.test.ts: tests the addAsyncRead seam (duplicate names, story references resolved before the handler).
+
+Error codes: story.gate answers story.unknown when the story is not on the office's base branch, and office.refused with details.step config (no valid office configuration) or backlog (the Backlog CLI could not read the inputs), each with a plain message. GateStore.checkReady is ready-mode only; pickup evaluations happen only through recordGateDecision.
 <!-- SECTION:NOTES:END -->
