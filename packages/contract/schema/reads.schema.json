@@ -1880,6 +1880,48 @@
         }
       },
       "required": ["since", "counts", "lines"]
+    },
+    "office.stats.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["office"]
+    },
+    "office.stats.result": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "table": {
+                "type": "string"
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["table", "rows", "bytes"]
+          }
+        }
+      },
+      "required": ["office", "tables"]
     }
   }
 }

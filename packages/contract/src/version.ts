@@ -10,4 +10,5 @@ export const ContractVersion = z.object({
 export type ContractVersion = z.infer<typeof ContractVersion>;
 
 // Minor 1 (DIPO-27): `office.reloadConfig` ships and `office.open` replies with `warnings`.
+// DIPO-65 adds the read `office.stats` to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

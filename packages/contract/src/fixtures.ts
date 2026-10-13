@@ -266,6 +266,16 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       evidence: { "groups.0.estimatedCost": "estimated" },
     },
   },
+  "office.stats": {
+    args: { office: ids.office },
+    result: {
+      office: ids.office,
+      tables: [
+        { table: "change_log", rows: 12_400, bytes: 7_900_000 },
+        { table: "requests", rows: 31, bytes: 9_300 },
+      ],
+    },
+  },
   "office.digest": {
     args: { office: ids.office, since: "2026-10-11T18:00:00Z" },
     result: {
