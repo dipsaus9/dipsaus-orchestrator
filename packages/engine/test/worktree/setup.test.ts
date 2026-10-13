@@ -2,12 +2,14 @@
 // repositories with a bare remote and a fake step runner in place of the sandbox. Through
 // `claimStory`: setup runs after the worktree and before the claim commit and the push, and a
 // failed setup (low disk, a failing script) rolls the claim back with nothing committed or pushed,
-// the story Ready on origin/main, and a reused branch left exactly as released. Directly: the
-// step order and environment, the env-file notice once per office, and failures that free the
-// slot and leave the rollback to the claim. The real sandbox is `setup.ci.test.ts`.
+// the story Ready on origin/main; a release during a setup that fails keeps the release, its row
+// and the branch. Directly: the step order and environment, the env-file notice once per office,
+// and failures that free the slot and leave the rollback to the claim. The real sandbox is
+// `setup.ci.test.ts`; a reused branch left exactly as released and a release during a setup that
+// succeeds run in CI only, in `setup-claim.ci.test.ts` (DIPO-79).
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -16,183 +18,38 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
-import { OFFICE_DEFAULTS } from "../../src/config/schema";
 import { WORKTREE_ADD_CONFIG } from "../../src/git/hardened";
 import { readWorktreeSnapshot } from "../../src/git/snapshot";
-import type { DiskProbe } from "../../src/platform/disk";
-import type { CommandSpec, Resolution, RunProfile } from "../../src/scan/detect";
-import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import {
   CLAIM_NOTICES,
-  type ClaimOutcome,
   type ClaimRecord,
-  type ClaimSkip,
   claimStory,
   ENV_FILES_RULE,
   findClaim,
   hasLiveClaim,
-  releaseClaim,
   releasedBranchFor,
   SETUP_NOTICES,
   type SetupDone,
   type SetupOutcome,
-  type SetupRequest,
-  setupWorktree,
-  SlotTable,
   StoryClaims,
 } from "../../src/worktree";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import { insertClaim } from "../../src/worktree/records";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import { BRANCH_1, type ClaimSetup, inRemote, notices, TASK_1, TASK_FILE_1 } from "./helpers";
 import {
-  BACKLOG_FIXTURE,
-  BRANCH_1,
-  claimSetup,
-  type ClaimSetup,
-  inRemote,
-  notices,
-  publish,
-  ROOMY,
-  TASK_1,
-  TASK_FILE_1,
-} from "./helpers";
-
-const SECRET = "DEV-SECRET-77b2e0";
-const FIXTURE = { fixture: BACKLOG_FIXTURE };
-const ONE_GB: DiskProbe = { freeBytes: () => Promise.resolve(1_000_000_000) };
-
-const resolved = (...commands: string[][]): Resolution<CommandSpec> => ({
-  status: "resolved",
-  value: { commands, cwd: "." },
-  source: "standard",
-  confidence: "high",
-  evidence: "package.json",
-});
-
-function profile(): RunProfile {
-  const none: Resolution<CommandSpec> = { status: "unresolved" };
-  return {
-    fingerprint: "f",
-    toolchain: {
-      packageManager: { status: "unresolved" },
-      runtimeVersion: { status: "unresolved" },
-      workspaces: [],
-    },
-    capabilities: {
-      install: resolved(["bun", "install", "--frozen-lockfile"]),
-      setup: resolved(["bun", "run", "setup"]),
-      dev: none,
-      test: none,
-      lint: none,
-      typecheck: none,
-      verify: resolved(["bun", "run", "verify"]),
-      build: none,
-    },
-    extraScripts: [],
-    envFiles: [{ example: ".env.example", path: ".env", present: true, ignored: true }],
-    devPorts: [
-      {
-        port: 5173,
-        dir: ".",
-        fixedInCode: false,
-        honoursPort: true,
-        source: "default",
-        confidence: "low",
-        evidence: "vite",
-      },
-    ],
-    conformance: { level: "conforming", deviations: [] },
-    runRefusal: null,
-  };
-}
-
-const exited = (code: number, stderr = ""): StepResult => ({
-  outcome: "exited",
-  code,
-  signal: null,
-  timedOut: false,
-  stdout: { text: code === 0 ? "" : "seeding...\n", truncated: false },
-  stderr: { text: stderr, truncated: false },
-  warnings: [],
-});
-
-/** A step runner that records each request and answers per script (exit 0 by default). */
-function fakeSteps(answers: Record<string, StepResult> = {}, onStep?: () => Promise<void>) {
-  const requests: StepRequest[] = [];
-  const runStep = async (request: StepRequest): Promise<StepResult> => {
-    requests.push(request);
-    await onStep?.();
-    return answers[request.script] ?? exited(0);
-  };
-  return { requests, runStep };
-}
-
-/** Publishes the fixture with `.env` ignored, then creates the ignored `.env`. */
-async function product(repo: TempRepoWithRemote): Promise<void> {
-  writeFileSync(join(repo.dir, ".gitignore"), ".env\n");
-  writeFileSync(join(repo.dir, "bun.lock"), "{}\n");
-  await publish(repo);
-  writeFileSync(join(repo.dir, ".env"), `TOKEN=${SECRET}\n`);
-  chmodSync(join(repo.dir, ".env"), 0o600);
-}
-
-interface Options {
-  readonly disk?: DiskProbe;
-  readonly steps?: ReturnType<typeof fakeSteps>;
-  readonly profile?: RunProfile | null;
-  readonly worktree?: Partial<SetupRequest["config"]["worktree"]>;
-}
-
-interface Harness {
-  readonly s: ClaimSetup;
-  readonly slots: SlotTable;
-  /** `setupWorktree` for `claim`. */
-  setup(claim: ClaimRecord, options?: Options): Promise<SetupOutcome>;
-  /** `claimStory` with `setup` as its setup. */
-  claim(key: ReturnType<ClaimSetup["key"]>, options?: Options): Promise<ClaimOutcome<SetupDone>>;
-}
-
-async function harness(repo: TempRepo): Promise<Harness> {
-  const s = await claimSetup(repo);
-  const slots = SlotTable.inState(join(repo.root, "state-dir"));
-  const setup = (claim: ClaimRecord, options: Options = {}) =>
-    setupWorktree(
-      {
-        ...s.deps({ disk: options.disk ?? ROOMY }),
-        slots,
-        runStep: (options.steps ?? fakeSteps()).runStep,
-      },
-      {
-        claim,
-        config: {
-          worktree: {
-            ...OFFICE_DEFAULTS.worktree,
-            files: [{ path: ".env", mode: "copy", required: true }],
-            env: { VITE_HMR_PORT: "{port:24678}" },
-            post_create: [
-              ["bun", "run", "db:seed"],
-              ["echo", "$HOME;", "rm -rf /"],
-            ],
-            ...options.worktree,
-          },
-          timeouts: OFFICE_DEFAULTS.timeouts,
-          sandbox: OFFICE_DEFAULTS.sandbox,
-        },
-        profile: options.profile === undefined ? profile() : options.profile,
-        host: { home: repo.home, uid: 501, env: { PATH: "/usr/bin:/bin", HOME: repo.home } },
-      },
-    );
-  return {
-    s,
-    slots,
-    setup,
-    claim: (key, options = {}) =>
-      claimStory<SetupDone>(s.deps(), {
-        ...s.request(key),
-        setup: (claim) => setup(claim, options),
-      }),
-  };
-}
+  exited,
+  fakeSteps,
+  FIXTURE,
+  type Harness,
+  harness,
+  ONE_GB,
+  type Options,
+  product,
+  releaseNow,
+  SECRET,
+  skipped,
+} from "./setup-harness";
 
 /** The state `claimStory` leaves before setup, made with plain git (no Backlog CLI). */
 async function localClaim(repo: TempRepo, s: ClaimSetup): Promise<ClaimRecord> {
@@ -229,11 +86,6 @@ async function localClaim(repo: TempRepo, s: ClaimSetup): Promise<ClaimRecord> {
 
 function done(outcome: SetupOutcome): SetupDone {
   if (!outcome.ok) throw new Error(`setup failed: ${outcome.reason}\n${outcome.log}`);
-  return outcome;
-}
-
-function skipped(outcome: ClaimOutcome<SetupDone>): ClaimSkip {
-  if (outcome.ok) throw new Error("expected the claim to be skipped");
   return outcome;
 }
 
@@ -325,52 +177,10 @@ describe("setup inside the claim", () => {
       expect(again.ok).toBe(true);
     }, FIXTURE);
   });
-
-  it("leaves a reused branch exactly as released when setup fails", async () => {
-    await withBareRemote(async (repo) => {
-      await product(repo);
-      const h = await harness(repo);
-      const key = h.s.key();
-      const first = await h.claim(key);
-      if (!first.ok) throw new Error("first claim skipped");
-      const wt = first.claim.worktree;
-      await repo.git("worktree", "unlock", wt);
-      await repo.git("worktree", "remove", "--force", wt);
-      h.s.git.unpinWorktree(wt);
-      first.setup?.release();
-      h.s.office.immediate(() =>
-        releaseClaim(h.s.office, first.claim.runId, {
-          at: h.s.t.clock.now(),
-          reason: "amend",
-          keepBranch: true,
-        }),
-      );
-      const releasedTip = (await repo.git("rev-parse", BRANCH_1)).trim();
-      const remoteTip = (await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim();
-
-      const steps = fakeSteps({ install: exited(1, "lockfile out of date\n") });
-      skipped(await h.claim(key, { steps }));
-
-      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(releasedTip);
-      expect((await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim()).toBe(remoteTip);
-      expect(releasedBranchFor(h.s.office, key, BRANCH_1)).not.toBeNull();
-      expect(existsSync(wt)).toBe(false);
-    }, FIXTURE);
-  });
 });
-/** Releases the claim the way an amend would, keeping its branch for the story. */
-function releaseNow(h: Harness, claim: ClaimRecord): void {
-  h.s.office.immediate(() =>
-    releaseClaim(h.s.office, claim.runId, {
-      at: h.s.t.clock.now(),
-      reason: "amend",
-      keepBranch: true,
-    }),
-  );
-}
-
 describe("releases and restarts around setup", () => {
-  for (const fails of [false, true]) {
+  // The variant with a setup that succeeds runs in CI only, in setup-claim.ci.test.ts (DIPO-79).
+  for (const fails of [true]) {
     it(`a release during a setup that ${fails ? "fails" : "succeeds"} keeps the release, its row and the branch`, async () => {
       await withBareRemote(async (repo) => {
         await product(repo);
