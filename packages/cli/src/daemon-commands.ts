@@ -28,7 +28,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 /** What a daemon subcommand needs from a connected client. */
-export type DaemonSession = Pick<DipoClient, "command" | "close">;
+export type DaemonSession = Pick<DipoClient, "command" | "subscribe" | "close">;
 
 /**
  * Connects to the daemon, starting it first when autostart allows (DIPO-70). Throws
@@ -324,10 +324,14 @@ export function engineFailure(deps: DaemonCommandDeps, error: EngineError): numb
   return 1;
 }
 
-/** Connects, runs one exchange under the reply deadline, and always closes the connection. */
+/**
+ * Connects, runs one exchange under the reply deadline (`timeoutMs`, `REPLY_TIMEOUT_MS` by
+ * default), and always closes the connection.
+ */
 export async function withDaemon(
   deps: DaemonCommandDeps,
   run: (session: DaemonSession) => Promise<number>,
+  timeoutMs: number = REPLY_TIMEOUT_MS,
 ): Promise<number> {
   let session: DaemonSession;
   try {
@@ -338,9 +342,9 @@ export async function withDaemon(
   let timer: ReturnType<Clock["setTimeout"]> | null = null;
   const deadline = new Promise<number>((resolve) => {
     timer = deps.clock.setTimeout(() => {
-      deps.writeError(`dipo: the daemon did not answer within ${REPLY_TIMEOUT_MS / 1000} s.`);
+      deps.writeError(`dipo: the daemon did not answer within ${timeoutMs / 1000} s.`);
       resolve(1);
-    }, REPLY_TIMEOUT_MS);
+    }, timeoutMs);
   });
   try {
     return await Promise.race([run(session), deadline]);
