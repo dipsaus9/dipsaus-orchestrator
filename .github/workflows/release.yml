@@ -50,10 +50,11 @@ jobs:
             echo "The tag input is for real releases; this workflow is a dry run."
             exit 1
           fi
-          case "$TAG" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "tag must look like vX.Y.Z, got: $TAG"; exit 1 ;;
-          esac
+          # Bash regex on the whole value: no newline or other character can reach GITHUB_OUTPUT.
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]*)?$ ]]; then
+            echo "tag must look like vX.Y.Z, got: $TAG"
+            exit 1
+          fi
       # The dry run asks for read access only; a real run needs write access (0016 rule 3).
       - name: Create the release App token
         id: app-token
@@ -120,16 +121,22 @@ jobs:
           CREATED_TAG: ${{ steps.release.outputs.tag_name }}
           SHA: ${{ github.sha }}
         run: |
+          build=false publish=false ref="" tag=""
           if [ "$DRY_RUN" = "true" ]; then
             # Build main as it is now; never publish.
-            echo "build=true publish=false ref=$SHA tag="
+            build=true ref="$SHA"
           elif [ -n "$INPUT_TAG" ]; then
-            echo "build=true publish=true ref=refs/tags/$INPUT_TAG tag=$INPUT_TAG"
+            # Validated by "Check the tag input".
+            build=true publish=true ref="refs/tags/$INPUT_TAG" tag="$INPUT_TAG"
           elif [ "$CREATED" = "true" ]; then
-            echo "build=true publish=true ref=refs/tags/$CREATED_TAG tag=$CREATED_TAG"
-          else
-            echo "build=false publish=false ref= tag="
-          fi | tr ' ' '\n' >> "$GITHUB_OUTPUT"
+            build=true publish=true ref="refs/tags/$CREATED_TAG" tag="$CREATED_TAG"
+          fi
+          {
+            printf 'build=%s\n' "$build"
+            printf 'publish=%s\n' "$publish"
+            printf 'ref=%s\n' "$ref"
+            printf 'tag=%s\n' "$tag"
+          } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   # Same build script and smoke test as CI (0016 rule 1), on the four native runners. No dependency
