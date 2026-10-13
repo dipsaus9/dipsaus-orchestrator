@@ -537,6 +537,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       offices,
       clock,
       onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "merge-slot" }),
     });
     held.mergeSlot = mergeSlot;
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
