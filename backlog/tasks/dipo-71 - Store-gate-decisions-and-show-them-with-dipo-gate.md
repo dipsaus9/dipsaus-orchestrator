@@ -4,7 +4,7 @@ title: Store gate decisions and show them with dipo gate
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 08:20'
+updated_date: '2026-10-13 11:29'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -90,4 +90,9 @@ Scope additions (review round 1):
 - packages/engine/test/commands/registry.test.ts: tests the addAsyncRead seam (duplicate names, story references resolved before the handler).
 
 Error codes: story.gate answers story.unknown when the story is not on the office's base branch, and office.refused with details.step config (no valid office configuration) or backlog (the Backlog CLI could not read the inputs), each with a plain message. GateStore.checkReady is ready-mode only; pickup evaluations happen only through recordGateDecision.
+
+Review round 3 (maintainer decision B):
+- Contract: new list OFFICE_ERROR_CODES in packages/contract/src/errors.ts with config.invalid and backlog.unreadable (minor 1, unreleased). story.gate answers config.invalid (no valid office configuration) and backlog.unreadable (Backlog CLI, refusal or parse failure on the base); story.unknown and office.refused step git.version are unchanged.
+- Merged origin/main; the gates migration is now 13 (0013-gates.ts).
+- Scope additions: packages/engine/src/retention/policy.ts lists gates and gate_decisions as tier S; packages/engine/src/retention/run.ts deletes gate decisions decided before the state cutoff and decided gates left without a decision (a waiting gate is kept), tested in packages/engine/test/retention/retention.test.ts.
 <!-- SECTION:NOTES:END -->
