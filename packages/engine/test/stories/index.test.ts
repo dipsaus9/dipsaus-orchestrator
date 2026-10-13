@@ -6,19 +6,20 @@
 // The slower cases run in CI only, in index.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { StoryIndex } from "../../src/stories/feature";
 import { BACKLOG_CLI } from "../backlog/helpers";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
-import { entriesAfter, lastSeq, storyRows } from "./helpers";
+import { entriesAfter, keyOf, lastSeq, storyRows } from "./helpers";
 
 interface Indexed {
   readonly repo: TempRepoWithRemote;
@@ -100,8 +101,8 @@ function mirrorStatus(office: OfficeHandle, id: string): string | undefined {
 }
 
 describe("story index on the Backlog CLI", () => {
-  it("indexes the fixture at load; keys are stable across passes and a retitle", () =>
-    withIndexedOffice(async ({ repo, index, officeId, office }) => {
+  it("indexes the fixture at load; keys are stable across passes and a retitle; a pushed status is indexed after polling.fetchSeconds", () =>
+    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
       const loaded = storyRows(office);
       expect(loaded.map((row) => [row.story_id, row.removed])).toEqual([
         ["DRAFT-1", false],
@@ -139,6 +140,27 @@ describe("story index on the Backlog CLI", () => {
       const [entry] = entriesAfter(office, seq);
       expect(entry?.delta).toMatchObject({ story: "TASK-2", from: "Refined", to: "Refined" });
       expect(entry?.view).toMatchObject({ title: "Rename the export option" });
+
+      // A status pushed to the remote is indexed by the poll after polling.fetchSeconds, not before.
+      // The full case, with a second clone and the CLI, is in index.ci.test.ts.
+      const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
+      await publish(repo, "TASK-2 Ready");
+      const key = keyOf(office, "TASK-2");
+      const polled = lastSeq(office);
+      const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
+      s.clock.advance(interval - 1);
+      await index.whenIdle(officeId);
+      expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
+      s.clock.advance(1);
+      await index.whenIdle(officeId);
+      expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
+      expect(entriesAfter(office, polled)[0]?.delta).toEqual({
+        story: "TASK-2",
+        key,
+        from: "Refined",
+        to: "Ready",
+      });
     }));
 
   it("loads the office with a stories.notIndexed notice when the Backlog CLI fails", () =>

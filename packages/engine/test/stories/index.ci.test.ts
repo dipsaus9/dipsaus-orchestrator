@@ -3,6 +3,7 @@
 // or completed task closes as Removed with a notice, a hand-promoted draft is renumbered, an
 // ambiguous created date matches nothing, and a status pushed to the remote is indexed after
 // `polling.fetchSeconds` on the manual clock.
+// A fast local check of the polling is part of the first test in index.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, renameSync } from "node:fs";
