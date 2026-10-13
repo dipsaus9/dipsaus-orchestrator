@@ -21,7 +21,10 @@ export interface ClaimRecord {
   readonly baseSha: string;
   /** The commit the worktree started from: `baseSha` for a new branch, the kept tip when reused. */
   readonly startSha: string;
-  /** The claim commit, or null before it (or when the status was already In Progress). */
+  /**
+   * The claim commit (the branch tip after the claim when the status was already In Progress), or
+   * null until the claim finished: a live claim without it is one whose setup never finished.
+   */
   readonly claimSha: string | null;
   /** True when a branch released for this story was reused (0010 section 2a). */
   readonly reused: boolean;
@@ -281,4 +284,22 @@ export function markReclaimed(
      where office_id = $office_id and branch = $branch and released_at = $released_at`,
     { at, run: runId, branch: released.branch, released_at: released.releasedAt },
   );
+}
+
+/** The release the claim of `runId` reused (0010 section 2a), or null. */
+export function releaseReclaimedBy(office: OfficeHandle, runId: RunId): ReleasedBranch | null {
+  const row = office.get<{ branch: string; key: string; released_at: number; reason: string }>(
+    `select branch, key, released_at, reason from released_branches
+     where office_id = $office_id and reclaimed_by = $run
+     order by released_at desc limit 1`,
+    { run: runId },
+  );
+  return row === null
+    ? null
+    : {
+        branch: row.branch,
+        key: row.key as StoryKey,
+        releasedAt: row.released_at,
+        reason: row.reason,
+      };
 }

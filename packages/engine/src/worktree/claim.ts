@@ -60,6 +60,7 @@ import {
   markReclaimed,
   type ReleasedBranch,
   releasedBranchFor,
+  releaseReclaimedBy,
   updateClaim,
 } from "./records";
 
@@ -81,6 +82,7 @@ export const CLAIM_NOTICES = {
   leftover: "claim.leftover",
   setupFailed: "setup.failed",
   releasedDuringSetup: "claim.releasedDuringSetup",
+  setupInterrupted: "claim.setupInterrupted",
 } as const;
 
 /** Why the claim did not happen; nothing is left of it. */
@@ -438,7 +440,8 @@ async function finishClaim<S extends ClaimSetupDone>(
   const made = [...started.made];
   const live = findClaim(deps.office, request.runId);
   if (live === null || live.releasedAt !== null) {
-    await rollback(deps, git, request, created, false, made);
+    // Released meanwhile: that release keeps its row, its release and the branch.
+    await rollback(deps, git, request, created, true, made);
     setup?.release();
     return skip(
       deps,
@@ -453,11 +456,13 @@ async function finishClaim<S extends ClaimSetupDone>(
 
   try {
     const location = deps.git.worktreeLocation(created.path) as WorktreeLocation;
-    const claimSha = await claimCommit(deps, git, location, request);
-    if (claimSha !== null) {
-      made.push(claimSha);
-      deps.office.immediate(() => updateClaim(deps.office, request.runId, { claimSha }));
-    }
+    // The claim commit, or the tip when the status was already In Progress; recorded either way,
+    // so a live claim without `claim_sha` is one whose setup never finished.
+    const claimSha =
+      (await claimCommit(deps, git, location, request)) ??
+      (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+    made.push(claimSha);
+    deps.office.immediate(() => updateClaim(deps.office, request.runId, { claimSha }));
   } catch (error) {
     await rollback(deps, git, request, created, true, made);
     setup?.release();
@@ -584,29 +589,43 @@ async function push(deps: ClaimDeps, git: GitSession, request: ClaimRequest): Pr
 /** What the notice writer needs from the claim's dependencies. */
 export type NoticeDeps = Pick<ClaimDeps, "officeId" | "office" | "clock" | "onChanged">;
 
+/** What a rollback needs from the claim's dependencies. */
+export type RollbackDeps = Pick<ClaimDeps, "officeId" | "office" | "git" | "clock" | "onChanged">;
+
+/** The story, branch and run a rollback undoes. */
+type ClaimIdentity = Pick<ClaimRequest, "key" | "story" | "branch" | "runId">;
+
+/** What the claim created: the worktree, the branch start, a reused release. */
+type CreatedWorktree = Pick<Created, "path" | "startSha" | "released">;
+
 /**
  * Undoes a claim that failed after `git worktree add`: unpin, unlock and remove the worktree,
  * delete a new branch (or move a reused one back to its start) when the worktree is gone and the
  * tip is one of the commits this claim made, else leave the ref and put a `claim.leftover` notice
- * on the office; end the claim record with `reason` and reopen a reused release. Each step is
- * best effort, so the original error is what the caller sees. Runs inside a git queue item.
+ * on the office; end the claim record with `reason` and reopen a reused release. A claim that was
+ * released by something else meanwhile (its row has `released_at`) keeps its row, its release
+ * and its branch: that release owns them, and only the worktree is removed. Each step is best
+ * effort, so the original error is what the caller sees. Runs inside a git queue item.
  */
 async function rollback(
-  deps: ClaimDeps,
+  deps: RollbackDeps,
   git: GitSession,
-  request: ClaimRequest,
-  created: Created,
+  request: ClaimIdentity,
+  created: CreatedWorktree,
   recorded: boolean,
   made: readonly string[] = [created.startSha],
   reason: (typeof FAILED_CLAIM_REASONS)[number] = "claim-failed",
 ): Promise<void> {
   const { path, released } = created;
+  const current = recorded ? findClaim(deps.office, request.runId) : null;
+  const releasedElsewhere = current !== null && current.releasedAt !== null;
   deps.git.unpinWorktree(path);
   const quiet = async (args: readonly string[]): Promise<void> => {
     await git.step(git.repository, args).catch(() => undefined);
   };
   await quiet(["worktree", "unlock", path]);
   await quiet(["worktree", "remove", "--force", path]);
+  if (releasedElsewhere) return;
   // A new branch is deleted, a reused one goes back to its start, only when the worktree is gone
   // and the tip is a commit this claim made (`made`); each ref change is guarded by the tip read
   // here. Anything else is left as it is and reported.
@@ -637,13 +656,57 @@ async function rollback(
   if (!recorded) return;
   const at = deps.clock.now();
   deps.office.immediate(() => {
-    deps.office.run(
+    // Guarded: a release written since the read above wins and keeps its row and release.
+    const ended = deps.office.run(
       `update claims set released_at = $at, release_reason = $reason
-       where office_id = $office_id and run_id = $run`,
+       where office_id = $office_id and run_id = $run and released_at is null`,
       { at, run: request.runId, reason },
     );
-    if (released !== null) markReclaimed(deps.office, released, null, null);
+    if (ended.changes > 0 && released !== null) markReclaimed(deps.office, released, null, null);
   });
+}
+
+/**
+ * Rolls back a live claim whose setup never finished (no recorded claim commit), for example
+ * because the daemon stopped during setup: the worktree is removed, a new branch deleted while it
+ * still points at its start, a reused branch moved back to its start (also from the base merge
+ * the claim made) and its release reopened, the row ended as `setup-failed`, and a
+ * `claim.setupInterrupted` notice put on the office. Runs as its own git queue item.
+ */
+export async function rollBackInterruptedSetup(
+  deps: RollbackDeps,
+  claim: ClaimRecord,
+): Promise<void> {
+  await deps.git.run(async (git) => {
+    const released = claim.reused ? releaseReclaimedBy(deps.office, claim.runId) : null;
+    const made = [claim.startSha];
+    const tip = await revParse(git, `refs/heads/${claim.branch}`).catch(() => null);
+    if (released !== null && tip !== null && tip !== claim.startSha) {
+      // The base merge of a reused branch: first parent the start, second parent the base.
+      const parents = await git
+        .step(git.repository, ["rev-list", "--parents", "-n", "1", tip])
+        .catch(() => null);
+      const [, first, second] = parents?.stdout.trim().split(" ") ?? [];
+      if (first === claim.startSha && second === claim.baseSha) made.push(tip);
+    }
+    await rollback(
+      deps,
+      git,
+      claim,
+      { path: claim.worktree, startSha: claim.startSha, released },
+      true,
+      made,
+      "setup-failed",
+    );
+  });
+  writeWith(deps, () => [
+    notice(
+      "warn",
+      CLAIM_NOTICES.setupInterrupted,
+      `${claim.story} was claimed but its setup did not finish (the daemon stopped during setup); dipo removed the worktree and the story stays Ready.`,
+      claim.key,
+    ),
+  ]);
 }
 
 // ---- helpers ---------------------------------------------------------------------------------
