@@ -1,10 +1,10 @@
 ---
 id: DIPO-30
 title: Evaluate the Ready gate as a pure function
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 06:30'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -48,18 +48,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `evaluateGate(input, mode)` is pure: no file, process, clock, database or model access, and the same input gives the same result.
-- [ ] #2 Each rule R01a, R01b, R02 to R26 has its own function and returns the 0012 message prefixed with `ready <ID> failed <rule>:`.
-- [ ] #3 All failures are returned, not only the first; the gate passes only with zero failures.
-- [ ] #4 Character counts use NFC code points after trimming; word matches for R10 use the `\p{L}\p{N}` boundary, so a banned phrase never matches inside a longer word such as `fetch`.
-- [ ] #5 R12 rejects a leading `/`, a `..` segment, `://`, whitespace, `* ? [ ]`, `.`, empty and any path under `backlog/`.
-- [ ] #6 R14 reports the cycle path `<ID> -> … -> <ID>`.
-- [ ] #7 R16 accepts exactly one tier from the office's `story.tiers`; R24 rejects every story with a non-code role, since no such role exists before M4.
-- [ ] #8 R26 counts title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions against `prompt.contractMax`.
+- [x] #1 `evaluateGate(input, mode)` is pure: no file, process, clock, database or model access, and the same input gives the same result.
+- [x] #2 Each rule R01a, R01b, R02 to R26 has its own function and returns the 0012 message prefixed with `ready <ID> failed <rule>:`.
+- [x] #3 All failures are returned, not only the first; the gate passes only with zero failures.
+- [x] #4 Character counts use NFC code points after trimming; word matches for R10 use the `\p{L}\p{N}` boundary, so a banned phrase never matches inside a longer word such as `fetch`.
+- [x] #5 R12 rejects a leading `/`, a `..` segment, `://`, whitespace, `* ? [ ]`, `.`, empty and any path under `backlog/`.
+- [x] #6 R14 reports the cycle path `<ID> -> … -> <ID>`.
+- [x] #7 R16 accepts exactly one tier from the office's `story.tiers`; R24 rejects every story with a non-code role, since no such role exists before M4.
+- [x] #8 R26 counts title, outcome, criteria, scope paths, test plan, resolved unknowns and extra instructions against `prompt.contractMax`.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S15 (DIPO-15). Before cutover: built by hand-run agents.
+
+Built in packages/engine/src/gate: evaluateGate(input, mode) over GateInput (story, active tasks, milestones, office story.* and prompt.contractMax, optional roster defaulting to the built-in developer). gateStoryFromView and gateTaskFromView build inputs from parsed task views.
+Choices where 0012 leaves a gap: messages that name a threshold (R04, R05, R09) name the configured value; when the field block fails R02 the rules over its data (R15, R18, R19, R20, R21, R26, test-plan half of R23) report nothing; R15 with no unknowns list says 'unknowns list is missing; add unknowns: [] to the field block'; R20 uses entry 0 for a plan-level failure (missing, empty, short not_applicable) and a fixed 10-character minimum for check and reason; R10 reports each criterion and phrase pair; R24 takes the roster's code flag and fails every non-code role; R26 counts title, outcome text, criteria, scope paths, test plan check/expect/not_applicable, resolved unknowns (question and answer) and the implementation plan.
 <!-- SECTION:NOTES:END -->
