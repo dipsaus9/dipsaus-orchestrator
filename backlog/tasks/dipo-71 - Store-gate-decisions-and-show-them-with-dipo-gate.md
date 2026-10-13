@@ -4,7 +4,7 @@ title: Store gate decisions and show them with dipo gate
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 07:53'
+updated_date: '2026-10-13 08:10'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -56,16 +56,30 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A migration adds `gates` and `gate_decisions` with the columns of 0007 section 4; a decision stores mode, every rule result and the story content hash.
-- [ ] #2 `recordGateDecision(office, story, mode)` evaluates with `evaluateGate` (DIPO-30) and stores the decision in one transaction; every pickup-mode evaluation is stored.
-- [ ] #3 The story content hash is sha256 over the canonical JSON of the story fields the gate reads, so free context in the description does not change it.
-- [ ] #4 `findPassingDecision(office, key, contentHash)` returns the latest passing decision for that hash, or none.
-- [ ] #5 Read `story.gate { office, story }` (contract minor, registered through the DIPO-22 registry) returns the ready-mode result and stores nothing.
-- [ ] #6 `dipo gate <id>` prints `ready <ID> passed` or each failure message on its own line, and exits 1 when any rule fails.
+- [x] #1 A migration adds `gates` and `gate_decisions` with the columns of 0007 section 4; a decision stores mode, every rule result and the story content hash.
+- [x] #2 `recordGateDecision(office, story, mode)` evaluates with `evaluateGate` (DIPO-30) and stores the decision in one transaction; every pickup-mode evaluation is stored.
+- [x] #3 The story content hash is sha256 over the canonical JSON of the story fields the gate reads, so free context in the description does not change it.
+- [x] #4 `findPassingDecision(office, key, contentHash)` returns the latest passing decision for that hash, or none.
+- [x] #5 Read `story.gate { office, story }` (contract minor, registered through the DIPO-22 registry) returns the ready-mode result and stores nothing.
+- [x] #6 `dipo gate <id>` prints `ready <ID> passed` or each failure message on its own line, and exits 1 when any rule fails.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-30 in the M0 review (DIPO-15). Before cutover: built by hand-run agents.
+
+Scope additions (outside the story's References):
+- packages/engine/src/commands/registry.ts and packages/engine/src/reads/execute.ts: a new addAsyncRead seam. Read handlers were synchronous inside one deferred transaction, and story.gate must wait on the Backlog CLI. A waiting read resolves its story references in the deferred transaction and runs its handler after it; synchronous reads are unchanged.
+- packages/engine/src/backlog/runner.ts: allows milestone list and the flag --show-completed, so the gate reads which milestones exist (R07).
+- packages/engine/src/stories/read.ts: exports mapLimited for the active-task views.
+- packages/daemon/src/foreground.ts: constructs GateStore and registers its feature (it needs the office git, like StoryIndex), so it is listed there rather than in features.ts.
+- packages/cli/src/daemon-commands.ts: DaemonSession includes read; the session fakes in daemon-commands.test.ts, office-commands.test.ts and test/office-resolution/office-resolution.test.ts get a read stub.
+- packages/cli/src/office-commands.ts: exports withOffice, parseOptions and Act for dipo gate.
+
+Design notes:
+- The gate reads the story on the office's _base worktree (as the index and pickup do), without fetching first.
+- The content hash leaves out status, so a ready-mode decision taken at Refined matches the story after it is set to Ready.
+- A rule decision is one gates row (kind = mode) plus one gate_decisions row (approved/rejected, decided_by rule, rule_results JSON of every rule with passed and messages). No change-log entry is written.
+- Migration 8 (gates). DIPO-72 runs in parallel and may also take 8; whichever merges second renumbers.
 <!-- SECTION:NOTES:END -->
