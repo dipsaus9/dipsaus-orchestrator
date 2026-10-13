@@ -1,10 +1,11 @@
 ---
 id: DIPO-63
 title: Keep the machine awake during work and install autostart
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:42'
+updated_date: '2026-10-13 11:49'
 labels:
   - 'tier:M'
   - after-cutover
