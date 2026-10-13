@@ -362,6 +362,67 @@ export {
 export { result as claudeResult } from "./workers/claude-cli/result";
 export { ClaudeWorkerEventSchema } from "./workers/claude-cli/schema";
 export {
+  AdapterHolds,
+  gateLaunch,
+  HOLD_NOTICE_CODE,
+  holdMessage,
+  RELEASE_NOTICE_CODE,
+  type AdapterHold,
+  type AdapterHoldsOptions,
+  type HoldNotice,
+  type LaunchCheckFailure,
+  type LaunchCheckOutcome,
+  type LaunchGate,
+} from "./workers/hold";
+export {
+  CLAUDE_CLI_CAPABILITIES,
+  MIN_CLAUDE_VERSION,
+  probe as probeClaude,
+  REQUIRED_AUTH_METHOD,
+} from "./workers/claude-cli/probe";
+export {
+  checkProjectSettings,
+  LOCAL_STRIPPED_KEYS,
+  SAFE_PROJECT_SETTINGS,
+  stripLocalSettings,
+} from "./workers/claude-cli/settings-check";
+export {
+  bashCalls as selfTestBashCalls,
+  judgeSelfTest,
+  resolveSelfTestTools,
+  workerWritableRoots,
+  PROBE_GROUPS,
+  runSelfTest,
+  SELF_TEST_EFFORT,
+  SELF_TEST_MODEL,
+  SELF_TEST_SYSTEM_PROMPT,
+  selfTestLayout,
+  type ProbeName,
+  type SelfTestDisk,
+  type SelfTestEvidence,
+  type SelfTestBashCalls,
+  type SelfTestTools,
+  type SelfTestVerdict,
+} from "./workers/claude-cli/self-test";
+export {
+  credentialCommands,
+  engineCredentialCheck,
+  GH_KEYCHAIN_SERVICE,
+  judgeCredentialStep,
+  KEYCHAIN_TOOL,
+  CREDENTIAL_MARKER,
+  marked,
+  type CredentialCheckResult,
+  type CredentialProbe,
+  type RunStep,
+} from "./workers/credential-check";
+export {
+  claudeLaunchChecks,
+  prepareLaunch as prepareClaudeLaunch,
+  type ClaudeLaunchCheckDeps,
+  type PreparedLaunch,
+} from "./workers/claude-cli/launch-checks";
+export {
   ScriptedWorker,
   ScriptError,
   scriptProblems,

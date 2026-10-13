@@ -1,0 +1,83 @@
+{
+  "scenario": "safety-pointer-write",
+  "source": "live",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-13",
+  "expected": "The DIPO-43 self-test command under the launch plan as it is: appending one byte to the <worktree>/.git pointer is refused inside the sandbox and the pointer is unchanged on disk; the control write in the worktree succeeds; the session ends with a done report.",
+  "usage_checksum": "e58133af1356eb9cf718aa3f300941884cc5d0d9d152686ebd766c9ba0c243e3",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "6",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Bash",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 2086,
+  "prompt_sha256": "a33942ae65e7bf219165cb4c2e8c9d525f56bdb7e6b5eb2c63b32fee21ddb437",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 1421
+    },
+    {
+      "t": 7348,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "checks": {
+    "disk": {
+      "results": "control written\npointer blocked Operation not permitted\n",
+      "written": [],
+      "pointerChanged": false,
+      "controlWritten": true
+    },
+    "bash": {
+      "calls": 1,
+      "exact": true,
+      "shape": true
+    },
+    "verdict": {
+      "ok": true,
+      "keychainsErrno": null
+    },
+    "probes": ["pointer"]
+  }
+}

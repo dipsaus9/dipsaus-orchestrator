@@ -80,6 +80,7 @@ describe("translatePolicy", () => {
       "/home/maintainer/.config/gh",
       "/home/maintainer/.gnupg",
       "/home/maintainer/.netrc",
+      "/home/maintainer/Library/Keychains",
       "/home/maintainer/.npmrc",
       "/home/maintainer/.git-credentials",
       "/home/maintainer/.claude",

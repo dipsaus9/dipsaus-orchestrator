@@ -221,6 +221,24 @@ describe("runSandboxedStep", () => {
     });
   });
 
+  it("returns startFailed when exit 125 leaves a refusal file that cannot be read", async () => {
+    const rec = fakeHost();
+    rec.host = {
+      ...rec.host,
+      readRefusal: () => Promise.reject(new Error("EACCES: permission denied")),
+    };
+    const running = runSandboxedStep(
+      { clock: new ManualClock(), platform: "linux", host: rec.host },
+      REQUEST,
+    );
+    await settleMany();
+    rec.child.finish({ code: SANDBOX_REFUSED_EXIT_CODE, signal: null }, "", "");
+    expect(await running).toEqual({
+      outcome: "startFailed",
+      reason: `sandbox-exec exited ${SANDBOX_REFUSED_EXIT_CODE} and its refusal file could not be read: EACCES: permission denied`,
+    });
+  });
+
   it("treats a faked refusal line with exit 125 as an ordinary failure", async () => {
     const rec = fakeHost();
     const running = runSandboxedStep(

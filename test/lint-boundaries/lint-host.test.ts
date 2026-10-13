@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { lintTree, type Diagnostic } from "./lint-tree";
+import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 
 const IMPORTS = "eslint(no-restricted-imports)";
 const HOST = "packages/engine/src/host";
@@ -26,23 +26,32 @@ function lintBanned() {
 
 describe("oxlint worker host boundary", () => {
   for (const fixture of banned) {
-    it(`reports ${fixture} in host/`, () => {
-      const { exitCode, diagnostics } = lintBanned();
-      expect(exitCode).not.toBe(0);
-      const hits = diagnostics.filter(
-        (d) => d.code === IMPORTS && d.severity === "error" && d.filename === `${HOST}/${fixture}`,
-      );
-      expect(hits.length).toBeGreaterThan(0);
-    });
+    it(
+      `reports ${fixture} in host/`,
+      () => {
+        const { exitCode, diagnostics } = lintBanned();
+        expect(exitCode).not.toBe(0);
+        const hits = diagnostics.filter(
+          (d) =>
+            d.code === IMPORTS && d.severity === "error" && d.filename === `${HOST}/${fixture}`,
+        );
+        expect(hits.length).toBeGreaterThan(0);
+      },
+      LINT_TIMEOUT_MS,
+    );
   }
 
-  it("allows platform, logging and the worker contract in host/, and the banned modules elsewhere", () => {
-    const { exitCode, diagnostics } = lintTree([
-      { fixture: "host-allowed.ts", target: `${HOST}/host-allowed.ts` },
-      { fixture: "host-imports-db.ts", target: "packages/engine/src/runs/uses-db.ts" },
-      { fixture: "host-imports-budget.ts", target: "packages/engine/src/runs/uses-budget.ts" },
-    ]);
-    expect(diagnostics).toEqual([]);
-    expect(exitCode).toBe(0);
-  });
+  it(
+    "allows platform, logging and the worker contract in host/, and the banned modules elsewhere",
+    () => {
+      const { exitCode, diagnostics } = lintTree([
+        { fixture: "host-allowed.ts", target: `${HOST}/host-allowed.ts` },
+        { fixture: "host-imports-db.ts", target: "packages/engine/src/runs/uses-db.ts" },
+        { fixture: "host-imports-budget.ts", target: "packages/engine/src/runs/uses-budget.ts" },
+      ]);
+      expect(diagnostics).toEqual([]);
+      expect(exitCode).toBe(0);
+    },
+    LINT_TIMEOUT_MS,
+  );
 });

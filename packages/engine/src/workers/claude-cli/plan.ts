@@ -253,6 +253,9 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
     allowUnsandboxedCommands: false,
     filesystem: {
       allowWrite: [workdir, tmp],
+      // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
+      // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
+      denyRead: [`${home}/Library/Keychains`],
       denyWrite: [
         `${main}/.git`,
         `${workdir}/.git`,

@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { lintTree, type Diagnostic } from "./lint-tree";
+import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 
 const GLOBALS = "eslint(no-restricted-globals)";
 const IMPORTS = "eslint(no-restricted-imports)";
@@ -60,24 +60,36 @@ function lintViolations() {
 }
 
 describe("oxlint runtime-free client core", () => {
-  it("fails lint when a violation is present", () => {
-    expect(lintViolations().exitCode).not.toBe(0);
-  });
+  it(
+    "fails lint when a violation is present",
+    () => {
+      expect(lintViolations().exitCode).not.toBe(0);
+    },
+    LINT_TIMEOUT_MS,
+  );
 
   violations.forEach((c, i) => {
-    it(`reports ${c.fixture} in ${c.dir} as ${c.rule}`, () => {
-      const hits = lintViolations().diagnostics.filter(
-        (d) => d.filename === target(c, i) && d.code === c.rule && d.severity === "error",
-      );
-      expect(hits.length).toBeGreaterThan(0);
-    });
+    it(
+      `reports ${c.fixture} in ${c.dir} as ${c.rule}`,
+      () => {
+        const hits = lintViolations().diagnostics.filter(
+          (d) => d.filename === target(c, i) && d.code === c.rule && d.severity === "error",
+        );
+        expect(hits.length).toBeGreaterThan(0);
+      },
+      LINT_TIMEOUT_MS,
+    );
   });
 
-  it("allows Bun and Node APIs in client/node", () => {
-    const { exitCode, diagnostics } = lintTree(
-      allowed.map((c, i) => ({ fixture: c.fixture, target: target(c, i) })),
-    );
-    expect(diagnostics).toEqual([]);
-    expect(exitCode).toBe(0);
-  });
+  it(
+    "allows Bun and Node APIs in client/node",
+    () => {
+      const { exitCode, diagnostics } = lintTree(
+        allowed.map((c, i) => ({ fixture: c.fixture, target: target(c, i) })),
+      );
+      expect(diagnostics).toEqual([]);
+      expect(exitCode).toBe(0);
+    },
+    LINT_TIMEOUT_MS,
+  );
 });

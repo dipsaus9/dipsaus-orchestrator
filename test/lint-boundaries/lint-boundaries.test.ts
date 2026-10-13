@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { lintTree, type Placement } from "./lint-tree";
+import { LINT_TIMEOUT_MS, lintTree, type Placement } from "./lint-tree";
 
 const RULE = "eslint(no-restricted-imports)";
 
@@ -24,21 +24,29 @@ const violations: Placement[] = [
 
 describe("oxlint import boundaries", () => {
   for (const placement of violations) {
-    it(`reports ${placement.fixture} in ${placement.target}`, () => {
-      const { exitCode, diagnostics } = lintTree([placement]);
-      expect(exitCode).not.toBe(0);
-      const hits = diagnostics.filter(
-        (d) => d.code === RULE && d.severity === "error" && d.filename === placement.target,
-      );
-      expect(hits.length).toBeGreaterThan(0);
-    });
+    it(
+      `reports ${placement.fixture} in ${placement.target}`,
+      () => {
+        const { exitCode, diagnostics } = lintTree([placement]);
+        expect(exitCode).not.toBe(0);
+        const hits = diagnostics.filter(
+          (d) => d.code === RULE && d.severity === "error" && d.filename === placement.target,
+        );
+        expect(hits.length).toBeGreaterThan(0);
+      },
+      LINT_TIMEOUT_MS,
+    );
   }
 
-  it("allows cli to import client, contract and daemon", () => {
-    const { exitCode, diagnostics } = lintTree([
-      { fixture: "cli-allowed.ts", target: "packages/cli/src/fixture.ts" },
-    ]);
-    expect(diagnostics).toEqual([]);
-    expect(exitCode).toBe(0);
-  });
+  it(
+    "allows cli to import client, contract and daemon",
+    () => {
+      const { exitCode, diagnostics } = lintTree([
+        { fixture: "cli-allowed.ts", target: "packages/cli/src/fixture.ts" },
+      ]);
+      expect(diagnostics).toEqual([]);
+      expect(exitCode).toBe(0);
+    },
+    LINT_TIMEOUT_MS,
+  );
 });

@@ -106,6 +106,55 @@ describe("claude-cli plan", () => {
     });
   }
 
+  // The session runs no credential probe (0008 amendment of 2026-10-13), so these denies are
+  // asserted on every run settings file instead, for every tier, on launch and resume.
+  for (const tier of ["S", "M", "L"] as const) {
+    for (const resume of [false, true]) {
+      it(`carries the Keychain and credential denies (tier ${tier}${resume ? ", resume" : ""})`, () => {
+        const settings = settingsOf(
+          plan(
+            spec(tier, { session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume } }),
+            context(),
+          ),
+        ) as {
+          permissions: { allow: string[]; deny: string[] };
+          sandbox: {
+            filesystem: { denyRead: string[] };
+            credentials: {
+              files: { path: string; mode: string }[];
+              envVars: { name: string; mode: string }[];
+            };
+          };
+        };
+        // The Keychain folder is a sandbox read deny, never a permission rule.
+        expect(settings.sandbox.filesystem.denyRead).toEqual([
+          "/home/maintainer/Library/Keychains",
+        ]);
+        const rules = [...settings.permissions.allow, ...settings.permissions.deny].join(" ");
+        expect(rules).not.toContain("Keychains");
+        expect(settings.sandbox.credentials.files).toEqual(
+          [".ssh", ".aws", ".config/gh", ".gnupg", ".netrc"].map((file) => ({
+            path: `/home/maintainer/${file}`,
+            mode: "deny",
+          })),
+        );
+        expect(settings.sandbox.credentials.envVars).toEqual(
+          ["GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"].map((name) => ({ name, mode: "deny" })),
+        );
+        for (const rule of [
+          "Read(~/.ssh/**)",
+          "Read(~/.aws/**)",
+          "Read(~/.config/gh/**)",
+          "Read(~/.gnupg/**)",
+          "Read(~/.netrc)",
+          "Bash(gh *)",
+        ]) {
+          expect(settings.permissions.deny).toContain(rule);
+        }
+      });
+    }
+  }
+
   it("starts with the absolute claude path and passes the 0008 flags", () => {
     const launch = plan(spec("M"), context());
     expect(launch.argv[0]).toBe("/home/maintainer/.local/bin/claude");
