@@ -15,6 +15,7 @@ import {
   judgeSelfTest,
   PROBE_GROUPS,
   runSandboxedStep,
+  selfTestProbesFor,
   selfTestBashCalls,
   SELF_TEST_SYSTEM_PROMPT,
   selfTestLayout,
@@ -410,7 +411,7 @@ async function captureCredentialCheck(paths: CapturePaths): Promise<CredentialCh
   });
 }
 
-function verifySelfTest(probes: readonly ProbeName[]) {
+function verifySelfTest(probes: readonly ProbeName[], credentials: boolean) {
   return async (
     paths: CapturePaths,
     raw: readonly Envelope[],
@@ -458,12 +459,16 @@ function verifySelfTest(probes: readonly ProbeName[]) {
       bash,
       verdict,
       probes,
-      ...(probes.includes("gh-config")
+      ...(probes.includes("keychains")
         ? {
-            // The engine confirms the file exists outside the sandbox before the session.
-            ghConfigExistsOutsideSandbox: existsSync(layout.ghConfigFile),
-            // The engine-side half (0008 amendment): gh auth token and, on macOS, the Keychain
-            // lookup under srt's verify policy, output to /dev/null, no model.
+            // The engine confirms the folder exists outside the sandbox before the session.
+            keychainsExistOutsideSandbox: existsSync(layout.keychainsDir),
+          }
+        : {}),
+      ...(credentials
+        ? {
+            // The engine-side half (0008 amendments): gh auth token and, on macOS, the Keychain
+            // lookup with -w under srt's verify policy, output to /dev/null, no model.
             engineCredentialCheck: await captureCredentialCheck(paths),
           }
         : {}),
@@ -472,7 +477,8 @@ function verifySelfTest(probes: readonly ProbeName[]) {
 }
 
 function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Scenario {
-  const probes = PROBE_GROUPS[name];
+  // The Keychain folder probe runs on macOS only, as in the engine.
+  const probes = selfTestProbesFor(currentPlatform(), PROBE_GROUPS[name]);
   return {
     name,
     fixture: "greeter",
@@ -482,7 +488,7 @@ function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Sc
     tools: ["Bash"],
     turns: [(paths) => selfTestLayout(selfTestPaths(paths), probes).prompt],
     expected,
-    verify: verifySelfTest(probes),
+    verify: verifySelfTest(probes, name === "safety-gh-token"),
     systemPrompt: SELF_TEST_SYSTEM_PROMPT,
     timeoutMs: 300_000,
   };
@@ -509,7 +515,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ),
   selfTestScenario(
     "safety-gh-token",
-    "The DIPO-43 self-test command under the launch plan as it is: opening <home>/.config/gh/hosts.yml for reading (closed at once, nothing read) fails with EPERM or EACCES inside the sandbox on a file that exists outside it (checks.ghConfigExistsOutsideSandbox); the control write in the worktree succeeds; the session ends with a done report. checks.engineCredentialCheck holds the engine-side half: gh auth token and, on macOS, the Keychain lookup run by the engine under srt (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox (a wrapper failure without the marker holds the adapter).",
+    "The DIPO-43 self-test command under the launch plan as it is: on macOS, listing <home>/Library/Keychains (no file in it opened) fails with EPERM or EACCES inside the sandbox on a folder that exists outside it (checks.keychainsExistOutsideSandbox, verdict.keychainsErrno); the control write in the worktree succeeds; the session ends with a done report. checks.engineCredentialCheck holds the engine-side half: gh auth token and, on macOS, security find-generic-password -s gh:github.com -w run by the engine under srt (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox (a wrapper failure without the marker holds the adapter).",
   ),
 ];
 
