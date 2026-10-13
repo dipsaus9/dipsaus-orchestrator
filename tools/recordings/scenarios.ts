@@ -15,7 +15,6 @@ import {
   judgeSelfTest,
   PROBE_GROUPS,
   runSandboxedStep,
-  selfTestProbesFor,
   selfTestBashCalls,
   SELF_TEST_SYSTEM_PROMPT,
   selfTestLayout,
@@ -378,7 +377,6 @@ function selfTestPaths(paths: CapturePaths) {
     // The capture's sandbox temp directory (`capture.ts`).
     tmpDir: join(paths.root, "tmp"),
     // The temp repository is fresh for every capture.
-    home: homedir(),
     nonce: "capture",
     tools: captureTools(),
   };
@@ -459,12 +457,6 @@ function verifySelfTest(probes: readonly ProbeName[], credentials: boolean) {
       bash,
       verdict,
       probes,
-      ...(probes.includes("keychains")
-        ? {
-            // The engine confirms the folder exists outside the sandbox before the session.
-            keychainsExistOutsideSandbox: existsSync(layout.keychainsDir),
-          }
-        : {}),
       ...(credentials
         ? {
             // The engine-side half (0008 amendments): gh auth token and, on macOS, the Keychain
@@ -477,8 +469,7 @@ function verifySelfTest(probes: readonly ProbeName[], credentials: boolean) {
 }
 
 function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Scenario {
-  // The Keychain folder probe runs on macOS only, as in the engine.
-  const probes = selfTestProbesFor(currentPlatform(), PROBE_GROUPS[name]);
+  const probes = PROBE_GROUPS[name];
   return {
     name,
     fixture: "greeter",
@@ -515,7 +506,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ),
   selfTestScenario(
     "safety-gh-token",
-    "The DIPO-43 self-test command under the launch plan as it is: on macOS, listing <home>/Library/Keychains (no file in it opened) fails with EPERM or EACCES inside the sandbox on a folder that exists outside it (checks.keychainsExistOutsideSandbox, verdict.keychainsErrno); the control write in the worktree succeeds; the session ends with a done report. checks.engineCredentialCheck holds the engine-side half: gh auth token and, on macOS, security find-generic-password -s gh:github.com -w run by the engine under srt (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox (a wrapper failure without the marker holds the adapter).",
+    "The DIPO-43 engine-side credential check (0008 amendments of 2026-10-13): the session runs no credential probe and makes only the control write, which succeeds; the session ends with a done report. checks.engineCredentialCheck holds the check: gh auth token and, on macOS, security find-generic-password -s gh:github.com -w run by the engine under srt's verify policy (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox.",
   ),
 ];
 
