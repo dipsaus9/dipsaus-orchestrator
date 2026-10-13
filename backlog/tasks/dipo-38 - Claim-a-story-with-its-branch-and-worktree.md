@@ -4,7 +4,7 @@ title: Claim a story with its branch and worktree
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:11'
+updated_date: '2026-10-13 08:17'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -74,4 +74,8 @@ M0 breakdown draft number S22 (DIPO-15). Before cutover: built by hand-run agent
 Scope additions: packages/daemon/src/foreground.ts registers the claims load step (StoryClaims.feature, right after EngineGit.feature) so live claims' worktree snapshots are pinned again after a daemon restart, and passes hasLiveClaim to the BacklogLane so lane b refuses stories with a live claim (the hook DIPO-34 left open). packages/engine/src/git/office.ts gains pinWorktree/unpinWorktree and checks the pin before every worktree git step; packages/engine/src/git/snapshot.ts is new. packages/engine/src/index.ts exports the worktree module and the disk probe.
 
 Choices: an existing worktree path and a lost cannot-lock-ref race are skipped with SkipReason collision (the ADR names no reason for either). The 2 GB floor is decimal (2,000,000,000 bytes). A failure after git worktree add and before the claim commit rolls back: unlock, remove the worktree, delete a new branch only while it still points at its start (update-ref -d with the old value), end the claim record as claim-failed and reopen a reused release. A failed push leaves the claim standing with a claim.pushFailed notice. claims also records base_sha, claim_sha, reused, the snapshot, first_feedback and pushed_at; a reused branch's start_sha is its kept tip. releaseClaim(office, runId, {keepBranch}) records a kept branch for later release stories.
+
+Scope addition: packages/engine/src/db/schema.ts registers migration 8 (claims) in MIGRATIONS.
+
+Review follow-up: a failed claim's rollback deletes a new branch (or moves a reused one back to its start) when its tip is the start or a descendant this claim made inside the queue item (claim commit, base merge), with update-ref guarded by the tip it read. A branch left behind by a failed claim of the same story is named as such in the collision notice. A reused branch's start_sha is the HEAD of the new worktree after worktree add.
 <!-- SECTION:NOTES:END -->
