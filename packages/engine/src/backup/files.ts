@@ -83,11 +83,25 @@ export function newestDailyBackupAt(dir: string): number | null {
   return newest;
 }
 
-/** Deletes the copies beyond the counts to keep; returns the names it deleted. */
-export function pruneBackups(dir: string, counts: BackupCounts = DEFAULT_BACKUP_COUNTS): string[] {
+/** The names beyond `count`, newest first; names in `keep` are never removed and count first. */
+function beyond(names: readonly string[], count: number, keep: ReadonlySet<string>): string[] {
+  const kept = names.filter((name) => keep.has(name)).length;
+  return names.filter((name) => !keep.has(name)).slice(Math.max(0, count - kept));
+}
+
+/**
+ * Deletes the copies beyond the counts to keep; returns the names it deleted. Names in `keep`, such
+ * as the copy just written, are never deleted, even when a clock that went back made them look
+ * oldest; they take their place in the count.
+ */
+export function pruneBackups(
+  dir: string,
+  counts: BackupCounts = DEFAULT_BACKUP_COUNTS,
+  keep: ReadonlySet<string> = new Set(),
+): string[] {
   const removed = [
-    ...dailyBackups(dir).slice(Math.max(0, counts.daily)),
-    ...preMigrationBackups(dir).slice(Math.max(0, counts.preMigration)),
+    ...beyond(dailyBackups(dir), counts.daily, keep),
+    ...beyond(preMigrationBackups(dir), counts.preMigration, keep),
   ];
   for (const name of removed) rmSync(join(dir, name), { force: true });
   return removed;

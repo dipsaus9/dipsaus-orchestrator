@@ -35,6 +35,10 @@ function seed(dir: string, names: readonly string[]): void {
   for (const name of names) writeFileSync(join(dir, name), "");
 }
 
+async function copied(_source: string, target: string): Promise<void> {
+  writeFileSync(target, "copy");
+}
+
 async function failing(_source: string, target: string): Promise<void> {
   writeFileSync(target, "half a copy");
   throw new Error("quick_check: page 3 is never used");
@@ -115,6 +119,24 @@ describe("daily backup", () => {
         written: false,
         removed: [],
       });
+    }));
+
+  it("never deletes the copy just written, also after the clock went back", () =>
+    withState(async (t, backups) => {
+      // Newer copies than today's: the clock was set back since they were written.
+      seed(backups, ["dipo-20260105.db", "dipo-20260106.db", "dipo-20260107.db"]);
+      const result = await writeDailyBackup({
+        dbPath: t.state.connection.path,
+        now: t.clock.now(),
+        vacuum: copied,
+      });
+      expect(result.path).toBe(join(backups, "dipo-20260101.db"));
+      expect(result.removed).toEqual(["dipo-20260105.db"]);
+      expect(files(backups).filter((name) => name.startsWith("dipo-"))).toEqual([
+        "dipo-20260101.db",
+        "dipo-20260106.db",
+        "dipo-20260107.db",
+      ]);
     }));
 
   it("prunes with configurable counts", () =>

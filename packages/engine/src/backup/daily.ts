@@ -5,7 +5,7 @@
 // beyond the counts to keep are deleted.
 
 import { existsSync, renameSync, rmSync, utimesSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { vacuumInto } from "../platform/sqlite";
 
@@ -54,6 +54,10 @@ export async function writeDailyBackup(options: DailyBackupOptions): Promise<Dai
   // The engine's clock decides when the next copy is due, so the copy carries its time.
   const seconds = options.now / 1000;
   utimesSync(path, seconds, seconds);
-  const removed = pruneBackups(dir, options.counts ?? DEFAULT_BACKUP_COUNTS);
+  const removed = pruneBackups(
+    dir,
+    options.counts ?? DEFAULT_BACKUP_COUNTS,
+    new Set([basename(path)]),
+  );
   return { path, written: true, removed };
 }
