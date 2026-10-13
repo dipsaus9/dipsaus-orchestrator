@@ -21,14 +21,12 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { EXIT_CONFIG, LAUNCHD_LABEL, SYSTEMD_UNIT } from "@dipsaus-orchestrator/contract";
+
 import type { Env } from "../runtime";
 
-export const LAUNCHD_LABEL = "dipo.daemon";
-export const SYSTEMD_UNIT = "dipo.service";
 /** The drain cap is 60 s with `stopWorkers`; the supervisor waits longer before it kills. */
 export const SUPERVISOR_STOP_TIMEOUT_S = 75;
-/** `EXIT_CONFIG` from the contract (DIPO-69): the daemon refused its `config.yaml`. */
-const EXIT_CONFIG_STATUS = 78;
 
 export type SupervisorKind = "launchd" | "systemd";
 
@@ -168,7 +166,7 @@ Type=simple
 ExecStart=${options.program.map(systemdWord).join(" ")}
 Environment=${envLine}
 Restart=on-failure
-RestartPreventExitStatus=${EXIT_CONFIG_STATUS}
+RestartPreventExitStatus=${EXIT_CONFIG}
 TimeoutStopSec=${SUPERVISOR_STOP_TIMEOUT_S}
 
 [Install]

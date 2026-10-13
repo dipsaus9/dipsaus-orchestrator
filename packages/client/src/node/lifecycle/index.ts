@@ -51,7 +51,6 @@ export {
   isInstalled,
   launchdDomain,
   launchdPlist,
-  LAUNCHD_LABEL,
   lingeringOn,
   lingerWarning,
   supervisorFile,
@@ -60,7 +59,6 @@ export {
   supervisorStop,
   SUPERVISOR_STOP_TIMEOUT_S,
   systemdUnit,
-  SYSTEMD_UNIT,
   systemSupervisorExec,
 } from "./supervisor";
 export type {
