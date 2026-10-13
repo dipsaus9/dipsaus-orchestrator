@@ -20,7 +20,13 @@ import { engineRegistry, FEATURES } from "../../src/features";
 import { executeRead } from "../../src/reads/execute";
 import { describeFeature } from "../../src/reads/describe";
 import { addStory } from "../../src/stories/keys";
-import { detailRead, type FixtureCalls, fixtureFeature, touchCommand } from "./fixtures";
+import {
+  detailRead,
+  type FixtureCalls,
+  fixtureFeature,
+  fixtureView,
+  touchCommand,
+} from "./fixtures";
 import { addOffice, createFactTable, openTestState } from "./helpers";
 
 const R1 = RequestId.parse("01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
@@ -95,7 +101,60 @@ describe("registry", () => {
     expect(() => buildRegistry([describeFeature, describeFeature])).toThrow(
       "The read commands.describe is registered by both reads/describe and reads/describe",
     );
+    const waiting: FeatureModule = {
+      name: "test/waiting",
+      register(registry) {
+        registry.addAsyncRead({
+          definition: detailRead,
+          handle: async () => ({ view: {}, runs: [], verdicts: [] }) as never,
+        });
+      },
+    };
+    expect(() => buildRegistry([fixtureFeature(newCalls()), waiting])).toThrow(
+      "The read fixture.detail is registered by both test/fixture and test/waiting",
+    );
   });
+
+  it("runs an async read after resolving its story references (DIPO-71)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        const story = office.immediate(() =>
+          addStory(office, t.ids, { story: StoryId.parse("DIPO-3") }, 0),
+        );
+        const seen: unknown[] = [];
+        const waiting: FeatureModule = {
+          name: "test/waiting",
+          register(registry) {
+            registry.addAsyncRead({
+              definition: detailRead,
+              handle: async (ctx, args) => {
+                await Promise.resolve();
+                seen.push(ctx.stories.get(args.story), ctx.office?.officeId);
+                return { view: fixtureView(story.key, story.story), runs: [], verdicts: [] };
+              },
+            });
+          },
+        };
+        const registry = buildRegistry([waiting]);
+        expect(registry.read("fixture.detail")?.waits).toBe(true);
+        const deps = { registry, offices: stateOfficeDirectory(t.state), clock: t.clock };
+        const args = { office: office.officeId, story: "DIPO-3" };
+        const reply = await executeRead(deps, { requestId: R1, name: "fixture.detail", args });
+        expect(reply.ok ? "ok" : reply.error.message).toBe("ok");
+        expect(seen).toEqual([story, office.officeId]);
+        const unknown = await executeRead(deps, {
+          requestId: R1,
+          name: "fixture.detail",
+          args: { office: office.officeId, story: "DIPO-9" },
+        });
+        expect(unknown.ok ? "ok" : unknown.error.code).toBe("story.unknown");
+        expect(seen).toHaveLength(2);
+      } finally {
+        t.state.close();
+      }
+    }));
 
   it("refuses a definition with a broken since/provisional pair or the wrong level", () => {
     const bad: FeatureModule = {

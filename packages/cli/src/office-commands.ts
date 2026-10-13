@@ -57,7 +57,7 @@ type Target =
   | { readonly kind: "unregistered"; readonly main: string }
   | { readonly kind: "exit"; readonly code: number };
 
-interface Parsed {
+export interface Parsed {
   readonly office: OfficeId | null;
   readonly yes: boolean;
 }

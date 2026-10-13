@@ -11,6 +11,7 @@ import {
   GateId,
   GENERIC_ERROR_CODES,
   isRetryableErrorCode,
+  OFFICE_ERROR_CODES,
   OfficeId,
   packageName,
   QuestionId,
@@ -206,11 +207,16 @@ describe("errors", () => {
     );
   });
 
+  it("exports the office-level codes of minor 1 (DIPO-71)", () => {
+    expect([...OFFICE_ERROR_CODES]).toEqual(["config.invalid", "backlog.unreadable"]);
+  });
+
   it("marks only engine.recovering, scheduling.off and run.hostAlive retryable", () => {
     const retryable = [
       ...GENERIC_ERROR_CODES,
       ...RETRYABLE_ERROR_CODES,
       ...SOFTWARE_ERROR_CODES,
+      ...OFFICE_ERROR_CODES,
       "x.y",
     ]
       .filter((code) => engineError(code, "m").retryable)

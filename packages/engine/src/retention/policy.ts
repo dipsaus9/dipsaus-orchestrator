@@ -58,5 +58,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     rule: "reclaimed more than stateDays ago; a branch not yet reclaimed is kept",
   },
   pricing_checks: { tier: "S", rule: "raised more than stateDays ago" },
+  gate_decisions: { tier: "S", rule: "decided more than stateDays ago" },
+  gates: {
+    tier: "S",
+    rule: "opened more than stateDays ago, with no decision left; a gate still waiting is kept",
+  },
   once_notices: { tier: "P", rule: "kept until purge, so a once-per-office notice stays shown" },
 };

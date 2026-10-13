@@ -3,13 +3,14 @@
 // an archived or completed task closes as Removed with a notice, a hand-promoted draft is
 // renumbered, an ambiguous created date matches nothing, and a status pushed to the remote is
 // indexed after `polling.fetchSeconds` on the manual clock.
+// The slower cases run in CI only, in index.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, renameSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
+import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
@@ -100,8 +101,8 @@ function mirrorStatus(office: OfficeHandle, id: string): string | undefined {
 }
 
 describe("story index on the Backlog CLI", () => {
-  it("indexes the fixture at load; keys are stable across passes and a retitle", () =>
-    withIndexedOffice(async ({ repo, index, officeId, office }) => {
+  it("indexes the fixture at load; keys are stable across passes and a retitle; a pushed status is indexed after polling.fetchSeconds", () =>
+    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
       const loaded = storyRows(office);
       expect(loaded.map((row) => [row.story_id, row.removed])).toEqual([
         ["DRAFT-1", false],
@@ -139,6 +140,27 @@ describe("story index on the Backlog CLI", () => {
       const [entry] = entriesAfter(office, seq);
       expect(entry?.delta).toMatchObject({ story: "TASK-2", from: "Refined", to: "Refined" });
       expect(entry?.view).toMatchObject({ title: "Rename the export option" });
+
+      // A status pushed to the remote is indexed by the poll after polling.fetchSeconds, not before.
+      // The full case, with a second clone and the CLI, is in index.ci.test.ts.
+      const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
+      await publish(repo, "TASK-2 Ready");
+      const key = keyOf(office, "TASK-2");
+      const polled = lastSeq(office);
+      const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
+      s.clock.advance(interval - 1);
+      await index.whenIdle(officeId);
+      expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
+      s.clock.advance(1);
+      await index.whenIdle(officeId);
+      expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
+      expect(entriesAfter(office, polled)[0]?.delta).toEqual({
+        story: "TASK-2",
+        key,
+        from: "Refined",
+        to: "Ready",
+      });
     }));
 
   it("loads the office with a stories.notIndexed notice when the Backlog CLI fails", () =>
@@ -154,111 +176,4 @@ describe("story index on the Backlog CLI", () => {
       },
       ["false"],
     ));
-
-  it("closes an archived and a completed task as Removed with a notice", () =>
-    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
-      const archived = keyOf(office, "TASK-1");
-      const completed = keyOf(office, "TASK-3");
-      const seq = lastSeq(office);
-      await backlog(repo, ["task", "archive", "TASK-1"]);
-      mkdirSync(join(repo.dir, "backlog", "completed"), { recursive: true });
-      renameSync(
-        join(repo.dir, "backlog", "tasks", "task-3 - Export-stories-as-JSON.md"),
-        join(repo.dir, "backlog", "completed", "task-3 - Export-stories-as-JSON.md"),
-      );
-      await publish(repo, "archive TASK-1, complete TASK-3");
-      s.changed.length = 0;
-      const result = await index.indexStories(officeId);
-      expect(result.stats).toMatchObject({ removed: 2, added: 0, stories: 2 });
-      expect(s.changed).toEqual([officeId]);
-      const entries = entriesAfter(office, seq);
-      for (const [key, from] of [
-        [archived, "Ready"],
-        [completed, "Parked"],
-      ] as const) {
-        expect(entries.find((e) => e.key === key && e.type === "story.state")?.delta).toMatchObject(
-          { from, to: "Removed" },
-        );
-        expect(
-          entries.find((e) => e.key === key && e.type === "engine.notice")?.delta,
-        ).toMatchObject({ level: "warn", code: "story.removed" });
-      }
-      expect(keyOf(office, "TASK-1")).toBeNull();
-    }));
-
-  it("matches a hand-promoted draft and emits story.renumbered", () =>
-    withIndexedOffice(async ({ repo, index, officeId, office }) => {
-      const key = keyOf(office, "DRAFT-1");
-      const seq = lastSeq(office);
-      await backlog(repo, ["draft", "promote", "DRAFT-1"]);
-      await publish(repo, "promote DRAFT-1");
-      const result = await index.indexStories(officeId);
-      expect(result.stats).toMatchObject({ renumbered: 1, added: 0, removed: 0 });
-      const entries = entriesAfter(office, seq);
-      const renumbered = entries.find((e) => e.type === "story.renumbered");
-      expect(renumbered?.delta).toMatchObject({ key, from: "DRAFT-1", detectedBy: "reconcile" });
-      const to = String(renumbered?.delta["to"]);
-      expect(to).toMatch(/^TASK-\d+$/);
-      expect(keyOf(office, to)).toBe(key);
-      expect(entries.find((e) => e.type === "story.state")?.delta).toMatchObject({
-        story: to,
-        from: "Draft",
-        to: "Refined",
-      });
-    }));
-
-  it("reports story.ambiguous when two vanished stories share the created date", () =>
-    withIndexedOffice(async ({ repo, index, officeId, office }) => {
-      const oldKeys = [keyOf(office, "TASK-1"), keyOf(office, "DRAFT-1")];
-      const seq = lastSeq(office);
-      await backlog(repo, ["task", "archive", "TASK-1"]);
-      await backlog(repo, ["draft", "promote", "DRAFT-1"]);
-      await publish(repo, "archive TASK-1, promote DRAFT-1");
-      const result = await index.indexStories(officeId);
-      expect(result.stats).toMatchObject({ ambiguous: 1, renumbered: 0, removed: 2, added: 1 });
-      const entries = entriesAfter(office, seq);
-      expect(entries.find((e) => e.type === "engine.notice")?.delta).toMatchObject({
-        level: "warn",
-        code: "story.ambiguous",
-      });
-      expect(entries.some((e) => e.type === "story.renumbered")).toBe(false);
-      const live = storyRows(office).filter((row) => !row.removed);
-      for (const key of oldKeys) expect(live.map((row) => row.key)).not.toContain(key);
-    }));
-
-  it("indexes a status pushed to the remote after polling.fetchSeconds", () =>
-    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
-      const other = join(repo.root, "other");
-      await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
-      await backlog(repo, ["task", "edit", "TASK-2", "-s", "Ready"], other);
-      await git(other, repo.home, "commit", "--quiet", "-am", "TASK-2 Ready");
-      await git(other, repo.home, "push", "--quiet", "origin", "main");
-      const key = keyOf(office, "TASK-2");
-      const seq = lastSeq(office);
-
-      const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
-      s.clock.advance(interval - 1);
-      await index.whenIdle(officeId);
-      expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
-
-      s.clock.advance(1);
-      await index.whenIdle(officeId);
-      expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
-      const [entry] = entriesAfter(office, seq);
-      expect(entry?.delta).toEqual({ story: "TASK-2", key, from: "Refined", to: "Ready" });
-      expect(entry?.view).toMatchObject({ lifecycle: "Ready", column: "ready" });
-      expect(s.changed).toContain(officeId);
-
-      // The next poll finds nothing new and writes nothing.
-      const after = lastSeq(office);
-      s.clock.advance(interval);
-      await index.whenIdle(officeId);
-      expect(lastSeq(office)).toBe(after);
-
-      // A forgotten office stops polling at its next tick.
-      resultOf(await send(s, "office.forget", { office: officeId }));
-      s.clock.advance(interval);
-      await index.whenIdle(officeId);
-      expect(s.clock.pendingTimers).toBe(0);
-    }));
 });

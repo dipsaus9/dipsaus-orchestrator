@@ -13,7 +13,8 @@ import { promptPartsWorkerNotes } from "./migrations/0009-prompt-parts-worker-no
 import { claims } from "./migrations/0010-claims";
 import { pricing } from "./migrations/0011-pricing";
 import { retentionIndexes } from "./migrations/0012-retention-indexes";
-import { onceNotices } from "./migrations/0013-once-notices";
+import { gates } from "./migrations/0013-gates";
+import { onceNotices } from "./migrations/0014-once-notices";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -62,5 +63,6 @@ create table offices (
   claims,
   pricing,
   retentionIndexes,
+  gates,
   onceNotices,
 ];
