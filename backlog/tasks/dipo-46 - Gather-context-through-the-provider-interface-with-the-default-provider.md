@@ -4,7 +4,7 @@ title: Gather context through the provider interface with the default provider
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 07:14'
+updated_date: '2026-10-13 07:23'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -73,4 +73,6 @@ Implemented in packages/engine/src/context/: ContextProvider, ContextRequest and
 PR #59 review fixes: (1) the provider and the git workspace never read a file whose name matches a 0008 secret pattern (.env*, .npmrc, .netrc, _netrc, .git-credentials, *.pem, id_rsa/id_dsa/id_ecdsa/id_ed25519*; secrets.ts); such scope or input files are listed with content `secret`, empty text and no blob id. (2) gitWorkspace.readFile checks realpath(file) is under realpath(work tree) after lstat and refuses otherwise (a directory swapped for a link). (3) gatherContext catches errors from backend status, prepare and gather and returns the default pack with the note `backend <id> skipped, error: <message>`. (4) Directory and component listings use their own truncation marker without a file line (truncateListing); a cut listing's `shown` counts the entries kept. (5) pack.ts documents that blob ids hash raw work-tree bytes, so they can differ from `git ls-files -s` under filters or eol conversion.
 
 Migration renumbered to 7 (0007-context-packs.ts) after DIPO-34 (5, backlog_journal) and DIPO-32 (6, backlog_mirror) merged to main; the note above that says Migration 5 now reads as Migration 7.
+
+Hardening (PR #59): isSecretPath checks every path segment, so anything under a .env*, .ssh, .aws, .gnupg, .docker or .kube directory is secret; added credential names (credentials, credentials.json, secrets.yaml/yml/json, service-account*.json, .pgpass, .dockercfg, *.key, *.p12, *.pfx, *.keystore, *.jks). Workspace reads open with O_NOFOLLOW and check the open descriptor: a regular file with nlink 1 whose dev/ino match the lstat of its realpath under the work tree. Anything else is listed with content "refused" and a refusal reason (symbolic link, hard link, secret path, resolves outside the work tree, changed while being read).
 <!-- SECTION:NOTES:END -->
