@@ -4,5 +4,11 @@ export { evaluateChecks, REQUIRED_CHECKS } from "./checks";
 export type { ChecksVerdict } from "./checks";
 export { laneSlotGit } from "./git";
 export type { BaseSync, PushOutcome, SlotGit } from "./git";
-export { MAX_MERGE_ATTEMPTS, MERGE_SLOT_STEP, MergeSlot, SLOT_NOTICES } from "./slot";
+export {
+  CHECKS_WAIT_MS,
+  MAX_MERGE_ATTEMPTS,
+  MERGE_SLOT_STEP,
+  MergeSlot,
+  SLOT_NOTICES,
+} from "./slot";
 export type { MergeSlotDeps, SlotOutcome } from "./slot";

@@ -35,6 +35,8 @@ export interface SlotGit {
   syncBase(branch: string): Promise<BaseSync>;
   /** Pushes `branch` once, never forced, when its tip differs from the remote's. */
   push(branch: string): Promise<PushOutcome>;
+  /** True when `commit` is `head` or one of its ancestors; false when either is unknown. */
+  inHead(commit: string, head: string): Promise<boolean>;
   /** Deletes the merged `branch` locally and, best effort, on the remote. */
   deleteBranch(branch: string): Promise<void>;
 }
@@ -81,6 +83,17 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
     fetch: async () => (await officeGit.fetch()).ok,
 
     head: (branch) => officeGit.run((git) => revParse(git, `refs/heads/${branch}`)),
+
+    inHead: (commit, head) =>
+      officeGit.run(async (git) => {
+        const result = await git.step(git.repository, [
+          "merge-base",
+          "--is-ancestor",
+          commit,
+          head,
+        ]);
+        return result.code === 0;
+      }),
 
     containsBase: async (branch) => {
       const base = await baseRef();

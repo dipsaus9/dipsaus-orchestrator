@@ -38,9 +38,12 @@ export class SlotHost extends FakeHost {
   onRefuse: () => void = () => {};
   readonly merges: { number: number; headSha: string | undefined }[] = [];
   checkReads = 0;
+  /** When set, reading the required checks fails with it. */
+  checksError: CodeHostError | null = null;
 
   override async requiredChecks(): Promise<RequiredCheck[]> {
     this.checkReads += 1;
+    if (this.checksError !== null) throw this.checksError;
     return this.checks;
   }
 
@@ -96,6 +99,13 @@ export class FakeSlotGit implements SlotGit {
   async push(branch: string): Promise<PushOutcome> {
     this.calls.push(`push ${branch}`);
     return this.pushAnswer;
+  }
+
+  /** Commits the merged head does not contain; every other commit is in it. */
+  readonly notInHead = new Set<string>();
+
+  async inHead(commit: string): Promise<boolean> {
+    return !this.notInHead.has(commit);
   }
 
   async deleteBranch(branch: string): Promise<void> {
