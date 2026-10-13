@@ -67,10 +67,16 @@ describe("runDaemon", () => {
     expect(err.join("\n")).toContain("--no-orphans");
   });
 
-  it("dispatches wait-pid, which a later story builds", async () => {
+  it("dispatches wait-pid, which exits 0 once the process is gone (DIPO-63)", async () => {
+    // A real short-lived process stands in for the daemon.
+    const sleeper = Bun.spawn({ cmd: ["sleep", "0.2"], stdin: "ignore", stdout: "ignore" });
     const wait = capture();
-    expect(await runDaemon(["wait-pid", "4242"], wait.io)).toBe(1);
-    expect(wait.err.join("\n")).toContain("wait-pid is not available");
+    const [code] = await Promise.all([
+      runDaemon(["wait-pid", String(sleeper.pid)], wait.io),
+      sleeper.exited,
+    ]);
+    expect(code).toBe(0);
+    expect(wait.err).toEqual([]);
   });
 
   it("refuses --foreground when --no-orphans is in the Bun flags", async () => {

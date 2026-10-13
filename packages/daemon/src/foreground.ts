@@ -11,11 +11,13 @@ import {
   EXIT_CONFIG,
   type LogLevel,
   type SoftwareConfig,
+  type Spawn,
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 import {
   acquireLock,
   BacklogLane,
+  bootoutOwnLaunchdJob,
   ChildProcesses,
   chooseRuntimeDir,
   createLogger,
@@ -31,6 +33,8 @@ import {
   helloFeature,
   helloHandshake,
   isLogLevel,
+  KeepAwake,
+  KeepAwakeHolder,
   lingeringEnabled,
   loadSoftwareConfig,
   LOG_LEVELS,
@@ -43,6 +47,7 @@ import {
   openStateDatabase,
   passwdHome,
   readRuntimeRecord,
+  readWorkActivity,
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
@@ -59,10 +64,14 @@ import {
   systemProcessProbe,
   systemSpawn,
   systemSpawnDetached,
+  systemSpawnKeepAwake,
+  underLaunchdJob,
+  WorkTracker,
   writeRuntimeRecord,
   type FeatureModule,
   type ReadExecutableStamp,
   type SpawnDetached,
+  type SpawnKeepAwake,
   type HeldLock,
   type Logger,
   type LogFile,
@@ -104,6 +113,10 @@ export interface ForegroundOptions {
   readonly readExecutableStamp?: ReadExecutableStamp;
   /** How the daemon starts the new binary after an upgrade drain; tests record the call. */
   readonly spawnDetached?: SpawnDetached;
+  /** Starts the keep-awake process (0006 decision 12); tests take no real assertion. */
+  readonly spawnKeepAwake?: SpawnKeepAwake;
+  /** Runs `launchctl` for the bootout after a refused `config.yaml`; tests record the call. */
+  readonly supervisorSpawn?: Spawn;
 }
 
 /** The first stop request wins: a signal, a lost lock, or later `daemon.stop` (DIPO-24). */
@@ -190,6 +203,19 @@ export async function runForeground(
       for (const error of settings.errors) {
         logger.error("invalid software configuration", { ...error });
         io.writeError(`dipo: ${error.message}`);
+      }
+      // Under launchd, exit 78 alone would be restarted (KeepAlive.SuccessfulExit = false): the
+      // daemon boots its own job out first, so the refusal is not a restart loop (DIPO-63). The
+      // systemd unit stops on 78 by itself (RestartPreventExitStatus=78).
+      if (underLaunchdJob(io.env)) {
+        const target = await bootoutOwnLaunchdJob({
+          spawn: options.supervisorSpawn ?? systemSpawn,
+          uid: process.getuid?.() ?? -1,
+          clock: io.clock,
+        });
+        logger.error("booted the launchd job out so it is not restarted with this configuration", {
+          target,
+        });
       }
       return EXIT_CONFIG;
     }
@@ -313,6 +339,28 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
   let lockLost = false;
   let clean = false;
   let upgrade: UpgradeWatcher | null = null;
+  // Keep-awake (0006 decision 12): one assertion for every office while work is active, read from
+  // the state database once recovery opened it.
+  const work = new WorkTracker();
+  const keepAwake = new KeepAwake({
+    platform,
+    holder: new KeepAwakeHolder({
+      platform,
+      daemonPid: process.pid,
+      dipoCommand: selfCommand(),
+      env: detachedEnv(io.env),
+      spawn: options.spawnKeepAwake ?? systemSpawnKeepAwake,
+      clock,
+      logger: logger.child({ component: "keep-awake" }),
+    }),
+    read: () => {
+      const database = held.database;
+      if (database === null) throw new Error("the state database is not open");
+      return readWorkActivity(database.connection, systemProcessProbe(platform), work);
+    },
+    clock,
+    logger: logger.child({ component: "keep-awake" }),
+  });
   try {
     logger.info("daemon state", { to: lifecycle.state, reason: lifecycle.reason });
     // The crash counter (0006 decision 7), opened right after the lock is taken so an unclean exit
@@ -474,6 +522,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         socket: socketPath,
         tools: tools.paths,
         upgradePending: () => watcher.pending,
+        keepAwake: () => keepAwake.status(),
         loadedOffices: () => offices.loadedOffices(),
         requestStop: (request) => stops.request(request),
       }),
@@ -602,6 +651,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       held.maintenance = maintenance;
       void stops.promise.then(() => maintenance.stop());
       maintenance.start();
+      keepAwake.start();
     }
 
     const request = await stops.promise;
@@ -621,6 +671,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     if (held.lockTimer !== null) clock.clearTimeout(held.lockTimer);
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
     upgrade?.stop();
+    await keepAwake.stop();
     held.storyIndex?.stop();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
