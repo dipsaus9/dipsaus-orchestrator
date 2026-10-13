@@ -1,10 +1,10 @@
 ---
 id: DIPO-65
 title: Retain and back up state and report table sizes
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:55'
+updated_date: '2026-10-13 08:58'
 labels:
   - 'tier:M'
   - after-cutover
@@ -70,7 +70,7 @@ M0 breakdown draft number S49 (DIPO-15). After cutover: built by dipo itself, no
 M0 review (DIPO-15): restore and purge split into DIPO-76; `dipo stats` added here.
 
 Scope additions (DIPO-65):
-- packages/engine/src/db/migrations/0008-retention-indexes.ts and db/schema.ts: indexes on the time columns retention deletes by (change_log tier+at, requests, output_chunks, usage_messages), so each batch stays inside the 50 ms budget. Number 8 is also used by open PRs #65-#68; it is renumbered at merge.
+- packages/engine/src/db/migrations/0012-retention-indexes.ts and db/schema.ts: indexes on the time columns retention deletes by (change_log tier+at, requests, output_chunks, usage_messages), so each batch stays inside the 50 ms budget (migration 12, after main's 8-11).
 - packages/engine/src/platform/clock.ts: yieldToEventLoop, the pause between slices.
 - packages/engine/src/index.ts: exports backup/ and retention/.
 - packages/daemon/src/foreground.ts: wires Retention (load step and hourly timer) and MaintenanceScheduler (daily backup and maintenance), and waits for both before the database closes.
@@ -80,7 +80,7 @@ Scope additions (DIPO-65):
 Scope additions (review of PR #70):
 - packages/engine/test/backup/backup.test.ts: tests of engine/src/backup/ (daily backup through the Worker, pruning, maintenance, scheduler); References name engine/test/retention/ only.
 - The retention migration is now 12 (0012-retention-indexes.ts) after merging main with migrations 8-11.
-- engine/src/retention/policy.ts and run.ts name tiers for the tables main added: scans, claims, prompt_parts (S, aged), run profile tables (P), worker_notes (T). released_branches and pricing_checks are not aged until a tier is decided (open points).
+- engine/src/retention/policy.ts and run.ts name tiers for the tables main added: scans, claims, prompt_parts (S, aged), run profile tables (P), worker_notes (T). released_branches (stateDays after reclaim) and pricing_checks (by raised_at) are aged by stateDays (S).
 - packages/cli/src/stats-command.test.ts session fake carries a subscribe stub, as main's DaemonSession includes subscribe.
 
 Review follow-up: released_branches rows are deleted stateDays after reclaim (S), pricing_checks by raised_at (S), and run profiles other than the current one and its previous one are pruned with their capability, env-file, port and extra-script rows (0007 P: current and previous). Scans keep tier S.
