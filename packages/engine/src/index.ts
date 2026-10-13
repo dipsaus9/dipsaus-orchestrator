@@ -106,16 +106,10 @@ export type {
 } from "./platform/serve";
 export { SOFTWARE_STREAM, SOFTWARE_STREAM_CAPACITY, SoftwareStream } from "./software-stream";
 export type { SoftwareListener, SoftwareReplay, SoftwareStreamOptions } from "./software-stream";
-export {
-  createLogger,
-  DEBUG_ONLY_KEYS,
-  DEFAULT_LOG_LEVEL,
-  isLogLevel,
-  LOG_LEVELS,
-} from "./log/logger";
+export { createLogger, DEFAULT_LOG_LEVEL, isLogLevel, LOG_LEVELS } from "./log/logger";
 export type { LogContext, LogFields, Logger, LogSink } from "./log/logger";
-export { DAEMON_LOG_FILE, DAEMON_LOG_KEEP, DAEMON_LOG_MAX_BYTES, openLogFile } from "./log/file";
-export type { LogFile, OpenLogFileOptions } from "./log/file";
+export { DAEMON_LOG_FILE, openLogFile } from "./log/file";
+export type { LogFile } from "./log/file";
 export {
   appendEntries,
   cursorAt,
