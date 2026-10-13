@@ -1,10 +1,10 @@
 ---
 id: DIPO-38
 title: Claim a story with its branch and worktree
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:22'
+updated_date: '2026-10-13 08:33'
 labels:
   - 'tier:M'
 milestone: m-0
