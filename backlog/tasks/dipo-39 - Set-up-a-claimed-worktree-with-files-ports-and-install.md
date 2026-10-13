@@ -4,7 +4,7 @@ title: 'Set up a claimed worktree with files, ports and install'
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 09:10'
+updated_date: '2026-10-13 11:30'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -77,4 +77,10 @@ Scope additions:
 - packages/engine/src/worktree/records.ts: failedClaimOf also matches setup-failed.
 
 Choices: the slot table is a file, <state>/slots.json (0007 section 2 keeps it outside dipo.db); an entry whose worktree no longer exists is dropped when the table is next written. The ignore check is git check-ignore with many paths per call (same rule as -q per path); names git would quote are refused. Files are copied from exactly the checked list; each entry is re-checked (no symlink on its path, same device and inode) right before and after its copy. .claude/settings.local.json reaches the worktree only stripped: listed or under a copied directory it is routed to its own rule; a link entry on it or a directory above it refuses setup. A settings.local.json that is a symlink, tracked or not a JSON object is left out with a notice. setup and post_create run under the closed-network policy, install under the install policy. A run-profile command with a working directory other than the root fails setup. Setup fails when its steps leave files git does not ignore, so the claim commit holds only the task file.
+
+Re-check follow-up:
+- Claims released by something else while setup ran: the rollback re-reads the row and then removes only the worktree. The row, its release and the branch stay as that release left them, and the claim UPDATE is guarded with released_at is null.
+- claim_sha is now recorded after every finished claim (the tip when the status was already In Progress). A live claim with claim_sha null is therefore one whose setup never finished. The claims load step (StoryClaims.recover, packages/engine/src/worktree/feature.ts) rolls such claims back after a daemon restart: worktree removed, branch restored, row set to setup-failed, slot freed when StoryClaimsDeps.slots is given, and a claim.setupInterrupted notice.
+- Each worktree file is opened with O_NOFOLLOW, its fstat device and inode are compared with the check, and its bytes are streamed from that descriptor to an O_EXCL | O_NOFOLLOW destination.
+- The setup.failed notice names files that setup left unignored and suggests a frozen install.
 <!-- SECTION:NOTES:END -->
