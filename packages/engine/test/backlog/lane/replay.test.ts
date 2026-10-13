@@ -2,13 +2,14 @@
 // an operation journaled before a crash is replayed by the office load step, after `git.version`
 // attached the office's git and before any other git queue item; a commit made just before a
 // crash is found again by its trailer instead of being applied twice.
+// The slower cases run in CI only, in replay.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import { withBareRemote } from "@dipsaus-orchestrator/testkit";
+import { withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import {
   allEntries,
@@ -22,15 +23,7 @@ import { buildRegistry, type FeatureModule } from "../../../src/commands/registr
 import { EngineGit } from "../../../src/git";
 import type { OfficeLoadContext } from "../../../src/office/steps";
 import { systemSpawn } from "../../../src/platform/process";
-import {
-  BACKLOG_FIXTURE,
-  inRemote,
-  laneSetup,
-  notices,
-  publish,
-  storyKey,
-  subjects,
-} from "./helpers";
+import { BACKLOG_FIXTURE, laneSetup, notices, publish, storyKey, subjects } from "./helpers";
 
 /** One daemon start: fresh engine git and lane, the office's load steps run in order. */
 async function loadOffice(
@@ -148,8 +141,8 @@ describe("replaying the journal at office load", () => {
     );
   });
 
-  it("finds a commit made just before a crash by its trailer and does not apply it twice", async () => {
-    await withBareRemote(
+  it("finds a commit made just before a crash by its trailer and does not apply it twice, without a remote", async () => {
+    await withTempRepo(
       async (repo) => {
         await publish(repo);
         const s = await laneSetup(repo);
@@ -161,10 +154,8 @@ describe("replaying the journal at office load", () => {
           target: { status: "Refined" },
         });
         const branch = report.branch as string;
-        const sha = (await inRemote(repo, "rev-parse", branch)).trim();
-        expect(await inRemote(repo, "log", "-1", "--format=%B", branch)).toContain(
-          `${OP_TRAILER}: 1`,
-        );
+        const sha = (await repo.git("rev-parse", branch)).trim();
+        expect(await repo.git("log", "-1", "--format=%B", branch)).toContain(`${OP_TRAILER}: 1`);
 
         // The crash came after the commit and before its journal update.
         s.office.immediate(() =>
@@ -175,8 +166,8 @@ describe("replaying the journal at office load", () => {
         const replayed = await s.lane().flush();
         expect(replayed.committed).toEqual([]);
         expect(replayed.branch).toBe(branch);
-        expect((await inRemote(repo, "rev-parse", branch)).trim()).toBe(sha);
-        expect(allEntries(s.office).map((e) => [e.state, e.commit])).toEqual([["pushed", sha]]);
+        expect((await repo.git("rev-parse", branch)).trim()).toBe(sha);
+        expect(allEntries(s.office).map((e) => [e.state, e.commit])).toEqual([["committed", sha]]);
       },
       { fixture: BACKLOG_FIXTURE },
     );
