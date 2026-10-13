@@ -199,6 +199,21 @@ export {
 } from "./reads/hello";
 export type { HelloSource, OfficeSummarySource } from "./reads/hello";
 export {
+  evaluateGate,
+  findPassingDecision,
+  gateContentHash,
+  GateStore,
+  storeGateDecision,
+} from "./gate";
+export type {
+  GateDecisionRecord,
+  GateEvaluation,
+  GateMode,
+  GateResult,
+  GateStoreDeps,
+  RuleResult,
+} from "./gate";
+export {
   addStory,
   applyIndex,
   contentHash,
