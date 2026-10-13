@@ -1,10 +1,10 @@
 ---
 id: DIPO-34
 title: Write planning changes through the backlog lane
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:56'
+updated_date: '2026-10-13 07:02'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -101,4 +101,12 @@ Review fixes (PR #60):
 - Without a remote and without a configured `base`, `journal` and `flush` refuse the lane with a `backlog.lane.baseUnset` notice asking to set `base`; the main checkout's HEAD is never used as the base.
 - New tests (test/backlog/lane/failures.test.ts, replay.test.ts, test/git/unit.test.ts): commit timeout via a hanging gpg.program, push timeout via a hanging receive-pack, flush failure notice outside replay, auto_commit undo, base refusal, replay failure at load (notice, office still loads), the some-merged rebuild path, an idempotent op closed as merged, runner and fetch timeouts.
 - Commit signing for engine commits is a maintainer decision.
+
+Follow-ups (review): kill timed git steps as a process group so signing/credential helpers do not linger; give fetch a longer timeout than commit or report a timed-out fetch separately.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Backlog lane: migration 5 backlog_journal; every planning change journaled before apply, applied with the Backlog CLI on the _backlog worktree inside one office git queue item, one commit per op with a Dipo-Op trailer for crash-safe replay, pushed on one open branch per office; rebuild on partial merge or conflict without force-push; ops closed as merged or dropped with notices; pendingLaneOp for DIPO-48; replay load step; no-remote waiting and a base required without a remote; commit, push and fetch time out after 60 s with commitStuck notices; CLI auto-commits undone. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
