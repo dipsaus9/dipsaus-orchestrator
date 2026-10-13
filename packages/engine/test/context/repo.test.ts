@@ -3,7 +3,7 @@
 // neighbours, and the pack is recorded in `context_packs` with the head sha and blob ids.
 
 import { describe, expect, it } from "bun:test";
-import { realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -245,4 +245,71 @@ describe("default provider on a repository", () => {
         state.close();
       }
     }));
+});
+
+describe("workspace reads on a repository", () => {
+  it("never reads a tracked .env, as a scope file or under an input directory", () =>
+    withTempRepo(
+      async (repo) => {
+        await repo.commitAll("first");
+        expect((await repo.git("ls-files", ".env", "config/.env.production")).trim()).toBe(
+          ".env\nconfig/.env.production",
+        );
+        const ws = workspaceOf(repo);
+        expect(await ws.readFile(".env")).toBeUndefined();
+        expect(await ws.readFile("config/.env.production")).toBeUndefined();
+        const pack = await createDefaultProvider({ workspace: ws }).gather(
+          request({ scope: [".env"], inputs: ["config/"] }),
+          12_000,
+        );
+        expect(pack.items[0]).toEqual({
+          path: ".env",
+          text: "",
+          reason: { kind: "scope-file", scope: ".env", content: "secret", truncated: false },
+        });
+        expect(
+          pack.inputs.items.map((item) => [
+            item.path,
+            item.text,
+            "content" in item.reason ? item.reason.content : "",
+          ]),
+        ).toEqual([
+          ["config/.env.production", "", "secret"],
+          ["config/app.json", "{}\n", "text"],
+        ]);
+        expect(Object.keys(pack.blobIds)).toEqual(["config/app.json"]);
+        expect(encodePack(pack).includes("hunter2")).toBe(false);
+      },
+      {
+        fixture: {
+          ".env": "PASSWORD=hunter2\n",
+          "config/.env.production": "PASSWORD=hunter2\n",
+          "config/app.json": "{}\n",
+        },
+      },
+    ));
+
+  it("refuses a file whose directory was swapped for a link out of the work tree", () =>
+    withTempDir(async (outside) =>
+      withTempRepo(
+        async (repo) => {
+          await repo.commitAll("first");
+          const ws = workspaceOf(repo);
+          expect(new TextDecoder().decode(await ws.readFile("src/a.ts"))).toBe("inside\n");
+          mkdirSync(join(outside, "src"));
+          writeFileSync(join(outside, "src/a.ts"), "outside\n");
+          renameSync(join(repo.dir, "src"), join(repo.dir, "src-moved"));
+          symlinkSync(join(outside, "src"), join(repo.dir, "src"));
+          expect(await ws.readFile("src/a.ts")).toBeUndefined();
+          const pack = await createDefaultProvider({ workspace: ws }).gather(
+            request({ scope: ["src/a.ts"] }),
+            12_000,
+          );
+          expect(pack.items[0]?.text).toBe("");
+          expect(pack.items[0]?.reason).toMatchObject({ content: "unreadable" });
+          expect(pack.blobIds).toEqual({});
+        },
+        { fixture: { "src/a.ts": "inside\n" } },
+      ),
+    ));
 });

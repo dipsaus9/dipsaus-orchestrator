@@ -1,6 +1,7 @@
 // Running the providers for one story (0014 section 9): the default provider always runs first;
 // an optional backend fills the rest of the `context` budget. A backend that is not `ready` after
-// one `prepare` is skipped, and the pack's provenance says why; the run continues on the default.
+// one `prepare`, or that throws in `status`, `prepare` or `gather`, is skipped, and the pack's
+// provenance says why; the run continues on the default.
 
 import { itemCostOf } from "./default-provider";
 import type { ContextPack, ContextProvider, ContextRequest, Workspace } from "./types";
@@ -22,18 +23,24 @@ export async function gatherContext(options: GatherContextOptions): Promise<Cont
     ...base,
     provenance: { ...base.provenance, notes: [...base.provenance.notes, text] },
   });
-  let status = await backend.status(workspace);
-  if (status.state !== "ready" && backend.prepare !== undefined) {
-    await backend.prepare(workspace);
-    status = await backend.status(workspace);
+  let extra: ContextPack;
+  try {
+    let status = await backend.status(workspace);
+    if (status.state !== "ready" && backend.prepare !== undefined) {
+      await backend.prepare(workspace);
+      status = await backend.status(workspace);
+    }
+    if (status.state !== "ready") {
+      const why = status.reasons.length > 0 ? `: ${status.reasons.join("; ")}` : "";
+      return note(`backend ${backend.id} skipped, ${status.state}${why}`);
+    }
+    const room = budget - base.usedChars;
+    if (room <= 0) return note(`backend ${backend.id} skipped, no context budget left`);
+    extra = await backend.gather(request, room);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return note(`backend ${backend.id} skipped, error: ${message}`);
   }
-  if (status.state !== "ready") {
-    const why = status.reasons.length > 0 ? `: ${status.reasons.join("; ")}` : "";
-    return note(`backend ${backend.id} skipped, ${status.state}${why}`);
-  }
-  const room = budget - base.usedChars;
-  if (room <= 0) return note(`backend ${backend.id} skipped, no context budget left`);
-  const extra = await backend.gather(request, room);
   const seen = new Set(base.items.map((item) => item.path));
   const items = [...base.items];
   let used = base.usedChars;

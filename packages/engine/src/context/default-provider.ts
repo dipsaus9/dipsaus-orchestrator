@@ -9,6 +9,9 @@
 //    scope and their direct neighbours, with name, purpose line and a capped file list.
 // 4. Tests next to scope files by name (`x.ts` to `x.test.ts`), listed, not inlined.
 //
+// A scope or input file named like a secret (`.env*`, `.npmrc`, `*.pem`, ...; see `secrets.ts`) is
+// never read: it is listed with content `secret`, empty text and no blob id.
+//
 // Every list is sorted and newlines are normalised, so the same checkout and request give the same
 // pack bytes.
 
@@ -26,7 +29,8 @@ import {
   DIRECTORY_ENTRIES_MAX,
   INPUT_FILE_MAX,
 } from "./size";
-import { truncateHead } from "./truncate";
+import { isSecretPath } from "./secrets";
+import { truncateHead, truncateListing } from "./truncate";
 import type {
   ContextItem,
   ContextPack,
@@ -121,6 +125,7 @@ interface FileText {
 }
 
 async function readText(ws: Workspace, path: string): Promise<FileText> {
+  if (isSecretPath(path)) return { content: "secret", text: "", bytes: undefined };
   const bytes = await ws.readFile(path);
   if (bytes === undefined) return { content: "unreadable", text: "", bytes };
   if (bytes.includes(0)) return { content: "binary", text: "", bytes };
@@ -128,10 +133,14 @@ async function readText(ws: Workspace, path: string): Promise<FileText> {
 }
 
 /** A listing: `entries` capped at `max`, one per line, then cut to `limit` characters. */
-function listing(entries: readonly string[], max: number, limit: number, path: string) {
-  const shown = entries.slice(0, max);
-  const cut = truncateHead(shown.join("\n"), limit, path);
-  return { text: cut.text, shown: shown.length, total: entries.length };
+function listing(entries: readonly string[], max: number, limit: number, label: string) {
+  const capped = entries.slice(0, max);
+  const cut = truncateListing(capped.join("\n"), limit, label);
+  return {
+    text: cut.text,
+    shown: cut.truncated ? cut.lines : capped.length,
+    total: entries.length,
+  };
 }
 
 function escapeRegExp(text: string): string {

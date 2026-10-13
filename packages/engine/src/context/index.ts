@@ -43,7 +43,14 @@ export {
   sizeClassOf,
   sizeClassOfWorkspace,
 } from "./size";
-export { formatCount, truncateHead, truncationMarker } from "./truncate";
+export { isSecretPath } from "./secrets";
+export {
+  formatCount,
+  listingTruncationMarker,
+  truncateHead,
+  truncateListing,
+  truncationMarker,
+} from "./truncate";
 export type { Truncated } from "./truncate";
 export type {
   ContextItem,

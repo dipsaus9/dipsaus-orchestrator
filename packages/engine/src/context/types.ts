@@ -47,8 +47,11 @@ export interface ContextRequest {
   readonly inputsBudget: number;
 }
 
-/** `text` holds the file (or its head); `binary` and `unreadable` files have empty `text`. */
-export type FileContent = "text" | "binary" | "unreadable";
+/**
+ * `text` holds the file (or its head); `binary` and `unreadable` files have empty `text`. A
+ * `secret` file (a 0008 secret name such as `.env*`) is listed only: never read, empty `text`.
+ */
+export type FileContent = "text" | "binary" | "unreadable" | "secret";
 
 /** Why an item is in the pack. */
 export type ContextReason =

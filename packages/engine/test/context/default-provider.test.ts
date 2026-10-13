@@ -10,6 +10,8 @@ import {
   encodePack,
   gatherContext,
   gitBlobId,
+  isSecretPath,
+  listingTruncationMarker,
   packDigest,
   truncationMarker,
 } from "../../src/context";
@@ -310,5 +312,142 @@ describe("gatherContext", () => {
     expect(kinds(pack.items)).toEqual(["scope-file src/a.ts", "test src/other.ts"]);
     expect(pack.provenance.provider).toBe("default");
     expect(pack.provenance.notes).toEqual(["backend fake 9, ready"]);
+  });
+});
+
+const failing = (where: "status" | "prepare" | "gather"): ContextProvider => {
+  const fake = backend(where === "prepare" ? "stale" : "ready");
+  const boom = async (): Promise<never> => {
+    throw new Error(`${where} broke`);
+  };
+  return {
+    ...fake,
+    ...(where === "status" ? { status: boom } : {}),
+    ...(where === "prepare" ? { prepare: boom } : {}),
+    ...(where === "gather" ? { gather: boom } : {}),
+  };
+};
+
+describe("gatherContext: a backend that throws", () => {
+  const files = { "src/a.ts": "a\n" };
+
+  for (const where of ["status", "prepare", "gather"] as const) {
+    it(`falls back to the default pack when ${where} throws`, async () => {
+      const workspace = memoryWorkspace(files);
+      const defaultProvider = createDefaultProvider({ workspace });
+      const req = request({ scope: ["src/a.ts"] });
+      const alone = await defaultProvider.gather(req, 12_000);
+      const pack = await gatherContext({
+        workspace,
+        defaultProvider,
+        backend: failing(where),
+        request: req,
+        budget: 12_000,
+      });
+      expect(pack).toEqual({
+        ...alone,
+        provenance: { ...alone.provenance, notes: [`backend fake skipped, error: ${where} broke`] },
+      });
+    });
+  }
+});
+
+describe("default provider: secret files", () => {
+  it("matches the 0008 secret names on the last path segment only", () => {
+    for (const path of [
+      ".env",
+      "app/.env.local",
+      ".envrc",
+      "a/.npmrc",
+      ".netrc",
+      ".git-credentials",
+      "certs/server.pem",
+      "keys/id_rsa",
+      "keys/id_ed25519.pub",
+    ]) {
+      expect(isSecretPath(path)).toBe(true);
+    }
+    for (const path of ["src/env.ts", "docs/.env-guide/notes.md", "pem.ts", "src/id.ts"]) {
+      expect(isSecretPath(path)).toBe(false);
+    }
+  });
+
+  it("lists a secret scope or input file without reading it or recording a blob id", async () => {
+    const workspace = memoryWorkspace({
+      ".env": "TOKEN=scope-secret\n",
+      "cfg/.env.local": "TOKEN=input-secret\n",
+      "cfg/.npmrc": "//registry/:_authToken=npm-secret\n",
+      "cfg/app.json": "{}\n",
+      "cfg/server.pem": "-----BEGIN PRIVATE KEY-----\n",
+    });
+    const pack = await createDefaultProvider({ workspace }).gather(
+      request({ scope: [".env"], inputs: ["cfg/"] }),
+      12_000,
+    );
+    expect(workspace.reads.toSorted()).toEqual(["cfg/app.json"]);
+    expect(pack.items).toEqual([
+      {
+        path: ".env",
+        text: "",
+        reason: { kind: "scope-file", scope: ".env", content: "secret", truncated: false },
+      },
+    ]);
+    expect(
+      pack.inputs.items.map((item) => [
+        item.path,
+        item.text,
+        item.reason.kind,
+        "content" in item.reason ? item.reason.content : "",
+      ]),
+    ).toEqual([
+      ["cfg/.env.local", "", "input-file", "secret"],
+      ["cfg/.npmrc", "", "input-file", "secret"],
+      ["cfg/app.json", "{}\n", "input-file", "text"],
+      ["cfg/server.pem", "", "input-file", "secret"],
+    ]);
+    expect(Object.keys(pack.blobIds)).toEqual(["cfg/app.json"]);
+    expect(encodePack(pack).includes("secret\\n")).toBe(false);
+  });
+});
+
+describe("default provider: listing truncation", () => {
+  it("cuts a long directory listing with the listing marker, no file line", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 150; i += 1) {
+      files[`pkg/${"n".repeat(40)}${String(i).padStart(3, "0")}.ts`] = "";
+    }
+    const pack = await gather(files, { scope: ["pkg/"] }, 1_000_000);
+    const [item] = pack.items;
+    const reason = item?.reason;
+    if (reason?.kind !== "scope-dir") throw new Error("expected a scope-dir item");
+    const shownLines = (item?.text.split("\n") ?? []).slice(0, -1);
+    expect(reason.total).toBe(150);
+    expect(reason.shown).toBe(shownLines.length);
+    expect(reason.shown).toBeLessThan(150);
+    const full = Object.keys(files).toSorted().join("\n");
+    const shownChars = shownLines.join("\n").length + 1;
+    expect(item?.text).toBe(
+      `${shownLines.join("\n")}\n${listingTruncationMarker(shownChars, full.length, "pkg/")}`,
+    );
+    expect(item?.text.includes("from line")).toBe(false);
+    expect(item?.text.length).toBeLessThanOrEqual(4_000);
+  });
+
+  it("cuts a long component file list with the listing marker", async () => {
+    const files: Record<string, string> = {
+      ".dipo/components.yaml": 'components:\n  engine: { paths: ["engine/**"] }\n',
+    };
+    for (let i = 0; i < 50; i += 1) {
+      files[`engine/${"c".repeat(90)}${String(i).padStart(2, "0")}.ts`] = "";
+    }
+    const pack = await gather(files, { scope: ["engine/"] }, 1_000_000);
+    const item = pack.items.find((i) => i.reason.kind === "component");
+    expect(
+      item?.text.endsWith(
+        " listing; list the rest yourself only if the shown part is not enough.]",
+      ),
+    ).toBe(true);
+    expect(item?.text.includes("the engine listing")).toBe(true);
+    expect(item?.text.includes("from line")).toBe(false);
   });
 });

@@ -10,7 +10,12 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import type { ContextPack } from "./types";
 
-/** The git blob id of `bytes`, as `git hash-object` gives it for an unfiltered file. */
+/**
+ * The git blob id of `bytes`, as `git hash-object --no-filters` gives it. The provider hashes the
+ * raw work-tree bytes it read, so for a file with clean filters, `text`/`eol` attributes or
+ * `core.autocrlf` the id can differ from the index id `git ls-files -s` shows. That is fine for
+ * staleness: the same work-tree bytes always give the same id.
+ */
 export function gitBlobId(bytes: Uint8Array): string {
   return createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 }
