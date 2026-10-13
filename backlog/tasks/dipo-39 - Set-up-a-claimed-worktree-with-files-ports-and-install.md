@@ -1,10 +1,10 @@
 ---
 id: DIPO-39
 title: 'Set up a claimed worktree with files, ports and install'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 11:40'
+updated_date: '2026-10-13 11:43'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -85,4 +85,6 @@ Re-check follow-up:
 - The setup.failed notice names files that setup left unignored and suggests a frozen install.
 
 AC #2: worktree files are streamed through a fixed-size memory buffer from the source descriptor to the destination; the contents pass through memory but are never inspected, hashed or logged.
+
+Hand-off to DIPO-74: pass the <state> SlotTable to StoryClaims when setup is wired into the daemon, so recover frees the slot of an interrupted setup. recover treats every live claim with claim_sha null as an interrupted setup; no live claims exist before this change because work.run (DIPO-48) is not live yet.
 <!-- SECTION:NOTES:END -->
