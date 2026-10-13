@@ -1,4 +1,6 @@
-// The slower backlog PR cases, in CI only (0017): a block is cleared once a later backlog PR that
+// The slower backlog PR cases, in CI only (0017): a failing PR kept open with a notice and not
+// mergeable, whose merge commit by hand is checked again and blocks its story (moved from pr.test.ts
+// for the local time budget, DIPO-79); a block is cleared once a later backlog PR that
 // touches the story merges with a passing check (after a squash merge), a new Ready that matches
 // a stored passing gate decision passes, a rebase merge is checked against the recorded base, and
 // a merged PR without a recorded base falls back to the merge commit, or stays open to be
@@ -10,7 +12,12 @@ import { StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
 import { withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { viewStory } from "../../../src/backlog/fields/write";
-import { backlogCheckBlocked, findPr, PR_NOTICES } from "../../../src/backlog/pr";
+import {
+  backlogCheckBlocked,
+  backlogPrMergeable,
+  findPr,
+  PR_NOTICES,
+} from "../../../src/backlog/pr";
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
 import { addStory } from "../../../src/stories/keys";
@@ -22,6 +29,52 @@ const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the backlog PR", () => {
+    it("keeps a failing PR open with a notice, and blocks its story after a merge commit by hand", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await prSetup(repo, await laneSetup(repo));
+        const two = addStory(s.office, s.t.ids, { story: StoryId.parse("TASK-2") }, 0).key;
+
+        // TASK-2 becomes Ready without any stored Ready gate decision, so the check fails: the PR
+        // stays open, a notice names the rule and the task, and it is not mergeable.
+        const { report } = await s.lane().submit({
+          kind: "edit",
+          key: two,
+          subject: "TASK-2",
+          target: { status: "Ready" },
+        });
+        const branch = report.branch as string;
+        const tip = (await repo.git("rev-parse", branch)).trim();
+        expect(findPr(s.office, 1)).toMatchObject({
+          state: "open",
+          check: "failed",
+          checkedHead: tip,
+        });
+        expect(s.host.prs.get(1)?.state).toBe("open");
+        expect(backlogPrMergeable(s.office, 1, tip)).toBe(false);
+        const failed = notices(s.office).filter((n) => n.code === PR_NOTICES.checkFailed);
+        expect(failed.map((n) => n.key)).toEqual([two]);
+        expect(failed[0]?.text).toContain("[ready-decision] on TASK-2");
+        expect(backlogCheckBlocked(s.office, two)).toBeNull();
+
+        // The maintainer merges it by hand with a merge commit, so the head is now on main. After the
+        // poll's fetch the merge is seen and checked again against the base the open check used, not
+        // against main (which would be an empty diff that passes), and it blocks TASK-2.
+        const mergeCommit = await mergeCommitOnRemote(repo, branch);
+        s.host.mergedByHand(1, tip, mergeCommit);
+        await s.git.fetch();
+        await s.prs.sync(s.officeId);
+        expect(findPr(s.office, 1)).toMatchObject({ state: "merged", check: "failed" });
+        const merged = notices(s.office).filter((n) => n.code === PR_NOTICES.mergedCheckFailed);
+        expect(merged.map((n) => [n.key, n.level])).toEqual([[two, "error"]]);
+        expect(merged[0]?.text).toContain("merged by hand");
+        expect(backlogCheckBlocked(s.office, two)).toMatchObject({
+          reason: "notRunnable",
+          prs: [1],
+        });
+      }, FIXTURE);
+    });
+
     it("clears a block once a later backlog PR touching the story merges with a passing check", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);
