@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 11:49'
+updated_date: '2026-10-13 12:12'
 labels:
   - 'tier:M'
   - after-cutover
@@ -60,17 +60,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Work is active while a run has a live host, a verify is running, or a confirmed batch waits to start (a `work.run` that has claimed a story whose worker has not started); the assertion is released 2 minutes after the last.
-- [ ] #2 macOS spawns `caffeinate -i -w <daemon-pid>`; Linux spawns `systemd-inhibit --what=idle:sleep --mode=block ... dipo daemon wait-pid <pid>`, retries once with `--mode=delay`, and `daemon.status` reports "keep-awake not held: <reason>" when neither holds.
-- [ ] #3 `install` writes the plist with `KeepAlive.SuccessfulExit = false`, `AbandonProcessGroup = true`, `ExitTimeOut = 75`, or the unit with `Restart=on-failure`, `TimeoutStopSec=75`, using the binary's absolute path and the installing user's `PATH` (`EnvironmentVariables.PATH` in the plist, `Environment=PATH=` in the unit).
-- [ ] #4 On Linux, `install` and `status` warn when lingering is off and explain `loginctl enable-linger` without running it.
-- [ ] #5 Under systemd, worker hosts start in their own `systemd-run --user --scope` unit.
-- [ ] #6 When installed, `dipo daemon start|stop|restart` go through `launchctl` or `systemctl --user`; over SSH, where the `gui/<uid>` launchd domain is missing, `launchctl` uses `user/<uid>`.
-- [ ] #7 A daemon that refuses its `config.yaml` (exit 78, `EXIT_CONFIG` from packages/contract, DIPO-69) is not restarted in a loop: the systemd unit sets `RestartPreventExitStatus=78`, and under launchd the daemon runs `launchctl bootout` on its own job before exiting (launchd may then end it with SIGTERM instead of 78; the plist keeps `KeepAlive.SuccessfulExit = false`, 0006 decision 15). `dipo daemon status` learns of the refusal on the client side through `readSoftwareConfig`. Tests cover the generated unit file and the bootout path.
+- [x] #1 Work is active while a run has a live host, a verify is running, or a confirmed batch waits to start (a `work.run` that has claimed a story whose worker has not started); the assertion is released 2 minutes after the last.
+- [x] #2 macOS spawns `caffeinate -i -w <daemon-pid>`; Linux spawns `systemd-inhibit --what=idle:sleep --mode=block ... dipo daemon wait-pid <pid>`, retries once with `--mode=delay`, and `daemon.status` reports "keep-awake not held: <reason>" when neither holds.
+- [x] #3 `install` writes the plist with `KeepAlive.SuccessfulExit = false`, `AbandonProcessGroup = true`, `ExitTimeOut = 75`, or the unit with `Restart=on-failure`, `TimeoutStopSec=75`, using the binary's absolute path and the installing user's `PATH` (`EnvironmentVariables.PATH` in the plist, `Environment=PATH=` in the unit).
+- [x] #4 On Linux, `install` and `status` warn when lingering is off and explain `loginctl enable-linger` without running it.
+- [x] #5 Under systemd, worker hosts start in their own `systemd-run --user --scope` unit.
+- [x] #6 When installed, `dipo daemon start|stop|restart` go through `launchctl` or `systemctl --user`; over SSH, where the `gui/<uid>` launchd domain is missing, `launchctl` uses `user/<uid>`.
+- [x] #7 A daemon that refuses its `config.yaml` (exit 78, `EXIT_CONFIG` from packages/contract, DIPO-69) is not restarted in a loop: the systemd unit sets `RestartPreventExitStatus=78`, and under launchd the daemon runs `launchctl bootout` on its own job before exiting (launchd may then end it with SIGTERM instead of 78; the plist keeps `KeepAlive.SuccessfulExit = false`, 0006 decision 15). `dipo daemon status` learns of the refusal on the client side through `readSoftwareConfig`. Tests cover the generated unit file and the bootout path.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S47 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+Scope additions (files outside References):
+- packages/engine/src/platform/supervisor.ts: the platform seam for the daemon's supervisor: detecting the dipo.service cgroup and wrapping worker hosts in systemd-run --user --scope (AC #5), and the launchctl bootout of its own job after a refused config.yaml (AC #7). Kept apart from platform/keepawake.ts because it is not keep-awake.
+- packages/engine/src/runs/worker-hosts.ts: launchWorkerHost starts the host inside its own systemd scope when the daemon runs under dipo.service (AC #5); option systemdScope, default detected.
+- packages/client/test/unit/supervisor.test.ts and packages/client/test/unit/fixtures/supervisor/{dipo.daemon.plist,dipo.service}: tests and golden files for the plist, the unit and the supervisor-routed lifecycle (AC #3, #4, #6, #7).
+
+Notes:
+- No contract change: daemon.status.keepAwake { held, reason? } already exists (0005). The CLI now prints 'keep-awake: not held: <reason>' and 'held (<reason>)'.
+- Running verifies register through WorkTracker.beginVerify(); no verify step exists yet, so only the test calls it. Live hosts and waiting claims are read from worker_hosts and claims in the state database.
 <!-- SECTION:NOTES:END -->
