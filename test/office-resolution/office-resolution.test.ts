@@ -87,6 +87,9 @@ function cli(
         ? { ok: true, result: reply.result, changed: reply.changed }
         : { ok: false, error: reply.error };
     }) as DaemonSession["command"],
+    read: (async () => {
+      throw new Error("read must not be called");
+    }) as DaemonSession["read"],
     close: () => undefined,
   };
   const deps: CliDeps = {
