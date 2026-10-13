@@ -14,13 +14,16 @@ import {
   gateContentHash,
   gateDecisionsOf,
   type GateMode,
+  isStoryNotFound,
   parseMilestones,
   ruleNamesFor,
   ruleResults,
   rulesFor,
   storeGateDecision,
 } from "../../src/gate";
+import { BacklogCommandError } from "../../src/backlog/runner";
 import { addStory, type StoryIdentity } from "../../src/stories/keys";
+import { readManifest } from "../backlog/helpers";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 import { ACTIVE_TASKS, BRANCH, description, input, PASSING_BLOCK, PASSING_STORY } from "./fixtures";
 
@@ -101,6 +104,36 @@ describe("rule results", () => {
     expect(failed.map((r) => r.rule)).toEqual(["R01b", "R07", "R11"]);
     expect(failed.flatMap((r) => r.messages)).toEqual(result.failures.map((f) => f.message));
     expect(results.filter((r) => r.passed).every((r) => r.messages.length === 0)).toBe(true);
+  });
+});
+
+function failure(stderr: string, stdout = ""): BacklogCommandError {
+  return new BacklogCommandError(["backlog", "task", "view"], 1, stdout, stderr, "exited 1");
+}
+
+/** The stderr Backlog.md 1.53.0 printed for an unknown id, recorded by `record-plain.ts`. */
+function recordedStderr(name: string): string {
+  const recording = readManifest().recordings.find((r) => r.name === name);
+  if (recording === undefined) throw new Error(`no recording ${name}`);
+  return recording.stderr;
+}
+
+describe("isStoryNotFound", () => {
+  it("matches the recorded 1.53 not-found lines for that very id", () => {
+    expect(isStoryNotFound(failure(recordedStderr("task-view-unknown")), "TASK-99")).toBe(true);
+    expect(isStoryNotFound(failure(recordedStderr("draft-view-unknown")), "DRAFT-99")).toBe(true);
+    expect(isStoryNotFound(failure(recordedStderr("task-view-unknown")), "TASK-9")).toBe(false);
+  });
+
+  it("does not match other failures that say `not found`", () => {
+    for (const stderr of [
+      "sh: backlog: command not found",
+      "env: bun: No such file or directory\nnot found",
+      "Error: config file not found",
+    ]) {
+      expect(isStoryNotFound(failure(stderr), "TASK-99")).toBe(false);
+    }
+    expect(isStoryNotFound(failure("", "Task TASK-99 not found."), "TASK-99")).toBe(false);
   });
 });
 

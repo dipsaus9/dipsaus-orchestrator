@@ -102,14 +102,18 @@ export class GateStore {
   }
 
   /**
-   * Throws `story.unknown` when the story is not on `_base`, and `office.refused` (with
-   * `details.step` `config` or `backlog`) when the office has no valid configuration or the
-   * Backlog CLI cannot read the story.
+   * Throws `story.unknown` when the story is not on `_base`, and `office.refused` when the
+   * office's git is not attached (`details.step` `git.version`, the load step that attaches it),
+   * it has no valid configuration (`config`), or the Backlog CLI cannot read the story (`backlog`).
    */
   async #evaluate(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateEvaluation> {
     const git = this.#deps.git.forOffice(office);
     if (git === undefined) {
-      throw new Error(`Office ${office} has not loaded; its git is not attached.`);
+      throw new CommandError(
+        "office.refused",
+        `The Ready gate cannot run: office ${office} has no git attached yet, so its base branch cannot be read. Run \`dipo office open\` in the repository again.`,
+        { office, step: "git.version" },
+      );
     }
     const config = this.#deps.offices.config(office);
     if (config === undefined) {

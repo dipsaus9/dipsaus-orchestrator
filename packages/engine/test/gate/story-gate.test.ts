@@ -215,6 +215,17 @@ describe("the Ready gate on the Backlog CLI", () => {
         code: "office.refused",
         details: { office: officeId, step: "config" },
       });
+
+      const detached = new GateStore({
+        ...deps,
+        git: { forOffice: () => undefined },
+        cli: CLI(repo),
+      });
+      const gitError = await detached.checkReady(officeId, story).catch((error: unknown) => error);
+      expect((gitError as CommandError).error).toMatchObject({
+        code: "office.refused",
+        details: { office: officeId, step: "git.version" },
+      });
       expect(countRows(office, "gates")).toBe(0);
     }));
 

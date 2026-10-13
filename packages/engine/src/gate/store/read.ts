@@ -40,8 +40,18 @@ export class StoryNotFoundError extends Error {
   }
 }
 
-function isNotFound(error: BacklogCommandError): boolean {
-  return /\bnot found\b/i.test(`${error.stderr}\n${error.stdout}`);
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * True when the view failed because Backlog.md 1.53.x has no such story: a stderr line
+ * `Task <ID> not found.` (exit 1) or `Draft <ID> not found.` (exit 0), naming this very id. Any
+ * other failure, such as a shell's `command not found`, is not.
+ */
+export function isStoryNotFound(error: BacklogCommandError, story: string): boolean {
+  const line = new RegExp(`^(Task|Draft) ${escapeRegExp(story)} not found\\.`, "i");
+  return error.stderr.split("\n").some((text) => line.test(text));
 }
 
 /**
@@ -59,7 +69,7 @@ export async function readGateInput(
   try {
     target = await view(cli, cwd, story);
   } catch (error) {
-    if (error instanceof BacklogCommandError && isNotFound(error)) {
+    if (error instanceof BacklogCommandError && isStoryNotFound(error, story)) {
       throw new StoryNotFoundError(story);
     }
     throw error;
