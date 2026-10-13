@@ -190,7 +190,7 @@ export interface OfficeLaneOptions {
   readonly held?: (office: OfficeId) => string | null;
 }
 
-interface BaseRef {
+export interface BaseRef {
   readonly name: string;
   readonly sha: string;
 }
@@ -368,6 +368,31 @@ export class OfficeLane {
     }
     this.#write(() => [this.#notice("error", code, text)]);
     return new LaneFlushError(code, text, error);
+  }
+
+  /**
+   * Reads the base the lane applies to (DIPO-36, office init): fetches when the office has a remote
+   * (a failed fetch reads the last fetched base), then, in one queue item, checks the backlog
+   * worktree out detached at the base and runs `read` there. `read` must not write: the next flush
+   * checks out its own branch before it applies anything, and drops whatever is left.
+   */
+  async atBase<T>(
+    read: (ctx: {
+      readonly git: GitSession;
+      readonly cwd: string;
+      readonly base: BaseRef;
+      readonly hasRemote: boolean;
+    }) => Promise<T>,
+  ): Promise<T> {
+    const has = await this.#git.run((git) => this.#hasRemote(git));
+    if (has) await this.#git.fetch();
+    return this.#git.run(async (git) => {
+      await this.#assertBase(git);
+      const base = await this.#base(git, has);
+      const location = await this.#ensureWorktree(git, base.sha);
+      await this.#checkout(git, location, base.sha, true);
+      return read({ git, cwd: location.workTree, base, hasRemote: has });
+    });
   }
 
   /** The report of a flush that did nothing because the merge slot holds the branch, or null. */
