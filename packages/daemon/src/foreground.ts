@@ -26,6 +26,7 @@ import {
   engineRegistry,
   ensurePrivateDir,
   FEATURES,
+  hasLiveClaim,
   helloFeature,
   helloHandshake,
   isLogLevel,
@@ -44,12 +45,14 @@ import {
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
+  RunProfiles,
   Retention,
   runtimeCandidates,
   selfCommand,
   serveUnixSocket,
   SOCKET_FILE,
   SoftwareStream,
+  StoryClaims,
   StoryIndex,
   systemExecutableStamp,
   systemProcessProbe,
@@ -393,9 +396,17 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     // The planning lane (DIPO-34): its replay load step needs the office git, so it follows
     // engineGit.feature. The `backlog` on the daemon PATH, as for the version check.
+    // Story claims (DIPO-38): their load step pins live claims' worktree snapshots on the office
+    // git, so it follows engineGit.feature. The lane refuses a story with a live claim.
+    const claims = new StoryClaims({
+      cli: { spawn: systemSpawn },
+      git: (office) => engineGit.forOffice(office),
+      onChanged: (office) => server?.notifyOffice(office),
+    });
     const lane = new BacklogLane({
       cli: { spawn: systemSpawn },
       git: (office) => engineGit.forOffice(office),
+      liveClaim: hasLiveClaim,
       onChanged: (office) => server?.notifyOffice(office),
     });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
@@ -409,6 +420,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "stories" }),
     });
     held.storyIndex = storyIndex;
+    // The run profile (DIPO-72): scanned at load after the story index fetched, and on
+    // `office.rescan`, which also indexes the stories again.
+    const runProfiles = new RunProfiles({
+      git: engineGit,
+      stories: storyIndex,
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "scan" }),
+    });
     // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
     // loaded, with the `retention.*` periods of the configuration in force.
     const retention = new Retention({
@@ -422,8 +441,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const registry: Registry = engineRegistry([
       ...FEATURES,
       engineGit.feature,
+      claims.feature,
       lane.feature,
       storyIndex.feature,
+      runProfiles.feature,
       retention.feature,
       officeFeature(offices),
       helloFeature({

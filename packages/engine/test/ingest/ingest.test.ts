@@ -105,7 +105,11 @@ describe("replaying success-tools-subagent", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       const result = ingestor.track(target(f, claude, claudeState(NAME)));
       expect(result.status).toBe("ended");
       expect(result.offset).toBe(readFileSync(f.eventFile).byteLength);
@@ -147,7 +151,7 @@ describe("replaying success-tools-subagent", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
-      new Ingestor({ office: f.office, clock: f.t.clock }).track(
+      new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
         target(f, claude, claudeState(NAME)),
       );
       const stored = storedOutput(f.office, f.run);
@@ -197,7 +201,7 @@ describe("replaying success-tools-subagent", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
-      new Ingestor({ office: f.office, clock: f.t.clock }).track(
+      new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
         target(f, claude, claudeState(NAME)),
       );
       // The first line per message id is the one counted (0008 section 4).
@@ -248,7 +252,7 @@ describe("cache-creation parts add up to the total", () => {
         const f = await ingestFixture(dir);
         writeFileSync(f.eventFile, eventFileText(loadRecording(name)));
         expect(
-          new Ingestor({ office: f.office, clock: f.t.clock }).track(
+          new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
             target(f, claude, claudeState(name)),
           ).status,
         ).toBe("ended");
@@ -278,7 +282,7 @@ describe("cache-creation parts add up to the total", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording("success-single")));
-      new Ingestor({ office: f.office, clock: f.t.clock }).track(
+      new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
         target(f, claude, claudeState("success-single")),
       );
       expect(() =>
@@ -300,7 +304,11 @@ describe("offsets", () => {
       const half = Math.floor(bytes.byteLength / 2);
       writeFileSync(f.eventFile, bytes.subarray(0, half)); // ends inside a line
 
-      const first = new Ingestor({ office: f.office, clock: f.t.clock });
+      const first = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       const partial = first.track(target(f, claude, claudeState(NAME)));
       expect(partial.status).toBe("ingested");
       expect(partial.offset).toBeLessThan(half);
@@ -308,7 +316,11 @@ describe("offsets", () => {
       first.close();
 
       appendFileSync(f.eventFile, bytes.subarray(half));
-      const second = new Ingestor({ office: f.office, clock: f.t.clock });
+      const second = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       expect(second.track(target(f, claude, claudeState(NAME))).status).toBe("ended");
       expectTotalsMatch(f, NAME);
       expect(countRows(f.office, "usage_messages")).toBe(messageIds(NAME).size);
@@ -335,7 +347,11 @@ describe("offsets", () => {
           return claude.interpret(line, state);
         },
       };
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       expect(() => ingestor.track(target(f, crashing, claudeState(NAME)))).toThrow("daemon died");
       expect(countRows(f.office, "usage_messages")).toBe(0);
       expect(countRows(f.office, "output_chunks")).toBe(0);
@@ -359,7 +375,11 @@ describe("debounce on the manual clock", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       const all = lines();
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       appendLines(f.eventFile, all.slice(0, 3)); // started, text activity, small output
       ingestor.track(target(f, scripted(), { events: [] }));
       expect(typesOf(f.office)).toEqual([]);
@@ -402,7 +422,11 @@ describe("debounce on the manual clock", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       const all = lines();
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       appendLines(f.eventFile, all.slice(0, 4));
       ingestor.track(target(f, scripted(), { events: [] }));
       f.t.clock.advance(250);
@@ -431,7 +455,11 @@ describe("debounce on the manual clock", () => {
   it("a state change flushes pending output first", () =>
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       appendLines(f.eventFile, lines().slice(0, 3));
       ingestor.track(target(f, scripted(), { events: [] }));
       expect(typesOf(f.office)).toEqual([]);
@@ -447,7 +475,11 @@ describe("debounce on the manual clock", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       appendLines(f.eventFile, lines());
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       expect(ingestor.track(target(f, scripted(), { events: [] }, { work: false })).status).toBe(
         "ended",
       );
@@ -462,7 +494,11 @@ describe("triggers", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       const all = scriptedWorker({ script: SCRIPTS["done"] ?? [] }).lines();
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       ingestor.track(target(f, scriptedWorker({ script: SCRIPTS["done"] ?? [] }), { events: [] }));
       appendLines(f.eventFile, all.slice(0, 3));
       f.t.clock.advance(999);
@@ -483,7 +519,11 @@ describe("triggers", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       const all = scriptedWorker({ script: SCRIPTS["done"] ?? [] }).lines();
-      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       ingestor.track(target(f, scriptedWorker({ script: SCRIPTS["done"] ?? [] }), { events: [] }));
       const listeners: ((offset: number) => void)[] = [];
       await ingestor.watch(f.run, f.agent, {
@@ -506,6 +546,7 @@ async function ingestHalf(dir: string) {
   const ingestor = new Ingestor({
     office: f.office,
     clock: f.t.clock,
+    pricing: f.t.state.pricing,
     hooks: { onFileChanged: (report) => reports.push(report) },
   });
   appendLines(f.eventFile, all.slice(0, 4));
@@ -543,7 +584,11 @@ describe("a changed host event file", () => {
       expect(reports.length).toBe(1);
 
       // A new ingestor after a restart does not resume it either.
-      const again = new Ingestor({ office: f.office, clock: f.t.clock });
+      const again = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
       expect(
         again.track(target(f, scriptedWorker({ script: SCRIPTS["done"] ?? [] }), { events: [] }))
           .status,
@@ -582,6 +627,7 @@ describe("a changed host event file", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
+        pricing: f.t.state.pricing,
         hooks: { onFileChanged: (report) => reports.push(report) },
       });
       const worker = scriptedWorker({ script: SCRIPTS["done"] ?? [] });
@@ -606,6 +652,7 @@ describe("init rejection", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
+        pricing: f.t.state.pricing,
         hooks: { onInitRejected: (_run, _agent, reason) => rejected.push(reason) },
       });
       ingestor.track(target(f, claude, claudeState(NAME)));

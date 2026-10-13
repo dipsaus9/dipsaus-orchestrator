@@ -85,6 +85,9 @@ Usage:
   dipo office reload-config [--office <id>]
                     read the office configuration again; an invalid file keeps
                     the previous one and refuses new runs
+  dipo office rescan [--office <id>]
+                    scan the office's run profile again and print what changed,
+                    its conformance level and each deviation
   dipo stats [--office <id>]
                     print the rows and approximate bytes of each table of the
                     office, to tune retention.shortDays and retention.stateDays

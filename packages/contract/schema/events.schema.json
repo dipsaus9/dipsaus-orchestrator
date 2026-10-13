@@ -134,6 +134,43 @@
           "items": {
             "type": "string"
           }
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["start", "run", "test", "rescan"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["conforming", "partial", "non-standard"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "deviations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diff": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "type": "string"
         }
       },
       "required": ["scripts", "warnings"]

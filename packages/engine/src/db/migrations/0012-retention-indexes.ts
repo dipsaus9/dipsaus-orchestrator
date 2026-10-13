@@ -1,4 +1,4 @@
-// Migration 8 (DIPO-65): indexes for the retention jobs (0007 section 7). Each hourly pass deletes
+// Migration 12 (DIPO-65): indexes for the retention jobs (0007 section 7). Each hourly pass deletes
 // rows older than a cutoff in batches of at most 5,000; without an index on the time column every
 // batch would scan all of the office's rows, which a 50 ms slice cannot afford once the state tier
 // holds a year of change-log entries.
@@ -6,7 +6,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const retentionIndexes: SqlMigration = {
-  version: 8,
+  version: 12,
   name: "retention indexes",
   sql: `
 create index change_log_tier_at on change_log (office_id, tier, at);

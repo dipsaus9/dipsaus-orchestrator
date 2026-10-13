@@ -43,6 +43,9 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
           sent.push(message);
           return reply(message);
         }) as DaemonSession["read"],
+        subscribe: () => {
+          throw new Error("subscribe must not be called");
+        },
         close: () => undefined,
       };
       return session;

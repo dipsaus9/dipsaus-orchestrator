@@ -1,10 +1,10 @@
 ---
 id: DIPO-72
 title: Store run profiles and rescan offices on change
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 12:21'
+updated_date: '2026-10-13 08:20'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -56,16 +56,32 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Migrations add `scans`, `run_profiles`, `run_capabilities`, `run_env_files`, `run_ports` and `run_extra_scripts` with the columns of 0007 section 4.
-- [ ] #2 The fingerprint is computed on `_base` as an office load step and by `ensureFreshProfile(office)` before each `work.run`; a mismatch runs detection (DIPO-33) and stores the new profile with its diff against the previous one.
-- [ ] #3 `office.rescan` returns `{ scan: "started" }`, fails with `scan.running` while one runs, re-indexes stories (DIPO-32), and emits `scan.finished` with scripts and warnings.
-- [ ] #4 `dipo office rescan` prints the diff, the conformance level and each deviation.
-- [ ] #5 `verifyResolved(office)` returns the refusal message of a profile whose verify is unresolved, for `work.run` (DIPO-48) to use; no model is called.
-- [ ] #6 The fingerprint also hashes the local config modules a dev server config imports when ports are read from them (0013 amendment of 2026-10-12); a test shows a port change in such a module changes the fingerprint and triggers a rescan.
+- [x] #1 Migrations add `scans`, `run_profiles`, `run_capabilities`, `run_env_files`, `run_ports` and `run_extra_scripts` with the columns of 0007 section 4.
+- [x] #2 The fingerprint is computed on `_base` as an office load step and by `ensureFreshProfile(office)` before each `work.run`; a mismatch runs detection (DIPO-33) and stores the new profile with its diff against the previous one.
+- [x] #3 `office.rescan` returns `{ scan: "started" }`, fails with `scan.running` while one runs, re-indexes stories (DIPO-32), and emits `scan.finished` with scripts and warnings.
+- [x] #4 `dipo office rescan` prints the diff, the conformance level and each deviation.
+- [x] #5 `verifyResolved(office)` returns the refusal message of a profile whose verify is unresolved, for `work.run` (DIPO-48) to use; no model is called.
+- [x] #6 The fingerprint also hashes the local config modules a dev server config imports when ports are read from them (0013 amendment of 2026-10-12); a test shows a port change in such a module changes the fingerprint and triggers a rescan.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-33 in the M0 review (DIPO-15). Before cutover: built by hand-run agents.
+
+Implemented on DIPO-72/store-run-profiles-rescan-offices-change.
+
+- Migration 8 (`run_profiles`) adds the six tables. Profile and scan ids are integers counted per office (the contract `IdPrefix` has no scan or profile prefix). `scans.result` is `stored`, `unchanged` or `failed`; `run_profiles.run_refusal` keeps the refusal `verifyResolved` returns.
+- `RunProfiles` (packages/engine/src/scan/feature.ts) adds the `scan.profile` load step and `office.rescan`. `ensureFreshProfile(office)` and `verifyResolved(office)` are ready for DIPO-48. Env file presence is read from the main checkout, because `_base` holds no gitignored file (0013 section 4).
+- `scan.finished` gets optional `trigger`, `level`, `deviations`, `diff` and `error` (contract minor 1, which is not released yet, so no bump). `dipo office rescan` subscribes to the office stream before it sends `office.rescan` and waits up to 120 s for the rescan's `scan.finished`.
+
+Scope additions:
+- packages/contract/src/software.ts, version.ts, fixtures.ts, schema/events.schema.json: the optional `scan.finished` fields.
+- packages/daemon/src/foreground.ts: the daemon loads `RunProfiles` after the story index.
+- packages/engine/src/index.ts: exports.
+- packages/client/src/node/lifecycle/lifecycle.ts (`DaemonSession` adds `subscribe`), packages/cli/src/daemon-commands.ts (`DaemonSession` adds `subscribe`; `withDaemon` takes an optional deadline), and the session fakes in packages/client/test/unit/lifecycle.test.ts, packages/cli/src/daemon-commands.test.ts and test/office-resolution/office-resolution.test.ts.
+
+Scope addition (review): packages/engine/src/db/schema.ts registers migration 8.
+
+Scope addition: docs/decisions/0005-command-and-event-model.md gains the maintainer-approved 2026-10-13 amendment line for the scan.finished fields.
 <!-- SECTION:NOTES:END -->
