@@ -1,10 +1,10 @@
 ---
 id: DIPO-71
 title: Store gate decisions and show them with dipo gate
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 11:31'
+updated_date: '2026-10-13 11:33'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -81,7 +81,7 @@ Design notes:
 - The gate reads the story on the office's _base worktree (as the index and pickup do), without fetching first.
 - The content hash leaves out status, so a ready-mode decision taken at Refined matches the story after it is set to Ready.
 - A rule decision is one gates row (kind = mode) plus one gate_decisions row (approved/rejected, decided_by rule, rule_results JSON of every rule with passed and messages). No change-log entry is written.
-- Migration 8 (gates). DIPO-72 runs in parallel and may also take 8; whichever merges second renumbers.
+- Migration 13 (gates), renumbered at merge after DIPO-72 and DIPO-65.
 
 Scope additions (review round 1):
 - packages/engine/src/db/schema.ts: lists migration 8 (gates) in MIGRATIONS, the one place migrations are registered.
@@ -89,7 +89,7 @@ Scope additions (review round 1):
 - packages/engine/src/index.ts: exports GateStore and the decision helpers so the daemon (and DIPO-48) can reach them through the package entry.
 - packages/engine/test/commands/registry.test.ts: tests the addAsyncRead seam (duplicate names, story references resolved before the handler).
 
-Error codes: story.gate answers story.unknown when the story is not on the office's base branch, and office.refused with details.step config (no valid office configuration) or backlog (the Backlog CLI could not read the inputs), each with a plain message. GateStore.checkReady is ready-mode only; pickup evaluations happen only through recordGateDecision.
+Error codes: story.gate answers story.unknown when the story is not on the office's base branch, config.invalid when the office has no valid configuration, backlog.unreadable when the Backlog CLI cannot read the inputs, and office.refused with details.step git.version when the office has no git. GateStore.checkReady is ready-mode only; pickup evaluations happen only through recordGateDecision.
 
 Review round 3 (maintainer decision B):
 - Contract: new list OFFICE_ERROR_CODES in packages/contract/src/errors.ts with config.invalid and backlog.unreadable (minor 1, unreleased). story.gate answers config.invalid (no valid office configuration) and backlog.unreadable (Backlog CLI, refusal or parse failure on the base); story.unknown and office.refused step git.version are unchanged.
