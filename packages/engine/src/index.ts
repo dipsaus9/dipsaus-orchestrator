@@ -200,13 +200,40 @@ export {
 export type { HelloSource, OfficeSummarySource } from "./reads/hello";
 export {
   addStory,
+  applyIndex,
+  contentHash,
   findStoryByKey,
+  INDEX_STEP,
+  indexStories,
   isProvisionalId,
+  readBacklog,
   removeStory,
+  renumberStories,
   renumberStory,
   resolveStoryRef,
-} from "./stories/keys";
-export type { NewStory, StoryIdentity, StoryResolution } from "./stories/keys";
+  StoryIndex,
+} from "./stories";
+export type {
+  BacklogStory,
+  IndexResult,
+  IndexStats,
+  NewStory,
+  StoryIdentity,
+  StoryIndexDeps,
+  StoryMove,
+  StoryResolution,
+} from "./stories";
+export {
+  columnCounts,
+  columnOf,
+  deriveOfficeSummary,
+  deriveStoryView,
+  lifecycleOf,
+  officeSummaries,
+  officeSummarySource,
+  storyView,
+} from "./views";
+export type { StoryFacts } from "./views";
 export {
   canonicalJson,
   configHash,
