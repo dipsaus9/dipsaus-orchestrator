@@ -1,6 +1,7 @@
 // Story claims (DIPO-38; 0010 sections 2, 2a and 7): the claim with its branch and locked worktree,
 // the claim facts, and the load step that pins live claims' worktree snapshots. Setup of a claimed
 // worktree (DIPO-39; 0010 sections 8 and 9): files, port slot, run environment and install.
+// Done detection and teardown (DIPO-58; 0010 section 7): the Done poll, worktree and branch removal.
 
 export { CLAIM_NOTICES, CLAIM_STATUS, claimStory, MIN_FREE_BYTES } from "./claim";
 export type {
@@ -33,3 +34,21 @@ export { ENV_FILES_RULE, SETUP_NOTICES, setupWorktree, STEP_OUTPUT_TAIL } from "
 export type { SetupDeps, SetupDone, SetupHost, SetupOutcome, SetupRequest } from "./setup";
 export { MAIN_CHECKOUT_SLOT, SLOTS_FILE, SlotTable, SlotTableError } from "./slots";
 export type { SlotEntry, SlotTableOptions } from "./slots";
+export { PARKED_STATUS, StoryTeardown, TEARDOWN_STEP } from "./done";
+export type { PollReport, StoryTeardownDeps } from "./done";
+export {
+  claimLockReason,
+  detectDone,
+  DONE_RELEASE_REASON,
+  lockInList,
+  tearDown,
+  TEARDOWN_NOTICES,
+} from "./teardown";
+export type {
+  DetectDeps,
+  DoneCheck,
+  DoneEvidence,
+  DoneProblem,
+  TeardownDeps,
+  TeardownOutcome,
+} from "./teardown";
