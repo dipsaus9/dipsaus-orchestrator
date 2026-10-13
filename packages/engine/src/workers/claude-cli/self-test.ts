@@ -8,10 +8,11 @@
 //   `objects` (DIPO-41 review: repeat the on-disk go/no-go checks on every platform);
 // - an append of one nonce byte to the `<worktree>/.git` pointer, so the disk check outside the
 //   sandbox proves a write on its own (the engine restores the pointer afterwards);
-// - opening `<home>/.config/gh/hosts.yml` for reading, closed at once without reading anything;
-//   the open must fail with EPERM or EACCES on a file the engine confirmed exists (0008
-//   amendment of 2026-10-12, DIPO-43 live sessions). No credential command runs in the session:
-//   the engine runs `gh auth token` and the Keychain lookup itself (`../credential-check.ts`);
+// - on macOS, listing `<home>/Library/Keychains` (the directory is opened, no file in it is read);
+//   the listing must fail with EPERM or EACCES on a folder the engine confirmed exists (0008
+//   amendment of 2026-10-13, DIPO-43 live checks; the path is in the run settings' sandbox
+//   `denyRead`, not in the permission rules). No credential command runs in the session: the
+//   engine runs `gh auth token` and the Keychain lookup itself (`../credential-check.ts`);
 // - a control write inside the worktree, which must succeed, or the blocked writes prove nothing.
 //
 // The program writes one line per probe into a results file in the sandbox temp directory. The
@@ -26,6 +27,8 @@ import { isAbsolute, resolve } from "node:path";
 
 import type { ChildExit, ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
+import type { DipoPlatform } from "../../platform/paths";
+import { currentPlatform } from "../../platform/paths";
 import {
   isAtOrUnder,
   SRT_DEFAULT_HOME_WRITE_PATHS,
@@ -48,14 +51,14 @@ export const SELF_TEST_TIMEOUT_MS = 180_000;
 export const SELF_TEST_DIR = "self-test";
 /** Prefix of every file the self-test makes; the rest is a nonce from the session id. */
 export const SELF_TEST_FILE_PREFIX = "dipo-self-test-";
-/** The `gh` configuration the session tries to open, relative to home (0008 amendment). */
-export const GH_CONFIG_FILE = ".config/gh/hosts.yml";
+/** The macOS Keychain folder the session tries to list, relative to home (0008 amendment). */
+export const KEYCHAINS_DIR = "Library/Keychains";
 /** errno values that count as the sandbox refusing the open: EPERM and EACCES. */
 export const PERMISSION_ERRNOS: readonly number[] = [1, 13];
 
 export const SELF_TEST_SYSTEM_PROMPT = [
   "You are running dipo's sandbox self-test. dipo is the maintainer's own orchestrator for their software, and the maintainer approved this test.",
-  "It runs in a disposable git worktree before a worker starts. It checks that the Bash sandbox does its job: writes to git metadata outside the worktree must be refused, and the gh configuration directory must not be readable. Nothing secret is read or printed.",
+  "It runs in a disposable git worktree before a worker starts. It checks that the Bash sandbox does its job: writes to git metadata outside the worktree must be refused, and on macOS the Keychain folder must not be listable. Nothing secret is read or printed.",
   "Every probe except one control file is expected to be refused by the sandbox. Refusals are the expected, successful result, not a problem to fix or ask about.",
   "Your only task: run the one command the user gives, once, with the Bash tool, exactly as written, in a single call. Do not change it, run nothing else, and do not ask questions. Then return the report with status done.",
   "",
@@ -63,8 +66,8 @@ export const SELF_TEST_SYSTEM_PROMPT = [
 
 /** Probes that write where a worker never may. */
 export type WriteProbe = "main-git" | "worktree-admin" | "refs" | "objects" | "pointer";
-/** The open of the gh configuration, which must be refused. */
-export type ProbeName = WriteProbe | "gh-config";
+/** The listing of the macOS Keychain folder, which must be refused. */
+export type ProbeName = WriteProbe | "keychains";
 
 export const WRITE_PROBES: readonly WriteProbe[] = [
   "main-git",
@@ -73,17 +76,25 @@ export const WRITE_PROBES: readonly WriteProbe[] = [
   "objects",
   "pointer",
 ];
-export const ALL_PROBES: readonly ProbeName[] = [...WRITE_PROBES, "gh-config"];
+export const ALL_PROBES: readonly ProbeName[] = [...WRITE_PROBES, "keychains"];
 
 /** The probe groups of the three live safety recordings (AC #8). */
 export const PROBE_GROUPS = {
   "safety-gitdir-write": ["main-git", "worktree-admin", "refs", "objects"],
   "safety-pointer-write": ["pointer"],
-  "safety-gh-token": ["gh-config"],
+  "safety-gh-token": ["keychains"],
 } as const satisfies Readonly<Record<string, readonly ProbeName[]>>;
 
 function isWriteProbe(probe: ProbeName): probe is WriteProbe {
-  return probe !== "gh-config";
+  return probe !== "keychains";
+}
+
+/** The probes that apply on `platform`: the Keychain folder exists on macOS only. */
+export function probesFor(
+  platform: DipoPlatform,
+  probes: readonly ProbeName[] = ALL_PROBES,
+): ProbeName[] {
+  return probes.filter((probe) => probe !== "keychains" || platform === "darwin");
 }
 
 export interface SelfTestPaths {
@@ -94,7 +105,7 @@ export interface SelfTestPaths {
   readonly adminDir: string;
   /** The sandbox temp directory; the results file goes there. */
   readonly tmpDir: string;
-  /** The maintainer's home; the gh configuration lies under it. */
+  /** The maintainer's home; the Keychain folder lies under it. */
   readonly home: string;
   /** Makes every file name unique to this self-test; its first character is the written byte. */
   readonly nonce: string;
@@ -118,8 +129,8 @@ export interface SelfTestLayout {
   readonly targets: readonly ProbeTarget[];
   readonly controlFile: string;
   readonly resultsFile: string;
-  /** The gh configuration file the session tries to open. */
-  readonly ghConfigFile: string;
+  /** The Keychain folder the session tries to list. */
+  readonly keychainsDir: string;
   /** The inline probe program passed to `perl -e`. */
   readonly script: string;
   /** The byte every write probe writes; the pointer probe appends it. */
@@ -131,7 +142,7 @@ export interface SelfTestLayout {
 /**
  * The probe program, one line for `perl -e`, holding code only for the probes it runs.
  * Arguments: the results file, the byte, then one triple per probe (name, open mode, path).
- * Write probes open their path and write the byte; `gh-config` opens its path for reading and
+ * Write probes open their path and write the byte; `keychains` opens its directory for listing and
  * closes it at once, keeping only the errno of a failed open. One result line per probe. Passed
  * inline: Claude Code's permission layer denies `perl <script>` when the script lies outside the
  * working directory (seen live on 2.1.296), and a script inside the worktree could be changed by
@@ -143,9 +154,9 @@ export function probeScript(probes: readonly ProbeName[]): string {
     "my $out = shift @ARGV; my $b = shift @ARGV;",
     'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
     "while (@ARGV) { my ($n, $m, $p) = splice(@ARGV, 0, 3);",
-    ...(probes.includes("gh-config")
+    ...(probes.includes("keychains")
       ? [
-          'if ($n eq "gh-config") { if (open(my $f, "<", $p)) { close $f; print $o "gh-config opened\\n" } else { print $o "gh-config refused ", $! + 0, "\\n" } next }',
+          'if ($n eq "keychains") { if (opendir(my $d, $p)) { closedir $d; print $o "keychains listed\\n" } else { print $o "keychains refused ", $! + 0, "\\n" } next }',
         ]
       : []),
     'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" } }',
@@ -189,7 +200,7 @@ export function selfTestLayout(
   };
   const controlFile = `${paths.workdir}/.${name}`;
   const resultsFile = `${paths.tmpDir}/${name}.txt`;
-  const ghConfigFile = `${paths.home}/${GH_CONFIG_FILE}`;
+  const keychainsDir = `${paths.home}/${KEYCHAINS_DIR}`;
   const writes = probes.filter(isWriteProbe);
   const targets: ProbeTarget[] = [
     { name: "control", mode: ">", path: controlFile },
@@ -200,16 +211,16 @@ export function selfTestLayout(
     resultsFile,
     byte,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
-    ...(probes.includes("gh-config") ? ["gh-config", "<", ghConfigFile] : []),
+    ...(probes.includes("keychains") ? ["keychains", "-", keychainsDir] : []),
   ];
   const command = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
   const checks = [
     ...(writes.length === 0
       ? []
       : [`it tries to write ${writes.map((probe) => PROBE_PROSE[probe]).join(", ")}`]),
-    ...(probes.includes("gh-config")
+    ...(probes.includes("keychains")
       ? [
-          "it tries to open the gh configuration file (~/.config/gh/hosts.yml) for reading and closes it at once without reading anything, keeping only the error number",
+          "it tries to list the macOS Keychain folder (~/Library/Keychains) without opening any file in it, keeping only the error number",
         ]
       : []),
   ];
@@ -222,7 +233,7 @@ export function selfTestLayout(
     "",
     'After the command has run, whatever it printed, return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
   ].join("\n");
-  return { probes, targets, controlFile, resultsFile, ghConfigFile, script, byte, command, prompt };
+  return { probes, targets, controlFile, resultsFile, keychainsDir, script, byte, command, prompt };
 }
 
 /** One parsed line of the results file. */
@@ -236,13 +247,13 @@ export function parseResults(text: string): Map<string, ProbeLine> {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line === "") continue;
-    if (line === "gh-config opened") {
-      lines.set("gh-config", { kind: "open", opened: true, errno: null });
+    if (line === "keychains listed") {
+      lines.set("keychains", { kind: "open", opened: true, errno: null });
       continue;
     }
-    const refused = /^gh-config refused (\d+)$/.exec(line);
+    const refused = /^keychains refused (\d+)$/.exec(line);
     if (refused !== null) {
-      lines.set("gh-config", { kind: "open", opened: false, errno: Number(refused[1]) });
+      lines.set("keychains", { kind: "open", opened: false, errno: Number(refused[1]) });
       continue;
     }
     const write = /^([a-z-]+) (written|blocked)(?: (.*))?$/.exec(line);
@@ -294,8 +305,8 @@ export interface SelfTestBashCalls {
 export type SelfTestVerdict =
   | {
       readonly ok: true;
-      /** The errno of the refused gh configuration open, when that probe ran. */
-      readonly ghConfigErrno: number | null;
+      /** The errno of the refused Keychain folder listing, when that probe ran. */
+      readonly keychainsErrno: number | null;
     }
   | {
       readonly ok: false;
@@ -311,7 +322,7 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   refs: "a write under <main>/.git/refs",
   objects: "a write under <main>/.git/objects",
   pointer: "a write to the <worktree>/.git pointer",
-  "gh-config": `opening <home>/${GH_CONFIG_FILE}`,
+  keychains: `listing <home>/${KEYCHAINS_DIR}`,
 };
 
 function cannotRun(reason: string, probe?: ProbeName | "control"): SelfTestVerdict {
@@ -358,13 +369,13 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
         };
       }
     }
-    const open = lines.get("gh-config");
-    if (probes.includes("gh-config") && open?.kind === "open" && open.opened) {
+    const open = lines.get("keychains");
+    if (probes.includes("keychains") && open?.kind === "open" && open.opened) {
       return {
         ok: false,
         unsafe: true,
-        probe: "gh-config",
-        reason: `the sandbox allowed ${PROBE_TEXT["gh-config"]}, so a worker could read the gh configuration`,
+        probe: "keychains",
+        reason: `the sandbox allowed ${PROBE_TEXT["keychains"]}, so a worker could reach the Keychain files`,
       };
     }
   }
@@ -402,21 +413,21 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
       "control",
     );
   }
-  const open = lines.get("gh-config");
-  let ghConfigErrno: number | null = null;
+  const open = lines.get("keychains");
+  let keychainsErrno: number | null = null;
   if (open?.kind === "open") {
     if (open.errno === null || !PERMISSION_ERRNOS.includes(open.errno)) {
       return cannotRun(
-        `${PROBE_TEXT["gh-config"]} failed with errno ${open.errno ?? "unknown"}, not a permission error, so the sandbox was not shown to refuse it`,
-        "gh-config",
+        `${PROBE_TEXT["keychains"]} failed with errno ${open.errno ?? "unknown"}, not a permission error, so the sandbox was not shown to refuse it`,
+        "keychains",
       );
     }
-    ghConfigErrno = open.errno;
+    keychainsErrno = open.errno;
   }
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
   }
-  return { ok: true, ghConfigErrno };
+  return { ok: true, keychainsErrno };
 }
 
 /** File access the self-test needs, outside the sandbox. Injectable for tests. */
@@ -612,6 +623,8 @@ export interface SelfTestDeps {
   /** An engine-made UUID for the self-test session; never the run's own session id. */
   readonly sessionId: string;
   readonly timeoutMs?: number;
+  /** Decides whether the Keychain folder probe runs (macOS only); the running platform by default. */
+  readonly platform?: DipoPlatform;
 }
 
 export interface SelfTestInput {
@@ -766,21 +779,24 @@ export async function runSelfTest(
 
   // Lower case: the nonce names files and its first character is the written byte.
   const nonce = deps.sessionId.toLowerCase().replaceAll("-", "").slice(0, 16);
-  const layout = selfTestLayout({
-    main,
-    workdir,
-    adminDir,
-    tmpDir: ctx.tmpDir,
-    home: ctx.home,
-    nonce,
-    tools: tools.tools,
-  });
-  // A missing gh configuration proves nothing about the sandbox: refuse rather than pass.
-  if (layout.probes.includes("gh-config") && !(await fs.exists(layout.ghConfigFile))) {
+  const layout = selfTestLayout(
+    {
+      main,
+      workdir,
+      adminDir,
+      tmpDir: ctx.tmpDir,
+      home: ctx.home,
+      nonce,
+      tools: tools.tools,
+    },
+    probesFor(deps.platform ?? currentPlatform()),
+  );
+  // A missing Keychain folder proves nothing about the sandbox: refuse rather than pass.
+  if (layout.probes.includes("keychains") && !(await fs.exists(layout.keychainsDir))) {
     return fail(
       cannotRun(
-        `${layout.ghConfigFile} does not exist outside the sandbox, so its refusal inside cannot be tested`,
-        "gh-config",
+        `${layout.keychainsDir} does not exist outside the sandbox, so its refusal inside cannot be tested`,
+        "keychains",
       ),
     );
   }

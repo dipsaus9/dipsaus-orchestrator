@@ -1,7 +1,7 @@
 // The engine-side credential check (0008 section 2, amendment of 2026-10-12 "DIPO-43 live
 // sessions"). Claude Code's permission layer denies a credential command in the worker session
 // before its sandbox sees it, so the engine runs `gh auth token` and, on macOS,
-// `security find-generic-password -s gh:github.com` itself, with no model, through
+// `security find-generic-password -s gh:github.com -w` itself, with no model, through
 // `dipo daemon sandbox-exec` under the verify-kind `srt` policy (no network). Both must fail.
 // Their output never reaches the engine: each runs under `/bin/sh` with stdout and stderr sent to
 // /dev/null, then the shell prints one marker line with the program's exit code. The marker is
@@ -38,7 +38,7 @@ export function credentialCommands(
       ? [
           {
             probe: "keychain" as const,
-            argv: [KEYCHAIN_TOOL, "find-generic-password", "-s", GH_KEYCHAIN_SERVICE],
+            argv: [KEYCHAIN_TOOL, "find-generic-password", "-s", GH_KEYCHAIN_SERVICE, "-w"],
           },
         ]
       : []),
@@ -78,7 +78,7 @@ export type RunStep = (request: StepRequest) => Promise<StepResult>;
 
 const TEXT: Record<CredentialProbe, string> = {
   "gh-token": "`gh auth token`",
-  keychain: `\`security find-generic-password -s ${GH_KEYCHAIN_SERVICE}\``,
+  keychain: `\`security find-generic-password -s ${GH_KEYCHAIN_SERVICE} -w\``,
 };
 
 function failure(probe: CredentialProbe, detail: string, unsafe: boolean): CredentialCheckResult {

@@ -81,3 +81,15 @@ describe("(unit) credential step verdict", () => {
     expect(credentialCommands("darwin", "/usr/bin/gh")[1]?.argv[0]).toBe(KEYCHAIN_TOOL);
   });
 });
+
+describe("(unit) Keychain lookup", () => {
+  it("asks for the secret with -w, so a lookup that works would be a real leak", () => {
+    expect(credentialCommands("darwin", "/usr/bin/gh")[1]?.argv).toEqual([
+      KEYCHAIN_TOOL,
+      "find-generic-password",
+      "-s",
+      "gh:github.com",
+      "-w",
+    ]);
+  });
+});

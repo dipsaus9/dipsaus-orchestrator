@@ -361,7 +361,8 @@ export {
 } from "./workers/claude-cli/settings-check";
 export {
   bashCalls as selfTestBashCalls,
-  GH_CONFIG_FILE,
+  KEYCHAINS_DIR,
+  probesFor as selfTestProbesFor,
   judgeSelfTest,
   resolveSelfTestTools,
   workerWritableRoots,
