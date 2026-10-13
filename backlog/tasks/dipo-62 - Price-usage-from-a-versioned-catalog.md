@@ -1,10 +1,10 @@
 ---
 id: DIPO-62
 title: Price usage from a versioned catalog
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:42'
+updated_date: '2026-10-13 08:40'
 labels:
   - 'tier:S'
   - after-cutover
@@ -47,15 +47,34 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `engine/src/pricing/catalog-<n>.json` lists per model id the input, output, 5-minute write, 1-hour write and read rates with effective date and source URL.
-- [ ] #2 The daemon imports any catalog version it lacks at open, verifies its checksum, and never edits an imported version.
-- [ ] #3 `usage_totals.est_cost_micros` and `pricing_version` are filled at each update.
-- [ ] #4 A difference above 10% between the estimate and the CLI's `costUSD` for a run raises one notice.
-- [ ] #5 Pricing reads `cache_create_5m` and `cache_create_1h` directly (their sum equals `cache_create`, DIPO-45). Spend the adapter reports beyond the per-message sums (aborted turns) is stored as 5-minute writes, so the estimate can be slightly low for 1-hour-heavy sessions; this is recorded as a known approximation in the pricing module's notes.
+- [x] #1 `engine/src/pricing/catalog-<n>.json` lists per model id the input, output, 5-minute write, 1-hour write and read rates with effective date and source URL.
+- [x] #2 The daemon imports any catalog version it lacks at open, verifies its checksum, and never edits an imported version.
+- [x] #3 `usage_totals.est_cost_micros` and `pricing_version` are filled at each update.
+- [x] #4 A difference above 10% between the estimate and the CLI's `costUSD` for a run raises one notice.
+- [x] #5 Pricing reads `cache_create_5m` and `cache_create_1h` directly (their sum equals `cache_create`, DIPO-45). Spend the adapter reports beyond the per-message sums (aborted turns) is stored as 5-minute writes, so the estimate can be slightly low for 1-hour-heavy sessions; this is recorded as a known approximation in the pricing module's notes.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S46 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+Implementation (DIPO-62):
+- Catalog: packages/engine/src/pricing/catalog-1.json, rates in micro-USD per million tokens, read 2026-10-13 from https://platform.claude.com/docs/en/about-claude/pricing (0008 source 14). Effective date and source URL are catalog-level fields (0007 pricing_catalogs). Model ids derived from the page's model names (Claude Haiku 5.5 -> claude-haiku-5-5, matching recordings' canonicalModel). Claude Mythos 5/5.1 (limited availability) and Claude Haiku 3.5 (different id scheme, retired) are left out. Haiku 5.5 long-prompt rates (prompts over 100,000 tokens) are kept in the catalog and pricing_rates.prompt_over but not applied (estimates use base rates).
+- Checksums: sha256 over the catalog JSON, released checksum recorded in pricing/catalog.ts; checked at import, and against the checksum a database already holds. Triggers refuse updates and deletes of imported catalogs.
+- Migration 11 (0011-pricing.ts): pricing_catalogs, pricing_rates (software-wide), usage_totals.cli_cost_micros, pricing_checks (one stale-catalog notice per run). Renumbered from 8 after main took 8 to 10.
+- Cross-check: notice code pricing.catalogStale (engine.notice, warn). A turn end that kept live numbers above the CLI's totals (aborted or crashed turn, recording pause-now) clears the agent's CLI cost, so no false notice is raised.
+- Known approximations are in the header of packages/engine/src/pricing/index.ts (AC 5).
+
+Scope additions:
+- packages/engine/src/workers/claude-cli/{schema,interpret}.ts and workers/types.ts: read modelUsage costUSD and carry the CLI cost on the turn event (costUsd), run-cumulative like the token totals. Needed for AC 4; 0008 section 4 asks the engine to store costUSD.
+- packages/engine/src/ingest/ingestor.ts: required pricing option (a PriceBook or explicit null); prices usage and runs the cross-check in the pass transaction.
+- packages/engine/src/db/database.ts: imports catalogs after migrations and exposes StateDatabase.pricing.
+- packages/engine/tsconfig.json: include src/**/*.json so tsc -b accepts the catalog import.
+
+Scope additions (review of PR #69):
+- packages/engine/src/db/schema.ts: registers migration 11 (pricing) in MIGRATIONS; every migration is listed there.
+- packages/engine/src/index.ts: the pricing exports were removed again; nothing outside the engine uses them.
+- IngestorOptions.pricing is now required (PriceBook or explicit null), so the wiring story cannot drop it silently; packages/engine/test/ingest/ingest.test.ts passes the imported catalog.
+- recordCliCost returns the models whose cost matched no usage row; the ingestor logs a warning for each.
 <!-- SECTION:NOTES:END -->

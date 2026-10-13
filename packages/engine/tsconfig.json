@@ -6,7 +6,7 @@
     "outDir": ".tsbuild",
     "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo"
   },
-  "include": ["src", "scripts", "test"],
+  "include": ["src", "src/**/*.json", "scripts", "test"],
   "references": [
     {
       "path": "../contract"

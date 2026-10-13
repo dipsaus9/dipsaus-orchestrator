@@ -32,7 +32,7 @@ import {
 import { type DaemonLogsDeps, logsCommand } from "./logs-command";
 
 /** What a daemon subcommand needs from a connected client. */
-export type DaemonSession = Pick<DipoClient, "command" | "subscribe" | "close">;
+export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
 
 /**
  * Connects to the daemon, starting it first when autostart allows (DIPO-70). Throws

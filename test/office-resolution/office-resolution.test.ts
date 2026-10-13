@@ -90,6 +90,9 @@ function cli(
     subscribe: () => {
       throw new Error("subscribe must not be called");
     },
+    read: (async () => {
+      throw new Error("read must not be called");
+    }) as DaemonSession["read"],
     close: () => undefined,
   };
   const deps: CliDeps = {

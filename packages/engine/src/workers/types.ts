@@ -155,6 +155,12 @@ export type WorkerEvent =
       readonly t: "turn";
       readonly report: WorkerReport | null;
       readonly totals: UsageTotalsByModel;
+      /**
+       * The adapter's own cost estimate in USD per model, run totals as of this turn end, when
+       * the adapter reports one; the engine checks its pricing catalog against it (0008
+       * section 4).
+       */
+      readonly costUsd?: Readonly<Record<string, number>>;
       readonly numTurns: number;
       readonly terminal: string;
     }

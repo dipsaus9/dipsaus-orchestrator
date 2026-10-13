@@ -205,6 +205,8 @@ describe("views", () => {
 });
 
 describe("office commands and reads", () => {
+  // Shipped after minor 0, by name.
+  const shippedLater: Record<string, number> = { "office.stats": 1 };
   const provisional = [
     "work.steer",
     "work.pause",
@@ -247,6 +249,7 @@ describe("office commands and reads", () => {
         "work.outputRange",
         "office.usage",
         "office.digest",
+        "office.stats",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);
@@ -262,8 +265,9 @@ describe("office commands and reads", () => {
         expect(definition.since).toBeUndefined();
       });
     } else {
-      it(`${definition.name} ships with since 1.0`, () => {
-        expect(definition.since).toBe(0);
+      const since = shippedLater[definition.name] ?? 0;
+      it(`${definition.name} ships with since 1.${since}`, () => {
+        expect(definition.since).toBe(since);
         expect(definition.provisional).toBeUndefined();
       });
     }

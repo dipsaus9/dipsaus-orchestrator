@@ -1,10 +1,10 @@
 ---
 id: DIPO-65
 title: Retain and back up state and report table sizes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 08:58'
 labels:
   - 'tier:M'
   - after-cutover
@@ -54,12 +54,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Retention runs at load and hourly, at most 5,000 rows per transaction, using `retention.shortDays` and `retention.stateDays` from `office.local.yaml` or their defaults.
-- [ ] #2 Deleting R-tier change-log rows moves `replay_floor_seq`; a later subscribe below it gets `stream.resetRequired`.
-- [ ] #3 `events.ndjson` is deleted once a run has ended, been fully processed and summarised, or after tier R with a notice.
-- [ ] #4 A daily backup is written from a Bun Worker and checked with `PRAGMA quick_check`; 3 daily and 2 pre-migration copies are kept.
-- [ ] #5 Incremental vacuum, `wal_checkpoint(TRUNCATE)` and `optimize` run only when no office has active work, within the time budget.
-- [ ] #6 Read `office.stats { office }` (contract minor) returns the row count and approximate bytes of each office-scoped table, and `dipo stats [--office <id>]` prints them.
+- [x] #1 Retention runs at load and hourly, at most 5,000 rows per transaction, using `retention.shortDays` and `retention.stateDays` from `office.local.yaml` or their defaults.
+- [x] #2 Deleting R-tier change-log rows moves `replay_floor_seq`; a later subscribe below it gets `stream.resetRequired`.
+- [x] #3 `events.ndjson` is deleted once a run has ended, been fully processed and summarised, or after tier R with a notice.
+- [x] #4 A daily backup is written from a Bun Worker and checked with `PRAGMA quick_check`; 3 daily and 2 pre-migration copies are kept.
+- [x] #5 Incremental vacuum, `wal_checkpoint(TRUNCATE)` and `optimize` run only when no office has active work, within the time budget.
+- [x] #6 Read `office.stats { office }` (contract minor) returns the row count and approximate bytes of each office-scoped table, and `dipo stats [--office <id>]` prints them.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -68,4 +68,20 @@ test_plan:
 M0 breakdown draft number S49 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
 
 M0 review (DIPO-15): restore and purge split into DIPO-76; `dipo stats` added here.
+
+Scope additions (DIPO-65):
+- packages/engine/src/db/migrations/0012-retention-indexes.ts and db/schema.ts: indexes on the time columns retention deletes by (change_log tier+at, requests, output_chunks, usage_messages), so each batch stays inside the 50 ms budget (migration 12, after main's 8-11).
+- packages/engine/src/platform/clock.ts: yieldToEventLoop, the pause between slices.
+- packages/engine/src/index.ts: exports backup/ and retention/.
+- packages/daemon/src/foreground.ts: wires Retention (load step and hourly timer) and MaintenanceScheduler (daily backup and maintenance), and waits for both before the database closes.
+- packages/cli/src/daemon-commands.ts (DaemonSession includes read), office-commands.ts (exports withOffice, parseOptions, Act), and read stubs in the session fakes of daemon-commands.test.ts, office-commands.test.ts and test/office-resolution/office-resolution.test.ts. Same change as open PR #66 (DIPO-71).
+- packages/contract/schema/reads.schema.json regenerated for office.stats.
+
+Scope additions (review of PR #70):
+- packages/engine/test/backup/backup.test.ts: tests of engine/src/backup/ (daily backup through the Worker, pruning, maintenance, scheduler); References name engine/test/retention/ only.
+- The retention migration is now 12 (0012-retention-indexes.ts) after merging main with migrations 8-11.
+- engine/src/retention/policy.ts and run.ts name tiers for the tables main added: scans, claims, prompt_parts (S, aged), run profile tables (P), worker_notes (T). released_branches (stateDays after reclaim) and pricing_checks (by raised_at) are aged by stateDays (S).
+- packages/cli/src/stats-command.test.ts session fake carries a subscribe stub, as main's DaemonSession includes subscribe.
+
+Review follow-up: released_branches rows are deleted stateDays after reclaim (S), pricing_checks by raised_at (S), and run profiles other than the current one and its previous one are pruned with their capability, env-file, port and extra-script rows (0007 P: current and previous). Scans keep tier S.
 <!-- SECTION:NOTES:END -->

@@ -186,6 +186,8 @@ export type {
 export { argsHash, MemoryRequestTable, REQUEST_TTL_MS } from "./commands/requests";
 export { findStoryRefFields, resolveStoryRefs } from "./commands/story-refs";
 export { engineRegistry, FEATURES } from "./features";
+export * from "./backup";
+export * from "./retention";
 export * from "./git";
 export * from "./backlog/lane";
 export * from "./worktree";
