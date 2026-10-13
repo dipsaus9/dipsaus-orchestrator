@@ -1,11 +1,11 @@
 ---
 id: DIPO-66
 title: Prepare the release pipeline as a dry run with an install script
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:11'
+updated_date: '2026-10-13 12:12'
 labels:
   - 'tier:M'
   - after-cutover
@@ -82,4 +82,6 @@ Implementation notes:
 - shellcheck is not installed locally; a scratchpad copy of shellcheck 0.11.0 and actionlint 1.7.12 found no issues in install.sh, ci.yml, release.yml or the existing stub-worker.sh.
 
 Review advisory fixed: release.yml now rejects a `tag` input outside `^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]*)?$` (bash `[[ =~ ]]` on the whole value, so no newline passes), and the decide step writes build, publish, ref and tag with one printf each instead of piping through `tr`. actionlint 1.7.12 and shellcheck 0.11.0 (scratchpad copies) report nothing.
+
+Maintainer decision (2026-10-13): when gh is installed but not logged in, install.sh stops and suggests gh auth login (0016 rule 7, as built). Secrets use the App Client ID (create-github-app-token v3 deprecates app-id).
 <!-- SECTION:NOTES:END -->
