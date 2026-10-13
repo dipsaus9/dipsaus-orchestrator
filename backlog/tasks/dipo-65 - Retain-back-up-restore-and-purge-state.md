@@ -1,10 +1,10 @@
 ---
 id: DIPO-65
 title: Retain and back up state and report table sizes
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 08:14'
 labels:
   - 'tier:M'
   - after-cutover
