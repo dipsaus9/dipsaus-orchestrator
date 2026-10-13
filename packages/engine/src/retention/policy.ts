@@ -37,4 +37,21 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   story_aliases: { tier: "P", rule: "kept until purge" },
   backlog_mirror: { tier: "P", rule: "overwritten in place, kept until purge" },
   context_packs: { tier: "T", rule: "removed at worktree teardown" },
+  worker_notes: { tier: "T", rule: "removed at worktree teardown" },
+  prompt_parts: {
+    tier: "S",
+    rule: "recorded more than stateDays ago, once no agent of the run is running",
+  },
+  claims: { tier: "S", rule: "released more than stateDays ago; a live claim is kept" },
+  scans: { tier: "S", rule: "finished more than stateDays ago" },
+  // 0007 keeps the current and previous profile; older profiles are not aged yet (open point).
+  run_profiles: { tier: "P", rule: "kept until purge" },
+  run_capabilities: { tier: "P", rule: "with its profile" },
+  run_env_files: { tier: "P", rule: "with its profile" },
+  run_ports: { tier: "P", rule: "with its profile" },
+  run_extra_scripts: { tier: "P", rule: "with its profile" },
+  // Not aged until a tier is decided (open points): 0007 says "until reclaimed or deleted" for
+  // released branches and names no tier for pricing checks.
+  released_branches: { tier: "P", rule: "kept until a tier is decided" },
+  pricing_checks: { tier: "P", rule: "kept until a tier is decided" },
 };

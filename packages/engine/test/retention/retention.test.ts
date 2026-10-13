@@ -24,8 +24,11 @@ import { addOffice, countRows, openTestState, type TestState } from "../commands
 import {
   DeleteRecorder,
   insertAgent,
+  insertClaim,
   insertHost,
   insertJournal,
+  insertPromptPart,
+  insertScan,
   insertRequest,
   insertRequests,
 } from "./helpers";
@@ -213,6 +216,43 @@ describe("retention of run rows", () => {
       // The live run's cursor stays: its run has not ended.
       expect(ids("ingest_cursors", "agent_id")).toEqual(["agt-live"]);
       expect(ids("backlog_journal", "op_id")).toEqual([2, 3]);
+    }));
+
+  it("deletes released claims, scans and prompt parts after the state tier", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      insertClaim(office, "run-released", day(0));
+      insertClaim(office, "run-live", null);
+      insertScan(office, 1, day(0));
+      insertScan(office, 2, day(300));
+      insertAgent(office, {
+        run: "run-done",
+        agent: "agt-done",
+        startedAt: day(0),
+        endedAt: day(1),
+      });
+      insertAgent(office, { run: "run-long", agent: "agt-long", startedAt: day(0), endedAt: null });
+      insertPromptPart(office, "run-done", "agt-done", day(0));
+      insertPromptPart(office, "run-long", "agt-long", day(0));
+      t.clock.advanceTo(day(400));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toMatchObject({ claims: 1, scans: 1, prompt_parts: 1 });
+      const ids = (sql: string) => office.all<{ id: unknown }>(sql).map((row) => row.id);
+      expect(ids("select run_id as id from claims where office_id = $office_id")).toEqual([
+        "run-live",
+      ]);
+      expect(ids("select scan_id as id from scans where office_id = $office_id")).toEqual([2]);
+      // The run with an agent still running keeps its prompt parts.
+      expect(ids("select run_id as id from prompt_parts where office_id = $office_id")).toEqual([
+        "run-long",
+      ]);
     }));
 
   it("uses retention.shortDays and retention.stateDays", () =>
@@ -466,6 +506,26 @@ describe("the retention load step", () => {
       await s.retention.whenIdle(office.officeId);
       expect(countRows(office, "change_log")).toBe(0);
       await s.retention.stop();
+    }));
+
+  it("starts no pass once stopped, neither at load nor queued behind a running one", () =>
+    withOffice(async (t, office, tmp) => {
+      const s = setup(t, office, join(tmp, "repo", ".git"));
+      append(office, t.clock.now(), [progress(1)]);
+      t.clock.advance(2 * DAY_MS);
+      await s.load();
+      expect(countRows(office, "change_log")).toBe(0);
+      append(office, t.clock.now() - 2 * DAY_MS, [progress(2)]);
+
+      // A pass asked for in the same turn as stop() is queued, and never starts.
+      const queued = s.retention.run(office.officeId);
+      await s.retention.stop();
+      expect(await queued).toBeNull();
+      // An office loading while the daemon closes the database runs no pass either.
+      expect(await s.load()).toEqual({ ok: true });
+      await s.retention.whenIdle(office.officeId);
+      expect(countRows(office, "change_log")).toBe(1);
+      expect(t.clock.pendingTimers).toBe(0);
     }));
 
   it("stops its timer once the office is no longer loaded", () =>

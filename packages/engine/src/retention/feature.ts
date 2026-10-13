@@ -62,6 +62,8 @@ export class Retention {
       name: "retention",
       register: (registry) => {
         registry.registerLoadStep(RETENTION_STEP, async (ctx) => {
+          // Stopped: the daemon is closing the database, so no pass may start now.
+          if (this.#stopped) return { ok: true };
           const state = this.#track(ctx.officeId, {
             office: ctx.office,
             commonDir: ctx.commonDir,
@@ -110,6 +112,8 @@ export class Retention {
   }
 
   async #pass(office: OfficeId, state: Tracked): Promise<RetentionReport | null> {
+    // A pass queued behind one that was running at `stop()` never starts.
+    if (this.#stopped) return null;
     const config = state.config ?? OFFICE_DEFAULTS;
     try {
       const report = await runRetention({

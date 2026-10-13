@@ -121,7 +121,17 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows("usage_messages", ENDED_AGENT, { cutoff: stateCutoff });
   await rows("ingest_cursors", ENDED_AGENT, { cutoff: stateCutoff });
   await rows("usage_totals", ENDED_AGENT, { cutoff: stateCutoff });
+  // Prompt part hashes of a run with no agent still running.
+  await rows(
+    "prompt_parts",
+    `recorded_at < $cutoff and not exists (select 1 from agents a where a.office_id = $office_id
+       and a.run_id = prompt_parts.run_id and a.ended_at is null)`,
+    { cutoff: stateCutoff },
+  );
   await rows("agents", "ended_at < $cutoff", { cutoff: stateCutoff });
+  // Released claims; a live claim has no release time.
+  await rows("claims", "released_at < $cutoff", { cutoff: stateCutoff });
+  await rows("scans", "finished_at < $cutoff", { cutoff: stateCutoff });
   await rows("worker_hosts", "ended_at < $cutoff", { cutoff: stateCutoff });
   await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`, {
     cutoff: stateCutoff,

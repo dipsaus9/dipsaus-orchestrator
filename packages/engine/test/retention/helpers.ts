@@ -122,3 +122,43 @@ export function insertJournal(
     ),
   );
 }
+
+/** A claim of `run`; live while `releasedAt` is null. */
+export function insertClaim(office: OfficeHandle, run: string, releasedAt: number | null): void {
+  office.immediate(() =>
+    office.run(
+      `insert into claims (office_id, run_id, key, story_id, branch, worktree, base, base_sha,
+         start_sha, reused, admin_dir, snap_commondir, snap_gitdir, snap_pointer, claimed_at,
+         released_at)
+       values ($office_id, $run, $key, 'DIPO-1', $branch, '/w', 'main', 'a', 'a', 0, '/a', '/c',
+         '/g', '/p', 0, $released)`,
+      { run, key: `sto-${run}`, branch: `DIPO-1/${run}`, released: releasedAt },
+    ),
+  );
+}
+
+export function insertScan(office: OfficeHandle, scan: number, finishedAt: number): void {
+  office.immediate(() =>
+    office.run(
+      `insert into scans (office_id, scan_id, trigger, started_at, finished_at, result)
+       values ($office_id, $scan, 'start', $at, $at, 'failed')`,
+      { scan, at: finishedAt },
+    ),
+  );
+}
+
+export function insertPromptPart(
+  office: OfficeHandle,
+  run: string,
+  agent: string,
+  at: number,
+): void {
+  office.immediate(() =>
+    office.run(
+      `insert into prompt_parts (office_id, run_id, agent_id, part, sha256, bytes, est_tokens,
+         recorded_at)
+       values ($office_id, $run, $agent, 'system', 'h', 10, 3, $at)`,
+      { run, agent, at },
+    ),
+  );
+}
