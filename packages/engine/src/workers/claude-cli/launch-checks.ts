@@ -129,7 +129,6 @@ export async function claudeLaunchChecks(
       sessionId: deps.selfTestSessionId,
       ...(deps.fs === undefined ? {} : { fs: deps.fs }),
       ...(deps.selfTestTimeoutMs === undefined ? {} : { timeoutMs: deps.selfTestTimeoutMs }),
-      platform: deps.platform,
     },
   );
   const failure = selfTestFailure(report);

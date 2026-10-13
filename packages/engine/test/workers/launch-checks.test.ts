@@ -27,7 +27,6 @@ import {
   MemoryFs,
   scriptedClaude,
   credentialSteps,
-  HOME,
   SELF_TEST_SESSION,
   selfTestSession,
   spec,
@@ -55,7 +54,6 @@ const LAYOUT = selfTestLayout({
   adminDir: ADMIN_DIR,
   tmpDir: TMP_DIR,
   nonce: NONCE,
-  home: HOME,
   tools: TOOLS,
 });
 
@@ -110,17 +108,17 @@ describe("(engine) Claude launch checks", () => {
       fs,
     });
 
-    const leaked = BLOCKED_RESULTS.replace("keychains refused 1", "keychains listed");
+    const leaked = BLOCKED_RESULTS.replace("refs blocked Operation not permitted", "refs written");
     const refused = await prepareLaunch(spec(), context(), holds, deps(new MemoryFs(), leaked));
     expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
     const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-    expect(hold).toMatchObject({ check: "self-test", key: "keychains" });
-    expect(hold?.detail).toContain("Library/Keychains");
+    expect(hold).toMatchObject({ check: "self-test", key: "refs" });
+    expect(hold?.detail).toContain("<main>/.git/refs");
     const notice = notices.at(-1);
     expect(notice?.type).toBe("engine.notice");
     expect(notice?.data).toMatchObject({ level: "error", code: HOLD_NOTICE_CODE });
     const noticeText = String((notice?.data as { text?: string } | undefined)?.text);
-    expect(noticeText).toContain("Library/Keychains");
+    expect(noticeText).toContain("<main>/.git/refs");
     expect(noticeText).toContain("every office");
 
     // An explicit work.run repeats the checks; they pass, the hold lifts.

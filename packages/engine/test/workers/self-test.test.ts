@@ -14,7 +14,6 @@ import {
   judgeSelfTest,
   parsePointer,
   parseResults,
-  probesFor as selfTestProbesFor,
   PROBE_GROUPS,
   resolveSelfTestTools,
   runSelfTest,
@@ -54,7 +53,6 @@ const PATHS = {
   adminDir: ADMIN_DIR,
   tmpDir: TMP_DIR,
   nonce: "n1",
-  home: HOME,
   tools: TOOLS,
 };
 const NONCE = SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16);
@@ -99,14 +97,12 @@ describe("(unit) self-test layout", () => {
     expect(layout.resultsFile).toBe(`${TMP_DIR}/dipo-self-test-n1.txt`);
     // Absolute perl with the program inline, so no redirection rule stops it first.
     expect(layout.command.startsWith(`'${TOOLS.perl}' -e '${layout.script}' `)).toBe(true);
-    // The Keychain folder is opened for listing only; no file is read, no credential command runs.
-    expect(layout.keychainsDir).toBe(`${HOME}/Library/Keychains`);
-    expect(layout.script).toContain(
-      'if ($n eq "keychains") { if (opendir(my $d, $p)) { closedir $d;',
-    );
+    // No credential probe runs in the session (0008 amendment of 2026-10-13).
     expect(layout.script).not.toContain("auth");
     expect(layout.script).not.toContain("find-generic-password");
-    expect(layout.command).toEndWith(`'keychains' '-' '${HOME}/Library/Keychains'`);
+    expect(layout.script).not.toContain("opendir");
+    expect(layout.command).not.toContain("Keychains");
+    expect(layout.command).toEndWith(`'pointer' '>>' '${WORKDIR}/.git'`);
     expect(layout.prompt).toContain(layout.command);
   });
 
@@ -115,10 +111,9 @@ describe("(unit) self-test layout", () => {
     expect(gh.targets.map((target) => target.name)).toEqual(["control"]);
     const pointer = selfTestLayout(PATHS, PROBE_GROUPS["safety-pointer-write"]);
     expect(pointer.targets.map((target) => target.name)).toEqual(["control", "pointer"]);
-    // A write-only self-test does not touch the gh configuration at all.
-    expect(pointer.command).not.toContain("'keychains'");
-    expect(pointer.script).not.toContain("keychains");
-    expect(gh.script).toContain("opendir");
+    // safety-gh-token makes only the control write; its check is the engine's, under srt.
+    expect(PROBE_GROUPS["safety-gh-token"]).toEqual([]);
+    expect(gh.command).not.toContain("Keychains");
   });
 
   it("writes the nonce byte and appends it to the pointer", () => {
@@ -139,12 +134,6 @@ describe("(unit) self-test layout", () => {
       kind: "write",
       written: false,
       detail: "Operation not permitted",
-    });
-    expect(lines.get("keychains")).toEqual({ kind: "open", opened: false, errno: 1 });
-    expect(parseResults("keychains listed\n").get("keychains")).toEqual({
-      kind: "open",
-      opened: true,
-      errno: null,
     });
     expect(parsePointer(POINTER, WORKDIR)).toBe(ADMIN_DIR);
     expect(parsePointer("gitdir: ../shop/.git/worktrees/x\n", "/a/wt")).toBe(
@@ -189,7 +178,7 @@ describe("(unit) self-test layout", () => {
 
 describe("(unit) self-test verdict", () => {
   it("passes when every forbidden write is blocked, gh fails and the control write succeeds", () => {
-    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true, keychainsErrno: 1 });
+    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true });
   });
 
   it.each(["main-git", "worktree-admin", "refs", "objects", "pointer"] as WriteProbe[])(
@@ -214,23 +203,6 @@ describe("(unit) self-test verdict", () => {
       unsafe: true,
       probe: "pointer",
     });
-  });
-
-  it("refuses as unsafe when the Keychain folder was listed inside the sandbox", () => {
-    const results = BLOCKED_RESULTS.replace("keychains refused 1", "keychains listed");
-    const verdict = judgeSelfTest(evidence({ results }));
-    expect(verdict).toMatchObject({ ok: false, unsafe: true, probe: "keychains" });
-  });
-
-  it("passes on EPERM or EACCES only; any other errno (a missing file) cannot pass", () => {
-    const with13 = BLOCKED_RESULTS.replace("keychains refused 1", "keychains refused 13");
-    expect(judgeSelfTest(evidence({ results: with13 }))).toEqual({ ok: true, keychainsErrno: 13 });
-    for (const errno of [2, 20]) {
-      const results = BLOCKED_RESULTS.replace("keychains refused 1", `keychains refused ${errno}`);
-      const verdict = judgeSelfTest(evidence({ results }));
-      expect(verdict).toMatchObject({ ok: false, unsafe: false, probe: "keychains" });
-      expect(!verdict.ok && verdict.reason).toContain("not a permission error");
-    }
   });
 
   it("refuses when the session made no Bash call, extra calls or a different command", () => {
@@ -345,7 +317,6 @@ async function runWith(
       clock,
       fs,
       sessionId: options.sessionId ?? SELF_TEST_SESSION,
-      platform: "darwin",
     },
   );
   return { report, fs, fake, runSettings: runSettings?.content ?? "" };
@@ -354,7 +325,7 @@ async function runWith(
 describe("(engine) self-test run", () => {
   it("runs one Claude session under the run's own settings file and passes on a blocked disk", async () => {
     const { report, fs, fake, runSettings } = await runWith(BLOCKED_RESULTS);
-    expect(report.verdict).toEqual({ ok: true, keychainsErrno: 1 });
+    expect(report.verdict).toEqual({ ok: true });
     expect(report.evidence?.bash).toEqual({ calls: 1, exact: true, shape: true });
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
     expect(session?.cmd).toContain("--settings");
@@ -417,7 +388,7 @@ describe("(engine) self-test run", () => {
     const { report } = await runWith(BLOCKED_RESULTS, {
       sessionId: SELF_TEST_SESSION.toUpperCase(),
     });
-    expect(report.verdict).toEqual({ ok: true, keychainsErrno: 1 });
+    expect(report.verdict).toEqual({ ok: true });
   });
 
   it("refuses before any session when the pointer is not exactly one gitdir line", async () => {
@@ -431,7 +402,6 @@ describe("(engine) self-test run", () => {
           clock,
           fs: new MemoryFs(pointer),
           sessionId: SELF_TEST_SESSION,
-          platform: "darwin",
         },
       );
       expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
@@ -452,7 +422,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
     expect(fake.calls).toEqual([]);
@@ -464,7 +434,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "pointer" });
     expect(selfTestFailure(report)?.file).toBe(`${WORKDIR}/.git`);
@@ -497,27 +467,8 @@ describe("(unit) live safety recordings", () => {
         disk: checks.disk,
       });
       expect(verdict.ok).toBe(true);
-      expect(checks.verdict).toEqual(verdict);
+      // Only ok is compared: verdict fields that held removed probes do not void a recording.
+      expect((checks.verdict as { ok: boolean }).ok).toBe(true);
     });
   }
-});
-
-describe("(unit) Keychain folder probe", () => {
-  it("runs on macOS only", () => {
-    expect(selfTestProbesFor("darwin")).toContain("keychains");
-    expect(selfTestProbesFor("linux")).not.toContain("keychains");
-  });
-
-  it("refuses before any session when the Keychain folder is missing outside the sandbox", async () => {
-    const clock = new ManualClock();
-    const fs = new MemoryFs();
-    fs.files.delete(`${HOME}/Library/Keychains`);
-    const fake = scriptedClaude(clock, {});
-    const report = await runSelfTest(
-      { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION, platform: "darwin" },
-    );
-    expect(report.verdict).toMatchObject({ ok: false, unsafe: false, probe: "keychains" });
-    expect(fake.calls).toEqual([]);
-  });
 });

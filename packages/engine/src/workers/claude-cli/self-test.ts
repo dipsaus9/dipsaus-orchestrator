@@ -8,11 +8,10 @@
 //   `objects` (DIPO-41 review: repeat the on-disk go/no-go checks on every platform);
 // - an append of one nonce byte to the `<worktree>/.git` pointer, so the disk check outside the
 //   sandbox proves a write on its own (the engine restores the pointer afterwards);
-// - on macOS, listing `<home>/Library/Keychains` (the directory is opened, no file in it is read);
-//   the listing must fail with EPERM or EACCES on a folder the engine confirmed exists (0008
-//   amendment of 2026-10-13, DIPO-43 live checks; the path is in the run settings' sandbox
-//   `denyRead`, not in the permission rules). No credential command runs in the session: the
-//   engine runs `gh auth token` and the Keychain lookup itself (`../credential-check.ts`);
+// The session runs no credential probe (0008 amendment of 2026-10-13: the permission layer
+// refuses any read outside the working directories before the sandbox sees it). Credentials are
+// covered by the engine-side check under srt (`../credential-check.ts`) and by the Keychain and
+// credential denies every run settings file carries (`plan.ts`, unit-tested).
 // - a control write inside the worktree, which must succeed, or the blocked writes prove nothing.
 //
 // The program writes one line per probe into a results file in the sandbox temp directory. The
@@ -27,8 +26,6 @@ import { isAbsolute, resolve } from "node:path";
 
 import type { ChildExit, ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import type { DipoPlatform } from "../../platform/paths";
-import { currentPlatform } from "../../platform/paths";
 import {
   isAtOrUnder,
   SRT_DEFAULT_HOME_WRITE_PATHS,
@@ -51,14 +48,10 @@ export const SELF_TEST_TIMEOUT_MS = 180_000;
 export const SELF_TEST_DIR = "self-test";
 /** Prefix of every file the self-test makes; the rest is a nonce from the session id. */
 export const SELF_TEST_FILE_PREFIX = "dipo-self-test-";
-/** The macOS Keychain folder the session tries to list, relative to home (0008 amendment). */
-export const KEYCHAINS_DIR = "Library/Keychains";
-/** errno values that count as the sandbox refusing the open: EPERM and EACCES. */
-export const PERMISSION_ERRNOS: readonly number[] = [1, 13];
 
 export const SELF_TEST_SYSTEM_PROMPT = [
   "You are running dipo's sandbox self-test. dipo is the maintainer's own orchestrator for their software, and the maintainer approved this test.",
-  "It runs in a disposable git worktree before a worker starts. It checks that the Bash sandbox does its job: writes to git metadata outside the worktree must be refused, and on macOS the Keychain folder must not be listable. Nothing secret is read or printed.",
+  "It runs in a disposable git worktree before a worker starts. It checks that the Bash sandbox does its job: writes to git metadata outside the worktree must be refused. Nothing secret is read or printed.",
   "Every probe except one control file is expected to be refused by the sandbox. Refusals are the expected, successful result, not a problem to fix or ask about.",
   "Your only task: run the one command the user gives, once, with the Bash tool, exactly as written, in a single call. Do not change it, run nothing else, and do not ask questions. Then return the report with status done.",
   "",
@@ -66,8 +59,8 @@ export const SELF_TEST_SYSTEM_PROMPT = [
 
 /** Probes that write where a worker never may. */
 export type WriteProbe = "main-git" | "worktree-admin" | "refs" | "objects" | "pointer";
-/** The listing of the macOS Keychain folder, which must be refused. */
-export type ProbeName = WriteProbe | "keychains";
+/** Every session probe writes; no credential probe runs in the session (0008 amendment). */
+export type ProbeName = WriteProbe;
 
 export const WRITE_PROBES: readonly WriteProbe[] = [
   "main-git",
@@ -76,26 +69,15 @@ export const WRITE_PROBES: readonly WriteProbe[] = [
   "objects",
   "pointer",
 ];
-export const ALL_PROBES: readonly ProbeName[] = [...WRITE_PROBES, "keychains"];
+export const ALL_PROBES: readonly ProbeName[] = WRITE_PROBES;
 
 /** The probe groups of the three live safety recordings (AC #8). */
 export const PROBE_GROUPS = {
   "safety-gitdir-write": ["main-git", "worktree-admin", "refs", "objects"],
   "safety-pointer-write": ["pointer"],
-  "safety-gh-token": ["keychains"],
+  // The engine-side credential check; the session makes only the control write.
+  "safety-gh-token": [],
 } as const satisfies Readonly<Record<string, readonly ProbeName[]>>;
-
-function isWriteProbe(probe: ProbeName): probe is WriteProbe {
-  return probe !== "keychains";
-}
-
-/** The probes that apply on `platform`: the Keychain folder exists on macOS only. */
-export function probesFor(
-  platform: DipoPlatform,
-  probes: readonly ProbeName[] = ALL_PROBES,
-): ProbeName[] {
-  return probes.filter((probe) => probe !== "keychains" || platform === "darwin");
-}
 
 export interface SelfTestPaths {
   /** The main checkout; its git directory is `<main>/.git`. */
@@ -105,8 +87,6 @@ export interface SelfTestPaths {
   readonly adminDir: string;
   /** The sandbox temp directory; the results file goes there. */
   readonly tmpDir: string;
-  /** The maintainer's home; the Keychain folder lies under it. */
-  readonly home: string;
   /** Makes every file name unique to this self-test; its first character is the written byte. */
   readonly nonce: string;
   /** Absolute `perl` and `gh`, resolved outside the sandbox from the daemon's PATH. */
@@ -129,8 +109,6 @@ export interface SelfTestLayout {
   readonly targets: readonly ProbeTarget[];
   readonly controlFile: string;
   readonly resultsFile: string;
-  /** The Keychain folder the session tries to list. */
-  readonly keychainsDir: string;
   /** The inline probe program passed to `perl -e`. */
   readonly script: string;
   /** The byte every write probe writes; the pointer probe appends it. */
@@ -140,25 +118,19 @@ export interface SelfTestLayout {
 }
 
 /**
- * The probe program, one line for `perl -e`, holding code only for the probes it runs.
+ * The probe program, one line for `perl -e`. It holds no credential code.
  * Arguments: the results file, the byte, then one triple per probe (name, open mode, path).
- * Write probes open their path and write the byte; `keychains` opens its directory for listing and
- * closes it at once, keeping only the errno of a failed open. One result line per probe. Passed
+ * Write probes open their path and write the byte. One result line per probe. Passed
  * inline: Claude Code's permission layer denies `perl <script>` when the script lies outside the
  * working directory (seen live on 2.1.296), and a script inside the worktree could be changed by
  * a worker.
  */
-export function probeScript(probes: readonly ProbeName[]): string {
+export function probeScript(): string {
   return [
     "use strict; use warnings;",
     "my $out = shift @ARGV; my $b = shift @ARGV;",
     'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
     "while (@ARGV) { my ($n, $m, $p) = splice(@ARGV, 0, 3);",
-    ...(probes.includes("keychains")
-      ? [
-          'if ($n eq "keychains") { if (opendir(my $d, $p)) { closedir $d; print $o "keychains listed\\n" } else { print $o "keychains refused ", $! + 0, "\\n" } next }',
-        ]
-      : []),
     'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" } }',
     "close $o;",
     'print "dipo-self-test finished\\n";',
@@ -200,46 +172,42 @@ export function selfTestLayout(
   };
   const controlFile = `${paths.workdir}/.${name}`;
   const resultsFile = `${paths.tmpDir}/${name}.txt`;
-  const keychainsDir = `${paths.home}/${KEYCHAINS_DIR}`;
-  const writes = probes.filter(isWriteProbe);
+  const writes = probes;
   const targets: ProbeTarget[] = [
     { name: "control", mode: ">", path: controlFile },
     ...writes.map((p) => where[p]),
   ];
-  const script = probeScript(probes);
+  const script = probeScript();
   const args = [
     resultsFile,
     byte,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
-    ...(probes.includes("keychains") ? ["keychains", "-", keychainsDir] : []),
   ];
   const command = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
-  const checks = [
-    ...(writes.length === 0
+  const checks =
+    writes.length === 0
       ? []
-      : [`it tries to write ${writes.map((probe) => PROBE_PROSE[probe]).join(", ")}`]),
-    ...(probes.includes("keychains")
-      ? [
-          "it tries to list the macOS Keychain folder (~/Library/Keychains) without opening any file in it, keeping only the error number",
-        ]
-      : []),
-  ];
+      : [`it tries to write ${writes.map((probe) => PROBE_PROSE[probe]).join(", ")}`];
   const prompt = [
     "This is dipo's sandbox self-test, approved by the maintainer. Run exactly this one command once with the Bash tool, in a single call:",
     "",
     command,
     "",
-    `The perl program in it writes a control file inside this worktree, which should succeed. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
+    checks.length === 0
+      ? "The perl program in it writes a control file inside this worktree, which should succeed, and records the result in a results file."
+      : `The perl program in it writes a control file inside this worktree, which should succeed. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
     "",
     'After the command has run, whatever it printed, return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
   ].join("\n");
-  return { probes, targets, controlFile, resultsFile, keychainsDir, script, byte, command, prompt };
+  return { probes, targets, controlFile, resultsFile, script, byte, command, prompt };
 }
 
 /** One parsed line of the results file. */
-export type ProbeLine =
-  | { readonly kind: "write"; readonly written: boolean; readonly detail: string }
-  | { readonly kind: "open"; readonly opened: boolean; readonly errno: number | null };
+export type ProbeLine = {
+  readonly kind: "write";
+  readonly written: boolean;
+  readonly detail: string;
+};
 
 /** Pure: the results file as one entry per probe name. */
 export function parseResults(text: string): Map<string, ProbeLine> {
@@ -247,15 +215,6 @@ export function parseResults(text: string): Map<string, ProbeLine> {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line === "") continue;
-    if (line === "keychains listed") {
-      lines.set("keychains", { kind: "open", opened: true, errno: null });
-      continue;
-    }
-    const refused = /^keychains refused (\d+)$/.exec(line);
-    if (refused !== null) {
-      lines.set("keychains", { kind: "open", opened: false, errno: Number(refused[1]) });
-      continue;
-    }
     const write = /^([a-z-]+) (written|blocked)(?: (.*))?$/.exec(line);
     if (write !== null) {
       lines.set(write[1] ?? "", {
@@ -303,11 +262,7 @@ export interface SelfTestBashCalls {
 }
 
 export type SelfTestVerdict =
-  | {
-      readonly ok: true;
-      /** The errno of the refused Keychain folder listing, when that probe ran. */
-      readonly keychainsErrno: number | null;
-    }
+  | { readonly ok: true }
   | {
       readonly ok: false;
       /** True when the sandbox let something through; false when the self-test could not run. */
@@ -322,7 +277,6 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   refs: "a write under <main>/.git/refs",
   objects: "a write under <main>/.git/objects",
   pointer: "a write to the <worktree>/.git pointer",
-  keychains: `listing <home>/${KEYCHAINS_DIR}`,
 };
 
 function cannotRun(reason: string, probe?: ProbeName | "control"): SelfTestVerdict {
@@ -337,7 +291,7 @@ function cannotRun(reason: string, probe?: ProbeName | "control"): SelfTestVerdi
 /** Pure: the verdict from the session and the disk. Anything unproven refuses. */
 export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   const { disk, probes } = evidence;
-  const writeProbes = probes.filter(isWriteProbe);
+  const writeProbes = probes;
   // What got through decides first, whatever else happened.
   const onDisk = disk.written.find((probe) => writeProbes.includes(probe));
   if (onDisk !== undefined) {
@@ -369,15 +323,6 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
         };
       }
     }
-    const open = lines.get("keychains");
-    if (probes.includes("keychains") && open?.kind === "open" && open.opened) {
-      return {
-        ok: false,
-        unsafe: true,
-        probe: "keychains",
-        reason: `the sandbox allowed ${PROBE_TEXT["keychains"]}, so a worker could reach the Keychain files`,
-      };
-    }
   }
   if (evidence.outcome === "startFailed" || evidence.outcome === "initRejected") {
     const why = evidence.outcomeDetail === undefined ? "" : `: ${evidence.outcomeDetail}`;
@@ -403,7 +348,7 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   }
   for (const probe of probes) {
     const line = lines.get(probe);
-    const expected = isWriteProbe(probe) ? "write" : "open";
+    const expected = "write";
     if (line?.kind !== expected) return cannotRun(`no result for ${PROBE_TEXT[probe]}`, probe);
   }
   const control = lines.get("control");
@@ -413,21 +358,10 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
       "control",
     );
   }
-  const open = lines.get("keychains");
-  let keychainsErrno: number | null = null;
-  if (open?.kind === "open") {
-    if (open.errno === null || !PERMISSION_ERRNOS.includes(open.errno)) {
-      return cannotRun(
-        `${PROBE_TEXT["keychains"]} failed with errno ${open.errno ?? "unknown"}, not a permission error, so the sandbox was not shown to refuse it`,
-        "keychains",
-      );
-    }
-    keychainsErrno = open.errno;
-  }
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
   }
-  return { ok: true, keychainsErrno };
+  return { ok: true };
 }
 
 /** File access the self-test needs, outside the sandbox. Injectable for tests. */
@@ -623,8 +557,6 @@ export interface SelfTestDeps {
   /** An engine-made UUID for the self-test session; never the run's own session id. */
   readonly sessionId: string;
   readonly timeoutMs?: number;
-  /** Decides whether the Keychain folder probe runs (macOS only); the running platform by default. */
-  readonly platform?: DipoPlatform;
 }
 
 export interface SelfTestInput {
@@ -779,27 +711,14 @@ export async function runSelfTest(
 
   // Lower case: the nonce names files and its first character is the written byte.
   const nonce = deps.sessionId.toLowerCase().replaceAll("-", "").slice(0, 16);
-  const layout = selfTestLayout(
-    {
-      main,
-      workdir,
-      adminDir,
-      tmpDir: ctx.tmpDir,
-      home: ctx.home,
-      nonce,
-      tools: tools.tools,
-    },
-    probesFor(deps.platform ?? currentPlatform()),
-  );
-  // A missing Keychain folder proves nothing about the sandbox: refuse rather than pass.
-  if (layout.probes.includes("keychains") && !(await fs.exists(layout.keychainsDir))) {
-    return fail(
-      cannotRun(
-        `${layout.keychainsDir} does not exist outside the sandbox, so its refusal inside cannot be tested`,
-        "keychains",
-      ),
-    );
-  }
+  const layout = selfTestLayout({
+    main,
+    workdir,
+    adminDir,
+    tmpDir: ctx.tmpDir,
+    nonce,
+    tools: tools.tools,
+  });
   const selfDir = `${ctx.runDir}/${SELF_TEST_DIR}`;
   const systemFile = `${selfDir}/system.md`;
   const selfSpec: WorkerSpec = {

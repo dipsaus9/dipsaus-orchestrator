@@ -28,7 +28,6 @@ export const ADMIN_DIR = `${MAIN}/.git/worktrees/DIPO-999`;
 export const RUN_DIR = `${MAIN}/.git/dipo/runs/run-0001`;
 export const TMP_DIR = "/tmp/dipo-run-0001";
 export const POINTER = `gitdir: ${ADMIN_DIR}\n`;
-export const KEYCHAINS = `${HOME}/Library/Keychains`;
 export const SELF_TEST_SESSION = "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
 export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
@@ -118,8 +117,6 @@ export class MemoryFs implements SelfTestFs {
 
   constructor(pointer: string | null = POINTER) {
     if (pointer !== null) this.files.set(`${WORKDIR}/.git`, pointer);
-    // The Keychain folder exists outside the sandbox.
-    this.files.set(KEYCHAINS, "");
   }
 
   async mkdir(path: string): Promise<void> {
@@ -201,7 +198,6 @@ export const BLOCKED_RESULTS = [
   "refs blocked Operation not permitted",
   "objects blocked Operation not permitted",
   "pointer blocked Operation not permitted",
-  "keychains refused 1",
   "",
 ].join("\n");
 
