@@ -99,6 +99,19 @@ export interface ReadRegistration<D extends ReadDefinition> {
   readonly handle: ReadHandler<z.output<D["args"]>, z.input<D["result"]>>;
 }
 
+/**
+ * A read that waits on something outside the database, such as the Backlog CLI (DIPO-71). It
+ * changes no facts. Its story references resolve in one deferred transaction first; the handler
+ * then runs outside any transaction, so two database reads it makes need not match one point in
+ * time. A snapshot read stays synchronous.
+ */
+export type AsyncReadHandler<A, R> = (ctx: ReadContext, args: A) => Promise<R>;
+
+export interface AsyncReadRegistration<D extends ReadDefinition> {
+  readonly definition: D;
+  readonly handle: AsyncReadHandler<z.output<D["args"]>, z.input<D["result"]>>;
+}
+
 /** The registry as a feature module's `register` sees it. */
 export interface FeatureRegistry {
   addOfficeCommand<D extends CommandDefinition>(registration: OfficeCommandRegistration<D>): void;
@@ -106,6 +119,8 @@ export interface FeatureRegistry {
     registration: SoftwareCommandRegistration<D>,
   ): void;
   addRead<D extends ReadDefinition>(registration: ReadRegistration<D>): void;
+  /** A read whose handler waits; see `AsyncReadHandler`. */
+  addAsyncRead<D extends ReadDefinition>(registration: AsyncReadRegistration<D>): void;
   /** A step every office load runs, after the steps registered before it (DIPO-27). */
   registerLoadStep(name: string, run: LoadStep): void;
   /** A check `office.forget` asks; any that reports work refuses with `office.busy`. */
@@ -133,11 +148,19 @@ export type RegisteredCommand =
       readonly handle: SoftwareCommandHandler<unknown, unknown>;
     };
 
-export interface RegisteredRead {
-  readonly module: string;
-  readonly definition: ReadDefinition;
-  readonly handle: ReadHandler<unknown, unknown>;
-}
+export type RegisteredRead =
+  | {
+      readonly module: string;
+      readonly definition: ReadDefinition;
+      readonly waits: false;
+      readonly handle: ReadHandler<unknown, unknown>;
+    }
+  | {
+      readonly module: string;
+      readonly definition: ReadDefinition;
+      readonly waits: true;
+      readonly handle: AsyncReadHandler<unknown, unknown>;
+    };
 
 /** A command or read name registered by two modules; startup fails naming both. */
 export class DuplicateRegistrationError extends Error {
@@ -214,6 +237,15 @@ export class Registry {
       }
       this.#commands.set(definition.name, entry);
     };
+    const addRead = (entry: RegisteredRead): void => {
+      const { definition } = entry;
+      this.#checkVersioning(module, definition);
+      const existing = this.#reads.get(definition.name);
+      if (existing !== undefined) {
+        throw new DuplicateRegistrationError("read", definition.name, [existing.module, module]);
+      }
+      this.#reads.set(definition.name, entry);
+    };
     feature.register({
       addOfficeCommand: ({ definition, handle }) =>
         addCommand({
@@ -229,18 +261,20 @@ export class Registry {
           definition,
           handle: handle as SoftwareCommandHandler<unknown, unknown>,
         }),
-      addRead: ({ definition, handle }) => {
-        this.#checkVersioning(module, definition);
-        const existing = this.#reads.get(definition.name);
-        if (existing !== undefined) {
-          throw new DuplicateRegistrationError("read", definition.name, [existing.module, module]);
-        }
-        this.#reads.set(definition.name, {
+      addRead: ({ definition, handle }) =>
+        addRead({
           module,
           definition,
+          waits: false,
           handle: handle as ReadHandler<unknown, unknown>,
-        });
-      },
+        }),
+      addAsyncRead: ({ definition, handle }) =>
+        addRead({
+          module,
+          definition,
+          waits: true,
+          handle: handle as AsyncReadHandler<unknown, unknown>,
+        }),
       registerLoadStep: (name, run) => {
         const existing = this.#loadSteps.get(name);
         if (existing !== undefined) {
