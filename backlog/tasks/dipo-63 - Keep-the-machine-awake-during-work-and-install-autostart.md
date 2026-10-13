@@ -1,11 +1,11 @@
 ---
 id: DIPO-63
 title: Keep the machine awake during work and install autostart
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:20'
+updated_date: '2026-10-13 13:01'
 labels:
   - 'tier:M'
   - after-cutover
@@ -90,4 +90,6 @@ Review follow-ups (PR #79):
 - DIPO-49 (verify) must wire WorkTracker.beginVerify() around each verify step, so a running verify keeps the machine awake.
 - LAUNCHD_LABEL and SYSTEMD_UNIT moved into packages/contract (additive, no version bump); the client uses EXIT_CONFIG from the contract.
 - Follow-up, not changed here: with daemon.autoRestartOnUpgrade under launchd or systemd, the daemon still starts the new binary itself, outside the supervisor (0006 decision 14). A later story should restart through the supervisor instead.
+
+Maintainer manual test passed on macOS (2026-10-13): install, crash restart by launchd, keep-awake held and released 2 min after work, stop/start/restart via launchctl, uninstall. Follow-up wording: daemon status shows 'running (recovered)' after every start, also a clean one.
 <!-- SECTION:NOTES:END -->
