@@ -136,7 +136,7 @@ async function sideAt(
   return sides;
 }
 
-/** The PR diff between `base` and `head`; the worktree is back on its own checkout afterwards. */
+/** The message of an error, or the value as text. */
 function text(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
