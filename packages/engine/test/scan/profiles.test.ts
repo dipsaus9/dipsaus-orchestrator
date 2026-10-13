@@ -4,6 +4,7 @@
 // `scan.finished`; a second rescan while one runs fails with `scan.running`; an office without a
 // resolvable verify gets the refusal naming `verify` in `package.json`; and a port changed in a
 // config module a Vite config imports changes the fingerprint and triggers a rescan.
+// The slower cases run in CI only, in profiles.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
 
@@ -20,7 +21,7 @@ import { EngineGit } from "../../src/git";
 import { createRepoFiles } from "../../src/platform/repo-files";
 import { systemSpawn } from "../../src/platform/process";
 import { detect, type Probe, type RunProfile } from "../../src/scan/detect";
-import { RunProfiles, SCAN_STEP } from "../../src/scan/feature";
+import { RunProfiles } from "../../src/scan/feature";
 import { currentProfile, verifyResolved } from "../../src/scan/store";
 import {
   BACKLOG_FIXTURE,
@@ -282,18 +283,6 @@ describe("office.rescan", () => {
       expect(currentProfile(office)).toMatchObject({ profileId: 2, previousProfileId: 1 });
     }));
 
-  it("runs detection when nothing changed and reports an empty diff", () =>
-    withScannedOffice(APP, async ({ s, profiles, officeId, office, detections }) => {
-      resultOf(await send(s, "office.rescan", {}, officeId));
-      await profiles.whenIdle(officeId);
-      expect(detections()).toBe(2);
-      expect(scans(office).map((row) => [row.trigger, row.result, row.profile_id])).toEqual([
-        ["start", "stored", 1],
-        ["rescan", "unchanged", 1],
-      ]);
-      expect(scanFinished(office).at(-1)?.delta).toMatchObject({ trigger: "rescan", diff: [] });
-    }));
-
   it("reports a failed scan as scan.finished with the error and keeps the profile", () =>
     withScannedOffice(APP, async ({ repo, s, profiles, officeId, office }) => {
       await repo.git("remote", "remove", "origin");
@@ -320,30 +309,6 @@ describe("office.rescan", () => {
       resultOf(await send(s, "office.rescan", {}, officeId));
       await profiles.whenIdle(officeId);
     }));
-
-  it("still fails with scan.running after the office loads again with a new handle", () =>
-    withScannedOffice(APP, async ({ repo, s, profiles, officeId, holdIndex }) => {
-      const release = holdIndex();
-      resultOf(await send(s, "office.rescan", {}, officeId));
-      // The office loads again (a new handle) while the rescan runs: the load step tracks it anew.
-      const step = s.registry.loadSteps().find((entry) => entry.name === SCAN_STEP);
-      if (!step) throw new Error(`load step ${SCAN_STEP} is not registered`);
-      const reload = step.run({
-        officeId,
-        office: new OfficeHandle(s.state.connection, officeId),
-        path: repo.dir,
-        commonDir: `${repo.dir}/.git`,
-        config: undefined,
-        clock: s.clock,
-        ids: s.ids,
-      });
-      expect(errorOf(await send(s, "office.rescan", {}, officeId))).toBe("scan.running");
-      release();
-      await reload;
-      await profiles.whenIdle(officeId);
-      resultOf(await send(s, "office.rescan", {}, officeId));
-      await profiles.whenIdle(officeId);
-    }));
 });
 
 describe("verifyResolved", () => {
@@ -365,52 +330,4 @@ describe("verifyResolved", () => {
     withScannedOffice(APP, async ({ office }) => {
       expect(verifyResolved(office)).toBeNull();
     }));
-});
-
-describe("ports read from a config module (0013 amendment of 2026-10-12)", () => {
-  const CONFIG_MODULE = "packages/config/vite/index.ts";
-  const workspace = (port: number): Record<string, string> => ({
-    "package.json": json({
-      name: "cc",
-      packageManager: "pnpm@11.27.0",
-      scripts: { dev: "pnpm -r --parallel run dev", test: "pnpm -r run test" },
-    }),
-    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
-    "pnpm-workspace.yaml": "packages:\n  - apps/*\n  - packages/*\n",
-    "apps/host/package.json": json({ name: "@cc/host", scripts: { dev: "vite" } }),
-    "apps/host/vite.config.ts":
-      'import { devPorts } from "@cc/config/vite";\nexport default { server: { port: devPorts.host } };\n',
-    "packages/config/package.json": json({
-      name: "@cc/config",
-      exports: { "./*": "./*/index.ts" },
-    }),
-    [CONFIG_MODULE]: `export const devPorts = { host: ${port} } as const;\n`,
-  });
-
-  it("changes the fingerprint and triggers a rescan when the port changes in the module", () =>
-    withScannedOffice(
-      workspace(5174),
-      async ({ repo, engineGit, profiles, officeId, office, detections }) => {
-        const before = currentProfile(office);
-        expect(before?.profile.devPorts.map((p) => p.port)).toEqual([5174]);
-
-        await publish(
-          repo,
-          { [CONFIG_MODULE]: workspace(6100)[CONFIG_MODULE] ?? "" },
-          "move the port",
-        );
-        await engineGit.forOffice(officeId)?.fetch();
-        const outcome = await profiles.ensureFreshProfile(officeId);
-        expect(detections()).toBe(2);
-        expect(outcome.detected).toBe(true);
-        expect(outcome.profile.profile.fingerprint).not.toBe(before?.profile.fingerprint);
-        expect(outcome.profile.profile.devPorts.map((p) => p.port)).toEqual([6100]);
-        expect(outcome.diff).toEqual(
-          expect.arrayContaining([
-            expect.stringMatching(/^\+ port apps\/host:6100: /),
-            expect.stringMatching(/^- port apps\/host:5174: /),
-          ]),
-        );
-      },
-    ));
 });
