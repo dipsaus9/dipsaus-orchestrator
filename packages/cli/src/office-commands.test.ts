@@ -367,7 +367,7 @@ describe("dipo office init", () => {
     expect(await main(["office", "init", "--office", OTHER], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([{ name: "office.init", args: { office: OTHER } }]);
     expect(ctx.out).toEqual([
-      "left DIPO-36 at To Do: it is in progress on its own branch",
+      "left DIPO-36 at To Do: a branch DIPO-36/... exists; if it is left over, delete it and run dipo office init again",
       `office ${OTHER}: init steps committed to the backlog PR #12 ${PR.url}`,
       "dipo merges it once its structural check and required checks pass",
     ]);

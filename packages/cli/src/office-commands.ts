@@ -286,7 +286,9 @@ async function initCommand(args: readonly string[], deps: OfficeCommandDeps): Pr
       }
       const { pr, branch, waiting, leftAlone } = outcome.result;
       for (const id of leftAlone ?? []) {
-        deps.writeLine(`left ${id} at To Do: it is in progress on its own branch`);
+        deps.writeLine(
+          `left ${id} at To Do: a branch ${id}/... exists; if it is left over, delete it and run dipo office init again`,
+        );
       }
       if (pr !== undefined) {
         deps.writeLine(

@@ -269,7 +269,7 @@ export class OfficeInit {
       this.#notice(office, officeId, {
         level: "info",
         code: INIT_NOTICES.leftAlone,
-        text: `Office init left ${plan.leftAlone.join(", ")} at ${LEGACY_STATUS}: each is in progress on its own branch, and its story PR carries its status.`,
+        text: `Office init left ${plan.leftAlone.join(", ")} at ${LEGACY_STATUS}: each has its own <ID>/... branch, so it counts as in progress there and its story PR carries its status. If such a branch is left over, delete it and run dipo office init again.`,
       });
     }
     const journaled: JournalEntry[] = [];
