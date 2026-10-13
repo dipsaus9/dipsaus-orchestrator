@@ -2,6 +2,7 @@
 // an operation journaled before a crash is replayed by the office load step, after `git.version`
 // attached the office's git and before any other git queue item; a commit made just before a
 // crash is found again by its trailer instead of being applied twice.
+// The slower cases run in CI only, in replay.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
@@ -10,27 +11,13 @@ import { join } from "node:path";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { withBareRemote } from "@dipsaus-orchestrator/testkit";
 
-import {
-  allEntries,
-  BacklogLane,
-  LANE_NOTICES,
-  OP_TRAILER,
-  pendingLaneOp,
-} from "../../../src/backlog/lane";
+import { allEntries, BacklogLane, LANE_NOTICES, pendingLaneOp } from "../../../src/backlog/lane";
 import type { BacklogCli } from "../../../src/backlog/runner";
 import { buildRegistry, type FeatureModule } from "../../../src/commands/registry";
 import { EngineGit } from "../../../src/git";
 import type { OfficeLoadContext } from "../../../src/office/steps";
 import { systemSpawn } from "../../../src/platform/process";
-import {
-  BACKLOG_FIXTURE,
-  inRemote,
-  laneSetup,
-  notices,
-  publish,
-  storyKey,
-  subjects,
-} from "./helpers";
+import { BACKLOG_FIXTURE, laneSetup, notices, publish, storyKey, subjects } from "./helpers";
 
 /** One daemon start: fresh engine git and lane, the office's load steps run in order. */
 async function loadOffice(
@@ -143,40 +130,6 @@ describe("replaying the journal at office load", () => {
         expect(failed).toHaveLength(1);
         expect(failed[0]?.level).toBe("error");
         expect(failed[0]?.text).toContain("Replaying the open backlog operations failed");
-      },
-      { fixture: BACKLOG_FIXTURE },
-    );
-  });
-
-  it("finds a commit made just before a crash by its trailer and does not apply it twice", async () => {
-    await withBareRemote(
-      async (repo) => {
-        await publish(repo);
-        const s = await laneSetup(repo);
-        const key = storyKey(s);
-        const { report } = await s.lane().submit({
-          kind: "edit",
-          key,
-          subject: "TASK-1",
-          target: { status: "Refined" },
-        });
-        const branch = report.branch as string;
-        const sha = (await inRemote(repo, "rev-parse", branch)).trim();
-        expect(await inRemote(repo, "log", "-1", "--format=%B", branch)).toContain(
-          `${OP_TRAILER}: 1`,
-        );
-
-        // The crash came after the commit and before its journal update.
-        s.office.immediate(() =>
-          s.office.run(
-            "update backlog_journal set state = 'applied', commit_sha = null where office_id = $office_id",
-          ),
-        );
-        const replayed = await s.lane().flush();
-        expect(replayed.committed).toEqual([]);
-        expect(replayed.branch).toBe(branch);
-        expect((await inRemote(repo, "rev-parse", branch)).trim()).toBe(sha);
-        expect(allEntries(s.office).map((e) => [e.state, e.commit])).toEqual([["pushed", sha]]);
       },
       { fixture: BACKLOG_FIXTURE },
     );
