@@ -60,9 +60,11 @@ import {
   selfCommand,
   serveUnixSocket,
   SOCKET_FILE,
+  SlotTable,
   SoftwareStream,
   StoryClaims,
   StoryIndex,
+  StoryTeardown,
   systemExecutableStamp,
   systemProcessProbe,
   systemSpawn,
@@ -336,6 +338,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     lockTimer: TimerHandle | null;
     stableTimer: TimerHandle | null;
     storyIndex: StoryIndex | null;
+    teardown: StoryTeardown | null;
     mergeSlot: MergeSlot | null;
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
@@ -346,6 +349,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     lockTimer: null,
     stableTimer: null,
     storyIndex: null,
+    teardown: null,
     mergeSlot: null,
     retention: null,
     maintenance: null,
@@ -466,13 +470,28 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: (office) => engineGit.forOffice(office),
       onChanged: (office) => server?.notifyOffice(office),
     });
-    // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
-    // daemon's PATH, and looked up after each story-index poll for a merge by hand.
+    // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each
+    // finished claim is looked up through `gh` on this daemon's PATH (else `git merge-tree`
+    // decides); a Done story's worktree and branches are removed and its slot freed. Its load step
+    // follows claims.feature.
+    // One `gh` host, on this daemon's PATH, for teardown, the backlog PR and the merge slot.
     const host = new GhHost({
       spawn: systemSpawn,
       ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
       env: io.env,
     });
+    const teardown = new StoryTeardown({
+      git: (office) => engineGit.forOffice(office),
+      host,
+      cli: { spawn: systemSpawn },
+      offices,
+      slots: SlotTable.inState(stateDir),
+      onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "teardown" }),
+    });
+    held.teardown = teardown;
+    // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
+    // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
       host,
       lane: (office) => lane.forOffice(office),
@@ -554,6 +573,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       ...FEATURES,
       engineGit.feature,
       claims.feature,
+      teardown.feature,
       lane.feature,
       storyIndex.feature,
       mergeSlot.feature,
@@ -728,6 +748,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     upgrade?.stop();
     await keepAwake.stop();
     held.storyIndex?.stop();
+    held.teardown?.stop();
     held.mergeSlot?.stop();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
