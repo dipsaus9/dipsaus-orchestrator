@@ -4,7 +4,7 @@ title: Index office stories with stable story keys
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:38'
+updated_date: '2026-10-13 06:48'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -87,4 +87,11 @@ Implementation (DIPO-32):
 - indexStories reads _base as one item of the office git queue and writes the pass with its change-log entries in one transaction. StoryIndex registers the stories.index load step (fetch when the remote answers, then index; an office whose stories cannot be read still loads, with a stories.notIndexed notice) and polls every polling.fetchSeconds, indexing when _base is at a commit no pass read yet. A forgotten office stops polling. office.rescan (DIPO-72) and work.run (DIPO-48) call StoryIndex.indexStories(office).
 - views/: deriveStoryView with the column from the lifecycle alone (Parked is desk, Removed is the open-enum value removed); officeSummarySource (running = runs with a live worker host, parked and waitingOnMaintainer = desk, onHold = held) replaces noOfficeSummaries for engine.hello and the software stream.
 - Found while testing: backlog task archive fails (exit 1, no reason) when backlog/archive/tasks does not exist; story.drop (DIPO-34) will need to create it.
+
+Review fixes (PR #61): the load step's fetch now runs inside the try, so an office whose fetch or Backlog CLI fails still loads with a stories.notIndexed notice (tested with a failing CLI). A key closed as Removed with no prior view takes its from-lifecycle from the stories row (provisional id → Draft, else Refined).
+
+Follow-ups:
+- DIPO-52: the office summary counts per column, including the 'removed' column; decide whether removed stories count or drop out of the summary.
+- Batch-created stories sharing a created minute (Backlog.md dates have minute precision) will often be judged ambiguous and close as Removed with new keys; DIPO-56 may add a tiebreak (for example title or content hash).
+- Each pass reads every story through a per-story Backlog CLI view (one process per story); cost grows with the backlog size and may need a bulk read later.
 <!-- SECTION:NOTES:END -->
