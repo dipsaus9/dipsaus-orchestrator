@@ -490,9 +490,3 @@ export {
 } from "./ingest/ingestor";
 export { outputText, toolLine } from "./ingest/output";
 export { budgetOf, finalizeAgentUsage, readUsage, type UsageScope } from "./ingest/usage";
-export {
-  CATALOG_STALE_CODE,
-  CatalogChecksumError,
-  estimateMicros,
-  type PriceBook,
-} from "./pricing";

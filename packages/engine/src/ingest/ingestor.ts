@@ -94,10 +94,11 @@ export interface IngestorOptions {
   readonly office: OfficeHandle;
   readonly clock: Clock;
   /**
-   * The pricing catalog usage is estimated with (`StateDatabase.pricing`, DIPO-62); without
-   * one, `est_cost_micros` stays null and no catalog check runs.
+   * The pricing catalog usage is estimated with (`StateDatabase.pricing`, DIPO-62). Required so
+   * a caller cannot leave it out by accident; with null, `est_cost_micros` stays null and no
+   * catalog check runs.
    */
-  readonly pricing?: PriceBook | null;
+  readonly pricing: PriceBook | null;
   readonly hooks?: IngestHooks;
   readonly timings?: Partial<IngestTimings>;
   /** Called for a host line that is not a `{ t, ch, data }` object; the line is skipped. */
@@ -190,7 +191,7 @@ export class Ingestor {
   constructor(options: IngestorOptions) {
     this.#office = options.office;
     this.#clock = options.clock;
-    this.#pricing = options.pricing ?? null;
+    this.#pricing = options.pricing;
     this.#hooks = options.hooks ?? {};
     this.#timings = { ...INGEST_DEFAULTS, ...options.timings };
     this.#warn = options.warn ?? (() => {});
@@ -371,7 +372,18 @@ export class Ingestor {
                 { model, count: event.numTurns },
                 now,
               );
-              recordCliCost(this.#office, run, agent, event.costUsd ?? null);
+              for (const missing of recordCliCost(
+                this.#office,
+                run,
+                agent,
+                event.costUsd ?? null,
+              )) {
+                this.#warn("the CLI reported a cost for a model without a usage row", {
+                  run,
+                  agent,
+                  model: missing,
+                });
+              }
               usageChanged = true;
               turnEnded = true;
               break;

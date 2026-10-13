@@ -60,29 +60,33 @@ export function priceAgentUsage(
 /**
  * Stores the CLI's run-cumulative `costUSD` per model of one agent, from a turn end. A turn end
  * without one (no cost reported, or the CLI's cost no longer covers the counted spend) clears the
- * agent's CLI cost, so the cross-check leaves the agent out.
+ * agent's CLI cost, so the cross-check leaves the agent out. Returns the models whose cost
+ * matched no usage row (0 rows changed), for the caller to warn about.
  */
 export function recordCliCost(
   office: OfficeHandle,
   run: string,
   agent: string,
   costUsd: Readonly<Record<string, number>> | null,
-): void {
+): string[] {
   if (costUsd === null) {
     office.run(
       `update usage_totals set cli_cost_micros = null
        where office_id = $office_id and run_id = $run and agent_id = $agent`,
       { run, agent },
     );
-    return;
+    return [];
   }
+  const missing: string[] = [];
   for (const [model, dollars] of Object.entries(costUsd)) {
-    office.run(
+    const updated = office.run(
       `update usage_totals set cli_cost_micros = $micros
        where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
       { micros: Math.round(dollars * 1_000_000), run, agent, model },
     );
+    if (updated.changes === 0) missing.push(model);
   }
+  return missing;
 }
 
 /** The relative gap between an estimate and the CLI cost it is checked against. */

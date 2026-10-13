@@ -10,7 +10,12 @@ import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import { recordUsageMessage } from "../../src/ingest/usage";
 import type { Rates } from "../../src/pricing/catalog";
 import type { PriceBook } from "../../src/pricing/estimate";
-import { CATALOG_STALE_CODE, costGap, priceAgentUsage } from "../../src/pricing/usage";
+import {
+  CATALOG_STALE_CODE,
+  costGap,
+  priceAgentUsage,
+  recordCliCost,
+} from "../../src/pricing/usage";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { ParseState } from "../../src/workers/types";
 import {
@@ -211,5 +216,18 @@ describe("cross-check against the CLI's costUSD", () => {
       expect(row?.est_cost_micros).toBeGreaterThan(0);
       expect(row?.cli_cost_micros).toBeNull();
       expect(notices(f)).toEqual([]);
+    }));
+
+  it("a CLI cost for a model without a usage row is reported back for a warning", () =>
+    withTempDir(async (dir) => {
+      const f = await replay(dir, "success-single");
+      const missing = f.office.immediate(() =>
+        recordCliCost(f.office, f.run, f.agent, {
+          "claude-haiku-5-5": 0.000447,
+          "claude-other-1": 0.001,
+        }),
+      );
+      expect(missing).toEqual(["claude-other-1"]);
+      expect(pricedRows(f)[0]?.cli_cost_micros).toBe(447);
     }));
 });
