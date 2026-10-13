@@ -196,8 +196,9 @@ describe("the Ready gate on the Backlog CLI", () => {
       const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
       expect(cliError).toBeInstanceOf(CommandError);
       expect((cliError as CommandError).error).toMatchObject({
-        code: "office.refused",
-        details: { office: officeId, step: "backlog" },
+        code: "backlog.unreadable",
+        retryable: false,
+        details: { office: officeId, story: "TASK-1" },
       });
       expect((cliError as CommandError).error.message).toStartWith(
         "The Ready gate cannot run: the Backlog CLI could not read TASK-1 on the office's base branch main (exited 1",
@@ -212,9 +213,13 @@ describe("the Ready gate on the Backlog CLI", () => {
         .checkReady(officeId, story)
         .catch((error: unknown) => error);
       expect((configError as CommandError).error).toMatchObject({
-        code: "office.refused",
-        details: { office: officeId, step: "config" },
+        code: "config.invalid",
+        retryable: false,
+        details: { office: officeId },
       });
+      expect((configError as CommandError).error.message).toBe(
+        `The Ready gate cannot run: office ${officeId} has no valid configuration yet. Fix .dipo/office.yaml and run \`dipo office reload-config\`.`,
+      );
 
       const detached = new GateStore({
         ...deps,

@@ -73,9 +73,9 @@ function gateReadError(office: OfficeId, story: StoryId, base: string, error: un
     error instanceof BacklogParseError
   ) {
     return new CommandError(
-      "office.refused",
+      "backlog.unreadable",
       `The Ready gate cannot run: the Backlog CLI could not read ${story} on the office's base branch ${base} (${reasonOf(error)}).`,
-      { office, step: "backlog" },
+      { office, story },
     );
   }
   return error;
@@ -102,9 +102,10 @@ export class GateStore {
   }
 
   /**
-   * Throws `story.unknown` when the story is not on `_base`, and `office.refused` when the
-   * office's git is not attached (`details.step` `git.version`, the load step that attaches it),
-   * it has no valid configuration (`config`), or the Backlog CLI cannot read the story (`backlog`).
+   * Throws `story.unknown` when the story is not on `_base`; `office.refused` with `details.step`
+   * `git.version` (the load step that attaches it) when the office's git is not attached;
+   * `config.invalid` when the office has no valid configuration; and `backlog.unreadable` when the
+   * Backlog CLI cannot read the story or the backlog.
    */
   async #evaluate(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateEvaluation> {
     const git = this.#deps.git.forOffice(office);
@@ -118,9 +119,9 @@ export class GateStore {
     const config = this.#deps.offices.config(office);
     if (config === undefined) {
       throw new CommandError(
-        "office.refused",
+        "config.invalid",
         `The Ready gate cannot run: office ${office} has no valid configuration yet. Fix .dipo/office.yaml and run \`dipo office reload-config\`.`,
-        { office, step: "config" },
+        { office },
       );
     }
     const base = await git.ensureBaseWorktree();
