@@ -13,4 +13,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // Also in minor 1 (DIPO-72): `scan.finished` carries `trigger`, `level`, `deviations`, `diff` and
 // `error`.
 // DIPO-65 adds the read `office.stats` to the same, still unreleased, minor.
+// DIPO-71 adds the read `story.gate` and the error codes `config.invalid` and `backlog.unreadable`
+// to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

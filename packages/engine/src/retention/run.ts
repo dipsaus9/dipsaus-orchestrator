@@ -163,6 +163,14 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   // A released branch stays until reclaimed (0010 section 2a); the reclaim record is history.
   await rows("released_branches", "reclaimed_at < $cutoff", { cutoff: stateCutoff });
   await rows("pricing_checks", "raised_at < $cutoff", { cutoff: stateCutoff });
+  // Gate decisions, then the gates they leave without a decision; a gate still waiting is kept.
+  await rows("gate_decisions", "decided_at < $cutoff", { cutoff: stateCutoff });
+  await rows(
+    "gates",
+    `opened_at < $cutoff and waiting_on is null and not exists (select 1 from gate_decisions d
+       where d.office_id = $office_id and d.gate_id = gates.gate_id)`,
+    { cutoff: stateCutoff },
+  );
 
   // P: only the current run profile and its previous one are kept (0007 section 4); older
   // profiles go with their capability, env-file, port and extra-script rows. Scans keep tier S.

@@ -246,6 +246,24 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
     args: { office: ids.office, run: ids.run, source: "verify", from: 0, to: 64 },
     result: { run: ids.run, source: "verify", from: 0, to: 64, text: "FAIL test/retry.test.ts" },
   },
+  "story.gate": {
+    args: { office: ids.office, story: "DIPO-21" },
+    result: {
+      story: "DIPO-21",
+      key: ids.storyKey,
+      passed: false,
+      failures: [
+        {
+          rule: "R07",
+          message: "ready DIPO-21 failed R07: milestone is missing or does not exist",
+        },
+        {
+          rule: "R11",
+          message: "ready DIPO-21 failed R11: no declared scope; add at least one path with --ref",
+        },
+      ],
+    },
+  },
   "office.usage": {
     args: { office: ids.office, groupBy: "tier", window: "30d" },
     result: {

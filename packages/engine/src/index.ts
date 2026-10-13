@@ -206,6 +206,21 @@ export type { HelloSource, OfficeSummarySource } from "./reads/hello";
 export { currentProfile, diffProfiles, RunProfiles, SCAN_STEP, verifyResolved } from "./scan";
 export type { RunProfilesDeps, ScanOutcome, ScanTrigger, StoredProfile } from "./scan";
 export {
+  evaluateGate,
+  findPassingDecision,
+  gateContentHash,
+  GateStore,
+  storeGateDecision,
+} from "./gate";
+export type {
+  GateDecisionRecord,
+  GateEvaluation,
+  GateMode,
+  GateResult,
+  GateStoreDeps,
+  RuleResult,
+} from "./gate";
+export {
   addStory,
   applyIndex,
   contentHash,

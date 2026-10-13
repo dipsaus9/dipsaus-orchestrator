@@ -59,6 +59,8 @@ const ALLOWED: Readonly<Record<string, readonly string[] | null>> = {
   task: ["view", "list", "create", "edit", "archive"],
   draft: ["view", "list", "create", "edit", "archive", "promote"],
   config: ["get", "set"],
+  // The Ready gate reads which milestones exist (R07, DIPO-71).
+  milestone: ["list"],
   // `doctor` runs at reconcile, never with `--fix`.
   doctor: null,
 };
@@ -93,6 +95,7 @@ const FLAG_OPTIONS: ReadonlySet<string> = new Set([
   "--unassigned",
   "--ready",
   "--count",
+  "--show-completed",
   "--fix",
   "--yes",
 ]);

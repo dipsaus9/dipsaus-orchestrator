@@ -302,6 +302,25 @@ export const workOutputRange = defineRead({
   since: 0,
 });
 
+// One failed Ready gate rule (0012 section 3): `rule` is the R-number, `message` the full line
+// `ready <ID> failed <rule>: <message>`.
+export const GateRuleFailure = z.object({ rule: z.string(), message: z.string() });
+export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
+
+// The Ready gate of one story in `ready` mode, evaluated on the office's base and not stored
+// (M0 breakdown decision D3, DIPO-71). It passes only with no failures; failures are in rule order.
+export const storyGate = defineRead({
+  name: "story.gate",
+  args: z.object({ office: OfficeId, story: StoryRefValue }),
+  result: z.object({
+    story: StoryId,
+    key: StoryKey,
+    passed: z.boolean(),
+    failures: z.array(GateRuleFailure),
+  }),
+  since: 1,
+});
+
 export const UsageWindow = z.enum(["today", "7d", "30d"]);
 export type UsageWindow = z.infer<typeof UsageWindow>;
 
@@ -544,6 +563,7 @@ export const officeReads = [
   workOutputRange,
   officeUsage,
   officeDigest,
+  storyGate,
   officeStats,
 ] as const;
 

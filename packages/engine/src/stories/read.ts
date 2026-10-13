@@ -97,7 +97,8 @@ export function storyFromView(
   };
 }
 
-async function mapLimited<T, R>(
+/** `fn` over `items` with at most `limit` running at once; results in item order. */
+export async function mapLimited<T, R>(
   items: readonly T[],
   limit: number,
   fn: (item: T) => Promise<R>,
