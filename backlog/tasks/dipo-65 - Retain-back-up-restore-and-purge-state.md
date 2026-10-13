@@ -4,7 +4,7 @@ title: Retain and back up state and report table sizes
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:50'
+updated_date: '2026-10-13 08:55'
 labels:
   - 'tier:M'
   - after-cutover
@@ -82,4 +82,6 @@ Scope additions (review of PR #70):
 - The retention migration is now 12 (0012-retention-indexes.ts) after merging main with migrations 8-11.
 - engine/src/retention/policy.ts and run.ts name tiers for the tables main added: scans, claims, prompt_parts (S, aged), run profile tables (P), worker_notes (T). released_branches and pricing_checks are not aged until a tier is decided (open points).
 - packages/cli/src/stats-command.test.ts session fake carries a subscribe stub, as main's DaemonSession includes subscribe.
+
+Review follow-up: released_branches rows are deleted stateDays after reclaim (S), pricing_checks by raised_at (S), and run profiles other than the current one and its previous one are pruned with their capability, env-file, port and extra-script rows (0007 P: current and previous). Scans keep tier S.
 <!-- SECTION:NOTES:END -->
