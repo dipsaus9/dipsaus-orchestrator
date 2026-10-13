@@ -3,7 +3,14 @@
 // rotation.
 
 import { describe, expect, it } from "bun:test";
-import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -179,20 +186,30 @@ describe("LogFollower", () => {
     });
   });
 
-  it("finds the old file further up when several rotations happened between polls", async () => {
+  it("reads every file rotated between two polls, oldest first", async () => {
     await withTempDir((dir) => {
       const path = join(dir, "daemon.log");
-      writeFileSync(path, "1\n");
+      // Shifts like the daemon does: .4 to .5, ..., daemon.log to .1, then a new daemon.log.
+      const rotate = (next: string) => {
+        for (let n = 4; n >= 1; n -= 1) {
+          if (existsSync(`${path}.${n}`)) renameSync(`${path}.${n}`, `${path}.${n + 1}`);
+        }
+        renameSync(path, `${path}.1`);
+        writeFileSync(path, next);
+      };
+      writeFileSync(path, "older\n");
+      rotate("1\n");
       const follower = new LogFollower(dir);
       expect(follower.poll()).toEqual(["1"]);
+      // Three rotations before the next poll: the followed file ends up as daemon.log.3.
       appendFileSync(path, "2\n");
-      renameSync(path, `${path}.1`);
-      writeFileSync(path, "3\n");
-      renameSync(`${path}.1`, `${path}.2`);
-      renameSync(path, `${path}.1`);
-      writeFileSync(path, "4\n");
-      // The middle file is skipped: the follower finishes its old file, then the newest one.
-      expect(follower.poll()).toEqual(["2", "4"]);
+      rotate("3a\n3b\n");
+      rotate("4\n");
+      rotate("5\n");
+      // daemon.log.4 holds lines from before the followed file; they are not repeated.
+      expect(follower.poll()).toEqual(["2", "3a", "3b", "4", "5"]);
+      appendFileSync(path, "6\n");
+      expect(follower.poll()).toEqual(["6"]);
     });
   });
 

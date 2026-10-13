@@ -209,7 +209,8 @@ function readFrom(path: string, offset: number): { bytes: Buffer; size: number }
 /**
  * Tails `daemon.log` across rotations. Each `poll` returns the complete lines written since the
  * last one. When the daemon has rotated the file, the follower first finishes the old file under
- * its new name (`daemon.log.1`, found by inode), then reads the new `daemon.log` from its start.
+ * its new name (found by inode among `daemon.log.1` to `.5`), then reads every file rotated after
+ * it, oldest first, then the new `daemon.log` from its start.
  */
 export class LogFollower {
   readonly #path: string;
@@ -229,12 +230,17 @@ export class LogFollower {
     const lines: string[] = [];
     const current = inodeOf(this.#path);
     if (this.#inode !== null && current !== this.#inode) {
-      // Rotated (or removed): finish the old file wherever it went, then start the new one.
-      const moved = rotatedLogPaths(this.#logsDir)
-        .toReversed()
-        .find((path) => inodeOf(path) === this.#inode);
-      if (moved !== undefined) this.#take(moved, lines);
-      if (this.#partial.byteLength > 0) lines.push(this.#partial.toString("utf8"));
+      // Rotated (or removed): finish the old file wherever it went, read every file rotated after
+      // it in full, oldest first, then start the new one.
+      const newestFirst = rotatedLogPaths(this.#logsDir).toReversed();
+      const moved = newestFirst.findIndex((path) => inodeOf(path) === this.#inode);
+      for (let index = moved; index >= 0; index -= 1) {
+        const path = newestFirst[index];
+        if (path !== undefined) this.#take(path, lines);
+        if (this.#partial.byteLength > 0) lines.push(this.#partial.toString("utf8"));
+        this.#partial = Buffer.alloc(0);
+        this.#offset = 0;
+      }
       this.#partial = Buffer.alloc(0);
       this.#inode = current;
       this.#offset = 0;
