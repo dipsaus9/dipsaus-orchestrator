@@ -247,6 +247,7 @@ describe("office commands and reads", () => {
         "work.outputRange",
         "office.usage",
         "office.digest",
+        "story.gate",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);
@@ -255,11 +256,19 @@ describe("office commands and reads", () => {
     }
   });
 
+  // Added in minor 1 (DIPO-71).
+  const sinceMinor1 = ["story.gate"];
+
   for (const definition of [...officeCommands, ...officeReads]) {
     if (provisional.includes(definition.name)) {
       it(`${definition.name} is provisional with no since`, () => {
         expect(definition.provisional).toBe(true);
         expect(definition.since).toBeUndefined();
+      });
+    } else if (sinceMinor1.includes(definition.name)) {
+      it(`${definition.name} ships with since 1.1`, () => {
+        expect(definition.since).toBe(1);
+        expect(definition.provisional).toBeUndefined();
       });
     } else {
       it(`${definition.name} ships with since 1.0`, () => {
