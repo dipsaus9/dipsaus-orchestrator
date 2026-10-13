@@ -5,6 +5,7 @@
 // and the refusal of git calls in a worktree whose git links changed.
 
 import { describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -24,7 +25,9 @@ import {
   type GitSettings,
   spawnGitExec,
 } from "../../src/git";
+import { OfficeHandle } from "../../src/db/office";
 import type { OfficeLoadContext } from "../../src/office/steps";
+import type { RunResult, SqlParams } from "../../src/platform/sqlite";
 import { systemSpawn } from "../../src/platform/process";
 import {
   CLAIM_NOTICES,
@@ -426,27 +429,75 @@ function afterClaimCommit(args: readonly string[], seen: readonly (readonly stri
   );
 }
 
+/** An office handle whose write of the claim commit fails, after running `before`. */
+class FailingOffice extends OfficeHandle {
+  constructor(
+    s: ClaimSetup,
+    readonly before: () => void,
+  ) {
+    super(s.t.state.connection, s.office.officeId);
+  }
+
+  override run(sql: string, params: SqlParams = {}): RunResult {
+    if (sql.includes("claim_sha = coalesce") && params["claim_sha"] !== null) {
+      this.before();
+      throw new Error("injected database failure");
+    }
+    return super.run(sql, params);
+  }
+}
+
+function failingOffice(s: ClaimSetup, before: () => void = () => {}): OfficeHandle {
+  return new FailingOffice(s, before);
+}
+
 describe("a claim that fails after the worktree exists", () => {
   it("rolls back a new branch that already holds the claim commit", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
       const key = s.key();
-      const broken = secondGit(repo, s, rootedAt("../repo.worktrees"), failing(afterClaimCommit));
       const request = s.request(key);
 
-      const error = await caught(claimStory(s.deps({ git: broken }), request));
+      const error = await caught(claimStory(s.deps({ office: failingOffice(s) }), request));
 
-      expect((error as GitError).message).toContain("injected failure");
+      expect((error as Error).message).toContain("injected database failure");
       expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
       expect(existsSync(join(s.git.worktreeRoot(), TASK_1))).toBe(false);
       expect(findClaim(s.office, request.runId)?.releaseReason).toBe("claim-failed");
       expect(hasLiveClaim(s.office, key)).toBe(false);
+      expect(notices(s.office)).toEqual([]);
       claimed(await claimStory(s.deps(), s.request(key)));
     }, FIXTURE);
   });
 
-  it("names a branch it could not roll back as left over from the story's failed claim", async () => {
+  it("leaves a foreign commit on top of the claim commit and reports the branch", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const path = join(s.git.worktreeRoot(), TASK_1);
+      // Someone commits on the branch right after the claim commit, then the claim fails.
+      const office = failingOffice(s, () => {
+        execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "foreign"], {
+          cwd: path,
+          env: repo.env,
+        });
+      });
+
+      await caught(claimStory(s.deps({ office }), s.request(key)));
+
+      expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toEqual([
+        `${TASK_1}: status In Progress`,
+        "foreign",
+      ]);
+      const codes = notices(s.office).map((n) => n.code);
+      expect(codes).toEqual([CLAIM_NOTICES.leftover]);
+      expect(notices(s.office)[0]?.text).toContain("is not a commit this claim made");
+    }, FIXTURE);
+  });
+
+  it("keeps the branch while the worktree could not be removed", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
@@ -455,10 +506,31 @@ describe("a claim that fails after the worktree exists", () => {
         repo,
         s,
         rootedAt("../repo.worktrees"),
-        failing((args, seen) => afterClaimCommit(args, seen) || args.includes("update-ref")),
+        failing(
+          (args) =>
+            args.includes("status") || (args.includes("worktree") && args.includes("remove")),
+        ),
       );
+
+      await caught(claimStory(s.deps({ git: broken }), s.request(key)));
+
+      const path = join(s.git.worktreeRoot(), TASK_1);
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+      expect(await repo.git("worktree", "list", "--porcelain")).toContain(`worktree ${path}`);
+      expect(notices(s.office)[0]?.text).toContain("could not be removed");
+    }, FIXTURE);
+  });
+
+  it("names a branch it could not roll back as left over from the story's failed claim", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      // The claim commit's id is never read, so the tip is not a commit the claim knows it made.
+      const broken = secondGit(repo, s, rootedAt("../repo.worktrees"), failing(afterClaimCommit));
       await caught(claimStory(s.deps({ git: broken }), s.request(key)));
       expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+      expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.leftover]);
 
       const outcome = await claimStory(s.deps(), s.request(key));
 

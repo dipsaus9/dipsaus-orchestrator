@@ -70,6 +70,7 @@ export const CLAIM_NOTICES = {
   lostRace: "claim.lostRace",
   mergeConflict: "claim.mergeConflict",
   pushFailed: "claim.pushFailed",
+  leftover: "claim.leftover",
 } as const;
 
 /** Why the claim did not happen; nothing was created. */
@@ -289,6 +290,9 @@ async function completeClaim(
   const { path, released } = created;
   const now = deps.clock.now();
   let recorded = false;
+  // The commits this claim made on the branch, collected as they are made; rollback moves only a
+  // ref whose tip is one of them.
+  const made: string[] = [created.startSha];
   try {
     await git.ok(git.repository, ["worktree", "lock", "--reason", `dipo ${request.runId}`, path]);
     const adminDir = deps.git.adminDirOf(path);
@@ -326,14 +330,17 @@ async function completeClaim(
           return [notice("warn", CLAIM_NOTICES.mergeConflict, feedback, request.key)];
         });
       }
+      // The merge commit (or the start again, when the branch was up to date).
+      made.push((await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim());
     }
 
     const claimSha = await claimCommit(deps, git, location, request);
     if (claimSha !== null) {
+      made.push(claimSha);
       deps.office.immediate(() => updateClaim(deps.office, request.runId, { claimSha }));
     }
   } catch (error) {
-    await rollback(deps, git, request, created, recorded);
+    await rollback(deps, git, request, created, recorded, made);
     throw error;
   }
 
@@ -458,9 +465,10 @@ async function push(deps: ClaimDeps, git: GitSession, request: ClaimRequest): Pr
 
 /**
  * Undoes a claim that failed after `git worktree add`: unpin, unlock and remove the worktree,
- * delete a new branch (or move a reused one back to its start) when its tip is the start or a
- * descendant this claim made, end the claim record and reopen a reused release. Each step is best
- * effort, so the original error is what the caller sees.
+ * delete a new branch (or move a reused one back to its start) when the worktree is gone and the
+ * tip is one of the commits this claim made, else leave the ref and put a `claim.leftover` notice
+ * on the office; end the claim record and reopen a reused release. Each step is best effort, so
+ * the original error is what the caller sees.
  */
 async function rollback(
   deps: ClaimDeps,
@@ -468,6 +476,7 @@ async function rollback(
   request: ClaimRequest,
   created: Created,
   recorded: boolean,
+  made: readonly string[] = [created.startSha],
 ): Promise<void> {
   const { path, released } = created;
   deps.git.unpinWorktree(path);
@@ -476,22 +485,31 @@ async function rollback(
   };
   await quiet(["worktree", "unlock", path]);
   await quiet(["worktree", "remove", "--force", path]);
-  // Every commit between the start and the tip was made by this claim (the claim commit, the
-  // base merge of a reused branch): the branch was cut or checked out inside this queue item, and
-  // no worker has run. A new branch is deleted, a reused one goes back to its start; both only
-  // while the ref still holds the tip read here.
+  // A new branch is deleted, a reused one goes back to its start, only when the worktree is gone
+  // and the tip is a commit this claim made (`made`); each ref change is guarded by the tip read
+  // here. Anything else is left as it is and reported.
   const ref = `refs/heads/${request.branch}`;
   const tip = await revParse(git, ref).catch(() => null);
-  if (tip !== null) {
-    const ours =
-      tip === created.startSha ||
-      (await git
-        .step(git.repository, ["merge-base", "--is-ancestor", created.startSha, tip])
-        .then((result) => result.code === 0)
-        .catch(() => false));
-    if (ours && released === null) await quiet(["update-ref", "-d", ref, tip]);
-    else if (ours && tip !== created.startSha) {
-      await quiet(["update-ref", ref, created.startSha, tip]);
+  const restored = released === null ? tip === null : tip === created.startSha;
+  if (!restored) {
+    let leftBecause: string | null = null;
+    if (deps.git.adminDirOf(path) !== null) {
+      leftBecause = `its worktree ${path} could not be removed`;
+    } else if (tip === null || !made.includes(tip)) {
+      leftBecause = `its tip ${tip ?? "(unreadable)"} is not a commit this claim made`;
+    } else {
+      const args =
+        released === null
+          ? ["update-ref", "-d", ref, tip]
+          : ["update-ref", ref, created.startSha, tip];
+      const result = await git.step(git.repository, args).catch(() => null);
+      if (result?.code !== 0) {
+        leftBecause = `\`git ${args.join(" ")}\` failed (${result?.stderr.trim() || "no result"})`;
+      }
+    }
+    if (leftBecause !== null) {
+      const text = `The claim of ${request.story} failed and dipo could not roll back the branch ${request.branch}: ${leftBecause}. It is left as it is; check it and remove or reset it by hand.`;
+      writeWith(deps, () => [notice("warn", CLAIM_NOTICES.leftover, text, request.key)]);
     }
   }
   if (!recorded) return;
