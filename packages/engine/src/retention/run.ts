@@ -185,6 +185,9 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`, {
     cutoff: stateCutoff,
   });
+  // Backlog PRs merged or closed, and blocks a later backlog PR cleared (DIPO-35).
+  await rows("backlog_prs", "closed_at < $cutoff", { cutoff: stateCutoff });
+  await rows("backlog_pr_blocks", "cleared_at < $cutoff", { cutoff: stateCutoff });
 
   let eventFiles = 0;
   let runDirectories = 0;
