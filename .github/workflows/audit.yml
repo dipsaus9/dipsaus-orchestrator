@@ -1,0 +1,71 @@
+# Decision 0016 rule 1. Not a required check: a new advisory must not block unrelated PRs.
+name: audit
+
+on:
+  pull_request:
+    paths: [bun.lock]
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      # `bun audit` reads `bun.lock`; no install is needed.
+      - name: bun audit --audit-level=high
+        run: |
+          set +e
+          bun audit --audit-level=high > audit.txt 2>&1
+          code=$?
+          set -e
+          cat audit.txt
+          {
+            echo '```'
+            cat audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+
+  # Scheduled runs only: a failure opens one issue labelled `security`, or comments on the open one.
+  report:
+    name: report
+    needs: [audit]
+    if: always() && github.event_name == 'schedule' && needs.audit.result == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TITLE: "bun audit: high or critical advisories"
+    steps:
+      - name: Open or update the security issue
+        run: |
+          # Creating the label fails harmlessly when it already exists.
+          gh label create security --color B60205 \
+            --description "Security advisories and fixes" 2> /dev/null || true
+          number="$(gh issue list --state open --label security --limit 100 --json number,title \
+            | jq -r --arg title "$TITLE" '[.[] | select(.title == $title)][0].number // empty')"
+          body="The scheduled \`bun audit --audit-level=high\` failed: $RUN_URL"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$TITLE" --label security --body "$body"
+          fi
