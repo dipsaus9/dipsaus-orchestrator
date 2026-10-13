@@ -13,7 +13,7 @@ import type { OfficeGit } from "../git/office";
 import type { OfficeLoadContext } from "../office/steps";
 import { type DiskProbe, systemDiskProbe } from "../platform/disk";
 
-import { claimStory, type ClaimOutcome, type ClaimRequest } from "./claim";
+import { claimStory, type ClaimOutcome, type ClaimRequest, type ClaimSetupDone } from "./claim";
 import { liveClaims } from "./records";
 
 /** The load step's name in the registry. */
@@ -57,7 +57,10 @@ export class StoryClaims {
   }
 
   /** Claims a story of a loaded office (see `claimStory`). */
-  claim(officeId: OfficeId, request: ClaimRequest): Promise<ClaimOutcome> {
+  claim<S extends ClaimSetupDone = ClaimSetupDone>(
+    officeId: OfficeId,
+    request: ClaimRequest<S>,
+  ): Promise<ClaimOutcome<S>> {
     const loaded = this.#offices.get(officeId);
     const git = this.#deps.git(officeId);
     if (loaded === undefined || git === undefined) {

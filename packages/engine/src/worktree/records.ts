@@ -282,21 +282,3 @@ export function markReclaimed(
     { at, run: runId, branch: released.branch, released_at: released.releasedAt },
   );
 }
-
-/** The release the claim of `runId` reused (0010 section 2a), or null. */
-export function releaseReclaimedBy(office: OfficeHandle, runId: RunId): ReleasedBranch | null {
-  const row = office.get<{ branch: string; key: string; released_at: number; reason: string }>(
-    `select branch, key, released_at, reason from released_branches
-     where office_id = $office_id and reclaimed_by = $run
-     order by released_at desc limit 1`,
-    { run: runId },
-  );
-  return row === null
-    ? null
-    : {
-        branch: row.branch,
-        key: row.key as StoryKey,
-        releasedAt: row.released_at,
-        reason: row.reason,
-      };
-}

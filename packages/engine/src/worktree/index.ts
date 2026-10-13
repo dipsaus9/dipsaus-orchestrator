@@ -2,15 +2,15 @@
 // the claim facts, and the load step that pins live claims' worktree snapshots. Setup of a claimed
 // worktree (DIPO-39; 0010 sections 8 and 9): files, port slot, run environment and install.
 
-export { CLAIM_NOTICES, CLAIM_STATUS, claimStory, MIN_FREE_BYTES, rollbackClaim } from "./claim";
+export { CLAIM_NOTICES, CLAIM_STATUS, claimStory, MIN_FREE_BYTES } from "./claim";
 export type {
   ClaimDeps,
   Claimed,
   ClaimOutcome,
   ClaimRequest,
+  ClaimSetupDone,
+  ClaimSetupFailed,
   ClaimSkip,
-  RollbackDeps,
-  RollbackTarget,
 } from "./claim";
 export { CLAIMS_STEP, StoryClaims } from "./feature";
 export type { StoryClaimsDeps } from "./feature";
@@ -25,19 +25,11 @@ export {
   liveClaims,
   releaseClaim,
   releasedBranchFor,
-  releaseReclaimedBy,
 } from "./records";
 export type { ClaimRecord, ReleasedBranch } from "./records";
 export { buildRunEnv, RUN_ENV_NAMES, RunEnvError, substitute } from "./run-env";
 export type { RunEnvInput } from "./run-env";
 export { ENV_FILES_RULE, SETUP_NOTICES, setupWorktree, STEP_OUTPUT_TAIL } from "./setup";
-export type {
-  SetupDeps,
-  SetupDone,
-  SetupHost,
-  SetupOutcome,
-  SetupRequest,
-  SetupSkip,
-} from "./setup";
+export type { SetupDeps, SetupDone, SetupHost, SetupOutcome, SetupRequest } from "./setup";
 export { MAIN_CHECKOUT_SLOT, SLOTS_FILE, SlotTable, SlotTableError } from "./slots";
 export type { SlotEntry, SlotTableOptions } from "./slots";

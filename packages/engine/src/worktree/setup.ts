@@ -1,5 +1,6 @@
-// Setting up a claimed worktree (0010 sections 8 and 9, its 0008 amendment; 0013 section 4). After
-// `claimStory` (DIPO-38) the engine, in order:
+// Setting up a claimed worktree (0010 sections 8 and 9, its 0008 amendment; 0013 section 4).
+// `claimStory` (DIPO-38) calls it through `ClaimRequest.setup` after the worktree, its lock and
+// the live claim record, and before the claim commit and the push (0010 section 7). In order:
 //
 // 1. takes the lowest free machine-wide port slot (`slots.ts`) and builds the run environment
 //    (`run-env.ts`);
@@ -12,40 +13,45 @@
 //    the run environment, never through a shell. Install gets the install policy (its registry
 //    hosts); `setup` and `post_create` get the closed-network policy.
 //
-// Any failure rolls the claim back (`rollbackClaim`): the slot is freed, the worktree removed,
-// the branch deleted only while it still points at a commit the claim made (its start or the
-// recorded claim commit), the pushed claim branch deleted on the remote only while it still points
-// at what the claim pushed, and the claim row ended as `setup-failed`. The story stays Ready: the
-// claim commit lived only on the branch. The caller gets a `pickupCheckFailed` skip with the setup
-// log. The log names paths, commands and exit codes, never file contents.
+// A failure frees the slot and returns `{ ok: false, reason, log }`; `claimStory` then rolls the
+// claim back (worktree removed, a new branch deleted only while it still points at its start,
+// nothing committed or pushed, the story still Ready) and returns a `pickupCheckFailed` skip with
+// the log. A success returns the slot and the run environment with `release`, which frees the
+// slot when the claim fails after setup. The log names paths, commands and exit codes, never
+// file contents.
 //
-// Setup runs outside the claim's git queue item, so a long install does not hold the office's
-// git queue; each git step it needs (`check-ignore`, the rollback) is a queue item of its own.
+// Setup runs outside the git queue, so a long install does not hold the office's git queue; each
+// git step it needs (`check-ignore`) is a queue item of its own.
 
-import type { SkipReason } from "@dipsaus-orchestrator/contract";
-
+import { statusPaths } from "../backlog/lane/lane";
 import type { OfficeConfig } from "../config";
-import { FETCH_CONFIG, type GitLocation } from "../git/hardened";
+import type { GitLocation } from "../git/hardened";
 import type { GitSession } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, type GitResult, isTimedOut } from "../git/runner";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
 import type { CommandSpec, RunProfile } from "../scan/detect";
 import type { CapturedOutput, StepRequest, StepResult } from "../sandbox/step";
 import type { StepPolicyKind } from "../sandbox/policy";
 
-import { MIN_FREE_BYTES, notice, type RollbackDeps, rollbackClaim, writeWith } from "./claim";
+import {
+  CLAIM_NOTICES,
+  type ClaimDeps,
+  type ClaimSetupDone,
+  type ClaimSetupFailed,
+  MIN_FREE_BYTES,
+  notice,
+  writeWith,
+} from "./claim";
 import { type FileStepResult, placeFiles } from "./files";
-import { type ClaimRecord, releaseReclaimedBy } from "./records";
+import type { ClaimRecord } from "./records";
 import { buildRunEnv } from "./run-env";
 import type { SlotTable } from "./slots";
 
 /** `engine.notice` codes of setup. */
 export const SETUP_NOTICES = {
-  failed: "setup.failed",
+  failed: CLAIM_NOTICES.setupFailed,
   envFiles: "setup.envFiles",
   fileSkipped: "setup.fileSkipped",
   settingsNotCopied: "setup.settingsNotCopied",
-  remoteLeftover: "setup.remoteLeftover",
 } as const;
 
 /** The development-secrets rule (0008 section 2, "Env files"; open question 8). */
@@ -57,7 +63,10 @@ export const STEP_OUTPUT_TAIL = 4000;
 /** Paths per `git check-ignore` call. */
 const CHECK_IGNORE_BATCH = 200;
 
-export interface SetupDeps extends RollbackDeps {
+export interface SetupDeps extends Pick<
+  ClaimDeps,
+  "officeId" | "office" | "git" | "clock" | "onChanged"
+> {
   readonly disk: DiskProbe;
   /** The machine-wide slot table in `<state>`. */
   readonly slots: SlotTable;
@@ -74,7 +83,7 @@ export interface SetupHost {
 }
 
 export interface SetupRequest {
-  /** The claim `claimStory` returned. */
+  /** The live claim `claimStory` passes to its `setup`. */
   readonly claim: ClaimRecord;
   readonly config: Pick<OfficeConfig, "worktree" | "timeouts" | "sandbox">;
   /** The office's stored run profile (DIPO-72); null before its first scan. */
@@ -82,7 +91,7 @@ export interface SetupRequest {
   readonly host: SetupHost;
 }
 
-export interface SetupDone {
+export interface SetupDone extends ClaimSetupDone {
   readonly ok: true;
   readonly slot: number;
   /** The run environment for every later process in the worktree. */
@@ -91,17 +100,7 @@ export interface SetupDone {
   readonly log: readonly string[];
 }
 
-export interface SetupSkip {
-  readonly ok: false;
-  readonly reason: SkipReason;
-  /** The notice put on the office. */
-  readonly notice: string;
-  readonly code: string;
-  /** The setup log, one line per entry. */
-  readonly log: string;
-}
-
-export type SetupOutcome = SetupDone | SetupSkip;
+export type SetupOutcome = SetupDone | ClaimSetupFailed;
 
 /** A setup failure with its reason for the notice. */
 class SetupFailure extends Error {}
@@ -181,12 +180,28 @@ export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Pro
     for (const command of config.worktree.post_create) {
       await run({ commands: [command], cwd: "." }, "verify", "post_create");
     }
+    const left = await changedPaths(deps, claim.worktree);
+    if (left.length > 0) {
+      log.push(`setup: changes outside .gitignore: ${left.join(", ")}`);
+      throw new SetupFailure(
+        `setup left files git does not ignore (${left.slice(0, 5).join(", ")}${left.length > 5 ? ", and more" : ""}); setup steps may write only ignored files`,
+      );
+    }
     log.push("setup: done");
-    return { ok: true, slot, env, files, log };
+    const release = (): void => {
+      deps.slots.free(claim.worktree);
+    };
+    return { ok: true, slot, env, files, log, release };
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     if (!(error instanceof SetupFailure)) log.push(`setup: ${why}`);
-    return rollBack(deps, claim, why, log);
+    try {
+      deps.slots.free(claim.worktree);
+    } catch (freeError) {
+      log.push(`setup: the slot could not be freed: ${String(freeError)}`);
+    }
+    log.push(`setup: failed: ${why}`);
+    return { ok: false, reason: why, log: log.join("\n") };
   }
 }
 
@@ -348,108 +363,19 @@ function fileNotices(deps: SetupDeps, claim: ClaimRecord, files: FileStepResult)
   });
 }
 
-/** Undoes the claim after a failed setup and returns the `pickupCheckFailed` skip. */
-async function rollBack(
-  deps: SetupDeps,
-  claim: ClaimRecord,
-  why: string,
-  log: string[],
-): Promise<SetupSkip> {
-  try {
-    deps.slots.free(claim.worktree);
-  } catch (error) {
-    log.push(`rollback: the slot could not be freed: ${String(error)}`);
-  }
-  const released = claim.reused ? releaseReclaimedBy(deps.office, claim.runId) : null;
-  const pushed = claim.pushedAt !== null;
-  // A reused branch whose claim commit is already pushed keeps its ref: moving it back would need
-  // a force push, which the engine never does (0010 section 7).
-  const keepRef = claim.reused && pushed;
-  const made = [claim.startSha, ...(claim.claimSha === null ? [] : [claim.claimSha])];
-  await deps.git.run(async (git) => {
-    const restored = await rollbackClaim(deps, git, {
-      key: claim.key,
-      story: claim.story,
-      branch: claim.branch,
-      runId: claim.runId,
-      path: claim.worktree,
-      startSha: claim.startSha,
-      released,
-      recorded: true,
-      made,
-      reason: "setup-failed",
-      keepRef,
-    });
-    log.push(
-      keepRef
-        ? `rollback: worktree removed; ${claim.branch} kept at its pushed tip`
-        : restored
-          ? `rollback: worktree removed; ${claim.branch} ${claim.reused ? "back at its start" : "deleted"}`
-          : `rollback: worktree removed; ${claim.branch} left as it is`,
-    );
-    if (pushed && !claim.reused && restored) {
-      await deleteRemoteBranch(deps, git, claim, claim.claimSha ?? claim.startSha, log);
-    }
-  });
-  const text = `${claim.story} was not started: setup failed (${why}). The worktree was removed and the story stays Ready.`;
-  log.push(`setup: failed: ${why}`);
-  writeWith(deps, () => [notice("warn", SETUP_NOTICES.failed, text, claim.key)]);
-  return {
-    ok: false,
-    reason: "pickupCheckFailed",
-    notice: text,
-    code: SETUP_NOTICES.failed,
-    log: log.join("\n"),
-  };
-}
-
 /**
- * Deletes the pushed claim branch on the remote, only while it still points at `pushedSha`
- * (`--force-with-lease` with that value; a moved branch is refused and reported, never deleted).
+ * Tracked changes and untracked files git does not ignore in the worktree. Setup writes only
+ * ignored files, so the claim commit that follows holds only the story's task file.
  */
-async function deleteRemoteBranch(
-  deps: SetupDeps,
-  git: GitSession,
-  claim: ClaimRecord,
-  pushedSha: string,
-  log: string[],
-): Promise<void> {
-  const { remote } = deps.git.settings;
-  const ref = `refs/heads/${claim.branch}`;
-  const result = await git
-    .step(
-      git.repository,
-      [
-        "push",
-        "--quiet",
-        "--no-verify",
-        "--delete",
-        `--force-with-lease=${ref}:${pushedSha}`,
-        remote,
-        ref,
-      ],
-      { config: FETCH_CONFIG, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-    )
-    .catch((error: unknown): GitResult => {
-      if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-      return {
-        code: null,
-        stdout: "",
-        stderr: error instanceof Error ? error.message : String(error),
-      };
-    });
-  if (result.code === 0) {
-    log.push(`rollback: ${claim.branch} deleted on ${remote}`);
-    return;
-  }
-  const detail = result.stderr.trim() || `exit ${result.code}`;
-  log.push(`rollback: ${claim.branch} could not be deleted on ${remote}: ${detail}`);
-  writeWith(deps, () => [
-    notice(
-      "warn",
-      SETUP_NOTICES.remoteLeftover,
-      `Setup of ${claim.story} failed and dipo could not delete the pushed branch ${claim.branch} on ${remote} (${detail}). Delete it by hand (\`git push ${remote} --delete ${claim.branch}\`) before the story runs again.`,
-      claim.key,
+async function changedPaths(deps: SetupDeps, worktree: string): Promise<string[]> {
+  return deps.git.run(async (git) =>
+    statusPaths(
+      await git.ok(deps.git.worktreeLocation(worktree), [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+      ]),
     ),
-  ]);
+  );
 }

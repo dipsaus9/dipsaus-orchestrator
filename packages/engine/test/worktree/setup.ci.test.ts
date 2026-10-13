@@ -1,9 +1,10 @@
 // CI only (0017 section 1; DIPO-39): a real claim (DIPO-38) against a bare remote and the pinned
-// Backlog CLI, then setup with real sandboxed steps through `dipo daemon sandbox-exec` (DIPO-37).
+// Backlog CLI, with setup inside it running real sandboxed steps through `dipo daemon sandbox-exec`
+// (DIPO-37), before the claim commit and the push.
 // The fixture product has no dependencies, so `bun install --frozen-lockfile` needs no network.
 // A passing setup copies the ignored `.env` and runs install and `setup` with the run
-// environment; a failing `setup` script removes the worktree, deletes the branch locally and on
-// the remote, keeps the story Ready and lets the story be claimed again.
+// environment; a failing `setup` script removes the worktree and deletes the branch, nothing reaches
+// the remote, the story stays Ready on origin/main and can be claimed again.
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,7 +21,7 @@ import {
   findClaim,
   hasLiveClaim,
   liveClaims,
-  type SetupOutcome,
+  type SetupDone,
   setupWorktree,
   SlotTable,
 } from "../../src/worktree";
@@ -76,7 +77,7 @@ async function product(repo: TempRepoWithRemote, script: string): Promise<void> 
     join(repo.dir, "package.json"),
     `${JSON.stringify({ name: "fixture", private: true, scripts: { setup: script } }, null, 2)}\n`,
   );
-  writeFileSync(join(repo.dir, ".gitignore"), ".env\nnode_modules/\n");
+  writeFileSync(join(repo.dir, ".gitignore"), ".env\nnode_modules/\nsetup-ran.txt\n");
   const lock = await repo.run(["bun", "install"]);
   if (lock.exitCode !== 0) throw new Error(`bun install failed: ${lock.stderr}`);
   await publish(repo);
@@ -88,54 +89,63 @@ function claimed(outcome: ClaimOutcome) {
   return outcome.claim;
 }
 
-async function setUp(repo: TempRepoWithRemote, s: ClaimSetup): Promise<SetupOutcome> {
-  const claim = claimed(await claimStory(s.deps(), s.request(s.key())));
+/** Claims TASK-1 with setup through the real sandbox as its `setup`. */
+async function claimWithSetup(
+  repo: TempRepoWithRemote,
+  s: ClaimSetup,
+): Promise<ClaimOutcome<SetupDone>> {
   const state = join(repo.root, "dipo-state");
   const runtime = join(repo.root, "dipo-run");
   mkdirSync(state, { recursive: true });
   mkdirSync(runtime, { recursive: true });
   const deps = stepDeps();
-  return setupWorktree(
-    {
-      ...s.deps(),
-      slots: SlotTable.inState(state),
-      runStep: (request) => runSandboxedStep(deps, request),
-    },
-    {
-      claim,
-      config: {
-        worktree: {
-          ...OFFICE_DEFAULTS.worktree,
-          files: [{ path: ".env", mode: "copy", required: true }],
+  return claimStory<SetupDone>(s.deps(), {
+    ...s.request(s.key()),
+    setup: (claim) =>
+      setupWorktree(
+        {
+          ...s.deps(),
+          slots: SlotTable.inState(state),
+          runStep: (request) => runSandboxedStep(deps, request),
         },
-        timeouts: { ...OFFICE_DEFAULTS.timeouts, scriptMinutes: { install: 2, setup: 2 } },
-        sandbox: OFFICE_DEFAULTS.sandbox,
-      },
-      profile: PROFILE,
-      host: {
-        home: repo.home,
-        uid: process.getuid?.() ?? 0,
-        env: { ...process.env, HOME: repo.home, DIPO_HOME: state, DIPO_RUNTIME_DIR: runtime },
-      },
-    },
-  );
+        {
+          claim,
+          config: {
+            worktree: {
+              ...OFFICE_DEFAULTS.worktree,
+              files: [{ path: ".env", mode: "copy", required: true }],
+            },
+            timeouts: { ...OFFICE_DEFAULTS.timeouts, scriptMinutes: { install: 2, setup: 2 } },
+            sandbox: OFFICE_DEFAULTS.sandbox,
+          },
+          profile: PROFILE,
+          host: {
+            home: repo.home,
+            uid: process.getuid?.() ?? 0,
+            env: { ...process.env, HOME: repo.home, DIPO_HOME: state, DIPO_RUNTIME_DIR: runtime },
+          },
+        },
+      ),
+  });
 }
 
 if (CI) {
   describe("setting up a claimed worktree with the real sandbox", () => {
     it(
-      "copies the ignored .env and runs install and setup with the run environment",
+      "copies the ignored .env and runs install and setup with the run environment, then commits and pushes",
       async () => {
         await withBareRemote(
           async (repo) => {
             await product(repo, 'echo "$DIPO_SLOT $PORT $DIPO_STORY" > setup-ran.txt');
             const s = await claimSetup(repo);
-            const outcome = await setUp(repo, s);
+            const outcome = await claimWithSetup(repo, s);
             if (!outcome.ok) throw new Error(`${outcome.notice}\n${outcome.log}`);
-            const worktree = outcome.env["DIPO_WORKTREE"] as string;
+            const setup = outcome.setup as SetupDone;
+            const worktree = outcome.claim.worktree;
             expect(readFileSync(join(worktree, ".env"), "utf8")).toContain(SECRET);
             expect(readFileSync(join(worktree, "setup-ran.txt"), "utf8").trim()).toBe("1  TASK-1");
-            expect(outcome.log.join("\n")).not.toContain(SECRET);
+            expect(setup.log.join("\n")).not.toContain(SECRET);
+            expect(outcome.pushed).toBe(true);
           },
           { fixture: BACKLOG_FIXTURE },
         );
@@ -144,18 +154,17 @@ if (CI) {
     );
 
     it(
-      "a failing setup script rolls back the claim, deletes the pushed branch and leaves the story Ready",
+      "a failing setup script rolls back the claim before anything is pushed and leaves the story Ready",
       async () => {
         await withBareRemote(
           async (repo) => {
             await product(repo, "echo setup-broke >&2; exit 3");
             const s = await claimSetup(repo);
-            const outcome = await setUp(repo, s);
+            const outcome = await claimWithSetup(repo, s);
             if (outcome.ok) throw new Error("expected setup to fail");
 
             expect(outcome.reason).toBe("pickupCheckFailed");
             expect(outcome.log).toContain("setup-broke");
-            expect(outcome.log).toContain(`${BRANCH_1} deleted on origin`);
             expect(existsSync(join(s.git.worktreeRoot(), "TASK-1"))).toBe(false);
             const local = await repo.run([
               "git",
@@ -165,10 +174,12 @@ if (CI) {
               `refs/heads/${BRANCH_1}`,
             ]);
             expect(local.exitCode).not.toBe(0);
-            expect(
-              (await inRemote(repo, "branch", "--list", BRANCH_1).catch(() => "")).trim(),
-            ).toBe("");
-            expect(readFileSync(join(repo.dir, TASK_FILE_1), "utf8")).toContain("status: Ready");
+            // No remote branch exists: nothing was pushed.
+            expect((await inRemote(repo, "branch", "--list", BRANCH_1)).trim()).toBe("");
+            const heads = await repo.git("ls-remote", "--heads", "origin");
+            expect(heads).not.toContain(BRANCH_1);
+            // The story stays Ready on origin/main.
+            expect(await repo.git("show", `origin/main:${TASK_FILE_1}`)).toContain("status: Ready");
             expect(liveClaims(s.office)).toEqual([]);
 
             // The story can be claimed again: nothing is left that collides.
