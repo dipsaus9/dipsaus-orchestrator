@@ -197,7 +197,7 @@ describe("reusing a released branch against the local base", () => {
 });
 
 describe("a claim that fails after the worktree exists", () => {
-  it("leaves a foreign commit on top of the claim commit and reports the branch", async () => {
+  it("leaves a foreign commit on top of the claim commit and reports the branch, which the next claim keeps as left over", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
@@ -219,6 +219,16 @@ describe("a claim that fails after the worktree exists", () => {
       ]);
       expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.leftover]);
       expect(notices(s.office)[0]?.text).toContain("is not a commit this claim made");
+      const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
+
+      // The next claim names the branch as left over and keeps it.
+      const again = await claimStory(s.deps(), s.request(key));
+
+      expect(again).toMatchObject({ ok: false, reason: "collision" });
+      expect(again.ok ? "" : again.notice).toContain(
+        "left over from an earlier failed claim of this story",
+      );
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
     }, FIXTURE);
   });
 });
