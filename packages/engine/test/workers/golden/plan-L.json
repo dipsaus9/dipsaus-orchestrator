@@ -149,6 +149,7 @@
       "allowUnsandboxedCommands": false,
       "filesystem": {
         "allowWrite": ["/home/maintainer/code/shop.worktrees/DIPO-999", "/tmp/claude-501"],
+        "denyRead": ["/home/maintainer/Library/Keychains"],
         "denyWrite": [
           "/home/maintainer/code/shop/.git",
           "/home/maintainer/code/shop.worktrees/DIPO-999/.git",

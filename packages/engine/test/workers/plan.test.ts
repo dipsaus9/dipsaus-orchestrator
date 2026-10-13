@@ -106,6 +106,16 @@ describe("claude-cli plan", () => {
     });
   }
 
+  it("read-denies the Keychain folder in the sandbox only, never in the permission rules", () => {
+    const settings = settingsOf(plan(spec("M"), context())) as {
+      permissions: { allow: string[]; deny: string[] };
+      sandbox: { filesystem: { denyRead: string[] } };
+    };
+    expect(settings.sandbox.filesystem.denyRead).toEqual(["/home/maintainer/Library/Keychains"]);
+    const rules = [...settings.permissions.allow, ...settings.permissions.deny].join(" ");
+    expect(rules).not.toContain("Keychains");
+  });
+
   it("starts with the absolute claude path and passes the 0008 flags", () => {
     const launch = plan(spec("M"), context());
     expect(launch.argv[0]).toBe("/home/maintainer/.local/bin/claude");
