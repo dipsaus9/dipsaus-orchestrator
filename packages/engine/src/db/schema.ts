@@ -7,6 +7,7 @@ import { workerHosts } from "./migrations/0003-worker-hosts";
 import { ingest } from "./migrations/0004-ingest";
 import { backlogJournal } from "./migrations/0005-backlog-journal";
 import { backlogMirror } from "./migrations/0006-backlog-mirror";
+import { contextPacks } from "./migrations/0007-context-packs";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -49,4 +50,5 @@ create table offices (
   ingest,
   backlogJournal,
   backlogMirror,
+  contextPacks,
 ];
