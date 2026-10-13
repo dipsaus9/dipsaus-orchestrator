@@ -43,6 +43,7 @@ import {
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
+  RunProfiles,
   runtimeCandidates,
   selfCommand,
   serveUnixSocket,
@@ -403,6 +404,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "stories" }),
     });
     held.storyIndex = storyIndex;
+    // The run profile (DIPO-72): scanned at load after the story index fetched, and on
+    // `office.rescan`, which also indexes the stories again.
+    const runProfiles = new RunProfiles({
+      git: engineGit,
+      stories: storyIndex,
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "scan" }),
+    });
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
     const summaries = officeSummarySource(() => held.database);
     const registry: Registry = engineRegistry([
@@ -410,6 +419,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       engineGit.feature,
       lane.feature,
       storyIndex.feature,
+      runProfiles.feature,
       officeFeature(offices),
       helloFeature({
         engineVersion: io.version,
