@@ -4,7 +4,7 @@
 // configuration comes from the caller.
 
 import { BacklogParseError, parseList, parseView, plainLines } from "../../backlog/plain";
-import { type BacklogCli, runBacklog } from "../../backlog/runner";
+import { type BacklogCli, BacklogCommandError, runBacklog } from "../../backlog/runner";
 import { isProvisionalId } from "../../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../../stories/read";
 import { gateStoryFromView, gateTaskFromView } from "../input";
@@ -32,9 +32,22 @@ async function view(cli: BacklogCli, cwd: string, id: string) {
   return parseView(stdout);
 }
 
+/** The story's own view reported `not found`: it is not on this worktree's checkout. */
+export class StoryNotFoundError extends Error {
+  constructor(readonly story: string) {
+    super(`${story} is not in the Backlog.md project on this checkout.`);
+    this.name = "StoryNotFoundError";
+  }
+}
+
+function isNotFound(error: BacklogCommandError): boolean {
+  return /\bnot found\b/i.test(`${error.stderr}\n${error.stdout}`);
+}
+
 /**
- * Reads the gate input of `story` in the worktree `cwd`. Throws `BacklogCommandError` or
- * `BacklogRefusedError` when the CLI fails and `BacklogParseError` when an output does not parse.
+ * Reads the gate input of `story` in the worktree `cwd`. Throws `StoryNotFoundError` when the
+ * story is not there, `BacklogCommandError` or `BacklogRefusedError` when the CLI fails otherwise,
+ * and `BacklogParseError` when an output does not parse.
  */
 export async function readGateInput(
   cli: BacklogCli,
@@ -42,7 +55,15 @@ export async function readGateInput(
   story: string,
   config: GateConfig,
 ): Promise<GateInput> {
-  const target = await view(cli, cwd, story);
+  let target;
+  try {
+    target = await view(cli, cwd, story);
+  } catch (error) {
+    if (error instanceof BacklogCommandError && isNotFound(error)) {
+      throw new StoryNotFoundError(story);
+    }
+    throw error;
+  }
   const listed = parseList((await runBacklog(cli, cwd, ["task", "list", "--plain"])).stdout);
   const activeTasks = await mapLimited(listed.entries, VIEW_CONCURRENCY, async (entry) => {
     if (entry.id === target.id) return gateTaskFromView(target);

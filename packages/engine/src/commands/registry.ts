@@ -83,7 +83,11 @@ export interface SoftwareCommandRegistration<D extends CommandDefinition> {
 export interface ReadContext {
   readonly clock: Clock;
   readonly requestId: RequestId;
-  /** Present when the args name an office; the read then runs in one deferred transaction. */
+  /**
+   * Present when the args name an office. A synchronous read then runs in one deferred
+   * transaction. An async read (`addAsyncRead`) gets the handle after that transaction, in which
+   * only its story references resolved, so its own database reads are not one snapshot.
+   */
   readonly office?: OfficeHandle;
   /** The story references in the args, resolved, by key. */
   readonly stories: ReadonlyMap<string, StoryIdentity>;

@@ -17,7 +17,8 @@ import {
   storyGate,
 } from "@dipsaus-orchestrator/contract";
 
-import type { BacklogCli } from "../../backlog/runner";
+import { BacklogParseError } from "../../backlog/plain";
+import { type BacklogCli, BacklogCommandError, BacklogRefusedError } from "../../backlog/runner";
 import { CommandError } from "../../commands/errors";
 import type { FeatureModule } from "../../commands/registry";
 import type { OfficeConfig } from "../../config";
@@ -29,7 +30,7 @@ import type { GateConfig, GateMode, GateResult } from "../types";
 
 import { type GateDecisionRecord, storeGateDecision } from "./decisions";
 import { gateContentHash } from "./hash";
-import { readGateInput } from "./read";
+import { readGateInput, StoryNotFoundError } from "./read";
 
 export interface GateStoreDeps {
   /** The office's git once the git load step attached it. */
@@ -51,6 +52,35 @@ export interface GateEvaluation {
   readonly contentHash: string;
 }
 
+/** The first line of a CLI error, without the command line the runner prefixes. */
+function reasonOf(error: Error): string {
+  const line = error.message.split("\n")[0] ?? "";
+  return line.replace(/^`[^`]*` /, "");
+}
+
+/** A contract error for a failed read of the gate's inputs; other throws pass through. */
+function gateReadError(office: OfficeId, story: StoryId, base: string, error: unknown): unknown {
+  if (error instanceof StoryNotFoundError) {
+    return new CommandError(
+      "story.unknown",
+      `${story} is not on the office's base branch ${base}; the Ready gate reads the story as it is there, so push or merge it first.`,
+      { story },
+    );
+  }
+  if (
+    error instanceof BacklogCommandError ||
+    error instanceof BacklogRefusedError ||
+    error instanceof BacklogParseError
+  ) {
+    return new CommandError(
+      "office.refused",
+      `The Ready gate cannot run: the Backlog CLI could not read ${story} on the office's base branch ${base} (${reasonOf(error)}).`,
+      { office, step: "backlog" },
+    );
+  }
+  return error;
+}
+
 /** The office configuration keys the gate reads. */
 export function gateConfigOf(config: OfficeConfig): GateConfig {
   return { story: config.story, prompt: { contractMax: config.prompt.contractMax } };
@@ -64,10 +94,19 @@ export class GateStore {
   }
 
   /**
-   * Evaluates the gate of `story` (a Backlog.md id) on the office's `_base`, without storing it.
-   * Throws when the office has not loaded, has no base, or the Backlog CLI fails.
+   * Evaluates the gate of `story` (a Backlog.md id) on the office's `_base` in `ready` mode,
+   * without storing it. A pickup-mode evaluation only happens through `recordGateDecision`.
    */
-  async evaluate(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateEvaluation> {
+  checkReady(office: OfficeId, story: StoryId): Promise<GateEvaluation> {
+    return this.#evaluate(office, story, "ready");
+  }
+
+  /**
+   * Throws `story.unknown` when the story is not on `_base`, and `office.refused` (with
+   * `details.step` `config` or `backlog`) when the office has no valid configuration or the
+   * Backlog CLI cannot read the story.
+   */
+  async #evaluate(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateEvaluation> {
     const git = this.#deps.git.forOffice(office);
     if (git === undefined) {
       throw new Error(`Office ${office} has not loaded; its git is not attached.`);
@@ -75,14 +114,20 @@ export class GateStore {
     const config = this.#deps.offices.config(office);
     if (config === undefined) {
       throw new CommandError(
-        "config.invalid",
-        `Office ${office} has no valid configuration; fix .dipo/office.yaml and run \`dipo office reload-config\`.`,
+        "office.refused",
+        `The Ready gate cannot run: office ${office} has no valid configuration yet. Fix .dipo/office.yaml and run \`dipo office reload-config\`.`,
+        { office, step: "config" },
       );
     }
     const base = await git.ensureBaseWorktree();
-    const input = await git.run(() =>
-      readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config)),
-    );
+    let input;
+    try {
+      input = await git.run(() =>
+        readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config)),
+      );
+    } catch (error) {
+      throw gateReadError(office, story, base.base, error);
+    }
     return {
       story,
       result: evaluateGate(input, mode),
@@ -104,7 +149,7 @@ export class GateStore {
     if (identity === null) {
       throw new CommandError("story.unknown", `No story has the key ${key}.`, { story: key });
     }
-    const evaluation = await this.evaluate(office, identity.story, mode);
+    const evaluation = await this.#evaluate(office, identity.story, mode);
     const at = this.#deps.clock.now();
     const stored = handle.immediate(() =>
       storeGateDecision(handle, this.#deps.ids, {
@@ -129,7 +174,7 @@ export class GateStore {
             if (ctx.office === undefined || identity === undefined) {
               throw new Error("story.gate runs with its office and its story resolved");
             }
-            const { result } = await this.evaluate(ctx.office.officeId, identity.story, "ready");
+            const { result } = await this.checkReady(ctx.office.officeId, identity.story);
             return {
               story: identity.story,
               key: identity.key,

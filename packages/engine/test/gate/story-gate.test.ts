@@ -7,9 +7,10 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { type OfficeId, type ReadReply, StoryKey } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, type ReadReply, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { CommandError } from "../../src/commands/errors";
 import type { OfficeHandle } from "../../src/db/office";
 import {
   findPassingDecision,
@@ -167,6 +168,54 @@ describe("the Ready gate on the Backlog CLI", () => {
 
       const unknown = await read(s, { office: officeId, story: "TASK-99" });
       expect(unknown.ok ? "ok" : unknown.error.code).toBe("story.unknown");
+    }));
+
+  it("answers contract codes with clear messages when the inputs cannot be read", () =>
+    withGatedOffice(async ({ repo, s, engineGit, office, officeId }) => {
+      // Indexed, then archived on the base: the key resolves but the story is not there.
+      await backlog(repo, ["task", "archive", "TASK-2"]);
+      await publish(repo, "archive TASK-2");
+      await engineGit.forOffice(officeId)?.fetch();
+      const gone = await read(s, { office: officeId, story: "TASK-2" });
+      if (gone.ok) throw new Error("expected story.unknown");
+      expect(gone.error.code).toBe("story.unknown");
+      expect(gone.error.message).toBe(
+        "TASK-2 is not on the office's base branch main; the Ready gate reads the story as it is there, so push or merge it first.",
+      );
+
+      const offices = {
+        get: (id: OfficeId) => s.manager.get(id),
+        config: (id: OfficeId) => s.manager.config(id),
+      };
+      const deps = { git: engineGit, offices, clock: s.clock, ids: s.ids };
+      const broken = new GateStore({
+        ...deps,
+        cli: { spawn: systemSpawn, command: ["false"], env: repo.env },
+      });
+      const story = StoryId.parse("TASK-1");
+      const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
+      expect(cliError).toBeInstanceOf(CommandError);
+      expect((cliError as CommandError).error).toMatchObject({
+        code: "office.refused",
+        details: { office: officeId, step: "backlog" },
+      });
+      expect((cliError as CommandError).error.message).toStartWith(
+        "The Ready gate cannot run: the Backlog CLI could not read TASK-1 on the office's base branch main (exited 1",
+      );
+
+      const unconfigured = new GateStore({
+        ...deps,
+        offices: { ...offices, config: () => undefined },
+        cli: CLI(repo),
+      });
+      const configError = await unconfigured
+        .checkReady(officeId, story)
+        .catch((error: unknown) => error);
+      expect((configError as CommandError).error).toMatchObject({
+        code: "office.refused",
+        details: { office: officeId, step: "config" },
+      });
+      expect(countRows(office, "gates")).toBe(0);
     }));
 
   it("a pickup-mode evaluation stores one decision with every rule result and the hash", () =>
