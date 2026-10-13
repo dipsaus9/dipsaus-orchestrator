@@ -1,0 +1,287 @@
+# Decision 0016 rules 3, 4 and 12. See docs/release.md.
+#
+# DRY RUN until v0.1.0 (rule 3): this workflow starts only by hand (`workflow_dispatch` on main).
+# release-please runs with the CLI's --dry-run and writes nothing; the build matrix keeps its
+# archives as workflow artifacts. No tag, release or upload is made: `publish` and `post-release`
+# run only when `release-please` reports `publish == 'true'`, which it never does while DRY_RUN is
+# "true".
+#
+# The switch to real releases is one change, made with the maintainer's approval (rule 3):
+# set DRY_RUN to "false" and add `push: branches: [main]` under `on`.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Real releases only: rebuild and publish this existing draft tag (vX.Y.Z)"
+        required: false
+        default: ""
+
+permissions: {}
+
+env:
+  DRY_RUN: "true"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    # The environment's branch policy also allows only main (0016 rule 4).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: release-please
+    permissions: {}
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      publish: ${{ steps.decide.outputs.publish }}
+      ref: ${{ steps.decide.outputs.ref }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - name: Check the tag input
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$TAG" ]; then exit 0; fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "The tag input is for real releases; this workflow is a dry run."
+            exit 1
+          fi
+          # Bash regex on the whole value: no newline or other character can reach GITHUB_OUTPUT.
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]*)?$ ]]; then
+            echo "tag must look like vX.Y.Z, got: $TAG"
+            exit 1
+          fi
+      # The dry run asks for read access only; a real run needs write access (0016 rule 3).
+      - name: Create the release App token
+        id: app-token
+        if: inputs.tag == ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: ${{ env.DRY_RUN == 'true' && 'read' || 'write' }}
+          permission-pull-requests: ${{ env.DRY_RUN == 'true' && 'read' || 'write' }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: env.DRY_RUN == 'true'
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: release-please --dry-run
+        if: env.DRY_RUN == 'true'
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          rp() {
+            npx --yes release-please@17.11.2 "$1" --token "$TOKEN" --repo-url "$REPO" \
+              --target-branch main --dry-run
+          }
+          rp release-pr > release-pr.txt 2>&1 || { cat release-pr.txt; exit 1; }
+          rp github-release > github-release.txt 2>&1 || { cat github-release.txt; exit 1; }
+          cat release-pr.txt github-release.txt
+          {
+            echo "## release-please dry run"
+            echo
+            echo "Nothing was written: no release PR, tag or release."
+            echo
+            echo "Proposed release PR: \`$(grep -m 1 '^title:' release-pr.txt | cut -c 8- || true)\`"
+            echo
+            echo "<details><summary>release-pr --dry-run</summary>"
+            echo
+            echo '```'
+            cat release-pr.txt
+            echo '```'
+            echo "</details>"
+            echo
+            echo "<details><summary>github-release --dry-run</summary>"
+            echo
+            echo '```'
+            cat github-release.txt
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: release-please
+        id: release
+        if: env.DRY_RUN != 'true' && inputs.tag == ''
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - name: Decide what runs next
+        id: decide
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          CREATED: ${{ steps.release.outputs.release_created }}
+          CREATED_TAG: ${{ steps.release.outputs.tag_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          build=false publish=false ref="" tag=""
+          if [ "$DRY_RUN" = "true" ]; then
+            # Build main as it is now; never publish.
+            build=true ref="$SHA"
+          elif [ -n "$INPUT_TAG" ]; then
+            # Validated by "Check the tag input".
+            build=true publish=true ref="refs/tags/$INPUT_TAG" tag="$INPUT_TAG"
+          elif [ "$CREATED" = "true" ]; then
+            build=true publish=true ref="refs/tags/$CREATED_TAG" tag="$CREATED_TAG"
+          fi
+          {
+            printf 'build=%s\n' "$build"
+            printf 'publish=%s\n' "$publish"
+            printf 'ref=%s\n' "$ref"
+            printf 'tag=%s\n' "$tag"
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  # Same build script and smoke test as CI (0016 rule 1), on the four native runners. No dependency
+  # cache: a release build installs from bun.lock alone.
+  build:
+    name: build (${{ matrix.target }})
+    needs: release-please
+    if: needs.release-please.outputs.build == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-26
+            file: "Mach-O 64-bit executable arm64"
+          - target: darwin-x64
+            runner: macos-26-intel
+            file: "Mach-O 64-bit executable x86_64"
+          - target: linux-x64
+            runner: ubuntu-24.04
+            file: "ELF 64-bit LSB executable, x86-64"
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            file: "ELF 64-bit LSB executable, ARM aarch64"
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      TARGET: ${{ matrix.target }}
+      RELEASE: ${{ needs.release-please.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.ref }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Build
+        run: |
+          if [ "$RELEASE" = "true" ]; then
+            bun scripts/build.ts --target "bun-$TARGET" --release
+          else
+            bun scripts/build.ts --target "bun-$TARGET"
+          fi
+      - uses: ./.github/actions/smoke
+        with:
+          target: ${{ matrix.target }}
+          expected-file: ${{ matrix.file }}
+          release: ${{ needs.release-please.outputs.publish }}
+      - name: Package dipo-${{ matrix.target }}.tar.gz
+        run: |
+          stage="$RUNNER_TEMP/stage"
+          mkdir -p "$stage" "$RUNNER_TEMP/out"
+          cp dist/dipo LICENSE README.md "$stage/"
+          tar -czf "$RUNNER_TEMP/out/dipo-$TARGET.tar.gz" -C "$stage" dipo LICENSE README.md
+          tar -tzvf "$RUNNER_TEMP/out/dipo-$TARGET.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dipo-${{ matrix.target }}
+          path: ${{ runner.temp }}/out/dipo-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  # Real releases only. Never runs while DRY_RUN is "true" (publish is "false").
+  publish:
+    name: publish
+    needs: [release-please, build]
+    if: needs.release-please.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dipo-*
+          merge-multiple: true
+          path: assets
+      - name: Write SHA256SUMS
+        run: |
+          cp install.sh assets/install.sh
+          cd assets
+          set -- dipo-*.tar.gz
+          if [ "$#" -ne 4 ]; then echo "expected 4 archives, got: $*"; exit 1; fi
+          sha256sum dipo-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            assets/dipo-*.tar.gz
+            assets/SHA256SUMS
+            assets/install.sh
+      - name: Upload to the draft release and publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$TAG" assets/dipo-*.tar.gz assets/SHA256SUMS assets/install.sh \
+            --repo "$REPO" --clobber
+          gh release edit "$TAG" --repo "$REPO" --draft=false
+
+  # Real releases only: install the published release the way users do (0016 rule 4).
+  post-release:
+    name: post-release (${{ matrix.runner }})
+    needs: [release-please, publish]
+    if: needs.release-please.outputs.publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, ubuntu-24.04]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Install with the published install.sh
+        env:
+          DIPO_INSTALL_DIR: ${{ runner.temp }}/bin
+        run: |
+          curl -fsSL "https://github.com/$REPO/releases/download/$TAG/install.sh" | DIPO_VERSION="$TAG" sh
+          out="$("$DIPO_INSTALL_DIR/dipo" --version)"
+          echo "$out"
+          case "$out" in
+            "dipo ${TAG#v} "*) ;;
+            *) echo "expected dipo ${TAG#v}"; exit 1 ;;
+          esac
+      - name: Open an issue
+        if: failure()
+        env:
+          RUNNER_LABEL: ${{ matrix.runner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$REPO" \
+            --title "Post-release check failed for $TAG on $RUNNER_LABEL" \
+            --body "The published install.sh or dipo --version failed: $RUN_URL. Releases are immutable; fix forward with a patch release."

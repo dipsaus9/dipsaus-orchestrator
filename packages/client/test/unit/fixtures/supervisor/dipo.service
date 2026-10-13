@@ -1,0 +1,13 @@
+[Unit]
+Description=dipo daemon
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dipo daemon --foreground
+Environment=PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartPreventExitStatus=78
+TimeoutStopSec=75
+
+[Install]
+WantedBy=default.target

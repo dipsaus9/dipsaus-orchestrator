@@ -33,6 +33,8 @@ export interface ControlDeps {
   readonly upgradePending: () => boolean;
   /** Offices whose engine instance is loaded (DIPO-27). */
   readonly loadedOffices: () => readonly OfficeId[];
+  /** `daemon.status.keepAwake` (0006 decision 12, DIPO-63); not held when absent. */
+  readonly keepAwake?: () => { readonly held: boolean; readonly reason?: string };
   /** Starts the drain; the first request wins (`foreground.ts`). */
   readonly requestStop: (request: DrainRequest) => void;
 }
@@ -55,10 +57,10 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
           version: deps.version,
           uptimeMs: Math.max(0, Math.floor(clock.now() - deps.startedAt)),
           socket: deps.socket,
-          // Runs are DIPO-48 and keep-awake DIPO-63; until then each reports its empty state.
+          // Runs are DIPO-48; until then the count is 0.
           loadedOffices: [...deps.loadedOffices()],
           activeRuns: 0,
-          keepAwake: { held: false },
+          keepAwake: { ...(deps.keepAwake?.() ?? { held: false }) },
           upgradePending: deps.upgradePending(),
           tools: { ...deps.tools },
         }),

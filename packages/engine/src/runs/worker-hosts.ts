@@ -33,6 +33,7 @@ import {
   type ProcessProbe,
   type SpawnDetached,
 } from "../platform/process";
+import { systemdScopeCommand, underSystemdUnit } from "../platform/supervisor";
 import type { LaunchPlan } from "../workers/types";
 
 /** The host reads its run directory from this variable; its cwd is the run directory too. */
@@ -56,6 +57,11 @@ export interface LaunchWorkerHostOptions {
   readonly env: Env;
   readonly probe: ProcessProbe;
   readonly spawnDetached?: SpawnDetached;
+  /**
+   * Start the host in its own transient systemd scope (0006 decision 8). Defaults to whether the
+   * daemon runs inside the installed `dipo.service` unit.
+   */
+  readonly systemdScope?: boolean;
 }
 
 export interface LaunchedHost extends ProcessIdentity {
@@ -95,9 +101,19 @@ export async function launchWorkerHost(options: LaunchWorkerHostOptions): Promis
   // launch.json holds the task message: it never stays behind when the host did not start.
   let pid: number;
   let info: Awaited<ReturnType<ProcessProbe>>;
+  const hostCmd: [string, ...string[]] = [
+    ...options.dipoCommand,
+    "daemon",
+    "worker-host",
+    options.runId,
+  ];
   try {
     ({ pid } = spawn({
-      cmd: [...options.dipoCommand, "daemon", "worker-host", options.runId],
+      // Under systemd the host gets its own scope, so stopping the daemon's unit leaves it running.
+      cmd:
+        (options.systemdScope ?? underSystemdUnit())
+          ? systemdScopeCommand(options.runId, hostCmd)
+          : hostCmd,
       cwd: runDir,
       env: { ...detachedEnv(options.env), [RUN_DIR_ENV]: runDir },
       outputFile: join(runDir, HOST_LOG_FILE),

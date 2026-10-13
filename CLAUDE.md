@@ -16,7 +16,9 @@ bun run verify   # oxfmt --check, oxlint --deny-warnings, tsc -b, bun test; stop
 
 `bun run format:fix` rewrites formatting. Tests that only run in CI are named `*.ci.test.ts` and register only when `DIPO_TEST_CI=1`; local `bun test` stays under about 60 seconds. Tests write temp files and sockets only under `DIPO_TMP` (fallback `/tmp`) (0017).
 
-CI (0016): `.github/workflows/ci.yml` (jobs `verify`, `dependency-review`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
+CI (0016): `.github/workflows/ci.yml` (jobs `verify`, `shellcheck`, `dependency-review`, `smoke (*)` on four targets through `.github/actions/smoke`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
+
+Release (0016 rules 3, 4 and 7; `docs/release.md`): `.github/workflows/release.yml` is a dry run on `workflow_dispatch` until `v0.1.0`; release-please reads `release-please-config.json` and `.release-please-manifest.json`; `install.sh` installs a release.
 
 Repository settings the maintainer applies by hand on `main` (0016 rule 2):
 
@@ -46,6 +48,7 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 | `ink` | 8.0.0 | `tui` (later story, 0009) |
 | `@anthropic-ai/sandbox-runtime` | 0.0.79 | `engine` (later story, 0004 amendment) |
 | `backlog.md` | 1.53.0 (stays on 1.53.x) | global CLI; repository devDependency from DIPO-18 |
+| `release-please` | 17.11.2 (CLI, dry run) and action v5.0.0 | `release.yml` only, never installed |
 
 ## Rules
 
@@ -66,6 +69,12 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 ## Review
 
 - Every PR is reviewed by a separate agent against the story goal before merge. Fix its feedback, then merge. The maintainer tests behavior and does not review code. See `docs/decisions/0002-review-and-testing.md`.
+
+## Releases
+
+- Agents and the orchestrator never merge a PR labelled `autorelease: pending` and never approve a deployment (0016 rule 12). Only the maintainer merges the release PR and approves the `release` environment.
+- Each release waits for the maintainer's live smoke run: one live run of `dipo` built from the release PR's head, confirmed on the release PR before it merges (0017 section 1).
+- Repository settings, the `release-please` and `release` environments, the `v*` tag ruleset and the release GitHub App are set up by the maintainer by hand (`docs/release.md`). Agents change them, or create tags and releases, only when the maintainer asks.
 
 ## Git
 

@@ -1,0 +1,165 @@
+#!/bin/sh
+# Installs dipo from a GitHub Release (decision 0016 rule 7).
+#
+#   curl -fsSL https://github.com/dipsaus9/dipsaus-orchestrator/releases/latest/download/install.sh | sh
+#
+# Environment:
+#   DIPO_VERSION      release tag to install, for example v0.3.0 (default: the latest release)
+#   DIPO_INSTALL_DIR  directory for the binary (default: $HOME/.local/bin); no sudo is used
+#
+# Steps: detect OS and architecture, download dipo-<os>-<arch>.tar.gz and SHA256SUMS from the same
+# release, verify the checksum, verify the build provenance attestation with the pinned
+# `gh attestation verify` when gh is installed, then install. The binary is written to a temporary
+# file in the install directory and renamed over any existing dipo, so a running daemon keeps its
+# open file and no half-written binary is ever on the PATH (decision 0006 section 14).
+#
+# Everything runs inside main, called on the last line, so a partly downloaded script does nothing.
+
+set -eu
+
+REPO="dipsaus9/dipsaus-orchestrator"
+SIGNER_WORKFLOW="$REPO/.github/workflows/release.yml"
+SOURCE_REF="refs/heads/main"
+
+say() {
+  printf 'dipo install: %s\n' "$*"
+}
+
+fail() {
+  printf 'dipo install: error: %s\n' "$*" >&2
+  exit 1
+}
+
+detect_os() {
+  kernel=$(uname -s)
+  case "$kernel" in
+    Darwin) echo darwin ;;
+    Linux) echo linux ;;
+    MINGW* | MSYS* | CYGWIN* | Windows_NT)
+      fail "Windows is not supported. dipo runs on macOS and Linux; on Windows use WSL." ;;
+    *) fail "unsupported operating system: $kernel. dipo runs on macOS and Linux." ;;
+  esac
+}
+
+detect_arch() {
+  machine=$(uname -m)
+  case "$machine" in
+    x86_64 | amd64) arch=x64 ;;
+    arm64 | aarch64) arch=arm64 ;;
+    *) fail "unsupported architecture: $machine. dipo is built for x64 and arm64." ;;
+  esac
+  # An x64 shell under Rosetta 2 on Apple silicon still gets the native arm64 build.
+  if [ "$1" = darwin ] && [ "$arch" = x64 ] &&
+    [ "$(sysctl -n sysctl.proc_translated 2> /dev/null || true)" = 1 ]; then
+    arch=arm64
+  fi
+  echo "$arch"
+}
+
+is_musl() {
+  if command -v ldd > /dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then
+    return 0
+  fi
+  for loader in /lib/ld-musl-*; do
+    [ -e "$loader" ] && return 0
+  done
+  return 1
+}
+
+sha256_of() {
+  if command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif command -v shasum > /dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  else
+    fail "neither sha256sum nor shasum is installed, so the download cannot be checked."
+  fi
+}
+
+attestation_command() {
+  echo "gh attestation verify $1 --repo $REPO --signer-workflow $SIGNER_WORKFLOW --source-ref $SOURCE_REF"
+}
+
+main() {
+  os=$(detect_os)
+  arch=$(detect_arch "$os")
+  if [ "$os" = linux ] && is_musl; then
+    fail "musl-based Linux (for example Alpine) is not supported; dipo is built for glibc only."
+  fi
+
+  version="${DIPO_VERSION:-}"
+  case "$version" in
+    "") base="https://github.com/$REPO/releases/latest/download" ;;
+    v[0-9]*) base="https://github.com/$REPO/releases/download/$version" ;;
+    [0-9]*)
+      version="v$version"
+      base="https://github.com/$REPO/releases/download/$version"
+      ;;
+    *) fail "DIPO_VERSION must be a release tag such as v0.3.0, got: $version" ;;
+  esac
+  case "$version" in
+    *[!A-Za-z0-9.+-]*) fail "DIPO_VERSION must be a release tag such as v0.3.0, got: $version" ;;
+  esac
+
+  install_dir="${DIPO_INSTALL_DIR:-${HOME:?HOME is not set}/.local/bin}"
+  asset="dipo-$os-$arch.tar.gz"
+
+  command -v curl > /dev/null 2>&1 || fail "curl is required."
+  command -v tar > /dev/null 2>&1 || fail "tar is required."
+
+  work=$(mktemp -d "${TMPDIR:-/tmp}/dipo-install.XXXXXX")
+  staged=""
+  # Removes the download directory and, after a failure, the half-written binary.
+  trap 'rm -rf "$work"; if [ -n "$staged" ]; then rm -f "$staged"; fi' EXIT
+  trap 'exit 1' HUP INT TERM
+
+  say "downloading $asset (${version:-latest release})"
+  curl -fsSL --proto '=https' --tlsv1.2 -o "$work/$asset" "$base/$asset" ||
+    fail "could not download $base/$asset"
+  curl -fsSL --proto '=https' --tlsv1.2 -o "$work/SHA256SUMS" "$base/SHA256SUMS" ||
+    fail "could not download $base/SHA256SUMS"
+
+  expected=$(awk -v name="$asset" '$2 == name || $2 == "*" name { print $1; exit }' "$work/SHA256SUMS")
+  [ -n "$expected" ] || fail "SHA256SUMS has no entry for $asset."
+  actual=$(sha256_of "$work/$asset")
+  if [ "$actual" != "$expected" ]; then
+    fail "checksum mismatch for $asset: expected $expected, got $actual. Nothing was installed."
+  fi
+  say "checksum ok"
+
+  if command -v gh > /dev/null 2>&1; then
+    say "verifying the build provenance attestation with gh"
+    # Accepts only attestations signed by release.yml running on main (0016 rule 4).
+    if ! gh attestation verify "$work/$asset" --repo "$REPO" \
+      --signer-workflow "$SIGNER_WORKFLOW" --source-ref "$SOURCE_REF"; then
+      fail "attestation verification failed for $asset; nothing was installed. gh may need 'gh auth login' first."
+    fi
+  else
+    say "gh is not installed, so the attestation was not checked. To check it yourself:"
+    say "  $(attestation_command "$asset")"
+  fi
+
+  mkdir "$work/extract"
+  tar -xzf "$work/$asset" -C "$work/extract" dipo || fail "$asset does not contain dipo."
+  if [ ! -f "$work/extract/dipo" ] || [ -L "$work/extract/dipo" ]; then
+    fail "$asset does not contain a regular file dipo."
+  fi
+
+  mkdir -p "$install_dir" || fail "cannot create $install_dir"
+  # Same directory as the target, so the rename below is atomic and never crosses filesystems.
+  staged="$install_dir/.dipo.install.$$"
+  cp "$work/extract/dipo" "$staged"
+  chmod 755 "$staged"
+  mv -f "$staged" "$install_dir/dipo"
+  staged=""
+  say "installed $install_dir/dipo"
+
+  "$install_dir/dipo" --version || fail "$install_dir/dipo does not run."
+
+  case ":${PATH:-}:" in
+    *":$install_dir:"*) ;;
+    *) say "$install_dir is not on your PATH. Add it, for example: export PATH=\"$install_dir:\$PATH\"" ;;
+  esac
+}
+
+main "$@"

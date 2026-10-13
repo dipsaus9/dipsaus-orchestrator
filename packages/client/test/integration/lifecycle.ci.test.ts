@@ -76,7 +76,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const pids: number[] = [];
             try {
               const none = await dipo(bin, ["daemon", "status"], env);
-              expect(none).toMatchObject({ code: 3, stdout: "not running\n" });
+              expect(none.code).toBe(3);
+              expect(none.stdout).toStartWith("not running\n");
+              expect(none.stdout).toContain("autostart:  not installed");
 
               const started = await dipo(bin, ["daemon", "start"], env);
               expect(started.code).toBe(0);
@@ -133,7 +135,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               const stale = await dipo(bin, ["daemon", "status"], env);
               expect(stale.code).toBe(3);
               expect(stale.stdout).toStartWith("stale\n");
-              expect((await dipo(bin, ["daemon", "status"], env)).stdout).toBe("not running\n");
+              expect((await dipo(bin, ["daemon", "status"], env)).stdout).toStartWith(
+                "not running\n",
+              );
 
               // An invalid config.yaml refuses the autostart instead of a daemon that exits 78.
               writeFileSync(

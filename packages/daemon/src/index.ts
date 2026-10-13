@@ -11,6 +11,7 @@ import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { runSandboxExecForm } from "./sandbox-exec";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
+import { runWaitPidForm } from "./wait-pid";
 import { runWorkerHostForm } from "./worker-host";
 
 type Form = {
@@ -43,9 +44,7 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
         if (pid === undefined || !/^[1-9]\d*$/.test(pid) || rest.length > 0) {
           return usageError(io, "wait-pid needs one process id");
         }
-        // Keep-awake's wait-pid is DIPO-63.
-        io.writeError("dipo: daemon wait-pid is not available in this build yet");
-        return 1;
+        return runWaitPidForm(Number(pid), io);
       },
     },
   ],

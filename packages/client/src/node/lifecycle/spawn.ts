@@ -9,11 +9,23 @@ import type { Env } from "../runtime";
 /** Variables that carry Bun flags into a child; the same list as the engine's (DIPO-44). */
 export const BUN_FLAG_VARIABLES: readonly string[] = ["BUN_OPTIONS", "BUN_FEATURE_FLAG_NO_ORPHANS"];
 
-/** The daemon's environment: the caller's, with the Bun flag variables removed. */
+/**
+ * Variables a supervisor sets for its own job and a child must not inherit: launchd's
+ * `XPC_SERVICE_NAME` names the job, and a child carrying `dipo.daemon` would look like the
+ * installed agent (DIPO-63).
+ */
+export const SUPERVISOR_VARIABLES: readonly string[] = ["XPC_SERVICE_NAME"];
+
+/** The daemon's environment: the caller's, without the Bun flag and supervisor variables. */
 export function daemonEnv(env: Env): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined && !BUN_FLAG_VARIABLES.includes(name)) out[name] = value;
+    if (
+      value !== undefined &&
+      !BUN_FLAG_VARIABLES.includes(name) &&
+      !SUPERVISOR_VARIABLES.includes(name)
+    )
+      out[name] = value;
   }
   return out;
 }

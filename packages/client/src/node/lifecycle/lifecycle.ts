@@ -10,6 +10,9 @@
 // - Stop sends `daemon.stop`. `--force`, and a daemon of another contract major, get SIGTERM to the
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
 //   signals a PID whose start time or command does not match the record.
+// - Installed autostart (0006 decision 15, DIPO-63): start, stop and restart go through
+//   `launchctl` or `systemctl --user` (`supervisor.ts`), so the supervisor and the CLI never
+//   fight; `install` and `uninstall` write and remove the plist or unit.
 
 import {
   type Clock,
@@ -19,6 +22,8 @@ import {
   daemonStop,
   type Origin,
 } from "@dipsaus-orchestrator/contract";
+import { userInfo } from "node:os";
+
 import type { z } from "zod";
 
 import { ClientError, type DipoClient } from "../../client";
@@ -37,6 +42,20 @@ import {
 } from "./files";
 import { isDaemonCommand, isSameProcess, type ProcessProbe, systemProcessProbe } from "./process";
 import { daemonEnv, selfCommand, type SpawnDaemon, systemSpawnDaemon } from "./spawn";
+import {
+  isInstalled,
+  supervisorEnable,
+  supervisorFile,
+  supervisorKind,
+  supervisorRemove,
+  supervisorStart,
+  supervisorStop,
+  lingeringOn,
+  type SupervisorDeps,
+  type SupervisorKind,
+  systemSupervisorExec,
+  writeSupervisorFile,
+} from "./supervisor";
 
 export type DaemonStatusResult = z.output<typeof daemonStatus.result>;
 
@@ -78,6 +97,8 @@ export interface LifecycleDeps {
   /** Connects and completes `engine.hello`; throws `DaemonNotRunningError` or `ClientError`. */
   readonly connect: (timeoutMs?: number) => Promise<DaemonSession>;
   readonly timings: LifecycleTimings;
+  /** `launchctl` or `systemctl --user` for an installed autostart; absent, nothing is installed. */
+  readonly supervisor?: SupervisorDeps;
 }
 
 export interface SystemLifecycleOptions {
@@ -91,6 +112,19 @@ export interface SystemLifecycleOptions {
 export function systemLifecycleDeps(options: SystemLifecycleOptions): LifecycleDeps {
   const env = options.env ?? process.env;
   const clock = options.clock ?? systemClock;
+  const self = selfCommand();
+  const supervisor: SupervisorDeps | undefined =
+    process.platform === "darwin" || process.platform === "linux"
+      ? {
+          platform: process.platform,
+          home: userInfo().homedir,
+          uid: process.getuid?.() ?? -1,
+          user: userInfo().username,
+          exec: systemSupervisorExec,
+          selfCommand: self,
+          env,
+        }
+      : undefined;
   return {
     env,
     clock,
@@ -103,7 +137,7 @@ export function systemLifecycleDeps(options: SystemLifecycleOptions): LifecycleD
       }
     },
     spawn: systemSpawnDaemon,
-    selfCommand: selfCommand(),
+    selfCommand: self,
     connect: async (timeoutMs) => {
       const { client } = await connectToDaemon({
         client: options.client,
@@ -115,7 +149,14 @@ export function systemLifecycleDeps(options: SystemLifecycleOptions): LifecycleD
       return client;
     },
     timings: LIFECYCLE_TIMINGS,
+    ...(supervisor === undefined ? {} : { supervisor }),
   };
+}
+
+/** The supervisor deps when autostart is installed, else null. */
+function installedSupervisor(deps: LifecycleDeps): SupervisorDeps | null {
+  const supervisor = deps.supervisor;
+  return supervisor !== undefined && isInstalled(supervisor) ? supervisor : null;
 }
 
 /** What `dipo daemon status` reports (0006 decision 5). */
@@ -286,7 +327,9 @@ export type StartResult =
   | { readonly kind: "config"; readonly errors: readonly ConfigError[] }
   /** The daemon process ended during the start; its log says why. */
   | { readonly kind: "exited"; readonly pid: number; readonly logs: string }
-  | { readonly kind: "timeout"; readonly pid: number; readonly logs: string };
+  | { readonly kind: "timeout"; readonly pid: number; readonly logs: string }
+  /** `launchctl` or `systemctl` failed, or the supervised daemon did not answer. */
+  | { readonly kind: "supervisor failed"; readonly message: string; readonly logs: string };
 
 export interface StartOptions {
   readonly logLevel?: string;
@@ -299,7 +342,6 @@ function configProblems(deps: LifecycleDeps): readonly ConfigError[] | null {
 }
 
 async function spawnAndWait(deps: LifecycleDeps, options: StartOptions): Promise<StartResult> {
-  const { clock, timings } = deps;
   const logs = logsDir(deps.env);
   const spawned = await deps.spawn({
     cmd: [
@@ -310,23 +352,41 @@ async function spawnAndWait(deps: LifecycleDeps, options: StartOptions): Promise
     ],
     env: daemonEnv(deps.env),
   });
+  return waitForStart(deps, spawned.pid, logs);
+}
+
+/** Waits up to `startWaitMs` for the daemon `pid` (or, under a supervisor, any daemon) to answer. */
+async function waitForStart(
+  deps: LifecycleDeps,
+  pid: number | null,
+  logs: string,
+): Promise<StartResult> {
+  const { clock, timings } = deps;
   const deadline = clock.now() + timings.startWaitMs;
   for (;;) {
     const answer = await ask(deps);
     if (answer.kind === "status") {
       return { kind: "started", pid: answer.status.pid, version: answer.status.version };
     }
-    const info = await deps.probe(spawned.pid);
-    if (info === null || info.zombie) {
+    const info = pid === null ? null : await deps.probe(pid);
+    if (pid !== null && (info === null || info.zombie)) {
       // Gone without an answer. Another starter may have won the lock (this one then exits 0):
       // keep asking while dipo.pid names a live daemon; otherwise the start failed.
       const lock = readRaw(pidFilePath(stateDir(deps.env)));
       const record = lock === null ? null : parsePidRecord(lock.raw);
       if (record === null || !(await isLiveDaemon(deps, record))) {
-        return { kind: "exited", pid: spawned.pid, logs };
+        return { kind: "exited", pid, logs };
       }
     }
-    if (clock.now() >= deadline) return { kind: "timeout", pid: spawned.pid, logs };
+    if (clock.now() >= deadline) {
+      return pid === null
+        ? {
+            kind: "supervisor failed",
+            message: "the daemon did not answer within 5 s after the supervisor started it",
+            logs,
+          }
+        : { kind: "timeout", pid, logs };
+    }
     await sleep(clock, timings.pollMs);
   }
 }
@@ -350,7 +410,23 @@ export async function startDaemon(
   if (before.kind === "unresponsive") return { kind: "unresponsive", pid: before.record.pid };
   const errors = configProblems(deps);
   if (errors !== null) return { kind: "config", errors };
+  const supervisor = installedSupervisor(deps);
+  if (supervisor !== null) return supervisedStart(deps, supervisor);
   return spawnAndWait(deps, options);
+}
+
+/**
+ * Starts the installed daemon through its supervisor and waits for it. `--log-level` does not
+ * apply: the plist or unit fixes the command line (`dipo daemon log-level` changes it at runtime).
+ */
+async function supervisedStart(
+  deps: LifecycleDeps,
+  supervisor: SupervisorDeps,
+): Promise<StartResult> {
+  const logs = logsDir(deps.env);
+  const started = await supervisorStart(supervisor);
+  if (!started.ok) return { kind: "supervisor failed", message: started.message, logs };
+  return waitForStart(deps, null, logs);
 }
 
 export type StopResult =
@@ -421,12 +497,28 @@ async function stopObserved(
   return { kind: "still running", pid };
 }
 
-/** `dipo daemon stop [--force]` (0006 decision 5). */
+/**
+ * `dipo daemon stop [--force]` (0006 decision 5). With autostart installed, the supervisor stops
+ * the daemon first (`launchctl bootout`, `systemctl --user stop`), so it does not restart it; a
+ * daemon still running after that was started outside the supervisor and is stopped directly.
+ */
 export async function stopDaemon(
   deps: LifecycleDeps,
   options: { readonly force?: boolean } = {},
 ): Promise<StopResult> {
   const observed = await inspectDaemon(deps);
+  const supervisor = installedSupervisor(deps);
+  if (supervisor !== null) {
+    const stopped = await supervisorStop(supervisor);
+    if (observed.kind === "not running") return observed;
+    if (await waitForExit(deps, observed.record, deps.timings.pollMs)) {
+      await inspectDaemon(deps);
+      return { kind: "stopped", pid: observed.record.pid, killed: false };
+    }
+    if (!stopped.ok && !options.force) {
+      return { kind: "refused", pid: observed.record.pid, message: stopped.message };
+    }
+  }
   if (observed.kind === "not running") return observed;
   return stopObserved(deps, observed, options.force === true);
 }
@@ -447,13 +539,9 @@ export async function restartDaemon(
 ): Promise<RestartResult> {
   const errors = configProblems(deps);
   if (errors !== null) return { kind: "config", errors };
-  const observed = await inspectDaemon(deps);
-  let stopped: number | null = null;
-  if (observed.kind !== "not running") {
-    const stop = await stopObserved(deps, observed, false);
-    if (stop.kind !== "stopped") return { kind: "stop failed", stop };
-    stopped = stop.pid;
-  }
+  const stop = await stopDaemon(deps);
+  if (stop.kind !== "stopped" && stop.kind !== "not running") return { kind: "stop failed", stop };
+  const stopped = stop.kind === "stopped" ? stop.pid : null;
   return { kind: "restarted", stopped, start: await startDaemon(deps, options) };
 }
 
@@ -496,6 +584,8 @@ export function describeStartFailure(result: StartResult): string {
       return `the daemon (pid ${result.pid}) exited during its start; see ${result.logs}/daemon.log`;
     case "timeout":
       return `the daemon (pid ${result.pid}) did not answer within 5 s; see ${result.logs}/daemon.log and \`dipo daemon status\``;
+    case "supervisor failed":
+      return `${result.message}; see ${result.logs}/daemon.log and \`dipo daemon status\``;
     default:
       return `the daemon is running (pid ${result.pid}, version ${result.version})`;
   }
@@ -539,4 +629,99 @@ export async function connectOrStart(deps: LifecycleDeps): Promise<ConnectedDaem
 export function versionHint(own: string, daemon: string | undefined): string | null {
   if (daemon === undefined || daemon === own) return null;
   return `daemon runs v${daemon}, this binary is v${own}, run \`dipo daemon restart\``;
+}
+
+export type InstallResult =
+  /** No supervisor on this platform. */
+  | { readonly kind: "unsupported" }
+  | { readonly kind: "config"; readonly errors: readonly ConfigError[] }
+  | { readonly kind: "stop failed"; readonly stop: StopResult }
+  | { readonly kind: "failed"; readonly file: string; readonly message: string }
+  | {
+      readonly kind: "installed";
+      readonly supervisor: SupervisorKind;
+      readonly file: string;
+      readonly commands: readonly string[];
+      /** The daemon stopped first so the supervisor owns the next one. */
+      readonly stopped: number | null;
+      readonly start: StartResult;
+      /** Linux: lingering for this user; null on macOS or when unknown. */
+      readonly lingering: boolean | null;
+      readonly user: string;
+    };
+
+/**
+ * `dipo daemon install` (0006 decision 15): stops a running daemon, writes the plist or unit with
+ * this binary's absolute path and the caller's `PATH`, loads it, and waits for the supervised
+ * daemon. Running it again after moving the binary rewrites the file.
+ */
+export async function installDaemon(deps: LifecycleDeps): Promise<InstallResult> {
+  const supervisor = deps.supervisor;
+  if (supervisor === undefined) return { kind: "unsupported" };
+  const errors = configProblems(deps);
+  if (errors !== null) return { kind: "config", errors };
+  const stop = await stopDaemon(deps);
+  if (stop.kind !== "stopped" && stop.kind !== "not running") return { kind: "stop failed", stop };
+  let file: string;
+  try {
+    file = writeSupervisorFile(supervisor);
+  } catch (error) {
+    return {
+      kind: "failed",
+      file: supervisorFile(supervisor),
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const enabled = await supervisorEnable(supervisor);
+  if (!enabled.ok) return { kind: "failed", file, message: enabled.message };
+  const start = await waitForStart(deps, null, logsDir(deps.env));
+  return {
+    kind: "installed",
+    supervisor: supervisorKind(supervisor),
+    file,
+    commands: enabled.commands,
+    stopped: stop.kind === "stopped" ? stop.pid : null,
+    start,
+    lingering: supervisor.platform === "linux" ? await lingeringOn(supervisor) : null,
+    user: supervisor.user,
+  };
+}
+
+export type UninstallResult =
+  | { readonly kind: "unsupported" }
+  | { readonly kind: "not installed"; readonly file: string }
+  | { readonly kind: "failed"; readonly file: string; readonly message: string }
+  | {
+      readonly kind: "uninstalled";
+      readonly supervisor: SupervisorKind;
+      readonly file: string;
+      readonly commands: readonly string[];
+      /** The daemon the supervisor stopped, if one ran. */
+      readonly stopped: number | null;
+    };
+
+/** `dipo daemon uninstall`: stops the supervised daemon, unloads the job and removes the file. */
+export async function uninstallDaemon(deps: LifecycleDeps): Promise<UninstallResult> {
+  const supervisor = deps.supervisor;
+  if (supervisor === undefined) return { kind: "unsupported" };
+  const file = supervisorFile(supervisor);
+  if (!isInstalled(supervisor)) return { kind: "not installed", file };
+  const observed = await inspectDaemon(deps);
+  const removed = await supervisorRemove(supervisor);
+  if (!removed.ok) return { kind: "failed", file, message: removed.message };
+  let stopped: number | null = null;
+  if (
+    observed.kind !== "not running" &&
+    (await waitForExit(deps, observed.record, deps.timings.pollMs))
+  ) {
+    stopped = observed.record.pid;
+    await inspectDaemon(deps);
+  }
+  return {
+    kind: "uninstalled",
+    supervisor: supervisorKind(supervisor),
+    file,
+    commands: removed.commands,
+    stopped,
+  };
 }
