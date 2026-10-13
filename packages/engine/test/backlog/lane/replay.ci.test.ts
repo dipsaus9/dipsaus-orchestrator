@@ -1,6 +1,7 @@
 // CI only (0017 section 1): the slower crash recovery case of the planning lane (DIPO-34; 0010
 // section 2a step 3), kept out of the local suite for its time budget (DIPO-77): a commit made just
 // before a crash is found again by its trailer instead of being applied twice.
+// A fast local version, without a remote, is in replay.test.ts.
 
 import { describe, expect, it } from "bun:test";
 

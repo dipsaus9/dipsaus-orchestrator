@@ -8,7 +8,7 @@
 // The slower cases run in CI only, in failures.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
@@ -111,6 +111,40 @@ describe("a planning lane that cannot finish", () => {
 });
 
 describe("a planning lane without a remote", () => {
+  it("undoes a commit the Backlog CLI made by itself and drops the operation, naming auto_commit", async () => {
+    await withTempRepo(async (repo) => {
+      const config = join(repo.dir, "backlog", "config.yml");
+      writeFileSync(
+        config,
+        readFileSync(config, "utf8").replace("auto_commit: false", "auto_commit: true"),
+      );
+      await publish(repo);
+      const base = (await repo.git("rev-parse", "main")).trim();
+      const s = await laneSetup(repo);
+      const lane = s.lane();
+      const key = storyKey(s);
+
+      const { report } = await lane.submit({
+        kind: "edit",
+        key,
+        subject: "TASK-1",
+        target: { status: "Refined" },
+      });
+      expect(report).toMatchObject({ branch: null, committed: [], dropped: [1] });
+      expect(allEntries(s.office)[0]?.state).toBe("dropped");
+      expect(pendingLaneOp(s.office, key)).toBeNull();
+      const dropped = notices(s.office).filter((n) => n.code === LANE_NOTICES.dropped);
+      expect(dropped).toHaveLength(1);
+      expect(dropped[0]?.text).toContain("auto_commit");
+
+      // The CLI's commit is gone: `_backlog` is back on the base and clean.
+      const worktree = lane.worktreePath();
+      expect((await repo.git("-C", worktree, "rev-parse", "HEAD")).trim()).toBe(base);
+      expect(await repo.git("-C", worktree, "status", "--porcelain")).toBe("");
+      expect((await repo.git("branch", "--list", "dipo/*")).trim()).toBe("");
+    }, FIXTURE);
+  });
+
   it("is refused with a notice asking for `base` when the office sets none", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);

@@ -3,6 +3,7 @@
 // that waits on signing is killed after its timeout and stays journaled, a CLI that commits by
 // itself (Backlog.md `auto_commit`) has its commit undone, and a branch whose first operation
 // merged on its own is rebuilt with the rest.
+// A fast local version of the auto_commit case, without a remote, is in failures.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";

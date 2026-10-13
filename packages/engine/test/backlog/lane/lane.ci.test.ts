@@ -2,6 +2,7 @@
 // the pinned Backlog CLI (DIPO-34; 0010 section 2, lane b), kept out of the local suite for its
 // time budget (DIPO-77): a merge on the remote drops the operations, and a conflicting base change
 // rebuilds them on a new branch, drops what no longer applies and leaves the old branch alone.
+// A fast local version of the rebuild, without a remote, is in lane.test.ts.
 
 import { describe, expect, it } from "bun:test";
 

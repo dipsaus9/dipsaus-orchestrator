@@ -7,7 +7,7 @@
 // The slower cases run in CI only, in lane.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
@@ -28,6 +28,7 @@ import {
   publish,
   storyKey,
   subjects,
+  taskFile,
 } from "./helpers";
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
@@ -169,6 +170,62 @@ describe("the planning lane without a remote", () => {
       expect(realpathSync(lane.worktreePath())).toBe(
         realpathSync(join(repo.root, "repo.worktrees", "_backlog")),
       );
+    }, FIXTURE);
+  });
+
+  it("rebuilds on a new branch after a conflicting base change, drops what no longer applies, and leaves the old branch alone", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await laneSetup(repo);
+      const lane = s.lane();
+      const one = storyKey(s);
+      const two = storyKey(s);
+      await lane.journal({
+        kind: "edit",
+        key: one,
+        subject: "TASK-1",
+        target: { status: "Parked" },
+      });
+      await lane.journal({
+        kind: "edit",
+        key: two,
+        subject: "TASK-2",
+        target: { from: ["Refined"], status: "Ready" },
+      });
+      const old = (await lane.flush()).branch as string;
+      const oldTip = await repo.git("rev-parse", old);
+
+      // Someone changes both status lines on the local base.
+      for (const [id, status] of [
+        ["TASK-1", "In Progress"],
+        ["TASK-2", "Done"],
+      ] as const) {
+        const file = taskFile(repo.dir, id);
+        writeFileSync(
+          file,
+          readFileSync(file, "utf8").replace(/^status: .*$/m, `status: ${status}`),
+        );
+      }
+      await repo.git("commit", "--quiet", "-am", "change statuses elsewhere");
+      const rebuilt = await lane.flush();
+
+      expect(rebuilt.rebuiltFrom).toBe(old);
+      expect(rebuilt.branch).toBe(`${old}-2`);
+      expect(rebuilt.committed).toEqual([1]);
+      expect(rebuilt.dropped).toEqual([2]);
+      // Never rewritten: the old branch is where it was.
+      expect(await repo.git("rev-parse", old)).toBe(oldTip);
+      expect(await subjects(repo.dir, repo.home, `${old}-2`, "main")).toEqual([
+        "backlog: edit TASK-1",
+      ]);
+      expect(allEntries(s.office).map((e) => [e.opId, e.state])).toEqual([
+        [1, "committed"],
+        [2, "dropped"],
+      ]);
+      expect(pendingLaneOp(s.office, two)).toBeNull();
+      const codes = notices(s.office).map((n) => [n.code, n.key]);
+      expect(codes).toContainEqual([LANE_NOTICES.rebuilt, null]);
+      expect(codes).toContainEqual([LANE_NOTICES.dropped, two]);
     }, FIXTURE);
   });
 });
