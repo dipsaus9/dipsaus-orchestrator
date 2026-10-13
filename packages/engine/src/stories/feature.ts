@@ -40,6 +40,8 @@ export interface StoryIndexDeps {
   };
   /** A pass outside a command appended entries; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
+  /** Called after each poll whose fetch succeeded (DIPO-35 looks for merged backlog PRs). */
+  readonly onPolled?: (office: OfficeId) => void;
   readonly logger?: Logger;
 }
 
@@ -204,6 +206,7 @@ export class StoryIndex {
     }
     try {
       const fetched = await this.#git(office).fetch();
+      if (fetched.ok) this.#deps.onPolled?.(office);
       if (!fetched.ok || fetched.baseWorktree === null) return;
       if (!fetched.moved && fetched.baseWorktree.sha === state.sha) return;
       await this.#pass(office, state);

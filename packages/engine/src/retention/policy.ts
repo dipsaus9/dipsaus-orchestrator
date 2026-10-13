@@ -64,4 +64,9 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     rule: "opened more than stateDays ago, with no decision left; a gate still waiting is kept",
   },
   once_notices: { tier: "P", rule: "kept until purge, so a once-per-office notice stays shown" },
+  backlog_prs: { tier: "S", rule: "merged or closed more than stateDays ago; an open PR is kept" },
+  backlog_pr_blocks: {
+    tier: "S",
+    rule: "cleared more than stateDays ago; a block still in force is kept",
+  },
 };

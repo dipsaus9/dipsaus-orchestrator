@@ -85,6 +85,24 @@ export type {
   ResolvedTools,
   ToolName,
 } from "./platform/tools";
+export {
+  checkGhVersion,
+  compareVersions,
+  GhHost,
+  CodeHostError,
+  MIN_GH_VERSION,
+  repoOfRemoteUrl,
+} from "./platform/host";
+export type {
+  CheckBucket,
+  CodeHost,
+  CodeHostErrorCode,
+  GhHostOptions,
+  HostPr,
+  NewPr,
+  PrState,
+  RequiredCheck,
+} from "./platform/host";
 export { connectUnixSocket, removeSocketFile } from "./platform/socket";
 export type { ConnectOptions, RequestFrame, SocketClient, SocketReply } from "./platform/socket";
 export {
@@ -190,6 +208,7 @@ export * from "./backup";
 export * from "./retention";
 export * from "./git";
 export * from "./backlog/lane";
+export * from "./backlog/pr";
 export * from "./worktree";
 export { formatGigabytes, systemDiskProbe } from "./platform/disk";
 export type { DiskProbe } from "./platform/disk";

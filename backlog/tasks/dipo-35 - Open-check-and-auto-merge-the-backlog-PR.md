@@ -1,10 +1,11 @@
 ---
 id: DIPO-35
 title: Open and check the backlog PR
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 13:20'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -58,17 +59,49 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `platform/host.ts` is the only code that runs `gh`; it creates, updates, reads, closes and squash-merges a PR and reads its required check states.
-- [ ] #2 `platform/host.ts` checks `gh --version` against a minimum version constant, the oldest release with every `gh` subcommand and flag the engine uses, and refuses below it with a notice naming the version.
-- [ ] #3 After a push of the open engine branch, the engine opens a PR titled `chore(backlog): <summary>` that passes `scripts/check-pr-title.ts`, or updates the office's one open backlog PR; the PR ref is stored on the journal entries.
-- [ ] #4 The structural check is pure code over the PR diff and the stored facts: only `backlog/` paths change, every changed task parses (R02), each status change is an allowed 0012 transition, each new `Ready` matches a passing gate decision stored for that task's content hash (DIPO-71), and no task with a live claim (DIPO-38) is touched.
-- [ ] #5 The check runs when the PR is opened or updated; a failure keeps the PR open, emits an `engine.notice` naming the rule and the task, and marks the PR as not mergeable for DIPO-73.
-- [ ] #6 A backlog PR the engine opened that is merged by hand is checked again right after the merge is seen; a failure is a notice, and `backlogCheckBlocked(office, key)` reports the affected stories until a new backlog PR fixes them, for `work.run` (DIPO-48) to skip them.
-- [ ] #7 Without a remote or without `gh` authenticated, no PR is opened and the engine reports the branch that is waiting.
+- [x] #1 `platform/host.ts` is the only code that runs `gh`; it creates, updates, reads, closes and squash-merges a PR and reads its required check states.
+- [x] #2 `platform/host.ts` checks `gh --version` against a minimum version constant, the oldest release with every `gh` subcommand and flag the engine uses, and refuses below it with a notice naming the version.
+- [x] #3 After a push of the open engine branch, the engine opens a PR titled `chore(backlog): <summary>` that passes `scripts/check-pr-title.ts`, or updates the office's one open backlog PR; the PR ref is stored on the journal entries.
+- [x] #4 The structural check is pure code over the PR diff and the stored facts: only `backlog/` paths change, every changed task parses (R02), each status change is an allowed 0012 transition, each new `Ready` matches a passing gate decision stored for that task's content hash (DIPO-71), and no task with a live claim (DIPO-38) is touched.
+- [x] #5 The check runs when the PR is opened or updated; a failure keeps the PR open, emits an `engine.notice` naming the rule and the task, and marks the PR as not mergeable for DIPO-73.
+- [x] #6 A backlog PR the engine opened that is merged by hand is checked again right after the merge is seen; a failure is a notice, and `backlogCheckBlocked(office, key)` reports the affected stories until a new backlog PR fixes them, for `work.run` (DIPO-48) to skip them.
+- [x] #7 Without a remote or without `gh` authenticated, no PR is opened and the engine reports the branch that is waiting.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S19b (DIPO-15). Before cutover: built by hand-run agents.
+
+Implementation (DIPO-35):
+- `platform/host.ts`: `GhHost`, the only code that runs `gh` (create, list, view, edit, close, squash-merge with `--match-head-commit`, `pr checks --required --json`). `MIN_GH_VERSION` is 2.50.0, the release that added `gh pr checks --json` (https://github.com/cli/cli/releases/tag/v2.50.0); older is refused with the version in the message, which the engine shows as a `backlog.pr.waiting` notice. Exported as `CodeHost` / `CodeHostError` because `HostError` is taken by the worker host.
+- `backlog/pr/check.ts`: the pure structural check, rules `backlog-only`, `parses` (R02), `transition` (lane-b transitions of 0012 plus the To Do to Refined migration), `ready-decision`, `no-claim`. `diff.ts` gathers the diff by checking out `_backlog` at the merge base and at the head in turn inside one git queue item and viewing the changed tasks with the CLI (task files are never read directly), then restores the worktree.
+- `backlog/pr/feature.ts`: `BacklogPrs.afterFlush` (lane hook) syncs open PRs, then opens or updates the one PR for the pushed branch and checks every new head; `sync` (after each story-index poll) re-checks a PR merged by hand; `recheck` for the merge slot (DIPO-73). `backlogPrMergeable` and `backlogCheckBlocked` are in `records.ts`.
+- Migration 15 `backlog_prs` and `backlog_pr_blocks` (DIPO-39 took 14 on main before this branch was cut, so 15 is the next free number).
+
+Scope additions:
+- packages/engine/src/db/migrations/0015-backlog-prs.ts: new tables for the PR record, its check result and the stories a failed merged check blocks.
+- packages/engine/src/db/schema.ts: registers migration 15.
+- packages/engine/src/retention/policy.ts: retention tier for `backlog_prs` and `backlog_pr_blocks` (required for every office-scoped table).
+- packages/engine/src/retention/run.ts: deletes closed PR rows and cleared blocks after stateDays.
+- packages/engine/src/backlog/lane/lane.ts: `onFlushed` hook so the PR is opened or updated after each successful flush.
+- packages/engine/src/backlog/lane/feature.ts: passes `onFlushed` through `BacklogLane`.
+- packages/engine/src/stories/feature.ts: `onPolled` hook after each successful poll fetch, so a hand merge is seen within one poll interval.
+- packages/engine/src/index.ts: exports the host and the backlog PR module.
+- packages/daemon/src/foreground.ts: wires `BacklogPrs` with `GhHost` (the gh on the daemon PATH) into the lane and the story-index poll.
+- packages/engine/test/platform/host.test.ts: unit tests of the host (version minimum, arguments, login failure).
+- test/backlog-pr-title/backlog-pr-title.test.ts: root test that the engine's PR titles pass scripts/check-pr-title.ts (engine tests cannot import scripts/ because of the engine tsconfig rootDir).
+
+Retention advisory (from DIPO-71): the check reads stored passing Ready decisions. Retention may delete a decision older than stateDays. The check runs when the PR opens or changes and right after a merge, normally well inside stateDays of the `ready` decision. If a backlog PR stays open longer than that, its check fails `ready-decision` with a notice saying to run `ready <ID>` again, which stores a fresh decision; the next update re-checks. No automatic re-evaluation was added.
+
+Review round 1 (PR #77):
+- Hand merge with a merge commit: `backlog_prs.checked_base` (migration 15, edited in place because it is not on main yet) stores the base each check diffed against. A merged head is checked against that base. For a head never checked, the fallback is the merge base with the merge commit's first parent, read through the host (`mergeCommit` in `gh pr view --json`). With neither, and the head already on the base, the check throws instead of passing an empty diff. Tests: merge commit in pr.test.ts; rebase merge and the fallback in pr.ci.test.ts; squash in the block-clearing CI test.
+- A merged PR is recorded merged in the same transaction as its check result and blocks. A check that throws leaves it open, and the next sync retries it.
+- A failed restore of `_backlog` after the diff reports both errors (`RestoreError`). The lane already checks out its branch (or the base) before every apply; a comment now says so, and a test checks that `_backlog` is back on the branch after a check.
+- Decisions confirmed by the coordinator: retention is handled by the `ready-decision` notice telling the maintainer to run `ready <ID>` again (no automatic re-evaluation); blocks clear as described; a failure without a task blocks every touched story; every merged PR is re-checked until DIPO-73, which can skip the PRs it merged itself; the lane-b transitions match 0012 and 0010; `backlog.pr.*` stay engine.notice codes.
+- No new files outside the scope additions already listed, apart from packages/engine/test/backlog/pr/diff.test.ts, which is inside the declared test scope.
+
+Review round 2: a check that cannot run stores its cause in `backlog_prs.check_error` (migration 15, edited in place). The `backlog.pr.checkError` notice is shown once per PR and cause; later syncs retry quietly, and a check that runs clears the cause. Fast test: packages/engine/test/backlog/pr/sync.test.ts (inside the declared test scope). The duplicated collectPrDiff doc comment in diff.ts is fixed.
+
+Maintainer live test passed (2026-10-13) on public scratch repo dipsaus9/dipo-scratch-backlog: PR opened, structural check passed, pr-title pass. A free-plan private repository cannot have required checks, so the scratch repository must be public.
 <!-- SECTION:NOTES:END -->
