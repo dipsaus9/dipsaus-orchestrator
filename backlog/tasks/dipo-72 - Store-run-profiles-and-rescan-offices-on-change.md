@@ -1,10 +1,10 @@
 ---
 id: DIPO-72
 title: Store run profiles and rescan offices on change
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 08:18'
+updated_date: '2026-10-13 08:20'
 labels:
   - 'tier:M'
 milestone: m-0
