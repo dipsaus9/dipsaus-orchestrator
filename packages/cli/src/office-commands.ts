@@ -38,7 +38,7 @@ const at = (path: string | undefined): string => (path === undefined ? "" : ` at
  * resolved from, sent so the daemon checks it is the office's registered path; "unknown" when the
  * daemon has no such office there.
  */
-type Act = (
+export type Act = (
   session: DaemonSession,
   office: OfficeId,
   from: string | undefined,
@@ -52,13 +52,13 @@ type Target =
   | { readonly kind: "unregistered"; readonly main: string }
   | { readonly kind: "exit"; readonly code: number };
 
-interface Parsed {
+export interface Parsed {
   readonly office: OfficeId | null;
   readonly yes: boolean;
 }
 
 /** Parses `[--office <id>]` and, when allowed, `[--yes]`; a string is a usage error. */
-function parseOptions(args: readonly string[], allowYes: boolean): Parsed | string {
+export function parseOptions(args: readonly string[], allowYes: boolean): Parsed | string {
   let office: OfficeId | null = null;
   let yes = false;
   for (let i = 0; i < args.length; i++) {
@@ -115,7 +115,7 @@ function printOpened(
  * Resolves the office and runs `act`. A Backlog.md project that is not a registered office gets
  * "not an office, run `dipo office open`" and, at a terminal, one question whether to open it.
  */
-async function withOffice(
+export async function withOffice(
   deps: OfficeCommandDeps,
   flag: OfficeId | null,
   act: Act,

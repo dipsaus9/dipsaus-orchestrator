@@ -45,6 +45,7 @@ function fake(handler: Handler, workspace: FakeWorkspaceOptions = {}) {
           sent.push(message);
           return handler(message);
         }) as DaemonSession["command"],
+        read: () => Promise.reject(new Error("read must not be called")),
         close: () => undefined,
       };
       return session;
