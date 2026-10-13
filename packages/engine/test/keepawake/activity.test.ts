@@ -1,6 +1,7 @@
 // Where keep-awake reads active work (DIPO-63 AC #1): a run with a live worker host, a running
 // verify, and a confirmed batch whose claimed story has no worker yet, across every office of the
-// state database. Liveness is PID plus start time through a fake probe.
+// state database. Liveness is PID plus start time through a fake probe. A claim without a host
+// counts only within CLAIM_START_WINDOW_MS, so an orphan claim does not hold the assertion.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { openStateDatabase } from "../../src/db/database";
-import { readWorkActivity, WorkTracker } from "../../src/keepawake/index";
+import { CLAIM_START_WINDOW_MS, readWorkActivity, WorkTracker } from "../../src/keepawake/index";
 import type { ProcessProbe } from "../../src/platform/process";
 import type { SqlRunner } from "../../src/platform/sqlite";
 import { localMounts, memoryLogger } from "../db/helpers";
@@ -38,14 +39,24 @@ function host(
   );
 }
 
-function claim(db: SqlRunner, office: string, run: string, key: string, released: boolean) {
+/** Claims are made at NOW unless `claimedAt` says otherwise. */
+const NOW = 1_767_225_600_000;
+
+function claim(
+  db: SqlRunner,
+  office: string,
+  run: string,
+  key: string,
+  released: boolean,
+  claimedAt: number = NOW,
+) {
   db.run(
     `insert into claims (office_id, run_id, key, story_id, branch, worktree, base, base_sha,
        start_sha, reused, admin_dir, snap_commondir, snap_gitdir, snap_pointer, claimed_at,
        released_at)
      values ($office, $run, $key, 'X-1', $key, '/w', 'main', 'a', 'a', 0, '/a', 'c', 'g',
-       'p', 0, $released)`,
-    { office, run, key, released: released ? 1 : null },
+       'p', $at, $released)`,
+    { office, run, key, at: claimedAt, released: released ? 1 : null },
   );
 }
 
@@ -63,7 +74,7 @@ describe("readWorkActivity", () => {
       try {
         const db = state.connection;
         const tracker = new WorkTracker();
-        expect(await readWorkActivity(db, probe, tracker)).toEqual({
+        expect(await readWorkActivity(db, probe, tracker, NOW)).toEqual({
           runs: 0,
           verifies: 0,
           waiting: 0,
@@ -88,13 +99,22 @@ describe("readWorkActivity", () => {
           claim(db, OFFICE_A, "run_9", "k9", false);
           claim(db, OFFICE_A, "run_1", "k1", false);
           claim(db, OFFICE_B, "run_8", "k8", true);
+          // An orphan: claimed longer than the start window ago, still without a host.
+          claim(db, OFFICE_B, "run_7", "k7", false, NOW - CLAIM_START_WINDOW_MS);
         });
         const endVerify = tracker.beginVerify();
-        expect(await readWorkActivity(db, probe, tracker)).toEqual({
+        expect(await readWorkActivity(db, probe, tracker, NOW)).toEqual({
           runs: 2,
           verifies: 1,
           waiting: 1,
         });
+        // The claim of run_9 holds only within the window too.
+        expect(
+          (await readWorkActivity(db, probe, tracker, NOW + CLAIM_START_WINDOW_MS - 1)).waiting,
+        ).toBe(1);
+        expect(
+          (await readWorkActivity(db, probe, tracker, NOW + CLAIM_START_WINDOW_MS)).waiting,
+        ).toBe(0);
         endVerify();
         endVerify();
         expect(tracker.verifies).toBe(0);

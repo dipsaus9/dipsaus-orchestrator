@@ -5,14 +5,19 @@
 // - a run with a live worker host: a `worker_hosts` row without `ended_at` whose PID and start time
 //   still match a running process (0006 decision 8);
 // - a confirmed batch waiting to start: a live claim (`claims.released_at` null) whose run has no
-//   worker host yet;
+//   worker host yet, only within `CLAIM_START_WINDOW_MS` of the claim, so an orphan claim (a run
+//   that died between claim and host start) cannot keep the machine awake for ever. Releasing such
+//   claims is reconcile's job at daemon start (DIPO-56);
 // - a running verify: verify steps register here while they run (`WorkTracker`).
 
 import type { SqlRunner } from "../platform/sqlite";
 import { isSameProcess, type ProcessProbe } from "../platform/process";
 import type { WorkActivity } from "./keepawake";
 
-/** Work the database does not record while it runs, such as a verify step. */
+/** A claimed story counts as waiting to start for this long after its claim, then no longer. */
+export const CLAIM_START_WINDOW_MS = 5 * 60_000;
+
+/** Work the database does not record while it runs: the verify step (DIPO-49) calls `beginVerify`. */
 export class WorkTracker {
   #verifies = 0;
 
@@ -44,6 +49,8 @@ export async function readWorkActivity(
   db: SqlRunner,
   probe: ProcessProbe,
   tracker: WorkTracker,
+  /** Now, from the injected clock. */
+  now: number,
 ): Promise<WorkActivity> {
   const hosts = db.all<OpenHostRow>(
     "select office_id, run_id, pid, start_time_ms from worker_hosts where ended_at is null",
@@ -60,8 +67,10 @@ export async function readWorkActivity(
     db.get<{ n: number }>(
       `select count(*) as n from claims c
         where c.released_at is null
+          and c.claimed_at > $since
           and not exists (select 1 from worker_hosts h
                            where h.office_id = c.office_id and h.run_id = c.run_id)`,
+      { since: now - CLAIM_START_WINDOW_MS },
     )?.n ?? 0;
   return { runs: live.size, verifies: tracker.verifies, waiting };
 }
