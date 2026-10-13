@@ -519,7 +519,7 @@ function notice(
 }
 
 /** `[HOST/]OWNER/REPO` of a PR URL such as `https://github.com/o/r/pull/7`. */
-function repoOfUrl(url: string): string | null {
+export function repoOfUrl(url: string): string | null {
   const match = /^https:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/\d+$/.exec(url);
   if (match === null) return null;
   const [, host, owner, name] = match;

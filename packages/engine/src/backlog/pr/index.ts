@@ -13,7 +13,7 @@ export type {
   TaskSide,
 } from "./check";
 export { collectPrDiff, RestoreError, taskOfPath } from "./diff";
-export { BacklogPrs, factsFor, PR_NOTICES } from "./feature";
+export { BacklogPrs, factsFor, PR_NOTICES, repoOfUrl } from "./feature";
 export type { BacklogPrsDeps, PrWaiting, PrWaitingReason } from "./feature";
 export { backlogCheckBlocked, backlogPrMergeable, findPr, openPrs } from "./records";
 export type { BacklogCheckBlock, BacklogPrRecord, BacklogPrState, CheckState } from "./records";
