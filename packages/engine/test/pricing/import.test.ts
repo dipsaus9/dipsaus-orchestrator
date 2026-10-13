@@ -57,6 +57,27 @@ describe("catalog import at open", () => {
         ]);
         expect(first.pricing?.version).toBe(String(CATALOGS.length));
         expect(first.pricing?.models.get("claude-haiku-5-5")?.cacheRead).toBe(10_000);
+        // Every prompt_over set is loaded, not only the base rates (DIPO-78).
+        const sets = db.all<{ model: string; prompt_over: number }>(
+          "select model, prompt_over from pricing_rates where version = 1 and prompt_over > 0",
+        );
+        expect(sets.length).toBeGreaterThan(0);
+        for (const set of sets) {
+          expect(first.pricing?.longPrompt.get(set.model)?.map((rates) => rates.over)).toContain(
+            set.prompt_over,
+          );
+        }
+        expect(first.pricing?.longPrompt.get("claude-haiku-5-5")).toEqual([
+          {
+            over: 100_000,
+            input: 500_000,
+            output: 2_500_000,
+            cacheWrite5m: 625_000,
+            cacheWrite1h: 1_000_000,
+            cacheRead: 50_000,
+          },
+        ]);
+        expect(first.pricing?.longPrompt.has("claude-sonnet-5-5")).toBe(false);
       } finally {
         first.close();
       }
