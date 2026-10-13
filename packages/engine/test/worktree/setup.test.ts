@@ -180,36 +180,34 @@ describe("setup inside the claim", () => {
 });
 describe("releases and restarts around setup", () => {
   // The variant with a setup that succeeds runs in CI only, in setup-claim.ci.test.ts (DIPO-79).
-  for (const fails of [true]) {
-    it(`a release during a setup that ${fails ? "fails" : "succeeds"} keeps the release, its row and the branch`, async () => {
-      await withBareRemote(async (repo) => {
-        await product(repo);
-        const h = await harness(repo);
-        const key = h.s.key();
-        const steps = fakeSteps(fails ? { setup: exited(2, "broke\n") } : {});
-        const request = {
-          ...h.s.request(key),
-          setup: async (claim: ClaimRecord) => {
-            const outcome = await h.setup(claim, { steps, worktree: { post_create: [] } });
-            releaseNow(h, claim);
-            return outcome;
-          },
-        };
+  it("a release during a setup that fails keeps the release, its row and the branch", async () => {
+    await withBareRemote(async (repo) => {
+      await product(repo);
+      const h = await harness(repo);
+      const key = h.s.key();
+      const steps = fakeSteps({ setup: exited(2, "broke\n") });
+      const request = {
+        ...h.s.request(key),
+        setup: async (claim: ClaimRecord) => {
+          const outcome = await h.setup(claim, { steps, worktree: { post_create: [] } });
+          releaseNow(h, claim);
+          return outcome;
+        },
+      };
 
-        const outcome = skipped(await claimStory<SetupDone>(h.s.deps(), request));
+      const outcome = skipped(await claimStory<SetupDone>(h.s.deps(), request));
 
-        expect(outcome.reason).toBe(fails ? "pickupCheckFailed" : "notRunnable");
-        const row = findClaim(h.s.office, request.runId);
-        expect(row?.releaseReason).toBe("amend");
-        const start = row?.startSha as string;
-        expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(start);
-        expect(releasedBranchFor(h.s.office, key, BRANCH_1)).not.toBeNull();
-        expect(existsSync(join(h.s.git.worktreeRoot(), TASK_1))).toBe(false);
-        expect(h.slots.slotOf(join(h.s.git.worktreeRoot(), TASK_1))).toBeNull();
-        expect((await inRemote(repo, "branch", "--list", BRANCH_1)).trim()).toBe("");
-      }, FIXTURE);
-    });
-  }
+      expect(outcome.reason).toBe("pickupCheckFailed");
+      const row = findClaim(h.s.office, request.runId);
+      expect(row?.releaseReason).toBe("amend");
+      const start = row?.startSha as string;
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(start);
+      expect(releasedBranchFor(h.s.office, key, BRANCH_1)).not.toBeNull();
+      expect(existsSync(join(h.s.git.worktreeRoot(), TASK_1))).toBe(false);
+      expect(h.slots.slotOf(join(h.s.git.worktreeRoot(), TASK_1))).toBeNull();
+      expect((await inRemote(repo, "branch", "--list", BRANCH_1)).trim()).toBe("");
+    }, FIXTURE);
+  });
 
   it("a daemon restart during setup rolls the unfinished claim back at office load", async () => {
     await withBareRemote(async (repo) => {

@@ -141,29 +141,7 @@ function afterClaimCommit(args: readonly string[], seen: readonly (readonly stri
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("claiming a story", () => {});
-
-  describe("claim collisions", () => {
-    it("skips its own live claim silently, and a ref tracked for another story with a notice naming it", async () => {
-      await withBareRemote(async (repo) => {
-        await publish(repo);
-        const s = await claimSetup(repo);
-        const first = s.key();
-        claimed(await claimStory(s.deps(), s.request(first)));
-        const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
-
-        const again = await claimStory(s.deps(), s.request(first));
-        expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
-        expect(notices(s.office)).toEqual([]);
-
-        const outcome = await claimStory(s.deps(), s.request(s.key()));
-        expect(outcome).toMatchObject({ ok: false, reason: "collision" });
-        expect(outcome.ok ? "" : outcome.notice).toContain(`tracked for another story (${first})`);
-        expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
-        expect(liveClaims(s.office)).toHaveLength(1);
-      }, FIXTURE);
-    });
-
+  describe("claiming a story", () => {
     it("creates the branch and a locked worktree from origin/main, commits only the task file and pushes", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);
@@ -210,6 +188,28 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect((await repo.git("rev-parse", "HEAD")).trim()).toBe(main);
         expect(await repo.git("status", "--porcelain")).toBe("");
         expect(notices(s.office)).toEqual([]);
+      }, FIXTURE);
+    });
+  });
+
+  describe("claim collisions", () => {
+    it("skips its own live claim silently, and a ref tracked for another story with a notice naming it", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const first = s.key();
+        claimed(await claimStory(s.deps(), s.request(first)));
+        const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
+
+        const again = await claimStory(s.deps(), s.request(first));
+        expect(again).toEqual({ ok: false, reason: "notRunnable", notice: null, code: null });
+        expect(notices(s.office)).toEqual([]);
+
+        const outcome = await claimStory(s.deps(), s.request(s.key()));
+        expect(outcome).toMatchObject({ ok: false, reason: "collision" });
+        expect(outcome.ok ? "" : outcome.notice).toContain(`tracked for another story (${first})`);
+        expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
+        expect(liveClaims(s.office)).toHaveLength(1);
       }, FIXTURE);
     });
   });

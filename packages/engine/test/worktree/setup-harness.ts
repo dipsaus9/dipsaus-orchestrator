@@ -1,6 +1,6 @@
 // Shared setup for the worktree setup tests (DIPO-39): a claim setup with a fake step runner in
 // place of the sandbox, a slot table, a run profile, and the fixture product with an ignored `.env`.
-// Used by setup.test.ts and its CI-only sibling setup.ci.test.ts.
+// Used by setup.test.ts and its CI-only sibling setup-claim.ci.test.ts.
 
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
