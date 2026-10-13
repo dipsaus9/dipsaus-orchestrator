@@ -4,7 +4,7 @@ title: 'Set up a claimed worktree with files, ports and install'
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:54'
+updated_date: '2026-10-13 09:10'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -70,8 +70,11 @@ test_plan:
 M0 breakdown draft number S23 (DIPO-15). Before cutover: built by hand-run agents.
 
 Scope additions:
-- packages/engine/src/db/migrations/0011-once-notices.ts: new migration 11, table once_notices, records that the env-file notice (AC #4) was shown once per office. Renumbered at merge if another open PR takes 11.
-- packages/engine/src/db/schema.ts: registers migration 11 in MIGRATIONS.
+- packages/engine/src/db/migrations/0013-once-notices.ts: new migration 13, table once_notices, records that the env-file notice (AC #4) was shown once per office (renumbered from 11 after DIPO-65 took 11 and 12; DIPO-71 takes 14).
+- packages/engine/src/db/schema.ts: registers migration 13 in MIGRATIONS.
+- packages/engine/src/retention/policy.ts: once_notices is tier P (kept until office purge), as the retention policy test requires for every office-scoped table.
+- packages/engine/src/worktree/claim.ts and feature.ts (DIPO-38 code, inside References): claimStory takes an optional setup hook and runs in three steps, as 0010 section 7 orders (setup, then the claim commit, then the push). Queue item A: re-check, claim checks, worktree add, lock, live claim record, base merge of a reused branch. Then setup outside the git queue. Queue item C: re-check that the claim is still live and the worktree snapshot unchanged, then the claim commit and the push. A failed setup rolls back in its own queue item with nothing committed or pushed: a new branch is deleted only while it points at its start SHA, a reused branch goes back to exactly where it was released and its release is reopened; the claim row ends as setup-failed and the skip is pickupCheckFailed with the setup log. StoryClaims.claim passes the hook through.
+- packages/engine/src/worktree/records.ts: failedClaimOf also matches setup-failed.
 
-Choices: setup runs after claimStory (outside its git queue item, so a long install does not hold the office git queue). Because the claim commit and push already happened, the rollback deletes the local branch only while its tip is the recorded start_sha or claim_sha (rollbackClaim, refactored out of DIPO-38's rollback), and deletes the pushed branch on the remote only while it still points at what the claim pushed (git push --delete --force-with-lease=<ref>:<sha>). A reused branch whose claim commit is pushed keeps its ref (rewinding it would need a force push); its release is reopened. The slot table is a file, <state>/slots.json (0007 section 2 keeps it outside dipo.db); an entry whose worktree no longer exists is dropped when the table is next written. The ignore check is git check-ignore with many paths per call (same rule as -q per path); names git would quote are refused. setup and post_create run under the closed-network policy, install under the install policy. A run-profile command with a working directory other than the root fails setup. .claude/settings.local.json that is a symlink, tracked or not a JSON object is left out with a notice instead of failing setup. The failed claim row gets release_reason setup-failed; failedClaimOf matches it too.
+Choices: the slot table is a file, <state>/slots.json (0007 section 2 keeps it outside dipo.db); an entry whose worktree no longer exists is dropped when the table is next written. The ignore check is git check-ignore with many paths per call (same rule as -q per path); names git would quote are refused. Files are copied from exactly the checked list; each entry is re-checked (no symlink on its path, same device and inode) right before and after its copy. .claude/settings.local.json reaches the worktree only stripped: listed or under a copied directory it is routed to its own rule; a link entry on it or a directory above it refuses setup. A settings.local.json that is a symlink, tracked or not a JSON object is left out with a notice. setup and post_create run under the closed-network policy, install under the install policy. A run-profile command with a working directory other than the root fails setup. Setup fails when its steps leave files git does not ignore, so the claim commit holds only the task file.
 <!-- SECTION:NOTES:END -->
