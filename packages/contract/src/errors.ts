@@ -34,6 +34,9 @@ export const RETRYABLE_ERROR_CODES = [
   "engine.recovering",
   "scheduling.off",
   "run.hostAlive",
+  // Since minor 1 (DIPO-48; 0005 amendment of 2026-10-13): fetching the base failed, for example
+  // offline; `work.run` waits until a fetch succeeds.
+  "git.fetchFailed",
 ] as const;
 
 // Specific codes of the software-level commands (0005 section 4). Since minor 1 (DIPO-27):

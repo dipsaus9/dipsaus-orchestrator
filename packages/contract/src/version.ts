@@ -16,4 +16,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-71 adds the read `story.gate` and the error codes `config.invalid` and `backlog.unreadable`
 // to the same, still unreleased, minor.
 // DIPO-36 ships the command `office.init` in the same, still unreleased, minor.
+// DIPO-48 adds the optional `from` of `work.run` and the retryable `git.fetchFailed` to the same,
+// still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
