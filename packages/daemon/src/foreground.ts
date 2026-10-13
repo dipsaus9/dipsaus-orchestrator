@@ -42,6 +42,7 @@ import {
   LOG_LEVELS,
   MaintenanceScheduler,
   MemoryRequestTable,
+  MergeSlot,
   officeFeature,
   officeSummarySource,
   OfficeManager,
@@ -338,6 +339,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     stableTimer: TimerHandle | null;
     storyIndex: StoryIndex | null;
     teardown: StoryTeardown | null;
+    mergeSlot: MergeSlot | null;
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
   } = {
@@ -348,6 +350,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     stableTimer: null,
     storyIndex: null,
     teardown: null,
+    mergeSlot: null,
     retention: null,
     maintenance: null,
   };
@@ -471,13 +474,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // finished claim is looked up through `gh` on this daemon's PATH (else `git merge-tree`
     // decides); a Done story's worktree and branches are removed and its slot freed. Its load step
     // follows claims.feature.
+    // One `gh` host, on this daemon's PATH, for teardown, the backlog PR and the merge slot.
+    const host = new GhHost({
+      spawn: systemSpawn,
+      ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
+      env: io.env,
+    });
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),
-      host: new GhHost({
-        spawn: systemSpawn,
-        ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
-        env: io.env,
-      }),
+      host,
       cli: { spawn: systemSpawn },
       offices,
       slots: SlotTable.inState(stateDir),
@@ -488,11 +493,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
     // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
-      host: new GhHost({
-        spawn: systemSpawn,
-        ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
-        env: io.env,
-      }),
+      host,
       lane: (office) => lane.forOffice(office),
       cli: { spawn: systemSpawn },
       offices,
@@ -504,8 +505,24 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: (office) => engineGit.forOffice(office),
       liveClaim: hasLiveClaim,
       onChanged: (office) => server?.notifyOffice(office),
-      onFlushed: (office, report) => backlogPrs.afterFlush(office, report),
+      onFlushed: async (office, report) => {
+        await backlogPrs.afterFlush(office, report);
+        mergeSlot.kick(office);
+      },
+      held: (office) => mergeSlot.holding(office),
     });
+    // The merge slot (DIPO-73): merges the office's backlog PR once `ci-ok`, `pr-title` and the
+    // structural check pass, polling every `polling.prStateSeconds`; it holds new lane operations
+    // while a PR is in it. Its load step follows the lane's replay.
+    const mergeSlot: MergeSlot = new MergeSlot({
+      host,
+      prs: backlogPrs,
+      lane: (office) => lane.forOffice(office),
+      offices,
+      clock,
+      onChanged: (office) => server?.notifyOffice(office),
+    });
+    held.mergeSlot = mergeSlot;
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
@@ -559,6 +576,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       teardown.feature,
       lane.feature,
       storyIndex.feature,
+      mergeSlot.feature,
       gates.feature,
       runProfiles.feature,
       retention.feature,
@@ -731,6 +749,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     await keepAwake.stop();
     held.storyIndex?.stop();
     held.teardown?.stop();
+    held.mergeSlot?.stop();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
     await held.maintenance?.stop();
