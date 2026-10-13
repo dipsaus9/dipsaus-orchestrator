@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 07:09'
+updated_date: '2026-10-13 07:28'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -153,4 +153,11 @@ Keychain closure (maintainer approved option B; ADR 0008 amendment of 2026-10-13
 - Engine credential check: the Keychain lookup is now security find-generic-password -s gh:github.com -w (still output to /dev/null, marker wrapper unchanged), and it must fail.
 - Session self-test: the hosts.yml open is replaced by probe keychains, which lists <home>/Library/Keychains with perl opendir (no file in it is opened) and must fail with EPERM or EACCES. The engine first confirms the folder exists outside the sandbox; a missing folder refuses. A permission-layer denial of the Bash call still refuses as cannot run. The probe runs on macOS only (probesFor); on Linux the session has no credential probe and the engine check covers gh auth token.
 - Capture: safety-gh-token now records verdict.keychainsErrno, keychainsExistOutsideSandbox and engineCredentialCheck (gh auth token and, on macOS, the -w lookup under srt).
+
+Session credential check dropped (maintainer, ADR 0008 amendment in PR #63). The maintainer's capture on the previous head: safety-gitdir-write and safety-pointer-write verdict ok, kept untracked. safety-gh-token: engineCredentialCheck ok (gh-token 1, keychain 44), but the session's listing of ~/Library/Keychains was denied by the permission layer (blockReadsOutsideWorkingDirectories) before the sandbox saw it. That recording is not ok and is not committed.
+- Session: the keychains probe, its results lines and the verdict field keychainsErrno are removed, and so is the platform switch. The session runs no credential probe; its program holds only the control write and the write probes. Verdict ok is now { ok: true }.
+- Protection now: the engine-side srt check (gh auth token, and on macOS security find-generic-password -s gh:github.com -w, marker-proven), the session write probes, and a unit test in plan.test.ts asserting, for every tier on launch and resume, that the run settings file carries sandbox.filesystem.denyRead [<home>/Library/Keychains] (not in the permission rules), the credentials file and variable denies, and the Read and Bash(gh *) deny rules.
+- safety-gh-token is now the engine-side credential check plus a session that makes only the control write (PROBE_GROUPS entry []). The capture tool is built around a Claude stream, and a pure engine recording would need a separate format and test path. Its checks hold engineCredentialCheck.
+- Replay test: for each committed safety recording it compares only checks.verdict.ok (true) with the engine's judgement, so verdict fields from removed probes (keychainsErrno: null in the maintainer's gitdir and pointer recordings) do not void them. The program and command for those two groups are unchanged, and both recordings pass locally.
+Maintainer capture step for safety-gh-token only: DIPO_TMP=$(mktemp -d /tmp/dt.XXXX) bun run recordings:capture safety-gh-token -> checks line with disk.results 'control written', controlWritten true, bash {calls:1, exact:true, shape:true}, verdict {ok:true}, probes [], engineCredentialCheck {ok:true, refused:{gh-token:<non-zero>, keychain:<non-zero, e.g. 44>}}.
 <!-- SECTION:NOTES:END -->
