@@ -117,6 +117,8 @@ export interface ForegroundOptions {
   readonly spawnKeepAwake?: SpawnKeepAwake;
   /** Runs `launchctl` for the bootout after a refused `config.yaml`; tests record the call. */
   readonly supervisorSpawn?: Spawn;
+  /** This process's parent PID, for the launchd bootout check; tests stand in for launchd (1). */
+  readonly parentPid?: number;
 }
 
 /** The first stop request wins: a signal, a lost lock, or later `daemon.stop` (DIPO-24). */
@@ -211,11 +213,18 @@ export async function runForeground(
         const target = await bootoutOwnLaunchdJob({
           spawn: options.supervisorSpawn ?? systemSpawn,
           uid: process.getuid?.() ?? -1,
+          pid: process.pid,
+          ppid: options.parentPid ?? process.ppid,
           clock: io.clock,
         });
-        logger.error("booted the launchd job out so it is not restarted with this configuration", {
-          target,
-        });
+        if (target !== null) {
+          logger.error(
+            "booted the launchd job out so it is not restarted with this configuration",
+            {
+              target,
+            },
+          );
+        }
       }
       return EXIT_CONFIG;
     }
@@ -356,7 +365,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     read: () => {
       const database = held.database;
       if (database === null) throw new Error("the state database is not open");
-      return readWorkActivity(database.connection, systemProcessProbe(platform), work);
+      return readWorkActivity(database.connection, systemProcessProbe(platform), work, clock.now());
     },
     clock,
     logger: logger.child({ component: "keep-awake" }),

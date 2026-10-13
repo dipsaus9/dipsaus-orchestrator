@@ -15,6 +15,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import {
   autostartReport,
   DaemonNotRunningError,
+  daemonEnv,
   type DaemonSession,
   type DaemonStatusResult,
   installDaemon,
@@ -379,6 +380,14 @@ describe("start, stop and restart when installed", () => {
       expect(m.spawns).toHaveLength(1);
       expect(m.commands).toEqual([]);
     }));
+});
+
+describe("daemonEnv", () => {
+  it("drops XPC_SERVICE_NAME, so a started daemon never looks like the launchd job", () => {
+    expect(daemonEnv({ XPC_SERVICE_NAME: "dipo.daemon", PATH, BUN_OPTIONS: "--smol" })).toEqual({
+      PATH,
+    });
+  });
 });
 
 describe("dipo daemon uninstall", () => {

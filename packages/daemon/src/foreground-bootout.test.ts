@@ -13,8 +13,14 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { runForeground } from "./foreground";
 import type { DaemonIo } from "./io";
 
-/** A stream that is already closed. */
-const emptyStream = () => new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+/** A stream that holds `text` and is closed. */
+const textStream = (text = "") =>
+  new ReadableStream<Uint8Array>({
+    start: (c) => {
+      if (text !== "") c.enqueue(new TextEncoder().encode(text));
+      c.close();
+    },
+  });
 
 function io(env: Record<string, string>, err: string[]): DaemonIo {
   return {
@@ -28,14 +34,17 @@ function io(env: Record<string, string>, err: string[]): DaemonIo {
   };
 }
 
-function recordingSpawn(calls: (readonly string[])[]): Spawn {
+/** A fake `launchctl` whose `print` reports `jobPid` as the job's PID. */
+function recordingSpawn(calls: (readonly string[])[], jobPid: number = process.pid): Spawn {
   return (options): ChildProcess => {
     calls.push(options.cmd);
     return {
       pid: 1,
       stdin: null,
-      stdout: emptyStream(),
-      stderr: emptyStream(),
+      stdout: textStream(
+        options.cmd[1] === "print" ? `\tstate = running\n\tpid = ${jobPid}\n` : "",
+      ),
+      stderr: textStream(),
       exited: Promise.resolve({ code: 0, signal: null }),
       kill: () => {},
     };
@@ -53,15 +62,45 @@ describe("refused config.yaml under a supervisor", () => {
       const code = await runForeground(
         [],
         io({ DIPO_HOME: state, XPC_SERVICE_NAME: "dipo.daemon" }, err),
-        { supervisorSpawn: recordingSpawn(calls) },
+        { supervisorSpawn: recordingSpawn(calls), parentPid: 1 },
       );
       expect(code).toBe(EXIT_CONFIG);
       const uid = process.getuid?.() ?? -1;
       expect(calls).toEqual([
-        ["launchctl", "print", `gui/${uid}`],
+        ["launchctl", "print", `gui/${uid}/dipo.daemon`],
         ["launchctl", "bootout", `gui/${uid}/dipo.daemon`],
       ]);
       expect(err.join("\n")).toContain("daemon.autostrat: unknown key");
+    }));
+
+  it("boots nothing out when XPC_SERVICE_NAME is only inherited (launchd is not the parent)", () =>
+    withTempDir(async (dir) => {
+      const state = join(dir, "state");
+      mkdirSync(state, { recursive: true });
+      writeFileSync(join(state, "config.yaml"), "version: 2\n");
+      const calls: (readonly string[])[] = [];
+      const code = await runForeground(
+        [],
+        io({ DIPO_HOME: state, XPC_SERVICE_NAME: "dipo.daemon" }, []),
+        { supervisorSpawn: recordingSpawn(calls), parentPid: 4242 },
+      );
+      expect(code).toBe(EXIT_CONFIG);
+      expect(calls).toEqual([]);
+    }));
+
+  it("boots nothing out when the installed job runs another PID", () =>
+    withTempDir(async (dir) => {
+      const state = join(dir, "state");
+      mkdirSync(state, { recursive: true });
+      writeFileSync(join(state, "config.yaml"), "version: 2\n");
+      const calls: (readonly string[])[] = [];
+      const code = await runForeground(
+        [],
+        io({ DIPO_HOME: state, XPC_SERVICE_NAME: "dipo.daemon" }, []),
+        { supervisorSpawn: recordingSpawn(calls, process.pid + 1), parentPid: 1 },
+      );
+      expect(code).toBe(EXIT_CONFIG);
+      expect(calls.every((cmd) => cmd[1] === "print")).toBe(true);
     }));
 
   it("spawns nothing outside launchd", () =>

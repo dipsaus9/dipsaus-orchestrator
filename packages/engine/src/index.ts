@@ -527,8 +527,7 @@ export {
 } from "./platform/keepawake";
 export {
   bootoutOwnLaunchdJob,
-  LAUNCHD_LABEL,
-  SYSTEMD_UNIT,
+  launchdJobPid,
   systemdScopeCommand,
   systemReadCgroup,
   underLaunchdJob,

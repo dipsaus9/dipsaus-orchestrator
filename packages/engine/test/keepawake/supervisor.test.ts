@@ -10,9 +10,10 @@ import type { ChildProcess, Spawn, SpawnOptions } from "@dipsaus-orchestrator/co
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { waitForPidExit } from "../../src/platform/keepawake";
-import type { DetachedSpawnOptions } from "../../src/platform/process";
+import { detachedEnv, type DetachedSpawnOptions } from "../../src/platform/process";
 import {
   bootoutOwnLaunchdJob,
+  launchdJobPid,
   systemdScopeCommand,
   underLaunchdJob,
   underSystemdUnit,
@@ -21,25 +22,40 @@ import { launchWorkerHost } from "../../src/runs/worker-hosts";
 
 const RUN = "run_01JZ0000000000000000000001";
 
-/** A stream that is already closed. */
-const emptyStream = () => new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+/** A stream that holds `text` and is closed. */
+const textStream = (text = "") =>
+  new ReadableStream<Uint8Array>({
+    start: (c) => {
+      if (text !== "") c.enqueue(new TextEncoder().encode(text));
+      c.close();
+    },
+  });
 
-function fakeSpawn(codes: (cmd: readonly string[]) => number | "hang") {
+type FakeAnswer = number | "hang" | { readonly code: number; readonly stdout: string };
+
+function fakeSpawn(answer: (cmd: readonly string[]) => FakeAnswer) {
   const calls: (readonly string[])[] = [];
   const spawn: Spawn = (options: SpawnOptions): ChildProcess => {
     calls.push(options.cmd);
-    const code = codes(options.cmd);
+    const given = answer(options.cmd);
+    const code = typeof given === "object" ? given.code : given;
     return {
       pid: 1,
       stdin: null,
-      stdout: emptyStream(),
-      stderr: emptyStream(),
+      stdout: textStream(typeof given === "object" ? given.stdout : ""),
+      stderr: textStream(),
       exited: code === "hang" ? new Promise(() => {}) : Promise.resolve({ code, signal: null }),
       kill: () => {},
     };
   };
   return { spawn, calls };
 }
+
+/** `launchctl print` of a running job, as launchd shows it (abridged). */
+const printed = (pid: number) => ({
+  code: 0,
+  stdout: `gui/501/dipo.daemon = {\n\tactive count = 1\n\tstate = running\n\tpid = ${pid}\n}\n`,
+});
 
 describe("systemd scope for worker hosts", () => {
   it("detects the dipo.service cgroup", () => {
@@ -92,24 +108,71 @@ describe("launchd bootout after a refused config.yaml", () => {
     expect(underLaunchdJob({})).toBe(false);
   });
 
-  it("boots out of gui/<uid> when that domain exists", async () => {
-    const { spawn, calls } = fakeSpawn(() => 0);
-    const target = await bootoutOwnLaunchdJob({ spawn, uid: 501, clock: new ManualClock() });
+  it("reads the job's PID from launchctl print", () => {
+    expect(launchdJobPid(printed(812).stdout)).toBe(812);
+    expect(launchdJobPid("state = not running\n")).toBeNull();
+  });
+
+  it("boots out of gui/<uid> when launchd is the parent and the job reports this PID", async () => {
+    const { spawn, calls } = fakeSpawn((cmd) => (cmd[1] === "print" ? printed(812) : 0));
+    const target = await bootoutOwnLaunchdJob({
+      spawn,
+      uid: 501,
+      pid: 812,
+      ppid: 1,
+      clock: new ManualClock(),
+    });
     expect(target).toBe("gui/501/dipo.daemon");
     expect(calls).toEqual([
-      ["launchctl", "print", "gui/501"],
+      ["launchctl", "print", "gui/501/dipo.daemon"],
       ["launchctl", "bootout", "gui/501/dipo.daemon"],
     ]);
   });
 
   it("uses user/<uid> over SSH, and does not wait past its cap for a bootout that hangs", async () => {
     const clock = new ManualClock();
-    const { spawn, calls } = fakeSpawn((cmd) => (cmd[1] === "print" ? 113 : "hang"));
-    const done = bootoutOwnLaunchdJob({ spawn, uid: 501, clock, waitMs: 3000 });
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const { spawn, calls } = fakeSpawn((cmd) => {
+      if (cmd[1] !== "print") return "hang";
+      return cmd[2]?.startsWith("gui/") === true ? 113 : printed(812);
+    });
+    const done = bootoutOwnLaunchdJob({ spawn, uid: 501, pid: 812, ppid: 1, clock, waitMs: 3000 });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
     clock.advance(3000);
     expect(await done).toBe("user/501/dipo.daemon");
-    expect(calls[1]).toEqual(["launchctl", "bootout", "user/501/dipo.daemon"]);
+    expect(calls.at(-1)).toEqual(["launchctl", "bootout", "user/501/dipo.daemon"]);
+  });
+
+  it("never boots out when launchd is not the parent (an inherited XPC_SERVICE_NAME)", async () => {
+    const { spawn, calls } = fakeSpawn((cmd) => (cmd[1] === "print" ? printed(812) : 0));
+    const target = await bootoutOwnLaunchdJob({
+      spawn,
+      uid: 501,
+      pid: 812,
+      ppid: 4242,
+      clock: new ManualClock(),
+    });
+    expect(target).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("never boots out a job whose PID is another process (the maintainer's real daemon)", async () => {
+    // Re-parented to launchd, but the installed job runs PID 700, not this process.
+    const { spawn, calls } = fakeSpawn((cmd) => (cmd[1] === "print" ? printed(700) : 0));
+    const target = await bootoutOwnLaunchdJob({
+      spawn,
+      uid: 501,
+      pid: 812,
+      ppid: 1,
+      clock: new ManualClock(),
+    });
+    expect(target).toBeNull();
+    expect(calls.map((c) => c[1])).toEqual(["print", "print"]);
+  });
+
+  it("strips XPC_SERVICE_NAME from every detached child's environment", () => {
+    expect(detachedEnv({ XPC_SERVICE_NAME: "dipo.daemon", PATH: "/usr/bin" })).toEqual({
+      PATH: "/usr/bin",
+    });
   });
 });
 

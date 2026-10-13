@@ -294,6 +294,13 @@ export function signalGroup(pgid: number, signal: NodeJS.Signals): boolean {
 export const BUN_FLAG_VARIABLES: readonly string[] = ["BUN_OPTIONS", "BUN_FEATURE_FLAG_NO_ORPHANS"];
 
 /**
+ * Variables a supervisor sets for its own job and a child must not inherit: launchd's
+ * `XPC_SERVICE_NAME` names the job, and a child carrying `dipo.daemon` would look like the
+ * installed agent (DIPO-63).
+ */
+export const SUPERVISOR_VARIABLES: readonly string[] = ["XPC_SERVICE_NAME"];
+
+/**
  * The environment of a process the daemon starts detached: `BUN_OPTIONS` and the propagated
  * `--no-orphans` flag removed (0006 decision 8).
  */
@@ -302,7 +309,12 @@ export function detachedEnv(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined && !BUN_FLAG_VARIABLES.includes(name)) out[name] = value;
+    if (
+      value !== undefined &&
+      !BUN_FLAG_VARIABLES.includes(name) &&
+      !SUPERVISOR_VARIABLES.includes(name)
+    )
+      out[name] = value;
   }
   return out;
 }
