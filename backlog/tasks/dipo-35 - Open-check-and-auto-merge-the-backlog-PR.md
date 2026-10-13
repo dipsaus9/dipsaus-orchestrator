@@ -1,11 +1,11 @@
 ---
 id: DIPO-35
 title: Open and check the backlog PR
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:19'
+updated_date: '2026-10-13 13:20'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -102,4 +102,6 @@ Review round 1 (PR #77):
 - No new files outside the scope additions already listed, apart from packages/engine/test/backlog/pr/diff.test.ts, which is inside the declared test scope.
 
 Review round 2: a check that cannot run stores its cause in `backlog_prs.check_error` (migration 15, edited in place). The `backlog.pr.checkError` notice is shown once per PR and cause; later syncs retry quietly, and a check that runs clears the cause. Fast test: packages/engine/test/backlog/pr/sync.test.ts (inside the declared test scope). The duplicated collectPrDiff doc comment in diff.ts is fixed.
+
+Maintainer live test passed (2026-10-13) on public scratch repo dipsaus9/dipo-scratch-backlog: PR opened, structural check passed, pr-title pass. A free-plan private repository cannot have required checks, so the scratch repository must be public.
 <!-- SECTION:NOTES:END -->
