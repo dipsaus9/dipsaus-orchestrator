@@ -35,6 +35,8 @@ export interface ClaimRecord {
   readonly pushedAt: number | null;
   readonly releasedAt: number | null;
   readonly releaseReason: string | null;
+  /** When the teardown of a Done story started its git steps (DIPO-58), or null. */
+  readonly teardownStartedAt: number | null;
 }
 
 interface ClaimRow {
@@ -57,11 +59,15 @@ interface ClaimRow {
   pushed_at: number | null;
   released_at: number | null;
   release_reason: string | null;
+  teardown_started_at: number | null;
 }
 
 const COLUMNS = `run_id, key, story_id, branch, worktree, base, base_sha, start_sha, claim_sha, reused,
   admin_dir, snap_commondir, snap_gitdir, snap_pointer, first_feedback, claimed_at, pushed_at,
   released_at, release_reason`;
+
+/** The columns a read selects: the inserted ones and those set later. */
+const READ_COLUMNS = `${COLUMNS}, teardown_started_at`;
 
 function toRecord(row: ClaimRow): ClaimRecord {
   return {
@@ -87,10 +93,14 @@ function toRecord(row: ClaimRow): ClaimRecord {
     pushedAt: row.pushed_at,
     releasedAt: row.released_at,
     releaseReason: row.release_reason,
+    teardownStartedAt: row.teardown_started_at,
   };
 }
 
-export type NewClaim = Omit<ClaimRecord, "pushedAt" | "releasedAt" | "releaseReason">;
+export type NewClaim = Omit<
+  ClaimRecord,
+  "pushedAt" | "releasedAt" | "releaseReason" | "teardownStartedAt"
+>;
 
 /** Records a live claim. Runs inside the caller's transaction. */
 export function insertClaim(office: OfficeHandle, claim: NewClaim): void {
@@ -145,7 +155,7 @@ export function updateClaim(office: OfficeHandle, runId: RunId, change: ClaimCha
 
 export function findClaim(office: OfficeHandle, runId: RunId): ClaimRecord | null {
   const row = office.get<ClaimRow>(
-    `select ${COLUMNS} from claims where office_id = $office_id and run_id = $run`,
+    `select ${READ_COLUMNS} from claims where office_id = $office_id and run_id = $run`,
     { run: runId },
   );
   return row === null ? null : toRecord(row);
@@ -154,7 +164,7 @@ export function findClaim(office: OfficeHandle, runId: RunId): ClaimRecord | nul
 /** The story's live claim, or null. */
 export function liveClaimOf(office: OfficeHandle, key: StoryKey): ClaimRecord | null {
   const row = office.get<ClaimRow>(
-    `select ${COLUMNS} from claims
+    `select ${READ_COLUMNS} from claims
      where office_id = $office_id and key = $key and released_at is null`,
     { key },
   );
@@ -182,7 +192,7 @@ export function failedClaimOf(
   branch: string,
 ): ClaimRecord | null {
   const row = office.get<ClaimRow>(
-    `select ${COLUMNS} from claims
+    `select ${READ_COLUMNS} from claims
      where office_id = $office_id and key = $key and branch = $branch
        and release_reason in ('claim-failed', 'setup-failed')
      order by released_at desc limit 1`,
@@ -195,7 +205,7 @@ export function failedClaimOf(
 export function liveClaims(office: OfficeHandle): ClaimRecord[] {
   return office
     .all<ClaimRow>(
-      `select ${COLUMNS} from claims where office_id = $office_id and released_at is null
+      `select ${READ_COLUMNS} from claims where office_id = $office_id and released_at is null
        order by claimed_at, run_id`,
     )
     .map(toRecord);
@@ -302,4 +312,16 @@ export function releaseReclaimedBy(office: OfficeHandle, runId: RunId): Released
         releasedAt: row.released_at,
         reason: row.reason,
       };
+}
+
+/**
+ * Records that the teardown of the live claim of `runId` started (DIPO-58), or with `at` null that
+ * it stopped and kept everything. Runs inside the caller's transaction.
+ */
+export function markTeardownStarted(office: OfficeHandle, runId: RunId, at: number | null): void {
+  office.run(
+    `update claims set teardown_started_at = $at
+     where office_id = $office_id and run_id = $run and released_at is null`,
+    { run: runId, at },
+  );
 }

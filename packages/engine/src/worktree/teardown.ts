@@ -32,7 +32,7 @@ import { CodeHostError, type PrStateHost, repoOfRemoteUrl } from "../platform/ho
 import { forgetWorkerNotes } from "../prompts/notes";
 
 import { notice, writeWith } from "./claim";
-import { type ClaimRecord, releaseClaim } from "./records";
+import { type ClaimRecord, markTeardownStarted, releaseClaim } from "./records";
 import type { SlotTable } from "./slots";
 
 /** `engine.notice` codes of Done detection and teardown. */
@@ -43,15 +43,18 @@ export const TEARDOWN_NOTICES = {
   remoteBranch: "teardown.remoteBranch",
   checkFailed: "done.checkFailed",
   unmergedCommits: "done.unmergedCommits",
+  claimGone: "done.claimGone",
+  statusUnknown: "teardown.statusUnknown",
 } as const;
 
 /** The release reason of a claim whose story reached Done. */
 export const DONE_RELEASE_REASON = "done";
 
-/** How Done was detected. */
+/** How Done was detected. `resumed` is a teardown a crash interrupted after its git steps. */
 export type DoneEvidence =
   | { readonly by: "host"; readonly number: number; readonly url: string }
-  | { readonly by: "merge-tree"; readonly tree: string };
+  | { readonly by: "merge-tree"; readonly tree: string }
+  | { readonly by: "resumed"; readonly startedAt: number };
 
 /** A problem the detection reports as a notice; the story stays where it is. */
 export interface DoneProblem {
@@ -60,7 +63,15 @@ export interface DoneProblem {
 }
 
 export type DoneCheck =
-  | { readonly done: true; readonly evidence: DoneEvidence }
+  | {
+      readonly done: true;
+      readonly evidence: DoneEvidence;
+      /**
+       * The local branch tip the detection judged, or null when the branch was already gone. The
+       * teardown deletes the branch only while it is still at this commit.
+       */
+      readonly tip: string | null;
+    }
   | { readonly done: false; readonly problem?: DoneProblem };
 
 export interface DetectDeps {
@@ -77,6 +88,8 @@ interface BranchFacts {
   readonly baseRef: string;
   /** The local branch tip, or null when the branch is gone. */
   readonly tip: string | null;
+  /** True when the worktree is neither registered nor on disk. */
+  readonly worktreeGone: boolean;
 }
 
 /** Detects whether the claimed story is Done; see the file comment for the two ways. */
@@ -88,8 +101,18 @@ export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<
       url,
       baseRef: url === null ? `refs/heads/${claim.base}` : `refs/remotes/${remote}/${claim.base}`,
       tip: await revParse(git, `refs/heads/${claim.branch}`),
+      worktreeGone: deps.git.adminDirOf(claim.worktree) === null && !existsSync(claim.worktree),
     };
   });
+  const gone = facts.tip === null && facts.worktreeGone;
+  // A teardown this engine started and a crash interrupted: its git steps already ran.
+  if (gone && claim.teardownStartedAt !== null) {
+    return {
+      done: true,
+      evidence: { by: "resumed", startedAt: claim.teardownStartedAt },
+      tip: null,
+    };
+  }
 
   let mergedElsewhere: number | null = null;
   const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
@@ -98,7 +121,11 @@ export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<
       const pr = await deps.host.findMergedPr(repo, claim.branch);
       if (pr !== null && pr.base === claim.base) {
         if (facts.tip === null || pr.headSha === facts.tip) {
-          return { done: true, evidence: { by: "host", number: pr.number, url: pr.url } };
+          return {
+            done: true,
+            evidence: { by: "host", number: pr.number, url: pr.url },
+            tip: facts.tip,
+          };
         }
         mergedElsewhere = pr.number;
       }
@@ -108,6 +135,15 @@ export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<
     }
   }
 
+  if (gone) {
+    return {
+      done: false,
+      problem: {
+        code: TEARDOWN_NOTICES.claimGone,
+        text: `${claim.story} is claimed, but its worktree ${claim.worktree} and branch ${claim.branch} are both gone and dipo cannot tell whether it merged. Check the story by hand.`,
+      },
+    };
+  }
   const tree = await deps.git.run((git) => mergeTreeDone(git, facts, claim));
   if (tree.done || tree.problem !== undefined || mergedElsewhere === null) return tree;
   return {
@@ -148,7 +184,7 @@ async function mergeTreeDone(
     );
   }
   return firstLine(result.stdout) === baseTree
-    ? { done: true, evidence: { by: "merge-tree", tree: baseTree } }
+    ? { done: true, evidence: { by: "merge-tree", tree: baseTree }, tip: facts.tip }
     : { done: false };
 }
 
@@ -185,20 +221,24 @@ export function claimLockReason(runId: RunId): string {
 
 /**
  * Tears down the worktree and branch of a claim whose story is Done, then releases the claim,
- * deletes its tier T rows and frees its slot. A dirty or foreign-locked worktree keeps everything.
- * The caller puts the notices on the office.
+ * deletes its tier T rows and frees its slot. `tip` is the branch tip the detection judged (null
+ * when the branch was gone): a branch that moved since keeps everything. A dirty or foreign-locked
+ * worktree keeps everything too. The caller puts the notices on the office.
  */
 export async function tearDown(
   deps: TeardownDeps,
   claim: ClaimRecord,
   evidence: DoneEvidence,
+  tip: string | null,
 ): Promise<TeardownOutcome> {
-  const outcome = await deps.git.run((git) => removeAll(deps, git, claim));
+  const outcome = await deps.git.run((git) => removeAll(deps, git, claim, tip));
   if (!outcome.ok) return outcome;
   const how =
     evidence.by === "host"
       ? `its PR #${evidence.number} merged (${evidence.url})`
-      : "its branch adds nothing to the base";
+      : evidence.by === "merge-tree"
+        ? "its branch adds nothing to the base"
+        : "dipo finishes the teardown it started earlier";
   writeWith(deps, () => {
     releaseClaim(deps.office, claim.runId, {
       at: deps.clock.now(),
@@ -236,9 +276,22 @@ async function removeAll(
   deps: TeardownDeps,
   git: GitSession,
   claim: ClaimRecord,
+  tip: string | null,
 ): Promise<TeardownOutcome> {
   const path = claim.worktree;
+  const ref = `refs/heads/${claim.branch}`;
   const ours = claimLockReason(claim.runId);
+  // The branch must still be where the detection judged it; a commit since then is kept.
+  const current = await revParse(git, ref);
+  if (current !== tip) {
+    return {
+      ok: false,
+      why: `the branch ${claim.branch} moved from ${tip ?? "(gone)"} to ${current ?? "(gone)"} after Done was detected; dipo checks it again on its next poll`,
+      files: [],
+    };
+  }
+  const mark = (at: number | null) =>
+    deps.office.immediate(() => markTeardownStarted(deps.office, claim.runId, at));
   if (deps.git.adminDirOf(path) !== null) {
     const lock = await lockOf(git, path);
     if (lock !== null && lock !== ours) {
@@ -248,12 +301,15 @@ async function removeAll(
         files: await dirtyFiles(deps, git, path),
       };
     }
+    // Recorded before the first step that removes anything, so a crash after it is resumable.
+    mark(deps.clock.now());
     if (lock === ours) await git.ok(git.repository, ["worktree", "unlock", path]);
     const removed = await git.step(git.repository, ["worktree", "remove", path]);
     if (removed.code !== 0) {
       if (lock === ours) {
         await git.step(git.repository, ["worktree", "lock", "--reason", ours, path]);
       }
+      mark(null);
       return {
         ok: false,
         why: `git refused to remove the worktree ${path} (${removed.stderr.trim() || `exit ${removed.code}`})`,
@@ -268,16 +324,19 @@ async function removeAll(
       files: [],
     };
   } else {
+    mark(claim.teardownStartedAt ?? deps.clock.now());
     deps.git.unpinWorktree(path);
   }
 
-  // The local branch, only now that Done is detected (0010 section 7).
-  if ((await revParse(git, `refs/heads/${claim.branch}`)) !== null) {
-    const deleted = await git.step(git.repository, ["branch", "-D", claim.branch]);
+  // The local branch, only now that Done is detected (0010 section 7), and only while it is still
+  // at the tip the detection judged (`git update-ref -d` with the old value, like `branch -D`
+  // without its race).
+  if (tip !== null) {
+    const deleted = await git.step(git.repository, ["update-ref", "-d", ref, tip]);
     if (deleted.code !== 0) {
       return {
         ok: false,
-        why: `\`git branch -D ${claim.branch}\` failed (${deleted.stderr.trim() || `exit ${deleted.code}`}); the worktree is gone`,
+        why: `deleting the branch ${claim.branch} at ${tip} failed (${deleted.stderr.trim() || `exit ${deleted.code}`}); the worktree is gone`,
         files: [],
       };
     }

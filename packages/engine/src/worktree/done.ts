@@ -66,7 +66,7 @@ interface Polled {
   readonly clock: Clock;
   timer: TimerHandle | null;
   busy: Promise<unknown>;
-  /** The last notice text per claim run, so a cause is reported once. */
+  /** The last notice text per claim run and notice code, so a cause is reported once. */
   readonly told: Map<string, string>;
 }
 
@@ -161,6 +161,11 @@ export class StoryTeardown {
         );
       }
     }
+    // Forget what was told about claims that are no longer live.
+    const live = new Set(liveClaims(state.office).map((claim) => claim.runId as string));
+    for (const key of state.told.keys()) {
+      if (!live.has(runOfToldKey(key))) state.told.delete(key);
+    }
     return { checked, tornDown, kept };
   }
 
@@ -188,31 +193,45 @@ export class StoryTeardown {
       );
       return "kept";
     }
-    if ((await this.#statusOf(claim)) === PARKED_STATUS) {
-      this.#tell(
-        state,
-        deps,
-        claim,
-        "warn",
-        TEARDOWN_NOTICES.parked,
-        `${claim.story} looks merged, but it is Parked, so dipo keeps its worktree, branch ${claim.branch} and port slot. Resolve the park to finish it.`,
-      );
-      return "kept";
+    // A teardown that already started passed this check before it removed anything.
+    if (claim.teardownStartedAt === null) {
+      const status = await this.#statusOf(claim);
+      if (status === null) {
+        this.#tell(
+          state,
+          deps,
+          claim,
+          "warn",
+          TEARDOWN_NOTICES.statusUnknown,
+          `${claim.story} looks merged, but dipo could not read its status in ${claim.worktree}, so it cannot rule out a park and keeps the worktree, branch ${claim.branch} and port slot this time. dipo tries again on its next poll.`,
+        );
+        return "kept";
+      }
+      if (status === PARKED_STATUS) {
+        this.#tell(
+          state,
+          deps,
+          claim,
+          "warn",
+          TEARDOWN_NOTICES.parked,
+          `${claim.story} looks merged, but it is Parked, so dipo keeps its worktree, branch ${claim.branch} and port slot. Resolve the park to finish it.`,
+        );
+        return "kept";
+      }
     }
-    const outcome = await tearDown(deps, claim, check.evidence);
-    if (outcome.ok) {
-      state.told.delete(claim.runId);
-      return "tornDown";
-    }
+    const outcome = await tearDown(deps, claim, check.evidence, check.tip);
+    if (outcome.ok) return "tornDown";
     const files =
-      outcome.files.length === 0 ? "" : ` Files git lists there: ${outcome.files.join(", ")}.`;
+      outcome.files.length === 0
+        ? ""
+        : ` Files git lists there: ${outcome.files.join(", ")}. Commit, move or remove those changes.`;
     this.#tell(
       state,
       deps,
       claim,
       "warn",
       TEARDOWN_NOTICES.kept,
-      `${claim.story} is Done, but dipo kept its worktree, branch ${claim.branch} and port slot: ${outcome.why}.${files} Commit, move or remove those changes; dipo tries again on its next poll.`,
+      `${claim.story} is Done, but dipo kept its worktree, branch ${claim.branch} and port slot: ${outcome.why}.${files} dipo tries again on its next poll.`,
     );
     return "kept";
   }
@@ -235,8 +254,9 @@ export class StoryTeardown {
     code: string,
     text: string,
   ): void {
-    if (state.told.get(claim.runId) === text) return;
-    state.told.set(claim.runId, text);
+    const key = toldKey(claim.runId, code);
+    if (state.told.get(key) === text) return;
+    state.told.set(key, text);
     writeWith(deps, () => [notice(level, code, text, claim.key)]);
   }
 
@@ -278,4 +298,15 @@ function hasLiveHost(office: OfficeHandle, claim: ClaimRecord): boolean {
       { run: claim.runId },
     ) !== null
   );
+}
+
+/** The key of a told notice: the claim's run and the notice code. */
+function toldKey(runId: string, code: string): string {
+  return `${runId}\n${code}`;
+}
+
+/** The run of a `toldKey`. */
+function runOfToldKey(key: string): string {
+  const end = key.indexOf("\n");
+  return end === -1 ? key : key.slice(0, end);
 }

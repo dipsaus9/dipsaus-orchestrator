@@ -29,7 +29,7 @@ import {
   TEARDOWN_STEP,
   tearDown,
 } from "../../src/worktree";
-import { insertClaim } from "../../src/worktree/records";
+import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
@@ -74,7 +74,7 @@ function defaults(world: World, args: readonly string[]): Reply {
   const line = args.join(" ");
   if (line.startsWith("config --get remote.origin.url")) return { stdout: `${REMOTE_URL}\n` };
   if (line === `rev-parse --verify --quiet refs/heads/${BRANCH}^{commit}`) {
-    return world.steps.some((s) => s.startsWith("branch -D"))
+    return world.steps.some((s) => s.startsWith("update-ref -d"))
       ? { code: 1 }
       : { stdout: `${TIP}\n` };
   }
@@ -234,8 +234,15 @@ function deps(world: World) {
 /** A StoryTeardown on the world, tracked for its office. */
 function teardownOf(
   world: World,
-  options: { host?: PrStateHost | null; status?: string; config?: OfficeConfig } = {},
+  options: {
+    host?: PrStateHost | null;
+    /** The story's status, or a function of the poll count; null is unreadable. */
+    status?: string | null | ((call: number) => string | null);
+    onStatus?: () => void;
+    config?: OfficeConfig;
+  } = {},
 ): StoryTeardown {
+  let calls = 0;
   const officeId = world.office.officeId as OfficeId;
   const teardown = new StoryTeardown({
     git: () => world.git,
@@ -246,7 +253,13 @@ function teardownOf(
       config: () => options.config ?? OFFICE_DEFAULTS,
     },
     slots: world.slots,
-    statusOf: async () => options.status ?? "Done",
+    statusOf: async () => {
+      calls += 1;
+      options.onStatus?.();
+      const status = options.status;
+      if (typeof status === "function") return status(calls);
+      return status === undefined ? "Done" : status;
+    },
   });
   teardown.track(officeId, world.office, world.t.clock);
   return teardown;
@@ -259,6 +272,7 @@ describe("detecting Done", () => {
       expect(check).toEqual({
         done: true,
         evidence: { by: "host", number: 9, url: "https://github.com/o/r/pull/9" },
+        tip: TIP,
       });
       // The host decided; merge-tree did not run.
       expect(world.steps.some((s) => s.startsWith("merge-tree"))).toBe(false);
@@ -269,7 +283,11 @@ describe("detecting Done", () => {
       world.answer = (args) =>
         args[0] === "merge-tree" ? { stdout: `${BASE_TREE}\n` } : undefined;
       const check = await detectDone({ git: world.git, host: null }, world.claim());
-      expect(check).toEqual({ done: true, evidence: { by: "merge-tree", tree: BASE_TREE } });
+      expect(check).toEqual({
+        done: true,
+        evidence: { by: "merge-tree", tree: BASE_TREE },
+        tip: TIP,
+      });
       expect(world.steps).toContain(
         `merge-tree --write-tree refs/remotes/origin/main refs/heads/${BRANCH}`,
       );
@@ -327,19 +345,20 @@ describe("tearing down", () => {
   it("unlocks, removes without --force, deletes the branch locally then remotely, and frees state", () =>
     withWorld(async (world) => {
       const claim = world.claim();
-      const outcome = await tearDown(deps(world), claim, {
-        by: "host",
-        number: 9,
-        url: "https://github.com/o/r/pull/9",
-      });
+      const outcome = await tearDown(
+        deps(world),
+        claim,
+        { by: "host", number: 9, url: "https://github.com/o/r/pull/9" },
+        TIP,
+      );
       expect(outcome).toEqual({ ok: true, remoteProblem: null });
       const git = world.steps.filter((s) =>
-        /^(worktree (un)?lock|worktree remove|branch|push)/.test(s),
+        /^(worktree (un)?lock|worktree remove|update-ref|branch|push)/.test(s),
       );
       expect(git).toEqual([
         `worktree unlock ${world.worktree}`,
         `worktree remove ${world.worktree}`,
-        `branch -D ${BRANCH}`,
+        `update-ref -d refs/heads/${BRANCH} ${TIP}`,
         `push --quiet --no-verify origin --delete ${BRANCH}`,
       ]);
       expect(world.steps.some((s) => s.includes("--force"))).toBe(false);
@@ -362,7 +381,7 @@ describe("tearing down", () => {
             }
           : undefined;
       const evidence = { by: "merge-tree", tree: BASE_TREE } as const;
-      expect(await tearDown(deps(world), world.claim(), evidence)).toEqual({
+      expect(await tearDown(deps(world), world.claim(), evidence, TIP)).toEqual({
         ok: true,
         remoteProblem: null,
       });
@@ -373,10 +392,15 @@ describe("tearing down", () => {
     withWorld(async (world) => {
       world.answer = (args) =>
         args[0] === "push" ? { code: 128, stderr: "fatal: unable to access" } : undefined;
-      const outcome = await tearDown(deps(world), world.claim(), {
-        by: "merge-tree",
-        tree: BASE_TREE,
-      });
+      const outcome = await tearDown(
+        deps(world),
+        world.claim(),
+        {
+          by: "merge-tree",
+          tree: BASE_TREE,
+        },
+        TIP,
+      );
       expect(outcome).toEqual({ ok: true, remoteProblem: "fatal: unable to access" });
       expect(notices(world.office).map((n) => n.code)).toEqual([
         TEARDOWN_NOTICES.done,
@@ -404,7 +428,7 @@ describe("tearing down", () => {
       expect(world.steps).toContain(
         `worktree lock --reason dipo ${world.claim().runId} ${world.worktree}`,
       );
-      expect(world.steps.some((s) => s.startsWith("branch -D") || s.startsWith("push"))).toBe(
+      expect(world.steps.some((s) => s.startsWith("update-ref") || s.startsWith("push"))).toBe(
         false,
       );
       expect(world.claim().releasedAt).toBeNull();
@@ -422,10 +446,15 @@ describe("tearing down", () => {
         args.join(" ") === "worktree list --porcelain -z"
           ? { stdout: `worktree ${world.worktree}\0HEAD ${TIP}\0locked on a USB disk\0\0` }
           : undefined;
-      const outcome = await tearDown(deps(world), world.claim(), {
-        by: "merge-tree",
-        tree: BASE_TREE,
-      });
+      const outcome = await tearDown(
+        deps(world),
+        world.claim(),
+        {
+          by: "merge-tree",
+          tree: BASE_TREE,
+        },
+        TIP,
+      );
       expect(outcome.ok).toBe(false);
       expect(!outcome.ok && outcome.why).toContain("on a USB disk");
       expect(world.steps.some((s) => s.startsWith("worktree unlock"))).toBe(false);
@@ -435,19 +464,82 @@ describe("tearing down", () => {
 
   it("finishes a teardown a crash interrupted after the worktree and branch were gone", () =>
     withWorld(async (world) => {
-      rmSync(world.worktree, { recursive: true });
-      rmSync(join(world.git.commonDir, "worktrees"), { recursive: true });
-      world.answer = (args) =>
-        args.join(" ") === `rev-parse --verify --quiet refs/heads/${BRANCH}^{commit}`
-          ? { code: 1 }
-          : undefined;
-      const report = await teardownOf(world).poll(world.office.officeId as OfficeId);
+      crashAfterGitSteps(world);
+      world.office.immediate(() =>
+        markTeardownStarted(world.office, world.claim().runId, world.t.clock.now()),
+      );
+      // No code host: the recorded start alone resumes it, without merge-tree or a status read.
+      const report = await teardownOf(world, { host: null, status: null }).poll(
+        world.office.officeId as OfficeId,
+      );
       expect(report.tornDown).toHaveLength(1);
       expect(world.steps.some((s) => s.startsWith("worktree remove"))).toBe(false);
-      expect(world.steps.some((s) => s.startsWith("branch -D"))).toBe(false);
+      expect(world.steps.some((s) => s.startsWith("update-ref"))).toBe(false);
+      expect(world.steps.some((s) => s.startsWith("merge-tree"))).toBe(false);
       expect(world.claim().releaseReason).toBe(DONE_RELEASE_REASON);
+      expect(world.slots.slotOf(world.worktree)).toBeNull();
+    }));
+
+  it("reports a live claim whose worktree and branch vanished without a teardown, once", () =>
+    withWorld(async (world) => {
+      crashAfterGitSteps(world);
+      const teardown = teardownOf(world, { host: null });
+      await teardown.poll(world.office.officeId as OfficeId);
+      await teardown.poll(world.office.officeId as OfficeId);
+      expect(world.claim().releasedAt).toBeNull();
+      expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.claimGone]);
+    }));
+
+  it("records the start of a teardown and clears it when the worktree is kept", () =>
+    withWorld(async (world) => {
+      let startedDuringRemove: number | null = null;
+      world.answer = (args) => {
+        if (args[0] === "worktree" && args[1] === "remove") {
+          startedDuringRemove = world.claim().teardownStartedAt;
+          return { code: 128, stderr: "fatal: contains modified or untracked files" };
+        }
+        return undefined;
+      };
+      await tearDown(deps(world), world.claim(), { by: "merge-tree", tree: BASE_TREE }, TIP);
+      expect(startedDuringRemove).not.toBeNull();
+      expect(world.claim().teardownStartedAt).toBeNull();
+    }));
+
+  it("keeps everything when the branch moves between detection and teardown", () =>
+    withWorld(async (world) => {
+      const moved = "7".repeat(40);
+      const teardown = teardownOf(world, {
+        // A commit lands while the poll reads the story's status.
+        onStatus: () => {
+          world.answer = (args) =>
+            args.join(" ") === `rev-parse --verify --quiet refs/heads/${BRANCH}^{commit}`
+              ? { stdout: `${moved}\n` }
+              : undefined;
+        },
+      });
+      const report = await teardown.poll(world.office.officeId as OfficeId);
+      expect(report.kept).toHaveLength(1);
+      for (const step of ["worktree unlock", "worktree remove", "update-ref", "branch", "push"]) {
+        expect(world.steps.some((s) => s.startsWith(step))).toBe(false);
+      }
+      expect(existsSync(world.worktree)).toBe(true);
+      expect(world.claim().releasedAt).toBeNull();
+      expect(world.claim().teardownStartedAt).toBeNull();
+      const told = notices(world.office);
+      expect(told.map((n) => n.code)).toEqual([TEARDOWN_NOTICES.kept]);
+      expect(told[0]?.text).toContain(`moved from ${TIP} to ${moved}`);
     }));
 });
+
+/** The state after a teardown removed the worktree and deleted the branch, then crashed. */
+function crashAfterGitSteps(world: World): void {
+  rmSync(world.worktree, { recursive: true });
+  rmSync(join(world.git.commonDir, "worktrees"), { recursive: true });
+  world.answer = (args) =>
+    args.join(" ") === `rev-parse --verify --quiet refs/heads/${BRANCH}^{commit}`
+      ? { code: 1 }
+      : undefined;
+}
 
 describe("the Done poll", () => {
   it("keeps the worktree, branch and slot of a parked story", () =>
@@ -462,6 +554,34 @@ describe("the Done poll", () => {
       expect(world.claim().releasedAt).toBeNull();
       expect(world.slots.slotOf(world.worktree)).not.toBeNull();
       expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.parked]);
+    }));
+
+  it("keeps everything this poll when the story's status cannot be read, noticed once", () =>
+    withWorld(async (world) => {
+      const officeId = world.office.officeId as OfficeId;
+      const teardown = teardownOf(world, { status: (call) => (call < 3 ? null : "Done") });
+      const first = await teardown.poll(officeId);
+      await teardown.poll(officeId);
+      expect(first.kept).toHaveLength(1);
+      expect(world.steps.some((s) => s.startsWith("worktree remove"))).toBe(false);
+      expect(world.claim().releasedAt).toBeNull();
+      expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.statusUnknown]);
+      // Readable again: the teardown goes ahead.
+      const third = await teardown.poll(officeId);
+      expect(third.tornDown).toHaveLength(1);
+    }));
+
+  it("tells each cause of a claim once, even when causes alternate", () =>
+    withWorld(async (world) => {
+      const officeId = world.office.officeId as OfficeId;
+      const teardown = teardownOf(world, {
+        status: (call) => (call % 2 === 1 ? null : "Parked"),
+      });
+      for (let i = 0; i < 4; i++) await teardown.poll(officeId);
+      expect(notices(world.office).map((n) => n.code)).toEqual([
+        TEARDOWN_NOTICES.statusUnknown,
+        TEARDOWN_NOTICES.parked,
+      ]);
     }));
 
   it("waits while a worker host of the run is live", () =>
