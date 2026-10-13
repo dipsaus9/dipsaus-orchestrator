@@ -144,6 +144,24 @@ describe("gh calls", () => {
     expect(await gh.findOpenPr("o/r", "dipo/none")).toBeNull();
   });
 
+  it("finds the newest merged PR of a branch with its merge commit, or none (DIPO-58)", async () => {
+    const merged = {
+      ...PR_JSON,
+      state: "MERGED",
+      headRefName: "TASK-1/x",
+      mergeCommit: { oid: "b".repeat(40) },
+    };
+    const { host: gh, stub } = host((args) => ({
+      stdout: JSON.stringify(args.includes("TASK-2/y") ? [] : [merged, { ...merged, number: 3 }]),
+    }));
+    const pr = await gh.findMergedPr("o/r", "TASK-1/x");
+    expect(pr).toMatchObject({ number: 7, state: "merged", mergeCommit: "b".repeat(40) });
+    expect(await gh.findMergedPr("o/r", "TASK-2/y")).toBeNull();
+    expect(stub.calls.at(-1)?.cmd).toEqual(
+      expect.arrayContaining(["pr", "list", "--head", "TASK-2/y", "--state", "merged"]),
+    );
+  });
+
   it("reads required checks while pending or failed, and none when the base requires none", async () => {
     const checks = [
       { name: "ci-ok", state: "IN_PROGRESS", bucket: "pending" as const },
