@@ -1,7 +1,9 @@
 // The daemon logger (0006 decision 13): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
 // `component`, and `office` and `run` when known, plus fields. Fields named `code` or `token` (so
-// also `session.token`) are redacted at every level, at any depth. Time comes from the injected
-// clock. Sinks receive finished lines; the daemon writes them to `<logs>/daemon.log` and, in
+// also `session.token`) are redacted at every level, at any depth. Fields that carry prompts, worker
+// output or command bodies (`DEBUG_ONLY_KEYS`) appear only in `debug` and `trace` lines; in
+// `error`, `warn` and `info` lines their value is replaced, at any depth. Time comes from the
+// injected clock. Sinks receive finished lines; the daemon writes them to `<logs>/daemon.log` and, in
 // foreground, to stderr.
 
 import type { Clock, LogLevel } from "@dipsaus-orchestrator/contract";
@@ -11,9 +13,29 @@ export type LogFields = Readonly<Record<string, unknown>>;
 export const LOG_LEVELS: readonly LogLevel[] = ["error", "warn", "info", "debug", "trace"];
 export const DEFAULT_LOG_LEVEL: LogLevel = "info";
 export const REDACTED = "[redacted]";
+/** What a debug-only field shows in an `error`, `warn` or `info` line. */
+export const DEBUG_ONLY = "[debug only]";
 
 /** Field names whose values never reach a log line (0006 decision 13). */
 const REDACTED_KEYS = new Set(["code", "token", "session.token"]);
+
+/**
+ * Field names for prompts, worker output and command bodies, which appear only in `debug` and
+ * `trace` lines (0006 decision 13). Code that logs such content uses one of these names.
+ */
+export const DEBUG_ONLY_KEYS: ReadonlySet<string> = new Set([
+  "prompt",
+  "output",
+  "stdout",
+  "stderr",
+  "body",
+  "args",
+]);
+
+/** Whether a line at `level` may carry debug-only fields. */
+function showsDebugFields(level: LogLevel): boolean {
+  return level === "debug" || level === "trace";
+}
 
 export function isLogLevel(value: string): value is LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(value);
@@ -48,18 +70,27 @@ export interface CreateLoggerOptions {
   readonly component: string;
 }
 
-/** Replaces redacted fields at any depth; cycles become `"[cycle]"`. */
-export function redact(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+/**
+ * Replaces redacted fields at any depth, and debug-only fields too unless `debugFields`; cycles
+ * become `"[cycle]"`.
+ */
+export function redact(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+  debugFields: boolean = true,
+): unknown {
   if (typeof value !== "object" || value === null) return value;
   if (value instanceof Error) {
     return { name: value.name, message: value.message, stack: value.stack };
   }
   if (seen.has(value)) return "[cycle]";
   seen.add(value);
-  if (Array.isArray(value)) return value.map((item) => redact(item, seen));
+  if (Array.isArray(value)) return value.map((item) => redact(item, seen, debugFields));
   const out: Record<string, unknown> = {};
   for (const [key, inner] of Object.entries(value)) {
-    out[key] = REDACTED_KEYS.has(key) ? REDACTED : redact(inner, seen);
+    if (REDACTED_KEYS.has(key)) out[key] = REDACTED;
+    else if (!debugFields && DEBUG_ONLY_KEYS.has(key)) out[key] = DEBUG_ONLY;
+    else out[key] = redact(inner, seen, debugFields);
   }
   return out;
 }
@@ -81,7 +112,7 @@ export function formatLogLine(
   if (context.office !== undefined) line["office"] = context.office;
   if (context.run !== undefined) line["run"] = context.run;
   if (fields !== undefined) {
-    const clean = redact(fields) as Record<string, unknown>;
+    const clean = redact(fields, new WeakSet(), showsDebugFields(level)) as Record<string, unknown>;
     for (const [key, value] of Object.entries(clean)) {
       if (!(key in line)) line[key] = value;
     }
