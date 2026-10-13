@@ -6,25 +6,35 @@
 // - Each `worktree.files` path is repo-relative and inside the repository: no absolute path, no
 //   empty, `.` or `..` segment, nothing under `.git`.
 // - Nothing follows a symlink: every component of the source path is checked with `lstat` and a
-//   symlink anywhere (on the path or inside a copied directory) refuses the entry, so a copy can
-//   never read outside the repository. The destination's existing parents in the worktree must be
-//   real directories too, so a tracked symlink cannot redirect a write, and the destination must
-//   not exist yet.
+//   symlink anywhere (on the path or inside a copied directory) refuses the entry. The check
+//   records each entry with its `lstat`; exactly that list is placed (a directory is never listed
+//   again), and right before and after each copy every component is checked again and the entry
+//   must still be the same node (device and inode), so a path swapped for a symlink after the
+//   check stops setup. The window between that re-check and the copy is a few system calls; the
+//   main checkout is the maintainer's, outside every sandboxed step's writable paths. The
+//   destination's existing parents in the worktree must be real directories, so a tracked
+//   symlink cannot redirect a write, and the destination must not exist yet.
 // - Every file to place must be ignored per `git check-ignore` in the new worktree (for a
 //   directory every file under it, an empty directory itself); a path git would track refuses
 //   setup, so a secret cannot be committed by accident.
 // - `copy` copies with the source's mode bits (`copyFile` with `COPYFILE_EXCL`, then `chmod`);
 //   `link` places a symlink to the source, meant for large read-only data.
+// - `.claude/settings.local.json` reaches the worktree only through its own rule: listed itself
+//   or under a copied directory, it is left out of the list and copied stripped; a `link` entry on
+//   it or on a directory above it refuses setup.
 // - File contents are never read, hashed or logged; log lines and notices name paths only. The
-//   one exception is `.claude/settings.local.json`, which is parsed to drop keys and is never
-//   logged either.
+//   one exception is `.claude/settings.local.json`, which is opened with `O_NOFOLLOW`, parsed to
+//   drop keys and never logged.
 
 import {
   chmodSync,
+  closeSync,
   constants,
   copyFileSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   type Stats,
@@ -160,30 +170,46 @@ function sourceOf(root: string, segments: readonly string[], shown: string): Sou
   return { kind: "missing" };
 }
 
-/** Files (and empty directories) under a source directory, repo-relative; refuses any symlink. */
-function walk(root: string, rel: string, shown: string): { files: string[]; empty: string[] } {
-  const files: string[] = [];
-  const empty: string[] = [];
-  const entries = readdirSync(join(root, rel), { withFileTypes: true });
-  if (entries.length === 0) empty.push(rel);
-  for (const entry of entries.toSorted((a, b) => a.name.localeCompare(b.name))) {
-    const child = `${rel}/${entry.name}`;
-    if (entry.isSymbolicLink()) {
+/** One checked source entry: its repo-relative path and the `lstat` taken when it was checked. */
+interface Entry {
+  readonly rel: string;
+  readonly kind: "file" | "dir";
+  readonly stats: Stats;
+}
+
+/**
+ * Every entry under a source directory, the directory first and parents before children,
+ * repo-relative with the `lstat` taken here; refuses any symlink. `skip` paths are left out.
+ */
+function walk(root: string, rel: string, stats: Stats, shown: string, skip: string): Entry[] {
+  const entries: Entry[] = [{ rel, kind: "dir", stats }];
+  const names = readdirSync(join(root, rel)).toSorted();
+  for (const name of names) {
+    const child = `${rel}/${name}`;
+    if (child === skip) continue;
+    const childStats = lstatSync(join(root, child));
+    if (childStats.isSymbolicLink()) {
       throw new FileStepError(
         `${shown}: ${child} is a symlink in the main checkout; dipo never follows symlinks when it copies files.`,
       );
     }
-    if (entry.isDirectory()) {
-      const inner = walk(root, child, shown);
-      files.push(...inner.files);
-      empty.push(...inner.empty);
-    } else if (entry.isFile()) {
-      files.push(child);
+    if (childStats.isDirectory()) {
+      entries.push(...walk(root, child, childStats, shown, skip));
+    } else if (childStats.isFile()) {
+      entries.push({ rel: child, kind: "file", stats: childStats });
     } else {
       throw new FileStepError(`${shown}: ${child} is neither a file nor a directory.`);
     }
   }
-  return { files, empty };
+  return entries;
+}
+
+/** The paths the ignore check covers: every file, and every directory that holds nothing. */
+function checkedPaths(entries: readonly Entry[]): string[] {
+  const parents = new Set(entries.map((entry) => entry.rel.slice(0, entry.rel.lastIndexOf("/"))));
+  return entries
+    .filter((entry) => entry.kind === "file" || !parents.has(entry.rel))
+    .map((entry) => entry.rel);
 }
 
 /**
@@ -214,34 +240,76 @@ function modeOf(stats: Stats): number {
   return stats.mode & 0o7777;
 }
 
-/** Copies one regular file with its mode; never opens it in this process. */
-function copyFile(from: string, to: string): void {
-  const stats = lstatSync(from);
-  if (!stats.isFile()) throw new FileStepError(`${from} changed while dipo copied it.`);
-  copyFileSync(from, to, constants.COPYFILE_EXCL);
-  chmodSync(to, modeOf(stats));
+function sameNode(a: Stats, b: Stats): boolean {
+  return a.dev === b.dev && a.ino === b.ino;
 }
 
-function copyTree(main: string, worktree: string, rel: string): string[] {
-  const from = join(main, rel);
-  const to = join(worktree, rel);
-  const stats = lstatSync(from);
-  if (stats.isSymbolicLink())
-    throw new FileStepError(`${rel} changed to a symlink while dipo copied it.`);
-  if (stats.isFile()) {
-    copyFile(from, to);
-    return [rel];
+/**
+ * Re-checks a source entry right before it is used: no component from the main checkout down is
+ * a symlink, and the entry is still the node checked earlier (same device and inode, same kind).
+ */
+function recheck(main: string, entry: Entry): void {
+  const segments = entry.rel.split("/");
+  let current = main;
+  for (const [index, segment] of segments.entries()) {
+    current = join(current, segment);
+    const stats = lstatOrNull(current);
+    const last = index === segments.length - 1;
+    if (
+      stats === null ||
+      stats.isSymbolicLink() ||
+      (!last && !stats.isDirectory()) ||
+      (last &&
+        (!sameNode(stats, entry.stats) ||
+          (entry.kind === "file" ? !stats.isFile() : !stats.isDirectory())))
+    ) {
+      throw new FileStepError(
+        `${entry.rel} changed in the main checkout while dipo copied it; setup stopped.`,
+      );
+    }
   }
-  mkdirSync(to, { mode: 0o700 });
+}
+
+/**
+ * Copies exactly the checked entries, parents first: directories are created, each file is
+ * re-checked and copied with `copyFile` (`COPYFILE_EXCL`, never opened in this process), then
+ * given its checked mode, and re-checked after the copy; directory modes are set last.
+ */
+function copyEntries(main: string, worktree: string, entries: readonly Entry[]): string[] {
   const copied: string[] = [];
-  for (const name of readdirSync(from).toSorted())
-    copied.push(...copyTree(main, worktree, `${rel}/${name}`));
-  chmodSync(to, modeOf(stats));
+  for (const entry of entries) {
+    const to = join(worktree, entry.rel);
+    recheck(main, entry);
+    if (entry.kind === "dir") {
+      mkdirSync(to, { mode: 0o700 });
+      continue;
+    }
+    copyFileSync(join(main, entry.rel), to, constants.COPYFILE_EXCL);
+    chmodSync(to, modeOf(entry.stats));
+    recheck(main, entry);
+    copied.push(entry.rel);
+  }
+  for (const entry of entries.toReversed()) {
+    if (entry.kind === "dir") chmodSync(join(worktree, entry.rel), modeOf(entry.stats));
+  }
   return copied;
 }
 
 function ensureParents(worktree: string, segments: readonly string[]): void {
   if (segments.length > 1) mkdirSync(join(worktree, ...segments.slice(0, -1)), { recursive: true });
+}
+
+/** True when `rel` is `.claude/settings.local.json` or a directory above it. */
+function holdsLocalSettings(rel: string): boolean {
+  return rel === LOCAL_SETTINGS_FILE || LOCAL_SETTINGS_FILE.startsWith(`${rel}/`);
+}
+
+interface Plan {
+  readonly spec: WorktreeFileSpec;
+  readonly rel: string;
+  readonly segments: readonly string[];
+  /** The checked source entries; exactly these are placed. */
+  readonly entries: readonly Entry[];
 }
 
 /** Runs setup step 1. Throws `FileStepError` on a refusal; anything copied stays for the rollback. */
@@ -252,10 +320,15 @@ export async function placeFiles(input: FileStepInput): Promise<FileStepResult> 
   const skipped: string[] = [];
 
   // Plan every entry first, so a refusal happens before anything is written.
-  const plans: { spec: WorktreeFileSpec; rel: string; segments: string[]; check: string[] }[] = [];
+  const plans: Plan[] = [];
   for (const spec of input.files) {
     const segments = repoSegments(spec.path);
     const rel = segments.join("/");
+    if (holdsLocalSettings(rel) && spec.mode === "link") {
+      throw new FileStepError(
+        `${rel} is linked by worktree.files but holds ${LOCAL_SETTINGS_FILE}, which the worktree gets only as a copy without its permission keys; copy it instead.`,
+      );
+    }
     if (rel === LOCAL_SETTINGS_FILE) {
       log.push(`files: ${rel} is copied by its own rule (permission keys dropped), not as listed`);
       continue;
@@ -271,21 +344,23 @@ export async function placeFiles(input: FileStepInput): Promise<FileStepResult> 
       log.push(`files: ${rel} skipped, not in the main checkout (optional)`);
       continue;
     }
-    const check =
+    const entries =
       source.kind === "file"
-        ? [rel]
-        : (() => {
-            const tree = walk(input.main, rel, rel);
-            return [...tree.files, ...tree.empty];
-          })();
-    for (const path of check) plainName(path);
-    plans.push({ spec, rel, segments, check });
+        ? [{ rel, kind: "file" as const, stats: source.stats }]
+        : walk(input.main, rel, source.stats, rel, LOCAL_SETTINGS_FILE);
+    if (source.kind === "dir" && holdsLocalSettings(rel)) {
+      log.push(
+        `files: ${LOCAL_SETTINGS_FILE} under ${rel} is copied by its own rule (permission keys dropped), not as listed`,
+      );
+    }
+    for (const entry of entries) plainName(entry.rel);
+    plans.push({ spec, rel, segments, entries });
   }
 
-  const wanted = plans.flatMap((plan) => plan.check);
+  const wanted = plans.flatMap((plan) => checkedPaths(plan.entries));
   const ignored = wanted.length === 0 ? new Set<string>() : await input.ignored(wanted);
   for (const plan of plans) {
-    const tracked = plan.check.filter((path) => !ignored.has(path));
+    const tracked = checkedPaths(plan.entries).filter((path) => !ignored.has(path));
     if (tracked.length > 0) {
       const shown =
         tracked.slice(0, 5).join(", ") +
@@ -300,11 +375,13 @@ export async function placeFiles(input: FileStepInput): Promise<FileStepResult> 
   for (const plan of plans) {
     ensureParents(input.worktree, plan.segments);
     if (plan.spec.mode === "link") {
+      const top = plan.entries[0] as Entry;
+      recheck(input.main, top);
       symlinkSync(join(input.main, plan.rel), join(input.worktree, plan.rel));
       linked.push(plan.rel);
       log.push(`files: linked ${plan.rel}`);
     } else {
-      const placed = copyTree(input.main, input.worktree, plan.rel);
+      const placed = copyEntries(input.main, input.worktree, plan.entries);
       copied.push(...placed);
       log.push(
         placed.length === 1 && placed[0] === plan.rel
@@ -322,8 +399,9 @@ export async function placeFiles(input: FileStepInput): Promise<FileStepResult> 
 }
 
 /**
- * Copies `.claude/settings.local.json` when present and ignored, without the stripped keys. A
- * file that cannot be copied safely (a symlink, tracked, not a JSON object) is left out with the
+ * Copies `.claude/settings.local.json` when present and ignored, without the stripped keys. It is
+ * opened with `O_NOFOLLOW` after its parents are re-checked, and must be the node checked before.
+ * A file that cannot be copied safely (a symlink, tracked, not a JSON object) is left out with the
  * reason; the worker then runs without it.
  */
 async function copyLocalSettings(
@@ -348,9 +426,22 @@ async function copyLocalSettings(
   } catch (error) {
     return leftOut(log, error instanceof Error ? error.message : String(error));
   }
+  let text: string;
+  try {
+    recheck(input.main, { rel, kind: "file", stats: source.stats });
+    const fd = openSync(join(input.main, rel), constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      if (!sameNode(fstatSync(fd), source.stats)) throw new Error("changed");
+      text = readFileSync(fd, "utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return leftOut(log, `${rel} changed in the main checkout while dipo read it`);
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(join(input.main, rel), "utf8"));
+    parsed = JSON.parse(text);
   } catch {
     return leftOut(log, `${rel} in the main checkout is not valid JSON`);
   }

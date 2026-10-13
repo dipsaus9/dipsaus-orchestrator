@@ -37,6 +37,7 @@ const GITIGNORE = [
   "apps/server/.dev.vars",
   ".cache/",
   ".claude/settings.local.json",
+  ".claude/notes.local.md",
   "data/",
   "partly/ignored.txt",
   "outside-link",
@@ -223,6 +224,33 @@ describe("placing worktree files", () => {
       });
       expect(statSync(path).mode & 0o777).toBe(0o600);
       expect(result.log.join("\n")).not.toContain("bypassPermissions");
+    });
+  });
+
+  it("routes settings.local.json under a copied .claude through its own rule and refuses linking it", async () => {
+    await withTempRepo(async (repo) => {
+      const l = await layout(repo);
+      mkdirSync(join(l.main, ".claude"));
+      writeFileSync(
+        join(l.main, ".claude", "settings.local.json"),
+        JSON.stringify({ permissions: { allow: ["Bash(*)"], deny: ["Read(./.env)"] } }),
+      );
+      writeFileSync(join(l.main, ".claude", "notes.local.md"), "notes\n");
+
+      for (const path of [".claude", ".claude/settings.local.json"]) {
+        expect(await refused(place(l, [{ path, mode: "link", required: false }]))).toContain(
+          "holds .claude/settings.local.json",
+        );
+      }
+      expect(existsSync(join(l.worktree, ".claude"))).toBe(false);
+
+      const result = await place(l, [copy(".claude")]);
+      expect(result.copied).toEqual([".claude/notes.local.md"]);
+      expect(result.settings).toEqual({ copied: true });
+      expect(
+        JSON.parse(readFileSync(join(l.worktree, ".claude", "settings.local.json"), "utf8")),
+      ).toEqual({ permissions: { deny: ["Read(./.env)"] } });
+      expect(lstatSync(join(l.worktree, ".claude")).isSymbolicLink()).toBe(false);
     });
   });
 
