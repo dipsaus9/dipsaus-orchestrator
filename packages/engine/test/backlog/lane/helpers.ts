@@ -13,7 +13,7 @@ import { OfficeLane, type LaneOpKind, editKind, EDIT_KIND } from "../../../src/b
 import type { BacklogCli } from "../../../src/backlog/runner";
 import { readLogState } from "../../../src/changelog/log";
 import type { OfficeHandle } from "../../../src/db/office";
-import { OfficeGit, spawnGitExec } from "../../../src/git";
+import { type GitSettings, OfficeGit, spawnGitExec } from "../../../src/git";
 import { systemSpawn } from "../../../src/platform/process";
 import { addOffice, openTestState, type TestState } from "../../commands/helpers";
 import { BACKLOG_CLI } from "../helpers";
@@ -29,7 +29,11 @@ export interface LaneSetup {
   /** Every CLI call (`backlog` arguments joined by spaces), plus markers tests push. */
   readonly log: string[];
   /** Called on each CLI call before it starts. */
-  readonly hooks: { onCli?: (args: readonly string[]) => void };
+  readonly hooks: {
+    onCli?: (args: readonly string[]) => void;
+    /** Called on each engine git call before it starts. */
+    onGit?: (args: readonly string[]) => void;
+  };
   lane(): OfficeLane;
 }
 
@@ -39,19 +43,30 @@ export async function publish(repo: TempRepo | TempRepoWithRemote): Promise<void
   if ("remote" in repo) await repo.git("push", "--quiet", "origin", "main");
 }
 
-export async function laneSetup(repo: TempRepo): Promise<LaneSetup> {
+export async function laneSetup(
+  repo: TempRepo,
+  settings: GitSettings = { remote: "origin", base: "main" },
+): Promise<LaneSetup> {
   const t = await openTestState(join(repo.root, "state-dir"));
   const office = addOffice(t);
+  const exec = spawnGitExec(systemSpawn);
+  const hooks: LaneSetup["hooks"] = {};
   const officeGit = new OfficeGit({
     officeId: office.officeId as OfficeId,
     mainWorktree: realpathSync(repo.dir),
     commonDir: realpathSync(join(repo.dir, ".git")),
-    settings: { remote: "origin", base: "main" },
-    runner: { exec: spawnGitExec(systemSpawn), env: repo.env, sleep: async () => {} },
+    settings,
+    runner: {
+      exec: (call) => {
+        hooks.onGit?.(call.args);
+        return exec(call);
+      },
+      env: repo.env,
+      sleep: async () => {},
+    },
     clock: t.clock,
   });
   const log: string[] = [];
-  const hooks: LaneSetup["hooks"] = {};
   const spawn: Spawn = (options) => {
     const args = options.cmd.slice(BACKLOG_CLI.length);
     log.push(`cli ${args.join(" ")}`);

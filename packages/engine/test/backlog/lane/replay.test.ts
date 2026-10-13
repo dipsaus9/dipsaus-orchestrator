@@ -4,19 +4,33 @@
 // crash is found again by its trailer instead of being applied twice.
 
 import { describe, expect, it } from "bun:test";
-import { realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { withBareRemote } from "@dipsaus-orchestrator/testkit";
 
-import { allEntries, BacklogLane, OP_TRAILER, pendingLaneOp } from "../../../src/backlog/lane";
+import {
+  allEntries,
+  BacklogLane,
+  LANE_NOTICES,
+  OP_TRAILER,
+  pendingLaneOp,
+} from "../../../src/backlog/lane";
 import type { BacklogCli } from "../../../src/backlog/runner";
 import { buildRegistry, type FeatureModule } from "../../../src/commands/registry";
 import { EngineGit } from "../../../src/git";
 import type { OfficeLoadContext } from "../../../src/office/steps";
 import { systemSpawn } from "../../../src/platform/process";
-import { BACKLOG_FIXTURE, inRemote, laneSetup, publish, storyKey, subjects } from "./helpers";
+import {
+  BACKLOG_FIXTURE,
+  inRemote,
+  laneSetup,
+  notices,
+  publish,
+  storyKey,
+  subjects,
+} from "./helpers";
 
 /** One daemon start: fresh engine git and lane, the office's load steps run in order. */
 async function loadOffice(
@@ -90,6 +104,45 @@ describe("replaying the journal at office load", () => {
         expect(later).toBe(s.log.length - 1);
         expect(s.log.slice(0, later).some((line) => line.startsWith("cli "))).toBe(true);
         expect(pendingLaneOp(s.office, key)).not.toBeNull();
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("puts a failed replay on the office as a notice, and the office still loads", async () => {
+    await withBareRemote(
+      async (repo) => {
+        await publish(repo);
+        await repo.git("remote", "set-head", "origin", "main");
+        const s = await laneSetup(repo);
+        const ctx: OfficeLoadContext = {
+          officeId: s.office.officeId as OfficeId,
+          office: s.office,
+          path: realpathSync(repo.dir),
+          commonDir: realpathSync(join(repo.dir, ".git")),
+          config: undefined,
+          clock: s.t.clock,
+          ids: s.t.ids,
+        };
+        const key = storyKey(s);
+        const before = await loadOffice(ctx, repo.env, s.cli, s.log);
+        const lane = before.forOffice(ctx.officeId);
+        if (lane === undefined) throw new Error("lane not attached");
+        await lane.journal({ kind: "edit", key, subject: "TASK-1", target: { status: "Refined" } });
+        // Before the restart, something that is not the engine's worktree takes `_backlog`.
+        mkdirSync(lane.worktreePath(), { recursive: true });
+        writeFileSync(join(lane.worktreePath(), "mine.txt"), "not dipo's\n");
+        s.log.length = 0;
+
+        // Every load step ran, the later one included.
+        await loadOffice(ctx, repo.env, s.cli, s.log);
+        expect(s.log).toEqual(["later item"]);
+        expect(allEntries(s.office)[0]?.state).toBe("pending");
+        expect(pendingLaneOp(s.office, key)).not.toBeNull();
+        const failed = notices(s.office).filter((n) => n.code === LANE_NOTICES.replayFailed);
+        expect(failed).toHaveLength(1);
+        expect(failed[0]?.level).toBe("error");
+        expect(failed[0]?.text).toContain("Replaying the open backlog operations failed");
       },
       { fixture: BACKLOG_FIXTURE },
     );

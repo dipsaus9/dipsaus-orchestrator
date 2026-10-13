@@ -10,7 +10,13 @@ import type { FeatureModule } from "../../commands/registry";
 import type { OfficeLoadContext } from "../../office/steps";
 
 import { openEntries } from "./journal";
-import { type BacklogLaneDeps, LANE_NOTICES, LANE_REPLAY_STEP, OfficeLane } from "./lane";
+import {
+  type BacklogLaneDeps,
+  LANE_NOTICES,
+  LANE_REPLAY_STEP,
+  LaneFlushError,
+  OfficeLane,
+} from "./lane";
 import { EDIT_KIND, editKind, type LaneOpKind } from "./ops";
 
 export class BacklogLane {
@@ -68,8 +74,10 @@ export class BacklogLane {
     if (typeof lane === "string") return lane;
     if (openEntries(ctx.office).length === 0) return null;
     try {
-      await lane.flush();
+      await lane.flush({ replay: true });
     } catch (error) {
+      // The flush put its own notice on the office.
+      if (error instanceof LaneFlushError) return null;
       const text = `Replaying the open backlog operations failed: ${error instanceof Error ? error.message : String(error)}. They stay journaled and are applied at the next backlog change.`;
       ctx.office.immediate(() =>
         appendEntries(

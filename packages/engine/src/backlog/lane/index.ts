@@ -17,6 +17,7 @@ export {
   LANE_REPLAY_STEP,
   LANE_WORKTREE,
   LaneError,
+  LaneFlushError,
   OfficeLane,
   OP_TRAILER,
   statusPaths,

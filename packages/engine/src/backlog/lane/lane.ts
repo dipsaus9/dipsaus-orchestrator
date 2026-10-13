@@ -21,6 +21,11 @@
 //
 // Each commit carries the trailer `Dipo-Op: <op id>`, so after a crash between a commit and its
 // journal update the commit is found again instead of applied twice.
+//
+// Steps that may wait on something outside the engine (the commit, which signs as the maintainer
+// configured, and the push) are killed after `EXTERNAL_STEP_TIMEOUT_MS` on the injected clock, so
+// the office queue never hangs; the operation stays journaled and a `backlog.lane.commitStuck`
+// notice names the likely cause. Every failed flush puts an `engine.notice` on the office.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -38,7 +43,12 @@ import {
   WORKTREE_ADD_CONFIG,
 } from "../../git/hardened";
 import type { GitSession, OfficeGit } from "../../git/office";
-import { GitError, type GitStepOptions } from "../../git/runner";
+import {
+  EXTERNAL_STEP_TIMEOUT_MS,
+  GitError,
+  type GitStepOptions,
+  isTimedOut,
+} from "../../git/runner";
 import { findStoryByKey } from "../../stories/keys";
 import type { BacklogCli } from "../runner";
 
@@ -67,7 +77,47 @@ export const LANE_NOTICES = {
   rebuilt: "backlog.lane.rebuilt",
   waiting: "backlog.lane.waiting",
   replayFailed: "backlog.lane.replayFailed",
+  flushFailed: "backlog.lane.flushFailed",
+  commitStuck: "backlog.lane.commitStuck",
+  baseUnset: "backlog.lane.baseUnset",
 } as const;
+
+/** Why a commit made by the engine may fail or wait: config the maintainer controls. */
+const COMMIT_CAUSE =
+  "commit signing (`commit.gpgsign`, `user.signingkey`, `gpg.program`) waiting for a passphrase or a pinentry, or a missing commit identity (`user.name`, `user.email`)";
+/** Why a push may wait. */
+const PUSH_CAUSE =
+  "the remote waiting for credentials (an ssh passphrase or a credential helper prompt)";
+
+/** stderr of a commit that failed on its identity or its signature. */
+const COMMIT_CONFIG_FAILURE =
+  /Please tell me who you are|unable to auto-detect email|empty ident|gpg failed to sign|failed to write commit object|error: (?:gpg|ssh-keygen|signing)/i;
+
+/** A flush failure that already put its `engine.notice` on the office. */
+export class LaneFlushError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    override readonly cause: unknown,
+  ) {
+    super(message);
+    this.name = "LaneFlushError";
+  }
+}
+
+/** An engine commit that timed out, or failed on its identity or signature. */
+class StuckCommitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StuckCommitError";
+  }
+}
+
+/** `text` as one sentence ending in a full stop. */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
 
 /** A lane refusal: the operation was not journaled. */
 export class LaneError extends Error {
@@ -207,8 +257,9 @@ export class OfficeLane {
         }),
       );
     }
-    return this.#git.run(async () =>
-      this.#office.immediate(() => {
+    return this.#git.run(async (git) => {
+      await this.#assertBase(git);
+      return this.#office.immediate(() => {
         if (op.key !== undefined && this.#liveClaim(this.#office, op.key)) {
           throw new LaneError(
             "backlog.lane.liveClaim",
@@ -217,8 +268,19 @@ export class OfficeLane {
           );
         }
         return insertEntry(this.#office, op, this.#clock.now());
-      }),
-    );
+      });
+    });
+  }
+
+  /**
+   * Refuses the lane, with an `engine.notice`, when the office has neither a remote nor a
+   * configured `base`: the main checkout's HEAD is the maintainer's, not a base to apply to.
+   */
+  async #assertBase(git: GitSession): Promise<void> {
+    if (this.#git.settings.base !== undefined || (await this.#hasRemote(git))) return;
+    const text = `The backlog lane is refused: the office has no remote ${this.#git.settings.remote} and .dipo/office.yaml sets no \`base\`, so the lane has no base branch to apply to. Set \`base\` in .dipo/office.yaml.`;
+    this.#write(() => [this.#notice("error", LANE_NOTICES.baseUnset, text)]);
+    throw new LaneError(LANE_NOTICES.baseUnset, text, { remote: this.#git.settings.remote });
   }
 
   /** Journals `op`, then flushes: apply, commit and push every open operation. */
@@ -234,16 +296,41 @@ export class OfficeLane {
    * Brings the open branch up to date and applies every open operation: fetch (when the office
    * has a remote), drop merged operations, rebuild when needed, apply, commit, push.
    */
-  async flush(): Promise<FlushReport> {
-    const has = await this.#git.run((git) => this.#hasRemote(git));
-    let remote: RemoteState = { has, fetched: false, detail: "" };
-    if (has) {
-      const outcome = await this.#git.fetch();
-      remote = outcome.ok
-        ? { has, fetched: true, detail: "" }
-        : { has, fetched: false, detail: outcome.error.message };
+  async flush(options: { readonly replay?: boolean } = {}): Promise<FlushReport> {
+    try {
+      const has = await this.#git.run((git) => this.#hasRemote(git));
+      let remote: RemoteState = { has, fetched: false, detail: "" };
+      if (has) {
+        const outcome = await this.#git.fetch();
+        remote = outcome.ok
+          ? { has, fetched: true, detail: "" }
+          : { has, fetched: false, detail: outcome.error.message };
+      }
+      return await this.#git.run((git) => this.#flush(git, remote));
+    } catch (error) {
+      throw this.#failed(error, options.replay === true);
     }
-    return this.#git.run((git) => this.#flush(git, remote));
+  }
+
+  /**
+   * Puts a failed flush on the office as an `engine.notice`, so it is visible whoever called the
+   * flush, and returns the error to throw. The open operations stay journaled.
+   */
+  #failed(error: unknown, replay: boolean): LaneFlushError {
+    if (error instanceof LaneFlushError) return error;
+    const message = error instanceof Error ? error.message : String(error);
+    let code: string = replay ? LANE_NOTICES.replayFailed : LANE_NOTICES.flushFailed;
+    let text = `${replay ? "Replaying the open backlog operations" : "Applying the open backlog operations"} failed: ${sentence(message)} They stay journaled and are applied at the next backlog change.`;
+    if (error instanceof LaneError && error.code === LANE_NOTICES.baseUnset) {
+      // `#assertBase` put its own notice on the office already.
+      return new LaneFlushError(error.code, error.message, error);
+    }
+    if (error instanceof StuckCommitError) {
+      code = LANE_NOTICES.commitStuck;
+      text = `The backlog lane could not commit: ${sentence(message)} The likely cause is ${COMMIT_CAUSE}. The operation stays journaled and is applied at the next backlog change; dipo does not change that configuration.`;
+    }
+    this.#write(() => [this.#notice("error", code, text)]);
+    return new LaneFlushError(code, text, error);
   }
 
   // ---- the flush item ------------------------------------------------------------------------
@@ -267,6 +354,7 @@ export class OfficeLane {
       };
     }
 
+    await this.#assertBase(git);
     const base = await this.#base(git, remote.has);
     const location = await this.#ensureWorktree(git, base.sha);
     let branch = open.findLast((entry) => entry.branch !== null)?.branch ?? null;
@@ -344,6 +432,7 @@ export class OfficeLane {
         entry.key === null
           ? entry.subject
           : (findStoryByKey(this.#office, entry.key)?.story ?? entry.subject);
+      const before = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
       let outcome;
       try {
         outcome = await kind.apply(
@@ -351,8 +440,20 @@ export class OfficeLane {
           entry.target,
         );
       } catch (error) {
-        await this.#discard(git, location);
+        await this.#discard(git, location, before);
         throw error;
+      }
+      // Only the engine commits in `_backlog`. A CLI that committed by itself (Backlog.md
+      // `auto_commit: true`) made a commit without the trailer and outside the journal: undo it.
+      const after = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+      if (after !== before) {
+        await this.#discard(git, location, before);
+        this.#drop(
+          entry,
+          "the Backlog CLI committed by itself while applying it (Backlog.md `auto_commit` is on; set `auto_commit: false` in backlog/config.yml)",
+        );
+        dropped.push(entry.opId);
+        continue;
       }
       if (!outcome.applies) {
         await this.#discard(git, location);
@@ -388,15 +489,7 @@ export class OfficeLane {
       const onto = branch;
       this.#write(() => this.#update(entry.opId, { state: "applied", branch: onto }));
       await git.ok(location, ["add", "--all", "--", ...paths]);
-      await git.ok(location, [
-        "commit",
-        "--quiet",
-        "-m",
-        messageOf(entry),
-        "-m",
-        `${OP_TRAILER}: ${entry.opId}`,
-      ]);
-      const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+      const sha = await this.#commit(git, location, entry);
       this.#write(() => this.#update(entry.opId, { state: "committed", commit: sha }));
       committed.push(entry.opId);
     }
@@ -419,6 +512,33 @@ export class OfficeLane {
     };
   }
 
+  /**
+   * Commits the staged operation as `backlog: <op> <ID>` with its trailer and returns the commit.
+   * A plain `git commit`, so signing follows the maintainer's own configuration; since it may wait
+   * on something outside the engine (a signing program asking for a passphrase), it runs with a
+   * timeout, and a commit that times out, or fails on its identity or signature, throws
+   * `StuckCommitError`.
+   */
+  async #commit(git: GitSession, location: GitLocation, entry: JournalEntry): Promise<string> {
+    let result;
+    try {
+      result = await git.step(
+        location,
+        ["commit", "--quiet", "-m", messageOf(entry), "-m", `${OP_TRAILER}: ${entry.opId}`],
+        { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
+      );
+    } catch (error) {
+      if (isTimedOut(error)) throw new StuckCommitError(error.message);
+      throw error;
+    }
+    if (result.code !== 0) {
+      const detail = `git commit failed: ${result.stderr.trim() || `exit ${result.code}`}`;
+      if (COMMIT_CONFIG_FAILURE.test(result.stderr)) throw new StuckCommitError(detail);
+      throw new GitError("git.failed", detail, false, { code: result.code });
+    }
+    return (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+  }
+
   /** Pushes the open branch when it has unpushed commits; records and reports what waits. */
   async #push(
     git: GitSession,
@@ -439,6 +559,7 @@ export class OfficeLane {
     }
     let reason: WaitingReason | null = null;
     let detail = "";
+    let stuck = false;
     if (!remote.has) {
       reason = "noRemote";
       detail = `the office has no remote ${this.#git.settings.remote}; merge ${branch} into ${base.name} by hand`;
@@ -446,18 +567,25 @@ export class OfficeLane {
       reason = "fetchFailed";
       detail = `the push waits until a fetch of ${this.#git.settings.remote} succeeds (${remote.detail})`;
     } else {
-      const result = await git.step(
-        git.repository,
-        [
-          "push",
-          "--quiet",
-          "--no-verify",
-          this.#git.settings.remote,
-          `refs/heads/${branch}:refs/heads/${branch}`,
-        ],
-        { config: FETCH_CONFIG },
-      );
-      if (result.code === 0) {
+      const result = await git
+        .step(
+          git.repository,
+          [
+            "push",
+            "--quiet",
+            "--no-verify",
+            this.#git.settings.remote,
+            `refs/heads/${branch}:refs/heads/${branch}`,
+          ],
+          { config: FETCH_CONFIG, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
+        )
+        .catch((error: unknown) => {
+          // A push waiting on a credential prompt was killed; the commits wait for the next flush.
+          if (!isTimedOut(error)) throw error;
+          return null;
+        });
+      stuck = result === null;
+      if (result?.code === 0) {
         this.#write(() => {
           for (const entry of unpushed) this.#update(entry.opId, { state: "pushed" });
         });
@@ -465,7 +593,10 @@ export class OfficeLane {
         return true;
       }
       reason = "pushFailed";
-      detail = `pushing to ${this.#git.settings.remote} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
+      detail =
+        result === null
+          ? `pushing to ${this.#git.settings.remote} was killed after ${EXTERNAL_STEP_TIMEOUT_MS / 1000} s; the likely cause is ${PUSH_CAUSE}`
+          : `pushing to ${this.#git.settings.remote} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
       changed = true;
     }
     const ops = unpushed.map((entry) => ({ opId: entry.opId, message: messageOf(entry) }));
@@ -473,8 +604,8 @@ export class OfficeLane {
     if (changed) {
       this.#write(() => [
         this.#notice(
-          "warn",
-          LANE_NOTICES.waiting,
+          stuck ? "error" : "warn",
+          stuck ? LANE_NOTICES.commitStuck : LANE_NOTICES.waiting,
           `The backlog branch ${branch} waits: ${detail}. Waiting: ${ops.map((op) => op.message).join("; ")}.`,
         ),
       ]);
@@ -538,12 +669,16 @@ export class OfficeLane {
   async #base(git: GitSession, hasRemote: boolean): Promise<BaseRef> {
     const { remote, base: configured } = this.#git.settings;
     let name = configured;
-    if (name === undefined) {
-      const head = hasRemote
-        ? await git.step(git.repository, ["symbolic-ref", "--quiet", `refs/remotes/${remote}/HEAD`])
-        : await git.step(git.repository, ["symbolic-ref", "--quiet", "HEAD"]);
+    // Without a remote `#assertBase` refused the lane unless `base` is set; the main checkout's
+    // HEAD is never taken as the base.
+    if (name === undefined && hasRemote) {
+      const head = await git.step(git.repository, [
+        "symbolic-ref",
+        "--quiet",
+        `refs/remotes/${remote}/HEAD`,
+      ]);
       const target = head.stdout.trim();
-      const prefix = hasRemote ? `refs/remotes/${remote}/` : "refs/heads/";
+      const prefix = `refs/remotes/${remote}/`;
       if (head.code === 0 && target.startsWith(prefix) && target.length > prefix.length) {
         name = target.slice(prefix.length);
       }
@@ -629,8 +764,8 @@ export class OfficeLane {
   }
 
   /** Throws away what an operation left in the worktree. */
-  async #discard(git: GitSession, location: GitLocation): Promise<void> {
-    await git.ok(location, ["reset", "--hard", "--quiet", "HEAD"], CHECKOUT);
+  async #discard(git: GitSession, location: GitLocation, to = "HEAD"): Promise<void> {
+    await git.ok(location, ["reset", "--hard", "--quiet", to], CHECKOUT);
     await git.ok(location, ["clean", "-fdq"]);
   }
 
