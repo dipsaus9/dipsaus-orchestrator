@@ -49,6 +49,34 @@ const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn')";
 const ENDED_AGENT =
   "agent_id in (select agent_id from agents where office_id = $office_id and ended_at < $cutoff)";
 
+const PROFILE_CHILDREN = [
+  "run_capabilities",
+  "run_env_files",
+  "run_ports",
+  "run_extra_scripts",
+] as const;
+
+/**
+ * The run profiles to keep: the current one and its previous one, or the two newest when none is
+ * current. Null when the office has no profile.
+ */
+function keptProfiles(office: OfficeHandle): number[] | null {
+  const current = office.get<{ id: number; previous: number | null }>(
+    `select profile_id as id, previous_profile_id as previous from run_profiles
+      where office_id = $office_id and current = 1`,
+  );
+  if (current !== null) {
+    return current.previous === null ? [current.id] : [current.id, current.previous];
+  }
+  const newest = office
+    .all<{ id: number }>(
+      `select profile_id as id from run_profiles where office_id = $office_id
+        order by profile_id desc limit 2`,
+    )
+    .map((row) => row.id);
+  return newest.length === 0 ? null : newest;
+}
+
 /** Runs one pass; the caller keeps passes of one office from overlapping. */
 export async function runRetention(options: RetentionOptions): Promise<RetentionReport> {
   const { office, clock, periods } = options;
@@ -132,6 +160,19 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   // Released claims; a live claim has no release time.
   await rows("claims", "released_at < $cutoff", { cutoff: stateCutoff });
   await rows("scans", "finished_at < $cutoff", { cutoff: stateCutoff });
+  // A released branch stays until reclaimed (0010 section 2a); the reclaim record is history.
+  await rows("released_branches", "reclaimed_at < $cutoff", { cutoff: stateCutoff });
+  await rows("pricing_checks", "raised_at < $cutoff", { cutoff: stateCutoff });
+
+  // P: only the current run profile and its previous one are kept (0007 section 4); older
+  // profiles go with their capability, env-file, port and extra-script rows. Scans keep tier S.
+  const profiles = keptProfiles(office);
+  if (profiles !== null) {
+    const kept = { kept: JSON.stringify(profiles) };
+    const older = "profile_id not in (select value from json_each($kept))";
+    for (const table of PROFILE_CHILDREN) await rows(table, older, kept);
+    await rows("run_profiles", older, kept);
+  }
   await rows("worker_hosts", "ended_at < $cutoff", { cutoff: stateCutoff });
   await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`, {
     cutoff: stateCutoff,

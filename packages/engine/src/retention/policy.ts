@@ -44,14 +44,18 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   },
   claims: { tier: "S", rule: "released more than stateDays ago; a live claim is kept" },
   scans: { tier: "S", rule: "finished more than stateDays ago" },
-  // 0007 keeps the current and previous profile; older profiles are not aged yet (open point).
-  run_profiles: { tier: "P", rule: "kept until purge" },
+  // 0007: P for the current and the previous profile; older ones are pruned, not aged.
+  run_profiles: {
+    tier: "P",
+    rule: "the current profile and its previous one (the two newest when none is current)",
+  },
   run_capabilities: { tier: "P", rule: "with its profile" },
   run_env_files: { tier: "P", rule: "with its profile" },
   run_ports: { tier: "P", rule: "with its profile" },
   run_extra_scripts: { tier: "P", rule: "with its profile" },
-  // Not aged until a tier is decided (open points): 0007 says "until reclaimed or deleted" for
-  // released branches and names no tier for pricing checks.
-  released_branches: { tier: "P", rule: "kept until a tier is decided" },
-  pricing_checks: { tier: "P", rule: "kept until a tier is decided" },
+  released_branches: {
+    tier: "S",
+    rule: "reclaimed more than stateDays ago; a branch not yet reclaimed is kept",
+  },
+  pricing_checks: { tier: "S", rule: "raised more than stateDays ago" },
 };

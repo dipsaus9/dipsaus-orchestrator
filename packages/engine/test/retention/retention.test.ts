@@ -27,7 +27,10 @@ import {
   insertClaim,
   insertHost,
   insertJournal,
+  insertPricingCheck,
+  insertProfile,
   insertPromptPart,
+  insertReleasedBranch,
   insertScan,
   insertRequest,
   insertRequests,
@@ -253,6 +256,89 @@ describe("retention of run rows", () => {
       expect(ids("select run_id as id from prompt_parts where office_id = $office_id")).toEqual([
         "run-long",
       ]);
+    }));
+
+  it("deletes reclaimed released branches and pricing checks after the state tier", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      insertReleasedBranch(office, "DIPO-1/old", day(0));
+      insertReleasedBranch(office, "DIPO-2/recent", day(300));
+      insertReleasedBranch(office, "DIPO-3/open", null);
+      insertPricingCheck(office, "run-old", day(0));
+      insertPricingCheck(office, "run-new", day(300));
+      t.clock.advanceTo(day(400));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({ released_branches: 1, pricing_checks: 1 });
+      const ids = (sql: string) => office.all<{ id: unknown }>(sql).map((row) => row.id);
+      expect(
+        ids("select branch as id from released_branches where office_id = $office_id order by 1"),
+      ).toEqual(["DIPO-2/recent", "DIPO-3/open"]);
+      expect(ids("select run_id as id from pricing_checks where office_id = $office_id")).toEqual([
+        "run-new",
+      ]);
+    }));
+
+  it("keeps the current run profile and its previous one and prunes older ones with their rows", () =>
+    withOffice(async (t, office) => {
+      insertProfile(office, 1, null, false);
+      insertProfile(office, 2, 1, false);
+      insertProfile(office, 3, 2, false);
+      insertProfile(office, 4, 3, true);
+      insertScan(office, 1, t.clock.now());
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({
+        run_capabilities: 2,
+        run_env_files: 2,
+        run_ports: 2,
+        run_extra_scripts: 2,
+        run_profiles: 2,
+      });
+      const profileIds = (table: string) =>
+        office
+          .all<{ id: number }>(
+            `select distinct profile_id as id from ${table} where office_id = $office_id order by 1`,
+          )
+          .map((row) => row.id);
+      for (const table of [
+        "run_profiles",
+        "run_capabilities",
+        "run_env_files",
+        "run_ports",
+        "run_extra_scripts",
+      ]) {
+        expect(profileIds(table)).toEqual([3, 4]);
+      }
+      // Scans keep their own tier.
+      expect(countRows(office, "scans")).toBe(1);
+    }));
+
+  it("keeps the two newest run profiles when none is current", () =>
+    withOffice(async (t, office) => {
+      insertProfile(office, 1, null, false);
+      insertProfile(office, 2, 1, false);
+      insertProfile(office, 3, 2, false);
+      await runRetention({ office, clock: t.clock, periods: DEFAULTS, pause: noPause });
+      expect(
+        office
+          .all<{ id: number }>(
+            "select profile_id as id from run_profiles where office_id = $office_id order by 1",
+          )
+          .map((row) => row.id),
+      ).toEqual([2, 3]);
     }));
 
   it("uses retention.shortDays and retention.stateDays", () =>

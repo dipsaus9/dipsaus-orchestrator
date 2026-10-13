@@ -162,3 +162,65 @@ export function insertPromptPart(
     ),
   );
 }
+
+export function insertReleasedBranch(
+  office: OfficeHandle,
+  branch: string,
+  reclaimedAt: number | null,
+): void {
+  office.immediate(() =>
+    office.run(
+      `insert into released_branches (office_id, branch, released_at, key, reason, reclaimed_at)
+       values ($office_id, $branch, 0, 'sto-1', 'parked', $reclaimed)`,
+      { branch, reclaimed: reclaimedAt },
+    ),
+  );
+}
+
+export function insertPricingCheck(office: OfficeHandle, run: string, raisedAt: number): void {
+  office.immediate(() =>
+    office.run(
+      `insert into pricing_checks (office_id, run_id, est_cost_micros, cli_cost_micros, raised_at)
+       values ($office_id, $run, 1, 2, $at)`,
+      { run, at: raisedAt },
+    ),
+  );
+}
+
+/** A run profile with one row in each of its child tables. */
+export function insertProfile(
+  office: OfficeHandle,
+  id: number,
+  previous: number | null,
+  current: boolean,
+): void {
+  office.immediate(() => {
+    office.run(
+      `insert into run_profiles (office_id, profile_id, scanned_at, commit_sha, fingerprint,
+         toolchain, conformance, deviations, previous_profile_id, current)
+       values ($office_id, $id, 0, 'a', 'f', '{}', 'conforming', '[]', $previous, $current)`,
+      { id, previous, current: current ? 1 : 0 },
+    );
+    office.run(
+      `insert into run_capabilities (office_id, profile_id, capability, status)
+       values ($office_id, $id, 'verify', 'resolved')`,
+      { id },
+    );
+    office.run(
+      `insert into run_env_files (office_id, profile_id, path, present, ignored)
+       values ($office_id, $id, '.env', 1, 1)`,
+      { id },
+    );
+    office.run(
+      `insert into run_ports (office_id, profile_id, dir, port, source, confidence, evidence,
+         fixed_in_code, honours_port)
+       values ($office_id, $id, '.', 3000, 'code', 'high', 'x', 0, 1)`,
+      { id },
+    );
+    office.run(
+      `insert into run_extra_scripts (office_id, profile_id, name, command)
+       values ($office_id, $id, 'lint', 'bun lint')`,
+      { id },
+    );
+  });
+}
