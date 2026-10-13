@@ -40,6 +40,7 @@ import {
   insertPr,
   openPrs,
   recordCheck,
+  recordCheckError,
   setTitle,
 } from "./records";
 import { prBody, prTitle } from "./title";
@@ -337,13 +338,19 @@ export class BacklogPrs {
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      this.#write(office, () => [
-        notice(
-          "error",
-          PR_NOTICES.checkError,
-          `dipo could not run the structural check on the backlog PR #${record.number}: ${reason}. The PR stays unmerged by dipo.`,
-        ),
-      ]);
+      // One notice per PR and cause: a check that keeps failing the same way (a merged PR is
+      // retried on every poll) stays quiet until the cause changes or a check succeeds.
+      this.#write(office, () =>
+        recordCheckError(handle, record.number, reason, this.#deps.clock.now())
+          ? [
+              notice(
+                "error",
+                PR_NOTICES.checkError,
+                `dipo could not run the structural check on the backlog PR #${record.number}: ${reason}. The PR stays unmerged by dipo, and dipo tries again without another notice until the cause changes.`,
+              ),
+            ]
+          : [],
+      );
       throw error;
     }
     const result = checkBacklogPr(diff, factsFor(handle, diff));
