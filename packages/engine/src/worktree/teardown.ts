@@ -344,6 +344,9 @@ async function removeAll(
         files: [],
       };
     }
+    // `branch -D` also drops the branch's configuration (upstream, merge); `update-ref` does not.
+    // A branch without any is fine (exit 5 or 128, "no such section").
+    await git.step(git.repository, ["config", "--remove-section", `branch.${claim.branch}`]);
   }
 
   // The remote branch (open question 8); the host's auto-delete may already have removed it.

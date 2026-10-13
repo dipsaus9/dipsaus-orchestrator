@@ -353,12 +353,15 @@ describe("tearing down", () => {
       );
       expect(outcome).toEqual({ ok: true, remoteProblem: null });
       const git = world.steps.filter((s) =>
-        /^(worktree (un)?lock|worktree remove|update-ref|branch|push)/.test(s),
+        /^(worktree (un)?lock|worktree remove|update-ref|branch|config --remove-section|push)/.test(
+          s,
+        ),
       );
       expect(git).toEqual([
         `worktree unlock ${world.worktree}`,
         `worktree remove ${world.worktree}`,
         `update-ref -d refs/heads/${BRANCH} ${TIP}`,
+        `config --remove-section branch.${BRANCH}`,
         `push --quiet --no-verify origin --delete ${BRANCH}`,
       ]);
       expect(world.steps.some((s) => s.includes("--force"))).toBe(false);
@@ -369,6 +372,23 @@ describe("tearing down", () => {
       expect(rows(world, "context_packs")).toEqual(["/elsewhere"]);
       expect(world.slots.slotOf(world.worktree)).toBeNull();
       expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.done]);
+    }));
+
+  it("ignores a branch without configuration when it drops the branch's config section", () =>
+    withWorld(async (world) => {
+      world.answer = (args) =>
+        args[0] === "config" && args[1] === "--remove-section"
+          ? { code: 128, stderr: "fatal: no such section: branch.x" }
+          : undefined;
+      const outcome = await tearDown(
+        deps(world),
+        world.claim(),
+        { by: "merge-tree", tree: BASE_TREE },
+        TIP,
+      );
+      expect(outcome).toEqual({ ok: true, remoteProblem: null });
+      expect(world.steps).toContain(`config --remove-section branch.${BRANCH}`);
+      expect(world.claim().releaseReason).toBe(DONE_RELEASE_REASON);
     }));
 
   it("accepts a remote branch the host already deleted, and reports another push failure", () =>
