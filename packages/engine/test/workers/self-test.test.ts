@@ -469,6 +469,19 @@ describe("(unit) live safety recordings", () => {
       expect(verdict.ok).toBe(true);
       // Only ok is compared: verdict fields that held removed probes do not void a recording.
       expect((checks.verdict as { ok: boolean }).ok).toBe(true);
+      if (name !== "safety-gh-token") return;
+      // This recording's evidence is the engine check under srt: each lookup ran (not 126 or
+      // 127) and was refused. The Keychain lookup runs only on macOS.
+      const credential = recording.meta["checks"] as {
+        engineCredentialCheck: { ok: boolean; refused: Record<string, number> };
+      };
+      expect(credential.engineCredentialCheck.ok).toBe(true);
+      const refused = credential.engineCredentialCheck.refused;
+      const lookups = process.platform === "darwin" ? ["gh-token", "keychain"] : ["gh-token"];
+      for (const probe of lookups) {
+        expect(refused[probe]).toBeNumber();
+        expect([0, 126, 127]).not.toContain(refused[probe]);
+      }
     });
   }
 });
