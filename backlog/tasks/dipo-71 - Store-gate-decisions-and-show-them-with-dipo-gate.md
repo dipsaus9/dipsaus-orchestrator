@@ -1,10 +1,10 @@
 ---
 id: DIPO-71
 title: Store gate decisions and show them with dipo gate
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 07:53'
 labels:
   - 'tier:S'
 milestone: m-0
