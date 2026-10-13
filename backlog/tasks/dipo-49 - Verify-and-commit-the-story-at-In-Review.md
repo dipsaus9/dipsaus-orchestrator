@@ -4,7 +4,7 @@ title: Verify and commit the story at In Review
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 18:36'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -79,4 +79,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S33 (DIPO-15). Before cutover: built by hand-run agents.
+
+Follow-ups from DIPO-63 and DIPO-65 (2026-10-13): (1) the verify step calls WorkTracker.beginVerify() (packages/engine/src/keepawake/activity.ts) and calls the returned function when verify ends, so keep-awake holds during verify; (2) add the run_summaries table: retention's runSummaryExists (packages/engine/src/retention/run-files.ts) looks for it, and until it exists processed event files wait for the retention fallback.
 <!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: Pick and claim one Ready story with work.run
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:33'
+updated_date: '2026-10-13 18:36'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -90,4 +90,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S32 (DIPO-15). Before cutover: built by hand-run agents.
+
+Follow-up from DIPO-36 (2026-10-13): work.run must call officeStatusesReady(office) (packages/engine/src/office/init/) and refuse with its message while the base lacks the 0012 statuses (DIPO-36 AC #10).
 <!-- SECTION:NOTES:END -->
