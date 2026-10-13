@@ -8,14 +8,18 @@
 //   `origin/<base>`: the branch adds nothing new. A branch still at the commit it started from has
 //   nothing of its own and is never Done this way.
 //
-// Teardown runs as one item of the office git queue: unlock the worktree (only a lock this claim
-// holds, `dipo <run-id>`), `git worktree remove <path>` without `--force`, then `git branch -D` and
-// `git push <remote> --delete <branch>`, a branch the remote no longer has being fine. A worktree
-// git refuses to remove (dirty) or one locked by anyone else keeps everything: the lock is put back,
-// the claim stays live, and the caller gets the files `git status` lists for its notice. Only after
-// the git steps the claim is released (`done`), the worktree's `worker_notes` and `context_packs`
-// are deleted and its port slot freed. Every step is idempotent, so the next poll finishes a
-// teardown a crash interrupted.
+// Teardown runs as one item of the office git queue. The branch must still be at the tip the
+// detection judged; a branch that moved since keeps everything. Then `claims.teardown_started_at`
+// is recorded, the worktree unlocked (only a lock this claim holds, `dipo <run-id>`) and removed
+// with `git worktree remove <path>` without `--force`; the local branch is deleted only while it is
+// still at the judged tip (`git update-ref -d <ref> <tip>`, the forced delete of `branch -D` without
+// its race), then `git push <remote> --delete <branch>`, a branch the remote no longer has being
+// fine. A worktree git refuses to remove (dirty) or one locked by anyone else keeps everything: the
+// lock is put back, the start record cleared, the claim stays live, and the caller gets the files
+// `git status` lists for its notice. Only after the git steps the claim is released (`done`), the
+// worktree's `worker_notes` and `context_packs` are deleted and its port slot freed. A live claim
+// with a recorded start whose worktree and branch are both gone is a teardown a crash interrupted:
+// the next poll finishes its release without the host. Every step is idempotent.
 
 import { existsSync } from "node:fs";
 
