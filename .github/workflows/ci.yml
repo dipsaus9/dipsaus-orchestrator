@@ -82,7 +82,6 @@ jobs:
       contents: read
     env:
       TARGET: ${{ matrix.target }}
-      EXPECTED_FILE: ${{ matrix.file }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -95,102 +94,34 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
-      - name: Install the sandbox runtime's Linux dependencies (0008)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep
-      - name: Allow unprivileged user namespaces for bubblewrap
-        if: runner.os == 'Linux'
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Install the sandbox probe's macOS dependency (ripgrep)
-        if: runner.os == 'macOS'
-        run: command -v rg || brew install ripgrep
       - name: Build
         run: bun scripts/build.ts --target "bun-$TARGET"
-      - name: dipo --version
+      - uses: ./.github/actions/smoke
+        with:
+          target: ${{ matrix.target }}
+          expected-file: ${{ matrix.file }}
+
+  # 0016 rule 1: install.sh and any other shell script in the repository (rule 7).
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # shellcheck comes with the ubuntu-24.04 image.
+      - run: shellcheck --version
+      # install.sh must exist, so a rename cannot silently drop it from the check.
+      - name: shellcheck install.sh and every other tracked shell script
         run: |
-          version="$(jq -r .version package.json)-dev"
-          commit="$(git rev-parse --short=12 HEAD)"
-          out="$(./dist/dipo --version)"
-          echo "$out"
-          case "$out" in
-            "dipo $version ($commit "????-??-??") bun "*" $TARGET") ;;
-            *) echo "expected dipo $version ($commit <date>) bun <version> $TARGET"; exit 1 ;;
-          esac
-          json="$(./dist/dipo --version --json)"
-          echo "$json"
-          echo "$json" | jq -e --arg v "$version" --arg c "$commit" --arg t "$TARGET" \
-            '.version == $v and .commit == $c and "\(.os)-\(.arch)" == $t' > /dev/null
-      - name: dipo --help
-        run: ./dist/dipo --help
-      - name: file
-        run: |
-          out="$(file dist/dipo)"
-          echo "$out"
-          case "$out" in
-            *"$EXPECTED_FILE"*) ;;
-            *) echo "expected: $EXPECTED_FILE"; exit 1 ;;
-          esac
-      - name: codesign -v
-        if: runner.os == 'macOS'
-        run: codesign -v dist/dipo
-      - name: Record the glibc floor
-        if: runner.os == 'Linux'
-        run: |
-          floor="$(objdump -T dist/dipo | grep -o 'GLIBC_[0-9.]*' | sort -u -V | tail -n 1)"
-          if [ -z "$floor" ]; then
-            echo "no GLIBC_ symbol versions found"
-            exit 1
-          fi
-          echo "Highest GLIBC_ symbol version of dipo ($TARGET): \`$floor\`" >> "$GITHUB_STEP_SUMMARY"
-      - name: dipo self-check
-        env:
-          DIPO_TMP: ${{ runner.temp }}/dipo
-        run: ./dist/dipo self-check
-      # DIPO-37: a real sandboxed run inside the compiled binary. It fails on any refusal, which
-      # includes every srt dependency warning, such as a missing apply-seccomp helper on Linux.
-      - name: dipo daemon sandbox-exec (deny-all)
-        env:
-          POLICY: ${{ runner.temp }}/deny-all.json
-        run: |
-          printf '%s\n' '{"network":{"allowedDomains":[],"deniedDomains":[],"strictAllowlist":true},"filesystem":{"denyRead":[],"allowWrite":[],"denyWrite":[]}}' > "$POLICY"
-          set +e
-          ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- true 2> stderr.txt
-          code=$?
-          set -e
-          cat stderr.txt
-          if [ "$code" -ne 0 ]; then echo "sandbox-exec exited with $code"; exit 1; fi
-          if [ -s stderr.txt ]; then echo "sandbox-exec wrote to stderr"; exit 1; fi
-          # A write outside the policy must fail inside the sandbox.
-          if ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- sh -c 'echo x > "$1"' sh "$RUNNER_TEMP/escaped"; then
-            echo "a write outside the policy succeeded"; exit 1
-          fi
-          if [ -e "$RUNNER_TEMP/escaped" ]; then echo "$RUNNER_TEMP/escaped exists"; exit 1; fi
-      - name: apply-seccomp blocks Unix sockets under deny-all
-        if: runner.os == 'Linux'
-        env:
-          POLICY: ${{ runner.temp }}/deny-all.json
-        run: |
-          if ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- timeout 2 socat ABSTRACT-LISTEN:dipo-smoke -; then
-            echo "a Unix socket was created under deny-all: apply-seccomp is not applied"; exit 1
-          fi
-      - name: The binary ignores bunfig.toml and .env in its working directory
-        run: |
-          dir="$(mktemp -d)"
-          printf 'preload = ["./planted.ts"]\n' > "$dir/bunfig.toml"
-          printf 'require("fs").writeFileSync("%s/ran", "1")\n' "$dir" > "$dir/planted.ts"
-          (cd "$dir" && "$GITHUB_WORKSPACE/dist/dipo" --version)
-          if [ -e "$dir/ran" ]; then echo "bunfig.toml preload ran"; exit 1; fi
-          # A planted .env must not reach the binary either (BUN_OPTIONS would preload code).
-          rm "$dir/bunfig.toml"
-          printf 'BUN_OPTIONS=--preload ./planted.ts\n' > "$dir/.env"
-          (cd "$dir" && "$GITHUB_WORKSPACE/dist/dipo" --version)
-          if [ -e "$dir/ran" ]; then echo ".env BUN_OPTIONS preload ran"; exit 1; fi
+          test -f install.sh
+          git ls-files -z "*.sh" | xargs -0 shellcheck --severity=style
 
   ci-ok:
     name: ci-ok
-    needs: [verify, dependency-review, smoke]
+    needs: [verify, shellcheck, dependency-review, smoke]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
