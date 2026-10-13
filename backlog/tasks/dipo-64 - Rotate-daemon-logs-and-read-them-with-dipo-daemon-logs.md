@@ -1,10 +1,10 @@
 ---
 id: DIPO-64
 title: Rotate daemon logs and read them with dipo daemon logs
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:04'
+updated_date: '2026-10-13 08:10'
 labels:
   - 'tier:S'
   - after-cutover
