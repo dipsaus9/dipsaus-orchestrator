@@ -4,7 +4,7 @@ title: Price usage from a versioned catalog
 status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:40'
+updated_date: '2026-10-13 11:42'
 labels:
   - 'tier:S'
   - after-cutover
@@ -77,4 +77,6 @@ Scope additions (review of PR #69):
 - packages/engine/src/index.ts: the pricing exports were removed again; nothing outside the engine uses them.
 - IngestorOptions.pricing is now required (PriceBook or explicit null), so the wiring story cannot drop it silently; packages/engine/test/ingest/ingest.test.ts passes the imported catalog.
 - recordCliCost returns the models whose cost matched no usage row; the ingestor logs a warning for each.
+
+Maintainer decisions (2026-10-13): long-prompt rates get applied in follow-up DIPO-78; the model list stays as derived (Mythos 5/5.1 and Haiku 3.5 left out); an edited imported catalog keeps failing the database open.
 <!-- SECTION:NOTES:END -->
