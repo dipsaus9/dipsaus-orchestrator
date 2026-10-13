@@ -1,4 +1,4 @@
-// `dipo office open|forget|reload-config` (DIPO-27): the office comes from `--office`, else from the
+// `dipo office open|forget|reload-config|init` (DIPO-27, DIPO-36): the office comes from `--office`, else from the
 // repository around the current directory; an unregistered Backlog.md project prints "not an
 // office, run `dipo office open`" and a terminal is asked once to open it.
 
@@ -354,5 +354,64 @@ describe("dipo office rescan", () => {
     expect(await main(["office", "rescan"], ctx.deps)).toBe(1);
     expect(ctx.err).toEqual(["dipo: scan.running: already running"]);
     expect(ctx.unsubscribed()).toBe(1);
+  });
+});
+
+describe("dipo office init", () => {
+  const PR = { number: 12, url: "https://github.com/o/r/pull/12" };
+
+  it("sends office.init for --office and prints the backlog PR and the stories left alone", async () => {
+    const ctx = fake(() =>
+      ok({ office: OTHER, pr: PR, branch: "dipo/backlog-x", leftAlone: ["DIPO-36"] }),
+    );
+    expect(await main(["office", "init", "--office", OTHER], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([{ name: "office.init", args: { office: OTHER } }]);
+    expect(ctx.out).toEqual([
+      "left DIPO-36 at To Do: it is in progress on its own branch",
+      `office ${OTHER}: init steps committed to the backlog PR #12 ${PR.url}`,
+      "dipo merges it once its structural check and required checks pass",
+    ]);
+  });
+
+  it("uses the office of the current directory and says when nothing changed", async () => {
+    const ctx = fake(() => ok({ office: OFFICE }, false), {
+      repository: { ...REPO, office: OFFICE, backlog: true },
+    });
+    expect(await main(["office", "init"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([{ name: "office.init", args: { office: OFFICE } }]);
+    expect(ctx.out).toEqual([`office ${OFFICE}: the backlog is already initialised`]);
+  });
+
+  it("prints the waiting branch, and fails when the steps could not be applied", async () => {
+    const waiting = fake(() =>
+      ok({ office: OTHER, branch: "dipo/backlog-x", waiting: "the office has no remote origin" }),
+    );
+    expect(await main(["office", "init", "--office", OTHER], waiting.deps)).toBe(0);
+    expect(waiting.out).toEqual([
+      `office ${OTHER}: init steps on dipo/backlog-x, waiting: the office has no remote origin`,
+    ]);
+
+    const failed = fake(() => ok({ office: OTHER, waiting: "git commit failed" }));
+    expect(await main(["office", "init", "--office", OTHER], failed.deps)).toBe(1);
+    expect(failed.err).toEqual(["dipo: office init could not apply its steps: git commit failed"]);
+  });
+
+  it("reports an unknown office and an engine error", async () => {
+    const unknown = fake(() => unknownOffice);
+    expect(await main(["office", "init", "--office", OTHER], unknown.deps)).toBe(1);
+    expect(unknown.err).toEqual([`dipo: office.unknown: there is no office ${OTHER}.`]);
+
+    const unreadable = fake(() => ({
+      ok: false,
+      error: { code: "backlog.unreadable", message: "no backlog", retryable: false },
+    }));
+    expect(await main(["office", "init", "--office", OTHER], unreadable.deps)).toBe(1);
+    expect(unreadable.err).toEqual(["dipo: backlog.unreadable: no backlog"]);
+  });
+
+  it("refuses an unknown argument", async () => {
+    const ctx = fake(() => ok({}));
+    expect(await main(["office", "init", "--yes"], ctx.deps)).toBe(2);
+    expect(ctx.sent).toEqual([]);
   });
 });

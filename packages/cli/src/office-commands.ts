@@ -1,6 +1,8 @@
 // `dipo office` subcommands (0006 decision 4, DIPO-27): `open [path]` registers a repository,
 // `forget` removes an office from the list, `reload-config` re-reads its configuration, `rescan`
-// (DIPO-72) scans its run profile again and prints the diff. The office comes from
+// (DIPO-72) scans its run profile again and prints the diff, `init` (DIPO-36) prepares its backlog
+// for the 0012 lifecycle through one backlog PR and prints the PR or the waiting branch. The office
+// comes from
 // `--office <id>`, else from the repository around the current directory. In a Backlog.md project
 // that is not an office the CLI says so and, at a terminal, asks once whether to open it (0006
 // open question 2); a script is never asked.
@@ -9,6 +11,7 @@ import {
   type OfficeId,
   OfficeId as OfficeIdSchema,
   officeForget,
+  officeInit,
   officeOpen,
   officeReloadConfig,
   officeRescan,
@@ -261,6 +264,59 @@ async function reloadConfigCommand(
   });
 }
 
+/**
+ * How long `office init` waits for its reply: a fetch, Backlog CLI reads and writes, commits, a
+ * push and the backlog PR through `gh`; each step that waits on something outside dipo (a fetch,
+ * a commit, a push) is killed after a minute.
+ */
+export const INIT_TIMEOUT_MS = 300_000;
+
+async function initCommand(args: readonly string[], deps: OfficeCommandDeps): Promise<number> {
+  const options = parseOptions(args, false);
+  if (typeof options === "string") return usage(deps, `office init: ${options}`);
+  return withOffice(
+    deps,
+    options.office,
+    async (session, office) => {
+      const outcome = await session.command(officeInit, { office });
+      if (!outcome.ok) {
+        return outcome.error.code === "office.unknown"
+          ? "unknown"
+          : engineFailure(deps, outcome.error);
+      }
+      const { pr, branch, waiting, leftAlone } = outcome.result;
+      for (const id of leftAlone ?? []) {
+        deps.writeLine(`left ${id} at To Do: it is in progress on its own branch`);
+      }
+      if (pr !== undefined) {
+        deps.writeLine(
+          `office ${office}: init steps ${outcome.changed ? "committed to" : "already on"} the backlog PR #${pr.number} ${pr.url}`,
+        );
+        deps.writeLine("dipo merges it once its structural check and required checks pass");
+        return 0;
+      }
+      if (branch !== undefined) {
+        deps.writeLine(
+          `office ${office}: init steps on ${branch}, waiting${waiting === undefined ? "" : `: ${waiting}`}`,
+        );
+        return 0;
+      }
+      if (waiting !== undefined) {
+        deps.writeError(`dipo: office init could not apply its steps: ${waiting}`);
+        return 1;
+      }
+      deps.writeLine(
+        outcome.changed
+          ? `office ${office}: init steps are journaled and go to the next backlog PR`
+          : `office ${office}: the backlog is already initialised`,
+      );
+      return 0;
+    },
+    undefined,
+    INIT_TIMEOUT_MS,
+  );
+}
+
 /** How long `office rescan` waits for its scan: a fetch, a story index pass and the scan. */
 export const RESCAN_TIMEOUT_MS = 120_000;
 
@@ -354,5 +410,6 @@ export const OFFICE_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
   ["open", openCommand],
   ["forget", forgetCommand],
   ["reload-config", reloadConfigCommand],
+  ["init", initCommand],
   ["rescan", rescanCommand],
 ]);

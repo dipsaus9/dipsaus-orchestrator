@@ -95,6 +95,10 @@ Usage:
   dipo office forget [--office <id>] [--yes]
                     remove the office from the list; its repository and history
                     are kept
+  dipo office init [--office <id>]
+                    prepare the office's Backlog.md settings for dipo's lifecycle
+                    and move To Do stories to Refined, through one backlog PR
+                    that dipo opens and merges once its checks pass
   dipo office reload-config [--office <id>]
                     read the office configuration again; an invalid file keeps
                     the previous one and refuses new runs
