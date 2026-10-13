@@ -1,5 +1,5 @@
-// `dipo daemon` client subcommands (0006 decisions 2, 5 and 14). `start`, `stop`, `restart` and
-// `status` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
+// `dipo daemon` client subcommands (0006 decisions 2, 5, 14 and 15). `start`, `stop`, `restart`,
+// `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
 // send one contract command each, starting the daemon first unless `daemon.autostart` is false;
 // `logs` reads the log files directly and never talks to the daemon (DIPO-64).
 
@@ -10,18 +10,23 @@ import {
   DaemonNotRunningError,
   DaemonStartError,
   describeStartFailure,
+  lingerWarning,
   logsDir,
   SoftwareConfigError,
   versionHint,
   type DaemonObservation,
+  type AutostartReport,
   type DaemonStatusResult,
+  type InstallResult,
   type RestartResult,
   type StartOptions,
   type StartResult,
   type StopResult,
+  type UninstallResult,
 } from "@dipsaus-orchestrator/client/node";
 import {
   type Clock,
+  type ConfigError,
   ContractUnsupportedDetails,
   daemonResumeScheduling,
   daemonSetLogLevel,
@@ -46,6 +51,13 @@ export interface DaemonControl {
   start(options: StartOptions): Promise<StartResult>;
   stop(options: { readonly force: boolean }): Promise<StopResult>;
   restart(options: StartOptions): Promise<RestartResult>;
+  /** `dipo daemon install|uninstall` (0006 decision 15, DIPO-63). */
+  install?(): Promise<InstallResult>;
+  uninstall?(): Promise<UninstallResult>;
+  /** Autostart for `status`: installed or not, the binary it runs, lingering on Linux. */
+  autostart?(): Promise<AutostartReport | null>;
+  /** `<state>/config.yaml` problems, which make the daemon refuse to start (exit 78). */
+  configErrors?(): readonly ConfigError[] | null;
 }
 
 export interface DaemonCommandDeps {
@@ -132,8 +144,9 @@ const TOOL_ORDER = ["claude", "backlog", "gh", "rg", "git"] as const;
 /** The `running` report: state and reason, PID, version, uptime, socket and tool paths. */
 export function formatRunning(status: DaemonStatusResult): string[] {
   const reason = status.stateReason === undefined ? "" : ` (${status.stateReason})`;
-  const keepAwakeReason =
-    status.keepAwake.reason === undefined ? "" : ` (${status.keepAwake.reason})`;
+  const keepAwake = status.keepAwake.held
+    ? `held${status.keepAwake.reason === undefined ? "" : ` (${status.keepAwake.reason})`}`
+    : `not held${status.keepAwake.reason === undefined ? "" : `: ${status.keepAwake.reason}`}`;
   const lines = [
     "running",
     `  state:      ${status.state}${reason}`,
@@ -145,7 +158,7 @@ export function formatRunning(status: DaemonStatusResult): string[] {
   if (status.webUrl !== undefined) lines.push(`  web:        ${status.webUrl}`);
   lines.push(
     `  offices:    ${status.loadedOffices.length} loaded, ${status.activeRuns} active runs`,
-    `  keep-awake: ${status.keepAwake.held ? "held" : "not held"}${keepAwakeReason}`,
+    `  keep-awake: ${keepAwake}`,
   );
   if (status.upgradePending) {
     lines.push("  upgrade pending: the binary changed on disk; run `dipo daemon restart`");
@@ -155,6 +168,25 @@ export function formatRunning(status: DaemonStatusResult): string[] {
     lines.push(`    ${tool.padEnd(8)}${status.tools[tool] ?? "missing"}`);
   }
   return lines;
+}
+
+/** The autostart line of `status` and its warnings (0006 decision 15). */
+function printAutostart(deps: DaemonCommandDeps, report: AutostartReport | null): void {
+  if (report === null) return;
+  deps.writeLine(
+    report.installed
+      ? `  autostart:  ${report.supervisor} (${report.file})`
+      : "  autostart:  not installed (`dipo daemon install`)",
+  );
+  if (report.programMissing) {
+    deps.writeError(
+      `dipo: the installed autostart runs ${report.program}, which no longer exists; run \`dipo daemon install\` again from the binary you use now.`,
+    );
+  }
+}
+
+function warnLingering(deps: DaemonCommandDeps, report: AutostartReport | null) {
+  if (report?.lingering === false) deps.writeError(`dipo: ${lingerWarning(report.user)}`);
 }
 
 function statusJson(observed: DaemonObservation): Record<string, unknown> {
@@ -182,6 +214,7 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
   const json = args.length === 1 && args[0] === "--json";
   if (args.length > 0 && !json) return usage(deps, "daemon status takes only --json");
   const observed = await deps.daemon.inspect();
+  const autostart = (await deps.daemon.autostart?.()) ?? null;
   const code =
     observed.kind === "running" || observed.kind === "foreign"
       ? STATUS_EXIT.running
@@ -189,7 +222,9 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
         ? STATUS_EXIT.unresponsive
         : STATUS_EXIT.notRunning;
   if (json) {
-    deps.writeLine(JSON.stringify(statusJson(observed)));
+    deps.writeLine(
+      JSON.stringify({ ...statusJson(observed), ...(autostart === null ? {} : { autostart }) }),
+    );
     return code;
   }
   switch (observed.kind) {
@@ -222,8 +257,68 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
       } else {
         deps.writeLine("not running");
       }
+      // A daemon that refuses its config.yaml exits 78 and is not restarted (DIPO-69, DIPO-63):
+      // the client reads the same file to say why.
+      for (const error of deps.daemon.configErrors?.() ?? []) {
+        deps.writeError(`dipo: the daemon refuses to start: ${error.message}`);
+      }
   }
+  printAutostart(deps, autostart);
+  warnLingering(deps, autostart);
   return code;
+}
+
+function printInstall(deps: DaemonCommandDeps, result: InstallResult): number {
+  switch (result.kind) {
+    case "unsupported":
+      deps.writeError("dipo: autostart needs launchd (macOS) or systemd (Linux).");
+      return 1;
+    case "config":
+      for (const error of result.errors) deps.writeError(`dipo: ${error.message}`);
+      deps.writeError("dipo: nothing was installed; fix the file and run `dipo daemon install`.");
+      return 1;
+    case "stop failed":
+      deps.writeError("dipo: nothing was installed; the running daemon did not stop.");
+      return printStop(deps, result.stop);
+    case "failed":
+      deps.writeError(`dipo: could not install ${result.file}: ${result.message}`);
+      return 1;
+    default: {
+      if (result.stopped !== null) deps.writeLine(`dipo daemon stopped (pid ${result.stopped})`);
+      deps.writeLine(`installed ${result.file}`);
+      for (const command of result.commands) deps.writeLine(`  ran: ${command}`);
+      deps.writeLine(
+        result.supervisor === "launchd"
+          ? "launchd starts the daemon at login and restarts it after a crash."
+          : "systemd starts the daemon with your user manager and restarts it after a crash.",
+      );
+      if (result.lingering === false) deps.writeError(`dipo: ${lingerWarning(result.user)}`);
+      return printStart(deps, result.start);
+    }
+  }
+}
+
+function printUninstall(deps: DaemonCommandDeps, result: UninstallResult): number {
+  switch (result.kind) {
+    case "unsupported":
+      deps.writeError("dipo: autostart needs launchd (macOS) or systemd (Linux).");
+      return 1;
+    case "not installed":
+      deps.writeLine(`autostart is not installed (${result.file} does not exist)`);
+      return 0;
+    case "failed":
+      deps.writeError(`dipo: could not uninstall ${result.file}: ${result.message}`);
+      return 1;
+    default:
+      for (const command of result.commands) deps.writeLine(`  ran: ${command}`);
+      deps.writeLine(`removed ${result.file}`);
+      deps.writeLine(
+        result.stopped === null
+          ? "no supervised daemon was running."
+          : `dipo daemon stopped (pid ${result.stopped}); \`dipo daemon start\` starts it without autostart.`,
+      );
+      return 0;
+  }
 }
 
 function printStop(deps: DaemonCommandDeps, result: StopResult): number {
@@ -292,6 +387,24 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
     },
   ],
   ["status", statusCommand],
+  [
+    "install",
+    async (args, deps) => {
+      if (args.length !== 0) return usage(deps, "daemon install takes no arguments");
+      if (deps.daemon.install === undefined) return usage(deps, "daemon install is not available");
+      return printInstall(deps, await deps.daemon.install());
+    },
+  ],
+  [
+    "uninstall",
+    async (args, deps) => {
+      if (args.length !== 0) return usage(deps, "daemon uninstall takes no arguments");
+      if (deps.daemon.uninstall === undefined) {
+        return usage(deps, "daemon uninstall is not available");
+      }
+      return printUninstall(deps, await deps.daemon.uninstall());
+    },
+  ],
   [
     "logs",
     (args, deps) =>

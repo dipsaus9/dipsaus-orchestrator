@@ -3,13 +3,18 @@
 // (0004, 0006 decision 2); every other subcommand goes through `client`.
 
 import {
+  autostartReport,
   connectOrStart,
   inspectDaemon,
+  installDaemon,
+  readSoftwareConfig,
   restartDaemon,
   startDaemon,
+  stateDir,
   stopDaemon,
   systemClock,
   systemLifecycleDeps,
+  uninstallDaemon,
   versionHint,
 } from "@dipsaus-orchestrator/client/node";
 import type { Clock } from "@dipsaus-orchestrator/contract";
@@ -65,7 +70,14 @@ Usage:
                     stop the daemon and start this binary's version
   dipo daemon status [--json]
                     running (exit 0), unresponsive (exit 1), not running or
-                    stale (exit 3)
+                    stale (exit 3); also whether autostart is installed
+  dipo daemon install
+                    run the daemon under launchd (macOS) or a systemd user unit
+                    (Linux): started at login, restarted after a crash; start,
+                    stop and restart then go through the supervisor
+  dipo daemon uninstall
+                    stop the supervised daemon and remove the launchd agent or
+                    systemd unit
   dipo daemon --foreground [--log-level <level>]
                     run the daemon in this terminal; logs also go to stderr
   dipo daemon logs [-f] [--office <id>] [--run <id>] [--level <level>]
@@ -140,6 +152,14 @@ export function defaultDeps(): CliDeps {
       start: (options) => startDaemon(lifecycle, options),
       stop: (options) => stopDaemon(lifecycle, options),
       restart: (options) => restartDaemon(lifecycle, options),
+      install: () => installDaemon(lifecycle),
+      uninstall: () => uninstallDaemon(lifecycle),
+      autostart: async () =>
+        lifecycle.supervisor === undefined ? null : autostartReport(lifecycle.supervisor),
+      configErrors: () => {
+        const config = readSoftwareConfig(stateDir(lifecycle.env));
+        return config.ok ? null : config.errors;
+      },
     },
     clock: systemClock,
     workspace: systemWorkspace(),
