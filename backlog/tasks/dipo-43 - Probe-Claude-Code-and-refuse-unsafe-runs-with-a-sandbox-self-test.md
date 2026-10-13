@@ -4,7 +4,7 @@ title: Probe Claude Code and refuse unsafe runs with a sandbox self-test
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 21:11'
+updated_date: '2026-10-13 07:09'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -30,6 +30,8 @@ references:
   - packages/engine/src/workers/credential-check.ts
   - packages/engine/test/sandbox/
   - tools/recordings/capture.ts
+  - packages/engine/src/sandbox/policy.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
 documentation:
   - docs/decisions/0008-worker-adapter.md
 priority: high
@@ -145,4 +147,10 @@ Review fix (PR #46, unit tests only, no Claude session, no live credential run):
 - Linux limit: on Linux the check shows that the gh configuration is denied and that gh auth token fails in srt. It does not show that a token stored in the desktop keyring (Secret Service over D-Bus) is unreachable, because srt cannot filter D-Bus on Linux (0008 residual risk: system D-Bus stays reachable). A Linux keyring probe, for example a secret-tool lookup of gh's entry under srt, is a possible follow-up.
 
 Scope added at review: packages/engine/src/workers/credential-check.ts holds the engine-side credential check of the 2026-10-12 0008 amendment; packages/engine/test/sandbox/ holds the runSandboxedStep test for an unreadable refusal file; tools/recordings/capture.ts takes per-scenario system prompts and the engine-side check result for the safety captures.
+
+Keychain closure (maintainer approved option B; ADR 0008 amendment of 2026-10-13 merged in PR #62). No Claude session and no live credential command was run by the implementer.
+- Scope additions: packages/engine/src/sandbox/policy.ts and packages/engine/test/sandbox/, because <home>/Library/Keychains joins SECRET_HOME_PATHS, so every engine step's srt policy read-denies it (goldens updated). packages/engine/src/workers/claude-cli/plan.ts, because the worker's run settings file gets sandbox.filesystem.denyRead [<home>/Library/Keychains]; this is a sandbox deny only, not a permission rule (plan goldens updated, and a test checks the rules do not mention it).
+- Engine credential check: the Keychain lookup is now security find-generic-password -s gh:github.com -w (still output to /dev/null, marker wrapper unchanged), and it must fail.
+- Session self-test: the hosts.yml open is replaced by probe keychains, which lists <home>/Library/Keychains with perl opendir (no file in it is opened) and must fail with EPERM or EACCES. The engine first confirms the folder exists outside the sandbox; a missing folder refuses. A permission-layer denial of the Bash call still refuses as cannot run. The probe runs on macOS only (probesFor); on Linux the session has no credential probe and the engine check covers gh auth token.
+- Capture: safety-gh-token now records verdict.keychainsErrno, keychainsExistOutsideSandbox and engineCredentialCheck (gh auth token and, on macOS, the -w lookup under srt).
 <!-- SECTION:NOTES:END -->
