@@ -1,11 +1,11 @@
 ---
 id: DIPO-79
 title: Bring the local test suite back under its time budget again
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-13 14:03'
-updated_date: '2026-10-13 14:38'
+updated_date: '2026-10-13 14:45'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -42,4 +42,6 @@ Context: DIPO-77 did the first round. Since then DIPO-35, 39, 58, 63, 71, 73 and
 
 <!-- SECTION:NOTES:BEGIN -->
 Local bun test median 54.77 s before (54.10, 54.77, 58.55), 44.76 s after (44.64, 44.76, 45.95). Full DIPO_TEST_CI=1 bun test: 2168 tests before, 2171 after (three new fast local versions; nothing deleted). Scope additions: none; the new helper modules (test/gate/gated-office.ts, test/git/helpers.ts, test/worktree/setup-harness.ts) are under packages/*/test/.
+
+Review passed; advisory notes fixed (empty describe, one-item loops, harness comment).
 <!-- SECTION:NOTES:END -->
