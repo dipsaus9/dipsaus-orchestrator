@@ -89,6 +89,15 @@ export interface CodeHost {
   requiredChecks(repo: string, number: number): Promise<RequiredCheck[]>;
 }
 
+/**
+ * The PR state the Done detection reads (DIPO-58; 0010 section 7, "Merge and Done"). Kept apart
+ * from `CodeHost` so a code host that only opens and merges PRs need not implement it.
+ */
+export interface PrStateHost {
+  /** The newest merged pull request whose head is `branch`, or null. Throws `CodeHostError`. */
+  findMergedPr(repo: string, branch: string): Promise<HostPr | null>;
+}
+
 /** `major.minor.patch` compared numerically; negative when `a` is older. */
 export function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map(Number);
@@ -242,7 +251,7 @@ interface GhResult {
 }
 
 /** The `CodeHost` that runs `gh`. */
-export class GhHost implements CodeHost {
+export class GhHost implements CodeHost, PrStateHost {
   readonly #spawn: Spawn;
   readonly #gh: string;
   readonly #env: Record<string, string>;
@@ -282,6 +291,26 @@ export class GhHost implements CodeHost {
     ]);
     const list = parseJson(out, "a pull request list");
     if (!Array.isArray(list)) throw new CodeHostError("failed", "gh printed no pull request list");
+    const first = list.map((item) => prOf(item as PrJson)).find((pr) => pr.head === branch);
+    return first ?? null;
+  }
+
+  async findMergedPr(repo: string, branch: string): Promise<HostPr | null> {
+    const out = await this.#ok([
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--head",
+      branch,
+      "--state",
+      "merged",
+      "--json",
+      PR_FIELDS,
+    ]);
+    const list = parseJson(out, "a pull request list");
+    if (!Array.isArray(list)) throw new CodeHostError("failed", "gh printed no pull request list");
+    // gh lists the newest first.
     const first = list.map((item) => prOf(item as PrJson)).find((pr) => pr.head === branch);
     return first ?? null;
   }

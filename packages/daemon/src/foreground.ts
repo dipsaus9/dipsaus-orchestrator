@@ -59,9 +59,11 @@ import {
   selfCommand,
   serveUnixSocket,
   SOCKET_FILE,
+  SlotTable,
   SoftwareStream,
   StoryClaims,
   StoryIndex,
+  StoryTeardown,
   systemExecutableStamp,
   systemProcessProbe,
   systemSpawn,
@@ -335,6 +337,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     lockTimer: TimerHandle | null;
     stableTimer: TimerHandle | null;
     storyIndex: StoryIndex | null;
+    teardown: StoryTeardown | null;
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
   } = {
@@ -344,6 +347,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     lockTimer: null,
     stableTimer: null,
     storyIndex: null,
+    teardown: null,
     retention: null,
     maintenance: null,
   };
@@ -463,6 +467,24 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: (office) => engineGit.forOffice(office),
       onChanged: (office) => server?.notifyOffice(office),
     });
+    // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each
+    // finished claim is looked up through `gh` on this daemon's PATH (else `git merge-tree`
+    // decides); a Done story's worktree and branches are removed and its slot freed. Its load step
+    // follows claims.feature.
+    const teardown = new StoryTeardown({
+      git: (office) => engineGit.forOffice(office),
+      host: new GhHost({
+        spawn: systemSpawn,
+        ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
+        env: io.env,
+      }),
+      cli: { spawn: systemSpawn },
+      offices,
+      slots: SlotTable.inState(stateDir),
+      onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "teardown" }),
+    });
+    held.teardown = teardown;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
     // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
@@ -534,6 +556,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       ...FEATURES,
       engineGit.feature,
       claims.feature,
+      teardown.feature,
       lane.feature,
       storyIndex.feature,
       gates.feature,
@@ -707,6 +730,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     upgrade?.stop();
     await keepAwake.stop();
     held.storyIndex?.stop();
+    held.teardown?.stop();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
     await held.maintenance?.stop();
