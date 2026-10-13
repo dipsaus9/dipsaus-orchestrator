@@ -16,6 +16,7 @@ import {
 import {
   acquireLock,
   BacklogLane,
+  BacklogPrs,
   ChildProcesses,
   chooseRuntimeDir,
   createLogger,
@@ -27,6 +28,7 @@ import {
   ensurePrivateDir,
   FEATURES,
   GateStore,
+  GhHost,
   hasLiveClaim,
   helloFeature,
   helloHandshake,
@@ -404,11 +406,26 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: (office) => engineGit.forOffice(office),
       onChanged: (office) => server?.notifyOffice(office),
     });
-    const lane = new BacklogLane({
+    // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
+    // daemon's PATH, and looked up after each story-index poll for a merge by hand.
+    const backlogPrs: BacklogPrs = new BacklogPrs({
+      host: new GhHost({
+        spawn: systemSpawn,
+        ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
+        env: io.env,
+      }),
+      lane: (office) => lane.forOffice(office),
+      cli: { spawn: systemSpawn },
+      offices,
+      clock,
+      onChanged: (office) => server?.notifyOffice(office),
+    });
+    const lane: BacklogLane = new BacklogLane({
       cli: { spawn: systemSpawn },
       git: (office) => engineGit.forOffice(office),
       liveClaim: hasLiveClaim,
       onChanged: (office) => server?.notifyOffice(office),
+      onFlushed: (office, report) => backlogPrs.afterFlush(office, report),
     });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
@@ -418,6 +435,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       cli: { spawn: systemSpawn },
       offices,
       onOfficeChanged: (office) => server?.notifyOffice(office),
+      onPolled: (office) => {
+        void backlogPrs.sync(office).catch((error: unknown) => {
+          logger.warn("checking the backlog PR failed", {
+            office,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        });
+      },
       logger: logger.child({ component: "stories" }),
     });
     held.storyIndex = storyIndex;

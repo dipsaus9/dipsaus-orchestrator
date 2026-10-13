@@ -170,6 +170,11 @@ export interface OfficeLaneOptions {
   readonly liveClaim?: (office: OfficeHandle, key: StoryKey) => boolean;
   /** Called after the lane appended change-log entries outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
+  /**
+   * Called after each successful flush, outside the git queue item (DIPO-35 opens or updates the
+   * backlog PR here and looks for merged ones). It reports its own failures; the flush ignores them.
+   */
+  readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
 }
 
 interface BaseRef {
@@ -218,6 +223,7 @@ export class OfficeLane {
   readonly #kinds: ReadonlyMap<string, LaneOpKind>;
   readonly #liveClaim: (office: OfficeHandle, key: StoryKey) => boolean;
   readonly #onChanged: (office: OfficeId) => void;
+  readonly #onFlushed: ((office: OfficeId, report: FlushReport) => Promise<void>) | undefined;
   #waiting: Waiting | null = null;
 
   constructor(options: OfficeLaneOptions) {
@@ -229,6 +235,7 @@ export class OfficeLane {
     this.#kinds = options.kinds;
     this.#liveClaim = options.liveClaim ?? (() => false);
     this.#onChanged = options.onChanged ?? (() => {});
+    this.#onFlushed = options.onFlushed;
   }
 
   get git(): OfficeGit {
@@ -297,6 +304,7 @@ export class OfficeLane {
    * has a remote), drop merged operations, rebuild when needed, apply, commit, push.
    */
   async flush(options: { readonly replay?: boolean } = {}): Promise<FlushReport> {
+    let report: FlushReport;
     try {
       const has = await this.#git.run((git) => this.#hasRemote(git));
       let remote: RemoteState = { has, fetched: false, detail: "" };
@@ -306,10 +314,13 @@ export class OfficeLane {
           ? { has, fetched: true, detail: "" }
           : { has, fetched: false, detail: outcome.error.message };
       }
-      return await this.#git.run((git) => this.#flush(git, remote));
+      report = await this.#git.run((git) => this.#flush(git, remote));
     } catch (error) {
       throw this.#failed(error, options.replay === true);
     }
+    // The hook reports its own failures as notices; a failure there is no failed flush.
+    await this.#onFlushed?.(this.officeId, report).catch(() => undefined);
+    return report;
   }
 
   /**
@@ -904,6 +915,8 @@ export interface BacklogLaneDeps {
   readonly kinds?: readonly LaneOpKind[];
   readonly liveClaim?: (office: OfficeHandle, key: StoryKey) => boolean;
   readonly onChanged?: (office: OfficeId) => void;
+  /** Called after each successful flush (DIPO-35, the backlog PR). */
+  readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
 }
 
 /** The load step that replays open journal entries (0007 section 6 step 2). */
