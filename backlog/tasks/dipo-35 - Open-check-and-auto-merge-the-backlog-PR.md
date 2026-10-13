@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:16'
+updated_date: '2026-10-13 12:19'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -100,4 +100,6 @@ Review round 1 (PR #77):
 - A failed restore of `_backlog` after the diff reports both errors (`RestoreError`). The lane already checks out its branch (or the base) before every apply; a comment now says so, and a test checks that `_backlog` is back on the branch after a check.
 - Decisions confirmed by the coordinator: retention is handled by the `ready-decision` notice telling the maintainer to run `ready <ID>` again (no automatic re-evaluation); blocks clear as described; a failure without a task blocks every touched story; every merged PR is re-checked until DIPO-73, which can skip the PRs it merged itself; the lane-b transitions match 0012 and 0010; `backlog.pr.*` stay engine.notice codes.
 - No new files outside the scope additions already listed, apart from packages/engine/test/backlog/pr/diff.test.ts, which is inside the declared test scope.
+
+Review round 2: a check that cannot run stores its cause in `backlog_prs.check_error` (migration 15, edited in place). The `backlog.pr.checkError` notice is shown once per PR and cause; later syncs retry quietly, and a check that runs clears the cause. Fast test: packages/engine/test/backlog/pr/sync.test.ts (inside the declared test scope). The duplicated collectPrDiff doc comment in diff.ts is fixed.
 <!-- SECTION:NOTES:END -->
