@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 13:48'
+updated_date: '2026-10-13 13:58'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -83,4 +83,13 @@ Scope additions:
 - packages/engine/src/index.ts: exports the merge-slot module.
 - packages/daemon/src/foreground.ts: wires `MergeSlot` (shared `GhHost`, `BacklogPrs.recheck`), the lane's `held` hook, a kick after each flush, the `mergeSlot.watch` load step and stop on shutdown.
 - No change to packages/engine/src/platform/host.ts (DIPO-58 also edits it): the existing `squashMerge`, `requiredChecks` and `viewPr` suffice.
+
+Review round 1 (PR #81):
+- Late operation: the lane reads the slot's hold again inside the flush git item (`#heldReport`), so a flush that started before the slot took the branch applies nothing once it has. `#merged` marks merged only the entries whose commit is in the merged head (`SlotGit.inHead`); any other stays open, and since the branch is deleted the lane applies it again on a new branch. Fast tests: packages/engine/test/merge-slot/bounds.test.ts.
+- Bounded wait: `CHECKS_WAIT_MS` (30 minutes, `checksWaitMs` dep) from the moment the slot starts waiting for the checks of a head. After it, the PR leaves with a `mergeSlot.checksStuck` notice naming the waiting checks, parked by head; it comes back when the checks pass or the head changes. A `requiredChecks` or `viewPr` failure gives one `mergeSlot.checksUnreadable` notice per cause and is bounded by the same wait. A PR that is no longer open on the host (or in the record) leaves with `mergeSlot.closed`.
+- Notices that would repeat are keyed per PR and code with the head or cause (`entered` per PR and head, `pushFailed`, `failed`, `checksUnreadable`, `checksStuck`, `closed`).
+- Live test: refuses unless the default branch of DIPO_LIVE_REPO holds the marker file `.dipo-scratch`; the failure message gives the commands to add it. Nothing is pushed and no ci.yml replaced without it.
+- Coordinator answers: 3 host merges in total is right; an unmerged backlog PR stays open with a notice, out of the slot until its head changes, no ADR change.
+- Follow-up note: the slot waits for the checks `ci-ok` and `pr-title` by name (`REQUIRED_CHECKS`), which is right for M0 (this repository and the scratch repository). Later offices whose base requires other checks may need these names from office configuration.
+- No new files outside the declared References in this round (bounds.test.ts is in packages/engine/test/merge-slot/); lane.ts is already listed under Scope additions.
 <!-- SECTION:NOTES:END -->
