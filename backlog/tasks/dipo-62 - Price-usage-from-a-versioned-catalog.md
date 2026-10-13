@@ -1,10 +1,10 @@
 ---
 id: DIPO-62
 title: Price usage from a versioned catalog
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:38'
+updated_date: '2026-10-13 08:40'
 labels:
   - 'tier:S'
   - after-cutover
