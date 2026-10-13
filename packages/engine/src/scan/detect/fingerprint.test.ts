@@ -88,6 +88,7 @@ describe("fingerprint", () => {
         ...base,
         envFiles: [{ example: ".env.example", path: ".env", present: false, ignored: false }],
       },
+      // The config imports the module but reads no port from it.
       withText("packages/config/vite/index.ts", "export const devPorts = { web: 6000 };\n"),
       withText("README.md", "# readme\n"),
       withText(
@@ -100,5 +101,34 @@ describe("fingerprint", () => {
       ),
     ];
     for (const probe of unchanged) expect(fingerprint(probe)).toBe(original);
+  });
+
+  it("hashes an imported config module the scan reads ports from (0013 amendment of 2026-10-12)", () => {
+    const reading = withText(
+      "apps/web/vite.config.ts",
+      'import { devPorts } from "@repo/config/vite";\nexport default { server: { port: devPorts.web } };\n',
+    );
+    const before = fingerprint(reading);
+    const moved: Probe = {
+      ...reading,
+      texts: {
+        ...reading.texts,
+        "packages/config/vite/index.ts": "export const devPorts = { web: 6000 };\n",
+      },
+    };
+    expect(fingerprint(moved)).not.toBe(before);
+
+    // A module the config imports but reads no port from is still left out.
+    const util = "packages/config/util.ts";
+    const other: Probe = {
+      ...reading,
+      configImports: { "apps/web/vite.config.ts": ["packages/config/vite/index.ts", util] },
+      texts: { ...reading.texts, [util]: "export const x = 1;\n" },
+    };
+    const otherChanged: Probe = {
+      ...other,
+      texts: { ...other.texts, [util]: "export const x = 2;\n" },
+    };
+    expect(fingerprint(otherChanged)).toBe(fingerprint(other));
   });
 });

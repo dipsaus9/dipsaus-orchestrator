@@ -145,3 +145,22 @@ export function detectPorts(
   }
   return ports;
 }
+
+/**
+ * The config modules dev ports are read from: for each `port: obj.prop` in a Vite config, the
+ * imported module that holds the value (0013 amendment of 2026-10-12). The fingerprint hashes
+ * them, so a port changed there triggers a rescan.
+ */
+export function portModules(probe: Probe): string[] {
+  const modules = new Set<string>();
+  for (const [config, imports] of Object.entries(probe.configImports)) {
+    if (!isViteConfig(baseName(config))) continue;
+    for (const match of (probe.texts[config] ?? "").matchAll(MEMBER_PORT)) {
+      const [, obj, prop] = match;
+      if (obj === undefined || prop === undefined) continue;
+      const found = memberValue(imports, probe.texts, obj, prop);
+      if (found !== null) modules.add(found.module);
+    }
+  }
+  return [...modules].toSorted();
+}
