@@ -137,6 +137,30 @@ async function sideAt(
 }
 
 /** The PR diff between `base` and `head`; the worktree is back on its own checkout afterwards. */
+function text(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A failed restore of the backlog worktree, after the diff itself may also have failed. Both
+ * errors are kept; the worktree may be left on another commit, which the lane's next flush checks
+ * out again before it applies anything.
+ */
+export class RestoreError extends Error {
+  constructor(
+    readonly restore: unknown,
+    readonly original: unknown,
+  ) {
+    super(
+      original === undefined
+        ? `restoring the backlog worktree failed: ${text(restore)}`
+        : `reading the PR diff failed: ${text(original)}; restoring the backlog worktree then failed too: ${text(restore)}`,
+    );
+    this.name = "RestoreError";
+  }
+}
+
+/** The PR diff between `base` and `head`; the worktree is back on its own checkout afterwards. */
 export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
   const { git, worktree, base, head } = options;
   const paths = nulSplit(
@@ -151,16 +175,7 @@ export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
     branch.code === 0 && branch.stdout.trim() !== ""
       ? { branch: branch.stdout.trim() }
       : { sha: (await git.ok(worktree, ["rev-parse", "--verify", "HEAD"])).trim() };
-  try {
-    const before = await sideAt(options, base, ids);
-    const after = await sideAt(options, head, ids);
-    const tasks: TaskChange[] = ids.map((id) => ({
-      id,
-      before: before.get(id) ?? { where: "absent" },
-      after: after.get(id) ?? { where: "absent" },
-    }));
-    return { paths, tasks };
-  } finally {
+  const restore = async () => {
     await git.ok(
       worktree,
       [
@@ -173,5 +188,25 @@ export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
       CHECKOUT,
     );
     await git.ok(worktree, ["clean", "-fdq"]);
+  };
+  let diff: PrDiff;
+  try {
+    const before = await sideAt(options, base, ids);
+    const after = await sideAt(options, head, ids);
+    const tasks: TaskChange[] = ids.map((id) => ({
+      id,
+      before: before.get(id) ?? { where: "absent" },
+      after: after.get(id) ?? { where: "absent" },
+    }));
+    diff = { paths, tasks };
+  } catch (error) {
+    await restore().catch((restoreError: unknown) => {
+      throw new RestoreError(restoreError, error);
+    });
+    throw error;
   }
+  await restore().catch((restoreError: unknown) => {
+    throw new RestoreError(restoreError, undefined);
+  });
+  return diff;
 }

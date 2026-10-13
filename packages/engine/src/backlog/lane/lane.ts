@@ -428,6 +428,9 @@ export class OfficeLane {
         entry.branch !== branch ||
         (entry.state !== "committed" && entry.state !== "pushed"),
     );
+    // Every write starts from an explicit checkout of the open branch (or of the base for a new
+    // one), so a worktree another item left elsewhere (the backlog PR check, DIPO-35) is never
+    // written to.
     if (toApply.length > 0) {
       await this.#checkout(git, location, branch ?? base.sha, branch === null);
     }
