@@ -1,10 +1,11 @@
 ---
 id: DIPO-67
 title: 'Configure Renovate, audit and the security policy'
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 11:54'
 labels:
   - 'tier:S'
   - after-cutover
@@ -55,15 +56,20 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `renovate.json` sets `config:recommended`, `helpers:pinGitHubActionDigests`, semantic commits, weekly schedule, `minimumReleaseAge` 3 days, the three groups, vulnerability alerts on, and monthly lockfile maintenance.
-- [ ] #2 Automerge is off globally and on only for devDependency minor and patch updates and lockfile maintenance; the Bun group, actions, runtime dependencies, `backlog.md`, majors and vulnerability PRs never automerge.
-- [ ] #3 `audit.yml` runs `bun audit --audit-level=high` on PRs touching `bun.lock` and daily; a failing scheduled run opens or updates one issue labelled `security`; it is not a required check.
-- [ ] #4 `SECURITY.md` points to private vulnerability reporting.
-- [ ] #5 A test in `scripts/check-runtime-imports.test.ts` reads every import in `packages/*/src` and fails when an imported package is not a runtime dependency of that package's `package.json`.
+- [x] #1 `renovate.json` sets `config:recommended`, `helpers:pinGitHubActionDigests`, semantic commits, weekly schedule, `minimumReleaseAge` 3 days, the three groups, vulnerability alerts on, and monthly lockfile maintenance.
+- [x] #2 Automerge is off globally and on only for devDependency minor and patch updates and lockfile maintenance; the Bun group, actions, runtime dependencies, `backlog.md`, majors and vulnerability PRs never automerge.
+- [x] #3 `audit.yml` runs `bun audit --audit-level=high` on PRs touching `bun.lock` and daily; a failing scheduled run opens or updates one issue labelled `security`; it is not a required check.
+- [x] #4 `SECURITY.md` points to private vulnerability reporting.
+- [x] #5 A test in `scripts/check-runtime-imports.test.ts` reads every import in `packages/*/src` and fails when an imported package is not a runtime dependency of that package's `package.json`.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S51 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+Scope additions: none. Every changed file is in References; .oxlintrc.json needed no change (the devDependency import ban is the test script).
+Implementation: renovate.json (AC #1, #2) checked by scripts/renovate-config.test.ts, which replays packageRules in order per update kind and refuses matchers it cannot replay; config also validated with renovate-config-validator --strict (renovate@latest, local run). backlog.md: allowedVersions 1.53.x plus automerge false. audit.yml (AC #3): audit job contents: read, report job issues: write on scheduled failures only; it creates the security label when missing; workflow_dispatch added for a manual run (report does not run on it). SECURITY.md (AC #4). scripts/check-runtime-imports.test.ts (AC #5): Bun.Transpiler.scanImports over packages/*/src, test files excepted; passes on main with no violations.
+Finding: bun audit --audit-level=high fails on main today: node-forge 1.4.0 (GHSA-86w9-cpqp-85rv, high) via @anthropic-ai/sandbox-runtime 0.0.79 in engine. Not changed here; the first daily run will open the security issue.
+AC #3 CI proof (a PR touching bun.lock) is not exercised by this PR, which does not change bun.lock.
 <!-- SECTION:NOTES:END -->
