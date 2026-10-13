@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:12'
+updated_date: '2026-10-13 12:20'
 labels:
   - 'tier:M'
   - after-cutover
@@ -82,4 +82,12 @@ Scope additions (files outside References):
 Notes:
 - No contract change: daemon.status.keepAwake { held, reason? } already exists (0005). The CLI now prints 'keep-awake: not held: <reason>' and 'held (<reason>)'.
 - Running verifies register through WorkTracker.beginVerify(); no verify step exists yet, so only the test calls it. Live hosts and waiting claims are read from worker_hosts and claims in the state database.
+
+Review follow-ups (PR #79):
+- Scope addition: packages/engine/src/platform/process.ts: detachedEnv strips XPC_SERVICE_NAME (with client daemonEnv), so a child never looks like the installed launchd job.
+- The launchd bootout after exit 78 now also requires launchd as the parent (ppid 1) and launchctl print reporting this PID as the job's; an inherited XPC_SERVICE_NAME alone boots nothing out.
+- A live claim without a worker host counts as waiting to start only within CLAIM_START_WINDOW_MS (5 minutes) of its claim. DIPO-56 (reconcile at daemon start) must release orphan claims (a run that died between claim and host start).
+- DIPO-49 (verify) must wire WorkTracker.beginVerify() around each verify step, so a running verify keeps the machine awake.
+- LAUNCHD_LABEL and SYSTEMD_UNIT moved into packages/contract (additive, no version bump); the client uses EXIT_CONFIG from the contract.
+- Follow-up, not changed here: with daemon.autoRestartOnUpgrade under launchd or systemd, the daemon still starts the new binary itself, outside the supervisor (0006 decision 14). A later story should restart through the supervisor instead.
 <!-- SECTION:NOTES:END -->
