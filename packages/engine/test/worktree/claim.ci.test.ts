@@ -3,7 +3,11 @@
 // for its time budget (DIPO-77): the reuse of a released branch with the base merged in or a code
 // conflict after a real release and push, and claims that fail after the worktree exists with a
 // tip the claim cannot name, or a reused branch to move back and claim again. Fast local versions
-// of the same rules are in claim-reuse.test.ts.
+// of the same rules are in claim-reuse.test.ts. Moved for the same budget (DIPO-79): the full claim
+// from origin/main with the push (fast local version: the claim without a remote in claim.test.ts),
+// and a lane-b operation submitted during the pickup re-check, which waits for the claim and meets
+// the live claim (fast local versions: the journaled-first skip in claim.test.ts and the live-claim
+// refusal in backlog/lane/lane.test.ts).
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -18,12 +22,14 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import { type GitCall, type GitResult, type GitSettings, spawnGitExec } from "../../src/git";
+import { LaneError } from "../../src/backlog/lane";
 import { systemSpawn } from "../../src/platform/process";
 import {
   CLAIM_NOTICES,
   claimStory,
   type ClaimOutcome,
   findClaim,
+  hasLiveClaim,
   releaseClaim,
   releasedBranchFor,
 } from "../../src/worktree";
@@ -34,6 +40,7 @@ import {
   type ClaimSetup,
   filesOf,
   inRemote,
+  laneOf,
   notices,
   otherClone,
   publish,
@@ -132,6 +139,86 @@ function afterClaimCommit(args: readonly string[], seen: readonly (readonly stri
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
+  describe("claiming a story", () => {
+    it("creates the branch and a locked worktree from origin/main, commits only the task file and pushes", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const main = (await repo.git("rev-parse", "HEAD")).trim();
+        const s = await claimSetup(repo);
+        const key = s.key();
+        const request = s.request(key);
+
+        const outcome = claimed(await claimStory(s.deps(), request));
+        const claim = outcome.claim;
+
+        expect(outcome.pushed).toBe(true);
+        expect(claim.worktree).toBe(join(s.git.worktreeRoot(), TASK_1));
+        expect(claim.startSha).toBe(main);
+        expect(claim.baseSha).toBe(main);
+        expect(claim.reused).toBe(false);
+        expect(claim.firstFeedback).toBeNull();
+        expect(hasLiveClaim(s.office, key)).toBe(true);
+
+        // One claim commit on the branch, changing only the story's task file.
+        expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toEqual([
+          `${TASK_1}: status In Progress`,
+        ]);
+        const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
+        expect(claim.claimSha).toBe(tip);
+        expect(await filesOf(repo.dir, repo.home, tip)).toEqual([TASK_FILE_1]);
+        expect(readFileSync(join(claim.worktree, TASK_FILE_1), "utf8")).toContain(
+          "status: In Progress",
+        );
+
+        // The remote has the branch at the claim commit, pushed without force.
+        expect((await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim()).toBe(tip);
+        expect(claim.pushedAt).not.toBeNull();
+
+        // The worktree is locked with the run id.
+        const list = await repo.git("worktree", "list", "--porcelain");
+        const entry = list
+          .split("\n\n")
+          .find((block) => block.includes(`worktree ${claim.worktree}`));
+        expect(entry).toContain(`locked dipo ${request.runId}`);
+        expect(entry).toContain(`branch refs/heads/${BRANCH_1}`);
+
+        // The main checkout stays on main with no change.
+        expect((await repo.git("rev-parse", "HEAD")).trim()).toBe(main);
+        expect(await repo.git("status", "--porcelain")).toBe("");
+        expect(notices(s.office)).toEqual([]);
+      }, FIXTURE);
+    });
+  });
+
+  describe("the claim and the planning lane in the office git queue", () => {
+    it("runs a lane-b operation submitted during the pickup re-check after the claim, which refuses it", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const key = s.key();
+        // The pickup re-check runs inside the claim's queue item, so a journal item submitted from
+        // it cannot interleave: it waits for the claim to finish and then meets the live claim.
+        let journal: Promise<unknown> | undefined;
+        const outcome = await claimStory(s.deps(), {
+          ...s.request(key),
+          recheck: () => {
+            journal ??= laneOf(s)
+              .journal({ kind: "edit", key, subject: TASK_1, target: { status: "Refined" } })
+              .then(
+                () => "journaled",
+                (error: unknown) => error,
+              );
+            return null;
+          },
+        });
+        const journaled = await journal;
+        expect(outcome.ok).toBe(true);
+        expect(journaled).toBeInstanceOf(LaneError);
+        expect((journaled as LaneError).code).toBe("backlog.lane.liveClaim");
+      }, FIXTURE);
+    });
+  });
+
   describe("reusing a released branch", () => {
     it("reuses it with the base merged in before the claim commit", async () => {
       await withBareRemote(async (repo) => {
