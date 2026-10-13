@@ -39,7 +39,7 @@ These are repository and account settings. Agents never change them. Do them in 
    - Rules: **Restrict creations**, **Restrict updates**, **Restrict deletions**.
    - Bypass list: the `dipo-release` App only.
 5. **Immutable releases**. Settings > General > Releases: turn on **Enable release immutability**.
-6. **Private vulnerability reporting**. Settings > Security (Advanced Security) > turn on **Private vulnerability reporting**. Decision 0016 rule 2 pairs it with a `SECURITY.md`, which a later story adds.
+6. **Private vulnerability reporting**. Settings > Security (Advanced Security) > turn on **Private vulnerability reporting**. `SECURITY.md` already sends reporters there (0016 rule 2). Skip this step if it is already on.
 
 Create both environments before the first run of `release.yml`. A workflow that names an environment that does not exist creates it without any protection rules.
 
