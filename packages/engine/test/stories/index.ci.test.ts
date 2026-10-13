@@ -3,6 +3,8 @@
 // or completed task closes as Removed with a notice, a hand-promoted draft is renumbered, an
 // ambiguous created date matches nothing, and a status pushed to the remote is indexed after
 // `polling.fetchSeconds` on the manual clock.
+// Also keys that stay stable across a second pass and a retitle with the CLI (DIPO-79); the fast
+// local versions of that rule are in apply.test.ts.
 // A fast local check of the polling is part of the first test in index.test.ts.
 
 import { describe, expect, it } from "bun:test";
@@ -102,6 +104,26 @@ function mirrorStatus(office: OfficeHandle, id: string): string | undefined {
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("story index on the Backlog CLI", () => {
+    it("keeps keys stable across passes and a retitle with the CLI", () =>
+      withIndexedOffice(async ({ repo, index, officeId, office }) => {
+        const loaded = storyRows(office);
+        const seq = lastSeq(office);
+        const again = await index.indexStories(officeId);
+        expect(again.stats).toMatchObject({ stories: 4, added: 0, changed: 0, removed: 0 });
+        expect(again.cursor).toBeUndefined();
+        expect(storyRows(office)).toEqual(loaded);
+        expect(entriesAfter(office, seq)).toEqual([]);
+
+        await backlog(repo, ["task", "edit", "TASK-2", "-t", "Rename the export option"]);
+        await publish(repo, "retitle TASK-2");
+        const retitled = await index.indexStories(officeId);
+        expect(retitled.stats).toMatchObject({ added: 0, removed: 0, changed: 1 });
+        expect(storyRows(office)).toEqual(loaded);
+        const [entry] = entriesAfter(office, seq);
+        expect(entry?.delta).toMatchObject({ story: "TASK-2", from: "Refined", to: "Refined" });
+        expect(entry?.view).toMatchObject({ title: "Rename the export option" });
+      }));
+
     it("closes an archived and a completed task as Removed with a notice", () =>
       withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
         const archived = keyOf(office, "TASK-1");

@@ -11,7 +11,8 @@ import type { TempRepo } from "@dipsaus-orchestrator/testkit";
 import { type GitExec, type GitSettings, OfficeGit, spawnGitExec } from "../../src/git";
 import type { DiskProbe } from "../../src/platform/disk";
 import { systemSpawn } from "../../src/platform/process";
-import type { ClaimDeps, ClaimRequest } from "../../src/worktree";
+import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
+import { type ClaimDeps, type ClaimRequest, hasLiveClaim } from "../../src/worktree";
 import { type LaneSetup, laneSetup } from "../backlog/lane/helpers";
 
 export {
@@ -82,5 +83,18 @@ export function secondGit(
     settings,
     runner: { exec, env: repo.env, sleep: async () => {} },
     clock: s.t.clock,
+  });
+}
+
+/** The planning lane of the setup's office, refusing stories with a live claim. */
+export function laneOf(s: ClaimSetup): OfficeLane {
+  return new OfficeLane({
+    officeId: s.office.officeId,
+    office: s.office,
+    git: s.git,
+    cli: s.cli,
+    clock: s.t.clock,
+    kinds: new Map([[EDIT_KIND, editKind(EDIT_KIND)]]),
+    liveClaim: hasLiveClaim,
   });
 }

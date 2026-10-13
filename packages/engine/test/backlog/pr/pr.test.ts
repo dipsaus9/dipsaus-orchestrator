@@ -1,8 +1,9 @@
 // The backlog PR against real temporary repositories, the pinned Backlog CLI and an in-memory code
 // host (DIPO-35; 0010 section 2, lane b): a pushed engine branch opens one PR, a later operation
-// updates the same PR, the PR is stored on the journal entries, a failing structural check keeps it
-// open with a notice and not mergeable, a merge by hand is checked again and blocks the stories it
-// fails on, and without a remote or a `gh` login no PR is opened and the waiting branch is reported.
+// updates the same PR, the PR is stored on the journal entries, and without a remote or a `gh` login
+// no PR is opened and the waiting branch is reported. A failing PR kept open and its merge commit by
+// hand run in CI only, in pr.ci.test.ts (DIPO-79); their fast rules are in check.test.ts and
+// records.test.ts.
 
 import { describe, expect, it } from "bun:test";
 
@@ -10,17 +11,11 @@ import { StoryId } from "@dipsaus-orchestrator/contract";
 import { withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { allEntries } from "../../../src/backlog/lane";
-import {
-  backlogCheckBlocked,
-  backlogPrMergeable,
-  findPr,
-  PR_NOTICES,
-  TITLE_PREFIX,
-} from "../../../src/backlog/pr";
+import { backlogPrMergeable, findPr, PR_NOTICES, TITLE_PREFIX } from "../../../src/backlog/pr";
 import { addStory } from "../../../src/stories/keys";
 import { BACKLOG_FIXTURE, notices, publish } from "../lane/helpers";
 
-import { laneSetup, mergeCommitOnRemote, prSetup, REPO } from "./helpers";
+import { laneSetup, prSetup, REPO } from "./helpers";
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
@@ -83,49 +78,6 @@ describe("the backlog PR", () => {
         `https://github.com/${REPO}/pull/1`,
         `https://github.com/${REPO}/pull/1`,
       ]);
-    }, FIXTURE);
-  });
-
-  it("keeps a failing PR open with a notice, and blocks its story after a merge commit by hand", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await prSetup(repo, await laneSetup(repo));
-      const two = addStory(s.office, s.t.ids, { story: StoryId.parse("TASK-2") }, 0).key;
-
-      // TASK-2 becomes Ready without any stored Ready gate decision, so the check fails: the PR
-      // stays open, a notice names the rule and the task, and it is not mergeable.
-      const { report } = await s.lane().submit({
-        kind: "edit",
-        key: two,
-        subject: "TASK-2",
-        target: { status: "Ready" },
-      });
-      const branch = report.branch as string;
-      const tip = (await repo.git("rev-parse", branch)).trim();
-      expect(findPr(s.office, 1)).toMatchObject({
-        state: "open",
-        check: "failed",
-        checkedHead: tip,
-      });
-      expect(s.host.prs.get(1)?.state).toBe("open");
-      expect(backlogPrMergeable(s.office, 1, tip)).toBe(false);
-      const failed = notices(s.office).filter((n) => n.code === PR_NOTICES.checkFailed);
-      expect(failed.map((n) => n.key)).toEqual([two]);
-      expect(failed[0]?.text).toContain("[ready-decision] on TASK-2");
-      expect(backlogCheckBlocked(s.office, two)).toBeNull();
-
-      // The maintainer merges it by hand with a merge commit, so the head is now on main. After the
-      // poll's fetch the merge is seen and checked again against the base the open check used, not
-      // against main (which would be an empty diff that passes), and it blocks TASK-2.
-      const mergeCommit = await mergeCommitOnRemote(repo, branch);
-      s.host.mergedByHand(1, tip, mergeCommit);
-      await s.git.fetch();
-      await s.prs.sync(s.officeId);
-      expect(findPr(s.office, 1)).toMatchObject({ state: "merged", check: "failed" });
-      const merged = notices(s.office).filter((n) => n.code === PR_NOTICES.mergedCheckFailed);
-      expect(merged.map((n) => [n.key, n.level])).toEqual([[two, "error"]]);
-      expect(merged[0]?.text).toContain("merged by hand");
-      expect(backlogCheckBlocked(s.office, two)).toMatchObject({ reason: "notRunnable", prs: [1] });
     }, FIXTURE);
   });
 });

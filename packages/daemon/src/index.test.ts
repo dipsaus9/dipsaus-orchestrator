@@ -67,15 +67,13 @@ describe("runDaemon", () => {
     expect(err.join("\n")).toContain("--no-orphans");
   });
 
-  it("dispatches wait-pid, which exits 0 once the process is gone (DIPO-63)", async () => {
-    // A real short-lived process stands in for the daemon.
-    const sleeper = Bun.spawn({ cmd: ["sleep", "0.2"], stdin: "ignore", stdout: "ignore" });
+  it("dispatches wait-pid, which exits 0 at once for a process already gone (DIPO-63)", async () => {
+    // A process that has exited stands in for the daemon. The wait on a live process, which polls
+    // once a second, is in index.ci.test.ts (DIPO-79).
+    const gone = Bun.spawn({ cmd: ["true"], stdin: "ignore", stdout: "ignore" });
+    await gone.exited;
     const wait = capture();
-    const [code] = await Promise.all([
-      runDaemon(["wait-pid", String(sleeper.pid)], wait.io),
-      sleeper.exited,
-    ]);
-    expect(code).toBe(0);
+    expect(await runDaemon(["wait-pid", String(gone.pid)], wait.io)).toBe(0);
     expect(wait.err).toEqual([]);
   });
 

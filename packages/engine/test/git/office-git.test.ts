@@ -1,7 +1,8 @@
 // Engine git against real temporary repositories (DIPO-31; 0010 sections 2 and 7, 0008 section 2):
 // planted hooks and fsmonitor never run, `_base` follows `origin/main`, the worktree root stays
 // outside the main checkout, a failed fetch holds only pickup and planning pushes, a held lock is
-// retried and never deleted, and no operation writes the main checkout.
+// retried and never deleted, and no operation writes the main checkout. The planted hooks through
+// fetches and `_base` run in CI only, in office-git.ci.test.ts (DIPO-79).
 
 import { describe, expect, it } from "bun:test";
 import {
@@ -25,72 +26,11 @@ import {
   withTempRepo,
 } from "@dipsaus-orchestrator/testkit";
 
-import {
-  EngineGit,
-  type GitError,
-  type GitSettings,
-  OfficeGit,
-  type Sleep,
-  spawnGitExec,
-} from "../../src/git";
+import { EngineGit, type GitError } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { BACKLOG_FIXTURE, errorOf, officeSetup, resultOf, send } from "../office/helpers";
 
-const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000001" as OfficeId;
-
-interface Repo {
-  readonly dir: string;
-  readonly root: string;
-  readonly home: string;
-  readonly env: Record<string, string>;
-}
-
-type SettingsOverride = { base?: string | undefined; worktreeRoot?: string | undefined };
-
-/** Settings with base `main` unless the override names `base`, even as undefined. */
-function gitSettingsOf(override: SettingsOverride): GitSettings {
-  const base = "base" in override ? override.base : "main";
-  return {
-    remote: "origin",
-    ...(base === undefined ? {} : { base }),
-    ...(override.worktreeRoot === undefined ? {} : { worktreeRoot: override.worktreeRoot }),
-  };
-}
-
-function officeGit(
-  repo: Repo,
-  settings: SettingsOverride = {},
-  sleep: Sleep = async () => {},
-): OfficeGit {
-  return new OfficeGit({
-    officeId: OFFICE,
-    mainWorktree: realpathSync(repo.dir),
-    commonDir: realpathSync(join(repo.dir, ".git")),
-    settings: gitSettingsOf(settings),
-    runner: { exec: spawnGitExec(systemSpawn), env: repo.env, sleep },
-    clock: new ManualClock(),
-  });
-}
-
-/** A repository with one commit on `main`, pushed to its bare `origin`. */
-async function published(repo: TempRepoWithRemote): Promise<string> {
-  writeFileSync(join(repo.dir, "README.md"), "hello\n");
-  const sha = await repo.commitAll("first");
-  await repo.git("push", "--quiet", "origin", "main");
-  return sha;
-}
-
-/** Commits `file` in a second clone of `origin` and pushes it; returns the new commit. */
-async function pushFromElsewhere(repo: TempRepoWithRemote, file: string): Promise<string> {
-  const other = join(repo.root, "other");
-  if (!existsSync(other)) await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
-  else await git(other, repo.home, "pull", "--quiet", "--ff-only");
-  writeFileSync(join(other, file), `${file}\n`);
-  await git(other, repo.home, "add", file);
-  await git(other, repo.home, "commit", "--quiet", "-m", file);
-  await git(other, repo.home, "push", "--quiet", "origin", "HEAD:main");
-  return (await git(other, repo.home, "rev-parse", "HEAD")).trim();
-}
+import { OFFICE, officeGit, published, pushFromElsewhere, type Repo } from "./helpers";
 
 async function headOf(repo: Repo, worktree: string): Promise<string> {
   return (await git(worktree, repo.home, "rev-parse", "HEAD")).trim();
@@ -118,9 +58,14 @@ async function checkoutState(repo: TempRepoWithRemote): Promise<string[]> {
 }
 
 describe("hardened engine git calls", () => {
+  // The fast local version: queue calls on the repository and a linked worktree, no remote. The
+  // full case through fetches and the `_base` worktree is in office-git.ci.test.ts (DIPO-79).
   it("never run a planted core.hooksPath or core.fsmonitor", async () => {
-    await withBareRemote(async (repo) => {
-      await published(repo);
+    await withTempRepo(async (repo) => {
+      writeFileSync(join(repo.dir, "README.md"), "hello\n");
+      await repo.commitAll("first");
+      const linked = join(repo.root, "linked");
+      await repo.git("worktree", "add", "--quiet", "--detach", linked);
       const marker = join(repo.root, "ran");
       const hooks = join(repo.root, "hooks");
       mkdirSync(hooks);
@@ -143,12 +88,8 @@ describe("hardened engine git calls", () => {
       rmSync(marker);
 
       const office = officeGit(repo);
-      expect((await office.fetch()).ok).toBe(true);
-      await pushFromElsewhere(repo, "second.txt");
-      expect(await office.fetch()).toMatchObject({ ok: true, moved: true });
-      const base = office.baseWorktreePath();
       await office.run(async (session) => {
-        const location = office.worktreeLocation(base);
+        const location = office.worktreeLocation(realpathSync(linked));
         await session.ok(location, ["status", "--porcelain"]);
         await session.ok(location, ["update-index", "--refresh"]);
         await session.ok(session.repository, ["update-ref", "refs/dipo-engine", "HEAD"]);
