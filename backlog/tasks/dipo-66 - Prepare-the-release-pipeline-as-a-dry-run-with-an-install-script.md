@@ -1,10 +1,11 @@
 ---
 id: DIPO-66
 title: Prepare the release pipeline as a dry run with an install script
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 12:12'
 labels:
   - 'tier:M'
   - after-cutover
@@ -54,18 +55,33 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `release-please-config.json` and `.release-please-manifest.json` configure one `node` release at the root with `bump-minor-pre-major: true`.
-- [ ] #2 `release.yml` on `workflow_dispatch` runs release-please with `--dry-run` and builds `dipo-<os>-<arch>.tar.gz` archives kept as workflow artifacts, with no tag, release or upload.
-- [ ] #3 Job permissions match the 0016 rule 1 table; the `release-please` and `release` environments are referenced only by their jobs.
-- [ ] #4 `install.sh` (POSIX `sh`) detects OS and architecture, refuses Windows and musl, verifies `SHA256SUMS`, runs the pinned `gh attestation verify` when `gh` exists, installs to `${DIPO_INSTALL_DIR:-$HOME/.local/bin}` by writing a temporary file in that directory and renaming it over any existing binary, and honours `DIPO_VERSION`.
-- [ ] #5 CI job `shellcheck` checks `install.sh` and is needed by `ci-ok`.
-- [ ] #6 `CLAUDE.md` states that agents and the orchestrator never merge a PR labelled `autorelease: pending` and never approve a deployment, and that each release waits for the maintainer's live smoke run.
-- [ ] #7 `README.md` documents both install forms, asset names, the attestation command and the Gatekeeper workaround.
-- [ ] #8 `docs/release.md` lists the one-time maintainer steps (GitHub App, environments, tag ruleset, immutable releases, private vulnerability reporting).
+- [x] #1 `release-please-config.json` and `.release-please-manifest.json` configure one `node` release at the root with `bump-minor-pre-major: true`.
+- [x] #2 `release.yml` on `workflow_dispatch` runs release-please with `--dry-run` and builds `dipo-<os>-<arch>.tar.gz` archives kept as workflow artifacts, with no tag, release or upload.
+- [x] #3 Job permissions match the 0016 rule 1 table; the `release-please` and `release` environments are referenced only by their jobs.
+- [x] #4 `install.sh` (POSIX `sh`) detects OS and architecture, refuses Windows and musl, verifies `SHA256SUMS`, runs the pinned `gh attestation verify` when `gh` exists, installs to `${DIPO_INSTALL_DIR:-$HOME/.local/bin}` by writing a temporary file in that directory and renaming it over any existing binary, and honours `DIPO_VERSION`.
+- [x] #5 CI job `shellcheck` checks `install.sh` and is needed by `ci-ok`.
+- [x] #6 `CLAUDE.md` states that agents and the orchestrator never merge a PR labelled `autorelease: pending` and never approve a deployment, and that each release waits for the maintainer's live smoke run.
+- [x] #7 `README.md` documents both install forms, asset names, the attestation command and the Gatekeeper workaround.
+- [x] #8 `docs/release.md` lists the one-time maintainer steps (GitHub App, environments, tag ruleset, immutable releases, private vulnerability reporting).
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S50 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+Scope additions:
+- `.github/actions/smoke/action.yml`: the CI smoke steps moved into one composite action, used by the `smoke (*)` jobs in ci.yml and the `build (*)` jobs in release.yml, so the release build runs the same smoke test as CI (0016 rule 4) without a second copy. CI on this PR runs it on all four targets.
+- `test/install-script/install.test.ts`: local tests of install.sh under /bin/sh with stubbed `uname`, `curl`, `ldd`, `sysctl` and `gh` on a PATH-only sandbox, fake archives and SHA256SUMS under DIPO_TMP (about 1.2 s).
+
+Implementation notes:
+- release-please dry run uses the CLI (`npx release-please@17.11.2 release-pr|github-release --dry-run`) because the action has no dry-run mode; it needs Node 22+, so the job runs actions/setup-node v7.0.0.
+- The dry-run release-please job uses the App token from environment `release-please`, scoped to read-only (`permission-contents/pull-requests: read`), so its permissions match the 0016 rule 1 table (GITHUB_TOKEN none). The maintainer must create the App and the `release-please` environment before the first dry run.
+- `publish` and `post-release` are written but run only when `release-please` outputs `publish == true`, which it never does while `DRY_RUN: "true"`. The switch to real releases: `DRY_RUN: "false"` plus `push: branches: [main]`.
+- The release build has no dependency cache (installs from bun.lock only).
+- shellcheck is not installed locally; a scratchpad copy of shellcheck 0.11.0 and actionlint 1.7.12 found no issues in install.sh, ci.yml, release.yml or the existing stub-worker.sh.
+
+Review advisory fixed: release.yml now rejects a `tag` input outside `^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]*)?$` (bash `[[ =~ ]]` on the whole value, so no newline passes), and the decide step writes build, publish, ref and tag with one printf each instead of piping through `tr`. actionlint 1.7.12 and shellcheck 0.11.0 (scratchpad copies) report nothing.
+
+Maintainer decision (2026-10-13): when gh is installed but not logged in, install.sh stops and suggests gh auth login (0016 rule 7, as built). Secrets use the App Client ID (create-github-app-token v3 deprecates app-id).
 <!-- SECTION:NOTES:END -->
