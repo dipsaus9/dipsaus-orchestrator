@@ -1,7 +1,7 @@
 ---
 id: DIPO-47
 title: Assemble worker prompts from templates and story data
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
 updated_date: '2026-10-13 08:27'
