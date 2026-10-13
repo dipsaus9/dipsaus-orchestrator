@@ -166,6 +166,17 @@ export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
   const paths = nulSplit(
     await git.ok(git.repository, ["diff", "--name-only", "-z", "--no-renames", base, head]),
   );
+  const added = nulSplit(
+    await git.ok(git.repository, [
+      "diff",
+      "--name-only",
+      "-z",
+      "--no-renames",
+      "--diff-filter=A",
+      base,
+      head,
+    ]),
+  );
   const ids = [
     ...new Set(paths.map((path) => taskOfPath(path)?.id).filter((id) => id !== undefined)),
   ].toSorted();
@@ -198,7 +209,7 @@ export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
       before: before.get(id) ?? { where: "absent" },
       after: after.get(id) ?? { where: "absent" },
     }));
-    diff = { paths, tasks };
+    diff = { paths, added, tasks };
   } catch (error) {
     await restore().catch((restoreError: unknown) => {
       throw new RestoreError(restoreError, error);

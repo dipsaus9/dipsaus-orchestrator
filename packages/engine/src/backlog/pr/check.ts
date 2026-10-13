@@ -3,7 +3,9 @@
 // (`diff.ts`) gathered it and the stored facts the caller read, and the same input always gives the
 // same result. Five rules, each failure naming its rule and, where there is one, its task:
 //
-// - `backlog-only`: every changed path lies under `backlog/`.
+// - `backlog-only`: every changed path lies under `backlog/`, except a new `.dipo/.gitignore`, the
+//   one file office init adds outside it (0007 section 2, 0010 section 11; DIPO-36). Changing or
+//   removing an existing one fails the rule.
 // - `parses` (R02): every changed task or draft that still exists parses: its view, and its `dipo`
 //   field block.
 // - `transition`: each status change is a 0012 transition that lane b may write (below).
@@ -47,10 +49,18 @@ export interface TaskChange {
   readonly after: TaskSide;
 }
 
+/**
+ * Paths outside `backlog/` a backlog PR may add, never change or remove: the `.dipo/.gitignore`
+ * office init adds only if absent (0007 section 2, DIPO-36).
+ */
+export const ADDED_OUTSIDE_BACKLOG: readonly string[] = [".dipo/.gitignore"];
+
 /** The PR diff: every changed path, and the tasks among them on both sides. */
 export interface PrDiff {
   /** Paths changed between the merge base and the head, repository-relative. */
   readonly paths: readonly string[];
+  /** The paths among `paths` the PR adds (absent at the merge base); absent means none. */
+  readonly added?: readonly string[];
   readonly tasks: readonly TaskChange[];
 }
 
@@ -134,7 +144,11 @@ export function checkBacklogPr(diff: PrDiff, facts: PrFacts): CheckResult {
   const claimed = new Set(facts.claimed);
   const touched: StoryKey[] = [];
 
-  const outside = diff.paths.filter((path) => !path.startsWith("backlog/"));
+  const added = new Set(diff.added ?? []);
+  const outside = diff.paths.filter(
+    (path) =>
+      !path.startsWith("backlog/") && !(ADDED_OUTSIDE_BACKLOG.includes(path) && added.has(path)),
+  );
   if (outside.length > 0) {
     failures.push({
       rule: "backlog-only",
