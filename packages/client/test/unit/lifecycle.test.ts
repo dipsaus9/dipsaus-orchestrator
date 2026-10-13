@@ -84,6 +84,9 @@ function session(options: { stop?: () => void; pid?: number } = {}): DaemonSessi
       options.stop?.();
       return { ok: true, result: { state: "draining" }, changed: true };
     }) as DaemonSession["command"],
+    subscribe: () => {
+      throw new Error("subscribe must not be called");
+    },
     close: () => {},
   };
 }

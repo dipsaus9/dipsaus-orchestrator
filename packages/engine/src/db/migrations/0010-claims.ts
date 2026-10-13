@@ -1,4 +1,4 @@
-// Migration 8 (DIPO-38): `claims` and `released_branches` (0007 section 4, 0010 sections 2a and 7).
+// Migration 10 (DIPO-38): `claims` and `released_branches` (0007 section 4, 0010 sections 2a and 7).
 //
 // `claims` holds one row per claim, keyed by the run that claimed: the story's key and id at the
 // claim, its frozen branch and `<root>/<ID>` worktree, the base and the commit the worktree started
@@ -14,7 +14,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const claims: SqlMigration = {
-  version: 8,
+  version: 10,
   name: "claims and released_branches",
   sql: `
 create table claims (
