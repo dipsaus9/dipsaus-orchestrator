@@ -63,7 +63,7 @@ export const InitTarget = z.discriminatedUnion("step", [
   z
     .object({
       step: z.literal("migrate"),
-      /** `To Do` task ids left alone: each is in progress on its own branch. */
+      /** `To Do` task ids left alone: a branch <ID>/... exists for each. */
       leave: z.array(z.string()),
     })
     .strict(),

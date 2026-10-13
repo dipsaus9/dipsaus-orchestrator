@@ -88,7 +88,7 @@ export interface InitPlan {
   readonly targets: readonly InitTarget[];
   /** The base's value of every setting a step changes. */
   readonly previous: Readonly<Record<string, SettingValue>>;
-  /** `To Do` tasks left alone because each is in progress on its own branch. */
+  /** `To Do` tasks left alone because a branch <ID>/... exists for each. */
   readonly leftAlone: readonly string[];
 }
 
