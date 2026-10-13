@@ -5,6 +5,10 @@
 // `ci-ok` and `pr-title` and "require branches to be up to date", and holds this repository's
 // `pr-title.yml`.
 //
+// The test changes the repository's default branch, so it refuses to run unless that branch holds
+// the marker file `.dipo-scratch` (`SCRATCH_MARKER`), which the maintainer adds by hand to a
+// repository meant for this test. Without the marker nothing is pushed and no ci.yml is replaced.
+//
 // The scratch repository has no Bun workspace, so this repository's `ci.yml` cannot pass there.
 // The test therefore keeps a stub `.github/workflows/ci.yml` on the default branch whose `ci-ok`
 // job always passes (`STUB_CI`), pushing it once when it is missing. What the test proves does not
@@ -78,8 +82,26 @@ async function run(cwd: string, ...cmd: [string, ...string[]]): Promise<string> 
   return stdout.trim();
 }
 
+/** The file that marks a repository as a dipo scratch repository the live tests may change. */
+const SCRATCH_MARKER = ".dipo-scratch";
+
+/** Refuses a repository whose default branch lacks the scratch marker, saying how to add it. */
+function assertScratch(clone: string, repo: string, base: string): void {
+  if (existsSync(join(clone, SCRATCH_MARKER))) return;
+  throw new Error(
+    [
+      `${repo} has no ${SCRATCH_MARKER} file on ${base}, so this test will not change it: it pushes to ${base} and replaces .github/workflows/ci.yml with a stub.`,
+      `If ${repo} is a scratch repository meant for this test, add the marker once:`,
+      `  gh repo clone ${repo} /tmp/dipo-scratch && cd /tmp/dipo-scratch`,
+      `  echo "dipo live tests may change this repository" > ${SCRATCH_MARKER}`,
+      `  git add ${SCRATCH_MARKER} && git commit -m "chore: mark as a dipo scratch repository" && git push origin HEAD:${base}`,
+    ].join("\n"),
+  );
+}
+
 /** Pushes the Backlog fixture and the stub `ci.yml` to the default branch when either is missing. */
-async function prepare(clone: string, base: string): Promise<void> {
+async function prepare(clone: string, repo: string, base: string): Promise<void> {
+  assertScratch(clone, repo, base);
   const paths: string[] = [];
   if (!existsSync(join(clone, "backlog"))) {
     cpSync(join(BACKLOG_FIXTURE, "backlog"), join(clone, "backlog"), { recursive: true });
@@ -113,7 +135,7 @@ describe.skipIf(LIVE_REPO === undefined || LIVE_REPO === "")("the merge slot on 
       const clone = join(root, "clone");
       await run(root, "gh", "repo", "clone", repo, clone);
       const base = await run(clone, "git", "rev-parse", "--abbrev-ref", "HEAD");
-      await prepare(clone, base);
+      await prepare(clone, repo, base);
 
       const t = await openTestState(join(root, "state"));
       const office = addOffice(t);
