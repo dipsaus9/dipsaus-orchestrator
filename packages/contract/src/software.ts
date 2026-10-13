@@ -13,7 +13,7 @@ import {
 import { ConfigErrorData } from "./config";
 import { Cursor, OfficeId } from "./ids";
 import { ContractVersion } from "./version";
-import { EvidenceMap } from "./work";
+import { EvidenceMap, openEnum } from "./work";
 
 // 0006 section 7. Closed enum: a new state is a major change (0005 section 11).
 export const DaemonState = z.enum(["starting", "recovering", "running", "draining", "safe"]);
@@ -260,12 +260,30 @@ export const daemonStateChanged = defineEvent({
   data: z.object({ from: DaemonState, to: DaemonState, reason: z.string().optional() }),
 });
 
-// Run knowledge; the shape is owned by the scan (0013).
+// What started a scan (0007 section 4). Open enum.
+export const ScanTrigger = openEnum(["start", "run", "test", "rescan"]);
+export type ScanTrigger = z.infer<typeof ScanTrigger>;
+
+// The conformance level of a run profile (0013 section 2). Open enum.
+export const ConformanceLevel = openEnum(["conforming", "partial", "non-standard"]);
+export type ConformanceLevel = z.infer<typeof ConformanceLevel>;
+
+// Run knowledge; the shape is owned by the scan (0013). `scripts` holds the resolved capabilities
+// by name and `warnings` each deviation from the standard. Since minor 1 (DIPO-72), all optional:
+// `trigger`, the conformance `level`, the `diff` from the previous profile (one line per changed
+// fact) and `error` when the scan failed (no profile is stored then).
 export const scanFinished = defineEvent({
   type: "scan.finished",
   stream: "office",
   derived: false,
-  data: z.object({ scripts: z.record(z.string(), z.string()), warnings: z.array(z.string()) }),
+  data: z.object({
+    scripts: z.record(z.string(), z.string()),
+    warnings: z.array(z.string()),
+    trigger: ScanTrigger.optional(),
+    level: ConformanceLevel.optional(),
+    diff: z.array(z.string()).optional(),
+    error: z.string().optional(),
+  }),
 });
 
 export const engineNotice = defineEvent({
