@@ -19,6 +19,9 @@
 // and the old branch is left as it is. An operation that no longer applies is dropped with an
 // `engine.notice`.
 //
+// While the office's merge slot holds the open branch (DIPO-73, `held`), a flush does nothing: new
+// operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
+//
 // Each commit carries the trailer `Dipo-Op: <op id>`, so after a crash between a commit and its
 // journal update the commit is found again instead of applied twice.
 //
@@ -157,6 +160,11 @@ export interface FlushReport {
   readonly pushed: boolean;
   /** What waits for a remote, a fetch or a push; null when nothing does. */
   readonly waiting: Waiting | null;
+  /**
+   * True when the flush did nothing because the open branch is in the merge slot (DIPO-73): new
+   * operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
+   */
+  readonly held?: boolean;
 }
 
 export interface OfficeLaneOptions {
@@ -175,6 +183,11 @@ export interface OfficeLaneOptions {
    * backlog PR here and looks for merged ones). It reports its own failures; the flush ignores them.
    */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
+  /**
+   * The engine branch the office's merge slot holds, or null (DIPO-73; 0016 rule 2). While a branch
+   * is held, a flush applies nothing: operations are journaled and wait for the slot to let go.
+   */
+  readonly held?: (office: OfficeId) => string | null;
 }
 
 interface BaseRef {
@@ -224,6 +237,7 @@ export class OfficeLane {
   readonly #liveClaim: (office: OfficeHandle, key: StoryKey) => boolean;
   readonly #onChanged: (office: OfficeId) => void;
   readonly #onFlushed: ((office: OfficeId, report: FlushReport) => Promise<void>) | undefined;
+  readonly #held: (office: OfficeId) => string | null;
   #waiting: Waiting | null = null;
 
   constructor(options: OfficeLaneOptions) {
@@ -236,6 +250,7 @@ export class OfficeLane {
     this.#liveClaim = options.liveClaim ?? (() => false);
     this.#onChanged = options.onChanged ?? (() => {});
     this.#onFlushed = options.onFlushed;
+    this.#held = options.held ?? (() => null);
   }
 
   get git(): OfficeGit {
@@ -301,9 +316,27 @@ export class OfficeLane {
 
   /**
    * Brings the open branch up to date and applies every open operation: fetch (when the office
-   * has a remote), drop merged operations, rebuild when needed, apply, commit, push.
+   * has a remote), drop merged operations, rebuild when needed, apply, commit, push. `rebuild`
+   * names a branch the merge slot found conflicting with the base (DIPO-73): when it is still the
+   * open branch, it is rebuilt from the journal. While the merge slot holds a branch, the flush
+   * does nothing and reports `held`.
    */
-  async flush(options: { readonly replay?: boolean } = {}): Promise<FlushReport> {
+  async flush(
+    options: { readonly replay?: boolean; readonly rebuild?: string } = {},
+  ): Promise<FlushReport> {
+    const held = this.#held(this.officeId);
+    if (held !== null) {
+      return {
+        branch: held,
+        committed: [],
+        merged: [],
+        dropped: [],
+        rebuiltFrom: null,
+        pushed: false,
+        waiting: null,
+        held: true,
+      };
+    }
     let report: FlushReport;
     try {
       const has = await this.#git.run((git) => this.#hasRemote(git));
@@ -314,7 +347,7 @@ export class OfficeLane {
           ? { has, fetched: true, detail: "" }
           : { has, fetched: false, detail: outcome.error.message };
       }
-      report = await this.#git.run((git) => this.#flush(git, remote));
+      report = await this.#git.run((git) => this.#flush(git, remote, options.rebuild ?? null));
     } catch (error) {
       throw this.#failed(error, options.replay === true);
     }
@@ -346,7 +379,11 @@ export class OfficeLane {
 
   // ---- the flush item ------------------------------------------------------------------------
 
-  async #flush(git: GitSession, remote: RemoteState): Promise<FlushReport> {
+  async #flush(
+    git: GitSession,
+    remote: RemoteState,
+    rebuildBranch: string | null,
+  ): Promise<FlushReport> {
     const committed: number[] = [];
     const merged: number[] = [];
     const dropped: number[] = [];
@@ -390,7 +427,7 @@ export class OfficeLane {
         }
         if (done.length === onBranch.length) close = true;
         else if (done.length > 0) rebuild = true;
-        else rebuild = await this.#conflicts(git, base.sha, tip);
+        else rebuild = branch === rebuildBranch || (await this.#conflicts(git, base.sha, tip));
       } else if (tip !== null) {
         // The branch was cut but nothing was committed on it before a crash: start afresh.
         close = true;
@@ -920,6 +957,8 @@ export interface BacklogLaneDeps {
   readonly onChanged?: (office: OfficeId) => void;
   /** Called after each successful flush (DIPO-35, the backlog PR). */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
+  /** The branch the office's merge slot holds (DIPO-73). */
+  readonly held?: (office: OfficeId) => string | null;
 }
 
 /** The load step that replays open journal entries (0007 section 6 step 2). */

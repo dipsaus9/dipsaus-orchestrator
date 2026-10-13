@@ -61,6 +61,7 @@ export class BacklogLane {
       ...(this.#deps.liveClaim === undefined ? {} : { liveClaim: this.#deps.liveClaim }),
       ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
       ...(this.#deps.onFlushed === undefined ? {} : { onFlushed: this.#deps.onFlushed }),
+      ...(this.#deps.held === undefined ? {} : { held: this.#deps.held }),
     });
     this.#offices.set(ctx.officeId, lane);
     return lane;
