@@ -319,24 +319,14 @@ export class OfficeLane {
    * has a remote), drop merged operations, rebuild when needed, apply, commit, push. `rebuild`
    * names a branch the merge slot found conflicting with the base (DIPO-73): when it is still the
    * open branch, it is rebuilt from the journal. While the merge slot holds a branch, the flush
-   * does nothing and reports `held`.
+   * does nothing and reports `held`; the hold is read again inside the flush item, so a flush that
+   * started before the slot took the branch applies nothing once it has.
    */
   async flush(
     options: { readonly replay?: boolean; readonly rebuild?: string } = {},
   ): Promise<FlushReport> {
-    const held = this.#held(this.officeId);
-    if (held !== null) {
-      return {
-        branch: held,
-        committed: [],
-        merged: [],
-        dropped: [],
-        rebuiltFrom: null,
-        pushed: false,
-        waiting: null,
-        held: true,
-      };
-    }
+    const held = this.#heldReport();
+    if (held !== null) return held;
     let report: FlushReport;
     try {
       const has = await this.#git.run((git) => this.#hasRemote(git));
@@ -347,10 +337,13 @@ export class OfficeLane {
           ? { has, fetched: true, detail: "" }
           : { has, fetched: false, detail: outcome.error.message };
       }
-      report = await this.#git.run((git) => this.#flush(git, remote, options.rebuild ?? null));
+      report = await this.#git.run(
+        async (git) => this.#heldReport() ?? this.#flush(git, remote, options.rebuild ?? null),
+      );
     } catch (error) {
       throw this.#failed(error, options.replay === true);
     }
+    if (report.held === true) return report;
     // The hook reports its own failures as notices; a failure there is no failed flush.
     await this.#onFlushed?.(this.officeId, report).catch(() => undefined);
     return report;
@@ -375,6 +368,22 @@ export class OfficeLane {
     }
     this.#write(() => [this.#notice("error", code, text)]);
     return new LaneFlushError(code, text, error);
+  }
+
+  /** The report of a flush that did nothing because the merge slot holds the branch, or null. */
+  #heldReport(): FlushReport | null {
+    const held = this.#held(this.officeId);
+    if (held === null) return null;
+    return {
+      branch: held,
+      committed: [],
+      merged: [],
+      dropped: [],
+      rebuiltFrom: null,
+      pushed: false,
+      waiting: null,
+      held: true,
+    };
   }
 
   // ---- the flush item ------------------------------------------------------------------------
