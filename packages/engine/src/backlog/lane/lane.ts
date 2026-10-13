@@ -1,0 +1,775 @@
+// The planning lane (0010 section 2, lane b). Changes that belong to no story PR are journaled,
+// applied through the Backlog CLI in the engine's backlog worktree `<root>/_backlog`, committed one
+// by one as `backlog: <op> <ID>` on an engine branch `dipo/backlog-<UTC yyyymmddThhmmss>`, and
+// pushed. Later operations append to the open branch until its changes are on the base.
+//
+// Order and atomicity (0010 section 2a "Ordering in the office git queue"):
+// - Journaling, with its live-claim check, is one item of the office git queue and one database
+//   transaction, before any CLI call. From then on `pendingLaneOp` covers the story.
+// - A flush is one queue item from the first git step to the push: every CLI write (status,
+//   `writeFields`, `editLabels`) and every git step of the lane runs inside it, so nothing else of
+//   the office interleaves. Before it, when the office has a remote, `OfficeGit.fetch` runs as its
+//   own item and moves `_base` as usual.
+//
+// Updating the open branch after the base moved: an operation whose changed files all have, on the
+// base, the blob the engine's branch holds has merged. When every operation merged the branch is
+// closed. When only some did, or the branch no longer merges cleanly into the base
+// (`git merge-tree --write-tree`), the branch is rebuilt: the worktree resets to the base and the
+// unmerged operations are re-applied, on a new branch name. A pushed branch is never force-pushed,
+// and the old branch is left as it is. An operation that no longer applies is dropped with an
+// `engine.notice`.
+//
+// Each commit carries the trailer `Dipo-Op: <op id>`, so after a crash between a commit and its
+// journal update the commit is found again instead of applied twice.
+
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+import type { Clock, OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
+
+import { appendEntries, type NewEntry } from "../../changelog/log";
+import type { OfficeHandle } from "../../db/office";
+import { backupStamp } from "../../db/migrations";
+import {
+  BASE_CHECKOUT_CONFIG,
+  BASE_CHECKOUT_ENV,
+  FETCH_CONFIG,
+  type GitLocation,
+  WORKTREE_ADD_CONFIG,
+} from "../../git/hardened";
+import type { GitSession, OfficeGit } from "../../git/office";
+import { GitError, type GitStepOptions } from "../../git/runner";
+import { findStoryByKey } from "../../stories/keys";
+import type { BacklogCli } from "../runner";
+
+import {
+  type EntryChange,
+  insertEntry,
+  type JournalEntry,
+  type LaneOp,
+  openEntries,
+  updateEntry,
+} from "./journal";
+import type { LaneOpKind } from "./ops";
+
+/** The engine's backlog worktree under the worktree root (0010 section 7). */
+export const LANE_WORKTREE = "_backlog";
+/** Engine branches of the planning lane: `dipo/backlog-<UTC yyyymmddThhmmss>`. */
+export const LANE_BRANCH_PREFIX = "dipo/backlog-";
+/** The commit trailer naming the journal entry a commit applies. */
+export const OP_TRAILER = "Dipo-Op";
+
+const CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
+
+/** `engine.notice` codes of the lane. */
+export const LANE_NOTICES = {
+  dropped: "backlog.lane.dropped",
+  rebuilt: "backlog.lane.rebuilt",
+  waiting: "backlog.lane.waiting",
+  replayFailed: "backlog.lane.replayFailed",
+} as const;
+
+/** A lane refusal: the operation was not journaled. */
+export class LaneError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(message);
+    this.name = "LaneError";
+  }
+}
+
+/** Why committed operations still wait on the engine branch. */
+export type WaitingReason = "noRemote" | "fetchFailed" | "pushFailed";
+
+export interface Waiting {
+  readonly branch: string;
+  readonly reason: WaitingReason;
+  readonly detail: string;
+  /** The waiting commits' messages, oldest first. */
+  readonly ops: readonly { readonly opId: number; readonly message: string }[];
+}
+
+export interface FlushReport {
+  /** The open engine branch after the flush, or null when none is open. */
+  readonly branch: string | null;
+  /** Operations committed in this flush, in order. */
+  readonly committed: readonly number[];
+  /** Operations found merged on the base, or already in effect there. */
+  readonly merged: readonly number[];
+  /** Operations that no longer apply, or were already in effect on the open branch. */
+  readonly dropped: readonly number[];
+  /** The branch this flush replaced with a new one, or null. */
+  readonly rebuiltFrom: string | null;
+  /** True when the branch was pushed in this flush. */
+  readonly pushed: boolean;
+  /** What waits for a remote, a fetch or a push; null when nothing does. */
+  readonly waiting: Waiting | null;
+}
+
+export interface OfficeLaneOptions {
+  readonly officeId: OfficeId;
+  readonly office: OfficeHandle;
+  readonly git: OfficeGit;
+  readonly cli: BacklogCli;
+  readonly clock: Clock;
+  readonly kinds: ReadonlyMap<string, LaneOpKind>;
+  /** True when the story has a live claim; such a story belongs to lane a (0010 section 2). */
+  readonly liveClaim?: (office: OfficeHandle, key: StoryKey) => boolean;
+  /** Called after the lane appended change-log entries outside a command. */
+  readonly onChanged?: (office: OfficeId) => void;
+}
+
+interface BaseRef {
+  readonly name: string;
+  readonly sha: string;
+}
+
+interface RemoteState {
+  readonly has: boolean;
+  readonly fetched: boolean;
+  readonly detail: string;
+}
+
+function messageOf(entry: Pick<JournalEntry, "kind" | "subject">): string {
+  return `backlog: ${entry.kind} ${entry.subject}`;
+}
+
+/** Paths in `git status --porcelain=v1 -z` output, both sides of a rename or copy. */
+export function statusPaths(output: string): string[] {
+  const records = output.split("\0").filter((record) => record !== "");
+  const paths: string[] = [];
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i] ?? "";
+    paths.push(record.slice(3));
+    const x = record[0];
+    if (x === "R" || x === "C") {
+      i += 1;
+      const from = records[i];
+      if (from !== undefined) paths.push(from);
+    }
+  }
+  return paths;
+}
+
+/** True when `path` lies under `backlog/` or is one of `extra`. */
+function inLane(path: string, extra: readonly string[]): boolean {
+  return path.startsWith("backlog/") || extra.includes(path);
+}
+
+export class OfficeLane {
+  readonly officeId: OfficeId;
+  readonly #office: OfficeHandle;
+  readonly #git: OfficeGit;
+  readonly #cli: BacklogCli;
+  readonly #clock: Clock;
+  readonly #kinds: ReadonlyMap<string, LaneOpKind>;
+  readonly #liveClaim: (office: OfficeHandle, key: StoryKey) => boolean;
+  readonly #onChanged: (office: OfficeId) => void;
+  #waiting: Waiting | null = null;
+
+  constructor(options: OfficeLaneOptions) {
+    this.officeId = options.officeId;
+    this.#office = options.office;
+    this.#git = options.git;
+    this.#cli = options.cli;
+    this.#clock = options.clock;
+    this.#kinds = options.kinds;
+    this.#liveClaim = options.liveClaim ?? (() => false);
+    this.#onChanged = options.onChanged ?? (() => {});
+  }
+
+  get git(): OfficeGit {
+    return this.#git;
+  }
+
+  /** `<root>/_backlog`. */
+  worktreePath(): string {
+    return join(this.#git.worktreeRoot(), LANE_WORKTREE);
+  }
+
+  /** What waits on the open branch since the last flush, or null. */
+  waiting(): Waiting | null {
+    return this.#waiting;
+  }
+
+  /**
+   * Journals `op` as `pending`, in one queue item and one transaction with its live-claim check,
+   * before any CLI call. Throws `LaneError` when the kind is unknown or the story has a live claim.
+   */
+  journal(op: LaneOp): Promise<JournalEntry> {
+    if (!this.#kinds.has(op.kind)) {
+      return Promise.reject(
+        new LaneError("backlog.lane.unknownKind", `No lane operation kind ${op.kind} is known.`, {
+          kind: op.kind,
+        }),
+      );
+    }
+    return this.#git.run(async () =>
+      this.#office.immediate(() => {
+        if (op.key !== undefined && this.#liveClaim(this.#office, op.key)) {
+          throw new LaneError(
+            "backlog.lane.liveClaim",
+            `${op.subject} has a live claim, so its changes travel in its story PR; stop it with \`work.stop\` first.`,
+            { key: op.key, subject: op.subject },
+          );
+        }
+        return insertEntry(this.#office, op, this.#clock.now());
+      }),
+    );
+  }
+
+  /** Journals `op`, then flushes: apply, commit and push every open operation. */
+  async submit(
+    op: LaneOp,
+  ): Promise<{ readonly entry: JournalEntry; readonly report: FlushReport }> {
+    const entry = await this.journal(op);
+    const report = await this.flush();
+    return { entry, report };
+  }
+
+  /**
+   * Brings the open branch up to date and applies every open operation: fetch (when the office
+   * has a remote), drop merged operations, rebuild when needed, apply, commit, push.
+   */
+  async flush(): Promise<FlushReport> {
+    const has = await this.#git.run((git) => this.#hasRemote(git));
+    let remote: RemoteState = { has, fetched: false, detail: "" };
+    if (has) {
+      const outcome = await this.#git.fetch();
+      remote = outcome.ok
+        ? { has, fetched: true, detail: "" }
+        : { has, fetched: false, detail: outcome.error.message };
+    }
+    return this.#git.run((git) => this.#flush(git, remote));
+  }
+
+  // ---- the flush item ------------------------------------------------------------------------
+
+  async #flush(git: GitSession, remote: RemoteState): Promise<FlushReport> {
+    const committed: number[] = [];
+    const merged: number[] = [];
+    const dropped: number[] = [];
+    let rebuiltFrom: string | null = null;
+    let open = openEntries(this.#office);
+    if (open.length === 0) {
+      this.#waiting = null;
+      return {
+        branch: null,
+        committed,
+        merged,
+        dropped,
+        rebuiltFrom,
+        pushed: false,
+        waiting: null,
+      };
+    }
+
+    const base = await this.#base(git, remote.has);
+    const location = await this.#ensureWorktree(git, base.sha);
+    let branch = open.findLast((entry) => entry.branch !== null)?.branch ?? null;
+
+    if (branch !== null) {
+      const tip = await this.#revParse(git, `refs/heads/${branch}`);
+      if (tip !== null) await this.#recover(git, branch, tip, base.sha, open);
+      open = openEntries(this.#office);
+      const onBranch = open.filter(
+        (entry) =>
+          entry.branch === branch && (entry.state === "committed" || entry.state === "pushed"),
+      );
+      let rebuild = tip === null;
+      let close = false;
+      if (tip !== null && onBranch.length > 0) {
+        const done = await this.#mergedOf(git, tip, base.sha, onBranch);
+        if (done.length > 0) {
+          this.#write(() => {
+            for (const opId of done) this.#update(opId, { state: "merged" });
+          });
+          merged.push(...done);
+        }
+        if (done.length === onBranch.length) close = true;
+        else if (done.length > 0) rebuild = true;
+        else rebuild = await this.#conflicts(git, base.sha, tip);
+      } else if (tip !== null) {
+        // The branch was cut but nothing was committed on it before a crash: start afresh.
+        close = true;
+      }
+      if (close || rebuild) {
+        await this.#checkout(git, location, base.sha, true);
+        if (close && tip !== null) await git.ok(git.repository, ["branch", "-D", branch]);
+      }
+      if (rebuild) {
+        const old = branch;
+        const moved = openEntries(this.#office).filter((entry) => entry.branch === old);
+        if (tip !== null && moved.some((entry) => entry.commit !== null)) rebuiltFrom = old;
+        this.#write(() => {
+          for (const entry of moved) {
+            this.#update(entry.opId, { state: "pending", branch: null, commit: null, prRef: null });
+          }
+          if (rebuiltFrom === null) return [];
+          return [
+            this.#notice(
+              "info",
+              LANE_NOTICES.rebuilt,
+              `The backlog branch ${old} no longer merges into ${base.name}; its unmerged operations are applied again on a new branch, and ${old} is left as it is.`,
+            ),
+          ];
+        });
+      }
+      if (close || rebuild) branch = null;
+    }
+
+    open = openEntries(this.#office);
+    // Everything not committed on the open branch is applied (again), in journal order.
+    const toApply = open.filter(
+      (entry) =>
+        branch === null ||
+        entry.branch !== branch ||
+        (entry.state !== "committed" && entry.state !== "pushed"),
+    );
+    if (toApply.length > 0) {
+      await this.#checkout(git, location, branch ?? base.sha, branch === null);
+    }
+
+    for (const entry of toApply) {
+      const kind = this.#kinds.get(entry.kind);
+      if (kind === undefined) {
+        this.#drop(entry, `no lane operation kind ${entry.kind} is known`);
+        dropped.push(entry.opId);
+        continue;
+      }
+      const story =
+        entry.key === null
+          ? entry.subject
+          : (findStoryByKey(this.#office, entry.key)?.story ?? entry.subject);
+      let outcome;
+      try {
+        outcome = await kind.apply(
+          { cli: this.#cli, cwd: location.workTree, story, entry },
+          entry.target,
+        );
+      } catch (error) {
+        await this.#discard(git, location);
+        throw error;
+      }
+      if (!outcome.applies) {
+        await this.#discard(git, location);
+        this.#drop(entry, outcome.reason);
+        dropped.push(entry.opId);
+        continue;
+      }
+      const paths = statusPaths(
+        await git.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+      );
+      if (paths.length === 0) {
+        if (branch === null) {
+          // The target state is on the base already.
+          this.#write(() => this.#update(entry.opId, { state: "merged", branch: null }));
+          merged.push(entry.opId);
+        } else {
+          this.#drop(entry, `its target state is already on the open branch ${branch}`, "info");
+          dropped.push(entry.opId);
+        }
+        continue;
+      }
+      const outside = paths.filter((path) => !inLane(path, kind.paths ?? []));
+      if (outside.length > 0) {
+        await this.#discard(git, location);
+        this.#drop(entry, `it changed paths outside backlog/: ${outside.join(", ")}`);
+        dropped.push(entry.opId);
+        continue;
+      }
+      if (branch === null) {
+        branch = await this.#newBranchName(git);
+        await git.ok(location, ["checkout", "--quiet", "-b", branch]);
+      }
+      const onto = branch;
+      this.#write(() => this.#update(entry.opId, { state: "applied", branch: onto }));
+      await git.ok(location, ["add", "--all", "--", ...paths]);
+      await git.ok(location, [
+        "commit",
+        "--quiet",
+        "-m",
+        messageOf(entry),
+        "-m",
+        `${OP_TRAILER}: ${entry.opId}`,
+      ]);
+      const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+      this.#write(() => this.#update(entry.opId, { state: "committed", commit: sha }));
+      committed.push(entry.opId);
+    }
+
+    const pushed = await this.#push(
+      git,
+      branch,
+      base,
+      remote,
+      committed.length > 0 || rebuiltFrom !== null,
+    );
+    return {
+      branch,
+      committed,
+      merged,
+      dropped,
+      rebuiltFrom,
+      pushed,
+      waiting: this.#waiting,
+    };
+  }
+
+  /** Pushes the open branch when it has unpushed commits; records and reports what waits. */
+  async #push(
+    git: GitSession,
+    branch: string | null,
+    base: BaseRef,
+    remote: RemoteState,
+    changed: boolean,
+  ): Promise<boolean> {
+    const unpushed =
+      branch === null
+        ? []
+        : openEntries(this.#office).filter(
+            (entry) => entry.branch === branch && entry.state === "committed",
+          );
+    if (branch === null || unpushed.length === 0) {
+      this.#waiting = null;
+      return false;
+    }
+    let reason: WaitingReason | null = null;
+    let detail = "";
+    if (!remote.has) {
+      reason = "noRemote";
+      detail = `the office has no remote ${this.#git.settings.remote}; merge ${branch} into ${base.name} by hand`;
+    } else if (!remote.fetched) {
+      reason = "fetchFailed";
+      detail = `the push waits until a fetch of ${this.#git.settings.remote} succeeds (${remote.detail})`;
+    } else {
+      const result = await git.step(
+        git.repository,
+        [
+          "push",
+          "--quiet",
+          "--no-verify",
+          this.#git.settings.remote,
+          `refs/heads/${branch}:refs/heads/${branch}`,
+        ],
+        { config: FETCH_CONFIG },
+      );
+      if (result.code === 0) {
+        this.#write(() => {
+          for (const entry of unpushed) this.#update(entry.opId, { state: "pushed" });
+        });
+        this.#waiting = null;
+        return true;
+      }
+      reason = "pushFailed";
+      detail = `pushing to ${this.#git.settings.remote} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
+      changed = true;
+    }
+    const ops = unpushed.map((entry) => ({ opId: entry.opId, message: messageOf(entry) }));
+    this.#waiting = { branch, reason, detail, ops };
+    if (changed) {
+      this.#write(() => [
+        this.#notice(
+          "warn",
+          LANE_NOTICES.waiting,
+          `The backlog branch ${branch} waits: ${detail}. Waiting: ${ops.map((op) => op.message).join("; ")}.`,
+        ),
+      ]);
+    }
+    return false;
+  }
+
+  // ---- journal writes ------------------------------------------------------------------------
+
+  /** Runs `fn` in one transaction and appends the notices it returns. */
+  #write(fn: () => NewEntry[] | void): void {
+    const now = this.#clock.now();
+    const notices = this.#office.immediate(() => {
+      const entries = fn() ?? [];
+      appendEntries(this.#office, entries, { at: now });
+      return entries.length;
+    });
+    if (notices > 0) this.#onChanged(this.officeId);
+  }
+
+  #update(opId: number, change: EntryChange): void {
+    updateEntry(this.#office, opId, change, this.#clock.now());
+  }
+
+  #notice(
+    level: "info" | "warn" | "error",
+    code: string,
+    text: string,
+    key?: StoryKey | null,
+  ): NewEntry {
+    return {
+      type: "engine.notice",
+      ...(key === null || key === undefined ? {} : { key }),
+      delta: { level, code, text },
+    };
+  }
+
+  #drop(entry: JournalEntry, reason: string, level: "info" | "warn" = "warn"): void {
+    const text = `The backlog operation \`${messageOf(entry)}\` was dropped: ${reason}.`;
+    this.#write(() => {
+      this.#update(entry.opId, { state: "dropped", notice: text });
+      return [this.#notice(level, LANE_NOTICES.dropped, text, entry.key)];
+    });
+  }
+
+  // ---- git -----------------------------------------------------------------------------------
+
+  async #hasRemote(git: GitSession): Promise<boolean> {
+    const result = await git.step(git.repository, [
+      "config",
+      "--get",
+      `remote.${this.#git.settings.remote}.url`,
+    ]);
+    return result.code === 0 && result.stdout.trim() !== "";
+  }
+
+  /**
+   * The base and the commit operations apply to: `<remote>/<base>` with a remote, the local
+   * `<base>` without one (0010 section 7, start point).
+   */
+  async #base(git: GitSession, hasRemote: boolean): Promise<BaseRef> {
+    const { remote, base: configured } = this.#git.settings;
+    let name = configured;
+    if (name === undefined) {
+      const head = hasRemote
+        ? await git.step(git.repository, ["symbolic-ref", "--quiet", `refs/remotes/${remote}/HEAD`])
+        : await git.step(git.repository, ["symbolic-ref", "--quiet", "HEAD"]);
+      const target = head.stdout.trim();
+      const prefix = hasRemote ? `refs/remotes/${remote}/` : "refs/heads/";
+      if (head.code === 0 && target.startsWith(prefix) && target.length > prefix.length) {
+        name = target.slice(prefix.length);
+      }
+    }
+    if (name === undefined) {
+      throw new GitError(
+        "git.baseUnknown",
+        `The office has no base branch for the backlog lane: .dipo/office.yaml sets no \`base\` and refs/remotes/${remote}/HEAD does not exist. Set \`base\`, or run \`git remote set-head ${remote} --auto\`.`,
+        false,
+        { remote },
+      );
+    }
+    const ref = hasRemote ? `refs/remotes/${remote}/${name}` : `refs/heads/${name}`;
+    const sha = await this.#revParse(git, ref);
+    if (sha === null) {
+      throw new GitError(
+        "git.baseMissing",
+        `${ref} does not exist, so the backlog lane has no base to apply to.`,
+        false,
+        { ref },
+      );
+    }
+    return { name, sha };
+  }
+
+  async #revParse(git: GitSession, ref: string): Promise<string | null> {
+    const result = await git.step(git.repository, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `${ref}^{commit}`,
+    ]);
+    return result.code === 0 ? result.stdout.trim() : null;
+  }
+
+  /** Creates `<root>/_backlog`, detached at `sha`, when it is missing; returns its location. */
+  async #ensureWorktree(
+    git: GitSession,
+    sha: string,
+  ): Promise<Extract<GitLocation, { kind: "worktree" }>> {
+    const path = this.worktreePath();
+    const registered = this.#git.adminDirOf(path);
+    if (registered === null && existsSync(path)) {
+      throw new GitError(
+        "git.lanePathTaken",
+        `${path} exists but is not a worktree of this repository; dipo leaves it alone. Move it away so the engine can create its backlog worktree there.`,
+        false,
+        { path },
+      );
+    }
+    if (registered === null || !existsSync(path)) {
+      await git.ok(
+        git.repository,
+        ["worktree", "add", ...(registered === null ? [] : ["--force"]), "--detach", path, sha],
+        { config: [...WORKTREE_ADD_CONFIG, ...BASE_CHECKOUT_CONFIG], env: BASE_CHECKOUT_ENV },
+      );
+    }
+    const location = this.#git.worktreeLocation(path);
+    if (location.kind !== "worktree") throw new Error("expected a worktree location");
+    return location;
+  }
+
+  /** Checks out `target` (a branch, or a commit detached) and removes untracked files. */
+  async #checkout(
+    git: GitSession,
+    location: GitLocation,
+    target: string,
+    detach: boolean,
+  ): Promise<void> {
+    await git.ok(
+      location,
+      [
+        "checkout",
+        "--quiet",
+        "--force",
+        "--no-recurse-submodules",
+        ...(detach ? ["--detach"] : []),
+        target,
+      ],
+      CHECKOUT,
+    );
+    await git.ok(location, ["clean", "-fdq"]);
+  }
+
+  /** Throws away what an operation left in the worktree. */
+  async #discard(git: GitSession, location: GitLocation): Promise<void> {
+    await git.ok(location, ["reset", "--hard", "--quiet", "HEAD"], CHECKOUT);
+    await git.ok(location, ["clean", "-fdq"]);
+  }
+
+  /** A branch name no local or remote-tracking ref has yet. */
+  async #newBranchName(git: GitSession): Promise<string> {
+    const stem = `${LANE_BRANCH_PREFIX}${backupStamp(this.#clock.now())}`;
+    const { remote } = this.#git.settings;
+    for (let n = 1; ; n++) {
+      const name = n === 1 ? stem : `${stem}-${n}`;
+      const local = await this.#revParse(git, `refs/heads/${name}`);
+      const tracking = await this.#revParse(git, `refs/remotes/${remote}/${name}`);
+      if (local === null && tracking === null) return name;
+    }
+  }
+
+  /** Marks open entries whose commit is on the branch (found by trailer) as committed. */
+  async #recover(
+    git: GitSession,
+    branch: string,
+    tip: string,
+    base: string,
+    open: readonly JournalEntry[],
+  ): Promise<void> {
+    const uncommitted = open.filter(
+      (entry) => entry.state === "pending" || entry.state === "applied",
+    );
+    if (uncommitted.length === 0) return;
+    const log = await git.ok(git.repository, [
+      "log",
+      `--format=%H%x1f%(trailers:key=${OP_TRAILER},valueonly,separator=%x2c)%x1e`,
+      tip,
+      `^${base}`,
+    ]);
+    const byOp = new Map<number, string>();
+    for (const record of log.split("\x1e")) {
+      const [sha, ops] = record.trim().split("\x1f");
+      if (sha === undefined || sha === "" || ops === undefined) continue;
+      for (const op of ops.split(",")) {
+        const id = Number(op.trim());
+        if (Number.isInteger(id) && id > 0 && !byOp.has(id)) byOp.set(id, sha);
+      }
+    }
+    const found = uncommitted.filter((entry) => byOp.has(entry.opId));
+    if (found.length === 0) return;
+    this.#write(() => {
+      for (const entry of found) {
+        this.#update(entry.opId, {
+          state: "committed",
+          branch,
+          commit: byOp.get(entry.opId) ?? null,
+        });
+      }
+    });
+  }
+
+  /** The blob of each of `paths` in `commit`; a missing path has no entry. */
+  async #blobs(
+    git: GitSession,
+    commit: string,
+    paths: readonly string[],
+  ): Promise<Map<string, string>> {
+    const blobs = new Map<string, string>();
+    if (paths.length === 0) return blobs;
+    const out = await git.ok(git.repository, ["ls-tree", "-r", "-z", commit, "--", ...paths]);
+    for (const record of out.split("\0")) {
+      const tab = record.indexOf("\t");
+      if (tab < 0) continue;
+      const [, , sha] = record.slice(0, tab).split(" ");
+      if (sha !== undefined) blobs.set(record.slice(tab + 1), sha);
+    }
+    return blobs;
+  }
+
+  /**
+   * The operations on the branch whose changed files all hold, on the base, the blob the branch
+   * tip holds: their changes have merged (0010 section 2).
+   */
+  async #mergedOf(
+    git: GitSession,
+    tip: string,
+    base: string,
+    entries: readonly JournalEntry[],
+  ): Promise<number[]> {
+    const files = new Map<number, string[]>();
+    for (const entry of entries) {
+      if (entry.commit === null) continue;
+      const out = await git.ok(git.repository, [
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        "-z",
+        "--root",
+        entry.commit,
+      ]);
+      files.set(
+        entry.opId,
+        out.split("\0").filter((path) => path !== ""),
+      );
+    }
+    const paths = [...new Set([...files.values()].flat())];
+    const [atTip, atBase] = await Promise.all([
+      this.#blobs(git, tip, paths),
+      this.#blobs(git, base, paths),
+    ]);
+    return entries
+      .filter((entry) => {
+        const changed = files.get(entry.opId);
+        return (
+          changed !== undefined && changed.every((path) => atTip.get(path) === atBase.get(path))
+        );
+      })
+      .map((entry) => entry.opId);
+  }
+
+  /** True when the branch no longer merges cleanly into the base (0010 section 7). */
+  async #conflicts(git: GitSession, base: string, tip: string): Promise<boolean> {
+    const result = await git.step(git.repository, ["merge-tree", "--write-tree", base, tip]);
+    if (result.code === 0) return false;
+    if (result.code === 1 && /^[0-9a-f]{40,64}\b/.test(result.stdout)) return true;
+    throw new GitError(
+      "git.failed",
+      `git merge-tree --write-tree failed: ${result.stderr.trim() || `exit ${result.code}`}`,
+      false,
+      { code: result.code },
+    );
+  }
+}
+
+export interface BacklogLaneDeps {
+  /** How the CLI starts in the `_backlog` worktree. */
+  readonly cli: BacklogCli;
+  /** The office's git, attached by the `git.version` load step (DIPO-31). */
+  readonly git: (office: OfficeId) => OfficeGit | undefined;
+  /** Kinds beyond the built-in `edit`. */
+  readonly kinds?: readonly LaneOpKind[];
+  readonly liveClaim?: (office: OfficeHandle, key: StoryKey) => boolean;
+  readonly onChanged?: (office: OfficeId) => void;
+}
+
+/** The load step that replays open journal entries (0007 section 6 step 2). */
+export const LANE_REPLAY_STEP = "backlog.lane.replay";
