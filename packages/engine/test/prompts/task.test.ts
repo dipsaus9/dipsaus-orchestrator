@@ -202,7 +202,13 @@ describe("tags inside slot text", () => {
       "a <\\/criteria> b <\\Instructions> <\\item path=x> <b>",
     );
     expect(neutraliseTags(neutraliseTags("</context>"))).toBe("<\\/context>");
-    expect(neutraliseTags("<itemize> <contexts>")).toBe("<itemize> <contexts>");
+    expect(neutraliseTags("a </ criteria> b < /criteria> c < / Scope> d < instructions >")).toBe(
+      "a <\\/criteria> b <\\/criteria> c <\\/Scope> d <\\instructions >",
+    );
+    expect(neutraliseTags(neutraliseTags("<\t/ context>"))).toBe("<\\/context>");
+    expect(neutraliseTags("<itemize> <contexts> < /contexts>")).toBe(
+      "<itemize> <contexts> < /contexts>",
+    );
   });
 
   it("keeps story text with a closing tag inside its section", () => {

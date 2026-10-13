@@ -115,11 +115,13 @@ export const PROMPT_TAGS: readonly string[] = [
   "item",
 ];
 
-const TAG = new RegExp(`<(/?)(${PROMPT_TAGS.join("|")})(?=[\\s/>]|$)`, "gi");
+// Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.
+const TAG = new RegExp(`<\\s*(/?)\\s*(${PROMPT_TAGS.join("|")})(?=[\\s/>]|$)`, "gi");
 
 /**
- * `text` with every opening or closing prompt tag neutralised: `</criteria>` becomes
- * `<\/criteria>` and `<item` becomes `<\item`. Idempotent.
+ * `text` with every opening or closing prompt tag neutralised: `</criteria>` (also `</ criteria>`
+ * and `< /criteria>`) becomes `<\/criteria>` and `<item` becomes `<\item`. Idempotent: a `\`
+ * after `<` never matches again.
  */
 export function neutraliseTags(text: string): string {
   return text.replace(TAG, (_, slash: string, name: string) => `<\\${slash}${name}`);
