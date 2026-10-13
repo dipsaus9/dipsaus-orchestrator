@@ -43,8 +43,14 @@ async function publish(repo: TempRepoWithRemote, message: string): Promise<void>
   await repo.git("push", "--quiet", "origin", "main");
 }
 
-/** The Backlog fixture pushed to a bare `origin`, opened and loaded as an office with the index. */
-function withIndexedOffice(fn: (o: Indexed) => Promise<void>): Promise<void> {
+/**
+ * The Backlog fixture pushed to a bare `origin`, opened and loaded as an office with the index.
+ * `command` replaces the pinned Backlog CLI.
+ */
+function withIndexedOffice(
+  fn: (o: Indexed) => Promise<void>,
+  command: readonly [string, ...string[]] = BACKLOG_CLI,
+): Promise<void> {
   return withBareRemote(
     async (repo) => {
       // `task archive` needs the archive folder to exist.
@@ -57,7 +63,7 @@ function withIndexedOffice(fn: (o: Indexed) => Promise<void>): Promise<void> {
       let setup: OfficeSetup | undefined;
       const index = new StoryIndex({
         git: engineGit,
-        cli: { spawn: systemSpawn, command: BACKLOG_CLI, env: repo.env },
+        cli: { spawn: systemSpawn, command, env: repo.env },
         offices: {
           get: (office) => setup?.manager.get(office),
           config: (office) => setup?.manager.config(office),
@@ -134,6 +140,20 @@ describe("story index on the Backlog CLI", () => {
       expect(entry?.delta).toMatchObject({ story: "TASK-2", from: "Refined", to: "Refined" });
       expect(entry?.view).toMatchObject({ title: "Rename the export option" });
     }));
+
+  it("loads the office with a stories.notIndexed notice when the Backlog CLI fails", () =>
+    withIndexedOffice(
+      async ({ s, officeId, office }) => {
+        expect(s.manager.get(officeId)).toBe(office);
+        expect(storyRows(office)).toEqual([]);
+        const notices = entriesAfter(office).filter((e) => e.type === "engine.notice");
+        expect(notices.map((e) => e.delta)).toEqual([
+          expect.objectContaining({ level: "warn", code: "stories.notIndexed" }),
+        ]);
+        expect(s.changed).toContain(officeId);
+      },
+      ["false"],
+    ));
 
   it("closes an archived and a completed task as Removed with a notice", () =>
     withIndexedOffice(async ({ repo, s, index, officeId, office }) => {

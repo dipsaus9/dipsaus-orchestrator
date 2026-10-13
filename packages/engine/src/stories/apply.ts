@@ -55,6 +55,7 @@ export interface ApplyResult {
 interface KnownRow {
   key: string;
   story_id: string;
+  provisional: number;
   frozen_branch: string | null;
   backlog_created: string | null;
 }
@@ -62,6 +63,8 @@ interface KnownRow {
 interface Known {
   readonly key: StoryKey;
   readonly story: StoryId;
+  /** A provisional draft id (`DRAFT-n`) when the key was last seen. */
+  readonly provisional: boolean;
   readonly frozenBranch: string | null;
   readonly created: string | null;
 }
@@ -134,24 +137,27 @@ export function applyIndex(
   const { at } = options;
   const known: Known[] = office
     .all<KnownRow>(
-      "select key, story_id, frozen_branch, backlog_created from stories where office_id = $office_id and removed_at is null order by story_id",
+      "select key, story_id, provisional, frozen_branch, backlog_created from stories where office_id = $office_id and removed_at is null order by story_id",
     )
     .map((row) => ({
       key: StoryKey.parse(row.key),
       story: StoryId.parse(row.story_id),
+      provisional: row.provisional === 1,
       frozenBranch: row.frozen_branch,
       created: row.backlog_created,
     }));
   const before = new Map<StoryKey, StoryView>();
   const statusBefore = new Map<StoryKey, string>();
   for (const k of known) {
-    const view = storyView(office, k.key);
-    if (view !== null) before.set(k.key, view);
     const mirror = office.get<MirrorRow>(
       "select status from backlog_mirror where office_id = $office_id and key = $key",
       { key: k.key },
     );
-    if (mirror !== null) statusBefore.set(k.key, mirror.status);
+    // A key no pass has mirrored yet has no prior view (its derived view would say Removed).
+    if (mirror === null) continue;
+    statusBefore.set(k.key, mirror.status);
+    const view = storyView(office, k.key);
+    if (view !== null) before.set(k.key, view);
   }
 
   // 1. Known ids whose identity still matches keep their key.
@@ -226,7 +232,8 @@ export function applyIndex(
   for (const k of vanished) {
     removeStory(office, k.key, at);
     const view = storyView(office, k.key);
-    const from = before.get(k.key)?.lifecycle ?? "Refined";
+    // Without a prior view the stories row tells: a provisional draft id was a Draft, else Refined.
+    const from = before.get(k.key)?.lifecycle ?? (k.provisional ? "Draft" : "Refined");
     if (view !== null) entries.push(stateEntry(view, from));
     const reuse = reused.get(k.key);
     entries.push(

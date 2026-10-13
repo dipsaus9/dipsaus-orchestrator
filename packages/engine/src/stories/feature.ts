@@ -154,9 +154,8 @@ export class StoryIndex {
    * whose stories cannot be indexed still loads, with a notice saying why.
    */
   async #loadPass(office: OfficeId, state: Indexed): Promise<void> {
-    const git = this.#git(office);
-    await git.fetch();
     try {
+      await this.#git(office).fetch();
       await this.#pass(office, state);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

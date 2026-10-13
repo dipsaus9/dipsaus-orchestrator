@@ -5,9 +5,9 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { Event, StoryKey } from "@dipsaus-orchestrator/contract";
+import { Event, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { resolveStoryRef } from "../../src/stories/keys";
+import { addStory, resolveStoryRef } from "../../src/stories/keys";
 import {
   CREATED,
   draft,
@@ -154,6 +154,21 @@ describe("story index pass", () => {
       expect(entries[0]?.delta).toEqual({ story: "TASK-1", key, from: "Ready", to: "Removed" });
       expect(entries[0]?.view).toMatchObject({ lifecycle: "Removed", column: "removed" });
       expect(entries[1]?.delta).toMatchObject({ level: "warn", code: "story.removed" });
+    }));
+
+  it("closes a key no pass mirrored from the lifecycle its stories row implies", () =>
+    withOffice((t, office) => {
+      const [draftKey, taskKey] = office.immediate(() => [
+        addStory(office, t.ids, { story: StoryId.parse("DRAFT-7") }, t.clock.now()).key,
+        addStory(office, t.ids, { story: StoryId.parse("TASK-7") }, t.clock.now()).key,
+      ]);
+      const seq = lastSeq(office);
+      expect(pass(t, office, [])).toMatchObject({ removed: 2 });
+      const states = entriesAfter(office, seq).filter((e) => e.type === "story.state");
+      expect(states.map((e) => [e.key, e.delta["from"], e.delta["to"]])).toEqual([
+        [draftKey, "Draft", "Removed"],
+        [taskKey, "Refined", "Removed"],
+      ]);
     }));
 
   it("matches a hand-promoted draft by created date and emits story.renumbered", () =>
