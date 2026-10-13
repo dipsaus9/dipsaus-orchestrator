@@ -11,6 +11,7 @@ import { contextPacks } from "./migrations/0007-context-packs";
 import { runProfiles } from "./migrations/0008-run-profiles";
 import { promptPartsWorkerNotes } from "./migrations/0009-prompt-parts-worker-notes";
 import { claims } from "./migrations/0010-claims";
+import { onceNotices } from "./migrations/0011-once-notices";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -57,4 +58,5 @@ create table offices (
   runProfiles,
   promptPartsWorkerNotes,
   claims,
+  onceNotices,
 ];
