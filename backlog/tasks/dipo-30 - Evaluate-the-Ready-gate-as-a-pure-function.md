@@ -1,10 +1,10 @@
 ---
 id: DIPO-30
 title: Evaluate the Ready gate as a pure function
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:30'
+updated_date: '2026-10-13 06:44'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -65,4 +65,12 @@ M0 breakdown draft number S15 (DIPO-15). Before cutover: built by hand-run agent
 
 Built in packages/engine/src/gate: evaluateGate(input, mode) over GateInput (story, active tasks, milestones, office story.* and prompt.contractMax, optional roster defaulting to the built-in developer). gateStoryFromView and gateTaskFromView build inputs from parsed task views.
 Choices where 0012 leaves a gap: messages that name a threshold (R04, R05, R09) name the configured value; when the field block fails R02 the rules over its data (R15, R18, R19, R20, R21, R26, test-plan half of R23) report nothing; R15 with no unknowns list says 'unknowns list is missing; add unknowns: [] to the field block'; R20 uses entry 0 for a plan-level failure (missing, empty, short not_applicable) and a fixed 10-character minimum for check and reason; R10 reports each criterion and phrase pair; R24 takes the roster's code flag and fails every non-code role; R26 counts title, outcome text, criteria, scope paths, test plan check/expect/not_applicable, resolved unknowns (question and answer) and the implementation plan.
+
+Open for the maintainer (wording, needs a 0012 amendment if changed): the R15 message for a missing unknowns list and R20's 'entry 0' for plan-level failures; whether rules that read the field block should stay silent after R02.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Ready gate as a pure function in packages/engine/src/gate: evaluateGate checks R01a/R01b and R02-R26 with 0012's message texts and prefix, reports every failure at once, thresholds from office config, scope path, dependency cycle, tier/role and contract-size rules, input helpers from parsed task views, and a purity test that refuses I/O, clocks, processes and models. Reviewer pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
