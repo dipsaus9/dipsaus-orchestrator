@@ -1,10 +1,10 @@
 ---
 id: DIPO-32
 title: Index office stories with stable story keys
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-13 06:38'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,9 @@ references:
   - packages/engine/test/stories/
   - packages/engine/src/views/
   - packages/engine/src/features.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/index.ts
+  - packages/daemon/src/foreground.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -59,18 +62,29 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A migration adds `backlog_mirror` with content hash, status, tier, role, labels, read time and source.
-- [ ] #2 A story first seen gets `sto_<ulid>`; a known id is matched by key, then frozen branch, then created date; a title change alone keeps the key.
-- [ ] #3 The created date is stored as the raw string the CLI prints; when the created-date fallback matches more than one story, the pass reports `story.ambiguous` with an `engine.notice` and matches none of them.
-- [ ] #4 A vanished id matched to a new id emits `story.renumbered { detectedBy: "reconcile" }`; an unmatched known key is closed as `Removed` with an `engine.notice`.
-- [ ] #5 A changed status emits `story.state` with `from`, `to` and the derived `StoryView`.
-- [ ] #6 Archived, completed and draft-folder files are not active tasks.
-- [ ] #7 A minimal `deriveStoryView` (key, id, title, lifecycle, tier and a column from the lifecycle alone) and `OfficeSummary` (stories per column, active runs) are registered as the view and summary source that `engine.hello` and the change log use; DIPO-52 extends them.
-- [ ] #8 `indexStories(office)` runs as an office load step (DIPO-27 seam), after every fetch done every `polling.fetchSeconds`, and when `office.rescan` (DIPO-72) and `work.run` (DIPO-48) call it; it writes all changes of one pass in one transaction.
+- [x] #1 A migration adds `backlog_mirror` with content hash, status, tier, role, labels, read time and source.
+- [x] #2 A story first seen gets `sto_<ulid>`; a known id is matched by key, then frozen branch, then created date; a title change alone keeps the key.
+- [x] #3 The created date is stored as the raw string the CLI prints; when the created-date fallback matches more than one story, the pass reports `story.ambiguous` with an `engine.notice` and matches none of them.
+- [x] #4 A vanished id matched to a new id emits `story.renumbered { detectedBy: "reconcile" }`; an unmatched known key is closed as `Removed` with an `engine.notice`.
+- [x] #5 A changed status emits `story.state` with `from`, `to` and the derived `StoryView`.
+- [x] #6 Archived, completed and draft-folder files are not active tasks.
+- [x] #7 A minimal `deriveStoryView` (key, id, title, lifecycle, tier and a column from the lifecycle alone) and `OfficeSummary` (stories per column, active runs) are registered as the view and summary source that `engine.hello` and the change log use; DIPO-52 extends them.
+- [x] #8 `indexStories(office)` runs as an office load step (DIPO-27 seam), after every fetch done every `polling.fetchSeconds`, and when `office.rescan` (DIPO-72) and `work.run` (DIPO-48) call it; it writes all changes of one pass in one transaction.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S17 (DIPO-15). Before cutover: built by hand-run agents.
+
+Refs added: packages/engine/src/db/schema.ts lists the new backlog_mirror migration; packages/engine/src/index.ts exports the story index and the view and summary sources; packages/daemon/src/foreground.ts registers the story index after the git load step and replaces noOfficeSummaries with the real OfficeSummary source (AC #7).
+
+Implementation (DIPO-32):
+- Migration 5 adds backlog_mirror (content hash, kind, status, title, tier, role, labels JSON, read time, source), one row per key, overwritten each pass.
+- stories/read.ts reads task list, draft list and each view in _base through the CLI (4 views at a time). The content hash is sha256 of the view without its File: line. A failed list or view stops the pass, so a partial read never closes keys; a view that fails R02 keeps the story with what the list printed.
+- stories/apply.ts matches identity: a current id keeps its key unless its frozen branch, else its created date, differs (a title change is an edit); vanished keys match new ids by frozen branch, then created date; a created date shared by more than one vanished story or new id is story.ambiguous (engine.notice) and matches none; unmatched keys close as Removed with story.state and an engine.notice. Renumbering moves ids in two phases, so swaps and chains do not hit the current-id index.
+- story.state is emitted when the derived view changes: a status change (from, to, view), a new story (from = to), and a title, tier or id change (from = to).
+- indexStories reads _base as one item of the office git queue and writes the pass with its change-log entries in one transaction. StoryIndex registers the stories.index load step (fetch when the remote answers, then index; an office whose stories cannot be read still loads, with a stories.notIndexed notice) and polls every polling.fetchSeconds, indexing when _base is at a commit no pass read yet. A forgotten office stops polling. office.rescan (DIPO-72) and work.run (DIPO-48) call StoryIndex.indexStories(office).
+- views/: deriveStoryView with the column from the lifecycle alone (Parked is desk, Removed is the open-enum value removed); officeSummarySource (running = runs with a live worker host, parked and waitingOnMaintainer = desk, onHold = held) replaces noOfficeSummaries for engine.hello and the software stream.
+- Found while testing: backlog task archive fails (exit 1, no reason) when backlog/archive/tasks does not exist; story.drop (DIPO-34) will need to create it.
 <!-- SECTION:NOTES:END -->
