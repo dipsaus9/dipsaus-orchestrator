@@ -4,7 +4,7 @@ title: Price usage from a versioned catalog
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 08:27'
+updated_date: '2026-10-13 08:35'
 labels:
   - 'tier:S'
   - after-cutover
@@ -71,4 +71,10 @@ Scope additions:
 - packages/engine/src/ingest/ingestor.ts: optional pricing option; prices usage and runs the cross-check in the pass transaction.
 - packages/engine/src/db/database.ts: imports catalogs after migrations and exposes StateDatabase.pricing.
 - packages/engine/tsconfig.json: include src/**/*.json so tsc -b accepts the catalog import.
+
+Scope additions (review of PR #69):
+- packages/engine/src/db/schema.ts: registers migration 8 (pricing) in MIGRATIONS; every migration is listed there.
+- packages/engine/src/index.ts: the pricing exports were removed again; nothing outside the engine uses them.
+- IngestorOptions.pricing is now required (PriceBook or explicit null), so the wiring story cannot drop it silently; packages/engine/test/ingest/ingest.test.ts passes the imported catalog.
+- recordCliCost returns the models whose cost matched no usage row; the ingestor logs a warning for each.
 <!-- SECTION:NOTES:END -->
