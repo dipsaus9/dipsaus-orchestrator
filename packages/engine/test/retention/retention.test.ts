@@ -1,0 +1,504 @@
+// Retention (DIPO-65; 0007 section 7): tiered deletes in batches of at most 5,000 rows, the replay
+// floor, run directories, and the load step that runs at load and hourly.
+
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "bun:test";
+
+import { OfficeId } from "@dipsaus-orchestrator/contract";
+import { withTempDir } from "@dipsaus-orchestrator/testkit";
+
+import { appendEntries, cursorAt, readLogState } from "../../src/changelog/log";
+import { replay } from "../../src/changelog/replay";
+import { buildRegistry } from "../../src/commands/registry";
+import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
+import type { OfficeHandle } from "../../src/db/office";
+import { officeDirectory } from "../../src/office/marker";
+import { Retention, RETENTION_INTERVAL_MS, RETENTION_STEP } from "../../src/retention/feature";
+import { DAY_MS, runRetention } from "../../src/retention/run";
+import { MAX_BATCH_ROWS } from "../../src/retention/slices";
+import { runDirectory } from "../../src/runs/worker-hosts";
+import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
+
+import {
+  DeleteRecorder,
+  insertAgent,
+  insertHost,
+  insertJournal,
+  insertRequest,
+  insertRequests,
+} from "./helpers";
+
+const noPause = async () => {};
+const DEFAULTS = { shortDays: 7, stateDays: 365 };
+
+async function withOffice(fn: (t: TestState, office: OfficeHandle, dir: string) => Promise<void>) {
+  return withTempDir(async (dir) => {
+    const t = await openTestState(dir);
+    try {
+      await fn(t, addOffice(t), dir);
+    } finally {
+      t.state.close();
+    }
+  });
+}
+
+const progress = (n: number) => ({ type: "work.progress", delta: { n } });
+const notice = (text: string) => ({
+  type: "engine.notice",
+  delta: { level: "info", code: "test.notice", text },
+});
+
+function append(office: OfficeHandle, at: number, entries: { type: string; delta: unknown }[]) {
+  office.immediate(() => appendEntries(office, entries, { at }));
+}
+
+function seqs(office: OfficeHandle): { seq: number; tier: string }[] {
+  return office.all("select seq, tier from change_log where office_id = $office_id order by seq");
+}
+
+describe("retention of the change log", () => {
+  it("deletes R entries past the short tier, moves the floor, and a replay below it must reset", () =>
+    withOffice(async (t, office) => {
+      const start = t.clock.now();
+      append(office, start, [progress(1), notice("kept"), progress(2)]); // seqs 1-3
+      t.clock.advance(8 * DAY_MS);
+      append(office, t.clock.now(), [progress(3), notice("new")]); // seqs 4-5
+      const before = readLogState(office);
+      expect(before.replayFloorSeq).toBe(0);
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({ change_log: 2 });
+      expect(seqs(office)).toEqual([
+        { seq: 2, tier: "S" },
+        { seq: 4, tier: "R" },
+        { seq: 5, tier: "S" },
+      ]);
+      expect(report.replayFloorSeq).toBe(3);
+      expect(readLogState(office).replayFloorSeq).toBe(3);
+
+      const below = replay(office, cursorAt(office.officeId, before.epoch, 1));
+      expect(below.ok).toBe(false);
+      if (!below.ok) {
+        expect(below.error.code).toBe("stream.resetRequired");
+        expect(below.error.details).toEqual({
+          oldest: cursorAt(office.officeId, before.epoch, 3),
+        });
+      }
+      const atFloor = replay(office, cursorAt(office.officeId, before.epoch, 3));
+      expect(atFloor.ok && atFloor.entries.map((entry) => entry.seq)).toEqual([4, 5]);
+    }));
+
+  it("deletes S entries after the state tier and never moves the floor back", () =>
+    withOffice(async (t, office) => {
+      append(office, t.clock.now(), [notice("old"), progress(1)]);
+      t.clock.advance(30 * DAY_MS);
+      append(office, t.clock.now(), [progress(2), notice("young")]);
+      await runRetention({ office, clock: t.clock, periods: DEFAULTS, pause: noPause });
+      expect(readLogState(office).replayFloorSeq).toBe(2);
+
+      t.clock.advance(400 * DAY_MS);
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+      expect(report.deleted).toEqual({ change_log: 3 });
+      expect(seqs(office)).toEqual([]);
+      expect(report.replayFloorSeq).toBe(4);
+    }));
+});
+
+describe("retention batches", () => {
+  it("deletes in transactions of at most 5,000 rows", () =>
+    withOffice(async (t, office) => {
+      insertRequests(office, 12_001, t.clock.now());
+      insertRequest(office, "young", t.clock.now() + 2 * DAY_MS);
+      t.clock.advance(2 * DAY_MS);
+      const recorder = new DeleteRecorder(t.state.connection, office.officeId);
+
+      const report = await runRetention({
+        office: recorder,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({ requests: 12_001 });
+      const requestBatches = recorder.batches.filter((n) => n > 0);
+      expect(requestBatches).toEqual([MAX_BATCH_ROWS, MAX_BATCH_ROWS, 2_001]);
+      expect(Math.max(...recorder.batches)).toBeLessThanOrEqual(MAX_BATCH_ROWS);
+      expect(countRows(office, "requests")).toBe(1);
+    }));
+
+  it("halves the batch after a slow one", () =>
+    withOffice(async (t, office) => {
+      insertRequests(office, 9_000, t.clock.now());
+      t.clock.advance(2 * DAY_MS);
+      const recorder = new DeleteRecorder(t.state.connection, office.officeId);
+      // Every batch takes 80 ms on this clock, over the 50 ms budget.
+      const original = recorder.immediate.bind(recorder);
+      recorder.immediate = <T>(fn: () => T): T => {
+        const result = original(fn);
+        t.clock.advance(80);
+        return result;
+      };
+      await runRetention({ office: recorder, clock: t.clock, periods: DEFAULTS, pause: noPause });
+      expect(recorder.batches.filter((n) => n > 0)).toEqual([5_000, 2_500, 1_250, 250]);
+    }));
+});
+
+describe("retention of run rows", () => {
+  it("keeps the short tier and state tier apart and deletes rows of runs ended a year ago", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      insertAgent(office, { run: "run-old", agent: "agt-old", startedAt: day(0), endedAt: day(0) });
+      insertAgent(office, {
+        run: "run-mid",
+        agent: "agt-mid",
+        startedAt: day(300),
+        endedAt: day(300),
+      });
+      insertAgent(office, {
+        run: "run-live",
+        agent: "agt-live",
+        startedAt: day(300),
+        endedAt: null,
+      });
+      insertHost(office, {
+        run: "run-old",
+        agent: "agt-old",
+        runDir: "/nowhere",
+        processed: 5,
+        final: 5,
+        endedAt: day(0),
+      });
+      insertJournal(office, 1, "merged", day(0));
+      insertJournal(office, 2, "pending", null);
+      insertJournal(office, 3, "dropped", day(300));
+      t.clock.advanceTo(day(400));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({
+        output_chunks: 3,
+        usage_messages: 3,
+        ingest_cursors: 2,
+        usage_totals: 1,
+        agents: 1,
+        worker_hosts: 1,
+        backlog_journal: 1,
+      });
+      const ids = (table: string, column: string) =>
+        office
+          .all<{ id: unknown }>(
+            `select ${column} as id from ${table} where office_id = $office_id order by 1`,
+          )
+          .map((row) => row.id);
+      expect(ids("agents", "agent_id")).toEqual(["agt-live", "agt-mid"]);
+      expect(ids("usage_totals", "agent_id")).toEqual(["agt-live", "agt-mid"]);
+      // The live run's cursor stays: its run has not ended.
+      expect(ids("ingest_cursors", "agent_id")).toEqual(["agt-live"]);
+      expect(ids("backlog_journal", "op_id")).toEqual([2, 3]);
+    }));
+
+  it("uses retention.shortDays and retention.stateDays", () =>
+    withOffice(async (t, office) => {
+      insertAgent(office, {
+        run: "run-a",
+        agent: "agt-a",
+        startedAt: t.clock.now(),
+        endedAt: t.clock.now(),
+      });
+      t.clock.advance(3 * DAY_MS);
+      const kept = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+      expect(kept.deleted).toEqual({});
+      const short = await runRetention({
+        office,
+        clock: t.clock,
+        periods: { shortDays: 1, stateDays: 2 },
+        pause: noPause,
+      });
+      expect(short.deleted).toEqual({
+        output_chunks: 1,
+        usage_messages: 1,
+        ingest_cursors: 1,
+        usage_totals: 1,
+        agents: 1,
+      });
+    }));
+});
+
+function runDir(commonDir: string, run: string): string {
+  const dir = runDirectory(officeDirectory(commonDir), run);
+  mkdirSync(dir, { recursive: true });
+  for (const file of ["events.ndjson", "host.log", "exit.json"]) {
+    writeFileSync(join(dir, file), "{}\n");
+  }
+  return dir;
+}
+
+describe("run directories", () => {
+  it("deletes events.ndjson once the run ended, was processed and summarised", () =>
+    withOffice(async (t, office, tmp) => {
+      const commonDir = join(tmp, "repo", ".git");
+      const done = t.ids.next("run");
+      const unsummarised = t.ids.next("run");
+      const unprocessed = t.ids.next("run");
+      const active = t.ids.next("run");
+      const dirs = Object.fromEntries(
+        [done, unsummarised, unprocessed, active].map((run) => [run, runDir(commonDir, run)]),
+      );
+      const now = t.clock.now();
+      insertHost(office, {
+        run: done,
+        agent: "a1",
+        runDir: dirs[done]!,
+        processed: 9,
+        final: 9,
+        endedAt: now,
+      });
+      insertHost(office, {
+        run: unsummarised,
+        agent: "a2",
+        runDir: dirs[unsummarised]!,
+        processed: 9,
+        final: 9,
+        endedAt: now,
+      });
+      insertHost(office, {
+        run: unprocessed,
+        agent: "a3",
+        runDir: dirs[unprocessed]!,
+        processed: 4,
+        final: 9,
+        endedAt: now,
+      });
+      insertHost(office, {
+        run: active,
+        agent: "a4",
+        runDir: dirs[active]!,
+        processed: 9,
+        final: null,
+        endedAt: null,
+      });
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+        runFiles: {
+          commonDir,
+          keepRawEvents: false,
+          summarised: (_o, run) => run !== unsummarised,
+        },
+      });
+
+      expect(report.eventFiles).toBe(1);
+      expect(report.runDirectories).toBe(0);
+      expect(existsSync(join(dirs[done]!, "events.ndjson"))).toBe(false);
+      expect(existsSync(join(dirs[done]!, "host.log"))).toBe(true);
+      expect(existsSync(join(dirs[done]!, "exit.json"))).toBe(true);
+      for (const run of [unsummarised, unprocessed, active]) {
+        expect(existsSync(join(dirs[run]!, "events.ndjson"))).toBe(true);
+      }
+    }));
+
+  it("deletes the run directory after the short tier, with a notice when never fully processed", () =>
+    withOffice(async (t, office, tmp) => {
+      const commonDir = join(tmp, "repo", ".git");
+      const processed = t.ids.next("run");
+      const partial = t.ids.next("run");
+      const kept = t.ids.next("run");
+      const now = t.clock.now();
+      insertHost(office, {
+        run: processed,
+        agent: "a1",
+        runDir: runDir(commonDir, processed),
+        processed: 9,
+        final: 9,
+        endedAt: now,
+      });
+      insertHost(office, {
+        run: partial,
+        agent: "a2",
+        runDir: runDir(commonDir, partial),
+        processed: 4,
+        final: 9,
+        endedAt: now,
+      });
+      insertHost(office, {
+        run: kept,
+        agent: "a3",
+        runDir: runDir(commonDir, kept),
+        processed: 9,
+        final: 9,
+        endedAt: now + 5 * DAY_MS,
+      });
+      t.clock.advance(8 * DAY_MS);
+      const head = readLogState(office).nextSeq;
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+        // keepRawEvents keeps the stream for the short tier; the fallback still deletes it.
+        runFiles: { commonDir, keepRawEvents: true, summarised: () => true },
+      });
+
+      expect(report.runDirectories).toBe(2);
+      expect(report.eventFiles).toBe(2);
+      expect(report.notices).toBe(1);
+      expect(existsSync(runDirectory(officeDirectory(commonDir), processed))).toBe(false);
+      expect(existsSync(runDirectory(officeDirectory(commonDir), partial))).toBe(false);
+      expect(
+        existsSync(join(runDirectory(officeDirectory(commonDir), kept), "events.ndjson")),
+      ).toBe(true);
+      const notices = office.all<{ type: string; delta: string }>(
+        "select type, delta from change_log where office_id = $office_id and seq >= $head",
+        { head },
+      );
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.type).toBe("engine.notice");
+      const delta = JSON.parse(notices[0]?.delta ?? "{}") as { code: string; text: string };
+      expect(delta.code).toBe("retention.eventsUnprocessed");
+      expect(delta.text).toContain(partial);
+    }));
+
+  it("keeps the raw stream for the short tier with privacy.keepRawEvents", () =>
+    withOffice(async (t, office, tmp) => {
+      const commonDir = join(tmp, "repo", ".git");
+      const run = t.ids.next("run");
+      const dir = runDir(commonDir, run);
+      insertHost(office, {
+        run,
+        agent: "a1",
+        runDir: dir,
+        processed: 9,
+        final: 9,
+        endedAt: t.clock.now(),
+      });
+      await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+        runFiles: { commonDir, keepRawEvents: true, summarised: () => true },
+      });
+      expect(existsSync(join(dir, "events.ndjson"))).toBe(true);
+    }));
+});
+
+function setup(t: TestState, office: OfficeHandle, commonDir: string) {
+  let config: OfficeConfig = {
+    ...OFFICE_DEFAULTS,
+    retention: { shortDays: 1, stateDays: 30 },
+  };
+  const loaded = new Map<string, OfficeHandle>([[office.officeId, office]]);
+  const changed: string[] = [];
+  const retention = new Retention({
+    offices: {
+      get: (id) => loaded.get(id),
+      config: () => config,
+    },
+    onOfficeChanged: (id) => changed.push(id),
+    pause: noPause,
+  });
+  const registry = buildRegistry([retention.feature]);
+  const step = registry.loadSteps().find((s) => s.name === RETENTION_STEP);
+  if (step === undefined) throw new Error("no retention load step");
+  const load = () =>
+    step.run({
+      officeId: OfficeId.parse(office.officeId),
+      office,
+      path: "/repos/demo",
+      commonDir,
+      config,
+      clock: t.clock,
+      ids: t.ids,
+    });
+  return {
+    retention,
+    load,
+    loaded,
+    changed,
+    setConfig: (next: OfficeConfig) => {
+      config = next;
+    },
+  };
+}
+
+describe("the retention load step", () => {
+  it("runs at load and then every hour with the configuration in force", () =>
+    withOffice(async (t, office, tmp) => {
+      const s = setup(t, office, join(tmp, "repo", ".git"));
+      append(office, t.clock.now(), [progress(1)]);
+      t.clock.advance(2 * DAY_MS);
+      expect(await s.load()).toEqual({ ok: true });
+      expect(countRows(office, "change_log")).toBe(0);
+
+      append(office, t.clock.now(), [progress(2)]);
+      s.setConfig({ ...OFFICE_DEFAULTS, retention: { shortDays: 0, stateDays: 30 } });
+      t.clock.advance(RETENTION_INTERVAL_MS - 1);
+      await s.retention.whenIdle(office.officeId);
+      expect(countRows(office, "change_log")).toBe(1);
+      t.clock.advance(1);
+      await s.retention.whenIdle(office.officeId);
+      expect(countRows(office, "change_log")).toBe(0);
+      await s.retention.stop();
+    }));
+
+  it("stops its timer once the office is no longer loaded", () =>
+    withOffice(async (t, office, tmp) => {
+      const s = setup(t, office, join(tmp, "repo", ".git"));
+      await s.load();
+      s.loaded.clear();
+      append(office, t.clock.now(), [progress(1)]);
+      t.clock.advance(RETENTION_INTERVAL_MS + 2 * DAY_MS);
+      await s.retention.whenIdle(office.officeId);
+      expect(countRows(office, "change_log")).toBe(1);
+      expect(t.clock.pendingTimers).toBe(0);
+    }));
+
+  it("tells subscribers when a pass appended a notice", () =>
+    withOffice(async (t, office, tmp) => {
+      const commonDir = join(tmp, "repo", ".git");
+      const s = setup(t, office, commonDir);
+      const run = t.ids.next("run");
+      const dir = runDirectory(officeDirectory(commonDir), run);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "events.ndjson"), "{}\n");
+      insertHost(office, {
+        run,
+        agent: "a1",
+        runDir: dir,
+        processed: 0,
+        final: 3,
+        endedAt: t.clock.now(),
+      });
+      t.clock.advance(2 * DAY_MS);
+      await s.load();
+      expect(s.changed).toEqual([office.officeId]);
+      await s.retention.stop();
+    }));
+});

@@ -6,11 +6,15 @@ import { backlogFeature } from "./backlog";
 import { buildRegistry, type FeatureModule, type Registry } from "./commands/registry";
 import { systemSpawn } from "./platform/process";
 import { describeFeature } from "./reads/describe";
+import { statsFeature } from "./retention/stats";
 
 export const FEATURES: readonly FeatureModule[] = [
   describeFeature,
   // The `backlog` found on the daemon's `PATH`, which the starting client kept (DIPO-70).
   backlogFeature({ spawn: systemSpawn }),
+  // `office.stats` (DIPO-65). The retention load step needs the office manager, so the daemon
+  // lists `Retention.feature` next to it.
+  statsFeature,
 ];
 
 /** The engine's registry; throws at startup when two modules register the same name. */
