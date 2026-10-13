@@ -15,12 +15,12 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
-import type { OfficeHandle } from "../../src/db/office";
+import { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
 import { createRepoFiles } from "../../src/platform/repo-files";
 import { systemSpawn } from "../../src/platform/process";
 import { detect, type Probe, type RunProfile } from "../../src/scan/detect";
-import { RunProfiles } from "../../src/scan/feature";
+import { RunProfiles, SCAN_STEP } from "../../src/scan/feature";
 import { currentProfile, verifyResolved } from "../../src/scan/store";
 import {
   BACKLOG_FIXTURE,
@@ -316,6 +316,29 @@ describe("office.rescan", () => {
       resultOf(await send(s, "office.rescan", {}, officeId));
       expect(errorOf(await send(s, "office.rescan", {}, officeId))).toBe("scan.running");
       release();
+      await profiles.whenIdle(officeId);
+      resultOf(await send(s, "office.rescan", {}, officeId));
+      await profiles.whenIdle(officeId);
+    }));
+
+  it("still fails with scan.running after the office loads again with a new handle", () =>
+    withScannedOffice(APP, async ({ repo, s, profiles, officeId, holdIndex }) => {
+      const release = holdIndex();
+      resultOf(await send(s, "office.rescan", {}, officeId));
+      // The office loads again (a new handle) while the rescan runs: the load step tracks it anew.
+      const step = s.registry.loadSteps().find((entry) => entry.name === SCAN_STEP);
+      const reload = step?.run({
+        officeId,
+        office: new OfficeHandle(s.state.connection, officeId),
+        path: repo.dir,
+        commonDir: `${repo.dir}/.git`,
+        config: undefined,
+        clock: s.clock,
+        ids: s.ids,
+      });
+      expect(errorOf(await send(s, "office.rescan", {}, officeId))).toBe("scan.running");
+      release();
+      await reload;
       await profiles.whenIdle(officeId);
       resultOf(await send(s, "office.rescan", {}, officeId));
       await profiles.whenIdle(officeId);

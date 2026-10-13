@@ -69,8 +69,6 @@ interface Tracked {
   readonly path: string;
   /** The scan running now; the next one starts after it. */
   busy: Promise<unknown>;
-  /** True while an `office.rescan` runs. */
-  rescanning: boolean;
 }
 
 interface ScanOptions {
@@ -91,6 +89,8 @@ const reasonOf = (error: unknown) => (error instanceof Error ? error.message : S
 export class RunProfiles {
   readonly #deps: RunProfilesDeps;
   readonly #offices = new Map<OfficeId, Tracked>();
+  /** Offices with an `office.rescan` running; kept by id, so a reload of the office keeps it. */
+  readonly #rescanning = new Set<OfficeId>();
 
   constructor(deps: RunProfilesDeps) {
     this.#deps = deps;
@@ -112,17 +112,17 @@ export class RunProfiles {
             const office = ctx.office.officeId;
             const state = this.#offices.get(office);
             if (state === undefined) throw new Error(`Office ${office} has not loaded its scan.`);
-            if (state.rescanning) {
+            if (this.#rescanning.has(office)) {
               throw new CommandError(
                 "scan.running",
                 "A rescan of this office is already running; its result arrives as scan.finished.",
               );
             }
-            state.rescanning = true;
+            this.#rescanning.add(office);
             // The scan starts once this command's transaction has committed and replied.
             void this.#serial(state, () => this.#rescan(office, state, ctx.requestId)).finally(
               () => {
-                state.rescanning = false;
+                this.#rescanning.delete(office);
               },
             );
             return { result: { scan: "started" as const }, changed: false };
@@ -171,7 +171,6 @@ export class RunProfiles {
       clock,
       path,
       busy: existing?.busy ?? Promise.resolve(),
-      rescanning: false,
     };
     this.#offices.set(office, state);
     return state;
