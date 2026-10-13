@@ -1,6 +1,7 @@
 // `dipo daemon` client subcommands (0006 decisions 2, 5 and 14). `start`, `stop`, `restart` and
 // `status` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
-// send one contract command each, starting the daemon first unless `daemon.autostart` is false.
+// send one contract command each, starting the daemon first unless `daemon.autostart` is false;
+// `logs` reads the log files directly and never talks to the daemon (DIPO-64).
 
 import type { DipoClient } from "@dipsaus-orchestrator/client";
 import { ClientError } from "@dipsaus-orchestrator/client";
@@ -9,6 +10,7 @@ import {
   DaemonNotRunningError,
   DaemonStartError,
   describeStartFailure,
+  logsDir,
   SoftwareConfigError,
   versionHint,
   type DaemonObservation,
@@ -26,6 +28,8 @@ import {
   type EngineError,
   LogLevel,
 } from "@dipsaus-orchestrator/contract";
+
+import { type DaemonLogsDeps, logsCommand } from "./logs-command";
 
 /** What a daemon subcommand needs from a connected client. */
 export type DaemonSession = Pick<DipoClient, "command" | "subscribe" | "close">;
@@ -52,6 +56,8 @@ export interface DaemonCommandDeps {
   readonly clock: Clock;
   /** This binary's version, for the restart hint of 0006 decision 14. */
   readonly version: string;
+  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (0006 decision 3). */
+  readonly logs?: DaemonLogsDeps;
 }
 
 /** How long a subcommand waits for its reply, reconnects included. */
@@ -286,6 +292,13 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
     },
   ],
   ["status", statusCommand],
+  [
+    "logs",
+    (args, deps) =>
+      logsCommand(args, { ...deps, logs: deps.logs ?? { dir: logsDir() } }, (message) =>
+        usage(deps, message),
+      ),
+  ],
   [
     "log-level",
     async (args, deps) => {

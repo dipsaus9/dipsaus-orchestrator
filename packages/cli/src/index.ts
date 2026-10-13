@@ -17,6 +17,7 @@ import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
+import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import {
   compiledStamp,
@@ -45,6 +46,8 @@ export type CliDeps = {
   readonly runtime: Runtime;
   /** The current directory, the terminal and git around it (`dipo office`, DIPO-27). */
   readonly workspace: Workspace;
+  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (DIPO-64). */
+  readonly logs?: DaemonLogsDeps;
 };
 
 export const HELP = `dipo: run your software products with a model as your team
@@ -63,6 +66,10 @@ Usage:
                     stale (exit 3)
   dipo daemon --foreground [--log-level <level>]
                     run the daemon in this terminal; logs also go to stderr
+  dipo daemon logs [-f] [--office <id>] [--run <id>] [--level <level>]
+                    print daemon.log and its rotated files, also with the daemon
+                    stopped; -f keeps following, --level keeps that level and
+                    the more severe ones
   dipo daemon log-level <level>
                     set the running daemon's log level until it restarts
                     (error, warn, info, debug or trace)
