@@ -184,7 +184,7 @@ export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Pro
     if (left.length > 0) {
       log.push(`setup: changes outside .gitignore: ${left.join(", ")}`);
       throw new SetupFailure(
-        `setup left files git does not ignore (${left.slice(0, 5).join(", ")}${left.length > 5 ? ", and more" : ""}); setup steps may write only ignored files`,
+        `setup left files git does not ignore (${left.slice(0, 5).join(", ")}${left.length > 5 ? ", and more" : ""}); setup steps may change only ignored files. If install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`,
       );
     }
     log.push("setup: done");

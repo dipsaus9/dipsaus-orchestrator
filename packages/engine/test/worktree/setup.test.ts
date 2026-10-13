@@ -23,6 +23,7 @@ import type { DiskProbe } from "../../src/platform/disk";
 import type { CommandSpec, Resolution, RunProfile } from "../../src/scan/detect";
 import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import {
+  CLAIM_NOTICES,
   type ClaimOutcome,
   type ClaimRecord,
   type ClaimSkip,
@@ -38,8 +39,11 @@ import {
   type SetupRequest,
   setupWorktree,
   SlotTable,
+  StoryClaims,
 } from "../../src/worktree";
+import type { OfficeLoadContext } from "../../src/office/steps";
 import { insertClaim } from "../../src/worktree/records";
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
@@ -126,6 +130,7 @@ function fakeSteps(answers: Record<string, StepResult> = {}, onStep?: () => Prom
 /** Publishes the fixture with `.env` ignored, then creates the ignored `.env`. */
 async function product(repo: TempRepoWithRemote): Promise<void> {
   writeFileSync(join(repo.dir, ".gitignore"), ".env\n");
+  writeFileSync(join(repo.dir, "bun.lock"), "{}\n");
   await publish(repo);
   writeFileSync(join(repo.dir, ".env"), `TOKEN=${SECRET}\n`);
   chmodSync(join(repo.dir, ".env"), 0o600);
@@ -350,6 +355,101 @@ describe("setup inside the claim", () => {
       expect((await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim()).toBe(remoteTip);
       expect(releasedBranchFor(h.s.office, key, BRANCH_1)).not.toBeNull();
       expect(existsSync(wt)).toBe(false);
+    }, FIXTURE);
+  });
+});
+/** Releases the claim the way an amend would, keeping its branch for the story. */
+function releaseNow(h: Harness, claim: ClaimRecord): void {
+  h.s.office.immediate(() =>
+    releaseClaim(h.s.office, claim.runId, {
+      at: h.s.t.clock.now(),
+      reason: "amend",
+      keepBranch: true,
+    }),
+  );
+}
+
+describe("releases and restarts around setup", () => {
+  for (const fails of [false, true]) {
+    it(`a release during a setup that ${fails ? "fails" : "succeeds"} keeps the release, its row and the branch`, async () => {
+      await withBareRemote(async (repo) => {
+        await product(repo);
+        const h = await harness(repo);
+        const key = h.s.key();
+        const steps = fakeSteps(fails ? { setup: exited(2, "broke\n") } : {});
+        const request = {
+          ...h.s.request(key),
+          setup: async (claim: ClaimRecord) => {
+            const outcome = await h.setup(claim, { steps, worktree: { post_create: [] } });
+            releaseNow(h, claim);
+            return outcome;
+          },
+        };
+
+        const outcome = skipped(await claimStory<SetupDone>(h.s.deps(), request));
+
+        expect(outcome.reason).toBe(fails ? "pickupCheckFailed" : "notRunnable");
+        const row = findClaim(h.s.office, request.runId);
+        expect(row?.releaseReason).toBe("amend");
+        const start = row?.startSha as string;
+        expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(start);
+        expect(releasedBranchFor(h.s.office, key, BRANCH_1)).not.toBeNull();
+        expect(existsSync(join(h.s.git.worktreeRoot(), TASK_1))).toBe(false);
+        expect(h.slots.slotOf(join(h.s.git.worktreeRoot(), TASK_1))).toBeNull();
+        expect((await inRemote(repo, "branch", "--list", BRANCH_1)).trim()).toBe("");
+      }, FIXTURE);
+    });
+  }
+
+  it("a daemon restart during setup rolls the unfinished claim back at office load", async () => {
+    await withBareRemote(async (repo) => {
+      await product(repo);
+      const h = await harness(repo);
+      // The state a daemon leaves when it stops during setup: worktree, lock, live row without a
+      // claim commit, a taken slot.
+      const claim = await localClaim(repo, h.s);
+      h.slots.take(
+        { office: h.s.office.officeId, story: TASK_1, worktree: claim.worktree, takenAt: 0 },
+        20,
+      );
+
+      // The restarted daemon loads the office.
+      const claims = new StoryClaims({ git: () => h.s.git, cli: h.s.cli, slots: h.slots });
+      expect(
+        claims.attach({
+          officeId: h.s.office.officeId,
+          office: h.s.office,
+          clock: h.s.t.clock,
+        } as unknown as OfficeLoadContext),
+      ).toBeNull();
+      await claims.recover(h.s.office.officeId as OfficeId);
+
+      expect(existsSync(claim.worktree)).toBe(false);
+      expect(await refExists(repo, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(findClaim(h.s.office, claim.runId)?.releaseReason).toBe("setup-failed");
+      expect(h.slots.slotOf(claim.worktree)).toBeNull();
+      expect(notices(h.s.office).map((n) => n.code)).toContain(CLAIM_NOTICES.setupInterrupted);
+      expect(await repo.git("show", `origin/main:${TASK_FILE_1}`)).toContain("status: Ready");
+    }, FIXTURE);
+  });
+
+  it("an install that rewrites the tracked lockfile fails setup and names it with a frozen-install hint", async () => {
+    await withBareRemote(async (repo) => {
+      await product(repo);
+      const h = await harness(repo);
+      const key = h.s.key();
+      const worktree = join(h.s.git.worktreeRoot(), TASK_1);
+      const steps = fakeSteps({}, () => {
+        writeFileSync(join(worktree, "bun.lock"), '{ "rewritten": true }\n');
+        return Promise.resolve();
+      });
+
+      const outcome = skipped(await h.claim(key, { steps, worktree: { post_create: [] } }));
+
+      expect(outcome.reason).toBe("pickupCheckFailed");
+      expect(outcome.notice).toContain("setup left files git does not ignore (bun.lock)");
+      expect(outcome.notice).toContain("bun install --frozen-lockfile");
+      await assertRolledBack(repo, h, key);
     }, FIXTURE);
   });
 });
