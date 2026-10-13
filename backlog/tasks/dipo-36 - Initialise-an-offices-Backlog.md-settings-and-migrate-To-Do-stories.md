@@ -1,11 +1,11 @@
 ---
 id: DIPO-36
 title: Initialise an office's Backlog.md settings and migrate To Do stories
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 18:47'
+updated_date: '2026-10-13 21:21'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -102,4 +102,6 @@ Decisions taken while building:
 Review round 1: scope additions recorded as References (daemon wiring, backlog lane atBase, backlog PR check exception for adding .dipo/.gitignore, migration registration, engine re-export, retention row). leftAlone notice and CLI line now say a <ID>/... branch exists and how to unblock a leftover one.
 
 Live test fix: the merge slot's poll ended at its first timer because it called the office manager's config() detached from the manager (TypeError on this.#instances), so a backlog PR whose checks were pending at the kick never merged. The poll now calls it on the directory, re-arms even when a poll throws, and logs each tick's outcome at debug level. Scope additions: packages/engine/src/merge-slot/slot.ts, packages/engine/test/merge-slot/.
+
+Live test 2026-10-13 on dipsaus9/dipo-scratch-backlog (build 7fda247): after a daemon restart the merge slot merged init PR #4; the next init opened PR #5 (chore(backlog): init statuses, removes To Do only); a further init reported the open PR and changed nothing. The live test also found the merge-slot poll bug from DIPO-73 (detached OfficeManager.config call), fixed on this branch.
 <!-- SECTION:NOTES:END -->
