@@ -4,7 +4,7 @@ title: Store run profiles and rescan offices on change
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 08:17'
+updated_date: '2026-10-13 08:18'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -82,4 +82,6 @@ Scope additions:
 - packages/client/src/node/lifecycle/lifecycle.ts (`DaemonSession` adds `subscribe`), packages/cli/src/daemon-commands.ts (`DaemonSession` adds `subscribe`; `withDaemon` takes an optional deadline), and the session fakes in packages/client/test/unit/lifecycle.test.ts, packages/cli/src/daemon-commands.test.ts and test/office-resolution/office-resolution.test.ts.
 
 Scope addition (review): packages/engine/src/db/schema.ts registers migration 8.
+
+Scope addition: docs/decisions/0005-command-and-event-model.md gains the maintainer-approved 2026-10-13 amendment line for the scan.finished fields.
 <!-- SECTION:NOTES:END -->
