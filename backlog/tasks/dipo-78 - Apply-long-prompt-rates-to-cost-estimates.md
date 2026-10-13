@@ -1,11 +1,11 @@
 ---
 id: DIPO-78
 title: Apply long-prompt rates to cost estimates
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-13 11:41'
-updated_date: '2026-10-13 11:59'
+updated_date: '2026-10-13 12:00'
 labels:
   - 'tier:S'
   - after-cutover
@@ -50,4 +50,6 @@ Implementation (DIPO-78):
 - No schema change: usage_messages already holds per-message tokens and model.
 
 Scope additions: none (all changed files are under packages/engine/src/pricing/ and packages/engine/test/pricing/).
+
+Scope note correction: all code and test files are under packages/engine/src/pricing/ and packages/engine/test/pricing/; the story's own task file is CLI bookkeeping. Reviewer advisory for later: rowCost re-scans the agent's usage_messages per band on every update; switch to one GROUP BY query if profiling shows a cost.
 <!-- SECTION:NOTES:END -->
