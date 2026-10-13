@@ -1,8 +1,9 @@
 // `dipo office` subcommands (0006 decision 4, DIPO-27): `open [path]` registers a repository,
-// `forget` removes an office from the list, `reload-config` re-reads its configuration. The office
-// comes from `--office <id>`, else from the repository around the current directory. In a
-// Backlog.md project that is not an office the CLI says so and, at a terminal, asks once whether
-// to open it (0006 open question 2); a script is never asked.
+// `forget` removes an office from the list, `reload-config` re-reads its configuration, `rescan`
+// (DIPO-72) scans its run profile again and prints the diff. The office comes from
+// `--office <id>`, else from the repository around the current directory. In a Backlog.md project
+// that is not an office the CLI says so and, at a terminal, asks once whether to open it (0006
+// open question 2); a script is never asked.
 
 import {
   type OfficeId,
@@ -10,12 +11,16 @@ import {
   officeForget,
   officeOpen,
   officeReloadConfig,
+  officeRescan,
+  scanFinished,
+  StreamName,
 } from "@dipsaus-orchestrator/contract";
 
 import {
   type DaemonCommandDeps,
   type DaemonSession,
   engineFailure,
+  REPLY_TIMEOUT_MS,
   usage,
   withDaemon,
 } from "./daemon-commands";
@@ -120,6 +125,7 @@ async function withOffice(
   flag: OfficeId | null,
   act: Act,
   confirm: Confirm = async () => true,
+  timeoutMs: number = REPLY_TIMEOUT_MS,
 ): Promise<number> {
   const target = await resolveTarget(deps, flag);
   if (target.kind === "exit") return target.code;
@@ -128,16 +134,20 @@ async function withOffice(
     // Asked before connecting, so the reply deadline never runs while a person decides.
     if (!(await confirm(target.office, target.main))) return 1;
     let unregistered = false;
-    const code = await withDaemon(deps, async (session) => {
-      const outcome = await act(session, target.office, target.main ?? undefined);
-      if (outcome !== "unknown") return outcome;
-      if (target.main === null) {
-        deps.writeError(`dipo: office.unknown: there is no office ${target.office}.`);
+    const code = await withDaemon(
+      deps,
+      async (session) => {
+        const outcome = await act(session, target.office, target.main ?? undefined);
+        if (outcome !== "unknown") return outcome;
+        if (target.main === null) {
+          deps.writeError(`dipo: office.unknown: there is no office ${target.office}.`);
+          return 1;
+        }
+        unregistered = true;
         return 1;
-      }
-      unregistered = true;
-      return 1;
-    });
+      },
+      timeoutMs,
+    );
     if (!unregistered || target.main === null) return code;
     main = target.main;
   } else {
@@ -148,14 +158,18 @@ async function withOffice(
   if (!deps.workspace.interactive) return 1;
   const answer = await deps.workspace.ask(`Open ${main} as an office now? [y/N] `);
   if (!YES.test(answer)) return 1;
-  return withDaemon(deps, async (session) => {
-    const opened = await session.command(officeOpen, { path: main });
-    if (!opened.ok) return engineFailure(deps, opened.error);
-    printOpened(deps, main, opened.result, opened.changed);
-    if (!(await confirm(opened.result.office, main))) return 1;
-    const outcome = await act(session, opened.result.office, main);
-    return outcome === "unknown" ? 1 : outcome;
-  });
+  return withDaemon(
+    deps,
+    async (session) => {
+      const opened = await session.command(officeOpen, { path: main });
+      if (!opened.ok) return engineFailure(deps, opened.error);
+      printOpened(deps, main, opened.result, opened.changed);
+      if (!(await confirm(opened.result.office, main))) return 1;
+      const outcome = await act(session, opened.result.office, main);
+      return outcome === "unknown" ? 1 : outcome;
+    },
+    timeoutMs,
+  );
 }
 
 async function openCommand(args: readonly string[], deps: OfficeCommandDeps): Promise<number> {
@@ -247,8 +261,98 @@ async function reloadConfigCommand(
   });
 }
 
+/** How long `office rescan` waits for its scan: a fetch, a story index pass and the scan. */
+export const RESCAN_TIMEOUT_MS = 120_000;
+
+type ScanFinished = ReturnType<typeof scanFinished.data.parse>;
+
+/**
+ * Subscribes to the office stream for `scan.finished` from a rescan, then sends `office.rescan`
+ * and resolves with that event's data, or with the command's failure.
+ */
+async function rescanAndWait(
+  session: DaemonSession,
+  office: OfficeId,
+): Promise<
+  | { readonly ok: true; readonly data: ScanFinished }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  const finished = Promise.withResolvers<ScanFinished>();
+  const live = Promise.withResolvers<void>();
+  const subscription = session.subscribe(StreamName.parse(`office:${office}`), {
+    filter: [scanFinished.type],
+    onEvent: (event) => {
+      if (event.type !== scanFinished.type) return;
+      const data = scanFinished.data.safeParse(event.data);
+      if (data.success && data.data.trigger === "rescan") finished.resolve(data.data);
+    },
+    onCaughtUp: () => live.resolve(),
+    onEnded: (error) => {
+      const failed = new Error(`${error.code}: ${error.message}`);
+      live.reject(failed);
+      finished.reject(failed);
+    },
+  });
+  try {
+    // Subscribed before the command, so the scan's event cannot be missed.
+    await live.promise;
+    const outcome = await session.command(officeRescan, {}, { office });
+    if (!outcome.ok) return { ok: false, code: outcome.error.code, message: outcome.error.message };
+    return { ok: true, data: await finished.promise };
+  } finally {
+    subscription.unsubscribe();
+  }
+}
+
+function printScan(deps: OfficeCommandDeps, office: OfficeId, data: ScanFinished): number {
+  const deviations = data.deviations ?? [];
+  for (const warning of data.warnings) {
+    if (!deviations.includes(warning)) deps.writeError(`dipo: warning: ${warning}`);
+  }
+  if (data.error !== undefined) {
+    deps.writeError(`dipo: the rescan of office ${office} failed: ${data.error}`);
+    return 1;
+  }
+  deps.writeLine(`office ${office}: rescanned, conformance ${data.level ?? "unknown"}`);
+  const diff = data.diff ?? [];
+  if (diff.length === 0) {
+    deps.writeLine("no changes since the previous profile");
+  } else {
+    deps.writeLine("changes since the previous profile:");
+    for (const line of diff) deps.writeLine(`  ${line}`);
+  }
+  if (deviations.length === 0) {
+    deps.writeLine("no deviations from the script standard");
+  } else {
+    deps.writeLine("deviations from the script standard:");
+    for (const deviation of deviations) deps.writeLine(`  - ${deviation}`);
+  }
+  return 0;
+}
+
+async function rescanCommand(args: readonly string[], deps: OfficeCommandDeps): Promise<number> {
+  const options = parseOptions(args, false);
+  if (typeof options === "string") return usage(deps, `office rescan: ${options}`);
+  return withOffice(
+    deps,
+    options.office,
+    async (session, office) => {
+      const outcome = await rescanAndWait(session, office);
+      if (!outcome.ok) {
+        if (outcome.code === "office.unknown") return "unknown";
+        deps.writeError(`dipo: ${outcome.code}: ${outcome.message}`);
+        return 1;
+      }
+      return printScan(deps, office, outcome.data);
+    },
+    undefined,
+    RESCAN_TIMEOUT_MS,
+  );
+}
+
 export const OFFICE_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<string, Subcommand>([
   ["open", openCommand],
   ["forget", forgetCommand],
   ["reload-config", reloadConfigCommand],
+  ["rescan", rescanCommand],
 ]);

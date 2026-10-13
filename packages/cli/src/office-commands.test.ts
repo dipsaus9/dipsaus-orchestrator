@@ -45,6 +45,9 @@ function fake(handler: Handler, workspace: FakeWorkspaceOptions = {}) {
           sent.push(message);
           return handler(message);
         }) as DaemonSession["command"],
+        subscribe: () => {
+          throw new Error("subscribe must not be called");
+        },
         close: () => undefined,
       };
       return session;
@@ -226,5 +229,127 @@ describe("dipo office forget", () => {
     }));
     expect(await main(["office", "forget", "--office", OFFICE, "--yes"], ctx.deps)).toBe(1);
     expect(ctx.err).toEqual(["dipo: office.busy: has active work"]);
+  });
+});
+
+describe("dipo office rescan", () => {
+  type Subscribe = DaemonSession["subscribe"];
+  type Options = Parameters<Subscribe>[1];
+
+  /**
+   * A session that answers `office.rescan` with `reply` and then, when given, delivers `data` as
+   * `scan.finished` on the office stream, after an unrelated one from a load scan.
+   */
+  function rescanFake(reply: unknown, data?: Record<string, unknown>) {
+    const ctx = fake(() => reply, { repository: { ...REPO, office: OFFICE, backlog: true } });
+    const subscribed: { stream: string; filter: readonly string[] | undefined }[] = [];
+    let listener: Options | null = null;
+    let unsubscribed = 0;
+    const event = (eventData: Record<string, unknown>) => ({
+      cursor: { stream: `office:${OFFICE}`, epoch: "e", seq: 1 },
+      at: "2026-10-13T09:00:00Z",
+      type: "scan.finished",
+      data: eventData,
+    });
+    const inner = ctx.deps.connectDaemon;
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async () => {
+        const session = await inner();
+        return {
+          ...session,
+          command: (async (definition: unknown, args: unknown, options: unknown) => {
+            const result = await session.command(
+              definition as Parameters<DaemonSession["command"]>[0],
+              args as never,
+              options as never,
+            );
+            if (data !== undefined) {
+              listener?.onEvent(event({ scripts: {}, warnings: [], trigger: "start" }) as never);
+              listener?.onEvent(event(data) as never);
+            }
+            return result;
+          }) as DaemonSession["command"],
+          subscribe: ((stream, options) => {
+            subscribed.push({ stream, filter: options.filter });
+            listener = options;
+            queueMicrotask(() => options.onCaughtUp?.({ stream, epoch: "e", seq: 0 } as never));
+            return {
+              stream,
+              cursor: undefined,
+              unsubscribe: () => {
+                unsubscribed += 1;
+              },
+            };
+          }) as Subscribe,
+        };
+      },
+    };
+    return { ...ctx, deps, subscribed, unsubscribed: () => unsubscribed };
+  }
+
+  it("prints the diff, the conformance level and each deviation", async () => {
+    const ctx = rescanFake(ok({ scan: "started" }, false), {
+      scripts: { verify: "bun run verify" },
+      warnings: ["Fetching origin failed (offline). The scan used local refs.", "No dev script."],
+      deviations: ["No dev script."],
+      trigger: "rescan",
+      level: "partial",
+      diff: ["~ verify: bun run test -> bun run verify"],
+    });
+    expect(await main(["office", "rescan"], ctx.deps)).toBe(0);
+    expect(ctx.subscribed).toEqual([{ stream: `office:${OFFICE}`, filter: ["scan.finished"] }]);
+    expect(ctx.sent).toEqual([{ name: "office.rescan", args: {} }]);
+    expect(ctx.out).toEqual([
+      `office ${OFFICE}: rescanned, conformance partial`,
+      "changes since the previous profile:",
+      "  ~ verify: bun run test -> bun run verify",
+      "deviations from the script standard:",
+      "  - No dev script.",
+    ]);
+    expect(ctx.err).toEqual([
+      "dipo: warning: Fetching origin failed (offline). The scan used local refs.",
+    ]);
+    expect(ctx.unsubscribed()).toBe(1);
+  });
+
+  it("says when nothing changed and nothing deviates", async () => {
+    const ctx = rescanFake(ok({ scan: "started" }, false), {
+      scripts: {},
+      warnings: [],
+      deviations: [],
+      trigger: "rescan",
+      level: "conforming",
+      diff: [],
+    });
+    expect(await main(["office", "rescan", "--office", OFFICE], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([
+      `office ${OFFICE}: rescanned, conformance conforming`,
+      "no changes since the previous profile",
+      "no deviations from the script standard",
+    ]);
+  });
+
+  it("reports a failed scan", async () => {
+    const ctx = rescanFake(ok({ scan: "started" }, false), {
+      scripts: {},
+      warnings: [],
+      trigger: "rescan",
+      error: "origin/main does not exist",
+    });
+    expect(await main(["office", "rescan"], ctx.deps)).toBe(1);
+    expect(ctx.err).toEqual([
+      `dipo: the rescan of office ${OFFICE} failed: origin/main does not exist`,
+    ]);
+  });
+
+  it("reports scan.running", async () => {
+    const ctx = rescanFake({
+      ok: false,
+      error: { code: "scan.running", message: "already running", retryable: false },
+    });
+    expect(await main(["office", "rescan"], ctx.deps)).toBe(1);
+    expect(ctx.err).toEqual(["dipo: scan.running: already running"]);
+    expect(ctx.unsubscribed()).toBe(1);
   });
 });

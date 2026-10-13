@@ -198,6 +198,8 @@ export {
   noOfficeSummaries,
 } from "./reads/hello";
 export type { HelloSource, OfficeSummarySource } from "./reads/hello";
+export { currentProfile, diffProfiles, RunProfiles, SCAN_STEP, verifyResolved } from "./scan";
+export type { RunProfilesDeps, ScanOutcome, ScanTrigger, StoredProfile } from "./scan";
 export {
   addStory,
   applyIndex,

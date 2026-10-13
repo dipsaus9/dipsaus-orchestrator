@@ -7,7 +7,14 @@ import { join } from "node:path";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { openLogFile } from "../../src/log/file";
-import { createLogger, LOG_LEVELS, REDACTED, type Logger } from "../../src/log/logger";
+import {
+  createLogger,
+  DEBUG_ONLY,
+  DEBUG_ONLY_KEYS,
+  LOG_LEVELS,
+  REDACTED,
+  type Logger,
+} from "../../src/log/logger";
 
 function memory(level: Parameters<typeof createLogger>[0]["level"] = "trace") {
   const lines: string[] = [];
@@ -121,6 +128,62 @@ describe("redaction", () => {
     cyclic["self"] = cyclic;
     logger.info("cycle", { cyclic });
     expect(parsed()[0]?.["cyclic"]).toEqual({ token: REDACTED, self: "[cycle]" });
+  });
+});
+
+const content = () => ({
+  prompt: "secret-prompt",
+  output: "secret-output",
+  stdout: "secret-stdout",
+  stderr: "secret-stderr",
+  body: { text: "secret-body" },
+  args: { title: "secret-args" },
+  nested: [{ prompt: "secret-nested" }],
+  kept: "visible",
+});
+
+describe("prompts, worker output and command bodies (DIPO-64)", () => {
+  for (const level of ["error", "warn", "info"] as const) {
+    it(`are replaced in ${level} lines, at any depth`, () => {
+      const { logger, lines, parsed } = memory("trace");
+      at(logger, level)("worker event", content());
+      expect(lines.join("\n")).not.toContain("secret");
+      expect(parsed()[0]).toMatchObject({
+        prompt: DEBUG_ONLY,
+        output: DEBUG_ONLY,
+        stdout: DEBUG_ONLY,
+        stderr: DEBUG_ONLY,
+        body: DEBUG_ONLY,
+        args: DEBUG_ONLY,
+        nested: [{ prompt: DEBUG_ONLY }],
+        kept: "visible",
+      });
+    });
+  }
+
+  for (const level of ["debug", "trace"] as const) {
+    it(`appear in ${level} lines, with secrets still redacted`, () => {
+      const { logger, parsed } = memory("trace");
+      at(logger, level)("worker event", { ...content(), body: { token: "t0ken" } });
+      expect(parsed()[0]).toMatchObject({
+        prompt: "secret-prompt",
+        output: "secret-output",
+        args: { title: "secret-args" },
+        body: { token: REDACTED },
+        nested: [{ prompt: "secret-nested" }],
+      });
+    });
+  }
+
+  it("are named by DEBUG_ONLY_KEYS", () => {
+    expect([...DEBUG_ONLY_KEYS].toSorted()).toEqual([
+      "args",
+      "body",
+      "output",
+      "prompt",
+      "stderr",
+      "stdout",
+    ]);
   });
 });
 

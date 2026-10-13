@@ -1,4 +1,4 @@
-// Migration 8 (DIPO-47): `prompt_parts` and `worker_notes` (0007 sections 4 and 8, 0014 sections
+// Migration 9 (DIPO-47): `prompt_parts` and `worker_notes` (0007 sections 4 and 8, 0014 sections
 // 2 and 6). `prompt_parts` keeps, per run, agent and part, the sha256, UTF-8 bytes and estimated
 // tokens of each prompt part, never its text; `nudges` counts the nudges sent for the part
 // (DIPO-60). `worker_notes` keeps the notes of a worker's last report per worktree and agent, at
@@ -7,7 +7,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const promptPartsWorkerNotes: SqlMigration = {
-  version: 8,
+  version: 9,
   name: "prompt_parts and worker_notes",
   sql: `
 create table prompt_parts (
