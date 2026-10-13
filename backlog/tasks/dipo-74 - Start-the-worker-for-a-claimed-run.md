@@ -4,7 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 21:48'
+updated_date: '2026-10-13 18:36'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -75,4 +75,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-48 in the M0 review (DIPO-15). Before cutover: built by hand-run agents.
+
+Follow-up from DIPO-39 (2026-10-13): the daemon builds StoryClaims without the SlotTable (packages/daemon/src/foreground.ts); pass slots: SlotTable.inState(stateDir) as StoryTeardown does, so a claim's setup takes and frees its slot in the real daemon.
 <!-- SECTION:NOTES:END -->
