@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 13:46'
+updated_date: '2026-10-13 13:54'
 labels:
   - 'tier:M'
   - after-cutover
@@ -82,4 +82,14 @@ Notes:
 - A Done claim whose run still has a live worker host waits (notice once).
 - Every step is idempotent: a crash after the worktree or branch went is finished by the next poll (host merged with the branch gone counts as Done).
 - Tests: test/worktree/teardown.test.ts (fake git and host, about 0.25 s); test/worktree/teardown.ci.test.ts (real squash merge on a bare remote, detection by merge-tree, teardown of worktree and both branches; dirty worktree kept with a notice, then torn down once clean).
+
+Review follow-ups (PR #80):
+- Tip race: DoneCheck carries the tip detection judged; tearDown re-reads refs/heads/<branch> in its queue item and keeps everything when it moved; the local branch is deleted with git update-ref -d refs/heads/<branch> <judged tip> (the forced delete of branch -D, guarded against a commit landing in between) (AC #4).
+- An unreadable story status keeps everything this poll with a teardown.statusUnknown notice, once per cause.
+- Interrupted teardown: claims.teardown_started_at is set before the first destructive git step and cleared when the worktree is kept. A live claim with it set whose worktree and branch are both gone is finished on the next poll without the host. A live claim whose worktree and branch are gone without it gets a done.claimGone notice.
+- Notices are deduplicated per run and code; entries of claims that are no longer live are pruned after each poll.
+
+Scope additions (review follow-ups):
+- packages/engine/src/db/migrations/0016-claim-teardown.ts: migration 16, column claims.teardown_started_at (no new table, so no retention policy line). DIPO-73 may also take 16; whichever merges second renumbers.
+- packages/engine/src/db/schema.ts: registers migration 16.
 <!-- SECTION:NOTES:END -->
