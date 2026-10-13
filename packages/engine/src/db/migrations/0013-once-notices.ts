@@ -1,4 +1,4 @@
-// Migration 11 (DIPO-39): `once_notices`, the notices an office shows only once (0008 section 2
+// Migration 13 (DIPO-39): `once_notices`, the notices an office shows only once (0008 section 2
 // "Env files", 0010 amendment): the first time setup copies env files into a worktree of the
 // office it shows "worktree env files hold development secrets only" and lists the files; the row
 // records that it was shown, so later setups stay quiet. One row per office and notice code.
@@ -6,7 +6,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const onceNotices: SqlMigration = {
-  version: 11,
+  version: 13,
   name: "once_notices",
   sql: `
 create table once_notices (
