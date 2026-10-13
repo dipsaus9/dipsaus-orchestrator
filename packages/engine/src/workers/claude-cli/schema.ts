@@ -61,6 +61,8 @@ export const ModelUsageEntry = z.object({
   outputTokens: Tokens,
   cacheReadInputTokens: Tokens,
   cacheCreationInputTokens: Tokens,
+  /** The CLI's own cost estimate, cumulative per process (0008 section 4, DIPO-62). */
+  costUSD: z.number().nonnegative().optional(),
 });
 
 export const ResultMessage = z.object({
@@ -259,6 +261,7 @@ export const ClaudeWorkerEventSchema = z.union([
     t: z.literal("turn"),
     report: WorkerReportSchema.nullable(),
     totals: z.record(Name, Totals),
+    costUsd: z.record(Name, z.number().nonnegative()).exactOptional(),
     numTurns: Count,
     terminal: Name,
   }),

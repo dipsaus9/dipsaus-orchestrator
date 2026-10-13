@@ -18,6 +18,8 @@ import type { Clock, Cursor, RunId, TimerHandle, WorkRef } from "@dipsaus-orches
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import type { PriceBook } from "../pricing/estimate";
+import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
 import type { HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, outputText } from "./output";
@@ -91,6 +93,11 @@ export interface IngestHooks {
 export interface IngestorOptions {
   readonly office: OfficeHandle;
   readonly clock: Clock;
+  /**
+   * The pricing catalog usage is estimated with (`StateDatabase.pricing`, DIPO-62); without
+   * one, `est_cost_micros` stays null and no catalog check runs.
+   */
+  readonly pricing?: PriceBook | null;
   readonly hooks?: IngestHooks;
   readonly timings?: Partial<IngestTimings>;
   /** Called for a host line that is not a `{ t, ch, data }` object; the line is skipped. */
@@ -174,6 +181,7 @@ export function fileChangedRuns(office: OfficeHandle): FileChangedReport[] {
 export class Ingestor {
   readonly #office: OfficeHandle;
   readonly #clock: Clock;
+  readonly #pricing: PriceBook | null;
   readonly #hooks: IngestHooks;
   readonly #timings: IngestTimings;
   readonly #warn: NonNullable<IngestorOptions["warn"]>;
@@ -182,6 +190,7 @@ export class Ingestor {
   constructor(options: IngestorOptions) {
     this.#office = options.office;
     this.#clock = options.clock;
+    this.#pricing = options.pricing ?? null;
     this.#hooks = options.hooks ?? {};
     this.#timings = { ...INGEST_DEFAULTS, ...options.timings };
     this.#warn = options.warn ?? (() => {});
@@ -330,6 +339,7 @@ export class Ingestor {
       let lastT = cursor.last_line_t;
       let model = this.#agentModel(target);
       let usageChanged = false;
+      let turnEnded = false;
       let text = "";
       for (const line of lines) {
         const hostLine = parseHostLine(line.text);
@@ -361,7 +371,9 @@ export class Ingestor {
                 { model, count: event.numTurns },
                 now,
               );
+              recordCliCost(this.#office, run, agent, event.costUsd ?? null);
               usageChanged = true;
+              turnEnded = true;
               break;
             case "started":
               model = event.model;
@@ -403,6 +415,11 @@ export class Ingestor {
       if (firstT !== null && lastT !== null && (usageChanged || this.#hasTotals(target))) {
         setElapsed(this.#office, target, model, lastT - firstT, now);
       }
+      // Estimated cost follows every usage update, in the same transaction (0008 section 4).
+      if (usageChanged) priceAgentUsage(this.#office, this.#pricing, run, agent);
+      const stale = turnEnded
+        ? checkCatalogGap(this.#office, this.#pricing, run, target.work, now)
+        : null;
 
       const last = lines[lines.length - 1]?.text ?? "";
       const lastStart = lines.length > 1 ? (lines[lines.length - 2]?.end ?? offset) : offset;
@@ -441,6 +458,7 @@ export class Ingestor {
       if (exited || rejected.length > 0 || pending >= this.#timings.outputFlushBytes) {
         entries.push(...this.#outputEntries(target));
       }
+      if (stale !== null) entries.push(stale);
       usageDirty = tracked.usageDirty || usageChanged;
       const dueAt = (tracked.lastUsageAt ?? -Infinity) + this.#timings.usageIntervalMs;
       if (usageDirty && (exited || now >= dueAt)) {

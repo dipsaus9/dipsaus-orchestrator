@@ -86,6 +86,17 @@ export interface ClaudeParseState {
   readonly committed: UsageTotalsByModel;
   /** The CLI's cumulative totals at the last turn end. */
   readonly baseline: UsageTotalsByModel;
+  /**
+   * The CLI's `costUSD` per model as run totals at the last turn end, and the CLI's cumulative
+   * values it was last seen at (DIPO-62). Absent in states stored before they existed.
+   */
+  readonly costCommitted?: Readonly<Record<string, number>>;
+  readonly costBaseline?: Readonly<Record<string, number>>;
+  /**
+   * Set once a turn end kept live numbers above the CLI's totals (an aborted or crashed turn):
+   * the CLI's cost then leaves counted spend out, and turn events stop carrying it.
+   */
+  readonly costDrift?: boolean;
   /** Models seen in `system/init` or `modelUsage`, first one first. */
   readonly models: readonly string[];
   /** Tool use ids already reported as `denied`. */
@@ -116,6 +127,10 @@ export interface InitialStateOptions {
   readonly totals?: UsageTotalsByModel;
   /** The CLI totals stored at the last turn end, for a resumed session; defaults to `totals`. */
   readonly baseline?: UsageTotalsByModel;
+  /** The CLI cost in USD per model the run starts from, for a resumed run. */
+  readonly costUsd?: Readonly<Record<string, number>>;
+  /** The CLI cost stored at the last turn end, for a resumed session; defaults to `costUsd`. */
+  readonly costBaseline?: Readonly<Record<string, number>>;
 }
 
 export function initialState(options: InitialStateOptions = {}): ClaudeParseState {
@@ -134,6 +149,9 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
     live: {},
     committed: totals,
     baseline: options.baseline ?? totals,
+    costCommitted: options.costUsd ?? {},
+    costBaseline: options.costBaseline ?? options.costUsd ?? {},
+    costDrift: false,
     models: [],
     denied: [],
     lastTurn: null,
@@ -203,6 +221,27 @@ function fromModelUsage(entry: z.infer<typeof ModelUsageEntry>): ModelUsageTotal
     cacheCreate: entry.cacheCreationInputTokens,
     cacheRead: entry.cacheReadInputTokens,
   };
+}
+
+/**
+ * The CLI's `costUSD` at a turn end (DIPO-62): cumulative per process like `modelUsage`, so the
+ * run adds only the change since the value last seen; a value below it means the CLI's count
+ * restarted, so all of it is new. Models without `costUSD` keep what they had.
+ */
+function costStep(
+  state: ClaudeParseState,
+  modelUsage: Readonly<Record<string, z.infer<typeof ModelUsageEntry>>>,
+): Pick<ClaudeParseState, "costCommitted" | "costBaseline"> {
+  const committed: Record<string, number> = { ...state.costCommitted };
+  const baseline: Record<string, number> = { ...state.costBaseline };
+  for (const [model, entry] of Object.entries(modelUsage)) {
+    if (entry.costUSD === undefined) continue;
+    const before = baseline[model] ?? 0;
+    const change = entry.costUSD >= before ? entry.costUSD - before : entry.costUSD;
+    committed[model] = (committed[model] ?? 0) + change;
+    baseline[model] = entry.costUSD;
+  }
+  return { costCommitted: committed, costBaseline: baseline };
 }
 
 /** Run totals now: committed plus live numbers since the last turn end. */
@@ -578,9 +617,13 @@ function result(value: unknown, state: ClaudeParseState): Step {
       change[model] = delta(usage, next.baseline[model] ?? ZERO_USAGE);
     }
   }
+  let drift = next.costDrift === true;
   if (none || !completed) {
     for (const model of new Set([...Object.keys(change), ...Object.keys(next.live)])) {
-      change[model] = larger(change[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
+      const before = change[model] ?? ZERO_USAGE;
+      change[model] = larger(before, next.live[model] ?? ZERO_USAGE);
+      // Spend the CLI's totals leave out is now counted, so its cost no longer covers the run.
+      if (FIELDS.some((field) => change[model]?.[field] !== before[field])) drift = true;
     }
   }
   next = {
@@ -588,6 +631,8 @@ function result(value: unknown, state: ClaudeParseState): Step {
     committed: addTotals(next.committed, change),
     live: {},
     baseline: none ? next.baseline : { ...next.baseline, ...reported },
+    ...costStep(next, msg.modelUsage),
+    costDrift: drift,
   };
   for (const model of Object.keys(reported)) {
     if (!next.models.includes(model) && next.models.length > 0) {
@@ -622,7 +667,16 @@ function result(value: unknown, state: ClaudeParseState): Step {
     next = { ...next, planLimit: "turn ended by a 429 rate-limit error" };
   }
 
-  events.push({ t: "turn", report, totals: next.committed, numTurns: msg.num_turns, terminal });
+  const costUsd = next.costCommitted ?? {};
+  const comparable = !drift && Object.keys(costUsd).length > 0;
+  events.push({
+    t: "turn",
+    report,
+    totals: next.committed,
+    ...(comparable ? { costUsd } : {}),
+    numTurns: msg.num_turns,
+    terminal,
+  });
   if (
     report?.status === "blocked" &&
     report.question !== undefined &&
