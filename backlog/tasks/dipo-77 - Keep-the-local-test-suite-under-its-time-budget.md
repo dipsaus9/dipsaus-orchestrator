@@ -4,9 +4,25 @@ title: Keep the local test suite under its time budget
 status: To Do
 assignee: []
 created_date: '2026-10-13 08:44'
-labels: []
+updated_date: '2026-10-13 08:57'
+labels:
+  - testing
 milestone: m-0
 dependencies: []
+references:
+  - packages/engine/test/worktree/claim.test.ts
+  - packages/engine/test/worktree/claim.ci.test.ts
+  - packages/engine/test/stories/index.test.ts
+  - packages/engine/test/stories/index.ci.test.ts
+  - packages/engine/test/backlog/lane/lane.test.ts
+  - packages/engine/test/backlog/lane/lane.ci.test.ts
+  - packages/engine/test/backlog/lane/failures.test.ts
+  - packages/engine/test/backlog/lane/failures.ci.test.ts
+  - packages/engine/test/backlog/lane/replay.test.ts
+  - packages/engine/test/backlog/lane/replay.ci.test.ts
+  - packages/engine/test/scan/profiles.test.ts
+  - packages/engine/test/scan/profiles.ci.test.ts
+  - packages/testkit/README.md
 priority: high
 type: chore
 ordinal: 68000
