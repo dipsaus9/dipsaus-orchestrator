@@ -4,7 +4,7 @@ title: Gather context through the provider interface with the default provider
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 06:49'
+updated_date: '2026-10-13 07:14'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -71,4 +71,6 @@ Added refs: packages/engine/src/platform/glob.ts, because 0010 section 10 puts B
 Implemented in packages/engine/src/context/: ContextProvider, ContextRequest and ContextPack as in 0014 section 9, with structured item reasons (scope-file, scope-dir, scope-new, component, test, input-*) and no prose. Additive to the 0014 shape: ContextRequest carries inputsBudget (gather keeps its single context budget), ContextPack carries an inputs part (full path list plus pre-fetched items) and blobIds, provenance carries notes (component map warnings and errors, skipped backends). Providers are built per workspace (createDefaultProvider({ workspace })), since gather takes no workspace in 0014. gitWorkspace reads file lists and HEAD through the office git queue with hardened calls and never reads a symbolic link or a path outside the work tree. Component neighbours are direct both ways (depends-on and depended-on-by); a component's purpose comes from an optional purpose key. Directory scope lists and component file lists are also capped at the 4,000 character item cap with the marker. Migration 5 adds context_packs (office_id, worktree, head_sha, blob_ids JSON, provider, pack_sha256, built_at), one row per worktree; recordContextPack, contextPackOf and forgetContextPack use it. gatherContext runs the default first and lets an optional backend fill the rest of the budget, skipping one that is not ready with a provenance note.
 
 PR #59 review fixes: (1) the provider and the git workspace never read a file whose name matches a 0008 secret pattern (.env*, .npmrc, .netrc, _netrc, .git-credentials, *.pem, id_rsa/id_dsa/id_ecdsa/id_ed25519*; secrets.ts); such scope or input files are listed with content `secret`, empty text and no blob id. (2) gitWorkspace.readFile checks realpath(file) is under realpath(work tree) after lstat and refuses otherwise (a directory swapped for a link). (3) gatherContext catches errors from backend status, prepare and gather and returns the default pack with the note `backend <id> skipped, error: <message>`. (4) Directory and component listings use their own truncation marker without a file line (truncateListing); a cut listing's `shown` counts the entries kept. (5) pack.ts documents that blob ids hash raw work-tree bytes, so they can differ from `git ls-files -s` under filters or eol conversion.
+
+Migration renumbered to 7 (0007-context-packs.ts) after DIPO-34 (5, backlog_journal) and DIPO-32 (6, backlog_mirror) merged to main; the note above that says Migration 5 now reads as Migration 7.
 <!-- SECTION:NOTES:END -->

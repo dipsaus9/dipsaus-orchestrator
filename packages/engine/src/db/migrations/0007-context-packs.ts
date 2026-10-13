@@ -1,4 +1,4 @@
-// Migration 5 (DIPO-46): `context_packs` (0007 section 4, 0014 section 10). One row per
+// Migration 7 (DIPO-46): `context_packs` (0007 section 4, 0014 section 10). One row per
 // worktree: the head sha and the git blob ids (JSON object, path to id) of the scope and input
 // files the last context pack read, the provider and the pack's sha256. Kept until worktree
 // teardown.
@@ -6,7 +6,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const contextPacks: SqlMigration = {
-  version: 5,
+  version: 7,
   name: "context_packs",
   sql: `
 create table context_packs (
