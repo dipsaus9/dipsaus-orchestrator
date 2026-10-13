@@ -95,6 +95,21 @@ describe("commands.describe", () => {
   it("leaves provisional definitions out", () => {
     const names = describeContract().commands.map((entry) => entry.name);
     expect(names).not.toContain("office.purge");
-    expect(names).not.toContain("office.init");
+  });
+
+  it("lists office.init since minor 1 with its result shape (DIPO-36)", () => {
+    const entry = describeContract().commands.find((command) => command.name === "office.init");
+    expect(entry).toMatchObject({
+      name: "office.init",
+      since: 1,
+      level: "software",
+      confirm: false,
+      irreversible: false,
+      args: { type: "object", required: ["office"] },
+    });
+    const result = entry?.result as { properties?: object } | undefined;
+    expect(Object.keys(result?.properties ?? {}).toSorted()).toEqual(
+      ["branch", "leftAlone", "office", "pr", "waiting"].toSorted(),
+    );
   });
 });
