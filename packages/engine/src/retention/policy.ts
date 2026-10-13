@@ -63,4 +63,5 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "S",
     rule: "opened more than stateDays ago, with no decision left; a gate still waiting is kept",
   },
+  once_notices: { tier: "P", rule: "kept until purge, so a once-per-office notice stays shown" },
 };

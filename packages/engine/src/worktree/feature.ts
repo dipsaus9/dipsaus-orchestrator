@@ -3,6 +3,10 @@
 // the refusal of git calls in a tampered worktree (0008 section 2) survives a daemon restart. The
 // step must run after `git.version`, which attaches the office's git, so the daemon registers
 // this feature right after `EngineGit.feature`. `work.run` (DIPO-48) calls `claim`.
+//
+// The same step rolls back every live claim whose setup never finished (no recorded claim commit),
+// for example because the daemon stopped during setup (DIPO-39): its worktree is removed, its
+// branch restored, its row ended as `setup-failed` and its port slot freed.
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
@@ -13,8 +17,15 @@ import type { OfficeGit } from "../git/office";
 import type { OfficeLoadContext } from "../office/steps";
 import { type DiskProbe, systemDiskProbe } from "../platform/disk";
 
-import { claimStory, type ClaimOutcome, type ClaimRequest } from "./claim";
+import {
+  claimStory,
+  type ClaimOutcome,
+  type ClaimRequest,
+  type ClaimSetupDone,
+  rollBackInterruptedSetup,
+} from "./claim";
 import { liveClaims } from "./records";
+import type { SlotTable } from "./slots";
 
 /** The load step's name in the registry. */
 export const CLAIMS_STEP = "worktree.claims";
@@ -26,6 +37,8 @@ export interface StoryClaimsDeps {
   readonly cli: BacklogCli;
   /** The free-space probe; the real `statfs` by default. */
   readonly disk?: DiskProbe;
+  /** The machine-wide port slot table; a rolled-back interrupted setup frees its slot there. */
+  readonly slots?: SlotTable;
   readonly onChanged?: (office: OfficeId) => void;
 }
 
@@ -56,8 +69,33 @@ export class StoryClaims {
     return null;
   }
 
+  /**
+   * Rolls back every live claim of a loaded office whose setup never finished (its claim commit
+   * is not recorded), and frees its slot.
+   */
+  async recover(officeId: OfficeId): Promise<void> {
+    const loaded = this.#offices.get(officeId);
+    const git = this.#deps.git(officeId);
+    if (loaded === undefined || git === undefined) return;
+    const deps = {
+      officeId,
+      office: loaded.office,
+      git,
+      clock: loaded.clock,
+      ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
+    };
+    for (const claim of liveClaims(loaded.office)) {
+      if (claim.claimSha !== null) continue;
+      await rollBackInterruptedSetup(deps, claim);
+      this.#deps.slots?.free(claim.worktree);
+    }
+  }
+
   /** Claims a story of a loaded office (see `claimStory`). */
-  claim(officeId: OfficeId, request: ClaimRequest): Promise<ClaimOutcome> {
+  claim<S extends ClaimSetupDone = ClaimSetupDone>(
+    officeId: OfficeId,
+    request: ClaimRequest<S>,
+  ): Promise<ClaimOutcome<S>> {
     const loaded = this.#offices.get(officeId);
     const git = this.#deps.git(officeId);
     if (loaded === undefined || git === undefined) {
@@ -82,9 +120,11 @@ export class StoryClaims {
     return {
       name: "worktree/claims",
       register: (registry) => {
-        registry.registerLoadStep(CLAIMS_STEP, (ctx) => {
+        registry.registerLoadStep(CLAIMS_STEP, async (ctx) => {
           const reason = this.attach(ctx);
-          return reason === null ? { ok: true } : { ok: false, reason };
+          if (reason !== null) return { ok: false, reason };
+          await this.recover(ctx.officeId);
+          return { ok: true };
         });
       },
     };
