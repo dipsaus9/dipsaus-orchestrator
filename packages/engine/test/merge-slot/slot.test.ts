@@ -177,6 +177,8 @@ describe("the merge slot", () => {
       s.t.clock.advance(1);
       await s.slot.whenIdle(s.officeId);
       expect(s.host.checkReads).toBe(1);
+      // Each tick's outcome is logged, so a slot that stops polling shows in the daemon log.
+      expect(s.logs).toEqual(["debug merge slot entered #1", "debug merge slot tick waiting #1"]);
 
       // A changed configuration takes effect from the next interval.
       s.config = { ...OFFICE_DEFAULTS, polling: { ...OFFICE_DEFAULTS.polling, prStateSeconds: 3 } };
@@ -186,8 +188,38 @@ describe("the merge slot", () => {
       s.t.clock.advance(3_000);
       await s.slot.whenIdle(s.officeId);
       expect(s.host.checkReads).toBe(3);
+
+      // Green checks: the next poll merges.
+      s.host.checks = GREEN;
+      s.t.clock.advance(3_000);
+      await s.slot.whenIdle(s.officeId);
+      expect(s.host.merges).toEqual([{ number: 1, headSha: HEAD }]);
+      expect(s.logs.at(-1)).toBe("debug merge slot tick merged #1");
       s.slot.stop();
       expect(s.t.clock.pendingTimers).toBe(0);
+    });
+  });
+
+  it("keeps polling after a poll that failed, with a warning", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      s.slot.watch(s.officeId, s.t.clock, 7);
+      Object.defineProperty(s, "config", {
+        configurable: true,
+        get: () => {
+          throw new Error("config unreadable");
+        },
+      });
+      s.t.clock.advance(7_000);
+      expect(s.logs).toEqual(["warn merge slot poll failed"]);
+      expect(s.t.clock.pendingTimers).toBe(1);
+
+      Object.defineProperty(s, "config", { configurable: true, value: OFFICE_DEFAULTS });
+      s.t.clock.advance(7_000);
+      await s.slot.whenIdle(s.officeId);
+      expect(s.host.checkReads).toBe(1);
+      s.slot.stop();
     });
   });
 });

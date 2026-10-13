@@ -60,7 +60,10 @@ export interface OfficeSetup {
 }
 
 export interface OfficeSetupOptions {
-  readonly features?: readonly FeatureModule[];
+  /** Feature modules, or a function that makes them for the manager, as the daemon wires them. */
+  readonly features?:
+    | readonly FeatureModule[]
+    | ((manager: OfficeManager, clock: ManualClock) => readonly FeatureModule[]);
   readonly readMounts?: MountReader;
 }
 
@@ -90,7 +93,11 @@ export async function officeSetup(
     fill: t.fill,
     onOfficeChanged: (office) => changed.push(office),
   });
-  registry = buildRegistry([officeFeature(manager), pingFeature, ...(options.features ?? [])]);
+  const features =
+    typeof options.features === "function"
+      ? options.features(manager, t.clock)
+      : (options.features ?? []);
+  registry = buildRegistry([officeFeature(manager), pingFeature, ...features]);
   const deps: ExecutorDeps = {
     registry,
     offices: manager,

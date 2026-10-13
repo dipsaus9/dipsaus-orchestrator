@@ -15,6 +15,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { GitSession, OfficeGit } from "../../src/git/office";
 import { type BaseSync, MergeSlot, type PushOutcome, type SlotGit } from "../../src/merge-slot";
 import { CodeHostError, type RequiredCheck } from "../../src/platform/host";
+import { createLogger } from "../../src/log/logger";
 import { addStory } from "../../src/stories/keys";
 import { FakeHost, REPO } from "../backlog/pr/helpers";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
@@ -131,6 +132,37 @@ export interface SlotSetup {
   /** The office configuration the slot reads. */
   config: OfficeConfig;
   readonly keys: { readonly one: StoryKey; readonly two: StoryKey };
+  /** The slot's log lines, from trace up, as `level msg` with the outcome and PR when given. */
+  readonly logs: string[];
+}
+
+/**
+ * One loaded office, as the daemon's `OfficeManager` gives it: methods that read the instance's own
+ * private fields, so a slot that calls one detached from the directory throws as it would there.
+ */
+export class OneOffice {
+  readonly #office: OfficeHandle;
+  readonly #config: () => OfficeConfig;
+
+  constructor(office: OfficeHandle, config: () => OfficeConfig) {
+    this.#office = office;
+    this.#config = config;
+  }
+
+  get(office: OfficeId): OfficeHandle | undefined {
+    return office === this.#office.officeId ? this.#office : undefined;
+  }
+
+  config(office: OfficeId): OfficeConfig | undefined {
+    return office === this.#office.officeId ? this.#config() : undefined;
+  }
+}
+
+function logLine(line: string): string {
+  const { level, msg, outcome, pr } = JSON.parse(line) as Record<string, unknown>;
+  return [level, msg, outcome, pr === undefined ? undefined : `#${String(pr)}`]
+    .filter((part) => part !== undefined)
+    .join(" ");
 }
 
 /** A git that only answers what journaling asks: the office has a configured base. */
@@ -154,6 +186,7 @@ export async function slotSetup(dir: string): Promise<SlotSetup> {
   const git = new FakeSlotGit();
   const flushes: SlotSetup["flushes"] = [];
   const rechecks: string[] = [];
+  const logs: string[] = [];
   let slot: MergeSlot | undefined;
   const setup = {} as { -readonly [K in keyof SlotSetup]: SlotSetup[K] };
   const laneForSlot = {
@@ -185,9 +218,15 @@ export async function slotSetup(dir: string): Promise<SlotSetup> {
       },
     },
     lane: () => laneForSlot,
-    offices: { get: () => office, config: () => setup.config },
+    offices: new OneOffice(office, () => setup.config),
     clock: t.clock,
     git: () => git,
+    logger: createLogger({
+      clock: t.clock,
+      sinks: [(line) => logs.push(logLine(line))],
+      level: "trace",
+      component: "merge-slot",
+    }),
   });
   const made = slot;
   const lane = new OfficeLane({
@@ -209,6 +248,7 @@ export async function slotSetup(dir: string): Promise<SlotSetup> {
     lane,
     flushes,
     rechecks,
+    logs,
     recheckPasses: true,
     config: OFFICE_DEFAULTS,
     keys: {

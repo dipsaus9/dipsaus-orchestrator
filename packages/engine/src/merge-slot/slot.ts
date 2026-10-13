@@ -38,6 +38,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
+import type { Logger } from "../log/logger";
 import { type CodeHost, CodeHostError } from "../platform/host";
 
 import { evaluateChecks, REQUIRED_CHECKS } from "./checks";
@@ -99,6 +100,8 @@ export interface MergeSlotDeps {
   /** How long a PR waits for its checks before it leaves; `CHECKS_WAIT_MS` by default. */
   readonly checksWaitMs?: number;
   readonly onChanged?: (office: OfficeId) => void;
+  /** Gets each tick's outcome at debug level (idle at trace) and a failed poll or tick as a warning. */
+  readonly logger?: Logger;
 }
 
 interface InSlot {
@@ -165,7 +168,7 @@ export class MergeSlot {
   tick(office: OfficeId): Promise<SlotOutcome> {
     const state = this.#stateOf(office);
     state.pending += 1;
-    const step = () => this.#tick(office, state).finally(() => (state.pending -= 1));
+    const step = () => this.#logged(office, state).finally(() => (state.pending -= 1));
     const run = state.busy.then(step, step);
     state.busy = run.catch(() => undefined);
     return run;
@@ -178,7 +181,9 @@ export class MergeSlot {
 
   /** Starts a tick without waiting for it (after a flush opened or updated the backlog PR). */
   kick(office: OfficeId): void {
-    void this.tick(office).catch(() => undefined);
+    void this.tick(office).catch((error: unknown) => {
+      this.#deps.logger?.warn("merge slot tick failed", { office, reason: reasonOf(error) });
+    });
   }
 
   /** Ticks the office's slot every `seconds` (its `polling.prStateSeconds`) until it is forgotten. */
@@ -215,11 +220,20 @@ export class MergeSlot {
     if (this.#offices.get(office) !== state) return;
     state.timer = state.clock.setTimeout(() => {
       state.timer = null;
-      const config = this.#deps.offices.config;
-      if (config !== undefined) state.seconds = secondsOf(config(office));
-      // The next poll is armed now; a poll that comes while a tick still runs is skipped.
-      if (state.pending === 0) this.kick(office);
-      this.#schedule(office, state);
+      try {
+        // Called on the directory itself: the daemon's is the `OfficeManager`, whose `config`
+        // reads its own fields, so a detached `config` throws and ends the poll.
+        const { offices } = this.#deps;
+        if (offices.config !== undefined) state.seconds = secondsOf(offices.config(office));
+        // A poll that comes while a tick still runs is skipped.
+        if (state.pending === 0) this.kick(office);
+        else this.#deps.logger?.debug("merge slot poll skipped: a tick still runs", { office });
+      } catch (error) {
+        this.#deps.logger?.warn("merge slot poll failed", { office, reason: reasonOf(error) });
+      } finally {
+        // The next poll is armed whatever this one did.
+        this.#schedule(office, state);
+      }
     }, state.seconds * 1000);
   }
 
@@ -248,6 +262,17 @@ export class MergeSlot {
 
   // ---- one tick ------------------------------------------------------------------------------
 
+  /** One tick, its outcome logged at debug level (an idle one at trace, as it comes every poll). */
+  async #logged(office: OfficeId, state: OfficeSlot): Promise<SlotOutcome> {
+    const before = state.slot?.number ?? null;
+    const outcome = await this.#tick(office, state);
+    const pr = state.slot?.number ?? before;
+    const fields = pr === null ? { office, outcome } : { office, outcome, pr };
+    if (outcome === "idle") this.#deps.logger?.trace("merge slot tick", fields);
+    else this.#deps.logger?.debug("merge slot tick", fields);
+    return outcome;
+  }
+
   async #tick(office: OfficeId, state: OfficeSlot): Promise<SlotOutcome> {
     const handle = this.#deps.offices.get(office);
     const lane = this.#deps.lane(office);
@@ -265,6 +290,11 @@ export class MergeSlot {
         const next = await this.#pick(state, handle, git);
         if (next === null) return "idle";
         state.slot = next;
+        this.#deps.logger?.debug("merge slot entered", {
+          office,
+          pr: next.number,
+          head: next.head,
+        });
         this.#once(office, handle, state, next.number, SLOT_NOTICES.entered, next.head, () =>
           notice(
             "info",
@@ -276,7 +306,7 @@ export class MergeSlot {
       return await this.#advance(office, state, state.slot, handle, lane, git);
     } catch (error) {
       const slot = state.slot;
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = reasonOf(error);
       this.#once(office, handle, state, slot?.number ?? 0, SLOT_NOTICES.failed, reason, () =>
         notice(
           "error",
@@ -599,6 +629,10 @@ export class MergeSlot {
 
 function notice(level: "info" | "warn" | "error", code: string, text: string): NewEntry {
   return { type: "engine.notice", delta: { level, code, text } };
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function secondsOf(config: OfficeConfig | undefined): number {
