@@ -3,19 +3,13 @@
 // commit and the remote ref; a lost race; collisions that delete nothing; the reuse of a released
 // branch with the base merged in; the free-space check; the ordering against the planning lane;
 // and the refusal of git calls in a worktree whose git links changed.
+// The slower cases run in CI only, in claim.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { StoryKey } from "@dipsaus-orchestrator/contract";
-import {
-  git,
-  type TempRepoWithRemote,
-  withBareRemote,
-  withTempRepo,
-} from "@dipsaus-orchestrator/testkit";
+import { git, withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { EDIT_KIND, editKind, LaneError, OfficeLane } from "../../src/backlog/lane";
 import {
@@ -36,8 +30,6 @@ import {
   findClaim,
   hasLiveClaim,
   liveClaims,
-  releaseClaim,
-  releasedBranchFor,
   StoryClaims,
 } from "../../src/worktree";
 import {
@@ -50,7 +42,6 @@ import {
   notices,
   otherClone,
   publish,
-  pushStatusChange,
   secondGit,
   subjects,
   TASK_1,
@@ -294,41 +285,6 @@ describe("claim collisions", () => {
   });
 });
 
-/**
- * Claims TASK-1, commits `file` with `content` on its branch, then releases the claim keeping the
- * branch as 0010 section 2a does: the task file restored to its merge-base version and committed,
- * the branch pushed, the worktree removed, the release recorded. Returns the kept tip.
- */
-async function claimWorkRelease(
-  repo: TempRepoWithRemote,
-  s: ClaimSetup,
-  key: StoryKey,
-  file: string,
-  content: string,
-): Promise<string> {
-  const first = claimed(await claimStory(s.deps(), s.request(key))).claim;
-  const wt = first.worktree;
-  writeFileSync(join(wt, file), content);
-  await git(wt, repo.home, "add", file);
-  await git(wt, repo.home, "commit", "--quiet", "-m", "work");
-  const mergeBase = (await git(wt, repo.home, "merge-base", "HEAD", "origin/main")).trim();
-  await git(wt, repo.home, "checkout", mergeBase, "--", TASK_FILE_1);
-  await git(wt, repo.home, "commit", "--quiet", "-m", `${TASK_1}: release claim`);
-  await git(wt, repo.home, "push", "--quiet", "origin", BRANCH_1);
-  await repo.git("worktree", "unlock", wt);
-  await repo.git("worktree", "remove", wt);
-  s.git.unpinWorktree(wt);
-  s.office.immediate(() =>
-    releaseClaim(s.office, first.runId, {
-      at: s.t.clock.now(),
-      reason: "amend",
-      keepBranch: true,
-    }),
-  );
-  expect(releasedBranchFor(s.office, key, BRANCH_1)).not.toBeNull();
-  return (await repo.git("rev-parse", BRANCH_1)).trim();
-}
-
 /** The planning lane of the setup's office, refusing stories with a live claim. */
 function laneOf(s: ClaimSetup): OfficeLane {
   return new OfficeLane({
@@ -342,70 +298,6 @@ function laneOf(s: ClaimSetup): OfficeLane {
   });
 }
 
-describe("reusing a released branch", () => {
-  it("reuses it with the base merged in before the claim commit", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      const kept = await claimWorkRelease(repo, s, key, "work.txt", "work\n");
-      // The base moves on: lane b changed another story, and a code change landed.
-      await pushStatusChange(repo, { "TASK-2": "Ready" });
-      const other = await otherClone(repo);
-      writeFileSync(join(other, "other.txt"), "other\n");
-      await git(other, repo.home, "add", "other.txt");
-      await git(other, repo.home, "commit", "--quiet", "-m", "other");
-      await git(other, repo.home, "push", "--quiet", "origin", "HEAD:main");
-      const base = (await git(other, repo.home, "rev-parse", "HEAD")).trim();
-
-      const outcome = claimed(await claimStory(s.deps(), s.request(key)));
-      const claim = outcome.claim;
-
-      expect(claim.reused).toBe(true);
-      expect(claim.startSha).toBe(kept);
-      expect(claim.baseSha).toBe(base);
-      expect(claim.firstFeedback).toBeNull();
-      expect(outcome.pushed).toBe(true);
-      expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
-      const log = await subjects(repo.dir, repo.home, BRANCH_1, kept);
-      expect(log.at(-1)).toBe(`${TASK_1}: status In Progress`);
-      expect(log).toContain(`Merge origin/main into ${BRANCH_1}`);
-      expect(existsSync(join(claim.worktree, "work.txt"))).toBe(true);
-      expect(existsSync(join(claim.worktree, "other.txt"))).toBe(true);
-      expect(await filesOf(repo.dir, repo.home, claim.claimSha as string)).toEqual([TASK_FILE_1]);
-      expect((await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim()).toBe(
-        claim.claimSha as string,
-      );
-    }, FIXTURE);
-  });
-
-  it("aborts a code conflict, completes the claim and records the conflict as first feedback", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      await claimWorkRelease(repo, s, key, "shared.txt", "branch\n");
-      const other = await otherClone(repo);
-      writeFileSync(join(other, "shared.txt"), "base\n");
-      await git(other, repo.home, "add", "shared.txt");
-      await git(other, repo.home, "commit", "--quiet", "-m", "shared on base");
-      await git(other, repo.home, "push", "--quiet", "origin", "HEAD:main");
-
-      const claim = claimed(await claimStory(s.deps(), s.request(key))).claim;
-
-      expect(claim.firstFeedback).toContain("shared.txt");
-      expect(claim.firstFeedback).toContain("conflicts");
-      expect(await refExists(claim.worktree, repo.home, "MERGE_HEAD")).toBe(false);
-      expect(readFileSync(join(claim.worktree, "shared.txt"), "utf8")).toBe("branch\n");
-      expect(await subjects(repo.dir, repo.home, BRANCH_1, "origin/main")).toContain(
-        `${TASK_1}: status In Progress`,
-      );
-      expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.mergeConflict]);
-      expect(findClaim(s.office, claim.runId)?.firstFeedback).toBe(claim.firstFeedback);
-    }, FIXTURE);
-  });
-});
-
 /** An executor that fails the calls `fail` picks (with `seen`, the earlier calls' arguments). */
 function failing(
   fail: (args: readonly string[], seen: readonly (readonly string[])[]) => boolean,
@@ -418,15 +310,6 @@ function failing(
     if (injected) return { code: 128, stdout: "", stderr: "fatal: injected failure" };
     return real(call);
   };
-}
-
-/** The `rev-parse --verify HEAD` that reads the claim commit, after `git commit` ran. */
-function afterClaimCommit(args: readonly string[], seen: readonly (readonly string[])[]): boolean {
-  return (
-    args.includes("rev-parse") &&
-    args.at(-1) === "HEAD" &&
-    seen.some((earlier) => earlier.includes("commit"))
-  );
 }
 
 /** An office handle whose write of the claim commit fails, after running `before`. */
@@ -471,32 +354,6 @@ describe("a claim that fails after the worktree exists", () => {
     }, FIXTURE);
   });
 
-  it("leaves a foreign commit on top of the claim commit and reports the branch", async () => {
-    await withTempRepo(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      const path = join(s.git.worktreeRoot(), TASK_1);
-      // Someone commits on the branch right after the claim commit, then the claim fails.
-      const office = failingOffice(s, () => {
-        execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "foreign"], {
-          cwd: path,
-          env: repo.env,
-        });
-      });
-
-      await caught(claimStory(s.deps({ office }), s.request(key)));
-
-      expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toEqual([
-        `${TASK_1}: status In Progress`,
-        "foreign",
-      ]);
-      const codes = notices(s.office).map((n) => n.code);
-      expect(codes).toEqual([CLAIM_NOTICES.leftover]);
-      expect(notices(s.office)[0]?.text).toContain("is not a commit this claim made");
-    }, FIXTURE);
-  });
-
   it("keeps the branch while the worktree could not be removed", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
@@ -518,56 +375,6 @@ describe("a claim that fails after the worktree exists", () => {
       expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
       expect(await repo.git("worktree", "list", "--porcelain")).toContain(`worktree ${path}`);
       expect(notices(s.office)[0]?.text).toContain("could not be removed");
-    }, FIXTURE);
-  });
-
-  it("names a branch it could not roll back as left over from the story's failed claim", async () => {
-    await withTempRepo(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      // The claim commit's id is never read, so the tip is not a commit the claim knows it made.
-      const broken = secondGit(repo, s, rootedAt("../repo.worktrees"), failing(afterClaimCommit));
-      await caught(claimStory(s.deps({ git: broken }), s.request(key)));
-      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
-      expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.leftover]);
-
-      const outcome = await claimStory(s.deps(), s.request(key));
-
-      expect(outcome).toMatchObject({ ok: false, reason: "collision" });
-      expect(outcome.ok ? "" : outcome.notice).toContain(
-        "left over from an earlier failed claim of this story",
-      );
-      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
-    }, FIXTURE);
-  });
-
-  it("moves a reused branch back to its kept tip after the base merge and reopens the release", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      const kept = await claimWorkRelease(repo, s, key, "work.txt", "work\n");
-      const other = await otherClone(repo);
-      writeFileSync(join(other, "other.txt"), "other\n");
-      await git(other, repo.home, "add", "other.txt");
-      await git(other, repo.home, "commit", "--quiet", "-m", "other");
-      await git(other, repo.home, "push", "--quiet", "origin", "HEAD:main");
-      // Fails the status check of the claim commit, after the merge of origin/main.
-      const broken = secondGit(
-        repo,
-        s,
-        rootedAt("../repo.worktrees"),
-        failing((args, seen) => args.includes("status") && seen.some((a) => a.includes("merge"))),
-      );
-
-      await caught(claimStory(s.deps({ git: broken }), s.request(key)));
-
-      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(kept);
-      expect(releasedBranchFor(s.office, key, BRANCH_1)).not.toBeNull();
-      const again = claimed(await claimStory(s.deps(), s.request(key))).claim;
-      expect(again.reused).toBe(true);
-      expect(again.startSha).toBe(kept);
     }, FIXTURE);
   });
 });
