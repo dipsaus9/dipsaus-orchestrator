@@ -26,6 +26,7 @@ import {
   engineRegistry,
   ensurePrivateDir,
   FEATURES,
+  hasLiveClaim,
   helloFeature,
   helloHandshake,
   isLogLevel,
@@ -48,6 +49,7 @@ import {
   serveUnixSocket,
   SOCKET_FILE,
   SoftwareStream,
+  StoryClaims,
   StoryIndex,
   systemExecutableStamp,
   systemProcessProbe,
@@ -387,9 +389,17 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     // The planning lane (DIPO-34): its replay load step needs the office git, so it follows
     // engineGit.feature. The `backlog` on the daemon PATH, as for the version check.
+    // Story claims (DIPO-38): their load step pins live claims' worktree snapshots on the office
+    // git, so it follows engineGit.feature. The lane refuses a story with a live claim.
+    const claims = new StoryClaims({
+      cli: { spawn: systemSpawn },
+      git: (office) => engineGit.forOffice(office),
+      onChanged: (office) => server?.notifyOffice(office),
+    });
     const lane = new BacklogLane({
       cli: { spawn: systemSpawn },
       git: (office) => engineGit.forOffice(office),
+      liveClaim: hasLiveClaim,
       onChanged: (office) => server?.notifyOffice(office),
     });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
@@ -408,6 +418,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const registry: Registry = engineRegistry([
       ...FEATURES,
       engineGit.feature,
+      claims.feature,
       lane.feature,
       storyIndex.feature,
       officeFeature(offices),
