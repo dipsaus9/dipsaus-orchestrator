@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 12:01'
+updated_date: '2026-10-13 12:16'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -93,4 +93,11 @@ Scope additions:
 - test/backlog-pr-title/backlog-pr-title.test.ts: root test that the engine's PR titles pass scripts/check-pr-title.ts (engine tests cannot import scripts/ because of the engine tsconfig rootDir).
 
 Retention advisory (from DIPO-71): the check reads stored passing Ready decisions. Retention may delete a decision older than stateDays. The check runs when the PR opens or changes and right after a merge, normally well inside stateDays of the `ready` decision. If a backlog PR stays open longer than that, its check fails `ready-decision` with a notice saying to run `ready <ID>` again, which stores a fresh decision; the next update re-checks. No automatic re-evaluation was added.
+
+Review round 1 (PR #77):
+- Hand merge with a merge commit: `backlog_prs.checked_base` (migration 15, edited in place because it is not on main yet) stores the base each check diffed against. A merged head is checked against that base. For a head never checked, the fallback is the merge base with the merge commit's first parent, read through the host (`mergeCommit` in `gh pr view --json`). With neither, and the head already on the base, the check throws instead of passing an empty diff. Tests: merge commit in pr.test.ts; rebase merge and the fallback in pr.ci.test.ts; squash in the block-clearing CI test.
+- A merged PR is recorded merged in the same transaction as its check result and blocks. A check that throws leaves it open, and the next sync retries it.
+- A failed restore of `_backlog` after the diff reports both errors (`RestoreError`). The lane already checks out its branch (or the base) before every apply; a comment now says so, and a test checks that `_backlog` is back on the branch after a check.
+- Decisions confirmed by the coordinator: retention is handled by the `ready-decision` notice telling the maintainer to run `ready <ID>` again (no automatic re-evaluation); blocks clear as described; a failure without a task blocks every touched story; every merged PR is re-checked until DIPO-73, which can skip the PRs it merged itself; the lane-b transitions match 0012 and 0010; `backlog.pr.*` stay engine.notice codes.
+- No new files outside the scope additions already listed, apart from packages/engine/test/backlog/pr/diff.test.ts, which is inside the declared test scope.
 <!-- SECTION:NOTES:END -->
