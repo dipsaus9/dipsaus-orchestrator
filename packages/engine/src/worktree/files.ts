@@ -8,38 +8,42 @@
 // - Nothing follows a symlink: every component of the source path is checked with `lstat` and a
 //   symlink anywhere (on the path or inside a copied directory) refuses the entry. The check
 //   records each entry with its `lstat`; exactly that list is placed (a directory is never listed
-//   again), and right before and after each copy every component is checked again and the entry
-//   must still be the same node (device and inode), so a path swapped for a symlink after the
-//   check stops setup. The window between that re-check and the copy is a few system calls; the
-//   main checkout is the maintainer's, outside every sandboxed step's writable paths. The
-//   destination's existing parents in the worktree must be real directories, so a tracked
-//   symlink cannot redirect a write, and the destination must not exist yet.
+//   again). Right before and after each copy every component is checked again, and each file is
+//   opened with `O_NOFOLLOW` and must be the checked node (`fstat` device and inode) before its
+//   bytes are copied from that descriptor, so the leaf cannot be swapped between check and copy.
+//   A directory above it swapped for a symlink is caught by the re-check after the copy, which
+//   stops setup. The destination's existing parents in the worktree must be real directories, so
+//   a tracked symlink cannot redirect a write; the destination is created with `O_EXCL` and
+//   `O_NOFOLLOW`.
 // - Every file to place must be ignored per `git check-ignore` in the new worktree (for a
 //   directory every file under it, an empty directory itself); a path git would track refuses
 //   setup, so a secret cannot be committed by accident.
-// - `copy` copies with the source's mode bits (`copyFile` with `COPYFILE_EXCL`, then `chmod`);
+// - `copy` copies with the source's mode bits (created 0600, then `fchmod` to the checked mode);
 //   `link` places a symlink to the source, meant for large read-only data.
 // - `.claude/settings.local.json` reaches the worktree only through its own rule: listed itself
 //   or under a copied directory, it is left out of the list and copied stripped; a `link` entry on
 //   it or on a directory above it refuses setup.
-// - File contents are never read, hashed or logged; log lines and notices name paths only. The
-//   one exception is `.claude/settings.local.json`, which is opened with `O_NOFOLLOW`, parsed to
-//   drop keys and never logged.
+// - File contents are never inspected, hashed or logged: copies stream bytes from one descriptor
+//   to the other in fixed-size chunks; log lines and notices name paths only. The one exception
+//   is `.claude/settings.local.json`, which is opened with `O_NOFOLLOW`, parsed to drop keys and
+//   never logged.
 
 import {
   chmodSync,
   closeSync,
   constants,
-  copyFileSync,
+  fchmodSync,
   fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
+  readSync,
   type Stats,
   symlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -270,10 +274,50 @@ function recheck(main: string, entry: Entry): void {
   }
 }
 
+/** Bytes per read when a file is copied from its descriptor. */
+const COPY_CHUNK = 64 * 1024;
+
+/**
+ * Copies one checked file: the source is opened with `O_NOFOLLOW` and must be the checked node
+ * (`fstat` device and inode), the destination is created with `O_CREAT | O_EXCL | O_NOFOLLOW` and
+ * mode 0600, the bytes are streamed from one descriptor to the other in fixed-size chunks (never
+ * inspected, hashed or logged), and the destination gets the checked mode bits.
+ */
+function copyFromDescriptor(from: string, to: string, entry: Entry): void {
+  const source = openSync(from, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    if (!sameNode(fstatSync(source), entry.stats)) {
+      throw new FileStepError(
+        `${entry.rel} changed in the main checkout while dipo copied it; setup stopped.`,
+      );
+    }
+    const target = openSync(
+      to,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      const chunk = Buffer.allocUnsafe(COPY_CHUNK);
+      for (;;) {
+        const read = readSync(source, chunk, 0, COPY_CHUNK, null);
+        if (read === 0) break;
+        let written = 0;
+        while (written < read) written += writeSync(target, chunk, written, read - written);
+      }
+      chunk.fill(0);
+      fchmodSync(target, modeOf(entry.stats));
+    } finally {
+      closeSync(target);
+    }
+  } finally {
+    closeSync(source);
+  }
+}
+
 /**
  * Copies exactly the checked entries, parents first: directories are created, each file is
- * re-checked and copied with `copyFile` (`COPYFILE_EXCL`, never opened in this process), then
- * given its checked mode, and re-checked after the copy; directory modes are set last.
+ * re-checked and copied from its `O_NOFOLLOW` descriptor (`copyFromDescriptor`) and re-checked
+ * after the copy; directory modes are set last.
  */
 function copyEntries(main: string, worktree: string, entries: readonly Entry[]): string[] {
   const copied: string[] = [];
@@ -284,8 +328,7 @@ function copyEntries(main: string, worktree: string, entries: readonly Entry[]):
       mkdirSync(to, { mode: 0o700 });
       continue;
     }
-    copyFileSync(join(main, entry.rel), to, constants.COPYFILE_EXCL);
-    chmodSync(to, modeOf(entry.stats));
+    copyFromDescriptor(join(main, entry.rel), to, entry);
     recheck(main, entry);
     copied.push(entry.rel);
   }
