@@ -20,8 +20,10 @@ import {
 import { BASE_WORKTREE, canonicalFuturePath, resolveWorktreeRoot } from "./paths";
 import { GitQueue } from "./queue";
 import {
+  EXTERNAL_STEP_TIMEOUT_MS,
   GitError,
   type GitResult,
+  isTimedOut,
   type GitStepOptions,
   runGitStep,
   runGitStepOk,
@@ -102,7 +104,8 @@ export class OfficeGit {
     this.mainWorktree = options.mainWorktree;
     this.commonDir = options.commonDir;
     this.#settings = options.settings;
-    this.#runner = options.runner;
+    // Step timeouts run on the office clock.
+    this.#runner = { ...options.runner, clock: options.runner.clock ?? options.clock };
     this.#clock = options.clock;
   }
 
@@ -203,11 +206,16 @@ export class OfficeGit {
       const base = await this.#resolveBase(git).catch(() => null);
       const before = base === null ? null : await this.#remoteBaseSha(git, base);
       const { remote } = this.#settings;
-      const result = await git.step(
-        git.repository,
-        ["fetch", "--quiet", "--no-recurse-submodules", remote],
-        { config: FETCH_CONFIG },
-      );
+      const result = await git
+        .step(git.repository, ["fetch", "--quiet", "--no-recurse-submodules", remote], {
+          config: FETCH_CONFIG,
+          timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
+        })
+        .catch((error: unknown): GitResult => {
+          // A fetch waiting on a credential prompt was killed: a failed fetch like any other.
+          if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
+          throw error;
+        });
       if (result.code !== 0) {
         const detail = result.stderr.trim() || `exit ${result.code}`;
         this.#fetch = { ok: false, at: this.#clock.now(), detail };
