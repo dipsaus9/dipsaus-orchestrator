@@ -1,11 +1,11 @@
 ---
 id: DIPO-73
 title: Merge backlog PRs through the office merge slot
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 14:06'
+updated_date: '2026-10-13 15:34'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -94,4 +94,6 @@ Review round 1 (PR #81):
 - No new files outside the declared References in this round (bounds.test.ts is in packages/engine/test/merge-slot/); lane.ts is already listed under Scope additions.
 
 Review round 2: merged origin/main with DIPO-58 (#80). The daemon now has one GhHost shared by StoryTeardown, BacklogPrs and the merge slot, and stops both teardown and the slot. After a merge that left an operation out of the merged head, the slot flushes right away, so the lane applies it again on a new branch and pendingLaneOp does not keep reporting it until the next backlog change. Fast tests are in packages/engine/test/merge-slot/bounds.test.ts.
+
+Maintainer live test passed 2026-10-13 on dipsaus9/dipo-scratch-backlog: PR #2 waited for ci-ok and pr-title, then squash-merged without a reviewer.
 <!-- SECTION:NOTES:END -->
