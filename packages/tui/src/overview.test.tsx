@@ -68,14 +68,16 @@ describe("office overview", () => {
   });
 
   it("never writes a line wider than the terminal", async () => {
-    for (const columns of [120, 100, 80, 79, 60]) {
+    for (const columns of [120, 100, 80, 79, 70, 60]) {
       const { ui } = await open(columns);
       await ui.press("2");
       await ui.waitFor("next Ready story");
       for (const line of lines(ui.frame())) expect(line.length).toBeLessThanOrEqual(columns);
+      expect(ui.frame()).toContain("[q] quit");
       await ui.press("1");
       await ui.waitFor("[2] queue");
       for (const line of lines(ui.frame())) expect(line.length).toBeLessThanOrEqual(columns);
+      expect(ui.frame()).toContain("[q] quit");
     }
   });
 

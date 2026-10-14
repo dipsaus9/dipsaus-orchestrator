@@ -23,7 +23,7 @@ import type {
   RequestId,
   StoryRefValue,
 } from "@dipsaus-orchestrator/contract";
-import { Box, Text, useInput, useWindowSize } from "ink";
+import { Box, type Key, Text, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import { useBatchedState } from "./batch";
@@ -43,6 +43,9 @@ import {
   NarrowBody,
   SwitcherBody,
 } from "./views";
+
+/** A key event with no modifier, for keys taken one by one from a multi-key write. */
+const NO_KEY = {} as Key;
 
 /** A second `q` within this window quits (0009 section 6). */
 export const QUIT_WINDOW_MS = 2_000;
@@ -164,6 +167,11 @@ export function App(props: AppProps) {
   const [showDone, setShowDone] = useState(false);
   const [run, setRun] = useState<RunAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Why a `u` was refused; cleared by the next key and when the run it names ends.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // Keys that arrived in one write (fast typing, a paste), handled one per render so each sees
+  // the state the one before it left.
+  const [pending, setPending] = useState("");
   const [quitArmedAt, setQuitArmedAt] = useState<number | null>(null);
   const offline = isOffline(state);
   const { ellipsis } = glyphs(display.ascii);
@@ -240,7 +248,7 @@ export function App(props: AppProps) {
   const runSelected = () => {
     if (state.office === null) return;
     if (run?.status === "sending" || run?.status === "syncing") {
-      setMessage(
+      setRefusal(
         run.status === "sending"
           ? `run ${run.label} is being sent; wait for its reply`
           : `run ${run.label} waits for the office stream; wait until it is done`,
@@ -256,11 +264,16 @@ export function App(props: AppProps) {
     }
   };
 
-  useInput((input, key) => {
+  useEffect(() => {
+    if (run?.status !== "sending" && run?.status !== "syncing") setRefusal(null);
+  }, [run?.status]);
+
+  const handleKey = (input: string, key: Key) => {
     if (key.ctrl && input === "c") {
       quit();
       return;
     }
+    setRefusal(null);
     if (state.notice !== null) store.dismissNotice();
 
     if (mode.kind === "path") {
@@ -380,7 +393,33 @@ export function App(props: AppProps) {
         runSelected();
       }
     }
+  };
+
+  useInput((input, key) => {
+    // Several printable keys in one write: the first acts now, the rest one per render. A typed
+    // path keeps the whole text.
+    const several =
+      mode.kind !== "path" &&
+      input.length > 1 &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.escape &&
+      !key.return &&
+      /^[\x20-\x7e]+$/.test(input);
+    if (!several) {
+      handleKey(input, key);
+      return;
+    }
+    handleKey(input.slice(0, 1), key);
+    setPending((rest) => rest + input.slice(1));
   });
+
+  useEffect(() => {
+    if (pending === "") return;
+    setPending(pending.slice(1));
+    handleKey(pending.slice(0, 1), NO_KEY);
+    // handleKey is this render's: it sees the state the key before it left.
+  }, [pending]);
 
   const narrow = columns < NARROW_COLUMNS || rows < NARROW_ROWS;
   const inSwitcher = mode.kind === "switcher" || mode.kind === "path";
@@ -390,8 +429,9 @@ export function App(props: AppProps) {
     run?.status === "failed" && run.error !== undefined
       ? `run ${run.label}: ${run.error.code}: ${run.error.message}`
       : null;
-  const footerMessage = message ?? failure ?? notice;
-  const keys = footerKeys(mode, view, state, offline, run);
+  const footerMessage = message ?? refusal ?? failure ?? notice;
+  // The footer line starts with a space.
+  const keys = footerKeys(mode, view, state, offline, run, columns - 1);
 
   if (narrow) {
     return (
@@ -444,29 +484,75 @@ export function App(props: AppProps) {
   );
 }
 
+/** A footer hint; when the line is too wide the lowest priority goes first, `[q] quit` never. */
+type Hint = readonly [text: string, priority: number];
+
+/** The hints in their order, without the lowest-priority ones that do not fit in `width`. */
+export function fitHints(hints: readonly Hint[], width: number): string {
+  const kept = [...hints];
+  const text = () => kept.map(([hint]) => hint).join("  ");
+  while (text().length > width && kept.length > 1) {
+    let lowest = 0;
+    for (let i = 1; i < kept.length; i++) {
+      if ((kept[i]?.[1] ?? 0) < (kept[lowest]?.[1] ?? 0)) lowest = i;
+    }
+    kept.splice(lowest, 1);
+  }
+  return text();
+}
+
+const QUIT = 100;
+
 function footerKeys(
   mode: Mode,
   view: View,
   state: OfficeStoreState,
   offline: boolean,
   run: RunAction | null,
+  width: number,
 ): string {
-  const off = offline ? " (offline: actions disabled)" : "";
+  const quit: Hint = [`[q] quit${offline ? " (offline: actions disabled)" : ""}`, QUIT];
+  const hints: Hint[] = [];
   switch (mode.kind) {
     case "path":
-      return "[Enter] open  [Esc] cancel";
+      return fitHints(
+        [
+          ["[Enter] open", QUIT],
+          ["[Esc] cancel", QUIT],
+        ],
+        width,
+      );
     case "confirm-resume":
-      return "[y] resume scheduling  [any other key] cancel";
+      return fitHints(
+        [
+          ["[y] resume scheduling", QUIT],
+          ["[any other key] cancel", 50],
+        ],
+        width,
+      );
     case "switcher":
-      return `[Enter] open  [n] open new repo path  [j/k] move${state.office === null ? "" : "  [Esc] back"}  [q] quit${off}`;
-    default: {
-      const retry =
-        run?.status === "failed" && run.error?.retryable === true ? "[Ctrl-R] retry  " : "";
-      const local =
-        view === "queue" ? "r[u]n selected  [j/k] move  [.] show done  [1] overview" : "[2] queue";
-      const safe = state.daemon === "safe" ? "  [S] resume scheduling" : "";
-      const legend = evidenceEnabled(state) ? `  ${EVIDENCE_LEGEND}` : "";
-      return `${retry}${local}  [o] offices${safe}  [q] quit${off}${legend}`;
-    }
+      hints.push(["[Enter] open", 70], ["[n] open new repo path", 40], ["[j/k] move", 30]);
+      if (state.office !== null) hints.push(["[Esc] back", 50]);
+      hints.push(quit);
+      return fitHints(hints, width);
+    default:
+      if (run?.status === "failed" && run.error?.retryable === true) {
+        hints.push(["[Ctrl-R] retry", 80]);
+      }
+      if (view === "queue") {
+        hints.push(
+          ["r[u]n selected", 70],
+          ["[j/k] move", 30],
+          ["[.] show done", 20],
+          ["[1] overview", 50],
+        );
+      } else {
+        hints.push(["[2] queue", 50]);
+      }
+      hints.push(["[o] offices", 40]);
+      if (state.daemon === "safe") hints.push(["[S] resume scheduling", 60]);
+      hints.push(quit);
+      if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
+      return fitHints(hints, width);
   }
 }

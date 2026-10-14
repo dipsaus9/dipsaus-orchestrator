@@ -161,6 +161,30 @@ describe("u runs stories", () => {
     expect(ui.frame()).not.toContain("run next Ready story: done");
   });
 
+  it("handles uu in one write: the first u sends, the second is refused, and the refusal clears when the run ends", async () => {
+    const { ui, session } = await openQueue();
+    const reply = Promise.withResolvers<unknown>();
+    session.runReply = () => reply.promise;
+    await ui.press("uu");
+    const frame = await ui.waitFor("run next Ready story is being sent; wait for its reply");
+    expect(frame).toContain("run next Ready story: sending");
+    expect(session.commands).toHaveLength(1);
+    reply.resolve({ ok: true, result: { started: [], skipped: [] }, changed: false });
+    await ui.waitFor("run next Ready story: done");
+    expect(ui.frame()).not.toContain("wait for its reply");
+  });
+
+  it("clears a refusal on the next key", async () => {
+    const { ui, session } = await openQueue();
+    session.runReply = () => new Promise(() => {});
+    await ui.press("u");
+    await ui.press("u");
+    await ui.waitFor("wait for its reply");
+    await ui.press("j");
+    await ui.waitFor("> READY (2)");
+    expect(ui.frame()).not.toContain("wait for its reply");
+  });
+
   it("refuses a second u while the first run waits for the office stream, and keeps its lines", async () => {
     const { ui, session } = await openQueue();
     session.runReply = () => ({
