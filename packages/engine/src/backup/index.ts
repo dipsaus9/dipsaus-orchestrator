@@ -19,3 +19,5 @@ export {
   MaintenanceScheduler,
 } from "./scheduler";
 export type { CheckReport, MaintenanceSchedulerDeps } from "./scheduler";
+export { restoreBackup, RESTORE_FILE, BackupRestoreError, SIDECAR_SUFFIXES } from "./restore";
+export type { RestoreOptions, RestoreResult } from "./restore";

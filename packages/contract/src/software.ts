@@ -66,7 +66,6 @@ const OfficeArgs = z.object({ office: OfficeId });
 // current directory). The daemon answers `office.unknown` when it is not the office's registered
 // path, so a copied repository that still carries the original's marker never acts on it.
 const OfficeTargetArgs = z.object({ office: OfficeId, from: z.string().min(1).optional() });
-const OfficeResult = z.object({ office: OfficeId });
 
 // Commands
 
@@ -118,16 +117,27 @@ export const officeInit = defineCommand({
   since: 1,
 });
 
-// Deletes the office's rows and its `<git-common-dir>/dipo/` directory (0007 section 3). Its
-// idempotency record lives in the daemon's in-memory request table (0005 amendment).
+// Since minor 1 (DIPO-76): deletes the office's rows and its `<git-common-dir>/dipo/` directory,
+// `mcp.json` included (0007 section 3), forgotten or not. Its idempotency record lives in the
+// daemon's in-memory request table, because purge deletes the office's own `requests` rows (0005
+// amendment). `path` is the office's registered path and `rows` the number of rows deleted.
+// `directory` is the `<git-common-dir>/dipo/` it removed; it is absent when the path is missing or
+// its marker does not name this office.
+// `from` is checked as for `office.forget` (0005 amendment of 2026-10-14), so a copied repository
+// never purges the original.
 export const officePurge = defineCommand({
   name: "office.purge",
   level: "software",
-  args: OfficeArgs,
-  result: OfficeResult,
+  args: OfficeTargetArgs,
+  result: z.object({
+    office: OfficeId,
+    path: z.string(),
+    rows: z.int().nonnegative(),
+    directory: z.string().optional(),
+  }),
   confirm: true,
   irreversible: true,
-  provisional: true,
+  since: 1,
 });
 
 export const officeRescan = defineCommand({
