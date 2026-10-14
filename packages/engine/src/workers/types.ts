@@ -188,6 +188,11 @@ export type WorkerEvent =
       readonly utilization?: number;
       readonly resetsAt?: string;
       readonly creditsRequired?: boolean;
+      /**
+       * Which plan limit the event is about, when the adapter can tell (0008 section 7, DIPO-61):
+       * `session`, `weekly` or `model:<family>`; absent when it cannot.
+       */
+      readonly scope?: PlanLimitScope;
     }
   | { readonly t: "compacted"; readonly preTokens: number }
   | { readonly t: "modelSwitched"; readonly from: string; readonly to: string }
@@ -197,6 +202,13 @@ export type WorkerEvent =
    * as a live start; the result is `initRejected`.
    */
   | { readonly t: "initRejected"; readonly reason: string };
+
+/**
+ * The scope of a plan limit an adapter can name (0008 section 7): `session` and `weekly` cover
+ * every model, `model:<family>` only that family. The engine's wait facts add `credits` and
+ * `unknown` (treated as `session`).
+ */
+export type PlanLimitScope = "session" | "weekly" | `model:${string}`;
 
 /** What was wrong with a turn (0008 section 7); `detail` is one line for a park or a notice. */
 export interface TurnProblem {
