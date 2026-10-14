@@ -4,7 +4,7 @@ title: 'Enforce caps, park stories and stop workers'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 11:02'
+updated_date: '2026-10-14 11:55'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,6 +32,8 @@ references:
   - packages/engine/test/ingest/helpers.ts
   - packages/engine/test/workers/scripts.ts
   - packages/engine/src/ingest/ingestor.ts
+  - docs/decisions/0008-worker-adapter.md
+  - docs/decisions/0007-state-database.md
 documentation:
   - docs/decisions/0001-foundational-decisions.md
   - docs/decisions/0005-command-and-event-model.md
