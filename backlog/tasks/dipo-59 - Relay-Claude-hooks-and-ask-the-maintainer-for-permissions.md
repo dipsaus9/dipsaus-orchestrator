@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:39'
+updated_date: '2026-10-14 21:09'
 labels:
   - 'tier:M'
   - after-cutover
@@ -93,7 +93,7 @@ test_plan:
 - [x] #5 Without presence, with `permissions.ask: never`, or with the daemon down, the hook returns no decision at once, so the call is denied.
 - [x] #6 A migration adds `questions`; a permission question is stored, emitted with `question.asked`, and included in `office.snapshot` and `story.detail`.
 - [x] #7 `work.answer { question, decision }` answers a waiting permission question, and `dipo answer <question> <text|allow|deny>` sends `work.answer`.
-- [ ] #8 The `permission-wait` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
+- [x] #8 The `permission-wait` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
 - [x] #9 `work.answer` on a permission question without `decision` fails with `args.invalid`; `text` stays required by the schema and may be empty, and for a permission question it is the reason given to the worker. A test covers both.
 - [x] #10 The `PostModelSwitch` and `PostCompact` hook payloads map to `modelSwitched` and `compacted`, deduplicated against the `system/init`, `modelUsage` and `compact_boundary` paths (DIPO-42 review); a recording or fixture covers each.
 <!-- AC:END -->
@@ -122,4 +122,6 @@ Review fixes (DIPO-59):
 - `dipo hook` keeps one deadline (1.8 s) over stdin, handshake and answer for a call that does not wait.
 - A call that does not wait relays only its short scalar fields (`tool_input`, `tool_response` and texts over 1 KiB are dropped); a PermissionRequest is relayed whole. Cost: every tool call starts one `dipo hook PostToolUse` process (about 0.1 to 0.3 s, outside the turn's critical path only as far as Claude runs hooks in parallel).
 - Known limit: when `PostCompact` arrives before `compact_boundary`, `compacted` carries `preTokens: 0` and the boundary's `pre_tokens` is not re-emitted (no engine consumer reads it yet).
+
+AC #8: the maintainer captured `permission-wait` live (Claude Code 2.1.300, 10 s wait); the engine tests now replay that recording instead of the derived scenario, and it joins the recording expectation tables (outcome blocked, park ambiguous-spec: the worker reported the fixture question after the denied wait).
 <!-- SECTION:NOTES:END -->
