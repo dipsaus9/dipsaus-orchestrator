@@ -163,7 +163,7 @@ describe("worker_hosts", () => {
             pid: 5150,
             startTimeMs: START,
             socketPath: host.socketPath,
-            protocolVersion: 1,
+            protocolVersion: 2,
             runDir: host.runDir,
             eventFile: host.eventFile,
             processedOffset: 0,

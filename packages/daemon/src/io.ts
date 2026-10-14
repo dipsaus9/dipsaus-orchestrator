@@ -15,7 +15,51 @@ export type DaemonIo = {
   readonly onShutdownSignal: (handler: (signal: string) => void) => () => void;
   /** Time and timers for the daemon: the drain cap, the minute lock check, the crash counter. */
   readonly clock: Clock;
+  /** Writes `text` to stdout as is (`dipo hook` prints a hook reply, DIPO-59); stdout by default. */
+  readonly write?: (text: string) => void;
+  /**
+   * Reads stdin to its end: null when it holds more than `maxBytes` or does not end within
+   * `timeoutMs` (`dipo hook` reads the hook payload, DIPO-59); `process.stdin` by default.
+   */
+  readonly readInput?: (maxBytes: number, timeoutMs: number) => Promise<string | null>;
 };
+
+/** Reads `process.stdin` to its end on `clock`; see `DaemonIo.readInput`. */
+export function readProcessInput(
+  clock: Clock,
+  maxBytes: number,
+  timeoutMs: number,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      clock.clearTimeout(timer);
+      stdin.off("data", onData);
+      stdin.off("end", onEnd);
+      stdin.off("error", onError);
+      if (value === null) stdin.destroy();
+      else stdin.pause();
+      resolve(value);
+    };
+    const onData = (chunk: Buffer | string) => {
+      const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      size += bytes.byteLength;
+      if (size > maxBytes) finish(null);
+      else chunks.push(bytes);
+    };
+    const onEnd = () => finish(Buffer.concat(chunks).toString("utf8"));
+    const onError = () => finish(null);
+    const timer = clock.setTimeout(() => finish(null), timeoutMs);
+    stdin.on("data", onData);
+    stdin.on("end", onEnd);
+    stdin.on("error", onError);
+  });
+}
 
 export const defaultIo: DaemonIo = {
   writeLine: (line) => process.stdout.write(`${line}\n`),
@@ -33,6 +77,8 @@ export const defaultIo: DaemonIo = {
     };
   },
   clock: systemClock,
+  write: (text) => process.stdout.write(text),
+  readInput: (maxBytes, timeoutMs) => readProcessInput(systemClock, maxBytes, timeoutMs),
 };
 
 /**

@@ -19,7 +19,9 @@ export type HostRequest =
   | { readonly op: "signal"; readonly signal: HostSignalName; readonly afterMs?: number }
   | { readonly op: "closeStdin" }
   | { readonly op: "status" }
-  | { readonly op: "watch" };
+  | { readonly op: "watch" }
+  | { readonly op: "hook"; readonly payload: string; readonly waitMs?: number }
+  | { readonly op: "hookReply"; readonly hook: number; readonly output: string };
 
 export type HostReply =
   | { readonly ok: true; readonly result?: unknown }
@@ -29,8 +31,11 @@ export interface HostClient {
   /** The protocol version the host picked. */
   readonly version: number;
   readonly hostPid: number;
-  /** Sends one op; null when the connection closed or the reply did not come in time. */
-  request(request: HostRequest): Promise<HostReply | null>;
+  /**
+   * Sends one op; null when the connection closed or the reply did not come in time. `timeoutMs`
+   * replaces the connection's timeout for this op (a waiting hook call).
+   */
+  request(request: HostRequest, timeoutMs?: number): Promise<HostReply | null>;
   status(): Promise<HostStatus | null>;
   /** Starts watching; `listener` gets each `advanced` offset. Resolves to the current offset. */
   watch(listener: (offset: number) => void): Promise<number | null>;
@@ -163,10 +168,10 @@ export async function connectHost(
     return hello;
   }
 
-  const request = (body: HostRequest) =>
+  const request = (body: HostRequest, timeout: number = timeoutMs) =>
     withTimeout<HostReply | null>(
       clock,
-      timeoutMs,
+      timeout,
       (settle) => {
         if (isClosed) {
           settle(null);

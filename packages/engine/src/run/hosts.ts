@@ -11,6 +11,7 @@ import { Ingestor, type IngestHooks, type IngestTarget } from "../ingest/ingesto
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { PriceBook } from "../pricing/estimate";
+import type { HostOp, WorkerEvent } from "../workers/types";
 import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../runs/worker-hosts";
 
 import type { RunSteering } from "./control";
@@ -62,6 +63,22 @@ export interface OfficeIngestOptions {
   readonly watchdog?: Watchdog;
   /** Ingestion appended change-log entries for `office`; the daemon sends them to subscribers. */
   readonly onAppended?: (office: OfficeId) => void;
+  /**
+   * The permission wait (DIPO-59): it hears every committed pass's worker events and every
+   * worker exit with the run's office.
+   */
+  readonly hookEvents?: OfficeRunListener;
+}
+
+/** Hears a run's worker events and its exit together with the run's office (DIPO-59). */
+export interface OfficeRunListener {
+  onWorkerEvents(
+    office: OfficeHandle,
+    run: string,
+    agent: string,
+    events: readonly WorkerEvent[],
+  ): void;
+  onEnded(office: OfficeHandle, run: string): void;
 }
 
 /** One `Ingestor` per office, made on the office's first started run. */
@@ -80,7 +97,7 @@ export class OfficeIngest implements RunIngest {
         office,
         clock: this.#options.clock,
         pricing: this.#options.pricing(),
-        hooks: this.#hooksFor(office.officeId),
+        hooks: this.#hooksFor(office),
         ...(this.#options.warn === undefined ? {} : { warn: this.#options.warn }),
       });
       this.#ingestors.set(office.officeId, ingestor);
@@ -89,17 +106,23 @@ export class OfficeIngest implements RunIngest {
   }
 
   /** The caller's hooks, with the watchdog and `onAppended` added. */
-  #hooksFor(office: OfficeId): IngestHooks {
+  #hooksFor(handle: OfficeHandle): IngestHooks {
+    const office = handle.officeId;
     const hooks = this.#options.hooks ?? {};
-    const { watchdog, onAppended } = this.#options;
+    const { watchdog, onAppended, hookEvents } = this.#options;
     return {
       ...hooks,
       onLines: (run, agent) => {
         watchdog?.lineSeen(run);
         hooks.onLines?.(run, agent);
       },
+      onWorkerEvents: (run, agent, events) => {
+        hooks.onWorkerEvents?.(run, agent, events);
+        hookEvents?.onWorkerEvents(handle, run, agent, events);
+      },
       onEnded: (run, agent, end) => {
         watchdog?.untrack(run);
+        hookEvents?.onEnded(handle, run);
         hooks.onEnded?.(run, agent, end);
       },
       onAppended: () => {
@@ -143,6 +166,16 @@ export class OfficeIngest implements RunIngest {
   }
 }
 
+/** The host socket request that carries one host op. */
+export function hostRequestOf(op: HostOp): HostRequest {
+  if ("write" in op) return { op: "write", data: op.write };
+  if ("closeStdin" in op) return { op: "closeStdin" };
+  if ("hookReply" in op) return { op: "hookReply", hook: op.hookReply, output: op.output };
+  return op.afterMs === undefined
+    ? { op: "signal", signal: op.signal }
+    : { op: "signal", signal: op.signal, afterMs: op.afterMs };
+}
+
 /** How long a steering op waits for the host's socket and reply. */
 export const STEER_TIMEOUT_MS = 5_000;
 
@@ -173,14 +206,7 @@ export function hostSocketSteering(options: {
       const client = connected.client;
       try {
         for (const op of ops) {
-          const request: HostRequest =
-            "write" in op
-              ? { op: "write", data: op.write }
-              : "closeStdin" in op
-                ? { op: "closeStdin" }
-                : op.afterMs === undefined
-                  ? { op: "signal", signal: op.signal }
-                  : { op: "signal", signal: op.signal, afterMs: op.afterMs };
+          const request = hostRequestOf(op);
           const reply = await client.request(request);
           if (reply === null) {
             return { ok: false, reason: `the worker host did not answer ${request.op}` };

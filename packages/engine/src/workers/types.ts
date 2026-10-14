@@ -5,6 +5,8 @@
 
 import type { OpenEnum, ParkReason } from "@dipsaus-orchestrator/contract";
 
+import type { HookEvent, HookReply } from "../hooks/types";
+
 /** Run kinds an adapter may know (0008 amendment of 2026-10-12, D12). M0 plans only `implement`. */
 export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
@@ -69,7 +71,9 @@ export interface LaunchPlan {
 /** What the engine asks of a running worker (0008 section 6). */
 export type SteerOp =
   | { readonly kind: "steer" | "answer"; readonly text: string }
-  | { readonly kind: "pause" | "stop" | "kill" };
+  | { readonly kind: "pause" | "stop" | "kill" }
+  /** The engine's reply to a waiting hook call (0008 section 5), adapter-neutral. */
+  | { readonly kind: "hookReply"; readonly reply: HookReply };
 
 export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 
@@ -81,7 +85,9 @@ export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 export type HostOp =
   | { readonly write: string }
   | { readonly signal: HostSignal; readonly afterMs?: number }
-  | { readonly closeStdin: true };
+  | { readonly closeStdin: true }
+  /** Answers the waiting hook call `hookReply` with `output`, which the hook prints (DIPO-59). */
+  | { readonly hookReply: number; readonly output: string };
 
 /** Tokens of one model, cumulative over the run. */
 export interface ModelUsageTotals {
@@ -189,6 +195,8 @@ export type WorkerEvent =
       readonly resetsAt?: string;
       readonly creditsRequired?: boolean;
     }
+  /** A relayed hook, adapter-neutral (0008 section 5, DIPO-59). */
+  | { readonly t: "hook"; readonly hook: HookEvent }
   | { readonly t: "compacted"; readonly preTokens: number }
   | { readonly t: "modelSwitched"; readonly from: string; readonly to: string }
   /**
@@ -253,6 +261,11 @@ export interface HostLine {
   readonly t: number;
   readonly ch: string;
   readonly data: string;
+  /**
+   * The byte offset in `events.ndjson` after this line, when ingestion read it from the file. A
+   * hook line's offset is the id the worker host holds a waiting hook call under (DIPO-59).
+   */
+  readonly end?: number;
 }
 
 /** Parser state an adapter threads through `interpret`; opaque to the engine. */
