@@ -15,12 +15,14 @@ import {
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 import {
+  AdapterHolds,
   acquireLock,
   BacklogLane,
   BacklogPrs,
   bootoutOwnLaunchdJob,
   ChildProcesses,
   chooseRuntimeDir,
+  cliRunBase,
   createLogger,
   createSystemIds,
   currentPlatform,
@@ -74,6 +76,7 @@ import {
   systemSpawnKeepAwake,
   underLaunchdJob,
   WorkTracker,
+  WorkRun,
   writeRuntimeRecord,
   type FeatureModule,
   type ReadExecutableStamp,
@@ -576,6 +579,30 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "scan" }),
     });
+    // Adapter holds (DIPO-43): a failed launch check holds new runs on that adapter in every
+    // office, with a notice on the software stream. `work.run` refuses while its adapter is held;
+    // DIPO-74 runs the launch checks that set and lift a hold.
+    const holds = new AdapterHolds({
+      clock,
+      notify: (notice) => software.append("engine.notice", notice),
+    });
+    // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
+    // story index, the run profile, office init's statuses check, the claims, the Ready gate and
+    // the planning lane above.
+    const workRun = new WorkRun({
+      offices,
+      base: cliRunBase({
+        git: (office) => engineGit.forOffice(office),
+        cli: { spawn: systemSpawn },
+      }),
+      stories: storyIndex,
+      profiles: runProfiles,
+      statuses: (office) => officeInit.officeStatusesReady(office),
+      adapterHeld: (adapter) => holds.adapterHeld(adapter),
+      claims,
+      gates,
+      lane: (office) => lane.forOffice(office),
+    });
     // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
     // loaded, with the `retention.*` periods of the configuration in force.
     const retention = new Retention({
@@ -597,6 +624,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       officeInit.feature,
       gates.feature,
       runProfiles.feature,
+      workRun.feature,
       retention.feature,
       officeFeature(offices),
       helloFeature({
