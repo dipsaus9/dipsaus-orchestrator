@@ -4,7 +4,7 @@ title: Restore state from a backup and purge an office
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 14:11'
+updated_date: '2026-10-14 14:29'
 labels:
   - 'tier:M'
   - after-cutover
@@ -63,14 +63,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `dipo restore <file>` runs through a `runDaemon` form and refuses while a live daemon holds `dipo.pid`, naming `dipo daemon stop`.
-- [ ] #2 Restore checks the backup with `PRAGMA quick_check`, closes its own connection, deletes the live `dipo.db-wal` and `dipo.db-shm`, then replaces `dipo.db` by copy and rename.
-- [ ] #3 Restore writes a new random epoch for every office, so a reconnecting client gets `stream.resetRequired`, and the next daemon start reconciles each office (DIPO-56).
-- [ ] #4 `office.purge { office }` is listed in `commands.describe` with `confirm: true` and `irreversible: true`, fails with `office.busy` while work is active, deletes the office's rows in batches within the time budget, and deletes its `<git-common-dir>/dipo/` directory including `mcp.json`.
-- [ ] #5 `office.purge` is handled as a software-level command: its idempotency record is kept in the daemon's in-memory request table, because purge deletes the office's own `requests` rows; a repeat with the same `requestId` returns the stored reply.
-- [ ] #6 `dipo office purge` asks for confirmation and says that the deletion cannot be undone.
-- [ ] #7 An office whose path is missing is listed at daemon start with the notice "path missing; `dipo office open` the new path, or `dipo office purge`".
-- [ ] #8 The contract definition of `office.purge` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, so AC #4's `commands.describe` entry with `confirm` and `irreversible` appears.
+- [x] #1 `dipo restore <file>` runs through a `runDaemon` form and refuses while a live daemon holds `dipo.pid`, naming `dipo daemon stop`.
+- [x] #2 Restore checks the backup with `PRAGMA quick_check`, closes its own connection, deletes the live `dipo.db-wal` and `dipo.db-shm`, then replaces `dipo.db` by copy and rename.
+- [x] #3 Restore writes a new random epoch for every office, so a reconnecting client gets `stream.resetRequired`, and the next daemon start reconciles each office (DIPO-56).
+- [x] #4 `office.purge { office }` is listed in `commands.describe` with `confirm: true` and `irreversible: true`, fails with `office.busy` while work is active, deletes the office's rows in batches within the time budget, and deletes its `<git-common-dir>/dipo/` directory including `mcp.json`.
+- [x] #5 `office.purge` is handled as a software-level command: its idempotency record is kept in the daemon's in-memory request table, because purge deletes the office's own `requests` rows; a repeat with the same `requestId` returns the stored reply.
+- [x] #6 `dipo office purge` asks for confirmation and says that the deletion cannot be undone.
+- [x] #7 An office whose path is missing is listed at daemon start with the notice "path missing; `dipo office open` the new path, or `dipo office purge`".
+- [x] #8 The contract definition of `office.purge` (DIPO-19, provisional) gets its final result shape and `since` in place of `provisional: true`, set to the next unreleased contract minor (`CONTRACT_VERSION.minor` is bumped only when no unreleased bump exists yet), the schema files are regenerated with `bun run contract:schema`, so AC #4's `commands.describe` entry with `confirm` and `irreversible` appears.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -79,4 +79,11 @@ test_plan:
 Split from DIPO-65 in the M0 review (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
 
 DIPO-27 review: DIPO-27 only refuses an office with a missing path when it loads (office.pathMissing); the daemon-start notice of AC #7 is still owed here.
+
+DIPO-76 implementation:
+- Restore: `dipo restore <file>` routes to the `restore` form of `runDaemon` (packages/daemon/src/restore.ts) with the file made absolute. The form takes `dipo.pid` through `acquireLock` like a starting daemon; a live daemon is refused naming `dipo daemon stop` (an unresponsive one `dipo daemon stop --force`). Engine `restoreBackup` (packages/engine/src/backup/restore.ts) copies the backup to `<state>/dipo.db.restore` (the backup file is never opened), opens the copy through the new platform `openSqliteFile` (rollback journal, so no sidecars), runs `PRAGMA quick_check`, checks it has `offices` and `schema_migrations` and no schema newer than the binary, writes a new random epoch into every `offices` row, closes, deletes the live `dipo.db-wal` and `dipo.db-shm`, renames the copy over `dipo.db` and fsyncs the directory. Any refusal leaves `dipo.db` unchanged. The next start migrates if needed and reconciles every office (DIPO-56 recovery step).
+- Purge: `office.purge` ships in contract minor 1 (no bump; the minor is unreleased) with result `{ office, path, rows, directory? }`, `confirm: true`, `irreversible: true`; schema regenerated. Registered as a software command in `officeFeature`, so its idempotency record is in the executor's in-memory request table. `OfficeManager.purge`: `office.busy` from the registered active-work checks; the office leaves the list first (`forgotten_at`, `office.forgotten` event, instance dropped); `<git-common-dir>/dipo/` is removed only when its marker names this office; then `purgeOfficeRows` (packages/engine/src/office/purge/) deletes every table with an `office_id` column, found from the schema, children first by foreign keys, in Slicer batches of at most 5,000 rows within the 50 ms budget, and a last transaction removes leftovers and the `offices` row. A purge that stops halfway leaves a forgotten office a second purge finishes.
+- `dipo office purge [--office <id>] [--yes]` asks at a terminal and says it cannot be undone; a script needs `--yes`. Resolved from the current directory, it checks the `engine.hello` office list first and refuses a copy whose marker names an office registered elsewhere, or an office not in the list, pointing to `--office <id>`.
+- AC #7: the DIPO-56 recovery step loads every registered office at start, and the load refuses a missing path with the notice text on the software stream and in daemon.log; a CI test proves it at a real start.
+- Finding outside scope: the logger redacts every field named `code`, so daemon.log shows `"code":"[redacted]"` for engine error codes.
 <!-- SECTION:NOTES:END -->
