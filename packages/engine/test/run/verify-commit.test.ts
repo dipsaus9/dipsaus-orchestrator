@@ -162,6 +162,7 @@ interface World {
   branch: RunProfile;
   branchScripts: string | null;
   config?: OfficeConfig;
+  scanFails?: boolean;
   pushRejected: boolean;
 }
 
@@ -246,7 +247,10 @@ beforeEach(async () => {
     },
     config: () => w.config ?? config,
     profile: () => w.base,
-    scanWorktree: async () => w.branch,
+    scanWorktree: async () => {
+      if (w.scanFails) throw new Error("git ls-files failed");
+      return w.branch;
+    },
     host: { home: dir, uid: 501, env: { PATH: "/usr/bin:/bin" } },
   });
   const control = new RunControl({
@@ -407,6 +411,24 @@ describe("review fixes", () => {
     expect(w.calls[0]).toBe(
       "commit DIPO-1: print a greeting [bun.lock, src/pkg/index.ts, src/pkg/package.json]",
     );
+  });
+});
+
+describe("a failed branch scan", () => {
+  it("keeps the scope-violation park, pairing with the base workspaces", async () => {
+    w.scanFails = true;
+    w.changed = ["src/greet.ts", "README.md"];
+    await play();
+    expect(parks().map((p) => p.reason)).toEqual(["scope-violation"]);
+    expect(parks()[0]?.detail).toContain("README.md");
+  });
+
+  it("surfaces the scan error when every path is in scope", async () => {
+    w.scanFails = true;
+    await play();
+    expect(parks()).toEqual([]);
+    expect(w.steps).toEqual([]);
+    expect(w.calls).toEqual([]);
   });
 });
 

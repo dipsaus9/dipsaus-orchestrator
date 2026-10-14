@@ -353,14 +353,22 @@ export class VerifyCommit implements RunFinisher {
     const scope = run.scope ?? [];
     const base = this.#deps.profile(ctx.office);
     // The branch scan comes first: a workspace package the story adds pairs the root lockfile too.
-    const branch = await (this.#deps.scanWorktree ?? scanWorktree)(worktree, base);
+    // A failed scan never hides a scope violation: pairing then uses the base workspaces, and
+    // the scan error surfaces only once the paths are in scope.
+    const scanned = await (this.#deps.scanWorktree ?? scanWorktree)(worktree, base).then(
+      (profile) => ({ profile, error: null }),
+      (error: unknown) => ({ profile: null, error }),
+    );
     const view = await this.#deps.story.story(officeId, worktree, story);
     const paths = await this.#deps.story.changedPaths(officeId, worktree);
     const checked = checkScope({
       paths,
       scope,
       taskFile: view.taskFile,
-      workspaceDirs: workspaceDirsOf(base, branch),
+      workspaceDirs:
+        scanned.profile === null
+          ? (base?.toolchain.workspaces.map((ws) => ws.dir) ?? [])
+          : workspaceDirsOf(base, scanned.profile),
     });
     if (checked.outside.length > 0) return scopePark(scopeDetail(checked.outside, scope));
     if (!ctx.live()) return { kind: "continue" };
@@ -368,7 +376,8 @@ export class VerifyCommit implements RunFinisher {
     // 3. Verify.
     const config = this.#deps.config(officeId);
     if (config === undefined) throw new Error(`office ${officeId} has no configuration loaded`);
-    const steps = await this.#plan(ctx, base, branch);
+    if (scanned.profile === null) throw scanned.error;
+    const steps = await this.#plan(ctx, base, scanned.profile);
     const loop = loopsOf(ctx.office, run.runId);
     ctx.flushOutput();
     ctx.write(() => {
