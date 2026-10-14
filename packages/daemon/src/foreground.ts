@@ -500,6 +500,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       spawn: systemSpawn,
       ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
       env: io.env,
+      logger: logger.child({ component: "gh" }),
     });
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),

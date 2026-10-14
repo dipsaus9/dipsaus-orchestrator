@@ -258,6 +258,8 @@ export interface GhHostOptions {
   readonly gh?: string;
   /** The environment `gh` starts from; this process's by default. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Gets warnings, such as a PR list cut off at `LIST_OPEN_LIMIT`; none by default. */
+  readonly logger?: { warn(message: string, fields?: Readonly<Record<string, unknown>>): void };
 }
 
 interface GhResult {
@@ -271,12 +273,14 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
   readonly #spawn: Spawn;
   readonly #gh: string;
   readonly #env: Record<string, string>;
+  readonly #logger: GhHostOptions["logger"];
   #version: string | null = null;
 
   constructor(options: GhHostOptions) {
     this.#spawn = options.spawn;
     this.#gh = options.gh ?? "gh";
     this.#env = ghEnv(options.env ?? process.env);
+    this.#logger = options.logger;
   }
 
   async checkVersion(): Promise<string> {
@@ -346,6 +350,15 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
     ]);
     const list = parseJson(out, "a pull request list");
     if (!Array.isArray(list)) throw new CodeHostError("failed", "gh printed no pull request list");
+    if (list.length >= LIST_OPEN_LIMIT) {
+      // `gh pr list` stops at the limit: an open PR beyond it is not seen. The prefix filter stays
+      // client-side, since `--search head:` matches words, not a branch prefix.
+      this.#logger?.warn("the open pull request list reached its limit; later PRs were not read", {
+        repo,
+        prefix,
+        limit: LIST_OPEN_LIMIT,
+      });
+    }
     return list
       .filter((item) => (item as { isCrossRepository?: unknown }).isCrossRepository !== true)
       .map((item) => prOf(item as PrJson))
