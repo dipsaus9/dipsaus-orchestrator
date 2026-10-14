@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 12:38'
+updated_date: '2026-10-14 13:08'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -54,14 +54,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The `office.json` id is checked against the `offices` row; a mismatch refuses the office with a notice.
-- [ ] #2 Lifecycle status is read from the story branch while claimed and from the base otherwise; a run active in the database whose status is no longer In Progress or In Review is stopped with a notice.
-- [ ] #3 Status In Progress with no claim in the database is shown as an unknown run with a notice and never started.
-- [ ] #4 An open park with no F16 block is closed with `resolved_how = reconcile`; an F16 block with no park row records a park with detail "recorded by hand".
-- [ ] #5 Ready without a stored gate decision for the current content hash raises a notice; the pickup re-check decides.
-- [ ] #6 A worktree or branch changed by hand under a running story parks it; `git worktree prune` runs only after confirmation.
-- [ ] #7 Scheduling stays off until reconcile of every loaded office finishes.
-- [ ] #8 Reconcile runs as a recovery step registered with the daemon's `recovering` state (DIPO-68) and when `office.rescan` (DIPO-72) runs.
+- [x] #1 The `office.json` id is checked against the `offices` row; a mismatch refuses the office with a notice.
+- [x] #2 Lifecycle status is read from the story branch while claimed and from the base otherwise; a run active in the database whose status is no longer In Progress or In Review is stopped with a notice.
+- [x] #3 Status In Progress with no claim in the database is shown as an unknown run with a notice and never started.
+- [x] #4 An open park with no F16 block is closed with `resolved_how = reconcile`; an F16 block with no park row records a park with detail "recorded by hand".
+- [x] #5 Ready without a stored gate decision for the current content hash raises a notice; the pickup re-check decides.
+- [x] #6 A worktree or branch changed by hand under a running story parks it; `git worktree prune` runs only after confirmation.
+- [x] #7 Scheduling stays off until reconcile of every loaded office finishes.
+- [x] #8 Reconcile runs as a recovery step registered with the daemon's `recovering` state (DIPO-68) and when `office.rescan` (DIPO-72) runs.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -72,4 +72,14 @@ M0 breakdown draft number S40 (DIPO-15). Moved before cutover in the M0 review (
 Follow-ups from DIPO-63 and DIPO-36 (2026-10-13): (1) release orphan claims at daemon start: a live claim whose run has no worker host (keep-awake stops counting it after CLAIM_START_WINDOW_MS, packages/engine/src/keepawake/activity.ts); (2) load every registered office at daemon start, so the merge slot poll and Done detection resume after a restart without waiting for an office command (a backlog PR open at restart otherwise waits).
 
 Follow-up from the DIPO-36 and DIPO-74 live tests (2026-10-14): a fresh or lost state database does not know the office's open backlog PR (dipo/backlog-* branch, for example scratch PR #5), so the merge slot never merges it. Reconcile at daemon start should find open dipo/backlog-* PRs on the office's repository and adopt them into backlog_prs.
+
+Implementation (2026-10-14):
+- AC #2 first: the story index reads every story with a live claim (claim commit recorded, not released or torn down) inside the claim's worktree and mirrors it with the branch as backlog_mirror.source; a branch that cannot be read keeps the base read and is reported. The claim commit (work.run) and the park commit (run control) each trigger StoryIndex.refreshStory, a single-story re-read, so views and snapshots say In Progress or Parked at once (the park re-read is quiet: the park already emitted story.state). Regression: packages/engine/test/stories/branch.test.ts.
+- packages/engine/src/reconcile/: reconcileOffice applies the 0007 section 6 rows after an index pass; Reconciler adds it as the last office load step and runs it on office.rescan (RunProfiles calls it after its index pass). Each mismatch writes its facts and an engine.notice in one transaction (codes reconcile.*).
+- AC #1: OfficeManager already refuses the office at load when office.json differs; reconcile checks it again on every rescan and refuses the office (OfficeManager.refuse) with a notice.
+- AC #6: git worktree list --porcelain -z plus the claimed branch refs and the claim's link snapshot; a running story parks scope-violation through RunControl.parkForReconcile, which writes nothing on the branch. Prunable worktrees only get a notice: dipo never runs git worktree prune itself, the maintainer confirms by running it.
+- AC #7 and #8: a daemon recovery step named reconcile loads every registered office (also the DIPO-63 follow-up), so the merge slot and Done detection resume at start and the daemon enters running only after every office reconciled.
+- Follow-up from DIPO-63/DIPO-36: at daemon start a live claim whose active run never got a worker host is released as orphaned (branch kept); a run directory with a launch file only gets a notice, since its host may have started without its row.
+- Not done: adopting open dipo/backlog-* PRs after a lost database. It needs a new code-host listing and adoption into backlog_prs and the lane journal, and the structural check would fail without the lost gate decisions; proposed as its own story.
+- Tests: fast local branch.test.ts and git-facts.test.ts; the per-row cases are packages/engine/test/reconcile/reconcile.ci.test.ts and the daemon start ordering is packages/daemon/test/integration/reconcile.ci.test.ts.
 <!-- SECTION:NOTES:END -->
