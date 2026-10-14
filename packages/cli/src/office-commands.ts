@@ -293,7 +293,9 @@ async function purgeCommand(args: readonly string[], deps: OfficeCommandDeps): P
         : engineFailure(deps, outcome.error);
     }
     const { path, rows, directory } = outcome.result;
-    deps.writeLine(`purged office ${office} at ${path}: ${rows} rows deleted`);
+    deps.writeLine(
+      `purged office ${office} at ${path}: ${rows} ${rows === 1 ? "row" : "rows"} deleted`,
+    );
     deps.writeLine(
       directory === undefined
         ? "no .git/dipo directory of this office to remove (the path is missing or holds another office)"
