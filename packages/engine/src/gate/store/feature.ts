@@ -45,6 +45,12 @@ export interface GateStoreDeps {
   readonly ids: IdSource;
 }
 
+/** The `_base` checkout a gate reads: its path and the base branch it is at. */
+export interface BaseCheckout {
+  readonly path: string;
+  readonly base: string;
+}
+
 /** One evaluation of a story's gate on `_base`, with the content hash it applies to. */
 export interface GateEvaluation {
   readonly story: StoryId;
@@ -107,7 +113,12 @@ export class GateStore {
    * `config.invalid` when the office has no valid configuration; and `backlog.unreadable` when the
    * Backlog CLI cannot read the story or the backlog.
    */
-  async #evaluate(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateEvaluation> {
+  async #evaluate(
+    office: OfficeId,
+    story: StoryId,
+    mode: GateMode,
+    at?: BaseCheckout,
+  ): Promise<GateEvaluation> {
     const git = this.#deps.git.forOffice(office);
     if (git === undefined) {
       throw new CommandError(
@@ -124,12 +135,12 @@ export class GateStore {
         { office },
       );
     }
-    const base = await git.ensureBaseWorktree();
+    const base = at ?? (await git.ensureBaseWorktree());
+    const read = () => readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config));
     let input;
     try {
-      input = await git.run(() =>
-        readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config)),
-      );
+      // Inside the caller's queue item the `_base` worktree is already where the item put it.
+      input = at === undefined ? await git.run(read) : await read();
     } catch (error) {
       throw gateReadError(office, story, base.base, error);
     }
@@ -143,18 +154,22 @@ export class GateStore {
   /**
    * Evaluates the gate of the story `key` in `mode` and stores the decision with every rule
    * result and the content hash, in one transaction. Every evaluation is stored, pass or fail.
+   *
+   * With `checkout`, the caller runs inside the office's git queue item (the pickup re-check inside the
+   * claim, DIPO-48) and names the `_base` checkout to read; no queue item of its own is started.
    */
   async recordGateDecision(
     office: OfficeId,
     key: StoryKey,
     mode: GateMode,
+    checkout?: BaseCheckout,
   ): Promise<GateDecisionRecord & { readonly story: StoryId; readonly result: GateResult }> {
     const handle = this.#handle(office);
     const identity = findStoryByKey(handle, key);
     if (identity === null) {
       throw new CommandError("story.unknown", `No story has the key ${key}.`, { story: key });
     }
-    const evaluation = await this.#evaluate(office, identity.story, mode);
+    const evaluation = await this.#evaluate(office, identity.story, mode, checkout);
     const at = this.#deps.clock.now();
     const stored = handle.immediate(() =>
       storeGateDecision(handle, this.#deps.ids, {
