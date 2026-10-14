@@ -301,6 +301,8 @@ export async function claim(
   ).stdout.trim();
   const snapshot = readWorktreeSnapshot(worktree, adminDir);
   const runId = RunId.parse(o.s.ids.next("run"));
+  // Locked as a claim locks it (0010 section 7).
+  await o.repo.git("worktree", "lock", "--reason", `dipo ${runId}`, worktree);
   office.immediate(() => {
     insertClaim(office, {
       runId,

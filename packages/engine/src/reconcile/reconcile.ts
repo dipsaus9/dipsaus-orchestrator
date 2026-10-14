@@ -43,7 +43,7 @@ import { readsOnBranch } from "../stories/index-stories";
 import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
 
-import { readGitFacts } from "./git-facts";
+import { clearCommands, goneWorktrees, readGitFacts } from "./git-facts";
 
 /** The launch file a run's worker host is started with (DIPO-44), in its run directory. */
 function launchFileOf(git: OfficeGit, runId: string): string {
@@ -245,16 +245,16 @@ export async function reconcileOffice(
       text: `dipo could not read ${u.story} on its branch ${u.branch} (${u.reason}); its lifecycle is shown as the base has it until the branch reads again.`,
     });
   }
-  const prunable = facts.worktrees.filter((w) => w.prunable !== null);
-  if (prunable.length > 0) {
+  const gone = goneWorktrees(facts.worktrees);
+  if (gone.length > 0) {
     record(
       {
         code: RECONCILE_NOTICES.prunable,
-        text: `git lists worktrees whose directories are gone: ${prunable
-          .map((w) => `${w.path}${w.prunable === "" ? "" : ` (${w.prunable})`}`)
+        text: `git lists worktrees whose directories are gone: ${gone
+          .map((w) => `${w.path} (${w.reason})`)
           .join(
-            ", ",
-          )}. dipo does not prune them on its own; once you have checked them, run \`git worktree prune\` in the repository.`,
+            "; ",
+          )}. dipo does not unlock or prune them on its own; once you have checked them, run in the repository: \`${clearCommands(gone)}\`.`,
       },
       undefined,
       "info",

@@ -2,8 +2,8 @@
 
 export { RECONCILE_STEP, Reconciler } from "./feature";
 export type { ReconcilerDeps } from "./feature";
-export { parseWorktreeList, readGitFacts } from "./git-facts";
-export type { GitFacts, ListedWorktree } from "./git-facts";
+export { clearCommands, goneWorktrees, parseWorktreeList, readGitFacts } from "./git-facts";
+export type { GitFacts, GoneWorktree, ListedWorktree } from "./git-facts";
 export { ORPHANED, RECONCILE_NOTICES, reconcileOffice, RECORDED_BY_HAND } from "./reconcile";
 export type {
   ReconcileDeps,

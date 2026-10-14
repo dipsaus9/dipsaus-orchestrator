@@ -1,8 +1,9 @@
 // The git facts reconcile reads (0007 section 6 step 4, 0010 section 7 "Worktree or branch changed
 // by hand"): `git worktree list --porcelain -z` and the local refs of claimed branches, read in one
 // office git queue item. A live claim's worktree and branch are compared with what the claim
-// recorded; anything changed by hand is listed as evidence. Prunable worktrees are only reported:
-// dipo never runs `git worktree prune` itself.
+// recorded; anything changed by hand is listed as evidence. Worktrees whose directory is gone
+// (prunable, or locked with the directory missing) are only reported: dipo never runs
+// `git worktree unlock` or `git worktree prune` itself.
 
 import { existsSync } from "node:fs";
 
@@ -20,6 +21,53 @@ export interface ListedWorktree {
   readonly branch: string | null;
   /** The reason git gives when the worktree is prunable, or null. */
   readonly prunable: string | null;
+  /** The lock reason (`""` when locked without one), or null when not locked. */
+  readonly locked: string | null;
+}
+
+/** A worktree git still lists whose directory is gone, and the commands that clear it. */
+export interface GoneWorktree {
+  readonly path: string;
+  /** Why: git's prunable reason, or that a locked worktree's directory is missing. */
+  readonly reason: string;
+  /** True when git holds a lock on it, which must be removed before `git worktree prune`. */
+  readonly locked: boolean;
+}
+
+/** The commands that clear `gone`: unlock each locked one, then prune once. */
+export function clearCommands(gone: readonly GoneWorktree[]): string {
+  return [
+    ...gone.filter((w) => w.locked).map((w) => `git worktree unlock ${w.path}`),
+    "git worktree prune",
+  ].join(" && ");
+}
+
+/**
+ * The listed worktrees whose directories are gone: those git marks `prunable`, and those that
+ * are locked (dipo locks every run worktree) with the directory missing, which git never marks
+ * prunable. dipo never prunes or unlocks them itself.
+ */
+export function goneWorktrees(
+  worktrees: readonly ListedWorktree[],
+  exists: (path: string) => boolean = existsSync,
+): GoneWorktree[] {
+  const gone: GoneWorktree[] = [];
+  for (const w of worktrees) {
+    if (w.prunable !== null) {
+      gone.push({
+        path: w.path,
+        reason: w.prunable === "" ? "prunable" : w.prunable,
+        locked: w.locked !== null,
+      });
+    } else if (w.locked !== null && !exists(w.path)) {
+      gone.push({
+        path: w.path,
+        reason: `locked${w.locked === "" ? "" : ` (${w.locked})`}, its directory is missing`,
+        locked: true,
+      });
+    }
+  }
+  return gone;
 }
 
 /** Parses `git worktree list --porcelain -z`. */
@@ -30,6 +78,7 @@ export function parseWorktreeList(output: string): ListedWorktree[] {
     head: string | null;
     branch: string | null;
     prunable: string | null;
+    locked: string | null;
   } | null = null;
   const flush = () => {
     if (current !== null) listed.push(current);
@@ -47,6 +96,7 @@ export function parseWorktreeList(output: string): ListedWorktree[] {
         head: null,
         branch: null,
         prunable: null,
+        locked: null,
       };
       continue;
     }
@@ -55,6 +105,8 @@ export function parseWorktreeList(output: string): ListedWorktree[] {
     else if (field.startsWith("branch ")) current.branch = field.slice("branch ".length);
     else if (field === "prunable") current.prunable = "";
     else if (field.startsWith("prunable ")) current.prunable = field.slice("prunable ".length);
+    else if (field === "locked") current.locked = "";
+    else if (field.startsWith("locked ")) current.locked = field.slice("locked ".length);
   }
   flush();
   return listed;

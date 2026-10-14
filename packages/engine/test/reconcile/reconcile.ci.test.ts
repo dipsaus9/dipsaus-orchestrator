@@ -277,8 +277,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(w.calls[0]?.detail).toContain("is gone");
         const found = report?.findings.map((f) => f.code) ?? [];
         expect(found).toContain(RECONCILE_NOTICES.prunable);
-        // The worktree is still registered: dipo never prunes on its own.
-        expect(await w.o.repo.git("worktree", "list", "--porcelain")).toContain("prunable");
+        // The claim's worktree is locked, so git never marks it prunable; the notice names the
+        // unlock and the prune for the maintainer, and dipo runs neither.
+        const text = report?.findings.find((f) => f.code === RECONCILE_NOTICES.prunable)?.text;
+        expect(text).toContain(`git worktree unlock ${claimed.worktree} && git worktree prune`);
+        expect(await w.o.repo.git("worktree", "list", "--porcelain")).toContain("locked dipo");
       }));
 
     it("parks a running story whose worktree has another branch checked out", () =>
