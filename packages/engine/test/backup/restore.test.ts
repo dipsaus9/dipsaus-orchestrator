@@ -4,7 +4,7 @@
 // was.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId } from "@dipsaus-orchestrator/contract";
@@ -114,6 +114,37 @@ describe("restore", () => {
         expect(readFileSync(live).equals(liveBytes)).toBe(true);
         expect(existsSync(join(stateDir, RESTORE_FILE))).toBe(false);
       }
+    }));
+
+  it("says plainly when the rename fails after the live -wal and -shm were deleted", () =>
+    withTempDir(async (dir) => {
+      const { live, backup, stateDir } = await backedUp(dir);
+      // A directory in the place of dipo.db makes the rename fail after the sidecars are gone.
+      rmSync(live);
+      mkdirSync(join(live, "blocker"), { recursive: true });
+      writeFileSync(`${live}-wal`, "wal");
+      writeFileSync(`${live}-shm`, "shm");
+      let thrown: unknown;
+      try {
+        restoreBackup({ stateDir, file: backup });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(BackupRestoreError);
+      expect((thrown as BackupRestoreError).walLost).toBe(true);
+      expect((thrown as Error).message).toContain("has lost its most recent commits");
+      expect((thrown as Error).message).toContain("run `dipo restore` again with a backup");
+      expect(existsSync(`${live}-wal`)).toBe(false);
+      expect(existsSync(join(stateDir, RESTORE_FILE))).toBe(false);
+
+      // Without sidecars to lose, the same failure leaves dipo.db as it was.
+      let plain: unknown;
+      try {
+        restoreBackup({ stateDir, file: backup });
+      } catch (error) {
+        plain = error;
+      }
+      expect((plain as BackupRestoreError).walLost).toBe(false);
     }));
 
   it("refuses a missing file, the live database itself and a newer schema", () =>

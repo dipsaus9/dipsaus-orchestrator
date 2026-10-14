@@ -4,7 +4,7 @@
 // for real under the test's temp `DIPO_HOME`.
 
 import { describe, expect, it } from "bun:test";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -106,6 +106,23 @@ describe("dipo restore", () => {
       expect(await runRestoreForm([bad], io)).toBe(1);
       expect(err[0]).toMatch(/is not a SQLite database.*Nothing was restored\.$/);
       expect(readFileSync(path).equals(before)).toBe(true);
+      expect(existsSync(join(dir, "state", PID_FILE))).toBe(false);
+    }));
+
+  it("says plainly when dipo.db lost its WAL and logs it as an error", () =>
+    withTempDir(async (dir) => {
+      const { live: path, backup } = await stateWithBackup(dir);
+      rmSync(path);
+      mkdirSync(join(path, "blocker"), { recursive: true });
+      writeFileSync(`${path}-wal`, "wal");
+      const { io, out, err } = testIo(dir);
+      expect(await runRestoreForm([backup], io)).toBe(1);
+      expect(out).toEqual([]);
+      expect(err[0]).toContain("has lost its most recent commits");
+      expect(err[0]).not.toContain("Nothing was restored");
+      const log = readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8");
+      expect(log).toContain('"level":"error"');
+      expect(log).toContain("dipo.db lost its recent commits");
       expect(existsSync(join(dir, "state", PID_FILE))).toBe(false);
     }));
 

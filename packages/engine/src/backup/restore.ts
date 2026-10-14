@@ -62,9 +62,16 @@ export interface RestoreResult {
   readonly removed: readonly string[];
 }
 
-/** Restore refused or failed; the live `dipo.db` is unchanged. */
+/**
+ * Restore refused or failed. With `walLost` false the live `dipo.db` is unchanged; with it true the
+ * rename failed after the live `-wal` and `-shm` were deleted, so `dipo.db` lost its recent commits
+ * and must be restored from a backup.
+ */
 export class BackupRestoreError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly walLost: boolean = false,
+  ) {
     super(message);
     this.name = "BackupRestoreError";
   }
@@ -139,8 +146,9 @@ function prepare(
   }
 }
 
-function syncDirectory(dir: string): void {
-  const fd = openSync(dir, "r");
+/** fsyncs a file or directory, so a rename after it never exposes unwritten bytes. */
+function syncPath(path: string): void {
+  const fd = openSync(path, "r");
   try {
     fsyncSync(fd);
   } finally {
@@ -170,6 +178,8 @@ export function restoreBackup(options: RestoreOptions): RestoreResult {
     copyFileSync(file, temp);
     chmodSync(temp, FILE_MODE);
     const { offices, schemaVersion } = prepare(temp, file, options);
+    // The epoch commit syncs only when it wrote; a backup with no offices wrote nothing.
+    syncPath(temp);
     // The connection is closed: drop the old file's WAL and shared memory, then swap the file.
     const removed: string[] = [];
     for (const suffix of SIDECAR_SUFFIXES) {
@@ -179,8 +189,18 @@ export function restoreBackup(options: RestoreOptions): RestoreResult {
         removed.push(sidecar);
       }
     }
-    renameSync(temp, live);
-    syncDirectory(stateDir);
+    try {
+      renameSync(temp, live);
+    } catch (error) {
+      if (removed.length === 0) {
+        throw new BackupRestoreError(`Replacing ${live} failed: ${reasonOf(error)}.`);
+      }
+      throw new BackupRestoreError(
+        `Replacing ${live} failed (${reasonOf(error)}) after its -wal and -shm files were deleted, so ${live} has lost its most recent commits. Do not start the daemon on it; run \`dipo restore\` again with a backup.`,
+        true,
+      );
+    }
+    syncPath(stateDir);
     return { path: live, offices, schemaVersion, removed };
   } catch (error) {
     removeCopy(temp);

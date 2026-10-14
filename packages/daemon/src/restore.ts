@@ -113,6 +113,18 @@ export async function runRestoreForm(
       return 0;
     } catch (error) {
       if (!(error instanceof BackupRestoreError)) throw error;
+      if (error.walLost) {
+        // The live file lost its WAL: it is not unchanged, and only a backup brings it back.
+        logger.error(
+          "restore failed after deleting the live -wal and -shm; dipo.db lost its recent commits",
+          {
+            file,
+            reason: error.message,
+          },
+        );
+        io.writeError(`dipo: ${error.message}`);
+        return 1;
+      }
       logger.warn("restore refused", { file, reason: error.message });
       io.writeError(`dipo: ${error.message} Nothing was restored.`);
       return 1;
