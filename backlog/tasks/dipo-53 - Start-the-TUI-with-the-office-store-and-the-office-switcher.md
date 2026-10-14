@@ -4,7 +4,7 @@ title: Start the TUI with the office store and the office switcher
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 12:58'
+updated_date: '2026-10-14 13:07'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -23,6 +23,8 @@ references:
   - bun.lock
   - packages/client/src/index.ts
   - packages/client/test/
+  - .oxlintrc.json
+  - test/lint-boundaries/
 documentation:
   - docs/decisions/0009-tui.md
   - docs/decisions/0017-testing-strategy-and-configuration.md
