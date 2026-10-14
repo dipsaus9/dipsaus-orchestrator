@@ -4,7 +4,7 @@ title: Re-attach worker hosts after a daemon restart
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:52'
+updated_date: '2026-10-14 15:14'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -27,6 +27,7 @@ references:
   - packages/engine/test/run/
   - packages/daemon/src/runs.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/test/integration/foreground.test.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
