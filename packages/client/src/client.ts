@@ -40,6 +40,13 @@ export const RECONNECT_INITIAL_MS = 500;
 export const RECONNECT_MAX_MS = 5_000;
 /** How long the first connection may take to answer `engine.hello`. */
 export const CONNECT_TIMEOUT_MS = 5_000;
+/** The daemon sends a `stream.mark` on an idle subscription this often (0005 section 8). */
+export const STREAM_MARK_MS = 15_000;
+/**
+ * While subscribed, a connection with no frame for this long (three idle `stream.mark` intervals)
+ * is taken as hung: the client closes it and reconnects (DIPO-52).
+ */
+export const LIVENESS_MS = 3 * STREAM_MARK_MS;
 
 /** The wait before reconnect attempt `attempt` (0 for the first attempt after a disconnect). */
 export function reconnectDelay(attempt: number): number {
@@ -82,11 +89,20 @@ export type ReadOutcome<R> =
   | { readonly ok: true; readonly result: R }
   | { readonly ok: false; readonly error: EngineError };
 
-export interface CommandOptions {
+export interface CommandOptions extends RequestOptions {
   /** Required on office-level commands (0005 section 3). */
   readonly office?: OfficeId;
   /** Set only after the maintainer agreed (0005 section 9). */
   readonly confirmed?: boolean;
+}
+
+export interface RequestOptions {
+  /**
+   * How long the request may wait for its reply once sent. Past it the connection is taken as
+   * hung: the client closes it, reconnects and sends the request again with its `requestId`
+   * (DIPO-52). None by default, since a command such as `work.run` may wait minutes.
+   */
+  readonly deadlineMs?: number;
 }
 
 export interface SubscribeOptions {
@@ -120,12 +136,17 @@ export interface ClientOptions {
   /** Sent on every command (0005 section 3). */
   readonly origin: Origin;
   readonly requestIds?: RequestIds;
+  /** No frame for this long while subscribed closes the connection; `LIVENESS_MS` by default. */
+  readonly livenessMs?: number;
 }
 
 interface Pending {
   readonly frame: ClientFrame;
   readonly settle: (reply: CommandReply | ReadReply) => void;
   readonly fail: (error: ClientError) => void;
+  readonly deadlineMs: number | undefined;
+  /** When the frame was last sent on a ready connection; null while it waits for one. */
+  sentAt: number | null;
 }
 
 interface Stream {
@@ -158,6 +179,10 @@ export class DipoClient {
   readonly #pending = new Map<RequestId, Pending>();
   readonly #streams = new Map<StreamName, Stream>();
   readonly #stateListeners = new Set<(state: ConnectionState) => void>();
+  readonly #livenessMs: number;
+  /** When the current connection last delivered a frame. */
+  #lastFrameAt = 0;
+  #liveness: { readonly timer: TimerHandle; readonly due: number } | null = null;
 
   constructor(options: ClientOptions) {
     this.#transport = options.transport;
@@ -165,6 +190,7 @@ export class DipoClient {
     this.#client = options.client;
     this.#origin = options.origin;
     this.#newId = options.requestIds ?? ulidRequestIds(options.clock);
+    this.#livenessMs = options.livenessMs ?? LIVENESS_MS;
   }
 
   get state(): ConnectionState {
@@ -234,7 +260,7 @@ export class DipoClient {
       confirmed: options.confirmed ?? false,
       ...(options.office === undefined ? {} : { office: options.office }),
     };
-    return this.#request(frame).then((reply) => {
+    return this.#request(frame, options.deadlineMs).then((reply) => {
       if (!reply.ok) return { ok: false, error: reply.error };
       const result = definition.result.safeParse(reply.result);
       if (!("changed" in reply) || !result.success) {
@@ -253,6 +279,7 @@ export class DipoClient {
   read<A extends z.ZodType, R extends z.ZodType>(
     definition: ReadDefinition<string, A, R>,
     args: z.input<A>,
+    options: RequestOptions = {},
   ): Promise<ReadOutcome<z.output<R>>> {
     const parsed = definition.args.safeParse(args);
     if (!parsed.success) {
@@ -266,7 +293,7 @@ export class DipoClient {
       name: definition.name,
       args: parsed.data,
     };
-    return this.#request(frame).then((reply) => {
+    return this.#request(frame, options.deadlineMs).then((reply) => {
       if (!reply.ok) return { ok: false, error: reply.error };
       const result = definition.result.safeParse(reply.result);
       if (!result.success) {
@@ -296,7 +323,10 @@ export class DipoClient {
       active: true,
     };
     this.#streams.set(stream, entry);
-    if (this.#ready) this.#sendSubscribe(entry);
+    if (this.#ready) {
+      this.#sendSubscribe(entry);
+      this.#armLiveness();
+    }
     return {
       stream,
       get cursor() {
@@ -343,9 +373,21 @@ export class DipoClient {
     });
   }
 
+  /**
+   * The connection is taken as hung (no frame within the liveness window, or a request past its
+   * deadline): close it and reconnect as after a loss, without waiting for the transport to notice.
+   */
+  #hung(): void {
+    const connection = this.#connection;
+    this.#generation += 1;
+    connection?.close();
+    this.#lost();
+  }
+
   #lost(): void {
     this.#connection = null;
     this.#ready = false;
+    this.#stopLiveness();
     if (this.#first !== null) {
       this.#end(new ClientError("client.unreachable", "Cannot reach the daemon."));
       return;
@@ -367,6 +409,7 @@ export class DipoClient {
       return;
     }
     if (!parsed.success) return;
+    this.#lastFrameAt = this.#clock.now();
     const frame = parsed.data;
     if (frame.kind === "events") {
       if (this.#ready) for (const event of frame.events) this.#route(event);
@@ -414,7 +457,8 @@ export class DipoClient {
     this.#first = null;
     first?.resolve(hello.data);
     for (const entry of this.#streams.values()) this.#sendSubscribe(entry);
-    for (const pending of this.#pending.values()) this.#send(pending.frame);
+    for (const pending of this.#pending.values()) this.#sendPending(pending);
+    this.#armLiveness();
   }
 
   #end(error: ClientError): void {
@@ -423,6 +467,7 @@ export class DipoClient {
     this.#ready = false;
     if (this.#timer !== null) this.#clock.clearTimeout(this.#timer);
     this.#timer = null;
+    this.#stopLiveness();
     const connection = this.#connection;
     this.#connection = null;
     connection?.close();
@@ -445,14 +490,78 @@ export class DipoClient {
 
   // Requests
 
-  #request(frame: ClientFrame & { requestId: RequestId }): Promise<CommandReply | ReadReply> {
+  #request(
+    frame: ClientFrame & { requestId: RequestId },
+    deadlineMs: number | undefined,
+  ): Promise<CommandReply | ReadReply> {
     if (this.#state === "closed") {
       return Promise.reject(new ClientError("client.closed", "The client is closed."));
     }
     return new Promise((settle, fail) => {
-      this.#pending.set(frame.requestId, { frame, settle, fail });
-      if (this.#ready) this.#send(frame);
+      const pending: Pending = { frame, settle, fail, deadlineMs, sentAt: null };
+      this.#pending.set(frame.requestId, pending);
+      if (this.#ready) {
+        this.#sendPending(pending);
+        this.#armLiveness();
+      }
     });
+  }
+
+  #sendPending(pending: Pending): void {
+    pending.sentAt = this.#clock.now();
+    this.#send(pending.frame);
+  }
+
+  // Liveness (DIPO-52, 0005 section 8): an idle subscription gets a `stream.mark` every 15 s, so
+  // no frame for `livenessMs` while subscribed, or a request past its deadline, means the daemon
+  // hangs; the connection is closed and the client reconnects.
+
+  /** The earliest time the open connection is taken as hung, or null when nothing waits. */
+  #nextDeadline(): number | null {
+    if (!this.#ready) return null;
+    let next: number | null = null;
+    const earlier = (at: number) => {
+      next = next === null ? at : Math.min(next, at);
+    };
+    for (const entry of this.#streams.values()) {
+      if (entry.active) {
+        earlier(this.#lastFrameAt + this.#livenessMs);
+        break;
+      }
+    }
+    for (const pending of this.#pending.values()) {
+      if (pending.deadlineMs !== undefined && pending.sentAt !== null) {
+        // A request is answered in time when its reply or any later frame arrives.
+        earlier(Math.max(pending.sentAt, this.#lastFrameAt) + pending.deadlineMs);
+      }
+    }
+    return next;
+  }
+
+  /** Arms the liveness timer for the next deadline, or earlier when one moved closer. */
+  #armLiveness(): void {
+    const due = this.#nextDeadline();
+    if (due === null) return;
+    if (this.#liveness !== null) {
+      if (this.#liveness.due <= due) return;
+      this.#clock.clearTimeout(this.#liveness.timer);
+    }
+    const timer = this.#clock.setTimeout(
+      () => {
+        this.#liveness = null;
+        const next = this.#nextDeadline();
+        if (next === null) return;
+        if (this.#clock.now() >= next) this.#hung();
+        else this.#armLiveness();
+      },
+      Math.max(0, due - this.#clock.now()),
+    );
+    this.#liveness = { timer, due };
+  }
+
+  #stopLiveness(): void {
+    if (this.#liveness !== null) this.#clock.clearTimeout(this.#liveness.timer);
+    this.#liveness = null;
   }
 
   #send(frame: ClientFrame): void {

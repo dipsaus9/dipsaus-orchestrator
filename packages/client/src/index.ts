@@ -8,9 +8,11 @@ export {
   ClientError,
   CONNECT_TIMEOUT_MS,
   DipoClient,
+  LIVENESS_MS,
   RECONNECT_INITIAL_MS,
   RECONNECT_MAX_MS,
   reconnectDelay,
+  STREAM_MARK_MS,
 } from "./client";
 export type {
   ClientOptions,
@@ -19,6 +21,7 @@ export type {
   ConnectionState,
   HelloResult,
   ReadOutcome,
+  RequestOptions,
   SubscribeOptions,
   Subscription,
 } from "./client";

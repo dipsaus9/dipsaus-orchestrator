@@ -21,7 +21,9 @@ import {
   ClientError,
   type ConnectionState,
   DipoClient,
+  LIVENESS_MS,
   reconnectDelay,
+  STREAM_MARK_MS,
   ulidRequestIds,
 } from "../../src/index";
 import { type FakeConnection, FakeTransport } from "./fake-transport";
@@ -388,5 +390,73 @@ describe("ulidRequestIds", () => {
     clock.advance(1);
     expect(ids() > id).toBe(true);
     expect(ulidRequestIds(clock)()).not.toBe(ulidRequestIds(clock)());
+  });
+});
+
+describe("DipoClient liveness (DIPO-52)", () => {
+  it("closes a subscribed connection with no frame for three stream.mark intervals and reconnects", async () => {
+    const { clock, transport, client } = await connected();
+    const events: Event[] = [];
+    client.subscribe(SOFTWARE, { onEvent: (e) => events.push(e) });
+    const first = transport.current;
+    first.deliver(reply(requestIdOf(first), { stream: SOFTWARE, from: cursor(0) }));
+    // Heartbeats keep it alive.
+    for (let i = 1; i <= 4; i++) {
+      clock.advance(STREAM_MARK_MS);
+      first.deliver({ kind: "events", events: [event(0, "stream.mark", {})] });
+    }
+    expect(first.closedByClient).toBe(false);
+    // A hung daemon: nothing for LIVENESS_MS.
+    clock.advance(LIVENESS_MS - 1);
+    expect(first.closedByClient).toBe(false);
+    clock.advance(1);
+    expect(first.closedByClient).toBe(true);
+    expect(client.state).toBe("reconnecting");
+    clock.advance(reconnectDelay(0));
+    expect(transport.connections).toHaveLength(2);
+    const second = accept(transport);
+    // It subscribes again after the last cursor it has.
+    expect(second.last()).toMatchObject({ kind: "subscribe", stream: SOFTWARE, after: cursor(0) });
+    expect(client.state).toBe("open");
+  });
+
+  it("closes the connection when a request passes its deadline and sends it again after reconnecting", async () => {
+    const { clock, transport, client } = await connected();
+    const first = transport.current;
+    const status = client.read(daemonStatus, {}, { deadlineMs: 10_000 });
+    const id = requestIdOf(first);
+    clock.advance(9_999);
+    expect(first.closedByClient).toBe(false);
+    clock.advance(1);
+    expect(first.closedByClient).toBe(true);
+    clock.advance(reconnectDelay(0));
+    const second = accept(transport);
+    expect(requestIdOf(second)).toBe(id);
+    second.deliver(
+      reply(id, {
+        state: "running",
+        pid: 1,
+        version: "0.0.0-test",
+        uptimeMs: 1,
+        socket: "/s",
+        loadedOffices: [],
+        activeRuns: 0,
+        keepAwake: { held: false },
+        upgradePending: false,
+        tools: {},
+      }),
+    );
+    expect((await status).ok).toBe(true);
+    // Nothing waits any more, so an idle open connection stays open.
+    clock.advance(10 * LIVENESS_MS);
+    expect(second.closedByClient).toBe(false);
+  });
+
+  it("leaves a connection with no subscription and no deadline open however long it is idle", async () => {
+    const { clock, transport, client } = await connected();
+    void client.read(daemonStatus, {});
+    clock.advance(10 * LIVENESS_MS);
+    expect(transport.current.closedByClient).toBe(false);
+    expect(transport.connections).toHaveLength(1);
   });
 });
