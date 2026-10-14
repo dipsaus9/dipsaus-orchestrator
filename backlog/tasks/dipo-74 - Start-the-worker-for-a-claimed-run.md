@@ -4,7 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 08:06'
+updated_date: '2026-10-14 09:14'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -22,6 +22,23 @@ references:
   - packages/engine/src/features.ts
   - packages/daemon/src/foreground.ts
   - packages/daemon/test/
+  - packages/contract/src/office.ts
+  - packages/contract/src/fixtures.ts
+  - packages/contract/src/version.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/engine/src/workers/port.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - packages/engine/src/worktree/claim.ts
+  - packages/engine/src/worktree/feature.ts
+  - packages/engine/src/worktree/records.ts
+  - packages/engine/src/gate/store/feature.ts
+  - packages/engine/src/index.ts
+  - packages/daemon/src/runs.ts
+  - packages/cli/src/run-command.ts
+  - packages/cli/src/run-command.test.ts
+  - packages/cli/src/index.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
@@ -61,16 +78,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After the claim, setup (DIPO-39) runs; a setup failure ends in DIPO-39's rollback with the `pickupCheckFailed` skip, and no worker starts.
-- [ ] #2 The launch checks of DIPO-43 run before the host starts; a refusal rolls back the claim like a setup failure, keeps the story Ready and leaves the DIPO-43 adapter hold in place.
-- [ ] #3 The engine renders the system file and task message (DIPO-47) and starts a worker host (DIPO-44) with the tier's model, effort and caps, an engine-made session id stored on the run, and the absolute `claude` path resolved at daemon start.
-- [ ] #4 Ingestion (DIPO-45) starts for the run when its host starts, and the engine emits `work.phase build`.
-- [ ] #5 The run's slot from setup is recorded on the run.
-- [ ] #6 The Claude CLI `WorkerAdapter` is built per run in `workers/claude-cli/adapter.ts` with `plan(spec)` closing over a `ClaudeLaunchContext` (DIPO-40's `plan(spec, ctx)`), so the engine calls the 0008 signature; a test under `packages/engine/test/run/` covers the binding.
-- [ ] #7 When `plan` refuses a path (DIPO-40: rule-special characters such as parentheses, a workdir at home or `/`), the run is not started and an `engine.notice` names the path and the character and suggests moving the checkout or the worktree root; a test covers it.
-- [ ] #8 The daemon passes its resolved absolute `backlog` path into `backlogFeature` (DIPO-28 runs `backlog` from PATH today), next to AC #3's resolved `claude` path; a test covers it.
-- [ ] #9 `dipo run --dry-run [<ID>...]` selects a story as `work.run` does and prints, without claiming, creating a branch or worktree, writing a run row or starting a worker: the branch and worktree path it would create, the full `claude` launch (absolute path, arguments, model, effort, caps, sandbox settings, environment variable names without values), the system file and the task message; a test shows that no fact, branch, worktree or run changed.
-- [ ] #10 Branch and worktree creation is tested apart from the worker launch: with the worker start stubbed, a run creates the branch named in the story field block, the locked worktree at `<root>/<ID>` and the claim commit, and stops before any worker starts; a manual test step checks them before a live session.
+- [x] #1 After the claim, setup (DIPO-39) runs; a setup failure ends in DIPO-39's rollback with the `pickupCheckFailed` skip, and no worker starts.
+- [x] #2 The launch checks of DIPO-43 run before the host starts; a refusal rolls back the claim like a setup failure, keeps the story Ready and leaves the DIPO-43 adapter hold in place.
+- [x] #3 The engine renders the system file and task message (DIPO-47) and starts a worker host (DIPO-44) with the tier's model, effort and caps, an engine-made session id stored on the run, and the absolute `claude` path resolved at daemon start.
+- [x] #4 Ingestion (DIPO-45) starts for the run when its host starts, and the engine emits `work.phase build`.
+- [x] #5 The run's slot from setup is recorded on the run.
+- [x] #6 The Claude CLI `WorkerAdapter` is built per run in `workers/claude-cli/adapter.ts` with `plan(spec)` closing over a `ClaudeLaunchContext` (DIPO-40's `plan(spec, ctx)`), so the engine calls the 0008 signature; a test under `packages/engine/test/run/` covers the binding.
+- [x] #7 When `plan` refuses a path (DIPO-40: rule-special characters such as parentheses, a workdir at home or `/`), the run is not started and an `engine.notice` names the path and the character and suggests moving the checkout or the worktree root; a test covers it.
+- [x] #8 The daemon passes its resolved absolute `backlog` path into `backlogFeature` (DIPO-28 runs `backlog` from PATH today), next to AC #3's resolved `claude` path; a test covers it.
+- [x] #9 `dipo run --dry-run [<ID>...]` selects a story as `work.run` does and prints, without claiming, creating a branch or worktree, writing a run row or starting a worker: the branch and worktree path it would create, the full `claude` launch (absolute path, arguments, model, effort, caps, sandbox settings, environment variable names without values), the system file and the task message; a test shows that no fact, branch, worktree or run changed.
+- [x] #10 Branch and worktree creation is tested apart from the worker launch: with the worker start stubbed, a run creates the branch named in the story field block, the locked worktree at `<root>/<ID>` and the claim commit, and stops before any worker starts; a manual test step checks them before a live session.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -83,4 +100,6 @@ Follow-up from DIPO-39 (2026-10-13): the daemon builds StoryClaims without the S
 Follow-up from DIPO-48 (2026-10-14): releasing a claim (teardown, rollback, work.stop or work.discard), or ending a run in any other way, must set runs.ended_at and runs.end_kind for its run. Retention removes runs and run_steps only once ended_at is set (packages/engine/src/retention/run.ts), and config_snapshots only once no kept run names them. Until then, activeRuns treats a story run whose claim is released as inactive, but its rows are kept forever.
 
 Added 2026-10-14 by the maintainer: a dry-run preview of the worker call, so the instructions Claude gets can be checked without a live session, and branch and worktree creation tested on its own. The dry-run option on work.run is a contract addition and needs a 0005 amendment approved by the maintainer when this story is built.
+
+Built 2026-10-14 (DIPO-74). work.run with a RunLauncher (packages/engine/src/run/launch.ts) passes ClaimRequest.setup: DIPO-39 setup, then the system file and task message (run/prompts.ts, context pack from the new worktree), the WorkerSpec from the tier with a session id derived from the agent id (UUID v4 shape), and the launch checks through the WorkerPort (workers/port.ts; Claude CLI in workers/claude-cli/adapter.ts). Any failure there fails setup, so claimStory rolls back (worktree removed, new branch deleted at its start, story Ready, pickupCheckFailed). A path the plan refuses also emits engine.notice run.planRefused naming the path and the character (PlanError now carries refused.path and refused.character). After the claim commit the host starts (run/hosts.ts systemHostStarter), OfficeIngest tracks it (first pass plus 1 s poll, advanced via the host socket when it answers), and work.phase build follows. A host that does not start releases the claim keeping the branch as released (StoryClaims.releaseUnstarted) and ends the run as start-failed. releaseClaim and the claim rollback now set runs.ended_at and end_kind. The session id and effort are stored on the run's agents row (no migration). A held adapter still refuses work.run without stories; a run that names its stories repeats the launch checks, which lift the hold (the DIPO-43 hold text asks for an explicit run). Dry run: read work.preview (contract minor 1, since: 1) and dipo run --dry-run; it skips fetch, index and profile refresh and evaluates the pickup gate with GateStore.checkGate (stores nothing). Daemon: one BacklogCli with the resolved absolute backlog for every feature (engineFeatures({ backlog })), StoryClaims gets the SlotTable, the run temp directory is <realpath tmp>/dipo-run-<run>. Deferred: worker exit handling (onEnded, onInitRejected) and run end on exit are DIPO-51; mcp.json and tool variables are not passed yet (toolVariables: []); the run temp directory is not removed at run end; canResume checks only the transcript (version and prompt hash at DIPO-51); prompt parts and context pack are not recorded. 0005 amendment for work.preview awaits the maintainer's approval.
 <!-- SECTION:NOTES:END -->
