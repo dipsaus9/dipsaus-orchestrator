@@ -588,6 +588,8 @@ describe("story views and reconcile (DIPO-56)", () => {
     });
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    // The run ended through endRun (DIPO-49): one outcome row.
+    expect(countRows(w.f.office, "run_outcomes")).toBe(1);
     expect(parks()).toEqual([]);
     expect(w.writes).toEqual([]);
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
@@ -617,5 +619,46 @@ describe("story views and reconcile (DIPO-56)", () => {
       .filter((event) => event.type === "engine.notice")
       .map((event) => (event.data as { code: string }).code);
     expect(codes).toEqual(["reconcile.handChanged", "park.notWritten"]);
+  });
+});
+
+describe("the In Review commit (DIPO-49) and the story view (DIPO-56)", () => {
+  it("reads the story again at its branch tip once verify and commit ended the run at In Review", async () => {
+    const refreshed: string[] = [];
+    const sent: HostOp[][] = [];
+    const control = new RunControl({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office },
+      writer: { write: async () => Promise.reject(new Error("no park expected")) },
+      steering: {
+        send: async (_office, _run, ops) => {
+          sent.push([...ops]);
+          return { ok: true };
+        },
+      },
+      encode,
+      finisher: {
+        afterTurn: async () => ({ kind: "ended" }),
+        summarize: async () => undefined,
+      },
+      refreshStory: async (_office, key) => {
+        refreshed.push(key);
+      },
+    });
+    try {
+      control.track(w.f.office.officeId, {
+        runId: w.f.run,
+        work: w.work,
+        caps: ROOMY,
+        startedAt: w.f.t.clock.now(),
+      });
+      const done = SCRIPTS["done"]?.at(-1) as WorkerEvent;
+      control.onWorkerEvents(w.f.run, [done]);
+      await control.idle();
+      expect(refreshed).toEqual([w.work.key]);
+      expect(sent).toEqual([[{ closeStdin: true }]]);
+    } finally {
+      control.close();
+    }
   });
 });

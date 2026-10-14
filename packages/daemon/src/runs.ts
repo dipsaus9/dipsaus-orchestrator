@@ -19,6 +19,8 @@ import {
   claudeWorkerPort,
   currentProfile,
   gitParkWriter,
+  gitStoryOps,
+  readBackstop,
   hostSocketSteering,
   type EngineGit,
   type Logger,
@@ -40,7 +42,9 @@ import {
   systemSandboxHost,
   systemSpawn,
   type currentPlatform,
+  VerifyCommit,
   Watchdog,
+  type WorkTracker,
 } from "@dipsaus-orchestrator/engine";
 
 /** The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). */
@@ -71,8 +75,10 @@ export interface DaemonRunsOptions {
   readonly cli: BacklogCli;
   /** True when the engine implements a command; a park offers only those (DIPO-50). */
   readonly implemented: (name: CommandName) => boolean;
-  /** The story index, which reads a parked story again on its branch (DIPO-56). */
+  /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
+  /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
+  readonly work?: WorkTracker;
 }
 
 export interface DaemonRuns {
@@ -117,9 +123,27 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     runStep,
     uid,
   });
+  const gitOf = (office: OfficeId) => {
+    const git = options.engineGit.forOffice(office);
+    if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+    return git;
+  };
+  // Verify and commit at In Review and the backstop after every turn (DIPO-49).
+  const finisher = new VerifyCommit({
+    clock,
+    story: gitStoryOps({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+    mainCheckout: (office) => gitOf(office).mainWorktree,
+    runStep,
+    config: (office) => options.offices.config(office),
+    profile: (office) => currentProfile(office)?.profile ?? null,
+    host: { home, uid, env },
+    ...(options.work === undefined ? {} : { work: options.work }),
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
   // The ingestion hooks call the control, and the control flushes ingestion's output first.
   let ingest: OfficeIngest | null = null;
   const control = new RunControl({
+    finisher,
     clock,
     offices: options.offices,
     writer: gitParkWriter({
@@ -191,6 +215,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     }),
     ingest,
     control,
+    snapshot: (office, worktree) => readBackstop(gitOf(office), worktree),
     release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
     warn: (message, fields) => options.logger.warn(message, fields),
   });

@@ -506,6 +506,7 @@ export class WorkRun {
         overrideKeys: null,
         runProfileId: currentProfileId(handle),
         startedAt: at,
+        scope: view.references,
       });
       // The engine-made session id is stored on the run's agent (0007 section 4, `agents`).
       handle.run(

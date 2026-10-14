@@ -41,7 +41,9 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import type { IngestHooks } from "../ingest/ingestor";
 import { withWorkViews, workRefOf } from "../views/work";
-import type { Caps, HostOp, SteerOp, WorkerEvent } from "../workers/types";
+import type { Caps, HostOp, SteerOp, WorkerEvent, WorkerReport } from "../workers/types";
+
+import type { BackstopSnapshot } from "./backstop";
 
 import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
 import {
@@ -53,6 +55,7 @@ import {
 } from "./intents";
 import { type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { activeRuns, endRun, findRun, type StoredRun } from "./records";
+import type { RunFinisher } from "./verify-commit";
 
 /** The error of `work.stop` for a story with no active run (0005 section 4). */
 export const STORY_NOT_RUNNING = "story.notRunning";
@@ -69,6 +72,7 @@ export const STOPPED_DETAIL = "Stopped by the maintainer.";
 /** `engine.notice` codes of run control. */
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",
+  feedbackNotSent: "run.feedbackNotSent",
 } as const;
 
 /** Sends host ops to a run's worker host. */
@@ -94,13 +98,19 @@ export interface RunControlDeps {
   /** Called after change-log entries were appended outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Reads the parked story again on its branch (DIPO-56), so the story view and snapshots say
-   * Parked with the F16 record at once. The park already emitted the story's state.
+   * Reads the story again at its branch tip after the park commit or the In Review commit
+   * (DIPO-56), so the story view and snapshots say Parked (with the F16 record) or In Review at
+   * once. Both already emitted the story's state.
    */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The cap tick; one minute by default. */
   readonly tickMs?: number;
+  /**
+   * Verify and commit (DIPO-49): the backstop after every turn and the In Review transition at
+   * a `done` report. Without it a turn decides nothing beyond caps and blocked reports.
+   */
+  readonly finisher?: RunFinisher;
 }
 
 /** What a started run is tracked with. */
@@ -110,6 +120,8 @@ export interface TrackedRun {
   readonly caps: Caps;
   /** When the worker started (its host start), on the engine clock. */
   readonly startedAt: number;
+  /** The backstop snapshot taken before the worker started (DIPO-49); null without one. */
+  readonly snapshot?: BackstopSnapshot | null;
 }
 
 interface Tracked extends TrackedRun {
@@ -117,6 +129,10 @@ interface Tracked extends TrackedRun {
   timer: TimerHandle | null;
   /** Set at the first decision; nothing else is decided for the run after it. */
   ending: Promise<ParkOutcome | null> | null;
+  /** The after-turn work of the run, one turn at a time (DIPO-49). */
+  turns: Promise<void>;
+  /** The newest worker report, for the run summary. */
+  lastReport: WorkerReport | null;
 }
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */
@@ -126,6 +142,8 @@ interface Ending {
   readonly reason: ParkReason;
   readonly detail: string;
   readonly endKind: string;
+  /** The report that led to the end, when a turn decided it. */
+  readonly report?: WorkerReport | null;
 }
 
 type StopArgs = { readonly story: string; readonly note?: string | undefined };
@@ -173,7 +191,14 @@ export class RunControl {
   /** Starts tracking a started run; call it before ingestion starts, so no event is missed. */
   track(office: OfficeId, run: TrackedRun): void {
     if (this.#tracked.has(run.runId)) return;
-    const tracked: Tracked = { ...run, office, timer: null, ending: null };
+    const tracked: Tracked = {
+      ...run,
+      office,
+      timer: null,
+      ending: null,
+      turns: Promise.resolve(),
+      lastReport: null,
+    };
     this.#tracked.set(run.runId, tracked);
     this.#arm(tracked);
   }
@@ -224,6 +249,7 @@ export class RunControl {
           return;
         }
         const report = event.report;
+        if (report !== null) tracked.lastReport = report;
         if (report?.status === "blocked") {
           const permission = report.needsPermission;
           const reason: ParkReason =
@@ -241,6 +267,8 @@ export class RunControl {
           });
           return;
         }
+        // The backstop, and verify and commit at `done` (DIPO-49), after the pass, in turn order.
+        if (this.#deps.finisher !== undefined) this.#afterTurn(tracked, report);
       }
       // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
       const fired = this.#crossings.get(event);
@@ -326,6 +354,7 @@ export class RunControl {
     endKind = RECONCILED_END,
   ): Promise<void> {
     const tracked = this.#tracked.get(run.runId);
+    const lastReport = tracked?.lastReport ?? null;
     if (tracked !== undefined) {
       this.#disarm(tracked);
       this.#tracked.delete(run.runId);
@@ -358,6 +387,13 @@ export class RunControl {
       return entries.length;
     });
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
+    // The run summary (DIPO-49), as for every run that ends here.
+    await this.#deps.finisher?.summarize(office, run, lastReport).catch((thrown: unknown) => {
+      this.#deps.warn?.("storing the run summary failed", {
+        run: run.runId,
+        reason: messageOf(thrown),
+      });
+    });
   }
 
   /**
@@ -551,19 +587,169 @@ export class RunControl {
           endKind: ending.endKind,
         },
       );
-      if (
-        run.key !== null &&
-        writer === this.#deps.writer &&
-        this.#deps.refreshStory !== undefined
-      ) {
-        await this.#deps.refreshStory(office.officeId, run.key).catch((thrown: unknown) => {
-          this.#deps.warn?.("reading the parked story again failed", {
+      // The run summary (DIPO-49): every run that ends here gets one.
+      await this.#deps.finisher
+        ?.summarize(office, run, this.#tracked.get(run.runId)?.lastReport ?? ending.report ?? null)
+        .catch((thrown: unknown) => {
+          this.#deps.warn?.("storing the run summary failed", {
             run: run.runId,
             reason: messageOf(thrown),
           });
         });
-      }
+      // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
+      if (writer === this.#deps.writer) await this.#refresh(office, run, "parked");
       return parked;
     })();
+  }
+
+  // ---- after every turn (DIPO-49) --------------------------------------------------------------
+
+  /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
+  #afterTurn(tracked: Tracked, report: WorkerReport | null): void {
+    const job = tracked.turns
+      .then(() => this.#runTurn(tracked, report))
+      .catch((error: unknown) => {
+        this.#deps.warn?.("verify and commit after a turn failed", {
+          run: tracked.runId,
+          reason: messageOf(error),
+        });
+      });
+    tracked.turns = job;
+    this.#inflight.add(job);
+    void job.finally(() => this.#inflight.delete(job));
+  }
+
+  async #runTurn(tracked: Tracked, report: WorkerReport | null): Promise<void> {
+    const finisher = this.#deps.finisher;
+    if (finisher === undefined || tracked.ending !== null) return;
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    const run = findRun(office, tracked.runId);
+    if (run === null || run.endedAt !== null) return;
+    const { promise: mine, resolve: settle } = Promise.withResolvers<ParkOutcome | null>();
+    const claim = (): boolean => {
+      if (tracked.ending !== null) return tracked.ending === mine;
+      this.#disarm(tracked);
+      tracked.ending = mine;
+      return true;
+    };
+    const write = this.#writer(office, tracked.office);
+    try {
+      const decision = await finisher.afterTurn({
+        office,
+        run,
+        work: tracked.work,
+        report,
+        snapshot: tracked.snapshot ?? null,
+        live: () => tracked.ending === null || tracked.ending === mine,
+        claimEnd: claim,
+        write: (fn) => write(() => withWorkViews(office, fn())),
+        flushOutput: () => this.#deps.flushOutput?.(office.officeId, run.runId),
+      });
+      switch (decision.kind) {
+        case "continue":
+          return;
+        case "park": {
+          if (!claim()) return;
+          const outcome = await this.#end(
+            office,
+            run,
+            tracked.work,
+            {
+              intent: "park",
+              ops: [{ closeStdin: true }],
+              reason: decision.reason,
+              detail: decision.detail,
+              endKind: decision.endKind,
+              report,
+            },
+            write,
+          );
+          settle(outcome);
+          return;
+        }
+        case "feedback":
+          if (tracked.ending !== null) return;
+          await this.#sendFeedback(office, run, decision.text, write);
+          return;
+        case "ended":
+          // The In Review commit is read again at the branch tip (DIPO-56).
+          await this.#refresh(office, run, "In Review");
+          // The worker's turn ended and it waits on stdin: closing it ends the worker.
+          await this.#deps.steering.send(office, run.runId, [{ closeStdin: true }]).catch(() => {
+            // A worker that already exited needs nothing more.
+          });
+          return;
+      }
+    } finally {
+      settle(null);
+    }
+  }
+
+  /**
+   * Reads the run's story again at its branch tip after a status commit there (DIPO-56), so the
+   * story view and snapshots read the new status at once. A read that fails is logged; the next
+   * index pass reads it.
+   */
+  async #refresh(office: OfficeHandle, run: StoredRun, what: string): Promise<void> {
+    if (run.key === null || this.#deps.refreshStory === undefined) return;
+    await this.#deps.refreshStory(office.officeId, run.key).catch((thrown: unknown) => {
+      this.#deps.warn?.(`reading the ${what} story again failed`, {
+        run: run.runId,
+        reason: messageOf(thrown),
+      });
+    });
+  }
+
+  /** Sends a verify feedback item as the next user message, stored first as a `steer` intent. */
+  async #sendFeedback(
+    office: OfficeHandle,
+    run: StoredRun,
+    text: string,
+    write: (fn: () => readonly NewEntry[]) => void,
+  ): Promise<void> {
+    const intentId = office.immediate(() =>
+      recordIntent(office, run.runId, "steer", "verify feedback", this.#deps.clock.now()),
+    );
+    let error: string | null = null;
+    try {
+      const sent = await this.#deps.steering.send(
+        office,
+        run.runId,
+        this.#deps.encode({ kind: "steer", text }),
+      );
+      if (!sent.ok) error = sent.reason;
+    } catch (thrown) {
+      error = messageOf(thrown);
+    }
+    const at = this.#deps.clock.now();
+    office.immediate(() => markIntentSent(office, run.runId, intentId, at, error));
+    if (error !== null) {
+      write(() => [
+        {
+          type: "engine.notice",
+          ...(run.key === null ? {} : { key: run.key }),
+          run: run.runId,
+          delta: {
+            level: "warn",
+            code: CONTROL_NOTICES.feedbackNotSent,
+            text: `${run.story ?? run.runId}: dipo could not send the verify feedback to its worker (${error}).`,
+          },
+        },
+      ]);
+    }
+  }
+
+  /** Writes entries outside a command: one transaction, then subscribers are told. */
+  #writer(office: OfficeHandle, officeId: OfficeId): (fn: () => readonly NewEntry[]) => void {
+    return (fn) => {
+      const at = this.#deps.clock.now();
+      const appended = office.immediate(() => {
+        const entries = fn() ?? [];
+        appendEntries(office, entries, { at });
+        return entries.length;
+      });
+      if (appended > 0) this.#deps.onChanged?.(officeId);
+    };
   }
 }

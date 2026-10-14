@@ -630,6 +630,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
+      work,
     });
     // Reconcile (DIPO-56, 0007 section 6): the last office load step, so every office the daemon
     // loads in `recovering` (below) is reconciled before scheduling turns on; `office.rescan` runs

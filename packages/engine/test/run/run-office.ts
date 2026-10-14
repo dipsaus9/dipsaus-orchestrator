@@ -30,6 +30,9 @@ import { ensurePrivateDir } from "../../src/platform/paths";
 import {
   cliRunBase,
   gitParkWriter,
+  gitStoryOps,
+  readBackstop,
+  VerifyCommit,
   type HostStarter,
   OfficeIngest,
   RunControl,
@@ -38,6 +41,8 @@ import {
   WorkRun,
 } from "../../src/run";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/runs/worker-hosts";
+import type { StepResult } from "../../src/sandbox/step";
+import type { RunProfile } from "../../src/scan/detect";
 import { StoryIndex } from "../../src/stories/feature";
 import { claudeCliAdapter, claudeLaunchContext } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -90,6 +95,17 @@ export interface RunOfficeOptions {
   readonly recording?: string;
   /** Wires run control; `caps` replaces the tier's caps it tracks the run with. */
   readonly control?: { readonly caps?: Partial<Caps> };
+  /**
+   * Wires verify and commit (DIPO-49) into run control, on the office git and the Backlog CLI,
+   * with a fake sandboxed step: each verify command exits with the next of `exitCodes` (0 when
+   * none are left). `beforeWorker` runs in the worktree when the host starts, after the backstop
+   * snapshot, like the worker's own edits. `profile` is the run profile, base and branch.
+   */
+  readonly finisher?: {
+    readonly exitCodes?: number[];
+    readonly beforeWorker?: (worktree: string) => Promise<void> | void;
+    readonly profile: RunProfile;
+  };
 }
 
 /** The fixture on a bare `origin` with TASK-1 made to pass the Ready gate. */
@@ -171,6 +187,7 @@ export async function withRunOffice(
       const hostStarter: HostStarter = {
         start: async (office, run) => {
           hosts.push({ runId: run.runId, plan: run.plan });
+          await options.finisher?.beforeWorker?.(run.plan.cwd);
           const runDir = runDirectory(run.officeDir, run.runId);
           const socketPath = hostSocketPath(runtimeDir, run.runId);
           const host: LaunchedHost = {
@@ -224,10 +241,41 @@ export async function withRunOffice(
         },
       };
       let ingest: OfficeIngest | null = null;
+      const finisherOptions = options.finisher;
+      const exitCodes = [...(finisherOptions?.exitCodes ?? [])];
+      const finisher =
+        finisherOptions === undefined
+          ? undefined
+          : new VerifyCommit({
+              get clock() {
+                return loaded().clock;
+              },
+              story: gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+              mainCheckout: () => repo.dir,
+              runStep: async (request): Promise<StepResult> => {
+                const code = exitCodes.shift() ?? 0;
+                const text = code === 0 ? "1 pass\n" : "1 fail\n";
+                request.onOutput?.(text);
+                return {
+                  outcome: "exited",
+                  code,
+                  signal: null,
+                  timedOut: false,
+                  stdout: { text, truncated: false },
+                  stderr: { text: "", truncated: false },
+                  warnings: [],
+                };
+              },
+              config: (office) => loaded().manager.config(office),
+              profile: () => finisherOptions.profile,
+              scanWorktree: async () => finisherOptions.profile,
+              host: { home: repo.root, uid: 501, env: { PATH: "/usr/bin:/bin" } },
+            });
       const control =
         options.control === undefined
           ? null
           : new RunControl({
+              ...(finisher === undefined ? {} : { finisher }),
               get clock() {
                 return loaded().clock;
               },
@@ -272,6 +320,15 @@ export async function withRunOffice(
               },
             }),
         release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+        ...(finisher === undefined
+          ? {}
+          : {
+              snapshot: (office: OfficeId, worktree: string) => {
+                const git = engineGit.forOffice(office);
+                if (git === undefined) throw new Error("no git");
+                return readBackstop(git, worktree);
+              },
+            }),
       });
       const workRun = new WorkRun({
         offices: {

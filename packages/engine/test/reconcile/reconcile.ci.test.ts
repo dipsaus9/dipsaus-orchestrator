@@ -372,6 +372,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(passes).toBe(1);
         expect(report.findings.map((f) => f.code)).toContain(RECONCILE_NOTICES.orphanClaim);
         expect(findRun(w.o.office, claimed.runId)?.endKind).toBe(ORPHANED);
+        expect(
+          w.o.office.get<{ n: number }>(
+            "select count(*) as n from run_outcomes where office_id = $office_id and run_id = $run",
+            { run: claimed.runId },
+          )?.n,
+        ).toBe(1);
       }));
 
     it("runs as the last office load step, so a mismatch found at load is acted on before any command", () => {
