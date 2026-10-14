@@ -42,7 +42,7 @@ import {
   RunResumer,
   runIntents,
 } from "../../src/run";
-import { activeSignals } from "../../src/run/signals";
+import { activeSignals, raiseSignal } from "../../src/run/signals";
 import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -618,7 +618,9 @@ function countDaily(): number {
 /** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
 function realResumer(
   hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
-  extra: Pick<ConstructorParameters<typeof RunResumer>[0], "probe" | "hostExitWaitMs"> = {},
+  extra: Partial<
+    Pick<ConstructorParameters<typeof RunResumer>[0], "probe" | "hostExitWaitMs" | "ingest">
+  > = {},
 ): RunResumer {
   const worker: WorkerPort = {
     id: "claude-cli",
@@ -740,6 +742,64 @@ describe("restart windows of DIPO-51's review", () => {
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: recorded as unknown as string, outcome: "follow" },
     ]);
+  });
+
+  it("signals the next session clears end with its agent, so a plan limit its first pass meets stays raised", async () => {
+    beforeRestart("terminated", 0);
+    w.f.office.immediate(() => {
+      w.f.office.run(
+        `update agents set ended_at = 1, end_reason = 'exited', session_id = 'session-1'
+          where office_id = $office_id and agent_id = $agent`,
+        { agent: w.f.agent },
+      );
+      // The held run: its plan limit and the restart's host signal.
+      raiseSignal(w.f.office, w.f.run, "plan-limit", 1);
+      raiseSignal(w.f.office, w.f.run, "follow-only", 1);
+    });
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
+    const resumer = realResumer(
+      {
+        start: async (office, options) => {
+          const host = {
+            pid: 4243,
+            startTimeMs: 0,
+            runId: options.runId,
+            agentId: options.agentId,
+            socketPath: join(w.dir, "host.sock"),
+            protocolVersion: 1,
+            runDir,
+            eventFile: join(runDir, "events.ndjson"),
+          };
+          recordWorkerHost(office, host, w.f.t.clock, {
+            ...(options.processedOffset === undefined
+              ? {}
+              : { processedOffset: options.processedOffset }),
+            ...(options.record === undefined ? {} : { record: options.record }),
+          });
+          return host;
+        },
+      },
+      {
+        probe: async () => null,
+        // The new host wrote a rate-limit rejection before its ingestion started: the first pass,
+        // synchronous in `start`, raises the plan limit again.
+        ingest: {
+          start: (office) => {
+            office.immediate(() => raiseSignal(office, w.f.run, "plan-limit", 2));
+          },
+        },
+      },
+    );
+    const outcome = await resumer.next({ ...nextRequest(), clear: ["plan-limit"] });
+    expect(outcome.kind).toBe("started");
+    expect(signals()).toEqual(["plan-limit"]);
+    const cleared = loggedEvents(w.f.office)
+      .filter((event) => event.type === "work.observed")
+      .map((event) => (event.data as { signal: string }).signal)
+      .toSorted();
+    expect(cleared).toEqual(["follow-only", "plan-limit"]);
   });
 
   it("the next session waits for an earlier host of the run, then refuses with run.hostAlive (AC #5)", async () => {

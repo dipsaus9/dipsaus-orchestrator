@@ -392,9 +392,12 @@ export class RunResumer implements NextSession {
     }
     // The host row, its start offset and the new agent are one transaction (DIPO-57), so a daemon
     // that stops while the host starts finds the new agent at its restart and follows its host
-    // instead of starting another session.
+    // instead of starting another session. The same transaction ends what the restart observed of
+    // the old host (DIPO-57) and the signals the caller names (DIPO-61), before the new session's
+    // first ingestion pass can raise any of them again.
+    const work: WorkRef = { ...request.work, agent, model: tier.model };
     let recorded = false;
-    const recordAgent = () =>
+    const recordAgent = () => {
       office.run(
         `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
            session_id, system_hash, started_at)
@@ -411,6 +414,33 @@ export class RunResumer implements NextSession {
           at: deps.clock.now(),
         },
       );
+      const at = deps.clock.now();
+      const cleared = clearSignals(
+        office,
+        run.runId,
+        [...HOST_SIGNALS, ...(request.clear ?? [])],
+        at,
+      );
+      if (cleared.length === 0) return;
+      appendEntries(
+        office,
+        withWorkViews(
+          office,
+          cleared.map((signal): NewEntry => ({
+            type: "work.observed",
+            key: work.key,
+            run: run.runId,
+            delta: {
+              work,
+              signal: signal.signal,
+              since: new Date(signal.since).toISOString(),
+              clearedAt: new Date(at).toISOString(),
+            },
+          })),
+        ),
+        { at },
+      );
+    };
     let host;
     try {
       host = await deps.hosts.start(office, {
@@ -427,7 +457,6 @@ export class RunResumer implements NextSession {
     } catch (error) {
       return { kind: "failed", reason: `the worker host did not start: ${messageOf(error)}` };
     }
-    const work: WorkRef = { ...request.work, agent, model: tier.model };
     if (!recorded) {
       // A host starter that does not take the extras: the same writes, after the start.
       office.immediate(() => {
@@ -462,24 +491,6 @@ export class RunResumer implements NextSession {
       ? `${story}: dipo resumed the worker's session after ${request.why}.`
       : `${story}: dipo started a new session with a handoff after ${request.why}${notResumed === undefined ? "" : ` (no resume: ${notResumed})`}.`;
     this.#write(office, request.office, () => [
-      // A new session ends what the restart observed of the old host (DIPO-57) and the signals
-      // the caller names (DIPO-61).
-      ...clearSignals(
-        office,
-        run.runId,
-        [...HOST_SIGNALS, ...(request.clear ?? [])],
-        deps.clock.now(),
-      ).map((cleared): NewEntry => ({
-        type: "work.observed",
-        key: work.key,
-        run: run.runId,
-        delta: {
-          work,
-          signal: cleared.signal,
-          since: new Date(cleared.since).toISOString(),
-          clearedAt: new Date(cleared.clearedAt ?? cleared.since).toISOString(),
-        },
-      })),
       { type: "work.assigned", key: work.key, run: run.runId, delta: { work } },
       {
         type: "engine.notice",
