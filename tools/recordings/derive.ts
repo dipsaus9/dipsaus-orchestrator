@@ -323,6 +323,65 @@ export const TRANSFORMS: readonly Transform[] = [
       ),
   },
   {
+    name: "plan-limit-rejected",
+    from: "success-single",
+    transform:
+      'The first rate_limit_event becomes status "rejected" (five_hour, its resetsAt kept); the stream ends after it with exit 0, as when the engine closes stdin.',
+    expected:
+      "Outcome plan-limit: stdin closed, a wait fact { scope, resetsAt?, since } on the run, work.observed plan-limit (health limited); never a park (0008 section 7).",
+    cites: [
+      'rate_limit_event status "rejected" is illustrative; live runs showed only "allowed" (0008 source 10)',
+    ],
+    apply: (lines) => {
+      const index = indexOf(lines, (line) => isType(line, "rate_limit_event"));
+      const event = at(lines, index);
+      const data = clone(event.data as Data);
+      const info = isRecord(data.rate_limit_info) ? data.rate_limit_info : {};
+      return [
+        ...lines.slice(0, index).map(clone),
+        {
+          t: event.t,
+          ch: "stdout",
+          data: { ...data, rate_limit_info: { ...info, status: "rejected" } },
+        },
+        exit(event.t + 40, 0),
+      ];
+    },
+  },
+  {
+    name: "plan-limit-429",
+    from: "success-single",
+    transform:
+      "The first result becomes error_during_execution with api_error_status 429 and no report; exit 1.",
+    expected:
+      "Outcome plan-limit: a turn ended by a 429 rate-limit error is a rejected plan limit; never a park (0008 section 7).",
+    cites: [CITE_RESULT, CITE_TERMINAL],
+    apply: (lines) =>
+      replaceFirstResult(
+        lines,
+        (result) => ({ ...failure(result, "error_during_execution"), api_error_status: 429 }),
+        1,
+      ),
+  },
+  {
+    name: "model-switch",
+    from: "success-single",
+    transform:
+      'The first main-agent assistant message reports model "claude-sonnet-4-5", a classifier switch the plan did not ask for.',
+    expected:
+      "A classifier switch: recorded on the run with an engine.notice, the next system/init on that model is accepted, no park (0008 section 2).",
+    cites: ["the switched model is illustrative; no live run switched models"],
+    apply: (lines) => {
+      const index = indexOf(lines, (line) => isType(line, "assistant"));
+      return lines.map((line, i) => {
+        if (i !== index) return clone(line);
+        const data = clone(line.data as Data);
+        const message = isRecord(data.message) ? data.message : {};
+        return { ...line, data: { ...data, message: { ...message, model: "claude-sonnet-4-5" } } };
+      });
+    },
+  },
+  {
     name: "stall",
     from: "success-tools-subagent",
     transform: "A 30-minute gap in t after the first assistant message.",
