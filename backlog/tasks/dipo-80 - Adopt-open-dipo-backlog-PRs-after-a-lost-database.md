@@ -1,10 +1,10 @@
 ---
 id: DIPO-80
 title: Adopt open dipo/backlog-* PRs after a lost database
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-14 13:14'
-updated_date: '2026-10-14 16:21'
+updated_date: '2026-10-14 16:46'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -53,8 +53,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 At daemon start and on office.rescan, reconcile lists the open pull requests on the office's repository whose head branch starts with dipo/backlog- through the code host, and a new code-host listing call does that without changing the existing ones.
-- [ ] #2 An open dipo/backlog-* PR that backlog_prs does not know is adopted into backlog_prs and the lane, so the merge slot and the lane treat it as the office's backlog PR, with an engine.notice; at most one backlog PR stays open per office.
-- [ ] #3 The structural check of an adopted PR runs as for any backlog PR; a new Ready with no stored gate decision (lost with the database) fails it with a notice naming the story, and nothing is merged until the gate passes again.
-- [ ] #4 More than one open dipo/backlog-* PR, or one whose branch the lane cannot rebuild from, is reported with a notice and not adopted; nothing is closed or force-pushed.
+- [x] #1 At daemon start and on office.rescan, reconcile lists the open pull requests on the office's repository whose head branch starts with dipo/backlog- through the code host, and a new code-host listing call does that without changing the existing ones.
+- [x] #2 An open dipo/backlog-* PR that backlog_prs does not know is adopted into backlog_prs and the lane, so the merge slot and the lane treat it as the office's backlog PR, with an engine.notice; at most one backlog PR stays open per office.
+- [x] #3 The structural check of an adopted PR runs as for any backlog PR; a new Ready with no stored gate decision (lost with the database) fails it with a notice naming the story, and nothing is merged until the gate passes again.
+- [x] #4 More than one open dipo/backlog-* PR, or one whose branch the lane cannot rebuild from, is reported with a notice and not adopted; nothing is closed or force-pushed.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Merged without a hand test (2026-10-14): the behaviour needs a lost database and a real backlog PR, so the CI tests in adopt.ci.test.ts and reconcile.ci.test.ts cover it against real repos with a fake host. Review advisories fixed in 9b3772a, 1f4fb81, 40d2eeb. Known: an adopted-only branch the lane cannot rebuild is let go and its PR stays open on the host (story rule: nothing is closed); the lane may then open a second dipo/backlog-* PR, and a later database loss would refuse both.
+<!-- SECTION:NOTES:END -->
