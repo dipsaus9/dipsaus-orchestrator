@@ -29,6 +29,7 @@ import { officeStatusesReady } from "../../src/office/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
 import {
   baseStoryFacts,
+  capsOf,
   cliRunBase,
   gitParkWriter,
   gitStoryOps,
@@ -36,6 +37,7 @@ import {
   VerifyCommit,
   type HostStarter,
   OfficeIngest,
+  PlanLimits,
   RunControl,
   type RunSteering,
   RunLauncher,
@@ -104,6 +106,8 @@ export interface Running {
   readonly outcomes: RunOutcomes | null;
   /** Each ingestion start with the host row's `processed_offset` at that moment. */
   readonly starts: { agent: string; processedOffset: number }[];
+  /** The plan-limit schedule, when the office was set up with it (DIPO-61). */
+  readonly planLimits: PlanLimits | null;
 }
 
 export interface RunOfficeOptions {
@@ -119,6 +123,11 @@ export interface RunOfficeOptions {
    * replay hosts.
    */
   readonly outcomes?: boolean;
+  /**
+   * Wires the plan-limit schedule (DIPO-61) into worker outcomes (which `outcomes` must also ask
+   * for), with the tier caps a held run is resumed with.
+   */
+  readonly planLimits?: boolean;
   /** Wires run control; `caps` replaces the tier's caps it tracks the run with. */
   readonly control?: { readonly caps?: Partial<Caps> };
   /**
@@ -319,6 +328,7 @@ export async function withRunOffice(
               host: { home: repo.root, uid: 501, env: { PATH: "/usr/bin:/bin" } },
             });
       let outcomes: RunOutcomes | null = null;
+      let planLimits: PlanLimits | null = null;
       const control =
         options.control === undefined
           ? null
@@ -392,8 +402,24 @@ export async function withRunOffice(
           holdsWork: storyHoldsWork(
             gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
           ),
-          caps: () => null,
+          caps: (office, run) => {
+            if (options.planLimits !== true || run.tier === null) return null;
+            const tier = loaded().manager.config(office)?.tiers[run.tier as "S" | "M" | "L"];
+            return tier === undefined ? null : capsOf(tier);
+          },
+          waits: () => planLimits ?? undefined,
         });
+        if (options.planLimits === true) {
+          const decided = outcomes;
+          planLimits = new PlanLimits({
+            get clock() {
+              return loaded().clock;
+            },
+            offices,
+            resume: (office, run, why) => decided.resumeWait(office, run, why),
+            holds,
+          });
+        }
       }
       const launcher = new RunLauncher({
         worker,
@@ -483,8 +509,10 @@ export async function withRunOffice(
           sent,
           outcomes,
           starts,
+          planLimits,
         });
       } finally {
+        planLimits?.close();
         control?.close();
         ingest.close();
         index.stop();

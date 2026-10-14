@@ -211,11 +211,11 @@ describe("office commands and reads", () => {
     "story.gate": 1,
     "work.preview": 1,
     "office.switch": 1,
+    "work.resume": 1,
   };
   const provisional = [
     "work.steer",
     "work.pause",
-    "work.resume",
     "work.reassign",
     "work.discard",
     "story.hold",

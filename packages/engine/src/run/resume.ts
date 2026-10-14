@@ -20,7 +20,8 @@
 //   previous session's stored state (`WorkerPort.initialState(spec, previous)`), so a resume does
 //   not count restored spend twice.
 // - It records the agent (session, effort, system hash), emits `work.assigned` for the new agent
-//   and an `engine.notice` `run.resumed` or `run.handoff`.
+//   and an `engine.notice` `run.resumed` or `run.handoff`. Signals the caller names (`clear`, the
+//   `plan-limit` of a held run, DIPO-61) end in the transaction that records the agent.
 
 import { statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -33,6 +34,7 @@ import type {
   OfficeId,
   RetryableErrorCode,
   RunId,
+  WatchdogSignal,
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
@@ -168,6 +170,12 @@ export interface NextSessionRequest {
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
   readonly snapshot: BackstopSnapshot | null;
+  /**
+   * Signals of the run that end when the new session starts (the `plan-limit` of a held run,
+   * DIPO-61): cleared, with their `work.observed`, in the transaction that records the new agent,
+   * so a limit the new session meets raises the signal again.
+   */
+  readonly clear?: readonly WatchdogSignal[];
 }
 
 export type NextSessionOutcome =
@@ -454,20 +462,24 @@ export class RunResumer implements NextSession {
       ? `${story}: dipo resumed the worker's session after ${request.why}.`
       : `${story}: dipo started a new session with a handoff after ${request.why}${notResumed === undefined ? "" : ` (no resume: ${notResumed})`}.`;
     this.#write(office, request.office, () => [
-      // A new session ends what the restart observed of the old host (DIPO-57).
-      ...clearSignals(office, run.runId, HOST_SIGNALS, deps.clock.now()).map(
-        (cleared): NewEntry => ({
-          type: "work.observed",
-          key: work.key,
-          run: run.runId,
-          delta: {
-            work,
-            signal: cleared.signal,
-            since: new Date(cleared.since).toISOString(),
-            clearedAt: new Date(cleared.clearedAt ?? cleared.since).toISOString(),
-          },
-        }),
-      ),
+      // A new session ends what the restart observed of the old host (DIPO-57) and the signals
+      // the caller names (DIPO-61).
+      ...clearSignals(
+        office,
+        run.runId,
+        [...HOST_SIGNALS, ...(request.clear ?? [])],
+        deps.clock.now(),
+      ).map((cleared): NewEntry => ({
+        type: "work.observed",
+        key: work.key,
+        run: run.runId,
+        delta: {
+          work,
+          signal: cleared.signal,
+          since: new Date(cleared.since).toISOString(),
+          clearedAt: new Date(cleared.clearedAt ?? cleared.since).toISOString(),
+        },
+      })),
       { type: "work.assigned", key: work.key, run: run.runId, delta: { work } },
       {
         type: "engine.notice",

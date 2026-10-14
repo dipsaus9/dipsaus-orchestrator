@@ -27,8 +27,10 @@
 // - `pause` `plan-limit {scope, resetsAt?, since}`: a rejected plan limit (a `rate_limit_event`
 //   `rejected`, `credits_required`, or a 429 turn) closes stdin, writes the wait fact on the run,
 //   raises the `plan-limit` signal with `work.observed plan-limit` (health `limited`), and never
-//   parks: run and claim stay. `credits` also holds the adapter with a notice. Waiting for the
-//   reset is DIPO-61's (`openWait`).
+//   parks: run and claim stay. `credits` also holds the adapter with a notice. The plan-limit
+//   schedule (DIPO-61, `plan-limit.ts`) is told of the fact; it holds scheduling on the scope and
+//   calls `resumeWait` after the reset, which resumes the session with "continue" and clears the
+//   signal. An `allowed_warning` goes to the schedule too (`onPlanWarning`).
 // - A classifier switch is recorded in the session's parser state and announced once per run and
 //   model with `engine.notice` `run.modelSwitched`; it never parks.
 //
@@ -36,7 +38,13 @@
 // read from facts (`run_intents`, `agents.end_reason`), so a restart keeps them. Every run that
 // ends goes through `endRun` (a park, or the claim release of a start failure).
 
-import type { Clock, OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
+import type {
+  Clock,
+  OfficeId,
+  RunId,
+  WatchdogSignal,
+  WorkRef,
+} from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
@@ -47,7 +55,7 @@ import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { workRefOf, withWorkViews } from "../views/work";
 import { type AdapterHold, holdMessage, type LaunchCheckFailure } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
-import type { Caps, HostOp, SteerOp, TurnProblem } from "../workers/types";
+import type { Caps, HostOp, PlanLimitScope, SteerOp, TurnProblem } from "../workers/types";
 import { type ClaimRecord, findClaim, releaseClaim } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
@@ -108,6 +116,9 @@ export const REASSIGN_SIGTERM_AFTER_MS = 10_000;
 /** Milliseconds to SIGKILL after a rejected init. */
 export const INIT_REJECTED_SIGKILL_AFTER_MS = 30_000;
 
+/** The first message of a session resumed after a plan-limit reset (0008 section 7). */
+export const PLAN_LIMIT_CONTINUE = "continue";
+
 /** The office load step that decides exits a restart left undecided (maintainer decision Q6). */
 export const REDISPATCH_STEP = "run-outcomes/redispatch";
 
@@ -138,9 +149,15 @@ function intentRest(detail: string): string {
   return space === -1 ? "" : detail.slice(space + 1);
 }
 
+/**
+ * The scope of a wait fact (0008 section 7): what the adapter named, `credits` for
+ * `credits_required`, or `unknown` (treated as `session`).
+ */
+export type WaitScope = PlanLimitScope | "credits" | "unknown";
+
 /** The wait fact of a plan-limit hold (0008 section 7, maintainer decision Q3a). */
 export interface WaitFact {
-  readonly scope: "unknown" | "credits";
+  readonly scope: WaitScope;
   /** ISO time the limit resets, when the event said. */
   readonly resetsAt?: string;
   /** When the wait began, on the engine clock. */
@@ -213,13 +230,34 @@ export interface ExitContext {
   readonly end: IngestedExit;
 }
 
+/** A rejected plan limit as run control hands it over. */
+export interface PlanLimitHit {
+  readonly credits: boolean;
+  readonly resetsAt?: string;
+  readonly scope?: PlanLimitScope;
+}
+
+/** An `allowed_warning` as run control hands it over (DIPO-61). */
+export interface PlanLimitWarning {
+  readonly resetsAt?: string;
+  readonly scope?: PlanLimitScope;
+}
+
+/**
+ * The plan-limit schedule (DIPO-61, `plan-limit.ts`): told of every wait fact written and every
+ * `allowed_warning`, it holds scheduling on the scope and resumes the run after the reset.
+ */
+export interface PlanLimitWaits {
+  waiting(office: OfficeId, runId: RunId, fact: WaitFact): void;
+  warned(office: OfficeId, warning: PlanLimitWarning): void;
+}
+
 /** What run control calls. */
 export interface RunOutcomesPort {
   onTurnProblem(view: RunView, problem: TurnProblem): Promise<void>;
-  onPlanLimit(
-    view: RunView,
-    limit: { readonly credits: boolean; readonly resetsAt?: string },
-  ): void;
+  onPlanLimit(view: RunView, limit: PlanLimitHit): void;
+  /** An `allowed_warning`: new runs on the scope wait for the reset (DIPO-61). */
+  onPlanWarning?(view: RunView, warning: PlanLimitWarning): void;
   onModelSwitched(view: RunView, model: string): void;
   /** A turn arrived: an open report feedback is answered. */
   answered(view: RunView): void;
@@ -282,6 +320,8 @@ export interface RunOutcomesDeps {
   ) => Promise<boolean>;
   /** The caps of a run that is no longer tracked (after a restart). */
   readonly caps?: (office: OfficeId, run: StoredRun) => Caps | null;
+  /** The plan-limit schedule (DIPO-61); read when needed, since it is built after this. */
+  readonly waits?: () => PlanLimitWaits | undefined;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -421,15 +461,12 @@ export class RunOutcomes implements RunOutcomesPort {
     });
   }
 
-  onPlanLimit(
-    view: RunView,
-    limit: { readonly credits: boolean; readonly resetsAt?: string },
-  ): void {
+  onPlanLimit(view: RunView, limit: PlanLimitHit): void {
     const office = this.#deps.offices.get(view.office);
     if (office === undefined) return;
     const since = this.#deps.clock.now();
     const fact: WaitFact = {
-      scope: limit.credits ? "credits" : "unknown",
+      scope: limit.credits ? "credits" : (limit.scope ?? "unknown"),
       ...(limit.resetsAt === undefined || limit.credits ? {} : { resetsAt: limit.resetsAt }),
       since,
     };
@@ -440,6 +477,10 @@ export class RunOutcomes implements RunOutcomesPort {
     });
     if (!acted) return;
     this.#hold(office, view.runId, view.work, fact);
+  }
+
+  onPlanWarning(view: RunView, warning: PlanLimitWarning): void {
+    this.#deps.waits?.()?.warned(view.office, warning);
   }
 
   /** The signal, `work.observed plan-limit` and, for credits, the adapter hold and a notice. */
@@ -480,6 +521,8 @@ export class RunOutcomes implements RunOutcomesPort {
       }
       return entries;
     });
+    // The schedule holds the scope and resumes the run after the reset (DIPO-61).
+    this.#deps.waits?.()?.waiting(office.officeId, runId, fact);
   }
 
   onModelSwitched(view: RunView, model: string): void {
@@ -865,6 +908,7 @@ export class RunOutcomes implements RunOutcomesPort {
       readonly message?: string;
       /** Only a resume will do; a session that cannot be resumed parks `interrupted` (DIPO-57). */
       readonly requireResume?: boolean;
+      readonly clear?: readonly WatchdogSignal[];
     },
   ): Promise<boolean> {
     const resumer = this.#deps.resumer;
@@ -888,6 +932,7 @@ export class RunOutcomes implements RunOutcomesPort {
         why: request.why,
         ...(request.message === undefined ? {} : { message: request.message }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
+        ...(request.clear === undefined ? {} : { clear: request.clear }),
         caps: view.caps,
         startedAt: view.startedAt,
         snapshot: view.snapshot,
@@ -1151,6 +1196,74 @@ export class RunOutcomes implements RunOutcomesPort {
       });
     }
     return count;
+  }
+
+  /**
+   * Resumes a run held by a plan limit (DIPO-61, 0008 section 7): its native session continues
+   * with "continue" (a handoff when it cannot be resumed), and the `plan-limit` signal ends when
+   * the new session is recorded. `notHeld` when the run has no open wait or has ended, `busy`
+   * while the held worker has not exited yet. A next session that cannot start parks or releases
+   * the story as after a crash.
+   */
+  async resumeWait(
+    officeId: OfficeId,
+    runId: RunId,
+    why: string,
+  ): Promise<"started" | "failed" | "notHeld" | "busy"> {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return "notHeld";
+    const run = findRun(office, runId);
+    if (run === null || run.endedAt !== null || openWait(office, runId) === null) return "notHeld";
+    const key = `${runId} plan-limit`;
+    if ([...this.#deciding].some((deciding) => deciding.startsWith(`${runId} `))) return "busy";
+    const latest = office.get<{ ended_at: number | null }>(
+      `select ended_at from agents where office_id = $office_id and run_id = $run
+        order by started_at desc, rowid desc limit 1`,
+      { run: runId },
+    );
+    if (latest !== null && latest.ended_at === null) return "busy";
+    const view = this.#viewOf(officeId, office, run);
+    if (view === null) return "notHeld";
+    this.#deciding.add(key);
+    try {
+      // The pause explained the held worker's exit; one left open (an exit a restart did not
+      // decide) must not explain the next session's exit.
+      const at = this.#deps.clock.now();
+      for (const intent of runIntents(office, runId)) {
+        if (intent.resolvedAt !== null || intent.kind !== "pause") continue;
+        if (intentTag(intent.detail) !== INTENT_TAGS.planLimit) continue;
+        this.#resolve(office, runId, intent, "plan-limit", at);
+      }
+      const started = await this.#next(office, run, view, {
+        mode: "resume",
+        why,
+        message: PLAN_LIMIT_CONTINUE,
+        clear: ["plan-limit"],
+      });
+      return started ? "started" : "failed";
+    } finally {
+      this.#deciding.delete(key);
+    }
+  }
+
+  /** The view of an active run that is not tracked, as after a restart; null without one. */
+  #viewOf(officeId: OfficeId, office: OfficeHandle, run: StoredRun): RunView | null {
+    const work = workRefOf(office, run.runId);
+    const caps = this.#deps.caps?.(officeId, run) ?? null;
+    if (work === null || caps === null) return null;
+    const host = office.get<{ started_at: number | null }>(
+      `select min(started_at) as started_at from worker_hosts
+        where office_id = $office_id and run_id = $run`,
+      { run: run.runId },
+    );
+    return {
+      office: officeId,
+      runId: run.runId,
+      work,
+      caps,
+      startedAt: host?.started_at ?? run.startedAt,
+      snapshot: null,
+    };
   }
 
   /**

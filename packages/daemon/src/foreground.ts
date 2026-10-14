@@ -633,6 +633,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
       work,
+      // Plan limits (DIPO-61): a warning's notice goes to the software stream, and a held run
+      // resumes only while the daemon schedules work.
+      notify: (notice) => software.append("engine.notice", notice),
+      scheduling: () => lifecycle.state === "running",
     });
     // Reconcile (DIPO-56, 0007 section 6): the last office load step, so every office the daemon
     // loads in `recovering` (below) is reconciled before scheduling turns on; `office.rescan` runs
@@ -646,9 +650,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "reconcile" }),
     });
-    // Ingestion and the cap ticks of run control (DIPO-50) stop together.
+    // Ingestion, the cap ticks of run control (DIPO-50) and the plan-limit timers (DIPO-61) stop
+    // together.
     held.ingest = {
       close: () => {
+        runs.planLimits.close();
         runs.control.close();
         runs.ingest.close();
         runs.reattacher.close();
@@ -664,6 +670,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       profiles: runProfiles,
       statuses: (office) => officeInit.officeStatusesReady(office),
       adapterHeld: (adapter) => holds.adapterHeld(adapter),
+      planLimitHeld: (adapter, model) => runs.planLimits.held(adapter, model),
       claims,
       gates,
       lane: (office) => lane.forOffice(office),
@@ -693,6 +700,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       runs.control.feature,
       runs.outcomes.feature,
+      runs.planLimits.feature,
       retention.feature,
       reconciler.feature,
       officeFeature(offices),

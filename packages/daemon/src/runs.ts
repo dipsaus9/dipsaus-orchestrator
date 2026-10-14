@@ -26,9 +26,11 @@ import {
   readBackstop,
   hostSocketSteering,
   type EngineGit,
+  type HoldNotice,
   type Logger,
   OfficeIngest,
   type OfficeManager,
+  PlanLimits,
   type RunBase,
   RunControl,
   RunLauncher,
@@ -92,6 +94,10 @@ export interface DaemonRunsOptions {
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
   readonly work?: WorkTracker;
+  /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
+  readonly notify?: (notice: HoldNotice) => void;
+  /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
+  readonly scheduling?: () => boolean;
 }
 
 export interface DaemonRuns {
@@ -103,6 +109,11 @@ export interface DaemonRuns {
   readonly outcomes: RunOutcomes;
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
+  /**
+   * The plan-limit schedule (DIPO-61): holds scheduling while a plan limit is open, resumes held
+   * runs after the reset, recovers waits at load and implements `work.resume` for held runs.
+   */
+  readonly planLimits: PlanLimits;
 }
 
 /**
@@ -228,7 +239,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
     probe,
   });
+  let planLimits: PlanLimits | null = null;
   outcomes = new RunOutcomes({
+    waits: () => planLimits ?? undefined,
     clock,
     offices: options.offices,
     steering: hostSocketSteering({ clock }),
@@ -288,6 +301,16 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
+  const runOutcomes = outcomes;
+  planLimits = new PlanLimits({
+    clock,
+    offices: options.offices,
+    resume: (office, run, why) => runOutcomes.resumeWait(office, run, why),
+    holds: options.holds,
+    ...(options.notify === undefined ? {} : { notify: options.notify }),
+    ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
   const launcher = new RunLauncher({
     worker,
     git: (office) => options.engineGit.forOffice(office),
@@ -330,5 +353,5 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control, outcomes, reattacher };
+  return { launcher, ingest, control, outcomes, reattacher, planLimits };
 }
