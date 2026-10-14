@@ -17,8 +17,8 @@ import { runDirectory } from "../runs/worker-hosts";
 export type SummaryCheck = (office: OfficeHandle, run: string) => boolean;
 
 /**
- * The default check: a `run_summaries` row for the run. Until the story that writes run summaries
- * (DIPO-49) adds the table there is none, so a processed event file waits for the fallback.
+ * The default check: a `run_summaries` row for the run (written at run end since DIPO-49). A
+ * database before migration 21 has no such table, so a processed event file waits for the fallback.
  */
 export const runSummaryExists: SummaryCheck = (office, run) => {
   const table = office.get(
