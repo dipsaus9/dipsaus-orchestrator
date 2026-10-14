@@ -144,6 +144,33 @@ describe("gh calls", () => {
     expect(await gh.findOpenPr("o/r", "dipo/none")).toBeNull();
   });
 
+  it("lists the open PRs whose head starts with a prefix, oldest first, without forks (DIPO-80)", async () => {
+    const { host: gh, stub } = host(() => ({
+      stdout: JSON.stringify([
+        { ...PR_JSON, number: 9, headRefName: "dipo/backlog-20260102T000000" },
+        { ...PR_JSON, number: 8, headRefName: "TASK-1/x" },
+        { ...PR_JSON, number: 6, headRefName: "dipo/backlog-fork", isCrossRepository: true },
+        { ...PR_JSON, isCrossRepository: false },
+      ]),
+    }));
+    const prs = await gh.listOpenPrs("o/r", "dipo/backlog-");
+    expect(prs.map((pr) => pr.number)).toEqual([7, 9]);
+    expect(prs[0]).toMatchObject({ state: "open", head: PR_JSON.headRefName, base: "main" });
+    const args = stub.calls.at(-1)?.cmd.slice(1);
+    expect(args).toEqual([
+      "pr",
+      "list",
+      "--repo",
+      "o/r",
+      "--state",
+      "open",
+      "--limit",
+      "1000",
+      "--json",
+      "number,url,state,headRefName,headRefOid,baseRefName,title,mergeCommit,isCrossRepository",
+    ]);
+  });
+
   it("finds the newest merged PR of a branch with its merge commit, or none (DIPO-58)", async () => {
     const merged = {
       ...PR_JSON,

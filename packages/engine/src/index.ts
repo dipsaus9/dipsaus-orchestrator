@@ -90,6 +90,7 @@ export {
   compareVersions,
   GhHost,
   CodeHostError,
+  LIST_OPEN_LIMIT,
   MIN_GH_VERSION,
   repoOfRemoteUrl,
 } from "./platform/host";
@@ -100,6 +101,7 @@ export type {
   GhHostOptions,
   HostPr,
   NewPr,
+  PrListHost,
   PrState,
   RequiredCheck,
 } from "./platform/host";
