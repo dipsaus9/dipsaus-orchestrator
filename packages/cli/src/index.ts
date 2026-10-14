@@ -28,6 +28,7 @@ import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
 import { statsCommand } from "./stats-command";
+import { systemTui } from "./tui-command";
 import { watchCommand } from "./watch-command";
 import {
   compiledStamp,
@@ -58,6 +59,8 @@ export type CliDeps = {
   readonly workspace: Workspace;
   /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (DIPO-64). */
   readonly logs?: DaemonLogsDeps;
+  /** `dipo tui` (DIPO-53); absent in tests that do not need it. */
+  readonly tui?: (args: readonly string[]) => Promise<number>;
 };
 
 export const HELP = `dipo: run your software products with a model as your team
@@ -135,6 +138,12 @@ Usage:
   dipo stats [--office <id>]
                     print the rows and approximate bytes of each table of the
                     office, to tune retention.shortDays and retention.stateDays
+  dipo tui [--office <id>] [--no-color] [--ascii] [--inline]
+                    open the full-screen client: the office of the current
+                    directory (else the first registered one), with o to switch
+                    offices and q twice to quit; needs a terminal. NO_COLOR is
+                    honoured, --ascii draws only ASCII, --inline keeps the
+                    normal scrollback instead of the alternate screen
 
 Office commands use --office, else the office of the current directory.
 
@@ -159,6 +168,7 @@ export function defaultDeps(): CliDeps {
   const runtime = currentRuntime();
   const { version } = versionInfo(stamp, runtime);
   const lifecycle = systemLifecycleDeps({ client: { name: "dipo-cli", version }, origin: "cli" });
+  const workspace = systemWorkspace();
   return {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
@@ -189,7 +199,8 @@ export function defaultDeps(): CliDeps {
       },
     },
     clock: systemClock,
-    workspace: systemWorkspace(),
+    workspace,
+    tui: systemTui(version, workspace),
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
     stamp,
     runtime,
@@ -243,6 +254,9 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return watchCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "tui" && deps.tui !== undefined) {
+    return deps.tui(args.slice(1));
   }
   if (args[0] === "stats") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
