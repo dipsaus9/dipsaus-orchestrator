@@ -17,6 +17,13 @@ references:
   - packages/engine/test/run/
   - packages/engine/src/features.ts
   - packages/contract/
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/workers/
+  - packages/engine/test/recordings/claude-cli/
+  - packages/engine/src/index.ts
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0008-worker-adapter.md
