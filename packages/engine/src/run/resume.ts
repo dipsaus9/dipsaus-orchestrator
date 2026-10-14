@@ -20,7 +20,8 @@
 //   previous session's stored state (`WorkerPort.initialState(spec, previous)`), so a resume does
 //   not count restored spend twice.
 // - It records the agent (session, effort, system hash), emits `work.assigned` for the new agent
-//   and an `engine.notice` `run.resumed` or `run.handoff`.
+//   and an `engine.notice` `run.resumed` or `run.handoff`. Signals the caller names (`clear`, the
+//   `plan-limit` of a held run, DIPO-61) end in the transaction that records the agent.
 
 import { statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -32,6 +33,7 @@ import type {
   IdSource,
   OfficeId,
   RunId,
+  WatchdogSignal,
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
@@ -70,6 +72,7 @@ import {
 } from "./launch";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
+import { clearSignals } from "./signals";
 import { verifyResults } from "./verify-records";
 import type { RunBase } from "./work-run";
 
@@ -145,6 +148,12 @@ export interface NextSessionRequest {
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
   readonly snapshot: BackstopSnapshot | null;
+  /**
+   * Signals of the run that end when the new session starts (the `plan-limit` of a held run,
+   * DIPO-61): cleared, with their `work.observed`, in the transaction that records the new agent,
+   * so a limit the new session meets raises the signal again.
+   */
+  readonly clear?: readonly WatchdogSignal[];
 }
 
 export type NextSessionOutcome =
@@ -377,6 +386,27 @@ export class RunResumer implements NextSession {
           at,
         },
       );
+      const cleared = clearSignals(office, run.runId, request.clear ?? [], at);
+      if (cleared.length > 0) {
+        appendEntries(
+          office,
+          withWorkViews(
+            office,
+            cleared.map((signal) => ({
+              type: "work.observed",
+              key: work.key,
+              run: run.runId,
+              delta: {
+                work,
+                signal: signal.signal,
+                since: new Date(signal.since).toISOString(),
+                clearedAt: new Date(at).toISOString(),
+              },
+            })),
+          ),
+          { at },
+        );
+      }
     });
     deps.control.track(request.office, {
       runId: run.runId,
