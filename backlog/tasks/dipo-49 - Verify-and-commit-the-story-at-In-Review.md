@@ -4,7 +4,7 @@ title: Verify and commit the story at In Review
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:11'
+updated_date: '2026-10-14 13:12'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -99,4 +99,8 @@ Implementation (DIPO-49 branch):
 - Migration 21: verify_results, run_summaries, run_outcomes (tier P, no FK to runs), runs.scope and runs.gate_changes. endRun now writes the run_outcomes row whenever a run ends (In Review, every park, start-failed, claim releases). Every park through run control also stores a run summary.
 - Outside the declared scope, needed: db/schema.ts (register migration), retention policy/run/run-files (tier and FK order of the new tables), views/work.ts (Progress.verify from verify_results), sandbox/step.ts (onOutput streaming), daemon runs.ts and foreground.ts (wiring).
 - Decision A (own TMPDIR for sandboxed steps): already in place since DIPO-37 (TMPDIR and DIPO_TMP point at the step temp root, srt gets it through CLAUDE_CODE_TMPDIR). Reproduced the Safe-Chain failure locally: macOS /usr/bin/mktemp without a template ignores TMPDIR and uses confstr(_CS_DARWIN_USER_TEMP_DIR) (/var/folders/.../T), which the policy does not allow. A TMPDIR change cannot fix it; making it work needs the Darwin per-user temp dir writable for steps, a policy change of 0008 section 2 that needs the maintainer. Not implemented; until then run the daemon with ~/.bun/bin-originals first on PATH.
+
+Decision A outcome (2026-10-14): decision A was already covered, since sandboxed steps already get their own TMPDIR (the step temp root, since DIPO-37). The Safe-Chain failure comes from macOS /usr/bin/mktemp ignoring TMPDIR (it uses confstr(_CS_DARWIN_USER_TEMP_DIR), /var/folders/.../T). The maintainer chose to keep the sandbox tight: no ADR 0008 change and no /var/folders write access. The workaround stays: start the daemon with ~/.bun/bin-originals first on PATH. Possible follow-up: a mktemp shim on the step's PATH that honours TMPDIR; it changes no policy, but it is unproven if the wrapper calls /usr/bin/mktemp by its absolute path.
+
+Review fixes: the verify feedback item budget is indexed by the run's tier (prompt.budgets.feedbackItem[tier], M when the tier has none); root lockfile pairing uses the union of the base and branch workspace dirs, with the branch scan run before the scope check.
 <!-- SECTION:NOTES:END -->
