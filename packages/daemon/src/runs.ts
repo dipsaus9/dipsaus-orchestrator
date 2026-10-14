@@ -3,6 +3,8 @@
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
 
+import { realpathSync } from "node:fs";
+
 import type { Clock, OfficeId, Spawn, ToolPaths } from "@dipsaus-orchestrator/contract";
 import {
   type AdapterHolds,
@@ -60,6 +62,18 @@ export interface DaemonRuns {
   readonly ingest: OfficeIngest;
 }
 
+/**
+ * The real path of `dir` (on macOS `/tmp` is a link to `/private/tmp`), so the sandbox paths of a
+ * run name the directory itself; `dir` as given when it cannot be resolved.
+ */
+export function realDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
+  }
+}
+
 /** The run launcher `work.run` starts workers with. */
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
@@ -113,7 +127,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     dependencies: async (office, ids) =>
       ids.length === 0 ? [] : (await options.base.read(office, ids)).views,
     runtimeDir: options.runtimeDir,
-    tmpRoot: options.tmpRoot,
+    tmpRoot: realDir(options.tmpRoot),
     hosts: systemHostStarter({
       clock,
       runtimeDir: options.runtimeDir,
