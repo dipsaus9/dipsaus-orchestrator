@@ -85,6 +85,12 @@ export const CAP_TICK_MS = 60_000;
 /** The end kind of a run reconcile stopped or parked (DIPO-56). */
 export const RECONCILED_END = "reconciled";
 
+/** The park detail of a run whose host event file changed (0007 section 5, DIPO-57). */
+export const EVENT_FILE_CHANGED = "event file changed";
+
+/** The end kind of a run parked `interrupted` (DIPO-57). */
+export const INTERRUPTED_END = "interrupted";
+
 /** The park detail of `work.stop` without a note. */
 export const STOPPED_DETAIL = "Stopped by the maintainer.";
 
@@ -220,7 +226,66 @@ export class RunControl implements RunEnder {
       onWorkerEvents: (run, _agent, events) => this.onWorkerEvents(run, events),
       onInitRejected: (run, _agent, reason) => this.#initRejected(run, reason),
       onEnded: (run, agent, end) => this.onEnded(run, agent, end),
+      onFileChanged: (report) => this.#fileChanged(report.run),
     };
+  }
+
+  /**
+   * The run's host event file changed (0007 section 5, DIPO-45's `ingest.fileChanged`): its
+   * ingestion stopped, so the worker is stopped and the story parks `interrupted` with the
+   * detail "event file changed" (DIPO-57). A run decided already keeps that decision.
+   */
+  #fileChanged(run: string): void {
+    const tracked = this.#tracked.get(run);
+    if (tracked === undefined || tracked.ending !== null) {
+      if (tracked === undefined) {
+        this.#deps.warn?.("the event file of a run that is not followed changed", { run });
+      }
+      return;
+    }
+    this.#begin(tracked, this.interruptedEnding());
+  }
+
+  /** The ending of a run whose host event file changed (0007 section 5). */
+  interruptedEnding(): RunEnding {
+    return {
+      intent: "stop",
+      ops: this.#deps.encode({ kind: "stop" }),
+      reason: "interrupted",
+      detail: EVENT_FILE_CHANGED,
+      endKind: INTERRUPTED_END,
+    };
+  }
+
+  /**
+   * Compares a tracked run's totals with its caps now and stops the worker when one is reached
+   * (DIPO-57: after a re-attach caught up); true when the run is ending for a cap.
+   */
+  checkCaps(run: string): boolean {
+    const tracked = this.#tracked.get(run);
+    if (tracked === undefined || tracked.ending !== null) return false;
+    return this.#checkCaps(tracked);
+  }
+
+  /**
+   * The run's host was found dead without an exit file after a restart (DIPO-57): like an exit,
+   * the turns caught up before it are handled first, then the run is untracked and its outcomes
+   * decide (`RunOutcomesPort.onHostLost`).
+   */
+  onHostLost(run: string, agent: string): void {
+    const tracked = this.#tracked.get(run);
+    if (tracked === undefined) return;
+    this.#disarm(tracked);
+    const outcomes = this.#deps.outcomes?.();
+    const job = (async () => {
+      await tracked.turns.catch(() => undefined);
+      if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
+      await outcomes?.onHostLost?.({ view: this.#view(tracked), agent, ending: tracked.ending });
+    })().catch((error: unknown) => {
+      this.#deps.warn?.("deciding a lost worker host failed", { run, reason: messageOf(error) });
+    });
+    this.#inflight.add(job);
+    void job.finally(() => this.#inflight.delete(job));
   }
 
   /** Starts tracking a started run; call it before ingestion starts, so no event is missed. */

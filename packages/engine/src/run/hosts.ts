@@ -6,8 +6,8 @@
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { connectHost, type HostRequest } from "../host/client";
-import { Ingestor, type IngestHooks, type IngestTarget } from "../ingest/ingestor";
+import { connectHost, type HostClient, type HostRequest } from "../host/client";
+import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { PriceBook } from "../pricing/estimate";
@@ -35,17 +35,25 @@ export interface SystemHostStarterOptions {
 export function systemHostStarter(options: SystemHostStarterOptions): HostStarter {
   return {
     start: (office, run) =>
-      startWorkerHost(office, options.clock, {
-        runId: run.runId,
-        agentId: run.agentId,
-        officeDir: run.officeDir,
-        runtimeDir: options.runtimeDir,
-        plan: run.plan,
-        dipoCommand: options.dipoCommand,
-        env: options.env,
-        probe: options.probe,
-        ...(options.spawnDetached === undefined ? {} : { spawnDetached: options.spawnDetached }),
-      }),
+      startWorkerHost(
+        office,
+        options.clock,
+        {
+          runId: run.runId,
+          agentId: run.agentId,
+          officeDir: run.officeDir,
+          runtimeDir: options.runtimeDir,
+          plan: run.plan,
+          dipoCommand: options.dipoCommand,
+          env: options.env,
+          probe: options.probe,
+          ...(options.spawnDetached === undefined ? {} : { spawnDetached: options.spawnDetached }),
+        },
+        {
+          ...(run.processedOffset === undefined ? {} : { processedOffset: run.processedOffset }),
+          ...(run.record === undefined ? {} : { record: run.record }),
+        },
+      ),
   };
 }
 
@@ -109,6 +117,39 @@ export class OfficeIngest implements RunIngest {
     };
   }
 
+  /**
+   * Follows a host again after a daemon restart (DIPO-57): catches up from the processed offset
+   * at once, then follows `client`'s `advanced` announcements when the host answered, with the
+   * 1 s poll in every case. Returns the catch-up pass.
+   */
+  attach(
+    office: OfficeHandle,
+    host: Pick<LaunchedHost, "runId" | "agentId">,
+    target: IngestTarget,
+    client: HostClient | null,
+  ): PassResult {
+    const ingestor = this.#ingestor(office);
+    if (target.work !== undefined) this.#options.watchdog?.track(office, host.runId as RunId);
+    const result = ingestor.track(target);
+    if (client !== null && result.status !== "ended" && result.status !== "fileChanged") {
+      void ingestor.watch(host.runId, host.agentId, client).catch((error: unknown) => {
+        this.#options.warn?.("watching the worker host failed; ingestion polls", {
+          run: host.runId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } else {
+      client?.close();
+    }
+    return result;
+  }
+
+  /** Stops following one agent of a run whose host is gone (DIPO-57); what it ingested stays. */
+  untrack(office: OfficeId, run: string, agent: string): void {
+    this.#options.watchdog?.untrack(run);
+    this.#ingestors.get(office)?.untrack(run, agent);
+  }
+
   start(office: OfficeHandle, host: LaunchedHost, target: IngestTarget): void {
     const ingestor = this.#ingestor(office);
     if (target.work !== undefined) this.#options.watchdog?.track(office, host.runId as RunId);
@@ -143,6 +184,11 @@ export class OfficeIngest implements RunIngest {
   }
 }
 
+/** Why a follow-only host cannot be steered (0006 decision 8, 0009 section 3). */
+export function followOnlyReason(pid: number): string {
+  return `the worker host (pid ${pid}) runs in follow-only mode after a daemon restart: its socket did not answer, so dipo follows its output until it exits but cannot steer it`;
+}
+
 /** How long a steering op waits for the host's socket and reply. */
 export const STEER_TIMEOUT_MS = 5_000;
 
@@ -158,6 +204,8 @@ export function hostSocketSteering(options: {
     async send(office, runId, ops) {
       const host = workerHostsOf(office, runId).at(-1);
       if (host === undefined) return { ok: false, reason: "the run has no worker host" };
+      // After a restart a host whose socket did not answer is only followed (DIPO-57).
+      if (host.mode === "follow") return { ok: false, reason: followOnlyReason(host.pid) };
       const connected = await connectHost(host.socketPath, {
         runId,
         clock: options.clock,
