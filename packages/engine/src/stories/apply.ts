@@ -20,7 +20,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { isUnknownStatus, storyView } from "../views/story";
+import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
 import { addStory, removeStory, renumberStories, type StoryMove } from "./keys";
 import type { BacklogStory } from "./read";
@@ -142,6 +142,8 @@ export function applyIndex(
       frozenBranch: row.frozen_branch,
       created: row.backlog_created,
     }));
+  // Who works on which story does not change during a pass: derived once (DIPO-52).
+  const work = workByKey(office);
   const before = new Map<StoryKey, StoryView>();
   const statusBefore = new Map<StoryKey, string>();
   for (const k of known) {
@@ -152,7 +154,7 @@ export function applyIndex(
     // A key no pass has mirrored yet has no prior view (its derived view would say Removed).
     if (mirror === null) continue;
     statusBefore.set(k.key, mirror.status);
-    const view = storyView(office, k.key);
+    const view = storyView(office, k.key, work);
     if (view !== null) before.set(k.key, view);
   }
 
@@ -227,7 +229,7 @@ export function applyIndex(
   // 4. Keys left over are closed as Removed.
   for (const k of vanished) {
     removeStory(office, k.key, at);
-    const view = storyView(office, k.key);
+    const view = storyView(office, k.key, work);
     // Without a prior view the stories row tells: a provisional draft id was a Draft, else Refined.
     const from = before.get(k.key)?.lifecycle ?? (k.provisional ? "Draft" : "Refined");
     if (view !== null) entries.push(stateEntry(view, from));
@@ -321,7 +323,7 @@ export function applyIndex(
         criteria_total: story.criteria?.total ?? null,
       },
     );
-    const view = storyView(office, key);
+    const view = storyView(office, key, work);
     if (view === null) continue;
     const previous = before.get(key);
     if (previous === undefined || !sameView(previous, view)) {

@@ -179,8 +179,8 @@ export function gateFailures(office: OfficeHandle, key: string): string[] {
   return results.filter((result) => !result.passed).flatMap((result) => result.messages);
 }
 
-/** Who works on each story with an active run, by key. */
-function workByKey(office: OfficeHandle): Map<string, WorkRef> {
+/** Who works on each story with an active run, by key; pass it to `storyView` for many stories. */
+export function workByKey(office: OfficeHandle): Map<string, WorkRef> {
   const byKey = new Map<string, WorkRef>();
   for (const run of activeRuns(office)) {
     if (run.key === null) continue;
@@ -214,10 +214,17 @@ function viewOfRow(
   });
 }
 
-/** The current view of one story from the office's rows; null when the key is unknown. */
-export function storyView(office: OfficeHandle, key: StoryKey): StoryView | null {
+/**
+ * The current view of one story from the office's rows; null when the key is unknown. `work` is
+ * `workByKey(office)`, derived once by a caller that views many stories.
+ */
+export function storyView(
+  office: OfficeHandle,
+  key: StoryKey,
+  work: ReadonlyMap<string, WorkRef> = workByKey(office),
+): StoryView | null {
   const row = office.get<StoryViewRow>(`${VIEW_SELECT} and s.key = $key`, { key });
-  return row === null ? null : viewOfRow(office, row, workByKey(office));
+  return row === null ? null : viewOfRow(office, row, work);
 }
 
 /** The views of every story that is not removed, by Backlog.md id. */

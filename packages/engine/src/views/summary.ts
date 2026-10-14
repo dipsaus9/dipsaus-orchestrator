@@ -119,6 +119,37 @@ export function officeSummaries(database: StateDatabase): OfficeSummary[] {
   });
 }
 
+/** The summary of one listed office, or undefined when it is not listed (forgotten or unknown). */
+export function officeSummaryOf(
+  database: StateDatabase,
+  office: OfficeId,
+): OfficeSummary | undefined {
+  const row = database.connection.get<OfficeListRow>(
+    "select office_id, path, display_name from offices where office_id = $office and forgotten_at is null",
+    { office },
+  );
+  if (row === null) return undefined;
+  return database.connection.deferred(() =>
+    deriveOfficeSummary(
+      { office, name: row.display_name, path: row.path },
+      database.office(office),
+    ),
+  );
+}
+
+/**
+ * The summary of one office for the debounced `office.summary` (DIPO-52): only the office that
+ * changed is derived. Undefined before the state database is open.
+ */
+export function officeSummaryOfSource(
+  database: () => StateDatabase | null,
+): (office: OfficeId) => OfficeSummary | undefined {
+  return (office) => {
+    const db = database();
+    return db === null ? undefined : officeSummaryOf(db, office);
+  };
+}
+
 /**
  * The office summary source `engine.hello` and the software stream use (`OfficeSummarySource` in
  * `reads/hello.ts`): every listed office's summary, or none before the state database is open.

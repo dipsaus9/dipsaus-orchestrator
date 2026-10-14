@@ -12,6 +12,7 @@ export {
   LIFECYCLE_COLUMNS,
   lifecycleOf,
   storyView,
+  workByKey,
 } from "./story";
 export type { ParkFacts, StoryFacts } from "./story";
 export {
@@ -19,6 +20,8 @@ export {
   columnCounts,
   deriveOfficeSummary,
   officeSummaries,
+  officeSummaryOf,
+  officeSummaryOfSource,
   officeSummarySource,
   openGateViews,
 } from "./summary";

@@ -278,6 +278,7 @@ export {
   deriveStoryView,
   lifecycleOf,
   officeSummaries,
+  officeSummaryOfSource,
   officeSummarySource,
   snapshot,
   storyView,

@@ -24,6 +24,7 @@ import {
   MemoryRequestTable,
   newLogState,
   noOfficeSummaries,
+  officeSummaryOfSource,
   officeSummarySource,
   openStateDatabase,
   Renderer,
@@ -190,6 +191,9 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     software,
     officeSummaries:
       options.officeSummaries === true ? officeSummarySource(() => state) : noOfficeSummaries,
+    ...(options.officeSummaries === true
+      ? { officeSummary: officeSummaryOfSource(() => state) }
+      : {}),
     engineVersion: TEST_VERSION,
     logger,
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),

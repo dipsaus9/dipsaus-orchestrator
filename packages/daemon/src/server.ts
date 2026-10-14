@@ -18,6 +18,7 @@ import {
   type Event,
   type IdSource,
   OfficeId,
+  type OfficeSummary,
   type ReadReply,
   RequestId,
   type ServerFrame,
@@ -86,6 +87,8 @@ export interface ContractServerDeps {
   readonly lifecycle: DaemonLifecycle;
   readonly software: SoftwareStream;
   readonly officeSummaries: OfficeSummarySource;
+  /** The summary of one office; the debounced `office.summary` derives only the changed office. */
+  readonly officeSummary?: (office: OfficeId) => OfficeSummary | undefined;
   readonly engineVersion: string;
   readonly logger: Logger;
   readonly renderer?: Renderer;
@@ -206,7 +209,10 @@ export class ContractServer {
       this.#summaryTimers.delete(office);
       let summary;
       try {
-        summary = this.#deps.officeSummaries().find((candidate) => candidate.office === office);
+        summary =
+          this.#deps.officeSummary === undefined
+            ? this.#deps.officeSummaries().find((candidate) => candidate.office === office)
+            : this.#deps.officeSummary(office);
       } catch (error) {
         this.#deps.logger.warn("office summary failed", { office, error });
         return;
