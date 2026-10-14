@@ -1,10 +1,10 @@
 ---
 id: DIPO-51
 title: Handle worker outcomes and resume a crashed session once
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 09:22'
+updated_date: '2026-10-14 13:35'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,20 @@ references:
   - packages/engine/src/run/
   - packages/engine/test/run/
   - packages/engine/src/ingest/
+  - packages/engine/src/workers/
+  - packages/engine/src/views/work.ts
+  - packages/engine/src/prompts/
+  - packages/engine/src/index.ts
+  - packages/daemon/src/
+  - packages/engine/test/workers/
+  - packages/engine/test/recordings/claude-cli/
+  - tools/recordings/derive.ts
+  - packages/engine/test/ingest/
+  - packages/engine/test/views/
+  - packages/engine/test/prompts/
+  - docs/decisions/0007-state-database.md
+  - docs/decisions/0008-worker-adapter.md
+  - docs/decisions/0014-worker-prompt-assembly.md
 documentation:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0014-worker-prompt-assembly.md
