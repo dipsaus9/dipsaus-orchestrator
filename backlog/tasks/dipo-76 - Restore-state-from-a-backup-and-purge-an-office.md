@@ -1,10 +1,10 @@
 ---
 id: DIPO-76
 title: Restore state from a backup and purge an office
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 15:21'
+updated_date: '2026-10-14 15:24'
 labels:
   - 'tier:M'
   - after-cutover
@@ -89,4 +89,6 @@ DIPO-76 implementation:
 - Finding outside scope: the logger redacts every field named `code`, so daemon.log shows `"code":"[redacted]"` for engine error codes.
 
 Update after the 0005 amendment of 2026-10-14: `office.purge` takes an optional `from` (contract minor 1, schema regenerated), checked by the executor's shared `from` check, so a mismatch answers `office.unknown` with `details.reason: "path"`. `dipo office purge` sends the main worktree of the repository around the current directory as `from`, also with `--office`, and none outside a repository; this replaces the earlier `engine.hello` office-list check in the CLI.
+
+Closed 2026-10-14. Test agent (head 7b9c0dc): restore refused while the daemon runs; a damaged dipo.db restored from a backup with a new epoch, no -wal/-shm/.restore left; a junk file refused with dipo.db unchanged; the next start reconciled the office before running; purge asked for confirmation, removed only the clone's .git/dipo and left the scratch repo untouched; a missing path at start gave the notice; purge by id worked and a second one answered office.unknown. Maintainer approved the 0005 'from' amendment; implemented in a75d0eb (the daemon's from check replaces the CLI hello check). Follow-ups found: the daemon logger redacts every 'code' field; dipo office open right after daemon start can fail with engine.recovering because the CLI does not retry; daemon stop leaves -wal/-shm (no checkpoint at shutdown).
 <!-- SECTION:NOTES:END -->
