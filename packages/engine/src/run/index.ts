@@ -197,5 +197,5 @@ export type {
   RunStoryFacts,
 } from "./resume";
 // Re-attach after a daemon restart (DIPO-57).
-export { REATTACH_NOTICES, REATTACH_STEP, RunReattacher } from "./reattach";
+export { FOLLOW_CHECK_MS, REATTACH_NOTICES, REATTACH_STEP, RunReattacher } from "./reattach";
 export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";

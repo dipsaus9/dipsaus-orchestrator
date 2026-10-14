@@ -28,6 +28,7 @@ import {
   type Clock,
   type OfficeId,
   RoleId,
+  type TimerHandle,
   RunId,
   StoryId,
   StoryKey,
@@ -52,10 +53,10 @@ import {
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
-import type { RunEnding, TrackedRun } from "./control";
+import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
 import type { ParkOutcome } from "./park";
-import { activeRuns, type StoredRun } from "./records";
+import { activeRuns, findRun, type StoredRun } from "./records";
 import { raiseSignal } from "./signals";
 
 /** The daemon's recovery step that re-attaches worker hosts (0006 decision 7). */
@@ -137,7 +138,12 @@ export interface RunReattacherDeps {
   readonly caps: (office: OfficeId, run: StoredRun) => Caps | null;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** How often a followed host's liveness is checked; `FOLLOW_CHECK_MS` by default. */
+  readonly followCheckMs?: number;
 }
+
+/** How often a follow-only host's liveness is checked by PID and start time: the cap tick. */
+export const FOLLOW_CHECK_MS = CAP_TICK_MS;
 
 interface AgentRow {
   model: string;
@@ -151,6 +157,8 @@ function messageOf(error: unknown): string {
 
 export class RunReattacher {
   readonly #deps: RunReattacherDeps;
+  readonly #followTimers = new Map<string, TimerHandle>();
+  #closed = false;
 
   constructor(deps: RunReattacherDeps) {
     this.#deps = deps;
@@ -270,19 +278,30 @@ export class RunReattacher {
         return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };
       }
       deps.control.checkCaps(run.runId);
+      this.#watchFollowed(office, run, host, target);
       return { run: run.runId, agent: host.agentId, outcome: "follow" };
     }
 
-    // Dead: process what it wrote, then the exit (or its loss).
+    return {
+      run: run.runId,
+      agent: host.agentId,
+      outcome: this.#closeDead(office, run, host, target),
+    };
+  }
+
+  /** A dead host: process what it wrote, then the exit (or its loss). */
+  #closeDead(
+    office: OfficeHandle,
+    run: StoredRun,
+    host: WorkerHostRow,
+    target: IngestTarget,
+  ): ReattachOutcome {
+    const deps = this.#deps;
     const exit = exitFileOf(host);
     if (exit !== null) this.#recordExit(office, host, exit);
     const pass = deps.ingest.attach(office, host, target, null);
-    if (pass.status === "ended") {
-      return { run: run.runId, agent: host.agentId, outcome: "exited" };
-    }
-    if (pass.status === "fileChanged" || pass.status === "stopped") {
-      return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };
-    }
+    if (pass.status === "ended") return "exited";
+    if (pass.status === "fileChanged" || pass.status === "stopped") return "fileChanged";
     deps.ingest.untrack(office.officeId, run.runId, host.agentId);
     if (exit !== null) {
       // An exit file without an exit line: the exit as the file says.
@@ -291,10 +310,60 @@ export class RunReattacher {
         exit: { code: exit.code, signal: exit.signal },
         state,
       });
-      return { run: run.runId, agent: host.agentId, outcome: "exited" };
+      return "exited";
     }
     deps.control.onHostLost(run.runId, host.agentId);
-    return { run: run.runId, agent: host.agentId, outcome: "hostLost" };
+    return "hostLost";
+  }
+
+  /**
+   * A followed host is never asked over its socket, so its death without an exit line would go
+   * unnoticed: every `FOLLOW_CHECK_MS` its liveness is checked again by PID and start time, and a
+   * dead host is closed out as at the restart (exit file, or lost). Ends with the agent or run.
+   */
+  #watchFollowed(
+    office: OfficeHandle,
+    run: StoredRun,
+    host: WorkerHostRow,
+    target: IngestTarget,
+  ): void {
+    const key = `${run.runId} ${host.agentId}`;
+    const check = async (): Promise<void> => {
+      this.#followTimers.delete(key);
+      const ended = office.get<{ ended_at: number | null }>(
+        "select ended_at from agents where office_id = $office_id and agent_id = $agent",
+        { agent: host.agentId },
+      );
+      const current = findRun(office, run.runId);
+      if (ended?.ended_at != null || current === null || current.endedAt !== null) return;
+      if (await hostAlive(host, this.#deps.probe)) {
+        this.#armFollowed(key, check);
+        return;
+      }
+      const row = workerHostsOf(office, run.runId).find((h) => h.agentId === host.agentId) ?? host;
+      this.#closeDead(office, current, row, target);
+    };
+    this.#armFollowed(key, check);
+  }
+
+  #armFollowed(key: string, check: () => Promise<void>): void {
+    if (this.#closed) return;
+    const timer = this.#deps.clock.setTimeout(() => {
+      check().catch((error: unknown) => {
+        this.#deps.warn?.("checking a followed worker host failed", {
+          host: key,
+          reason: messageOf(error),
+        });
+      });
+    }, this.#deps.followCheckMs ?? FOLLOW_CHECK_MS);
+    this.#followTimers.set(key, timer);
+  }
+
+  /** Stops the liveness checks of followed hosts. */
+  close(): void {
+    this.#closed = true;
+    for (const timer of this.#followTimers.values()) this.#deps.clock.clearTimeout(timer);
+    this.#followTimers.clear();
   }
 
   #connect(socketPath: string, runId: string): Promise<ConnectHostResult> {

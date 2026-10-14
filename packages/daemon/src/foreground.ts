@@ -651,6 +651,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       close: () => {
         runs.control.close();
         runs.ingest.close();
+        runs.reattacher.close();
       },
     };
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the

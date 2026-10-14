@@ -28,6 +28,7 @@ import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
   EVENT_FILE_CHANGED,
+  FOLLOW_CHECK_MS,
   findRun,
   HOST_LOST_WHY,
   hostSocketSteering,
@@ -244,6 +245,7 @@ afterEach(() => {
   for (const d of w.daemons) {
     d.control.close();
     d.ingest.close();
+    d.reattacher.close();
   }
   w.f.t.state.close();
   rmSync(w.dir, { recursive: true, force: true });
@@ -352,6 +354,25 @@ describe("re-attach (0006 decision 8)", () => {
     w.f.t.clock.advance(1_000);
     await d.control.idle();
     expect(agentRow()?.end_reason).toBe("exited");
+  });
+
+  it("notices a followed host that dies without an exit line, by its liveness on the tick", async () => {
+    w.answers = false;
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    // Still alive at the first check: nothing happens.
+    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    await Bun.sleep(1);
+    expect(observed()).toEqual(["follow-only"]);
+    // Killed later, with no exit line: the next check finds it lost.
+    w.alive = false;
+    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    for (let i = 0; i < 50 && w.next.length === 0; i += 1) await Bun.sleep(1);
+    await d.control.idle();
+    expect(observed()).toEqual(["follow-only", "host-lost"]);
+    expect(agentRow()?.end_reason).toBe("host-lost");
+    expect(w.next.map((request) => request.requireResume)).toEqual([true]);
   });
 
   it("a dead host with exit.json: the remaining events and the exit are processed (AC #3)", async () => {
@@ -508,6 +529,69 @@ function countDaily(): number {
   );
 }
 
+/** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
+function realResumer(
+  hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
+  extra: Pick<ConstructorParameters<typeof RunResumer>[0], "probe" | "hostExitWaitMs"> = {},
+): RunResumer {
+  const worker: WorkerPort = {
+    id: "claude-cli",
+    adapter: () =>
+      ({
+        id: "claude-cli",
+        probe: async () => ({ version: "2.1.0" }),
+        canResume: () => ({ ok: true }),
+        interpret: claude.interpret,
+      }) as unknown as WorkerAdapter,
+    prepare: async () => ({
+      ok: true,
+      plan: { argv: ["/bin/true"], env: {}, cwd: "/", files: [], stdin: [] },
+    }),
+    initialState: () => ({}),
+    encode,
+    result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
+    sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
+  };
+  return new RunResumer({
+    clock: w.f.t.clock,
+    ids: w.f.t.ids,
+    offices: {
+      get: () => w.f.office,
+      config: () => OFFICE_DEFAULTS,
+    },
+    worker,
+    git: () =>
+      ({ commonDir: join(w.dir, "git"), mainWorktree: w.dir }) as unknown as ReturnType<
+        NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>
+      >,
+    story: async () => {
+      throw new Error("no story read in this test");
+    },
+    runtimeDir: join(w.dir, "rt"),
+    tmpRoot: join(w.dir, "tmp"),
+    hosts,
+    ingest: { start: () => undefined },
+    control: { track: () => undefined },
+    ...extra,
+  });
+}
+
+/** The run's next session after a crash, as worker outcomes ask for it. */
+function nextRequest(): NextSessionRequest {
+  const run = findRun(w.f.office, w.f.run);
+  if (run === null) throw new Error("no run");
+  return {
+    office: w.f.office.officeId as OfficeId,
+    run,
+    work: w.work,
+    mode: "resume",
+    why: "a crash",
+    caps: ROOMY,
+    startedAt: 0,
+    snapshot: null,
+  };
+}
+
 describe("restart windows of DIPO-51's review", () => {
   it("a stop while the next session's host starts: the new agent is recorded with its host, so the restart follows it (window 1)", async () => {
     w.alive = false;
@@ -525,83 +609,34 @@ describe("restart windows of DIPO-51's review", () => {
     copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
     const sizeBefore = statSync(w.f.eventFile).size;
     let recorded: string | null = null;
-    const worker: WorkerPort = {
-      id: "claude-cli",
-      adapter: () =>
-        ({
-          id: "claude-cli",
-          probe: async () => ({ version: "2.1.0" }),
-          canResume: () => ({ ok: true }),
-          interpret: claude.interpret,
-        }) as unknown as WorkerAdapter,
-      prepare: async () => ({
-        ok: true,
-        plan: { argv: ["/bin/true"], env: {}, cwd: "/", files: [], stdin: [] },
-      }),
-      initialState: () => ({}),
-      encode,
-      result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-      sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
-    };
-    const resumer = new RunResumer({
-      clock: w.f.t.clock,
-      ids: w.f.t.ids,
-      offices: {
-        get: () => w.f.office,
-        config: () => OFFICE_DEFAULTS,
+    const resumer = realResumer({
+      // The host started and is recorded, then the daemon stops inside the await.
+      start: (office, options) => {
+        recordWorkerHost(
+          office,
+          {
+            pid: 4243,
+            startTimeMs: 0,
+            runId: options.runId,
+            agentId: options.agentId,
+            socketPath: join(w.dir, "host.sock"),
+            protocolVersion: 1,
+            runDir,
+            eventFile: join(runDir, "events.ndjson"),
+          },
+          w.f.t.clock,
+          {
+            ...(options.processedOffset === undefined
+              ? {}
+              : { processedOffset: options.processedOffset }),
+            ...(options.record === undefined ? {} : { record: options.record }),
+          },
+        );
+        recorded = options.agentId;
+        return new Promise(() => undefined);
       },
-      worker,
-      git: () =>
-        ({ commonDir: join(w.dir, "git"), mainWorktree: w.dir }) as unknown as ReturnType<
-          NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>
-        >,
-      story: async () => {
-        throw new Error("no story read in this test");
-      },
-      runtimeDir: join(w.dir, "rt"),
-      tmpRoot: join(w.dir, "tmp"),
-      hosts: {
-        // The host started and is recorded, then the daemon stops inside the await.
-        start: (office, options) => {
-          recordWorkerHost(
-            office,
-            {
-              pid: 4243,
-              startTimeMs: 0,
-              runId: options.runId,
-              agentId: options.agentId,
-              socketPath: join(w.dir, "host.sock"),
-              protocolVersion: 1,
-              runDir,
-              eventFile: join(runDir, "events.ndjson"),
-            },
-            w.f.t.clock,
-            {
-              ...(options.processedOffset === undefined
-                ? {}
-                : { processedOffset: options.processedOffset }),
-              ...(options.record === undefined ? {} : { record: options.record }),
-            },
-          );
-          recorded = options.agentId;
-          return new Promise(() => undefined);
-        },
-      },
-      ingest: { start: () => undefined },
-      control: { track: () => undefined },
     });
-    const run = findRun(w.f.office, w.f.run);
-    if (run === null) throw new Error("no run");
-    void resumer.next({
-      office: w.f.office.officeId as OfficeId,
-      run,
-      work: w.work,
-      mode: "resume",
-      why: "a crash",
-      caps: ROOMY,
-      startedAt: 0,
-      snapshot: null,
-    });
+    void resumer.next(nextRequest());
     const wasRecorded = () => recorded !== null;
     for (let i = 0; i < 50 && !wasRecorded(); i += 1) await Bun.sleep(1);
     expect(recorded).not.toBeNull();
@@ -619,6 +654,46 @@ describe("restart windows of DIPO-51's review", () => {
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: recorded as unknown as string, outcome: "follow" },
     ]);
+  });
+
+  it("the next session waits for an earlier host of the run, then refuses with run.hostAlive (AC #5)", async () => {
+    beforeRestart("terminated", 0);
+    let starts = 0;
+    const resumer = realResumer(
+      {
+        start: () => {
+          starts += 1;
+          return new Promise(() => undefined);
+        },
+      },
+      {
+        probe: async (pid) => ({ pid, startTimeMs: 0, zombie: false, command: "dipo" }),
+        hostExitWaitMs: 0,
+      },
+    );
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update agents set session_id = 'session-1' where office_id = $office_id and agent_id = $agent",
+        { agent: w.f.agent },
+      ),
+    );
+    expect(await resumer.next(nextRequest())).toEqual({
+      kind: "hostAlive",
+      code: "run.hostAlive",
+      pid: 4242,
+    });
+    expect(starts).toBe(0);
+  });
+
+  it("worker outcomes park a session refused with run.hostAlive, naming the code", async () => {
+    w.alive = false;
+    w.nextOutcome = { kind: "hostAlive", code: "run.hostAlive", pid: 4242 };
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    await d.control.idle();
+    expect(parks()[0]?.[0]).toBe("worker-failed");
+    expect(parks()[0]?.[1]).toContain("run.hostAlive");
   });
 
   it("a host recorded without its agent (an older binary) is left to re-attach, never a second session (window 1)", async () => {
