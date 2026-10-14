@@ -1,10 +1,10 @@
 ---
 id: DIPO-61
 title: Wait for plan-limit resets and resume
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:10'
+updated_date: '2026-10-14 15:18'
 labels:
   - 'tier:M'
   - after-cutover
@@ -77,4 +77,6 @@ DIPO-61 implementation:
 - Recovery: the load step plan-limits/recover reads every open wait fact back (openWait) and arms it; a reset passed while down resumes at once.
 - work.resume ships with since 1 for held runs: resumes at once, lifts a credits adapter hold; story.notPausedOrParked for a story with no held run (parked stories too, not built yet, and park actions no longer offer work.resume); run.hostAlive while the held worker has not exited. Added to the daemon's SCHEDULING_COMMANDS (scheduling.off in safe).
 - Tests: test/run/plan-limit.test.ts (manual clock: plan-limit-rejected, plan-limit-429 probes, model family, warnings, api_retry rate_limit, credits and work.resume, restart before and after the reset), work-run.test.ts (refusal and capacity skip), plan-limit.ci.test.ts (real resumer and git: held, restart, resume clears the signal).
+
+Closed 2026-10-14. Reviewed (pass, all 6 ACs). A live plan limit cannot be provoked cheaply, so behaviour is covered by the recording-driven tests (plan-limit.test.ts on a manual clock: resume at reset+2 min with 'continue', hourly probes, model-family holds, warnings, credits with work.resume, restart before and after the reset; plan-limit.ci.test.ts with the real resumer on git). Maintainer approved the 0005 note (work.resume for plan-limit holds only) and the 0008 note (optional limit.scope; only five_hour confirmed by a recording). Follow-ups: allowed_warning holds are in memory only and do not survive a restart; a model-family hold reuses the capacity skip reason (an additive planLimit reason later).
 <!-- SECTION:NOTES:END -->
