@@ -4,7 +4,7 @@ title: Follow a running agent's live output in the TUI
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:29'
+updated_date: '2026-10-14 15:38'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -16,6 +16,9 @@ dependencies:
 references:
   - packages/tui/src/
   - packages/tui/test/
+  - packages/client/src/store/
+  - packages/client/test/unit/office-store.test.ts
+  - packages/client/src/index.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0009-tui.md
