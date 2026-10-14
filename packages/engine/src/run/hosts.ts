@@ -218,6 +218,7 @@ export function hostSocketSteering(options: {
             return {
               ok: false,
               reason: `${request.op}: ${reply.error.code}: ${reply.error.message}`,
+              code: reply.error.code,
             };
           }
         }

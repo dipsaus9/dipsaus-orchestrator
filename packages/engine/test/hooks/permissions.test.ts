@@ -100,6 +100,8 @@ interface World {
   connected: boolean;
   lastRequestAt: number | null;
   ending: boolean;
+  /** What the steering fake answers; ok by default. */
+  refusal: { reason: string; code: string } | null;
   ingestor: Ingestor | null;
 }
 
@@ -117,6 +119,7 @@ beforeEach(async () => {
     connected: true,
     lastRequestAt: f.t.clock.now(),
     ending: false,
+    refusal: null,
     ingestor: null,
   } as unknown as World;
   const presence: Presence = {
@@ -130,7 +133,7 @@ beforeEach(async () => {
     steering: {
       send: async (_office, _run, ops) => {
         sent.push([...ops]);
-        return { ok: true };
+        return world.refusal === null ? { ok: true } : { ok: false, ...world.refusal };
       },
     },
     encode,
@@ -525,5 +528,32 @@ describe("the timeout against the real worker host (DIPO-59 review)", () => {
       worker.end();
       await host.done;
     }
+  });
+});
+
+describe("a hook call the host no longer holds (DIPO-59 review)", () => {
+  const GONE = { reason: "hookReply: hook.unknown: No hook call waits.", code: "hook.unknown" };
+
+  it("raises no notice when the engine's timeout deny finds the call already dropped", async () => {
+    await ingest(scenario().before);
+    // The host dropped the call before the engine's timeout (for example the worker exited).
+    w.refusal = GONE;
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(1);
+    expect(types()).toContain("question.closed");
+    expect(types()).not.toContain("engine.notice");
+  });
+
+  it("raises a notice when the maintainer's answer finds the call dropped", async () => {
+    await ingest(scenario().before);
+    const [question] = openQuestions(w.f.office);
+    w.refusal = GONE;
+    const reply = await answer({ question: question?.questionId, text: "", decision: "allow" });
+    expect(reply).toMatchObject({ ok: true });
+    await w.asks.idle();
+    expect(
+      loggedEvents(w.f.office).find((event) => event.type === "engine.notice")?.data,
+    ).toMatchObject({ code: "run.hookReplyNotSent" });
   });
 });

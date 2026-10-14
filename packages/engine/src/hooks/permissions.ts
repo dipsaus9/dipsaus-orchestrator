@@ -369,20 +369,24 @@ export class PermissionAsks {
   /** Sends a reply to the run's worker host; a failure puts a notice on the office. */
   async #send(office: OfficeHandle, run: RunId, reply: HookReply, timedOut = false): Promise<void> {
     let error: string | null = null;
+    let code: string | undefined;
     try {
       const sent = await this.#deps.steering.send(
         office,
         run,
         this.#deps.encode({ kind: "hookReply", reply }),
       );
-      if (!sent.ok) error = sent.reason;
+      if (!sent.ok) {
+        error = sent.reason;
+        code = sent.code;
+      }
     } catch (thrown) {
       error = messageOf(thrown);
     }
     if (error === null) return;
     // A timeout reply the host no longer holds a call for: the call was answered already (the
     // worker exited, or the host gave up), so there is nothing to report.
-    if (timedOut && error.includes(HOOK_GONE)) return;
+    if (timedOut && code === HOOK_GONE) return;
     this.#deps.warn?.("a permission decision did not reach the worker host", {
       run,
       hook: reply.hook,
