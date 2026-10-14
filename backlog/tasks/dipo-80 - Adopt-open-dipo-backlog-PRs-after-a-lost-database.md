@@ -4,7 +4,7 @@ title: Adopt open dipo/backlog-* PRs after a lost database
 status: To Do
 assignee: []
 created_date: '2026-10-14 13:14'
-updated_date: '2026-10-14 13:15'
+updated_date: '2026-10-14 16:21'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -15,6 +15,12 @@ references:
   - packages/engine/src/platform/host.ts
   - packages/engine/src/backlog/lane/
   - packages/engine/src/reconcile/
+  - packages/daemon/src/foreground.ts
+  - packages/engine/src/index.ts
+  - packages/engine/test/backlog/pr/
+  - packages/engine/test/backlog/lane/helpers.ts
+  - packages/engine/test/platform/host.test.ts
+  - packages/engine/test/reconcile/
 priority: medium
 type: feature
 ordinal: 71000
