@@ -4,7 +4,7 @@ title: Restore state from a backup and purge an office
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 15:19'
+updated_date: '2026-10-14 15:21'
 labels:
   - 'tier:M'
   - after-cutover
@@ -27,6 +27,7 @@ references:
   - packages/engine/src/office/index.ts
   - packages/engine/src/platform/sqlite.ts
   - packages/daemon/test/
+  - docs/decisions/0005-command-and-event-model.md
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
