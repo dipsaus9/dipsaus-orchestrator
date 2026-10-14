@@ -4,12 +4,14 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Event, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { SubscribeOptions } from "@dipsaus-orchestrator/client";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
+import { EXPLAIN_WAIT_MS } from "./run-command";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
 const OTHER = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C2E" as OfficeId;
@@ -28,10 +30,27 @@ const NO_LIFECYCLE: DaemonControl = {
   restart: () => Promise.reject(new Error("restart must not be called")),
 };
 
-function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = {}) {
+function fake(
+  reply: (sent: Sent) => unknown,
+  workspace: FakeWorkspaceOptions = {},
+  read?: (sent: Sent) => unknown,
+) {
   const out: string[] = [];
   const err: string[] = [];
   const sent: Sent[] = [];
+  const subscribed: string[] = [];
+  const listeners = new Set<(event: Event) => void>();
+  let seq = 0;
+  const emit = (type: string, data: unknown) => {
+    seq += 1;
+    const event = {
+      cursor: { stream: `office:${OFFICE}`, epoch: "e1", seq },
+      at: "2026-10-14T09:00:00Z",
+      type,
+      data,
+    } as unknown as Event;
+    for (const listener of listeners) listener(event);
+  };
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
     writeError: (line) => err.push(line),
@@ -49,10 +68,23 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
           sent.push(message);
           return reply(message);
         }) as DaemonSession["command"],
-        subscribe: () => {
-          throw new Error("subscribe must not be called");
-        },
-        read: () => Promise.reject(new Error("read must not be called")),
+        // The office stream: live at once; `emit` delivers an event to it.
+        subscribe: ((stream: string, options: SubscribeOptions) => {
+          subscribed.push(stream);
+          listeners.add(options.onEvent);
+          queueMicrotask(() => options.onCaughtUp?.(undefined as never));
+          return {
+            stream,
+            cursor: undefined,
+            unsubscribe: () => listeners.delete(options.onEvent),
+          };
+        }) as unknown as DaemonSession["subscribe"],
+        read: (async (definition: { name: string }, args: unknown) => {
+          if (read === undefined) throw new Error("read must not be called");
+          const message = { name: definition.name, args, office: undefined };
+          sent.push(message);
+          return read(message);
+        }) as DaemonSession["read"],
         close: () => undefined,
       };
       return session;
@@ -64,13 +96,69 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
     workspace: fakeWorkspace({ cwd: "/work/app/src", ...workspace }),
   };
-  return { deps, out, err, sent };
+  return { deps, out, err, sent, emit, subscribed, listeners };
 }
 
 const result = (
   started: { story: string; key: string; run: string }[],
   skipped: { story: string; key: string; reason: string }[] = [],
 ) => ({ ok: true, changed: started.length > 0, result: { started, skipped } });
+
+describe("dipo run explains its skips", () => {
+  it("prints the notice of a failed setup and the gate output of a move back to Refined", async () => {
+    let ctx!: ReturnType<typeof fake>;
+    ctx = fake(() => {
+      // What the engine writes while it runs the command.
+      ctx.emit("engine.notice", {
+        level: "info",
+        code: "adapter.released",
+        text: "The launch checks for claude-cli passed.",
+      });
+      ctx.emit("engine.notice", {
+        level: "warn",
+        code: "setup.failed",
+        text: "DIPO-7 was not started: setup failed (install (bun install --frozen-lockfile) failed: exit 1: mktemp: mkstemp failed: Operation not permitted). The worktree was removed and the story stays Ready.",
+      });
+      ctx.emit("story.state", {
+        story: "DIPO-8",
+        key: KEY_2,
+        from: "Ready",
+        to: "Refined",
+        view: {},
+        detail: ["ready DIPO-8 failed R15: unknown is open"],
+      });
+      return result(
+        [],
+        [
+          { story: "DIPO-7", key: KEY, reason: "pickupCheckFailed" },
+          { story: "DIPO-8", key: KEY_2, reason: "pickupCheckFailed" },
+        ],
+      );
+    }, IN_OFFICE);
+    expect(await main(["run"], ctx.deps)).toBe(1);
+    expect(ctx.subscribed).toEqual([`office:${OFFICE}`]);
+    expect(ctx.listeners.size).toBe(0);
+    expect(ctx.out).toEqual([
+      "skipped DIPO-7: it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
+      "  DIPO-7 was not started: setup failed (install (bun install --frozen-lockfile) failed: exit 1: mktemp: mkstemp failed: Operation not permitted). The worktree was removed and the story stays Ready.",
+      "skipped DIPO-8: it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
+      "  ready DIPO-8 failed R15: unknown is open",
+    ]);
+  });
+
+  it("prints the skip alone when no explanation arrives in time", async () => {
+    const ctx = fake(
+      () => result([], [{ story: "DIPO-7", key: KEY, reason: "collision" }]),
+      IN_OFFICE,
+    );
+    const running = main(["run"], ctx.deps);
+    for (let i = 0; i < 20 && ctx.sent.length === 0; i++) await Bun.sleep(0);
+    await Bun.sleep(0);
+    (ctx.deps.clock as ManualClock).advance(EXPLAIN_WAIT_MS);
+    expect(await running).toBe(1);
+    expect(ctx.out).toEqual(["skipped DIPO-7: its branch or worktree path is taken"]);
+  });
+});
 
 describe("dipo run", () => {
   it("starts the engine's pick with from, and prints started and skipped stories with reasons", async () => {
@@ -137,5 +225,110 @@ describe("dipo run", () => {
       expect(await main(args, ctx.deps)).toBe(2);
       expect(ctx.sent).toEqual([]);
     }
+  });
+});
+
+const LAUNCH = {
+  adapter: "claude-cli",
+  branch: "DIPO-7/add-a-greeting",
+  worktree: "/work/app.worktrees/DIPO-7",
+  runDir: "/work/app/.git/dipo/runs/<run-id>",
+  cwd: "/work/app.worktrees/DIPO-7",
+  argv: [
+    "/opt/claude/bin/claude",
+    "-p",
+    "--verbose",
+    "--model",
+    "sonnet",
+    "--json-schema",
+    '{"type":"object"}',
+  ],
+  model: "sonnet",
+  effort: "medium",
+  caps: { budgetTokens: 800_000, maxTurns: 120, maxMinutes: 60, loops: 4 },
+  envNames: ["DIPO_RUN", "HOME", "PATH"],
+  files: [
+    { name: "claude-settings.json", content: '{\n  "sandbox": { "enabled": true }\n}\n' },
+    { name: "report-schema.json", content: '{\n  "type": "object"\n}\n' },
+  ],
+  systemFile: { path: "/work/app/.git/dipo/runs/<run-id>/system.md", text: "You implement.\n" },
+  taskMessage: "<story>\nDIPO-7 Add a greeting\n</story>\n",
+};
+
+describe("dipo run --dry-run", () => {
+  it("reads work.preview and prints each part of the launch under its own header", async () => {
+    const ctx = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [],
+          story: { story: "DIPO-7", key: KEY },
+          skipped: [{ story: "DIPO-8", key: KEY_2, reason: "capacity" }],
+          launch: LAUNCH,
+          problem: null,
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run", "dipo-7"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([
+      { name: "work.preview", args: { office: OFFICE, stories: ["DIPO-7"] }, office: undefined },
+    ]);
+    const out = ctx.out.join("\n");
+    for (const header of [
+      "== Office checks ==",
+      "== Story ==",
+      "== Branch and worktree it would create ==",
+      "== Worker launch (claude-cli) ==",
+      "== Run directory file claude-settings.json (permissions and sandbox settings) ==",
+      "== Run directory file report-schema.json ==",
+      "== System file /work/app/.git/dipo/runs/<run-id>/system.md ==",
+      "== Task message (the first user message, on stdin) ==",
+    ]) {
+      expect(out).toContain(header);
+    }
+    expect(out).toContain("would start DIPO-7");
+    expect(out).toContain("skipped DIPO-8: the office already runs a story");
+    expect(out).toContain("branch:        DIPO-7/add-a-greeting");
+    expect(out).toContain("worktree:      /work/app.worktrees/DIPO-7 (locked)");
+    expect(out).toContain("program:           /opt/claude/bin/claude");
+    expect(out).toContain("caps:              800,000 tokens, 120 turns, 60 minutes, 4 loops");
+    expect(out).toContain("  --model sonnet");
+    expect(out).toContain("  --json-schema <the JSON of report-schema.json below, on one line>");
+    expect(out).toContain(
+      "environment (names only, values are not shown):\n  DIPO_RUN\n  HOME\n  PATH",
+    );
+    expect(out).toContain('"sandbox": { "enabled": true }');
+    expect(out).toContain("DIPO-7 Add a greeting");
+    expect(ctx.err).toEqual([]);
+  });
+
+  it("prints the refusals and why no launch was planned, and exits 1", async () => {
+    const ctx = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [{ check: "adapter", message: "New runs on claude-cli are held." }],
+          story: { story: "DIPO-7", key: KEY },
+          skipped: [],
+          launch: null,
+          problem: "DIPO-7 was not started: the launch plan refused the path /a(b)",
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run"], ctx.deps)).toBe(1);
+    const out = ctx.out.join("\n");
+    expect(out).toContain("refused (adapter): New runs on claude-cli are held.");
+    expect(out).toContain(
+      "no launch: DIPO-7 was not started: the launch plan refused the path /a(b)",
+    );
+    expect(out).not.toContain("== Worker launch");
   });
 });

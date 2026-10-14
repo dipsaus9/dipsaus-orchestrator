@@ -4,7 +4,7 @@ title: Handle worker outcomes and resume a crashed session once
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:37'
+updated_date: '2026-10-14 09:22'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -68,4 +68,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S35 (DIPO-15). Before cutover: built by hand-run agents.
+
+Follow-up from DIPO-74 (2026-10-14): derive the end of a run from runs.ended_at and runs.end_kind, not from a closing work.* event. A worker host that does not start ends its run as end_kind start-failed (the claim is released, the branch kept as released) and emits only an engine.notice run.startFailed, no closing work.* event; teardown and claim rollbacks also set ended_at and end_kind (their release reason).
 <!-- SECTION:NOTES:END -->

@@ -109,6 +109,8 @@ export interface Options {
   readonly steps?: ReturnType<typeof fakeSteps>;
   readonly profile?: RunProfile | null;
   readonly worktree?: Partial<SetupRequest["config"]["worktree"]>;
+  /** Receives setup's warn lines. */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface Harness {
@@ -129,6 +131,7 @@ export async function harness(repo: TempRepo): Promise<Harness> {
         ...s.deps({ disk: options.disk ?? ROOMY }),
         slots,
         runStep: (options.steps ?? fakeSteps()).runStep,
+        ...(options.warn === undefined ? {} : { warn: options.warn }),
       },
       {
         claim,

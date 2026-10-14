@@ -5,6 +5,7 @@
 // - `recordGateDecision(office, key, mode)` stores every evaluation it makes, in one transaction;
 //   the pickup re-check inside `work.run` (DIPO-48) calls it in `pickup` mode.
 // - The read `story.gate` evaluates in `ready` mode and stores nothing (M0 breakdown decision D3).
+// - `checkGate` evaluates in any mode and stores nothing; `work.preview` (DIPO-74) uses it.
 //
 // The daemon registers the read after `EngineGit.feature`; the read needs the office's git.
 
@@ -105,6 +106,14 @@ export class GateStore {
    */
   checkReady(office: OfficeId, story: StoryId): Promise<GateEvaluation> {
     return this.#evaluate(office, story, "ready");
+  }
+
+  /**
+   * Evaluates the gate of `story` on `_base` in `mode` without storing it: `work.preview`
+   * (DIPO-74) asks the pickup gate this way, so the dry run stores no decision.
+   */
+  async checkGate(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateResult> {
+    return (await this.#evaluate(office, story, mode)).result;
   }
 
   /**

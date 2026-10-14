@@ -28,9 +28,9 @@ import {
   currentPlatform,
   detachedEnv,
   EngineGit,
+  engineFeatures,
   engineRegistry,
   ensurePrivateDir,
-  FEATURES,
   GateStore,
   GhHost,
   hasLiveClaim,
@@ -103,6 +103,7 @@ import {
   type RecoveryContext,
   type RecoveryStep,
 } from "./recovery";
+import { backlogCliFor, daemonRuns } from "./runs";
 import { ContractServer } from "./server";
 import { UPGRADE_REASON, UpgradeWatcher } from "./upgrade";
 
@@ -347,6 +348,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     mergeSlot: MergeSlot | null;
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
+    ingest: { close(): void } | null;
   } = {
     socket: null,
     database: null,
@@ -358,6 +360,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     mergeSlot: null,
     retention: null,
     maintenance: null,
+    ingest: null,
   };
   let lockLost = false;
   let clean = false;
@@ -425,6 +428,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const tools = resolveTools(io.env["PATH"]);
     logger.info("tools resolved", { ...tools.paths, missing: tools.missing });
     for (const tool of tools.missing) logger.warn("tool not found on PATH", { tool });
+    // Every Backlog CLI call of this daemon runs the `backlog` it resolved (DIPO-74).
+    const backlogCli = backlogCliFor(tools.paths);
+    // The machine-wide port slot table (DIPO-39): setup takes a slot, teardown and a rolled-back
+    // setup free it.
+    const slots = SlotTable.inState(stateDir);
 
     // Upgrades (0006 decision 14): checked every minute; an engine step is a child the daemon
     // started or a command still writing, and an automatic restart waits for both. Once any stop
@@ -471,8 +479,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Story claims (DIPO-38): their load step pins live claims' worktree snapshots on the office
     // git, so it follows engineGit.feature. The lane refuses a story with a live claim.
     const claims = new StoryClaims({
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       git: (office) => engineGit.forOffice(office),
+      slots,
+      warn: (message, fields) => logger.warn(message, { component: "claims", ...fields }),
       onChanged: (office) => server?.notifyOffice(office),
     });
     // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each
@@ -488,9 +498,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),
       host,
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       offices,
-      slots: SlotTable.inState(stateDir),
+      slots,
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "teardown" }),
     });
@@ -500,13 +510,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const backlogPrs: BacklogPrs = new BacklogPrs({
       host,
       lane: (office) => lane.forOffice(office),
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       offices,
       clock,
       onChanged: (office) => server?.notifyOffice(office),
     });
     const lane: BacklogLane = new BacklogLane({
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       git: (office) => engineGit.forOffice(office),
       // Office init's steps (DIPO-36) are lane operations of their own kind.
       kinds: [initKind()],
@@ -525,7 +535,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       offices,
       lane: (office) => lane.forOffice(office),
       git: (office) => engineGit.forOffice(office),
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       clock,
       prWaiting: (office) => backlogPrs.waiting(office),
       onChanged: (office) => server?.notifyOffice(office),
@@ -548,7 +558,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // daemon found on its PATH.
     const storyIndex = new StoryIndex({
       git: engineGit,
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       offices,
       onOfficeChanged: (office) => server?.notifyOffice(office),
       onPolled: (office) => {
@@ -566,7 +576,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // the office git and the `backlog` this daemon found on its PATH.
     const gates = new GateStore({
       git: engineGit,
-      cli: { spawn: systemSpawn },
+      cli: backlogCli,
       offices,
       clock,
       ids,
@@ -581,20 +591,43 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     // Adapter holds (DIPO-43): a failed launch check holds new runs on that adapter in every
     // office, with a notice on the software stream. `work.run` refuses while its adapter is held;
-    // DIPO-74 runs the launch checks that set and lift a hold.
+    // the run launcher below runs the launch checks that set and lift a hold.
     const holds = new AdapterHolds({
       clock,
       notify: (notice) => software.append("engine.notice", notice),
     });
+    const runBase = cliRunBase({
+      git: (office) => engineGit.forOffice(office),
+      cli: backlogCli,
+    });
+    // The worker start of a claimed run (DIPO-74): setup, prompts, launch checks, the worker
+    // host and ingestion, with the `claude` this daemon resolved on its PATH.
+    const runs = daemonRuns({
+      tools: tools.paths,
+      platform,
+      clock,
+      env: io.env,
+      home: passwdHome(),
+      uid,
+      runtimeDir: choice.path,
+      tmpRoot: tmpBase,
+      holds,
+      engineGit,
+      claims,
+      offices,
+      slots,
+      base: runBase,
+      database: () => held.database,
+      onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "runs" }),
+    });
+    held.ingest = runs.ingest;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
     // story index, the run profile, office init's statuses check, the claims, the Ready gate and
     // the planning lane above.
     const workRun = new WorkRun({
       offices,
-      base: cliRunBase({
-        git: (office) => engineGit.forOffice(office),
-        cli: { spawn: systemSpawn },
-      }),
+      base: runBase,
       stories: storyIndex,
       profiles: runProfiles,
       statuses: (office) => officeInit.officeStatusesReady(office),
@@ -602,6 +635,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       claims,
       gates,
       lane: (office) => lane.forOffice(office),
+      launcher: runs.launcher,
     });
     // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
     // loaded, with the `retention.*` periods of the configuration in force.
@@ -614,7 +648,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
     const summaries = officeSummarySource(() => held.database);
     const registry: Registry = engineRegistry([
-      ...FEATURES,
+      ...engineFeatures({ backlog: backlogCli }),
       engineGit.feature,
       claims.feature,
       teardown.feature,
@@ -796,6 +830,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.storyIndex?.stop();
     held.teardown?.stop();
     held.mergeSlot?.stop();
+    held.ingest?.close();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
     await held.maintenance?.stop();

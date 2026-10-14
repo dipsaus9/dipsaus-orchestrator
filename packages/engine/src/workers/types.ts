@@ -273,7 +273,22 @@ export interface WorkerAdapter {
   canResume(ref: SessionRef, spec: WorkerSpec): ResumeCheck;
 }
 
+/** What a refused path is about, when `plan` refused a path (DIPO-74 AC #7). */
+export interface PlanErrorPath {
+  /** The refused absolute path. */
+  readonly path: string;
+  /** The character it refused, when a character was the reason. */
+  readonly character?: string;
+}
+
 /** Thrown by `plan` when a spec or its launch context cannot be planned safely. */
 export class PlanError extends Error {
   override readonly name = "PlanError";
+  /** The refused path, when a path was the reason. */
+  readonly refused: PlanErrorPath | undefined;
+
+  constructor(message: string, refused?: PlanErrorPath) {
+    super(message);
+    this.refused = refused;
+  }
 }

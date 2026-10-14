@@ -22,9 +22,10 @@ import {
   type ClaimOutcome,
   type ClaimRequest,
   type ClaimSetupDone,
+  releaseUnstarted,
   rollBackInterruptedSetup,
 } from "./claim";
-import { liveClaims } from "./records";
+import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
 
 /** The load step's name in the registry. */
@@ -40,6 +41,8 @@ export interface StoryClaimsDeps {
   /** The machine-wide port slot table; a rolled-back interrupted setup frees its slot there. */
   readonly slots?: SlotTable;
   readonly onChanged?: (office: OfficeId) => void;
+  /** Logs a release step that failed (the daemon's logger); nothing by default. */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 interface Loaded {
@@ -89,6 +92,30 @@ export class StoryClaims {
       await rollBackInterruptedSetup(deps, claim);
       this.#deps.slots?.free(claim.worktree);
     }
+  }
+
+  /**
+   * Releases a live claim whose worker did not start (see `releaseUnstarted`) and frees its slot.
+   */
+  async releaseUnstarted(officeId: OfficeId, claim: ClaimRecord, reason: string): Promise<void> {
+    const loaded = this.#offices.get(officeId);
+    const git = this.#deps.git(officeId);
+    if (loaded === undefined || git === undefined) {
+      throw new Error(`The office ${officeId} is not loaded.`);
+    }
+    await releaseUnstarted(
+      {
+        officeId,
+        office: loaded.office,
+        git,
+        clock: loaded.clock,
+        ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
+      },
+      claim,
+      reason,
+      this.#deps.warn,
+    );
+    this.#deps.slots?.free(claim.worktree);
   }
 
   /** Claims a story of a loaded office (see `claimStory`). */
