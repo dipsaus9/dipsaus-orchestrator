@@ -247,7 +247,7 @@ async function dryRun(
 }
 
 /** A story id as typed (Backlog.md prints ids upper-cased), or a story key as is. */
-function storyRef(text: string): StoryRefValue | null {
+export function storyRef(text: string): StoryRefValue | null {
   const key = StoryKey.safeParse(text);
   if (key.success) return key.data;
   const id = StoryId.safeParse(text.toUpperCase());

@@ -3,7 +3,7 @@
 // are ingested through one DIPO-45 `Ingestor` per office: a first pass and the 1 s `stat` poll at
 // once, and the host's `advanced` announcements as soon as its socket answers.
 
-import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import { connectHost } from "../host/client";
@@ -14,6 +14,7 @@ import type { PriceBook } from "../pricing/estimate";
 import { type LaunchedHost, startWorkerHost } from "../runs/worker-hosts";
 
 import type { HostStarter, RunIngest } from "./launch";
+import type { Watchdog } from "./watchdog";
 
 /** How long the engine waits for a new host's socket before it relies on the poll alone. */
 export const HOST_CONNECT_TIMEOUT_MS = 5_000;
@@ -53,6 +54,13 @@ export interface OfficeIngestOptions {
   readonly pricing: () => PriceBook | null;
   readonly hooks?: IngestHooks;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /**
+   * The watchdog of every run this starts (DIPO-52): it watches a story run from its start, hears
+   * of each line, and stops at the worker's exit.
+   */
+  readonly watchdog?: Watchdog;
+  /** Ingestion appended change-log entries for `office`; the daemon sends them to subscribers. */
+  readonly onAppended?: (office: OfficeId) => void;
 }
 
 /** One `Ingestor` per office, made on the office's first started run. */
@@ -71,7 +79,7 @@ export class OfficeIngest implements RunIngest {
         office,
         clock: this.#options.clock,
         pricing: this.#options.pricing(),
-        ...(this.#options.hooks === undefined ? {} : { hooks: this.#options.hooks }),
+        hooks: this.#hooksFor(office.officeId),
         ...(this.#options.warn === undefined ? {} : { warn: this.#options.warn }),
       });
       this.#ingestors.set(office.officeId, ingestor);
@@ -79,8 +87,30 @@ export class OfficeIngest implements RunIngest {
     return ingestor;
   }
 
+  /** The caller's hooks, with the watchdog and `onAppended` added. */
+  #hooksFor(office: OfficeId): IngestHooks {
+    const hooks = this.#options.hooks ?? {};
+    const { watchdog, onAppended } = this.#options;
+    return {
+      ...hooks,
+      onLines: (run, agent) => {
+        watchdog?.lineSeen(run);
+        hooks.onLines?.(run, agent);
+      },
+      onEnded: (run, agent) => {
+        watchdog?.untrack(run);
+        hooks.onEnded?.(run, agent);
+      },
+      onAppended: () => {
+        onAppended?.(office);
+        hooks.onAppended?.();
+      },
+    };
+  }
+
   start(office: OfficeHandle, host: LaunchedHost, target: IngestTarget): void {
     const ingestor = this.#ingestor(office);
+    if (target.work !== undefined) this.#options.watchdog?.track(office, host.runId as RunId);
     ingestor.track(target);
     void connectHost(host.socketPath, {
       runId: host.runId,
@@ -99,8 +129,9 @@ export class OfficeIngest implements RunIngest {
       });
   }
 
-  /** Stops every ingestor's timers; what they ingested is stored. */
+  /** Stops every ingestor's and the watchdog's timers; what they ingested is stored. */
   close(): void {
+    this.#options.watchdog?.close();
     for (const ingestor of this.#ingestors.values()) ingestor.close();
     this.#ingestors.clear();
   }

@@ -27,6 +27,7 @@ import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { statsCommand } from "./stats-command";
+import { watchCommand } from "./watch-command";
 import {
   compiledStamp,
   currentRuntime,
@@ -118,6 +119,12 @@ Usage:
                     arguments, model, effort, caps, sandbox settings, variable
                     names) and the system file and task message the worker
                     would get; claims, creates and starts nothing
+  dipo watch [<id>] [--office <id>]
+                    follow the office, or one story, in plain text until Ctrl-C:
+                    each running story's phase, health, loop, verify, criteria
+                    and budget share, then one line per event as it happens
+                    (run start and end, phases, worker output, usage and turns,
+                    health changes, notices and parks)
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
@@ -224,6 +231,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "run") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return runCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "watch") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return watchCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "stats") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

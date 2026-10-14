@@ -12,6 +12,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { SUMMARY_DEBOUNCE_MS } from "../../src/server";
 import { requestId, settle, TestClient } from "../support/client";
 import { startHarness, TEST_VERSION, type Harness, type HarnessOptions } from "../support/harness";
 
@@ -82,9 +83,9 @@ describe("handshake", () => {
     expect(hello.capabilities).toContain("replay");
     expect(hello.capabilities).toContain("daemon.control");
     expect(hello.capabilities).toContain("daemon.logLevel");
-    // Nothing backs these yet, so they are absent.
+    // `work.outputRange` backs `work.output` (DIPO-52); nothing backs `work.intervene` yet.
+    expect(hello.capabilities).toContain("work.output");
     expect(hello.capabilities).not.toContain("work.intervene");
-    expect(hello.capabilities).not.toContain("work.output");
   });
 
   it("answers any other first frame with an error and accepts engine.hello after it", async () => {
@@ -174,7 +175,9 @@ describe("commands.describe", () => {
     expect(commands).not.toContain("fixture.draft");
     // Contract entries no engine module registered are absent too.
     expect(commands).not.toContain("work.pause");
-    expect(reads).not.toContain("office.snapshot");
+    expect(reads).not.toContain("office.usage");
+    // The view reads ship with DIPO-52.
+    expect(reads).toEqual(expect.arrayContaining(["office.snapshot", "office.switch"]));
     const stop = described.commands.find((command) => command.name === "daemon.stop");
     expect(stop).toMatchObject({ confirm: true, irreversible: false, since: 0 });
   });
@@ -297,6 +300,50 @@ describe("lifecycle checks", () => {
 });
 
 describe("software stream", () => {
+  it("sends office.summary after catch-up and then, debounced, when an office changes", async () => {
+    const h = await start({ officeSummaries: true });
+    const office = h.addOffice();
+    const client = await connect(h);
+    okResult(await client.subscribe("software", h.software.head()));
+    const summaries = () => client.events("software").filter((e) => e.type === "office.summary");
+    await client.waitForEvent(
+      "software",
+      (e) => e.type === "office.summary",
+      "summary at catch-up",
+    );
+    expect(summaries().map((e) => e.data)).toMatchObject([{ office, running: 0 }]);
+
+    // A change starts the wait; changes during it are covered by the one summary sent after it.
+    h.state.connection.immediate(() =>
+      h.state.connection.run(
+        `insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
+             loop_cap, config_hash, started_at)
+           values ($office, 'run_1', 'session', 'developer', 'haiku', 'tokens', 1, 1, 'h', 0)`,
+        { office },
+      ),
+    );
+    h.server.notifyOffice(office);
+    h.server.notifyOffice(office);
+    h.clock.advance(SUMMARY_DEBOUNCE_MS - 1);
+    await settle();
+    expect(summaries()).toHaveLength(1);
+    h.clock.advance(1);
+    await client.waitForEvent(
+      "software",
+      (e) => e.type === "office.summary" && (e.data as { running: number }).running === 1,
+      "debounced summary",
+    );
+    expect(summaries()).toHaveLength(2);
+    // Derived: the cursor repeats the stream position.
+    expect(summaries()[1]?.cursor).toEqual(h.software.head());
+
+    // A change that leaves the summary as it was sends nothing.
+    h.server.notifyOffice(office);
+    h.clock.advance(SUMMARY_DEBOUNCE_MS);
+    await settle();
+    expect(summaries()).toHaveLength(2);
+  });
+
   it("replays after the cursor, marks catch-up, then sends live events", async () => {
     const h = await start({ states: [] });
     const client = await connect(h);

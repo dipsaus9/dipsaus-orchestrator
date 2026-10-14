@@ -52,6 +52,8 @@ import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
 
+import { withWorkViews } from "../views/work";
+
 import { appendRunStep } from "./records";
 import { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 
@@ -382,14 +384,14 @@ export class RunLauncher {
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
       appendRunStep(handle, facts.runId, "phase", "build", at);
-      return [
+      return withWorkViews(handle, [
         {
           type: "work.phase",
           key: work.key,
           run: facts.runId,
           delta: { work, phase: "build", progress: run.progress },
         },
-      ];
+      ]);
     });
     return { ok: true };
   }

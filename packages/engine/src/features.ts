@@ -8,6 +8,7 @@ import { buildRegistry, type FeatureModule, type Registry } from "./commands/reg
 import { systemSpawn } from "./platform/process";
 import { describeFeature } from "./reads/describe";
 import { statsFeature } from "./retention/stats";
+import { viewsFeature } from "./views/feature";
 
 export interface EngineFeatureOptions {
   /**
@@ -25,6 +26,8 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
     // `office.stats` (DIPO-65). The retention load step needs the office manager, so the daemon
     // lists `Retention.feature` next to it.
     statsFeature,
+    // `office.snapshot`, `office.switch`, `story.detail` and `work.outputRange` (DIPO-52).
+    viewsFeature,
   ];
 }
 
