@@ -6,13 +6,14 @@
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { connectHost } from "../host/client";
+import { connectHost, type HostRequest } from "../host/client";
 import { Ingestor, type IngestHooks, type IngestTarget } from "../ingest/ingestor";
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { PriceBook } from "../pricing/estimate";
-import { type LaunchedHost, startWorkerHost } from "../runs/worker-hosts";
+import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../runs/worker-hosts";
 
+import type { RunSteering } from "./control";
 import type { HostStarter, RunIngest } from "./launch";
 
 /** How long the engine waits for a new host's socket before it relies on the poll alone. */
@@ -99,9 +100,71 @@ export class OfficeIngest implements RunIngest {
       });
   }
 
+  /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */
+  flushOutput(office: OfficeId, run: string): void {
+    this.#ingestors.get(office)?.flushOutput(run);
+  }
+
   /** Stops every ingestor's timers; what they ingested is stored. */
   close(): void {
     for (const ingestor of this.#ingestors.values()) ingestor.close();
     this.#ingestors.clear();
   }
+}
+
+/** How long a steering op waits for the host's socket and reply. */
+export const STEER_TIMEOUT_MS = 5_000;
+
+/**
+ * Sends host ops to a run's worker host over its socket (DIPO-44's protocol), to the newest host of
+ * the run: one connection, the ops in order, then closed.
+ */
+export function hostSocketSteering(options: {
+  readonly clock: Clock;
+  readonly timeoutMs?: number;
+}): RunSteering {
+  return {
+    async send(office, runId, ops) {
+      const host = workerHostsOf(office, runId).at(-1);
+      if (host === undefined) return { ok: false, reason: "the run has no worker host" };
+      const connected = await connectHost(host.socketPath, {
+        runId,
+        clock: options.clock,
+        timeoutMs: options.timeoutMs ?? STEER_TIMEOUT_MS,
+      });
+      if (!connected.ok) {
+        const why = connected.error === undefined ? "" : ` (${connected.error.message})`;
+        return {
+          ok: false,
+          reason: `the worker host socket ${host.socketPath} is ${connected.reason}${why}`,
+        };
+      }
+      const client = connected.client;
+      try {
+        for (const op of ops) {
+          const request: HostRequest =
+            "write" in op
+              ? { op: "write", data: op.write }
+              : "closeStdin" in op
+                ? { op: "closeStdin" }
+                : op.afterMs === undefined
+                  ? { op: "signal", signal: op.signal }
+                  : { op: "signal", signal: op.signal, afterMs: op.afterMs };
+          const reply = await client.request(request);
+          if (reply === null) {
+            return { ok: false, reason: `the worker host did not answer ${request.op}` };
+          }
+          if (!reply.ok) {
+            return {
+              ok: false,
+              reason: `${request.op}: ${reply.error.code}: ${reply.error.message}`,
+            };
+          }
+        }
+        return { ok: true };
+      } finally {
+        client.close();
+      }
+    },
+  };
 }
