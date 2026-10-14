@@ -16,7 +16,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { type HelloResult, OfficeStore, RELOADED_NOTICE } from "../../src/index";
+import { ClientError, type HelloResult, OfficeStore, RELOADED_NOTICE } from "../../src/index";
 import { FakeStoreClient, settle } from "./fake-store-client";
 
 const A = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA" as OfficeId;
@@ -377,5 +377,18 @@ describe("OfficeStore", () => {
     );
     await settle();
     expect(store.state.office).toBe(B);
+  });
+
+  it("turns a read the closed client refuses into an outcome, never a rejection", async () => {
+    const { client, store } = await setup();
+    client.answers.set("office.switch", () => {
+      throw new ClientError("client.closed", "The client was closed.");
+    });
+    const outcome = await store.switchTo(B);
+    expect(outcome).toEqual({
+      ok: false,
+      error: { code: "client.closed", message: "The client was closed.", retryable: false },
+    });
+    expect(store.state.office).toBe(A);
   });
 });

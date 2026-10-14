@@ -8,6 +8,7 @@ import { type DipoClient, OfficeStore, type StoreClient } from "@dipsaus-orchest
 import {
   type Clock,
   daemonResumeScheduling,
+  type EngineError,
   type OfficeId,
   officeOpen,
 } from "@dipsaus-orchestrator/contract";
@@ -52,6 +53,10 @@ export function isRawModeSupported(stdin: NodeJS.ReadStream): boolean {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function engineMessage(error: EngineError): string {
+  return `${error.code}: ${error.message}`;
 }
 
 /** Runs the TUI until the maintainer quits; resolves to the exit code. */
@@ -111,18 +116,25 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
     const here = options.office ?? (await deps.currentOffice().catch(() => null));
     const first =
       offices.find((entry) => entry.office === here)?.office ?? offices[0]?.office ?? null;
+    // A command that fails on the client side (the client closed) is a message, never a rejection.
     const actions: TuiActions = {
       openPath: async (path) => {
-        const outcome = await connected.command(officeOpen, { path: deps.resolvePath(path) });
-        if (!outcome.ok)
-          return { ok: false, message: `${outcome.error.code}: ${outcome.error.message}` };
-        return { ok: true, value: outcome.result.office };
+        try {
+          const outcome = await connected.command(officeOpen, { path: deps.resolvePath(path) });
+          if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
+          return { ok: true, value: outcome.result.office };
+        } catch (error) {
+          return { ok: false, message: errorText(error) };
+        }
       },
       resumeScheduling: async () => {
-        const outcome = await connected.command(daemonResumeScheduling, {});
-        if (!outcome.ok)
-          return { ok: false, message: `${outcome.error.code}: ${outcome.error.message}` };
-        return { ok: true, value: null };
+        try {
+          const outcome = await connected.command(daemonResumeScheduling, {});
+          if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
+          return { ok: true, value: null };
+        } catch (error) {
+          return { ok: false, message: errorText(error) };
+        }
       },
     };
     instance.rerender(

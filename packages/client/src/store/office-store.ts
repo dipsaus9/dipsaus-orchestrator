@@ -30,6 +30,7 @@ import {
   questionAsked,
   questionClosed,
   type QuestionView,
+  type ReadDefinition,
   storyRenumbered,
   storyState,
   type StoryView,
@@ -46,12 +47,15 @@ import {
   type WorkView,
 } from "@dipsaus-orchestrator/contract";
 
-import type {
-  ConnectionState,
-  DipoClient,
-  HelloResult,
-  ReadOutcome,
-  Subscription,
+import type { z } from "zod";
+
+import {
+  ClientError,
+  type ConnectionState,
+  type DipoClient,
+  type HelloResult,
+  type ReadOutcome,
+  type Subscription,
 } from "../client";
 
 /** What the store needs from a connected client; `DipoClient` is one. */
@@ -228,6 +232,20 @@ export class OfficeStore {
     }
   }
 
+  /** A read whose client-side failure (a closed client) is an outcome, never a rejection. */
+  async #read<A extends z.ZodType, R extends z.ZodType>(
+    definition: ReadDefinition<string, A, R>,
+    args: z.input<A>,
+  ): Promise<ReadOutcome<z.output<R>>> {
+    try {
+      return await this.#client.read(definition, args);
+    } catch (error) {
+      const code = error instanceof ClientError ? error.code : "client.failed";
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: { code, message, retryable: false } };
+    }
+  }
+
   // Loading and following an office
 
   async #load(office: OfficeId, read: "snapshot" | "switch"): Promise<ReadOutcome<OfficeSnapshot>> {
@@ -235,7 +253,7 @@ export class OfficeStore {
     this.#retry = null;
     this.#update({ loading: true });
     const definition = read === "switch" ? officeSwitch : officeSnapshot;
-    const outcome = await this.#client.read(definition, { office });
+    const outcome = await this.#read(definition, { office });
     if (this.#closed || generation !== this.#generation) return outcome;
     if (!outcome.ok) {
       if (outcome.error.code === "engine.recovering") this.#retry = { office, read };
@@ -285,7 +303,7 @@ export class OfficeStore {
 
   /** A history gap: drop the view, read `engine.hello` and the snapshot again, say so once. */
   async #reload(office: OfficeId): Promise<void> {
-    const hello = await this.#client.read(engineHello, {
+    const hello = await this.#read(engineHello, {
       contract: CONTRACT_VERSION,
       client: this.#clientInfo,
     });
@@ -314,7 +332,7 @@ export class OfficeStore {
   }
 
   async #reloadSoftware(): Promise<void> {
-    const hello = await this.#client.read(engineHello, {
+    const hello = await this.#read(engineHello, {
       contract: CONTRACT_VERSION,
       client: this.#clientInfo,
     });
