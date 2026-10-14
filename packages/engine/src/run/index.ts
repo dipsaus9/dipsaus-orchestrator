@@ -52,6 +52,7 @@ export {
 export type { NewRun, RunKind, RunOutcome, StoredRun, StoredRunStep, RunStepKind } from "./records";
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export {
+  followOnlyReason,
   HOST_CONNECT_TIMEOUT_MS,
   hostSocketSteering,
   OfficeIngest,
@@ -67,6 +68,8 @@ export type { StoredSignal } from "./signals";
 export {
   CAP_TICK_MS,
   CONTROL_NOTICES,
+  EVENT_FILE_CHANGED,
+  INTERRUPTED_END,
   RECONCILED_END,
   RunControl,
   STOPPED_DETAIL,
@@ -156,6 +159,8 @@ export type {
 export {
   INIT_REJECTED_SIGKILL_AFTER_MS,
   initRejectedEnding,
+  HOST_LOST_END,
+  HOST_LOST_WHY,
   INTENT_TAGS,
   intentTag,
   openWait,
@@ -169,6 +174,7 @@ export {
 } from "./outcomes";
 export type {
   ExitContext,
+  HostLostContext,
   RunAct,
   RunEnder,
   RunOutcomesDeps,
@@ -176,7 +182,13 @@ export type {
   RunView,
   WaitFact,
 } from "./outcomes";
-export { baseStoryFacts, RESUME_NOTICES, RESUME_POLICY, RunResumer } from "./resume";
+export {
+  baseStoryFacts,
+  HOST_EXIT_WAIT_MS,
+  RESUME_NOTICES,
+  RESUME_POLICY,
+  RunResumer,
+} from "./resume";
 export type {
   NextSession,
   NextSessionOutcome,
@@ -184,3 +196,6 @@ export type {
   RunResumerDeps,
   RunStoryFacts,
 } from "./resume";
+// Re-attach after a daemon restart (DIPO-57).
+export { REATTACH_NOTICES, REATTACH_STEP, RunReattacher } from "./reattach";
+export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";
