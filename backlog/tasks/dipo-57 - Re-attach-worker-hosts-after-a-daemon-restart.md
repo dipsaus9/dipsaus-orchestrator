@@ -15,13 +15,18 @@ dependencies:
   - DIPO-56
   - DIPO-74
 references:
-  - packages/engine/src/host/reattach.ts
   - packages/engine/src/host/
   - packages/engine/test/host/
   - packages/engine/src/run/
   - packages/engine/src/recovery/
   - packages/engine/src/features.ts
   - packages/engine/src/ingest/
+  - packages/engine/src/run/reattach.ts
+  - packages/engine/src/runs/worker-hosts.ts
+  - packages/engine/src/index.ts
+  - packages/engine/test/run/
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0007-state-database.md
