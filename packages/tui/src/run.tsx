@@ -12,10 +12,12 @@ import {
   type OfficeId,
   officeOpen,
 } from "@dipsaus-orchestrator/contract";
-import { render, Text, useInput } from "ink";
+import { Box, render, Text, useInput } from "ink";
+import { useState } from "react";
 
-import { App, type TuiActions } from "./app";
+import { App, QUIT_WINDOW_MS, type TuiActions } from "./app";
 import { parseTuiArgs } from "./options";
+import { glyphs } from "./views";
 
 /** What the TUI needs from a connected client. `DipoClient` is one. */
 export type TuiSession = StoreClient & Pick<DipoClient, "command" | "close">;
@@ -80,18 +82,21 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
     finished.resolve(code);
   };
 
-  const instance = render(<Starting ascii={options.ascii} onQuit={() => end(0)} />, {
-    stdin: deps.stdin,
-    stdout: deps.stdout,
-    exitOnCtrlC: false,
-    patchConsole: false,
-    // Ink takes CI=true for a non-interactive terminal (no alternate screen, only the last frame);
-    // stdin was checked to be a terminal above (DIPO-53 prototype).
-    interactive: true,
-    alternateScreen: !options.inline,
-    // The prototype measured it as good as full redraws in CPU, with fewer bytes written.
-    incrementalRendering: true,
-  });
+  const instance = render(
+    <Starting ascii={options.ascii} clock={deps.clock} onQuit={() => end(0)} />,
+    {
+      stdin: deps.stdin,
+      stdout: deps.stdout,
+      exitOnCtrlC: false,
+      patchConsole: false,
+      // Ink takes CI=true for a non-interactive terminal (no alternate screen, only the last frame);
+      // stdin was checked to be a terminal above (DIPO-53 prototype).
+      interactive: true,
+      alternateScreen: !options.inline,
+      // The prototype measured it as good as full redraws in CPU, with fewer bytes written.
+      incrementalRendering: true,
+    },
+  );
   const stopSignals = [
     deps.onSignal("SIGTERM", () => end(143)),
     deps.onSignal("SIGHUP", () => end(129)),
@@ -108,12 +113,18 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
       end(1);
       return;
     }
-    if (done) return;
+    // Quit or a signal while connecting: nothing waits for this session any more.
+    if (done) {
+      session.close();
+      return;
+    }
     const connected = session;
     store = new OfficeStore({ client: connected, clock: deps.clock, clientInfo: deps.clientInfo });
     store.start();
-    const offices = store.state.offices;
     const here = options.office ?? (await deps.currentOffice().catch(() => null));
+    // Quit or a signal during the lookup: Ink is unmounted, so render and open nothing.
+    if (done) return;
+    const offices = store.state.offices;
     const first =
       offices.find((entry) => entry.office === here)?.office ?? offices[0]?.office ?? null;
     // A command that fails on the client side (the client closed) is a message, never a rejection.
@@ -154,7 +165,8 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
   instance.unmount();
   await instance.waitUntilExit().catch(() => undefined);
   for (const stop of stopSignals) stop();
-  await started.catch(() => undefined);
+  // A connect or lookup still running is not waited for; it closes its own session when it ends.
+  void started;
   (store as OfficeStore | null)?.close();
   (session as TuiSession | null)?.close();
   if (failure !== null) deps.writeError(failure);
@@ -162,9 +174,24 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
 }
 
 /** Shown while the client connects and, when needed, starts the daemon. */
-function Starting(props: { ascii: boolean; onQuit: () => void }) {
+function Starting(props: { ascii: boolean; clock: Clock; onQuit: () => void }) {
+  const [quitArmedAt, setQuitArmedAt] = useState<number | null>(null);
   useInput((input, key) => {
-    if ((key.ctrl && input === "c") || input === "q") props.onQuit();
+    if (key.ctrl && input === "c") {
+      props.onQuit();
+      return;
+    }
+    if (input !== "q") return;
+    // The same rule as the App: a second `q` within 2 s quits (0009 section 6).
+    const now = props.clock.now();
+    if (quitArmedAt !== null && now - quitArmedAt <= QUIT_WINDOW_MS) props.onQuit();
+    else setQuitArmedAt(now);
   });
-  return <Text>{` dipo ${props.ascii ? "-" : "·"} starting${props.ascii ? "..." : "…"}`}</Text>;
+  const { dot, ellipsis } = glyphs(props.ascii);
+  return (
+    <Box flexDirection="column">
+      <Text>{` dipo ${dot} starting${ellipsis}`}</Text>
+      {quitArmedAt === null ? null : <Text>{" press q again to quit"}</Text>}
+    </Box>
+  );
 }

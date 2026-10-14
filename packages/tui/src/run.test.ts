@@ -121,4 +121,43 @@ describe("runTui", () => {
     expect(await runTui(["--wide"], deps)).toBe(2);
     expect(errors[0]).toContain('unknown argument "--wide"');
   });
+
+  it("needs q twice on the starting screen too", async () => {
+    const connecting = Promise.withResolvers<TuiSession>();
+    const { terminal, deps, waitScreen } = setup({ connect: () => connecting.promise });
+    let code: number | null = null;
+    const running = runTui([], deps).then((value) => (code = value));
+    await waitScreen("starting…");
+    await terminal.press("q");
+    await waitScreen("press q again to quit");
+    expect(code).toBeNull();
+    await terminal.press("q");
+    expect(await running).toBe(0);
+    // A session that arrives after quitting is closed.
+    const late = new FakeSession();
+    connecting.resolve(late);
+    await Bun.sleep(10);
+    expect(late.closed).toBe(true);
+  });
+
+  it("renders and opens nothing when it quits while looking up the current office", async () => {
+    const lookup = Promise.withResolvers<null>();
+    const { terminal, session, signals, deps, waitScreen } = setup();
+    const looking = Promise.withResolvers<void>();
+    const running = runTui([], {
+      ...deps,
+      currentOffice: () => {
+        looking.resolve();
+        return lookup.promise;
+      },
+    });
+    await waitScreen("starting…");
+    await looking.promise;
+    signals.get("SIGTERM")?.();
+    expect(await running).toBe(143);
+    lookup.resolve(null);
+    await Bun.sleep(20);
+    expect(session.reads.map((read) => read.name)).toEqual([]);
+    expect(Bun.stripANSI(terminal.raw())).not.toContain("Offices");
+  });
 });
