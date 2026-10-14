@@ -20,7 +20,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { deriveStoryView, isUnknownStatus, lifecycleOf, storyView } from "../views/story";
+import { isUnknownStatus, storyView } from "../views/story";
 
 import { addStory, removeStory, renumberStories, type StoryMove } from "./keys";
 import type { BacklogStory } from "./read";
@@ -92,10 +92,6 @@ function sameIdentity(known: Known, read: BacklogStory): boolean {
 /** Two frozen branches that are both known and differ name two stories. */
 function compatible(known: Known, read: BacklogStory): boolean {
   return !differs(known.frozenBranch, read.frozenBranch);
-}
-
-function lifecycleOfRead(read: BacklogStory): Lifecycle {
-  return lifecycleOf(read.kind, read.status);
 }
 
 function sameView(a: StoryView, b: StoryView): boolean {
@@ -287,14 +283,23 @@ export function applyIndex(
   // 7. The mirror, and a `story.state` for every story whose view changed.
   const changes: { view: StoryView; from: Lifecycle }[] = [];
   for (const [key, story] of matched) {
+    // A park record keeps the time it was first seen while it stays the same (DIPO-52).
     office.run(
       `insert into backlog_mirror
-         (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source)
-       values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source)
+         (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source,
+          waiting_on, park, park_since, criteria_met, criteria_total)
+       values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source,
+          $waiting_on, $park, $park_since, $criteria_met, $criteria_total)
        on conflict (office_id, key) do update set
          content_hash = excluded.content_hash, kind = excluded.kind, status = excluded.status,
          title = excluded.title, tier = excluded.tier, role = excluded.role,
-         labels = excluded.labels, read_at = excluded.read_at, source = excluded.source`,
+         labels = excluded.labels, read_at = excluded.read_at, source = excluded.source,
+         waiting_on = excluded.waiting_on,
+         park_since = case when excluded.park is null then null
+           when backlog_mirror.park is excluded.park then backlog_mirror.park_since
+           else excluded.park_since end,
+         park = excluded.park,
+         criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total`,
       {
         key,
         hash: story.contentHash,
@@ -306,15 +311,18 @@ export function applyIndex(
         labels: JSON.stringify(story.labels),
         at,
         source: options.source,
+        waiting_on:
+          story.waitingOn === undefined || story.waitingOn.length === 0
+            ? null
+            : JSON.stringify(story.waitingOn),
+        park: story.park === undefined ? null : JSON.stringify(story.park),
+        park_since: story.park === undefined ? null : at,
+        criteria_met: story.criteria?.met ?? null,
+        criteria_total: story.criteria?.total ?? null,
       },
     );
-    const view = deriveStoryView({
-      key,
-      story: story.story,
-      title: story.title,
-      lifecycle: lifecycleOfRead(story),
-      ...(story.tier === undefined ? {} : { tier: story.tier }),
-    });
+    const view = storyView(office, key);
+    if (view === null) continue;
     const previous = before.get(key);
     if (previous === undefined || !sameView(previous, view)) {
       changes.push({ view, from: previous?.lifecycle ?? view.lifecycle });

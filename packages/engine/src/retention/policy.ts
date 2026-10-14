@@ -75,6 +75,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   },
   runs: { tier: "S", rule: "ended more than stateDays ago; an active run is kept" },
   run_steps: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  run_signals: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   config_snapshots: {
     tier: "S",
     rule: "first seen more than stateDays ago and named by no run that is kept",

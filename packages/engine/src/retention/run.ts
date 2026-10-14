@@ -165,6 +165,12 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
        and r.ended_at < $cutoff)`,
     { cutoff: stateCutoff },
   );
+  await rows(
+    "run_signals",
+    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_signals.run_id
+       and r.ended_at < $cutoff)`,
+    { cutoff: stateCutoff },
+  );
   await rows("runs", "ended_at < $cutoff", { cutoff: stateCutoff });
   await rows(
     "config_snapshots",
