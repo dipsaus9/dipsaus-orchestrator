@@ -6,7 +6,6 @@ import {
   CONTRACT_VERSION,
   contractCommands,
   contractReads,
-  defineCommand,
   describeContract,
   findCommand,
   commandsDescribe,
@@ -78,23 +77,28 @@ describe("commands.describe", () => {
     expect(open?.irreversible).toBe(false);
   });
 
-  it("describes office.purge with confirm and irreversible once it ships", () => {
-    const purge = findCommand("office.purge");
-    if (purge === undefined) throw new Error("office.purge is not defined");
-    const { provisional: _provisional, ...rest } = purge;
-    const shipped = defineCommand({ ...rest, since: 0 });
-    const [entry] = describeContract([shipped], []).commands;
+  it("lists office.purge since minor 1 with confirm, irreversible and its result (DIPO-76)", () => {
+    const entry = describeContract().commands.find((command) => command.name === "office.purge");
     expect(entry).toMatchObject({
       name: "office.purge",
-      since: 0,
+      since: 1,
+      level: "software",
       confirm: true,
       irreversible: true,
+      args: { type: "object", required: ["office"] },
     });
+    const result = entry?.result as { properties?: object; required?: string[] } | undefined;
+    expect(Object.keys(result?.properties ?? {}).toSorted()).toEqual(
+      ["directory", "office", "path", "rows"].toSorted(),
+    );
+    expect(result?.required?.toSorted()).toEqual(["office", "path", "rows"]);
   });
 
   it("leaves provisional definitions out", () => {
+    const provisional = contractCommands.find((definition) => definition.provisional === true);
+    if (provisional === undefined) throw new Error("no provisional command left to check");
     const names = describeContract().commands.map((entry) => entry.name);
-    expect(names).not.toContain("office.purge");
+    expect(names).not.toContain(provisional.name);
   });
 
   it("lists office.init since minor 1 with its result shape (DIPO-36)", () => {
