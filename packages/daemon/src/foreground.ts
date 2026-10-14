@@ -515,6 +515,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
       host,
+      // Reconcile lists the open `dipo/backlog-*` PRs to adopt one after a lost database (DIPO-80).
+      list: host,
       lane: (office) => lane.forOffice(office),
       cli: backlogCli,
       offices,
@@ -646,6 +648,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       runs: runs.control,
       releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+      adoptBacklogPr: (office) => backlogPrs.adopt(office),
       refuse: (office, text) => offices.refuse(office, text),
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "reconcile" }),

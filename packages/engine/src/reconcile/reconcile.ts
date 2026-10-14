@@ -62,6 +62,7 @@ export const RECONCILE_NOTICES = {
   parkRecorded: "reconcile.parkRecorded",
   readyUngated: "reconcile.readyUngated",
   markerMismatch: "reconcile.markerMismatch",
+  adoptFailed: "reconcile.adoptFailed",
   failed: "reconcile.failed",
 } as const;
 
