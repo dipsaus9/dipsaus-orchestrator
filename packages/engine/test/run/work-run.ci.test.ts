@@ -164,69 +164,84 @@ function types(r: Running): { type: string; delta: unknown }[] {
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("work.run on real git and the Backlog CLI", () => {
-    it("claims a Ready story with one claim commit, a stored pickup decision and the run events", () =>
-      withRunOffice(
-        async () => undefined,
-        async (r) => {
-          const reply = await workRunCommand(r);
-          const result = resultOf<{
-            started: { story: string; run: string }[];
-            skipped: { story: string; reason: string }[];
-          }>(reply);
-          expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
-          expect(result.skipped).toEqual([]);
+    // Each case makes several CLI calls, a fetch, a claim and a push; under a parallel CI load
+    // that takes longer than the default 5 s.
+    it(
+      "claims a Ready story with one claim commit, a stored pickup decision and the run events",
+      () =>
+        withRunOffice(
+          async () => undefined,
+          async (r) => {
+            const reply = await workRunCommand(r);
+            const result = resultOf<{
+              started: { story: string; run: string }[];
+              skipped: { story: string; reason: string }[];
+            }>(reply);
+            expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+            expect(result.skipped).toEqual([]);
 
-          const branch = "TASK-1/add-the-csv-export-command";
-          const log = await r.repo.git("log", "--format=%s", `origin/${branch}`, "-n", "2");
-          expect(log.trim().split("\n")[0]).toBe("TASK-1: status In Progress");
-          const main = await r.repo.git("rev-parse", "origin/main");
-          const parent = await r.repo.git("rev-parse", `origin/${branch}~1`);
-          expect(parent.trim()).toBe(main.trim());
+            const branch = "TASK-1/add-the-csv-export-command";
+            const log = await r.repo.git("log", "--format=%s", `origin/${branch}`, "-n", "2");
+            expect(log.trim().split("\n")[0]).toBe("TASK-1: status In Progress");
+            const main = await r.repo.git("rev-parse", "origin/main");
+            const parent = await r.repo.git("rev-parse", `origin/${branch}~1`);
+            expect(parent.trim()).toBe(main.trim());
 
-          const decisions = r.office.all<{ decision: string }>(
-            "select decision from gate_decisions where office_id = $office_id",
-          );
-          expect(decisions).toEqual([{ decision: "approved" }]);
-          const run = findRun(r.office, result.started[0]?.run as never);
-          expect(run).toMatchObject({ kind: "story", story: "TASK-1", branch, tier: "S" });
-          const events = types(r).map((entry) => entry.type);
-          expect(events.slice(-2)).toEqual(["work.assigned", "work.phase"]);
-        },
-      ));
+            const decisions = r.office.all<{ decision: string }>(
+              "select decision from gate_decisions where office_id = $office_id",
+            );
+            expect(decisions).toEqual([{ decision: "approved" }]);
+            const run = findRun(r.office, result.started[0]?.run as never);
+            expect(run).toMatchObject({ kind: "story", story: "TASK-1", branch, tier: "S" });
+            const events = types(r).map((entry) => entry.type);
+            expect(events.slice(-2)).toEqual(["work.assigned", "work.phase"]);
+          },
+        ),
+      30_000,
+    );
 
-    it("returns a story with an open unknown edited in by hand to Refined with the R15 message", () =>
-      withRunOffice(
-        async (repo) => {
-          const file = join(repo.dir, "backlog", "tasks", "task-1 - Add-the-CSV-export-command.md");
-          const text = readFileSync(file, "utf8").replace(
-            "unknowns: []",
-            'unknowns:\n  - q: "Which delimiter?"\n    status: "open"',
-          );
-          writeFileSync(file, text);
-        },
-        async (r) => {
-          const result = resultOf<{ started: unknown[]; skipped: { reason: string }[] }>(
-            await workRunCommand(r),
-          );
-          expect(result.started).toEqual([]);
-          expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
-          expect(countRows(r.office, "claims")).toBe(0);
-          const state = types(r).find(
-            (entry) =>
-              entry.type === "story.state" &&
-              (entry.delta as { to?: string }).to === "Refined" &&
-              (entry.delta as { from?: string }).from === "Ready",
-          );
-          expect(state?.delta).toMatchObject({ story: "TASK-1", from: "Ready", to: "Refined" });
-          const detail = (state?.delta as { detail?: string[] } | undefined)?.detail ?? [];
-          expect(detail.some((line) => line.startsWith("ready TASK-1 failed R15:"))).toBe(true);
-          // The move is journaled and committed on a backlog branch for the backlog PR.
-          expect(
-            r.office.get<{ n: number }>(
-              "select count(*) as n from backlog_journal where office_id = $office_id and op_kind = 'edit'",
-            )?.n,
-          ).toBe(1);
-        },
-      ));
+    it(
+      "returns a story with an open unknown edited in by hand to Refined with the R15 message",
+      () =>
+        withRunOffice(
+          async (repo) => {
+            const file = join(
+              repo.dir,
+              "backlog",
+              "tasks",
+              "task-1 - Add-the-CSV-export-command.md",
+            );
+            const text = readFileSync(file, "utf8").replace(
+              "unknowns: []",
+              'unknowns:\n  - q: "Which delimiter?"\n    status: "open"',
+            );
+            writeFileSync(file, text);
+          },
+          async (r) => {
+            const result = resultOf<{ started: unknown[]; skipped: { reason: string }[] }>(
+              await workRunCommand(r),
+            );
+            expect(result.started).toEqual([]);
+            expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+            expect(countRows(r.office, "claims")).toBe(0);
+            const state = types(r).find(
+              (entry) =>
+                entry.type === "story.state" &&
+                (entry.delta as { to?: string }).to === "Refined" &&
+                (entry.delta as { from?: string }).from === "Ready",
+            );
+            expect(state?.delta).toMatchObject({ story: "TASK-1", from: "Ready", to: "Refined" });
+            const detail = (state?.delta as { detail?: string[] } | undefined)?.detail ?? [];
+            expect(detail.some((line) => line.startsWith("ready TASK-1 failed R15:"))).toBe(true);
+            // The move is journaled and committed on a backlog branch for the backlog PR.
+            expect(
+              r.office.get<{ n: number }>(
+                "select count(*) as n from backlog_journal where office_id = $office_id and op_kind = 'edit'",
+              )?.n,
+            ).toBe(1);
+          },
+        ),
+      30_000,
+    );
   });
 }
