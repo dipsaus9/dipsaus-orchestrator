@@ -1,10 +1,10 @@
 ---
 id: DIPO-52
 title: 'Derive story and work views, snapshots and a plain watch command'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 11:54'
+updated_date: '2026-10-14 12:02'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -110,4 +110,6 @@ DIPO-52 implementation (2026-10-14):
 - Client: liveness deadline: no frame for 45 s while subscribed, or a request past its deadlineMs, closes and reconnects.
 - CLI: dipo watch [ID] [--office]. Run ends come from story.detail (runs.ended_at/end_kind), read after notices, parks, story moves and idle stream marks.
 - Contract additions (minor 1, unreleased): office.switch; optional view on work.assigned/phase/progress/output/observed and usage.updated; work.observed.clearedAt; Verdict.run optional and Verdict.failures. 0005 amendment proposed in the PR report, not edited.
+
+Live test 2026-10-14 on dipsaus9/dipo-scratch-backlog (build 20719cb): dipo watch showed the run start, phases, health, each worker tool call and usage with turns within about a second of the worker. The maintainer wants the watch output enhanced later (not in M0 scope).
 <!-- SECTION:NOTES:END -->
