@@ -7,7 +7,7 @@
 // the ingestion hooks, with the real park writer on the office git. Shared by start.ci.test.ts and
 // park.ci.test.ts.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -28,6 +28,7 @@ import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/h
 import { officeStatusesReady } from "../../src/office/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
 import {
+  baseStoryFacts,
   cliRunBase,
   gitParkWriter,
   gitStoryOps,
@@ -38,6 +39,9 @@ import {
   RunControl,
   type RunSteering,
   RunLauncher,
+  RunOutcomes,
+  RunResumer,
+  storyHoldsWork,
   WorkRun,
 } from "../../src/run";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/runs/worker-hosts";
@@ -88,13 +92,18 @@ export interface Running {
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
   readonly holds: AdapterHolds;
-  readonly hosts: { runId: string; plan: LaunchPlan }[];
+  /** Every host start, with the run's event file size before it (DIPO-51). */
+  readonly hosts: { runId: string; agentId: string; plan: LaunchPlan; sizeBefore: number }[];
   readonly ingest: OfficeIngest;
   readonly engineGit: EngineGit;
   /** Run control, when the office was set up with it. */
   readonly control: RunControl | null;
   /** The host ops run control sent, per call. */
   readonly sent: HostOp[][];
+  /** Worker outcomes, when the office was set up with them (DIPO-51). */
+  readonly outcomes: RunOutcomes | null;
+  /** Each ingestion start with the host row's `processed_offset` at that moment. */
+  readonly starts: { agent: string; processedOffset: number }[];
 }
 
 export interface RunOfficeOptions {
@@ -102,6 +111,14 @@ export interface RunOfficeOptions {
   readonly checks: LaunchCheckOutcome;
   /** The recording a replay host plays; `success-single` by default. */
   readonly recording?: string;
+  /** The recordings of the first, second, ... host start, before `recording` (DIPO-51). */
+  readonly recordings?: readonly string[];
+  /**
+   * Wires worker outcomes and the run's next session (DIPO-51) into run control (which `control`
+   * must also ask for): the real resumer on the office git and the base, its hosts the same
+   * replay hosts.
+   */
+  readonly outcomes?: boolean;
   /** Wires run control; `caps` replaces the tier's caps it tracks the run with. */
   readonly control?: { readonly caps?: Partial<Caps> };
   /**
@@ -206,9 +223,17 @@ export async function withRunOffice(
       const hosts: Running["hosts"] = [];
       const hostStarter: HostStarter = {
         start: async (office, run) => {
-          hosts.push({ runId: run.runId, plan: run.plan });
-          await options.finisher?.beforeWorker?.(run.plan.cwd);
           const runDir = runDirectory(run.officeDir, run.runId);
+          const recording =
+            options.recordings?.[hosts.length] ?? options.recording ?? "success-single";
+          const eventFile = join(runDir, EVENTS_FILE);
+          hosts.push({
+            runId: run.runId,
+            agentId: run.agentId,
+            plan: run.plan,
+            sizeBefore: existsSync(eventFile) ? statSync(eventFile).size : 0,
+          });
+          await options.finisher?.beforeWorker?.(run.plan.cwd);
           const socketPath = hostSocketPath(runtimeDir, run.runId);
           const host: LaunchedHost = {
             pid: 4242,
@@ -240,8 +265,7 @@ export async function withRunOffice(
               runId: run.runId,
               runDir,
               clock: replayClock,
-              spawn: fakeSpawn(loadRecording(options.recording ?? "success-single"), replayClock)
-                .spawn,
+              spawn: fakeSpawn(loadRecording(recording), replayClock).spawn,
               killGroup: () => undefined,
               pid: 4242,
             });
@@ -291,6 +315,7 @@ export async function withRunOffice(
               scanWorktree: async () => finisherOptions.profile,
               host: { home: repo.root, uid: 501, env: { PATH: "/usr/bin:/bin" } },
             });
+      let outcomes: RunOutcomes | null = null;
       const control =
         options.control === undefined
           ? null
@@ -307,6 +332,7 @@ export async function withRunOffice(
               steering,
               encode,
               flushOutput: (office, run) => ingest?.flushOutput(office, run),
+              outcomes: () => outcomes ?? undefined,
             });
       ingest = new OfficeIngest({
         clock: new ManualClock(),
@@ -314,6 +340,58 @@ export async function withRunOffice(
         ...(control === null ? {} : { hooks: control.hooks }),
       });
       const capsOverride = options.control?.caps ?? {};
+      // Worker outcomes and the run's next session (DIPO-51), on the same replay hosts.
+      const starts: Running["starts"] = [];
+      const officeIngest = ingest;
+      if (options.outcomes === true && control !== null) {
+        const resumer = new RunResumer({
+          get clock() {
+            return loaded().clock;
+          },
+          get ids() {
+            return loaded().ids;
+          },
+          offices,
+          worker,
+          git: (office) => engineGit.forOffice(office),
+          story: baseStoryFacts(base),
+          runtimeDir,
+          tmpRoot: join(repo.root, "tmp"),
+          hosts: hostStarter,
+          ingest: {
+            start: (office, host, target) => {
+              const row = office.get<{ processed_offset: number }>(
+                `select processed_offset from worker_hosts
+                  where office_id = $office_id and run_id = $run and agent_id = $agent`,
+                { run: host.runId, agent: host.agentId },
+              );
+              starts.push({ agent: host.agentId, processedOffset: row?.processed_offset ?? -1 });
+              officeIngest.start(office, host, target);
+            },
+          },
+          control: {
+            track: (office, run) =>
+              control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
+          },
+        });
+        outcomes = new RunOutcomes({
+          get clock() {
+            return loaded().clock;
+          },
+          offices,
+          steering,
+          encode,
+          worker,
+          ender: () => control,
+          resumer,
+          holds,
+          release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+          holdsWork: storyHoldsWork(
+            gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+          ),
+          caps: () => null,
+        });
+      }
       const launcher = new RunLauncher({
         worker,
         git: (office) => engineGit.forOffice(office),
@@ -400,6 +478,8 @@ export async function withRunOffice(
           engineGit,
           control,
           sent,
+          outcomes,
+          starts,
         });
       } finally {
         control?.close();
