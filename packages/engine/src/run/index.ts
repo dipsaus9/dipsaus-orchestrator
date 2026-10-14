@@ -62,7 +62,6 @@ export {
   RunControl,
   STOPPED_DETAIL,
   STORY_NOT_RUNNING,
-  workRefOf,
 } from "./control";
 export type { RunControlDeps, RunSteering, TrackedRun } from "./control";
 export { firedCap, runTotals } from "./caps";

@@ -24,17 +24,14 @@
 // on a run nothing else is decided for it: later events of the same or a later pass are ignored.
 
 import {
-  type AgentId,
   type Clock,
   type CommandName,
   type OfficeId,
   type ParkReason,
-  RoleId,
   type RunId,
   type TimerHandle,
   type WorkRef,
   workStop,
-  StoryId,
 } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
@@ -42,6 +39,7 @@ import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { IngestHooks } from "../ingest/ingestor";
+import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, HostOp, SteerOp, WorkerEvent } from "../workers/types";
 
 import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
@@ -126,26 +124,6 @@ type StopResult = { run: RunId };
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** The developer's work reference of a stored story run, from its newest agent. */
-export function workRefOf(office: OfficeHandle, run: StoredRun): WorkRef | undefined {
-  if (run.kind !== "story" || run.story === null || run.key === null) return undefined;
-  const agent = office.get<{ agent_id: string; role: string; model: string }>(
-    `select agent_id, role, model from agents where office_id = $office_id and run_id = $run
-     order by started_at desc, agent_id desc limit 1`,
-    { run: run.runId },
-  );
-  if (agent === null) return undefined;
-  return {
-    story: StoryId.parse(run.story),
-    key: run.key,
-    run: run.runId,
-    agent: agent.agent_id as AgentId,
-    role: RoleId.parse(agent.role),
-    tier: run.tier ?? "",
-    model: agent.model,
-  };
 }
 
 export class RunControl {
@@ -296,7 +274,7 @@ export class RunControl {
       endKind: "stopped",
     };
     const tracked = this.#tracked.get(run.runId);
-    const work = tracked?.work ?? workRefOf(handle, run);
+    const work = tracked?.work ?? workRefOf(handle, run.runId) ?? undefined;
     if (tracked !== undefined) this.#disarm(tracked);
     const done = this.#end(handle, run, work, ending, (fn) => ctx.commit(fn));
     if (tracked !== undefined) tracked.ending = done;
@@ -387,15 +365,18 @@ export class RunControl {
   /**
    * Records the intent (synchronously, before the first await), sends its ops through the host and
    * parks the story. A send that fails leaves the intent `failed` and puts a notice on the office;
-   * the park still happens.
+   * the park still happens. Every entry it writes carries the run's work view where its type has
+   * one (DIPO-52's `withWorkViews`), derived in the transaction that wrote the facts.
    */
   #end(
     office: OfficeHandle,
     run: StoredRun,
     work: WorkRef | undefined,
     ending: Ending,
-    write: (fn: () => readonly NewEntry[]) => void,
+    commit: (fn: () => readonly NewEntry[]) => void,
   ): Promise<ParkOutcome> {
+    const write = (fn: () => readonly NewEntry[]): void =>
+      commit(() => withWorkViews(office, fn()));
     const intentId = office.immediate(() =>
       recordIntent(office, run.runId, ending.intent, ending.detail, this.#deps.clock.now()),
     );
