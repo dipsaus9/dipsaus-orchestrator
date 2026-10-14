@@ -112,6 +112,12 @@ Usage:
                     the named ones), claim it and start its run; prints each
                     started story and each skipped one with its reason, and
                     exits 1 when none started
+  dipo run --dry-run [<id>...] [--office <id>]
+                    show what dipo run would do without doing it: the branch and
+                    worktree it would create, the full worker launch (program,
+                    arguments, model, effort, caps, sandbox settings, variable
+                    names) and the system file and task message the worker
+                    would get; claims, creates and starts nothing
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation

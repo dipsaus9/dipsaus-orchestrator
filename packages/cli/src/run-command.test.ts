@@ -28,7 +28,11 @@ const NO_LIFECYCLE: DaemonControl = {
   restart: () => Promise.reject(new Error("restart must not be called")),
 };
 
-function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = {}) {
+function fake(
+  reply: (sent: Sent) => unknown,
+  workspace: FakeWorkspaceOptions = {},
+  read?: (sent: Sent) => unknown,
+) {
   const out: string[] = [];
   const err: string[] = [];
   const sent: Sent[] = [];
@@ -52,7 +56,12 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
         subscribe: () => {
           throw new Error("subscribe must not be called");
         },
-        read: () => Promise.reject(new Error("read must not be called")),
+        read: (async (definition: { name: string }, args: unknown) => {
+          if (read === undefined) throw new Error("read must not be called");
+          const message = { name: definition.name, args, office: undefined };
+          sent.push(message);
+          return read(message);
+        }) as DaemonSession["read"],
         close: () => undefined,
       };
       return session;
@@ -137,5 +146,110 @@ describe("dipo run", () => {
       expect(await main(args, ctx.deps)).toBe(2);
       expect(ctx.sent).toEqual([]);
     }
+  });
+});
+
+const LAUNCH = {
+  adapter: "claude-cli",
+  branch: "DIPO-7/add-a-greeting",
+  worktree: "/work/app.worktrees/DIPO-7",
+  runDir: "/work/app/.git/dipo/runs/<run-id>",
+  cwd: "/work/app.worktrees/DIPO-7",
+  argv: [
+    "/opt/claude/bin/claude",
+    "-p",
+    "--verbose",
+    "--model",
+    "sonnet",
+    "--json-schema",
+    '{"type":"object"}',
+  ],
+  model: "sonnet",
+  effort: "medium",
+  caps: { budgetTokens: 800_000, maxTurns: 120, maxMinutes: 60, loops: 4 },
+  envNames: ["DIPO_RUN", "HOME", "PATH"],
+  files: [
+    { name: "claude-settings.json", content: '{\n  "sandbox": { "enabled": true }\n}\n' },
+    { name: "report-schema.json", content: '{\n  "type": "object"\n}\n' },
+  ],
+  systemFile: { path: "/work/app/.git/dipo/runs/<run-id>/system.md", text: "You implement.\n" },
+  taskMessage: "<story>\nDIPO-7 Add a greeting\n</story>\n",
+};
+
+describe("dipo run --dry-run", () => {
+  it("reads work.preview and prints each part of the launch under its own header", async () => {
+    const ctx = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [],
+          story: { story: "DIPO-7", key: KEY },
+          skipped: [{ story: "DIPO-8", key: KEY_2, reason: "capacity" }],
+          launch: LAUNCH,
+          problem: null,
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run", "dipo-7"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([
+      { name: "work.preview", args: { office: OFFICE, stories: ["DIPO-7"] }, office: undefined },
+    ]);
+    const out = ctx.out.join("\n");
+    for (const header of [
+      "== Office checks ==",
+      "== Story ==",
+      "== Branch and worktree it would create ==",
+      "== Worker launch (claude-cli) ==",
+      "== Run directory file claude-settings.json (permissions and sandbox settings) ==",
+      "== Run directory file report-schema.json ==",
+      "== System file /work/app/.git/dipo/runs/<run-id>/system.md ==",
+      "== Task message (the first user message, on stdin) ==",
+    ]) {
+      expect(out).toContain(header);
+    }
+    expect(out).toContain("would start DIPO-7");
+    expect(out).toContain("skipped DIPO-8: the office already runs a story");
+    expect(out).toContain("branch:        DIPO-7/add-a-greeting");
+    expect(out).toContain("worktree:      /work/app.worktrees/DIPO-7 (locked)");
+    expect(out).toContain("program:           /opt/claude/bin/claude");
+    expect(out).toContain("caps:              800,000 tokens, 120 turns, 60 minutes, 4 loops");
+    expect(out).toContain("  --model sonnet");
+    expect(out).toContain("  --json-schema <the JSON of report-schema.json below, on one line>");
+    expect(out).toContain(
+      "environment (names only, values are not shown):\n  DIPO_RUN\n  HOME\n  PATH",
+    );
+    expect(out).toContain('"sandbox": { "enabled": true }');
+    expect(out).toContain("DIPO-7 Add a greeting");
+    expect(ctx.err).toEqual([]);
+  });
+
+  it("prints the refusals and why no launch was planned, and exits 1", async () => {
+    const ctx = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [{ check: "adapter", message: "New runs on claude-cli are held." }],
+          story: { story: "DIPO-7", key: KEY },
+          skipped: [],
+          launch: null,
+          problem: "DIPO-7 was not started: the launch plan refused the path /a(b)",
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run"], ctx.deps)).toBe(1);
+    const out = ctx.out.join("\n");
+    expect(out).toContain("refused (adapter): New runs on claude-cli are held.");
+    expect(out).toContain(
+      "no launch: DIPO-7 was not started: the launch plan refused the path /a(b)",
+    );
+    expect(out).not.toContain("== Worker launch");
   });
 });
