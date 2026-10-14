@@ -1,0 +1,377 @@
+// Parking a story (DIPO-50; 0012 F16 and the transition In Progress or In Review to Parked, 0010
+// sections 2 and 3, 0005 section 5, 0007 section 4, 0008 section 2).
+//
+// `parkStory` writes the park on the story branch first, through a `ParkWriter`: in the story
+// worktree, inside the office's git queue, the Backlog CLI writes the F16 `park` block
+// (`{reason, from, note}`) through the single field write path and sets status `Parked`; only the
+// task file is committed, as `<ID>: status Parked`, and the branch is pushed without force. Then,
+// in one transaction, it records the park in `parks` (reason, the lifecycle it left, detail, last
+// good commit, time), ends the run with its end kind and emits `story.state` to Parked and
+// `story.parked` with the actions the engine implements.
+//
+// A `git.worktreeTampered` refusal (the worktree's git links changed since the claim) parks the
+// story `scope-violation` instead, with the refusal as detail, and nothing more runs in that
+// worktree: the office git keeps the claim's pin, so every later engine git call there is refused.
+// A park that could not be written on the branch, or a push that failed, is still recorded and
+// emitted, with an `engine.notice` saying what is missing.
+
+import {
+  type CommandName,
+  type Lifecycle,
+  type OfficeId,
+  type ParkReason,
+  StoryId,
+  type WorkRef,
+} from "@dipsaus-orchestrator/contract";
+
+import { viewStory, writeFields } from "../backlog/fields/write";
+import { statusPaths } from "../backlog/lane/lane";
+import { type BacklogCli, runBacklog } from "../backlog/runner";
+import type { NewEntry } from "../changelog/log";
+import type { OfficeHandle } from "../db/office";
+import { FETCH_CONFIG, type GitLocation } from "../git/hardened";
+import type { OfficeGit } from "../git/office";
+import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
+import { deriveStoryView, storyView } from "../views/story";
+import { repoPath } from "../worktree/claim";
+import { PARKED_STATUS } from "../worktree/done";
+
+import { endRun, type StoredRun } from "./records";
+
+/** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
+export const WORKTREE_TAMPERED = "git.worktreeTampered";
+
+/** `engine.notice` codes of a park. */
+export const PARK_NOTICES = {
+  notWritten: "park.notWritten",
+  pushFailed: "park.pushFailed",
+} as const;
+
+/** Commands a parked story's `actions` may offer, when the engine implements them (0005). */
+const PARK_ACTIONS: readonly CommandName[] = [
+  "work.resume",
+  "work.answer",
+  "work.discard",
+  "story.drop",
+] as CommandName[];
+
+/** What the branch write needs. */
+export interface ParkBranchRequest {
+  readonly story: string;
+  readonly branch: string;
+  readonly worktree: string;
+  readonly reason: ParkReason;
+  readonly note: string;
+}
+
+/** What the branch write did. */
+export interface BranchPark {
+  /** The park commit, or null when the task file already held the park. */
+  readonly commit: string | null;
+  /** The branch tip before the park commit. */
+  readonly lastGoodCommit: string;
+  /** The lifecycle the story left, read from its status on the branch. */
+  readonly from: Lifecycle;
+  /** True when the branch was pushed; false without a remote or when the push failed. */
+  readonly pushed: boolean;
+  /** Why the push failed, or null. */
+  readonly pushError: string | null;
+}
+
+/** Writes the park on the story branch (the real one is `gitParkWriter`). */
+export interface ParkWriter {
+  write(office: OfficeId, request: ParkBranchRequest): Promise<BranchPark>;
+}
+
+type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The park written on the story branch with the Backlog CLI and the office git. */
+export function gitParkWriter(deps: {
+  readonly git: (office: OfficeId) => OfficeGit | undefined;
+  readonly cli: BacklogCli;
+}): ParkWriter {
+  return {
+    async write(office, request) {
+      const git = deps.git(office);
+      if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+      return git.run(async (session) => {
+        // A pinned worktree whose links changed throws `git.worktreeTampered` here, before any
+        // CLI or git call runs in it.
+        const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
+        const target = { cli: deps.cli, cwd: location.workTree, id: request.story };
+        const before = await viewStory(target);
+        const from: Lifecycle = before.status === "In Review" ? "In Review" : "In Progress";
+        const lastGoodCommit = (
+          await session.ok(location, ["rev-parse", "--verify", "HEAD"])
+        ).trim();
+        await writeFields(target, (fields) => ({
+          ...fields,
+          park: { reason: request.reason, from, note: request.note },
+        }));
+        if (before.status !== PARKED_STATUS) {
+          await runBacklog(deps.cli, location.workTree, [
+            "task",
+            "edit",
+            request.story,
+            "--status",
+            PARKED_STATUS,
+          ]);
+        }
+        const back = await viewStory(target);
+        if (back.status !== PARKED_STATUS) {
+          throw new GitError(
+            "park.statusNotWritten",
+            `The Backlog CLI left ${request.story} at ${back.status}, not ${PARKED_STATUS}.`,
+          );
+        }
+        const taskFile = repoPath(location.workTree, before.file);
+        const changed = statusPaths(
+          await session.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+        );
+        let commit: string | null = null;
+        if (changed.includes(taskFile)) {
+          await session.ok(location, ["add", "--", taskFile]);
+          const committed = await session.step(
+            location,
+            ["commit", "--quiet", "--no-verify", "-m", `${request.story}: status ${PARKED_STATUS}`],
+            { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
+          );
+          if (committed.code !== 0) {
+            throw new GitError(
+              "git.failed",
+              `git commit failed: ${committed.stderr.trim() || `exit ${committed.code}`}`,
+            );
+          }
+          commit = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+        }
+        const { remote } = git.settings;
+        const url = await session.step(session.repository, [
+          "config",
+          "--get",
+          `remote.${remote}.url`,
+        ]);
+        if (url.code !== 0 || url.stdout.trim() === "") {
+          return { commit, lastGoodCommit, from, pushed: false, pushError: null };
+        }
+        const ref = `refs/heads/${request.branch}`;
+        const pushed = await session
+          .step(session.repository, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`], {
+            config: FETCH_CONFIG,
+            timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
+          })
+          .catch((error: unknown): GitResult => {
+            if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
+            throw error;
+          });
+        return {
+          commit,
+          lastGoodCommit,
+          from,
+          pushed: pushed.code === 0,
+          pushError:
+            pushed.code === 0
+              ? null
+              : `pushing ${request.branch} to ${remote} failed (${pushed.stderr.trim() || `exit ${pushed.code}`})`,
+        };
+      });
+    },
+  };
+}
+
+export interface ParkDeps {
+  readonly office: OfficeHandle;
+  readonly writer: ParkWriter;
+  readonly now: () => number;
+  /** Runs `fn` in one transaction and appends the entries it returns. */
+  readonly write: (fn: () => readonly NewEntry[]) => void;
+  /** True when the engine implements the command; `actions` lists only those. */
+  readonly implemented: (name: CommandName) => boolean;
+}
+
+export interface ParkRequest {
+  /** The story run that parks; its story, branch and worktree are set. */
+  readonly run: StoredRun;
+  readonly work?: WorkRef;
+  readonly reason: ParkReason;
+  readonly detail: string;
+  /** How the run ends (`runs.end_kind`), for example `stopped` or `capped`. */
+  readonly endKind: string;
+}
+
+export interface ParkOutcome {
+  readonly reason: ParkReason;
+  readonly detail: string;
+  readonly from: Lifecycle;
+  /** The park commit on the story branch, or null when none was written. */
+  readonly commit: string | null;
+  readonly lastGoodCommit: string | null;
+  readonly pushed: boolean;
+}
+
+/** The actions a parked story offers (0005 section 5): only commands the engine implements. */
+export function parkActions(
+  reason: ParkReason,
+  implemented: (name: CommandName) => boolean,
+): CommandName[] {
+  return PARK_ACTIONS.filter(
+    (name) => (name !== "work.answer" || reason === "needs-permission") && implemented(name),
+  );
+}
+
+/** Parks the run's story; see the file comment. Never throws for a branch write that failed. */
+export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<ParkOutcome> {
+  const { run } = request;
+  const story = run.story;
+  const key = run.key;
+  if (run.kind !== "story" || story === null || key === null) {
+    throw new Error(`${run.runId} is not a story run; only a story parks.`);
+  }
+  let reason = request.reason;
+  let detail = request.detail;
+  let branch: BranchPark | null = null;
+  const notices: NewEntry[] = [];
+  const notice = (code: string, text: string): void => {
+    notices.push({ type: "engine.notice", key, delta: { level: "warn", code, text } });
+  };
+  try {
+    branch = await deps.writer.write(deps.office.officeId, {
+      story,
+      branch: run.branch ?? "",
+      worktree: run.worktree ?? "",
+      reason,
+      note: detail,
+    });
+  } catch (error) {
+    if (error instanceof GitError && error.code === WORKTREE_TAMPERED) {
+      // 0008 section 2: a tampered worktree parks `scope-violation` and runs no more git.
+      if (reason !== "scope-violation") {
+        detail = `${error.message} (dipo was parking it as ${reason}: ${detail})`;
+      } else {
+        detail = `${error.message} ${detail}`;
+      }
+      reason = "scope-violation";
+      notice(
+        PARK_NOTICES.notWritten,
+        `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: dipo runs no git in ${run.worktree ?? "its worktree"} since its git links changed.`,
+      );
+    } else {
+      notice(
+        PARK_NOTICES.notWritten,
+        `${story} parked as ${reason}, but writing the park on ${run.branch ?? "its branch"} failed: ${messageOf(error)}`,
+      );
+    }
+  }
+  if (branch?.pushError != null) {
+    notice(
+      PARK_NOTICES.pushFailed,
+      `${story} is parked, but ${branch.pushError}; the park is on the local branch only until a later push succeeds.`,
+    );
+  }
+  const from: Lifecycle = branch?.from ?? "In Progress";
+  const lastGoodCommit = branch?.lastGoodCommit ?? null;
+  const at = deps.now();
+  deps.write(() => {
+    const office = deps.office;
+    office.run(
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+         last_good_commit, at)
+       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
+         where office_id = $office_id), $key, $story, $run, $reason, $from, $detail, $commit, $at)`,
+      { key, story, run: run.runId, reason, from, detail, commit: lastGoodCommit, at },
+    );
+    endRun(office, run.runId, at, request.endKind);
+    // The agent ends when its exit is ingested; the reason it ended is known now.
+    office.run(
+      `update agents set end_reason = coalesce(end_reason, $kind)
+       where office_id = $office_id and run_id = $run and ended_at is null`,
+      { kind: request.endKind, run: run.runId },
+    );
+    const current = storyView(office, key);
+    const view = {
+      ...deriveStoryView({
+        key,
+        story: current?.story ?? StoryId.parse(story),
+        title: current?.title ?? "",
+        lifecycle: "Parked",
+        ...(current?.tier === undefined ? {} : { tier: current.tier }),
+      }),
+      parked: { reason, detail, from, since: new Date(at).toISOString() },
+    };
+    return [
+      ...notices,
+      {
+        type: "story.state",
+        key,
+        delta: { story, key, from, to: "Parked", detail: [`${reason}: ${detail}`] },
+        view,
+      },
+      {
+        type: "story.parked",
+        key,
+        run: run.runId,
+        delta: {
+          story,
+          key,
+          ...(request.work === undefined ? {} : { work: request.work }),
+          reason,
+          detail,
+          from,
+          ...(lastGoodCommit === null ? {} : { lastGoodCommit }),
+          actions: parkActions(reason, deps.implemented),
+        },
+      },
+    ];
+  });
+  return {
+    reason,
+    detail,
+    from,
+    commit: branch?.commit ?? null,
+    lastGoodCommit,
+    pushed: branch?.pushed ?? false,
+  };
+}
+
+/** The open park of a story, newest first; null when it has none. */
+export function openPark(
+  office: OfficeHandle,
+  key: string,
+): {
+  readonly parkId: number;
+  readonly reason: string;
+  readonly from: string;
+  readonly detail: string;
+  readonly runId: string | null;
+  readonly lastGoodCommit: string | null;
+  readonly at: number;
+} | null {
+  const row = office.get<{
+    park_id: number;
+    reason: string;
+    from_state: string;
+    detail: string;
+    run_id: string | null;
+    last_good_commit: string | null;
+    at: number;
+  }>(
+    `select park_id, reason, from_state, detail, run_id, last_good_commit, at from parks
+     where office_id = $office_id and key = $key and resolved_at is null
+     order by park_id desc limit 1`,
+    { key },
+  );
+  return row === null
+    ? null
+    : {
+        parkId: row.park_id,
+        reason: row.reason,
+        from: row.from_state,
+        detail: row.detail,
+        runId: row.run_id,
+        lastGoodCommit: row.last_good_commit,
+        at: row.at,
+      };
+}

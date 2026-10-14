@@ -171,7 +171,27 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
        and r.ended_at < $cutoff)`,
     { cutoff: stateCutoff },
   );
+  await rows(
+    "run_intents",
+    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_intents.run_id
+       and r.ended_at < $cutoff)`,
+    { cutoff: stateCutoff },
+  );
+  await rows(
+    "verify_results",
+    `exists (select 1 from runs r where r.office_id = $office_id
+       and r.run_id = verify_results.run_id and r.ended_at < $cutoff)`,
+    { cutoff: stateCutoff },
+  );
+  await rows(
+    "run_summaries",
+    `exists (select 1 from runs r where r.office_id = $office_id
+       and r.run_id = run_summaries.run_id and r.ended_at < $cutoff)`,
+    { cutoff: stateCutoff },
+  );
   await rows("runs", "ended_at < $cutoff", { cutoff: stateCutoff });
+  // Parks resolved before the cutoff; an open park is the history of a story still Parked.
+  await rows("parks", "resolved_at < $cutoff", { cutoff: stateCutoff });
   await rows(
     "config_snapshots",
     `first_seen < $cutoff and not exists (select 1 from runs r where r.office_id = $office_id

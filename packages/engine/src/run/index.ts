@@ -35,17 +35,109 @@ export {
   appendRunStep,
   currentProfileId,
   endRun,
+  IN_REVIEW_END,
+  PARKED_OUTCOME,
+  recordGateChanges,
+  runOutcome,
   findRun,
   hasActiveRun,
   insertRun,
   recordConfigSnapshot,
   runSteps,
 } from "./records";
-export type { NewRun, RunKind, StoredRun, StoredRunStep, RunStepKind } from "./records";
+export type { NewRun, RunKind, RunOutcome, StoredRun, StoredRunStep, RunStepKind } from "./records";
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
-export { HOST_CONNECT_TIMEOUT_MS, OfficeIngest, systemHostStarter } from "./hosts";
+export {
+  HOST_CONNECT_TIMEOUT_MS,
+  hostSocketSteering,
+  OfficeIngest,
+  STEER_TIMEOUT_MS,
+  systemHostStarter,
+} from "./hosts";
 export type { OfficeIngestOptions, SystemHostStarterOptions } from "./hosts";
 export { Watchdog, WATCHDOG_DEFAULTS } from "./watchdog";
 export type { WatchdogOptions, WatchdogTimeouts } from "./watchdog";
 export { activeSignals, clearSignals, LIVENESS_SIGNALS, raiseSignal } from "./signals";
 export type { StoredSignal } from "./signals";
+// Caps, parks and `work.stop` (DIPO-50).
+export {
+  CAP_TICK_MS,
+  CONTROL_NOTICES,
+  RunControl,
+  STOPPED_DETAIL,
+  STORY_NOT_RUNNING,
+} from "./control";
+export type { RunControlDeps, RunSteering, TrackedRun } from "./control";
+export { firedCap, runTotals } from "./caps";
+export type { CapName, FiredCap, RunTotals } from "./caps";
+export {
+  markIntentSent,
+  outcomeOfIntent,
+  recordIntent,
+  resolveIntent,
+  runIntents,
+} from "./intents";
+export type { IntentKind, IntentState, StoredIntent } from "./intents";
+export {
+  gitParkWriter,
+  openPark,
+  PARK_NOTICES,
+  parkActions,
+  parkStory,
+  WORKTREE_TAMPERED,
+} from "./park";
+export type {
+  BranchPark,
+  ParkBranchRequest,
+  ParkDeps,
+  ParkOutcome,
+  ParkRequest,
+  ParkWriter,
+} from "./park";
+// Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
+export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
+export type { BackstopSnapshot } from "./backstop";
+export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
+export type { PushResult, StoryGit, WorktreeStory } from "./story-git";
+export {
+  checkScope,
+  commitMessage,
+  DEFAULT_LOCKFILES,
+  feedbackItemMax,
+  GATE_CAPABILITIES,
+  gateChanges,
+  OUTPUT_FLUSH_MS,
+  scanWorktree,
+  scopeCovers,
+  scopeDetail,
+  VERIFY_NOTICES,
+  VerifyCommit,
+  verifyPlan,
+  workspaceDirsOf,
+} from "./verify-commit";
+export type {
+  RunFinisher,
+  ScopeInput,
+  ScopeResult,
+  TurnContext,
+  TurnDecision,
+  VerifyCommitDeps,
+  VerifyStep,
+} from "./verify-commit";
+export {
+  appendVerifyOutput,
+  insertVerifyResult,
+  outputTail,
+  recordCodeTreeKey,
+  runSummary,
+  storeRunSummary,
+  SUMMARY_OUTPUT_LINES,
+  verifyOutputEnd,
+  verifyResults,
+} from "./verify-records";
+export type {
+  NewVerifyResult,
+  RunSummary,
+  StoredVerifyResult,
+  VerifyProfile,
+} from "./verify-records";

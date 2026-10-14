@@ -45,6 +45,7 @@ import {
 import { recordWorkerHost, type LaunchedHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { claudeCliAdapter, claudeLaunchContext } from "../../src/workers/claude-cli/adapter";
+import { encode } from "../../src/workers/claude-cli/encode";
 import { initialState } from "../../src/workers/claude-cli/interpret";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
@@ -198,6 +199,7 @@ beforeEach(async () => {
       return gate.ok ? { ok: true, plan } : gate;
     },
     initialState: (spec) => initialState({ plannedModel: spec.model }) as unknown as ParseState,
+    encode,
   };
   const hosts: HostStarter = {
     start: async (handle, started) => {

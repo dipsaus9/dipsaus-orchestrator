@@ -676,6 +676,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
     ...(comparable ? { costUsd } : {}),
     numTurns: msg.num_turns,
     terminal,
+    ...(msg.subtype === "error_max_turns"
+      ? { capped: `turn cap (--max-turns) after ${msg.num_turns} turns` }
+      : {}),
   });
   if (
     report?.status === "blocked" &&

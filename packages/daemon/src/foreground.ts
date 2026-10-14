@@ -623,8 +623,18 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       database: () => held.database,
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "runs" }),
+      cli: backlogCli,
+      // The registry is built below; parks are only written after it exists.
+      implemented: (name) => registry.command(name) !== undefined,
+      work,
     });
-    held.ingest = runs.ingest;
+    // Ingestion and the cap ticks of run control (DIPO-50) stop together.
+    held.ingest = {
+      close: () => {
+        runs.control.close();
+        runs.ingest.close();
+      },
+    };
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
     // story index, the run profile, office init's statuses check, the claims, the Ready gate and
     // the planning lane above.
@@ -662,6 +672,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       gates.feature,
       runProfiles.feature,
       workRun.feature,
+      runs.control.feature,
       retention.feature,
       officeFeature(offices),
       helloFeature({

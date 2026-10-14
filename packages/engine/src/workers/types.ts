@@ -163,6 +163,11 @@ export type WorkerEvent =
       readonly costUsd?: Readonly<Record<string, number>>;
       readonly numTurns: number;
       readonly terminal: string;
+      /**
+       * Set when this turn ended at the adapter's own turn cap (the CLI backstop, 0008 section 7):
+       * what fired, for the park detail. The engine stops the worker at this turn (DIPO-50).
+       */
+      readonly capped?: string;
     }
   | {
       readonly t: "waiting";

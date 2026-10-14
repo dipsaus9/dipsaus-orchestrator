@@ -20,6 +20,8 @@ import { claimTeardown } from "./migrations/0016-claim-teardown";
 import { backlogConfigPrevious } from "./migrations/0017-backlog-config-previous";
 import { runs } from "./migrations/0018-runs";
 import { viewFacts } from "./migrations/0019-view-facts";
+import { parksRunIntents } from "./migrations/0020-parks-run-intents";
+import { verifyOutcomes } from "./migrations/0021-verify-outcomes";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -75,4 +77,6 @@ create table offices (
   backlogConfigPrevious,
   runs,
   viewFacts,
+  parksRunIntents,
+  verifyOutcomes,
 ];

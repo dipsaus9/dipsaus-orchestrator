@@ -264,6 +264,7 @@ export const ClaudeWorkerEventSchema = z.union([
     costUsd: z.record(Name, z.number().nonnegative()).exactOptional(),
     numTurns: Count,
     terminal: Name,
+    capped: Name.exactOptional(),
   }),
   z.strictObject({
     t: z.literal("waiting"),

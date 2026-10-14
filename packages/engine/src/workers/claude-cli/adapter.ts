@@ -131,5 +131,6 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         uid: deps.uid,
       }),
     initialState: (spec) => initialState({ plannedModel: spec.model }) as unknown as ParseState,
+    encode,
   };
 }

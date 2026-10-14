@@ -54,6 +54,7 @@ import type { SetupOutcome } from "../worktree/setup";
 
 import { withWorkViews } from "../views/work";
 
+import type { BackstopSnapshot } from "./backstop";
 import { appendRunStep } from "./records";
 import { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 
@@ -111,6 +112,27 @@ export interface RunLauncherDeps {
   readonly tmpRoot: string;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
+  /**
+   * Caps, report parks and `work.stop` of started runs (DIPO-50); told about each run before its
+   * ingestion starts, so no event is missed.
+   */
+  readonly control?: {
+    track(
+      office: OfficeId,
+      run: {
+        runId: RunId;
+        work: WorkRef;
+        caps: Caps;
+        startedAt: number;
+        snapshot?: BackstopSnapshot | null;
+      },
+    ): void;
+  };
+  /**
+   * Takes the backstop snapshot of a story worktree (DIPO-49), before its worker starts; without
+   * it no backstop runs after the turns.
+   */
+  readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   /** Ends a live claim whose worker did not start: worktree removed, branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
   /** Logs what the launcher could not do (the daemon's logger); nothing by default. */
@@ -333,6 +355,19 @@ export class RunLauncher {
   ): Promise<StartOutcome> {
     const { facts, prepared, claim, work } = run;
     const handle = ctx.office;
+    // The backstop's run-start snapshot, before the worker can change anything (DIPO-49).
+    let snapshot: BackstopSnapshot | null = null;
+    if (this.#deps.snapshot !== undefined) {
+      try {
+        snapshot = await this.#deps.snapshot(facts.office, claim.worktree);
+      } catch (error) {
+        this.#deps.warn?.("the backstop snapshot could not be taken; no backstop runs", {
+          run: facts.runId,
+          story: claim.story,
+          reason: messageOf(error),
+        });
+      }
+    }
     let host: LaunchedHost;
     try {
       host = await this.#deps.hosts.start(handle, {
@@ -369,6 +404,13 @@ export class RunLauncher {
       ]);
       return { ok: false, reason };
     }
+    this.#deps.control?.track(facts.office, {
+      runId: facts.runId,
+      work,
+      caps: capsOf(facts.caps),
+      startedAt: ctx.clock.now(),
+      snapshot,
+    });
     const adapter = this.#deps.worker.adapter(prepared.paths, facts.config);
     this.#deps.ingest.start(handle, host, {
       run: facts.runId,
