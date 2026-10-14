@@ -203,7 +203,7 @@ export class PlanLimits implements PlanLimitWaits {
    */
   held(adapter: string, model: string | null): string | null {
     const now = this.#deps.clock.now();
-    for (const wait of [...this.#waits.values()]) {
+    for (const wait of this.#waits.values()) {
       if (!this.#stillOpen(wait)) continue;
       const story = this.#storyOf(wait);
       if (wait.fact.scope === "credits") {
@@ -216,7 +216,7 @@ export class PlanLimits implements PlanLimitWaits {
       const until = wait.fact.resetsAt === undefined ? "" : ` until ${wait.fact.resetsAt}`;
       return `New runs wait for ${describeScope(wait.fact.scope)}${until}: ${story} is held by it and resumes after the reset.`;
     }
-    for (const [key, warning] of [...this.#warnings]) {
+    for (const [key, warning] of this.#warnings) {
       if (warning.until <= now) {
         this.#warnings.delete(key);
         continue;

@@ -109,6 +109,8 @@ interface World {
   verify: string | null;
   fetchError: Error | null;
   gate: (key: StoryKey, mode: GateMode) => GateResult;
+  /** The plan-limit hold (DIPO-61): why a run on the model must wait, or null. */
+  planLimit: (adapter: string, model: string | null) => string | null;
 }
 
 let dir = "";
@@ -143,6 +145,7 @@ beforeEach(async () => {
     verify: null,
     fetchError: null,
     gate: (_key, mode) => passed(mode),
+    planLimit: () => null,
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
@@ -173,6 +176,7 @@ beforeEach(async () => {
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => w.verify },
     statuses: async () => w.statuses,
     adapterHeld: (adapter) => holds.adapterHeld(adapter),
+    planLimitHeld: (adapter, model) => w.planLimit(adapter, model),
     claims: {
       claim: async (_office, request): Promise<ClaimOutcome> => {
         claims.push(request);
@@ -530,6 +534,35 @@ describe("work.run refusals", () => {
     });
     world.verify = null;
 
+    expect(world.claims).toEqual([]);
+    expect(resultOf(await run()).started).toHaveLength(1);
+  });
+
+  it("refuses every run while a plan limit of every model holds, and skips a held model (DIPO-61)", async () => {
+    story("TASK-1", "Ready");
+    const asked: (string | null)[] = [];
+    world.planLimit = (_adapter, model) => {
+      asked.push(model);
+      return model === null ? "New runs wait for the session limit." : null;
+    };
+    // Named stories too: a plan limit is not lifted by the launch checks.
+    for (const args of [{}, { stories: ["TASK-1"] }]) {
+      expect(await codeOf(args)).toMatchObject({
+        code: "run.refused",
+        details: { check: "plan-limit" },
+        message: "New runs wait for the session limit.",
+      });
+    }
+    expect(asked).toEqual([null, null]);
+
+    // A model-family limit: only stories whose tier runs that model are skipped.
+    const model = world.config.tiers.S.model;
+    world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
+    expect(resultOf(await run())).toMatchObject({
+      started: [],
+      skipped: [{ story: "TASK-1", reason: "capacity" }],
+    });
+    world.planLimit = () => null;
     expect(world.claims).toEqual([]);
     expect(resultOf(await run()).started).toHaveLength(1);
   });
