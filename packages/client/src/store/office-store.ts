@@ -103,6 +103,12 @@ export interface OfficeStoreState {
    * wait for its own write (read-your-writes, 0009 section 5).
    */
   readonly cursor: Cursor | null;
+  /**
+   * How many office snapshots the store has applied (opens, switches and re-reads after a history
+   * gap). A client waiting for its own write counts a re-read after the reply as caught up,
+   * whatever the epoch (read-your-writes, 0009 section 5).
+   */
+  readonly snapshots: number;
   /** A one-time message, such as `RELOADED_NOTICE`; cleared by `dismissNotice`. */
   readonly notice: string | null;
   /** The last failed read or ended subscription, until the next success. */
@@ -178,6 +184,7 @@ export class OfficeStore {
       loading: false,
       ...EMPTY_OFFICE,
       notice: null,
+      snapshots: 0,
       error: null,
     };
   }
@@ -302,6 +309,7 @@ export class OfficeStore {
       questions: snapshot.questions,
       tests: snapshot.tests,
       cursor: snapshot.cursor,
+      snapshots: this.#state.snapshots + 1,
     });
     const generation = this.#generation;
     this.#officeSub = this.#client.subscribe(stream, {

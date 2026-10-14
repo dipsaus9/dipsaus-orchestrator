@@ -75,6 +75,8 @@ export class FakeSession implements TuiSession {
   readonly subscriptions: RecordedSubscription[] = [];
   /** Replies to `office.open` by path; a missing path answers `office.notFound`. */
   readonly opened = new Map<string, OfficeId>();
+  /** Snapshots answered instead of the golden ones, for example after a history gap. */
+  readonly nextSnapshots = new Map<string, OfficeSnapshot>();
   closed = false;
   readonly #listeners = new Set<(state: ConnectionState) => void>();
 
@@ -91,7 +93,8 @@ export class FakeSession implements TuiSession {
   read = (async (definition: { name: string }, args: { office?: string }) => {
     this.reads.push({ name: definition.name, args });
     if (definition.name === "engine.hello") return { ok: true, result: goldenHello };
-    const snapshot = goldenSnapshots.get(args.office ?? "");
+    const snapshot =
+      this.nextSnapshots.get(args.office ?? "") ?? goldenSnapshots.get(args.office ?? "");
     if (snapshot === undefined) {
       return {
         ok: false,

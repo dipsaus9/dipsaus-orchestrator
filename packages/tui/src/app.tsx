@@ -96,6 +96,8 @@ interface RunAction {
   readonly status: "sending" | "syncing" | "done" | "failed";
   readonly result?: RunResult;
   readonly cursor?: Cursor;
+  /** The store's snapshot count when the reply arrived; a later re-read has seen the write. */
+  readonly snapshots?: number;
   readonly error?: EngineError;
 }
 
@@ -175,16 +177,18 @@ export function App(props: AppProps) {
     setQueueKey(row === undefined || row.kind === "next" ? null : row.view.key);
   };
 
-  // Read-your-writes: a run is done once the office stream passes its reply cursor, or once the
+  // Read-your-writes: a run is done once the office stream passes its reply cursor, once the store
+  // read a snapshot again after the reply (a history gap, whatever the epoch), or once the
   // maintainer switched to another office, whose stream will never carry it.
   useEffect(() => {
     if (run?.status !== "syncing") return;
     const passed =
       run.cursor === undefined ||
       state.office !== run.request.office ||
-      cursorReached(state.cursor, run.cursor);
+      cursorReached(state.cursor, run.cursor) ||
+      (run.snapshots !== undefined && state.snapshots > run.snapshots);
     if (passed) setRun({ ...run, status: "done" });
-  }, [run, state.cursor, state.office]);
+  }, [run, state.cursor, state.office, state.snapshots]);
 
   const quit = () => props.onQuit();
 
@@ -227,6 +231,8 @@ export function App(props: AppProps) {
         status: "syncing",
         result: outcome.result,
         ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
+        // Live, not the batched state: a re-read before this moment does not count.
+        snapshots: store.state.snapshots,
       });
     });
   };

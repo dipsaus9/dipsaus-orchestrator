@@ -440,4 +440,13 @@ describe("OfficeStore", () => {
     expect(cursorReached(store.state.cursor, cursor(`office:${B}`, 1))).toBe(false);
     expect(cursorReached(null, reply)).toBe(false);
   });
+
+  it("counts the snapshots it applied, so a client sees a re-read after its reply (DIPO-54)", async () => {
+    const { store } = await setup();
+    expect(store.state.snapshots).toBe(1);
+    await store.switchTo(B);
+    expect(store.state.snapshots).toBe(2);
+    await store.open(A);
+    expect(store.state.snapshots).toBe(3);
+  });
 });
