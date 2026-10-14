@@ -60,6 +60,7 @@ import {
   resolveSoftwareDirs,
   resolveTools,
   RunProfiles,
+  REATTACH_STEP,
   RECONCILE_STEP,
   Reconciler,
   Retention,
@@ -656,6 +657,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.planLimits.close();
         runs.control.close();
         runs.ingest.close();
+        runs.reattacher.close();
       },
     };
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
@@ -811,6 +813,20 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
               code: access.error.code,
               reason: access.error.message,
             });
+          }
+        }
+      },
+    });
+    // Re-attach (DIPO-57, 0006 decisions 7 and 8): after reconcile, every active run of a loaded
+    // office follows its worker host again (or has its exit or lost host decided) before
+    // scheduling turns on.
+    steps.register({
+      name: REATTACH_STEP,
+      run: async (context) => {
+        for (const office of offices.loadedOffices()) {
+          if (lifecycle.state !== "recovering") return;
+          for (const done of await runs.reattacher.reattach(office)) {
+            context.logger.info("worker host re-attached", { office, ...done });
           }
         }
       },

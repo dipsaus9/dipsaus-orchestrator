@@ -35,8 +35,13 @@ import {
   RunControl,
   RunLauncher,
   RunOutcomes,
+  RunReattacher,
   RunResumer,
+  runLaunchPaths,
   runSandboxedStep,
+  runWorkerSpec,
+  type IngestAdapter,
+  type StoredRun,
   selfCommand,
   setupWorktree,
   type SlotTable,
@@ -102,6 +107,8 @@ export interface DaemonRuns {
   readonly control: RunControl;
   /** Worker outcomes and the run's next session (DIPO-51); its feature decides exits at load. */
   readonly outcomes: RunOutcomes;
+  /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
+  readonly reattacher: RunReattacher;
   /**
    * The plan-limit schedule (DIPO-61): holds scheduling while a plan limit is open, resumes held
    * runs after the reset, recovers waits at load and implements `work.resume` for held runs.
@@ -144,6 +151,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     runStep,
     uid,
   });
+  const tierOf = (office: OfficeId, run: StoredRun) =>
+    run.tier === null
+      ? undefined
+      : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
   const gitOf = (office: OfficeId) => {
     const git = options.engineGit.forOffice(office);
     if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
@@ -198,12 +209,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     watchdog,
     onAppended: options.onChanged,
   });
+  const probe = systemProcessProbe(platform);
   const hosts = systemHostStarter({
     clock,
     runtimeDir: options.runtimeDir,
     dipoCommand: selfCommand(),
     env,
-    probe: systemProcessProbe(platform),
+    probe,
   });
   const release = (
     office: OfficeId,
@@ -224,6 +236,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ingest,
     control,
     onChanged: options.onChanged,
+    // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
+    probe,
   });
   let planLimits: PlanLimits | null = null;
   outcomes = new RunOutcomes({
@@ -239,10 +253,49 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     holdsWork: storyHoldsWork(storyGit),
     caps: (office, run) => {
-      const tier =
-        run.tier === null
-          ? undefined
-          : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
+      const tier = tierOf(office, run);
+      return tier === undefined ? null : capsOf(tier);
+    },
+    onChanged: options.onChanged,
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
+  // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
+  const runPaths = (office: OfficeId, run: StoredRun) => {
+    const git = options.engineGit.forOffice(office);
+    if (git === undefined || run.worktree === null) return null;
+    return runLaunchPaths(
+      git,
+      { runtimeDir: options.runtimeDir, tmpRoot: realDir(options.tmpRoot) },
+      run.worktree,
+      run.runId,
+    );
+  };
+  const reattacher = new RunReattacher({
+    clock,
+    offices: options.offices,
+    probe,
+    ingest,
+    control,
+    outcomes,
+    adapter: (office, run) => {
+      const paths = runPaths(office, run);
+      const config = options.offices.config(office);
+      return paths === null || config === undefined
+        ? null
+        : (worker.adapter(paths, config) as IngestAdapter);
+    },
+    initialState: ({ office, run, agent, resume, previous }) => {
+      const paths = runPaths(office, run);
+      const tier = tierOf(office, run);
+      if (paths === null || tier === undefined) return {};
+      const spec = runWorkerSpec({ runId: run.runId, agent, caps: tier }, paths, "", {
+        id: "",
+        resume,
+      });
+      return worker.initialState(spec, previous);
+    },
+    caps: (office, run) => {
+      const tier = tierOf(office, run);
       return tier === undefined ? null : capsOf(tier);
     },
     onChanged: options.onChanged,
@@ -300,5 +353,5 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control, outcomes, planLimits };
+  return { launcher, ingest, control, outcomes, reattacher, planLimits };
 }

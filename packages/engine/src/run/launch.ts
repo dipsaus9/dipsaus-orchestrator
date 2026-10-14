@@ -87,6 +87,13 @@ export interface HostStarter {
       readonly agentId: string;
       readonly officeDir: string;
       readonly plan: LaunchPlan;
+      /**
+       * Where the host's ingestion starts, recorded on its row (DIPO-57); 0 by default. A run's
+       * next session starts after what earlier hosts wrote.
+       */
+      readonly processedOffset?: number;
+      /** Writes made in the transaction that records the host (DIPO-57: the new agent's row). */
+      readonly record?: () => void;
     },
   ): Promise<LaunchedHost>;
 }
