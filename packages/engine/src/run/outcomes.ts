@@ -910,6 +910,16 @@ export class RunOutcomes implements RunOutcomesPort {
           endKind: OUTCOME_ENDS.crashed,
         });
         return false;
+      case "hostAlive":
+        // Retryable: `work.resume` starts the session once the old host has ended.
+        await this.#park(office, run, view.work, {
+          intent: "park",
+          ops: [],
+          reason: "worker-failed",
+          detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
+          endKind: OUTCOME_ENDS.crashed,
+        });
+        return false;
       case "notResumed":
         await this.#park(office, run, view.work, {
           intent: "park",

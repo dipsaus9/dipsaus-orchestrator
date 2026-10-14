@@ -31,6 +31,7 @@ import type {
   FieldBlock,
   IdSource,
   OfficeId,
+  RetryableErrorCode,
   RunId,
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
@@ -179,6 +180,15 @@ export type NextSessionOutcome =
     }
   | { readonly kind: "startFailed"; readonly hold: AdapterHold }
   | { readonly kind: "notResumed"; readonly reason: string }
+  /**
+   * An earlier host of the run still runs after the wait (0006 decision 8): nothing started. The
+   * code is 0005's retryable `run.hostAlive`.
+   */
+  | {
+      readonly kind: "hostAlive";
+      readonly code: Extract<RetryableErrorCode, "run.hostAlive">;
+      readonly pid: number;
+    }
   | { readonly kind: "failed"; readonly reason: string };
 
 /** Starts a run's next session. */
@@ -362,12 +372,7 @@ export class RunResumer implements NextSession {
 
     // Never a new host while an earlier host of the run still runs (0006 decision 8).
     const alive = await this.#earlierHostAlive(office, run.runId);
-    if (alive !== null) {
-      return {
-        kind: "failed",
-        reason: `the earlier worker host of the run (pid ${alive}) still runs, so no new host starts`,
-      };
-    }
+    if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
 
     // The new host appends to the run's event file: its ingestion starts after what is there.
     const eventFile = join(paths.runDir, EVENTS_FILE);
