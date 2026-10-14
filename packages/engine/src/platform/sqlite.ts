@@ -281,16 +281,51 @@ export async function openSqlite(options: OpenSqliteOptions): Promise<SqliteConn
     logger.info("opened state database", { path, sqliteVersion, created });
 
     if (options.checkIntegrity === true) {
-      const problems = db
-        .query("pragma quick_check")
-        .all()
-        .flatMap((row) => String(Object.values(row as SqlRow)[0]).split("\n"));
-      if (problems.length !== 1 || problems[0] !== "ok") {
-        throw new IntegrityCheckError(path, problems);
-      }
+      const problems = quickCheck(db);
+      if (problems.length > 0) throw new IntegrityCheckError(path, problems);
     }
 
     return createConnection(db, path, sqliteVersion, created);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/** The problems `PRAGMA quick_check` reports; empty for an intact file. */
+function quickCheck(db: Database): string[] {
+  const lines = db
+    .query("pragma quick_check")
+    .all()
+    .flatMap((row) => String(Object.values(row as SqlRow)[0]).split("\n"));
+  return lines.length === 1 && lines[0] === "ok" ? [] : lines;
+}
+
+/** A connection to one database file outside the daemon, for offline maintenance (restore). */
+export interface SqliteFile extends SqliteConnection {
+  /** The problems `PRAGMA quick_check` reports; empty for an intact file. */
+  quickCheck(): string[];
+}
+
+/**
+ * Opens an existing database file read-write in rollback-journal mode, so no `-wal` or `-shm`
+ * file appears next to it, with foreign keys on. `dipo restore` (0007 section 10) checks and
+ * prepares a copy of a backup through it before the copy replaces `dipo.db`; the daemon switches
+ * the file back to WAL at its next open. Throws when the file is not a database.
+ */
+export function openSqliteFile(path: string): SqliteFile {
+  const db = new Database(path, { readwrite: true, create: false, strict: true });
+  try {
+    const one = <T>(sql: string) => db.query(sql).get() as T | null;
+    const mode = one<{ journal_mode: string }>("pragma journal_mode = DELETE")?.journal_mode;
+    if (mode !== "delete") throw new Error(`${path} could not leave WAL (journal_mode ${mode})`);
+    db.run("pragma synchronous = FULL");
+    db.run("pragma foreign_keys = ON");
+    const sqliteVersion = one<{ v: string }>("select sqlite_version() as v")?.v ?? "unknown";
+    return {
+      ...createConnection(db, path, sqliteVersion, false),
+      quickCheck: () => quickCheck(db),
+    };
   } catch (error) {
     db.close();
     throw error;
