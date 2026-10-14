@@ -1,10 +1,10 @@
 ---
 id: DIPO-51
 title: Handle worker outcomes and resume a crashed session once
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:31'
+updated_date: '2026-10-14 14:37'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -107,4 +107,6 @@ Review follow-ups (2026-10-14):
 - agents.claude_code_version is used by the generic resume path (SessionRef.version); a neutral column alias is a later follow-up.
 
 Review follow-ups for DIPO-57 (re-attach after a restart): (1) RunResumer.next awaits hosts.start before inserting the new agents row; a daemon stop inside that await means redispatch starts a second session while the first host may have outlived the daemon (two workers on one worktree). Fix in DIPO-57: in redispatch's decided branch, skip or re-attach when the run has a worker_hosts row for an agent other than the newest, or insert the agent row before spawning. (2) #byIntent resolves the intent before #endAgent; a stop between them leaves end_reason 'exited' with no open intent, so redispatch decides by WorkerPort.result instead of the tag (matters for the error-reassign path). Fix: #endAgent first, or resolve after #next started.
+
+Live test 2026-10-14 by the test agent (head c3001aa, scratch TASK-1, Haiku, about $0.006 for two runs). A: SIGTERM on the worker 4 s in gave run.resumed (exit 143 with no intent recorded), a second agent on the same session id, In Review reached, worker_hosts offsets 11178 and 59560 (no re-ingest), budget_tokens equal to the sum of both agents (no double count), one run_outcomes row in-review. B: a second kill on the resumed worker parked worker-failed ('exit 143 with no intent recorded; the run's one resume after a crash was used'), end_kind crashed, run_outcomes parked [worker-failed], no third agent, worktree and branch kept, branch tip 'TASK-1: status Parked'. Notes: the second agent's end_reason stays 'exited' by design (only an approved resume marks 'crashed'); exit_signal is empty after SIGTERM (only exit code 143 is recorded) - follow-up; a pricing.catalogStale warning showed a 25% gap between the estimate and the CLI cost - follow-up.
 <!-- SECTION:NOTES:END -->
