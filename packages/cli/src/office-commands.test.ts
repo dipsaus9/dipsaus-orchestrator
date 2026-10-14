@@ -420,3 +420,95 @@ describe("dipo office init", () => {
     expect(ctx.sent).toEqual([]);
   });
 });
+
+/** The fake session with an `engine.hello` office list, as a real connection has. */
+function withHello(ctx: ReturnType<typeof fake>, offices: { office: OfficeId; path: string }[]) {
+  const inner = ctx.deps.connectDaemon;
+  const deps: CliDeps = {
+    ...ctx.deps,
+    connectDaemon: async () => {
+      const session = await inner();
+      return {
+        ...session,
+        hello: { offices: offices.map((entry) => ({ ...entry, name: "app" })) } as never,
+      };
+    },
+  };
+  return deps;
+}
+
+describe("dipo office purge", () => {
+  const purged = ok({
+    office: OFFICE,
+    path: "/work/app",
+    rows: 42,
+    directory: "/work/app/.git/dipo",
+  });
+
+  it("asks at a terminal, says it cannot be undone, then purges the office of the repository", async () => {
+    const ctx = fake(() => purged, {
+      repository: { ...REPO, office: OFFICE, backlog: true },
+      interactive: true,
+      answers: ["yes"],
+    });
+    const deps = withHello(ctx, [{ office: OFFICE, path: "/work/app" }]);
+    expect(await main(["office", "purge"], deps)).toBe(0);
+    expect(ctx.questions[0]).toMatch(/^Purge the office at \/work\/app\? /);
+    expect(ctx.questions[0]).toContain("This cannot be undone.");
+    expect(ctx.sent).toEqual([{ name: "office.purge", args: { office: OFFICE } }]);
+    expect(ctx.out).toEqual([
+      `purged office ${OFFICE} at /work/app: 42 rows deleted`,
+      "removed /work/app/.git/dipo",
+    ]);
+  });
+
+  it("sends nothing when the answer is no, or in a script without --yes", async () => {
+    const declined = fake(() => purged, { interactive: true, answers: ["n"] });
+    expect(await main(["office", "purge", "--office", OFFICE], declined.deps)).toBe(1);
+    expect(declined.questions[0]).toMatch(new RegExp(`^Purge office ${OFFICE}\\? `));
+    expect(declined.out).toEqual(["nothing purged"]);
+    expect(declined.connections()).toBe(0);
+
+    const script = fake(() => purged);
+    expect(await main(["office", "purge", "--office", OFFICE], script.deps)).toBe(1);
+    expect(script.err).toEqual([
+      `dipo: purging office ${OFFICE} cannot be undone, so it needs confirmation; run it at a terminal or pass --yes.`,
+    ]);
+    expect(script.connections()).toBe(0);
+  });
+
+  it("purges a named office with --yes and says when there was no directory", async () => {
+    const ctx = fake(() => ok({ office: OTHER, path: "/gone", rows: 3 }));
+    expect(await main(["office", "purge", "--office", OTHER, "--yes"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([{ name: "office.purge", args: { office: OTHER } }]);
+    expect(ctx.out).toEqual([
+      `purged office ${OTHER} at /gone: 3 rows deleted`,
+      "no .git/dipo directory of this office to remove (the path is missing or holds another office)",
+    ]);
+  });
+
+  it("refuses a copy whose marker names an office registered elsewhere, and an unlisted office", async () => {
+    const copy = fake(() => purged, { repository: { ...REPO, office: OFFICE, backlog: true } });
+    const copyDeps = withHello(copy, [{ office: OFFICE, path: "/work/original" }]);
+    expect(await main(["office", "purge", "--yes"], copyDeps)).toBe(1);
+    expect(copy.sent).toEqual([]);
+    expect(copy.err[0]).toContain("which is registered at /work/original; nothing purged");
+
+    const forgotten = fake(() => purged, {
+      repository: { ...REPO, office: OFFICE, backlog: true },
+    });
+    const forgottenDeps = withHello(forgotten, []);
+    expect(await main(["office", "purge", "--yes"], forgottenDeps)).toBe(1);
+    expect(forgotten.sent).toEqual([]);
+    expect(forgotten.err[0]).toContain(`run \`dipo office purge --office ${OFFICE}\``);
+  });
+
+  it("reports office.busy", async () => {
+    const ctx = fake(() => ({
+      ok: false,
+      error: { code: "office.busy", message: "has active work", retryable: false },
+    }));
+    expect(await main(["office", "purge", "--office", OFFICE, "--yes"], ctx.deps)).toBe(1);
+    expect(ctx.err).toEqual(["dipo: office.busy: has active work"]);
+  });
+});

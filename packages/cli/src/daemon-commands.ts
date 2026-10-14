@@ -36,8 +36,13 @@ import {
 
 import { type DaemonLogsDeps, logsCommand } from "./logs-command";
 
-/** What a daemon subcommand needs from a connected client. */
-export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
+/**
+ * What a daemon subcommand needs from a connected client. `hello`, the `engine.hello` result of
+ * the connection, is optional so test sessions can leave it out (`dipo office purge` reads the
+ * office list from it).
+ */
+export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close"> &
+  Partial<Pick<DipoClient, "hello">>;
 
 /**
  * Connects to the daemon, starting it first when autostart allows (DIPO-70). Throws
