@@ -495,12 +495,30 @@ export class OfficeLane {
           if (replayable) rebuiltFrom = old;
           else abandoned = old;
         }
+        const adopted = moved.filter((entry) => isAdoptedTarget(entry.target));
         this.#write(() => {
+          // Adopted operations (DIPO-80) cannot be applied again: they are dropped here, with a
+          // notice that says where their change is, before their PR reference is cleared.
+          const drops = adopted.map((entry) => {
+            const pr = prName(entry.prRef, old);
+            const where =
+              rebuiltFrom !== null
+                ? `its change is in ${pr}, which dipo closes as it rebuilds the other operations on a new branch, and it was not applied again there`
+                : abandoned !== null
+                  ? `its change stays on ${old} in ${pr}, which stays open`
+                  : "it was not applied again";
+            const text = `The backlog operation \`${messageOf(entry)}\` was dropped: it was adopted after the state database was lost, so dipo does not know its target state; ${where}. Run the operation again if you still want it.`;
+            this.#update(entry.opId, { state: "dropped", notice: text });
+            dropped.push(entry.opId);
+            return this.#notice("warn", LANE_NOTICES.dropped, text, entry.key);
+          });
           for (const entry of moved) {
+            if (isAdoptedTarget(entry.target)) continue;
             this.#update(entry.opId, { state: "pending", branch: null, commit: null, prRef: null });
           }
           if (abandoned !== null) {
             return [
+              ...drops,
               this.#notice(
                 "warn",
                 LANE_NOTICES.adoptedAbandoned,
@@ -508,8 +526,9 @@ export class OfficeLane {
               ),
             ];
           }
-          if (rebuiltFrom === null) return [];
+          if (rebuiltFrom === null) return drops;
           return [
+            ...drops,
             this.#notice(
               "info",
               LANE_NOTICES.rebuilt,
@@ -541,7 +560,7 @@ export class OfficeLane {
         // Adopted from an open backlog PR after a lost database (DIPO-80): no target to apply.
         this.#drop(
           entry,
-          "it was adopted from an open backlog PR after the state database was lost, so dipo does not know its target state and cannot apply it again; its change is still on the old branch, so run the operation again if you still want it",
+          "it was adopted from an open backlog PR after the state database was lost, so dipo does not know its target state and cannot apply it again; run the operation again if you still want it",
         );
         dropped.push(entry.opId);
         continue;
@@ -1037,3 +1056,9 @@ export interface BacklogLaneDeps {
 
 /** The load step that replays open journal entries (0007 section 6 step 2). */
 export const LANE_REPLAY_STEP = "backlog.lane.replay";
+
+/** `the backlog PR #n` from a PR URL, else the PR of `branch`. */
+function prName(prRef: string | null, branch: string): string {
+  const number = /\/pull\/(\d+)$/.exec(prRef ?? "")?.[1];
+  return number === undefined ? `the backlog PR of ${branch}` : `the backlog PR #${number}`;
+}
