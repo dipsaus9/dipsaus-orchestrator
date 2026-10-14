@@ -137,6 +137,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     }),
     ingest,
     release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
+    warn: (message, fields) => options.logger.warn(message, fields),
   });
   return { launcher, ingest };
 }

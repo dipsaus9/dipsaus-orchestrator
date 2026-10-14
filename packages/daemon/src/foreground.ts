@@ -482,6 +482,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       cli: backlogCli,
       git: (office) => engineGit.forOffice(office),
       slots,
+      warn: (message, fields) => logger.warn(message, { component: "claims", ...fields }),
       onChanged: (office) => server?.notifyOffice(office),
     });
     // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each

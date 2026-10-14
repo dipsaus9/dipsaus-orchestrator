@@ -723,6 +723,7 @@ export async function releaseUnstarted(
   deps: RollbackDeps,
   claim: ClaimRecord,
   reason: string,
+  warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void,
 ): Promise<void> {
   await deps.git.run(async (git) => {
     deps.git.unpinWorktree(claim.worktree);
@@ -730,7 +731,19 @@ export async function releaseUnstarted(
       ["worktree", "unlock", claim.worktree],
       ["worktree", "remove", "--force", claim.worktree],
     ]) {
-      await git.step(git.repository, args).catch(() => undefined);
+      // Best effort: the release goes on, and a failed step is logged.
+      const result = await git.step(git.repository, args).catch((error: unknown) => ({
+        code: null,
+        stderr: error instanceof Error ? error.message : String(error),
+      }));
+      if (result.code !== 0) {
+        warn?.("a worktree step of the release failed", {
+          run: claim.runId,
+          args: args.join(" "),
+          code: result.code,
+          stderr: result.stderr.trim(),
+        });
+      }
     }
   });
   const at = deps.clock.now();

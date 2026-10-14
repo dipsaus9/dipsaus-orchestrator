@@ -111,6 +111,8 @@ export interface RunLauncherDeps {
   readonly ingest: RunIngest;
   /** Ends a live claim whose worker did not start: worktree removed, branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
+  /** Logs what the launcher could not do (the daemon's logger); nothing by default. */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
 }
@@ -339,7 +341,18 @@ export class RunLauncher {
       });
     } catch (error) {
       const reason = `the worker host did not start: ${messageOf(error)}`;
-      await this.#deps.release(facts.office, claim, START_FAILED_END).catch(() => undefined);
+      let released = `dipo removed the worktree and kept the branch ${claim.branch} for the next run`;
+      try {
+        await this.#deps.release(facts.office, claim, START_FAILED_END);
+      } catch (releaseError) {
+        const why = messageOf(releaseError);
+        this.#deps.warn?.("releasing the claim after a failed host start failed", {
+          run: facts.runId,
+          story: claim.story,
+          reason: why,
+        });
+        released = `releasing its claim also failed (${why}), so the worktree ${claim.worktree} and the claim may still be there; check them`;
+      }
       prepared.release();
       ctx.commit((): NewEntry[] => [
         {
@@ -348,7 +361,7 @@ export class RunLauncher {
           delta: {
             level: "error",
             code: LAUNCH_NOTICES.startFailed,
-            text: `${claim.story} was claimed but not started: ${reason}. dipo removed the worktree and kept the branch ${claim.branch} for the next run; the story stays Ready.`,
+            text: `${claim.story} was claimed but not started: ${reason}. ${released}; the story stays Ready.`,
           },
         },
       ]);

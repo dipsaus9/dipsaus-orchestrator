@@ -41,6 +41,8 @@ export interface StoryClaimsDeps {
   /** The machine-wide port slot table; a rolled-back interrupted setup frees its slot there. */
   readonly slots?: SlotTable;
   readonly onChanged?: (office: OfficeId) => void;
+  /** Logs a release step that failed (the daemon's logger); nothing by default. */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 interface Loaded {
@@ -111,6 +113,7 @@ export class StoryClaims {
       },
       claim,
       reason,
+      this.#deps.warn,
     );
     this.#deps.slots?.free(claim.worktree);
   }
