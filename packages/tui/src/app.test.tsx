@@ -111,8 +111,9 @@ describe("connection and daemon states", () => {
     session.setState("reconnecting");
     const frame = await ui.waitFor("OFFLINE since");
     // The test clock is at 10:04 UTC; the banner shows local time.
-    expect(frame).toMatch(/OFFLINE since \d\d:\d\d – view frozen/);
-    expect(frame).toContain("daemon running · offline");
+    // The header carries it: the daemon state is unknown while disconnected.
+    expect(frame).toMatch(/^ dipsaus-orchestrator · OFFLINE since \d\d:\d\d – view frozen$/m);
+    expect(frame).not.toContain("daemon running");
     expect(frame).toContain("(offline: actions disabled)");
     // Values keep their last state.
     expect(frame).toContain("DIPO-21");
@@ -143,6 +144,19 @@ describe("connection and daemon states", () => {
     await ui.press("y");
     await ui.waitFor("scheduling resumed");
     expect(session.commands).toEqual([{ name: "daemon.resumeScheduling", args: {} }]);
+  });
+
+  it("after a draining daemon goes away, shows offline instead of the stale draining state", async () => {
+    const { ui, session } = await open();
+    await ui.waitFor("· live");
+    session.active("software")?.options.onEvent(daemonState("draining", 51));
+    await ui.waitFor("Daemon stopping – will reconnect");
+    session.setState("reconnecting");
+    const frame = await ui.waitFor("OFFLINE since");
+    expect(frame).not.toContain("draining");
+    expect(frame).not.toContain("Daemon stopping");
+    await ui.press("o");
+    expect(await ui.waitFor("Offices")).toContain("Offices · offline");
   });
 
   it("shows view reloaded (history gap) once after stream.resetRequired", async () => {

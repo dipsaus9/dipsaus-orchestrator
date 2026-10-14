@@ -72,6 +72,15 @@ export function Header(props: { state: OfficeStoreState; display: Display; title
   const { state, display } = props;
   const { dot } = glyphs(display.ascii);
   const title = props.title ?? officeName(state) ?? "no office";
+  const offline = offlineBanner(state, display.ascii);
+  // Disconnected, the daemon state is not known: the header says so instead (0009 section 7).
+  if (offline !== null) {
+    return display.color ? (
+      <Text color="red" wrap="truncate-end">{` ${title} ${dot} ${offline}`}</Text>
+    ) : (
+      <Text wrap="truncate-end">{` ${title} ${dot} ${offline}`}</Text>
+    );
+  }
   return (
     <Text wrap="truncate-end">
       {` ${title} ${dot} daemon ${state.daemon ?? "?"} ${dot} ${connectionWord(state, display.ascii)}`}
@@ -79,13 +88,18 @@ export function Header(props: { state: OfficeStoreState; display: Display; title
   );
 }
 
+/** `OFFLINE since <time> – view frozen` while disconnected, else null (0009 section 7). */
+export function offlineBanner(state: OfficeStoreState, ascii: boolean): string | null {
+  if (!isOffline(state) || state.offlineSince === null) return null;
+  return `OFFLINE since ${clockTime(state.offlineSince)} ${glyphs(ascii).dash} view frozen`;
+}
+
 /** The banner lines for the connection and the daemon state (0009 section 7). */
 export function bannerLines(state: OfficeStoreState, ascii: boolean): string[] {
   const { dash } = glyphs(ascii);
   const lines: string[] = [];
-  if (isOffline(state) && state.offlineSince !== null) {
-    lines.push(`OFFLINE since ${clockTime(state.offlineSince)} ${dash} view frozen`);
-  }
+  // While offline the header carries the OFFLINE line, and the last daemon state is stale.
+  if (offlineBanner(state, ascii) !== null) return lines;
   switch (state.daemon) {
     case "starting":
     case "recovering":
@@ -193,7 +207,7 @@ export function SwitcherBody(props: {
   const { state, display, index } = props;
   return (
     <Box flexDirection="column">
-      <Text>{` Offices ${glyphs(display.ascii).dot} daemon ${state.daemon ?? "?"}  ${clockTime(props.now)}`}</Text>
+      <Text>{` Offices ${glyphs(display.ascii).dot} ${isOffline(state) ? "offline" : `daemon ${state.daemon ?? "?"}`}  ${clockTime(props.now)}`}</Text>
       {state.offices.length === 0 ? (
         <Text>{" No office is registered yet. Press n to open a repository."}</Text>
       ) : (
