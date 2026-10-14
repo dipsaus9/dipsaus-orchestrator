@@ -16,6 +16,7 @@ export {
   LAUNCH_NOTICES,
   planRefusedText,
   PREVIEW_RUN,
+  capsOf,
   RunLauncher,
   runLaunchPaths,
   runWorkerSpec,
@@ -162,7 +163,9 @@ export {
   OUTCOME_NOTICES,
   REASSIGN_SIGTERM_AFTER_MS,
   reportFeedbackText,
+  REDISPATCH_STEP,
   RunOutcomes,
+  storyHoldsWork,
 } from "./outcomes";
 export type {
   ExitContext,
@@ -173,7 +176,7 @@ export type {
   RunView,
   WaitFact,
 } from "./outcomes";
-export { RESUME_NOTICES, RESUME_POLICY, RunResumer } from "./resume";
+export { baseStoryFacts, RESUME_NOTICES, RESUME_POLICY, RunResumer } from "./resume";
 export type {
   NextSession,
   NextSessionOutcome,

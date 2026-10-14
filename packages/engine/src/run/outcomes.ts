@@ -39,6 +39,7 @@
 import type { Clock, OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
+import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
@@ -64,6 +65,7 @@ import type { ParkOutcome } from "./park";
 import { activeRuns, findRun, type StoredRun } from "./records";
 import type { NextSession } from "./resume";
 import { activeSignals, raiseSignal } from "./signals";
+import type { StoryGit } from "./story-git";
 
 /** The tags DIPO-51 stores at the start of an intent's detail. */
 export const INTENT_TAGS = {
@@ -97,6 +99,24 @@ export const OUTCOME_ENDS = {
 export const REASSIGN_SIGTERM_AFTER_MS = 10_000;
 /** Milliseconds to SIGKILL after a rejected init. */
 export const INIT_REJECTED_SIGKILL_AFTER_MS = 30_000;
+
+/** The office load step that decides exits a restart left undecided (maintainer decision Q6). */
+export const REDISPATCH_STEP = "run-outcomes/redispatch";
+
+/**
+ * The real `RunOutcomesDeps.holdsWork`: the worktree holds work when HEAD moved past the claim
+ * commit or the tree is dirty (0008 amendment of 2026-10-14).
+ */
+export function storyHoldsWork(
+  story: Pick<StoryGit, "snapshot" | "changedPaths">,
+): NonNullable<RunOutcomesDeps["holdsWork"]> {
+  return async (office, run, claim) => {
+    if (run.worktree === null || claim === null) return false;
+    const now = await story.snapshot(office, run.worktree);
+    if (now.head !== (claim.claimSha ?? claim.startSha)) return true;
+    return (await story.changedPaths(office, run.worktree)).length > 0;
+  };
+}
 
 /** The tag of an intent's detail: its first word. */
 export function intentTag(detail: string): string {
@@ -835,6 +855,29 @@ export class RunOutcomes implements RunOutcomesPort {
   }
 
   // ---- after a restart (maintainer decision Q6) ------------------------------------------------
+
+  /**
+   * The load step: once the office is loaded, the exits a restart left undecided are decided.
+   * It runs after the load on the clock, so the office can be reached by id.
+   */
+  get feature(): FeatureModule {
+    return {
+      name: "run-outcomes",
+      register: (registry) => {
+        registry.registerLoadStep(REDISPATCH_STEP, (ctx) => {
+          ctx.clock.setTimeout(() => {
+            this.redispatch(ctx.officeId).catch((error: unknown) => {
+              this.#deps.warn?.("deciding exits after a restart failed", {
+                office: ctx.officeId,
+                reason: messageOf(error),
+              });
+            });
+          }, 0);
+          return { ok: true };
+        });
+      },
+    };
+  }
 
   /**
    * Decides the exits that were ingested but not decided before the daemon stopped: every active

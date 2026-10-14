@@ -23,7 +23,7 @@
 //   and an `engine.notice` `run.resumed` or `run.handoff`.
 
 import { statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import type {
   AgentId,
@@ -35,6 +35,7 @@ import type {
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { parseFieldBlock } from "../backlog/fields/block";
 import type { PlainTask } from "../backlog/plain";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
@@ -70,6 +71,7 @@ import {
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { verifyResults } from "./verify-records";
+import type { RunBase } from "./work-run";
 
 /** 0014 section 6 until `office.yaml` version 2 (0014 amendment, DIPO-51): engine constants. */
 export const RESUME_POLICY = { maxContextShare: 0.6, rereadFactor: 3 } as const;
@@ -500,4 +502,26 @@ function defaultWorkspace(git: OfficeGit, path: string): Workspace {
     git,
     location: git.worktreeLocation(path) as Extract<GitLocation, { kind: "worktree" }>,
   });
+}
+
+/**
+ * The story facts of a run read on the office base (the real `RunResumerDeps.story`): the view,
+ * its field block, the task file and the dependencies' views, as `work.run` read them.
+ */
+export function baseStoryFacts(base: Pick<RunBase, "read">): RunResumerDeps["story"] {
+  return async (office, run) => {
+    if (run.story === null) throw new Error(`${run.runId} is not a story run`);
+    const read = await base.read(office, [run.story]);
+    const view =
+      read.views.find((candidate) => candidate.id.toUpperCase() === run.story?.toUpperCase()) ??
+      read.views[0];
+    if (view === undefined) throw new Error(`${run.story} could not be read on the office base`);
+    const ids = view.dependencies.map((dependency) => dependency.id);
+    return {
+      view,
+      fields: parseFieldBlock(view.description).fields,
+      taskFile: relative(read.checkout.path, view.file),
+      dependencies: ids.length === 0 ? [] : (await base.read(office, ids)).views,
+    };
+  };
 }
