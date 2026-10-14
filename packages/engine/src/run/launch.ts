@@ -111,6 +111,16 @@ export interface RunLauncherDeps {
   readonly tmpRoot: string;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
+  /**
+   * Caps, report parks and `work.stop` of started runs (DIPO-50); told about each run before its
+   * ingestion starts, so no event is missed.
+   */
+  readonly control?: {
+    track(
+      office: OfficeId,
+      run: { runId: RunId; work: WorkRef; caps: Caps; startedAt: number },
+    ): void;
+  };
   /** Ends a live claim whose worker did not start: worktree removed, branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
   /** Logs what the launcher could not do (the daemon's logger); nothing by default. */
@@ -369,6 +379,12 @@ export class RunLauncher {
       ]);
       return { ok: false, reason };
     }
+    this.#deps.control?.track(facts.office, {
+      runId: facts.runId,
+      work,
+      caps: capsOf(facts.caps),
+      startedAt: ctx.clock.now(),
+    });
     const adapter = this.#deps.worker.adapter(prepared.paths, facts.config);
     this.#deps.ingest.start(handle, host, {
       run: facts.runId,

@@ -835,7 +835,7 @@ function realOr(path: string): string {
 }
 
 /** `file` (absolute, as the CLI printed it) relative to the worktree, with `/` separators. */
-function repoPath(worktree: string, file: string): string {
+export function repoPath(worktree: string, file: string): string {
   const rel = relative(realOr(worktree), realOr(file));
   if (rel === "" || isAbsolute(rel) || rel.startsWith("..") || !rel.startsWith(`backlog${sep}`)) {
     throw new GitError(

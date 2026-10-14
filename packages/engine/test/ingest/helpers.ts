@@ -132,6 +132,7 @@ export function loggedEvents(office: OfficeHandle): { type: string; data: unknow
       type: row.type,
       tier: row.tier,
       delta: JSON.parse(row.delta) as unknown,
+      ...(row.view === null ? {} : { view: JSON.parse(row.view) as unknown }),
     };
     const event = renderer.render(office.officeId as OfficeId, epoch, entry);
     return { type: event.type, data: event.data };
