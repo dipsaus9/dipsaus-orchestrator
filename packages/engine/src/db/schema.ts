@@ -18,6 +18,7 @@ import { onceNotices } from "./migrations/0014-once-notices";
 import { backlogPrs } from "./migrations/0015-backlog-prs";
 import { claimTeardown } from "./migrations/0016-claim-teardown";
 import { backlogConfigPrevious } from "./migrations/0017-backlog-config-previous";
+import { runs } from "./migrations/0018-runs";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -71,4 +72,5 @@ create table offices (
   backlogPrs,
   claimTeardown,
   backlogConfigPrevious,
+  runs,
 ];
