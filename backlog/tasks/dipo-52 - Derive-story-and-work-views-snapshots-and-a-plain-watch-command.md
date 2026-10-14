@@ -4,7 +4,7 @@ title: 'Derive story and work views, snapshots and a plain watch command'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 10:57'
+updated_date: '2026-10-14 11:54'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -42,6 +42,7 @@ references:
   - packages/engine/test/stories/index.test.ts
   - packages/engine/test/stories/views.test.ts
   - packages/client/src/index.ts
+  - docs/decisions/0005-command-and-event-model.md
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0008-worker-adapter.md
