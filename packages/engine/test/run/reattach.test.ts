@@ -114,7 +114,7 @@ const fakeClient = (): HostClient => ({
 });
 
 /** A daemon (re)started on the shared database. */
-function daemon(): Daemon {
+function daemon(options: { followCheckMs?: number } = {}): Daemon {
   const { f } = w;
   const offices = { get: () => f.office };
   const steering = {
@@ -174,6 +174,7 @@ function daemon(): Daemon {
     adapter: () => claude,
     initialState: () => START,
     caps: () => w.caps,
+    ...options,
   });
   const made = { control, outcomes, ingest, reattacher };
   w.daemons.push(made);
@@ -400,6 +401,32 @@ describe("re-attach (0006 decision 8)", () => {
     expect(signals()).toEqual([]);
     expect(observed()).toEqual(["follow-only", "follow-only"]);
     expect(w.next).toEqual([]);
+  });
+
+  it("ingests what a followed host of a parked run wrote after the last poll before closing it out", async () => {
+    w.answers = false;
+    w.caps = { ...ROOMY, budgetTokens: 10 };
+    beforeRestart("success-single", 6, 20);
+    // The liveness check comes before the next 1 s ingestion poll.
+    const d = daemon({ followCheckMs: 500 });
+    await d.reattacher.reattach(w.f.office.officeId);
+    await d.control.idle();
+    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
+    // The host writes its last lines, the exit line among them, and its exit file, then dies.
+    appendLines(
+      w.f.eventFile,
+      hostLines(readRecording(join(RECORDINGS_DIR, "success-single"))).slice(20),
+    );
+    writeExitFile({ code: 0 });
+    w.alive = false;
+    w.f.t.clock.advance(500);
+    for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
+    expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
+    expect(hostRow().exitCode).toBe(0);
+    expect(hostRow().endedAt).not.toBeNull();
+    expect(agentRow()?.end_reason).toBe("capped");
+    expect(agentRow()?.ended_at).not.toBeNull();
+    expect(signals()).toEqual([]);
   });
 
   it("records the exit.json of a followed host whose agent exited, once its process is gone", async () => {

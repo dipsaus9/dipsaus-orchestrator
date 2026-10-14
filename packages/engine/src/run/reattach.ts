@@ -369,14 +369,24 @@ export class RunReattacher {
   #closeFollowed(
     office: OfficeHandle,
     run: StoredRun,
-    host: WorkerHostRow,
+    followed: WorkerHostRow,
     target: IngestTarget,
   ): void {
     const deps = this.#deps;
-    const agentEnded = this.#agentEndedAt(office, host.agentId) !== null;
-    // An ended run is followed by nobody else: its ingestion polls stop here. A running run whose
-    // agent ended has moved on, and its ingestion and watchdog belong to the next session.
-    if (run.endedAt !== null) deps.ingest.untrack(office.officeId, run.runId, host.agentId);
+    if (run.endedAt !== null) {
+      // An ended run is followed by nobody else: one last pass takes the lines the host wrote
+      // after the last poll (an exit line among them ends the agent as ingestion always does),
+      // then its ingestion stops here. A running run whose agent ended has moved on, and its
+      // ingestion and watchdog belong to the next session.
+      if (this.#agentEndedAt(office, followed.agentId) === null) {
+        deps.ingest.attach(office, followed, target, null);
+      }
+      deps.ingest.untrack(office.officeId, run.runId, followed.agentId);
+    }
+    const agentEnded = this.#agentEndedAt(office, followed.agentId) !== null;
+    // The row as the last pass left it, with its processed offset.
+    const host =
+      workerHostsOf(office, run.runId).find((h) => h.agentId === followed.agentId) ?? followed;
     const own = readHostExit(host.runDir);
     // After its exit line the host's own file ends where the processed lines end; before it, past.
     const exit =
