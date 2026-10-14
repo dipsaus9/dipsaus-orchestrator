@@ -11,6 +11,8 @@ import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { replay } from "../../src/changelog/replay";
 import { cursorAt, readLogState } from "../../src/changelog/log";
+import { EngineGit } from "../../src/git";
+import { systemSpawn } from "../../src/platform/process";
 import { BACKLOG_FIXTURE, officeSetup, resultOf, send, type OfficeSetup } from "./helpers";
 
 interface Reloaded {
@@ -133,6 +135,39 @@ describe("office configuration", () => {
         resultOf(await send(s, "office.forget", { office }));
         const reply = await send(s, "office.reloadConfig", { office });
         expect(!reply.ok && reply.error.code).toBe("office.unknown");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
+describe("office.reloadConfig and the office's git (DIPO-48)", () => {
+  it("passes a new base and worktree root to the office's git on reload", async () => {
+    await withTempRepo(
+      async (repo) => {
+        writeOfficeYaml(repo.dir, "version: 1\nbase: main\n");
+        const engineGit = new EngineGit({ spawn: systemSpawn, env: repo.env });
+        const s = await officeSetup(repo.root, { features: [engineGit.feature] });
+        const office = resultOf<{ office: OfficeId }>(
+          await send(s, "office.open", { path: repo.dir }),
+        ).office;
+        await reload(s, office);
+        const git = engineGit.forOffice(office);
+        expect(git?.settings.base).toBe("main");
+
+        const root = join(repo.root, "trees");
+        writeOfficeYaml(repo.dir, `version: 1\nbase: develop\nworktree:\n  root: ${root}\n`);
+        const { r } = await reload(s, office);
+        expect(r.valid).toBe(true);
+        // The same OfficeGit, configured again without a new load.
+        expect(engineGit.forOffice(office)).toBe(git);
+        expect(git?.settings.base).toBe("develop");
+        expect(git?.worktreeRoot()).toBe(root);
+
+        // An invalid file keeps the settings in force.
+        writeOfficeYaml(repo.dir, INVALID);
+        expect((await reload(s, office)).r.valid).toBe(false);
+        expect(git?.settings.base).toBe("develop");
       },
       { fixture: BACKLOG_FIXTURE },
     );

@@ -20,6 +20,11 @@ export interface OfficeDirectory {
   load(office: OfficeId): Promise<OfficeAccess>;
   /** The handle of an office that is already loaded; undefined for any other id. */
   get(office: OfficeId): OfficeHandle | undefined;
+  /**
+   * The registered path of an office, forgotten or not; null for an id never registered (DIPO-48). The executor
+   * compares a command's `from` with it; a directory without it skips that check.
+   */
+  registeredPath?(office: OfficeId): string | null;
 }
 
 export function officeUnknown(office: OfficeId): EngineError {
@@ -37,6 +42,10 @@ export function stateOfficeDirectory(state: StateDatabase): OfficeDirectory {
   };
   return {
     get,
+    registeredPath: (office) =>
+      state.connection.get<{ path: string }>("select path from offices where office_id = $office", {
+        office,
+      })?.path ?? null,
     load: async (office) => {
       const handle = get(office);
       return handle === undefined
