@@ -4,7 +4,7 @@ title: Verify and commit the story at In Review
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:06'
+updated_date: '2026-10-14 13:11'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -18,6 +18,12 @@ references:
   - packages/engine/src/run/
   - packages/engine/src/db/migrations/
   - packages/engine/test/run/
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/retention/
+  - packages/engine/src/views/work.ts
+  - packages/engine/src/sandbox/step.ts
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
 documentation:
   - docs/decisions/0002-review-and-testing.md
   - docs/decisions/0007-state-database.md
