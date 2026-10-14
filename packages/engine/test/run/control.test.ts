@@ -69,6 +69,8 @@ interface World {
   readonly control: RunControl;
   readonly writes: ParkBranchRequest[];
   readonly sent: HostOp[][];
+  /** Story keys read again after a park (DIPO-56). */
+  readonly refreshed: string[];
   readonly work: WorkRef;
   writer: "ok" | "tampered" | "fails";
   steer: RunSteering["send"] | null;
@@ -82,11 +84,13 @@ beforeEach(async () => {
   const f = await ingestFixture(dir);
   const writes: ParkBranchRequest[] = [];
   const sent: HostOp[][] = [];
+  const refreshed: string[] = [];
   const world = {
     dir,
     f,
     writes,
     sent,
+    refreshed,
     writer: "ok",
     steer: null,
     ingestor: null,
@@ -120,6 +124,9 @@ beforeEach(async () => {
       },
     },
     encode,
+    refreshStory: async (_office, key) => {
+      refreshed.push(key);
+    },
   });
   (world as { control: RunControl }).control = control;
   w = world;
@@ -562,5 +569,53 @@ describe("work.stop", () => {
       .filter((event) => event.type === "engine.notice")
       .map((event) => (event.data as { code: string }).code);
     expect(codes).toEqual(["run.stopNotSent"]);
+  });
+});
+
+describe("story views and reconcile (DIPO-56)", () => {
+  it("reads the parked story again on its branch right after the park commit", async () => {
+    const reply = await stopCommand("DIPO-1");
+    expect(reply.ok).toBe(true);
+    expect(w.refreshed).toEqual([w.work.key]);
+  });
+
+  it("stopForReconcile sends the stop sequence and ends the run with its notice, parking nothing", async () => {
+    const run = findRun(w.f.office, w.f.run);
+    if (run === null) throw new Error("no run");
+    await w.control.stopForReconcile(w.f.office, run, {
+      code: "reconcile.runStopped",
+      text: "DIPO-1 is Done in Backlog.md",
+    });
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    expect(parks()).toEqual([]);
+    expect(w.writes).toEqual([]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "sent"],
+    ]);
+    const codes = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => (event.data as { code: string }).code);
+    expect(codes).toEqual(["reconcile.runStopped"]);
+  });
+
+  it("parkForReconcile parks scope-violation without writing on the branch", async () => {
+    const run = findRun(w.f.office, w.f.run);
+    if (run === null) throw new Error("no run");
+    await w.control.parkForReconcile(w.f.office, run, "Changed by hand: the worktree is gone.", {
+      code: "reconcile.handChanged",
+      text: "DIPO-1 changed by hand",
+    });
+    expect(w.writes).toEqual([]);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["scope-violation", "Changed by hand: the worktree is gone."],
+    ]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    // Nothing is read on a branch that cannot be trusted.
+    expect(w.refreshed).toEqual([]);
+    const codes = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => (event.data as { code: string }).code);
+    expect(codes).toEqual(["reconcile.handChanged", "park.notWritten"]);
   });
 });

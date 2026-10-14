@@ -1,11 +1,12 @@
-// Story identity and the story index (DIPO-22, DIPO-32).
+// Story identity and the story index (DIPO-22, DIPO-32); claimed stories read on their branch
+// (DIPO-56).
 
-export { applyIndex } from "./apply";
+export { applyIndex, applyStory, writeMirror } from "./apply";
 export type { ApplyOptions, ApplyResult, IndexStats, MirrorSource } from "./apply";
 export { INDEX_STEP, StoryIndex } from "./feature";
 export type { StoryIndexDeps } from "./feature";
-export { indexStories } from "./index-stories";
-export type { IndexDeps, IndexResult } from "./index-stories";
+export { indexStories, readOnBranch, readsOnBranch, refreshStory } from "./index-stories";
+export type { BranchUnread, IndexDeps, IndexResult, RefreshOptions } from "./index-stories";
 export {
   addStory,
   findStoryByKey,
@@ -16,5 +17,5 @@ export {
   resolveStoryRef,
 } from "./keys";
 export type { NewStory, StoryIdentity, StoryMove, StoryResolution } from "./keys";
-export { contentHash, readBacklog, storyFromView, VIEW_CONCURRENCY } from "./read";
+export { contentHash, readBacklog, readStory, storyFromView, VIEW_CONCURRENCY } from "./read";
 export type { BacklogStory, StoryKind } from "./read";

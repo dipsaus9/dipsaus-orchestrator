@@ -10,6 +10,7 @@ import type {
   CommandName,
   OfficeId,
   Spawn,
+  StoryKey,
   ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import {
@@ -32,6 +33,7 @@ import {
   type SlotTable,
   type StateDatabase,
   type StoryClaims,
+  type StoryIndex,
   systemDiskProbe,
   systemHostStarter,
   systemProcessProbe,
@@ -69,6 +71,8 @@ export interface DaemonRunsOptions {
   readonly cli: BacklogCli;
   /** True when the engine implements a command; a park offers only those (DIPO-50). */
   readonly implemented: (name: CommandName) => boolean;
+  /** The story index, which reads a parked story again on its branch (DIPO-56). */
+  readonly stories?: StoryIndex;
 }
 
 export interface DaemonRuns {
@@ -127,6 +131,12 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     implemented: options.implemented,
     flushOutput: (office, run) => ingest?.flushOutput(office, run),
     onChanged: options.onChanged,
+    ...(options.stories === undefined
+      ? {}
+      : {
+          refreshStory: (office: OfficeId, key: StoryKey) =>
+            options.stories?.refreshStory(office, key, { quiet: true }) ?? Promise.resolve(),
+        }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   ingest = new OfficeIngest({

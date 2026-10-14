@@ -147,8 +147,14 @@ export interface RunLane {
 export interface WorkRunDeps {
   readonly offices: RunOffices;
   readonly base: RunBase;
-  /** One story index pass (DIPO-32). */
-  readonly stories: { indexStories(office: OfficeId): Promise<unknown> };
+  /**
+   * One story index pass (DIPO-32), and one story read again on its branch right after its claim
+   * commit (DIPO-56), so the story views say In Progress at once.
+   */
+  readonly stories: {
+    indexStories(office: OfficeId): Promise<unknown>;
+    refreshStory?(office: OfficeId, key: StoryKey): Promise<unknown>;
+  };
   /** The run profile (DIPO-72): refreshed before each run, then its verify refusal read. */
   readonly profiles: {
     ensureFreshProfile(office: OfficeId): Promise<unknown>;
@@ -522,6 +528,9 @@ export class WorkRun {
         { type: "work.phase", key, run: runId, delta: { work, phase: "setup", progress } },
       ]);
     });
+    // The claim commit set In Progress on the branch: the story view reads it from there now. A
+    // read that fails leaves the next pass to do it.
+    await this.#deps.stories.refreshStory?.(office, key).catch(() => undefined);
     if (launcher !== undefined && prepared !== null) {
       const startedRun = await launcher.start(ctx, {
         facts,

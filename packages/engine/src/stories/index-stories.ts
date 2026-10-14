@@ -2,16 +2,27 @@
 // brings the `_base` worktree to `origin/<base>` if it is missing, then, as one item in the office
 // git queue so no fetch moves `_base` meanwhile, reads every task and draft there through the
 // Backlog CLI and writes every change of the pass, with its change-log entries, in one transaction.
+//
+// A claimed story is read on its story branch (DIPO-56, 0007 section 6 step 3; 0010 section 2a):
+// from the claim commit until the claim is released, its status, park record (F16), criteria and
+// tier live there, so the pass reads it again inside the claim's worktree and mirrors that read
+// with the branch as `source`. A claimed story whose worktree cannot be read (missing, or its git
+// links changed) keeps its base read and is listed in `branchUnread`; reconcile reports it.
+// `refreshStory` reads one story the same way, right after a commit on its branch.
 
-import type { Clock, Cursor, IdSource } from "@dipsaus-orchestrator/contract";
+import { existsSync } from "node:fs";
+
+import type { Clock, Cursor, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { BacklogCli } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
+import { type ClaimRecord, liveClaimOf, liveClaims } from "../worktree/records";
 
-import { applyIndex, type IndexStats } from "./apply";
-import { readBacklog } from "./read";
+import { applyIndex, applyStory, type IndexStats } from "./apply";
+import { findStoryByKey, isProvisionalId } from "./keys";
+import { type BacklogStory, readBacklog, readStory } from "./read";
 
 export interface IndexDeps {
   readonly office: OfficeHandle;
@@ -21,17 +32,61 @@ export interface IndexDeps {
   readonly ids: IdSource;
 }
 
+/** A claimed story the pass could not read on its branch; its base read was used. */
+export interface BranchUnread {
+  readonly key: StoryKey;
+  readonly story: string;
+  readonly branch: string;
+  readonly worktree: string;
+  readonly reason: string;
+}
+
 export interface IndexResult {
   readonly stats: IndexStats;
   /** The `_base` commit the pass read. */
   readonly sha: string;
   /** The last change-log entry the pass wrote; undefined when nothing changed. */
   readonly cursor: Cursor | undefined;
+  /** What the pass read, claimed stories as read on their branch (`source`). */
+  readonly read: readonly BacklogStory[];
+  /** Claimed stories whose branch could not be read. */
+  readonly branchUnread: readonly BranchUnread[];
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * Indexes the office's stories from `_base`. Throws `GitError` when the office has no base or
- * `origin/<base>` is missing, and the Backlog CLI errors of `readBacklog`; nothing is written then.
+ * True while the claim's branch holds the story (0010 section 2a): from its claim commit until
+ * its release or teardown. A claim whose setup never finished has no claim commit yet.
+ */
+export function readsOnBranch(claim: ClaimRecord): boolean {
+  return claim.claimSha !== null && claim.releasedAt === null && claim.teardownStartedAt === null;
+}
+
+/**
+ * Reads the story of `claim` in its worktree. Must run inside a queue item of `git`; throws when
+ * the worktree is missing, is not a registered worktree, its git links changed since the claim
+ * (`git.worktreeTampered`), or the Backlog CLI fails.
+ */
+export async function readOnBranch(
+  git: OfficeGit,
+  cli: BacklogCli,
+  claim: ClaimRecord,
+  listed: { readonly id: string; readonly title: string; readonly status: string },
+): Promise<BacklogStory> {
+  if (!existsSync(claim.worktree)) throw new Error(`its worktree ${claim.worktree} is missing`);
+  const location = git.worktreeLocation(claim.worktree);
+  if (location.kind !== "worktree") throw new Error(`${claim.worktree} is not a worktree`);
+  const story = await readStory(cli, location.workTree, "task", listed);
+  return { ...story, source: claim.branch };
+}
+
+/**
+ * Indexes the office's stories from `_base`, claimed ones from their branch. Throws `GitError`
+ * when the office has no base or `origin/<base>` is missing, and the Backlog CLI errors of
+ * `readBacklog`; nothing is written then.
  */
 export async function indexStories(deps: IndexDeps): Promise<IndexResult> {
   const base = await deps.git.ensureBaseWorktree();
@@ -39,12 +94,80 @@ export async function indexStories(deps: IndexDeps): Promise<IndexResult> {
     // A fetch queued before this item may have moved `_base` since it was ensured.
     const location = deps.git.worktreeLocation(base.path);
     const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-    const read = await readBacklog(deps.cli, base.path);
+    const fromBase = await readBacklog(deps.cli, base.path);
+    const { read, branchUnread } = await overlayClaimed(deps, fromBase);
     const at = deps.clock.now();
     return deps.office.immediate(() => {
       const { stats, entries } = applyIndex(deps.office, deps.ids, read, { at, source: "base" });
       const cursor = appendEntries(deps.office, entries, { at });
-      return { stats, sha, cursor };
+      return { stats, sha, cursor, read, branchUnread };
     });
+  });
+}
+
+/** The base read with every claimed story replaced by its read on the story branch. */
+async function overlayClaimed(
+  deps: IndexDeps,
+  fromBase: readonly BacklogStory[],
+): Promise<{ read: BacklogStory[]; branchUnread: BranchUnread[] }> {
+  const read = [...fromBase];
+  const branchUnread: BranchUnread[] = [];
+  for (const claim of liveClaims(deps.office)) {
+    if (!readsOnBranch(claim)) continue;
+    // The story's id as the engine knows it now; a story renumbered by hand meanwhile is matched
+    // by the pass and read on its branch from the next pass on.
+    const id = findStoryByKey(deps.office, claim.key)?.story ?? claim.story;
+    const index = read.findIndex((story) => story.story === id && story.kind === "task");
+    const listed = read[index];
+    if (listed === undefined || isProvisionalId(id)) continue;
+    try {
+      read[index] = await readOnBranch(deps.git, deps.cli, claim, {
+        id,
+        title: listed.title,
+        status: listed.status,
+      });
+    } catch (error) {
+      branchUnread.push({
+        key: claim.key,
+        story: id,
+        branch: claim.branch,
+        worktree: claim.worktree,
+        reason: messageOf(error),
+      });
+    }
+  }
+  return { read, branchUnread };
+}
+
+export interface RefreshOptions {
+  /** True when the caller already emitted the story's new state (a park). */
+  readonly quiet?: boolean;
+}
+
+/**
+ * Reads one story again (DIPO-56): on its branch while it is claimed, else on `_base`, and writes
+ * its mirror row, with a `story.state` when its view changed. Returns the cursor of the entry it
+ * wrote, or undefined. Throws when the story is unknown or cannot be read.
+ */
+export async function refreshStory(
+  deps: IndexDeps,
+  key: StoryKey,
+  options: RefreshOptions = {},
+): Promise<Cursor | undefined> {
+  const identity = findStoryByKey(deps.office, key);
+  if (identity === null) throw new Error(`No story has the key ${key}.`);
+  const kind = isProvisionalId(identity.story) ? "draft" : "task";
+  const claim = liveClaimOf(deps.office, key);
+  const onBranch = claim !== null && readsOnBranch(claim);
+  const base = onBranch ? null : await deps.git.ensureBaseWorktree();
+  const story = await deps.git.run(async () => {
+    const listed = { id: identity.story as string, title: "", status: "" };
+    if (onBranch) return readOnBranch(deps.git, deps.cli, claim, listed);
+    return readStory(deps.cli, base?.path ?? "", kind, listed);
+  });
+  const at = deps.clock.now();
+  return deps.office.immediate(() => {
+    const entries = applyStory(deps.office, key, story, { at, source: "base", ...options });
+    return appendEntries(deps.office, entries, { at });
   });
 }
