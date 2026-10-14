@@ -46,6 +46,14 @@ export function connectFailure(error: unknown, version: string): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/**
+ * Lets the process end once the TUI is done: Ink leaves a terminal stdin paused but referenced.
+ * stdin from a file such as `/dev/null` is a stream without `unref`, so it is skipped.
+ */
+export function releaseStdin(stdin: { unref?: unknown }): void {
+  if (typeof stdin.unref === "function") (stdin.unref as () => void).call(stdin);
+}
+
 /** `dipo tui` for this process. */
 export function systemTui(
   version: string,
@@ -78,8 +86,7 @@ export function systemTui(
       },
       clientInfo,
     });
-    // Ink leaves stdin paused but referenced; let the process end.
-    process.stdin.unref();
+    releaseStdin(process.stdin);
     return code;
   };
 }

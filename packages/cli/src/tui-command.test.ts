@@ -4,7 +4,7 @@ import { ClientError } from "@dipsaus-orchestrator/client";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { main } from "./index";
-import { connectFailure, resolveTypedPath, workspaceOffice } from "./tui-command";
+import { connectFailure, releaseStdin, resolveTypedPath, workspaceOffice } from "./tui-command";
 import { fakeWorkspace } from "./fake-workspace";
 
 describe("dipo tui", () => {
@@ -53,5 +53,17 @@ describe("dipo tui", () => {
     expect(lines.join("\n")).toContain(
       "dipo tui [--office <id>] [--no-color] [--ascii] [--inline]",
     );
+  });
+
+  it("releases stdin only when it can be unreferenced (stdin from /dev/null cannot)", () => {
+    let released = 0;
+    const tty = {
+      unref() {
+        released += this === tty ? 1 : 0;
+      },
+    };
+    releaseStdin(tty);
+    expect(released).toBe(1);
+    expect(() => releaseStdin({})).not.toThrow();
   });
 });
