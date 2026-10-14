@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 18:36'
+updated_date: '2026-10-14 10:23'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -70,4 +70,6 @@ test_plan:
 M0 breakdown draft number S40 (DIPO-15). Moved before cutover in the M0 review (maintainer decision D14, DIPO-15). Before cutover: built by hand-run agents.
 
 Follow-ups from DIPO-63 and DIPO-36 (2026-10-13): (1) release orphan claims at daemon start: a live claim whose run has no worker host (keep-awake stops counting it after CLAIM_START_WINDOW_MS, packages/engine/src/keepawake/activity.ts); (2) load every registered office at daemon start, so the merge slot poll and Done detection resume after a restart without waiting for an office command (a backlog PR open at restart otherwise waits).
+
+Follow-up from the DIPO-36 and DIPO-74 live tests (2026-10-14): a fresh or lost state database does not know the office's open backlog PR (dipo/backlog-* branch, for example scratch PR #5), so the merge slot never merges it. Reconcile at daemon start should find open dipo/backlog-* PRs on the office's repository and adopt them into backlog_prs.
 <!-- SECTION:NOTES:END -->
