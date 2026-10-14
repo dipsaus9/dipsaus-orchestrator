@@ -1976,6 +1976,235 @@
         }
       },
       "required": ["office", "tables"]
+    },
+    "work.preview.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "stories": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              }
+            ]
+          }
+        }
+      },
+      "required": ["office"]
+    },
+    "work.preview.result": {
+      "type": "object",
+      "properties": {
+        "refusals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["check", "message"]
+          }
+        },
+        "story": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                }
+              },
+              "required": ["story", "key"]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              },
+              "key": {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "parked",
+                      "notReady",
+                      "notRunnable",
+                      "dependency",
+                      "collision",
+                      "capacity",
+                      "pickupCheckFailed"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "detail": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["story", "key", "reason"]
+          }
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "adapter": {
+                  "type": "string"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "worktree": {
+                  "type": "string"
+                },
+                "runDir": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "argv": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string"
+                },
+                "caps": {
+                  "type": "object",
+                  "properties": {
+                    "budgetTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "maxTurns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "maxMinutes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "loops": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["budgetTokens", "maxTurns", "maxMinutes", "loops"]
+                },
+                "envNames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "content"]
+                  }
+                },
+                "systemFile": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["path", "text"]
+                },
+                "taskMessage": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "adapter",
+                "branch",
+                "worktree",
+                "runDir",
+                "cwd",
+                "argv",
+                "model",
+                "effort",
+                "caps",
+                "envNames",
+                "files",
+                "systemFile",
+                "taskMessage"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "problem": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["refusals", "story", "skipped", "launch", "problem"]
     }
   }
 }

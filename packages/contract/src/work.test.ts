@@ -206,7 +206,11 @@ describe("views", () => {
 
 describe("office commands and reads", () => {
   // Shipped after minor 0, by name.
-  const shippedLater: Record<string, number> = { "office.stats": 1, "story.gate": 1 };
+  const shippedLater: Record<string, number> = {
+    "office.stats": 1,
+    "story.gate": 1,
+    "work.preview": 1,
+  };
   const provisional = [
     "work.steer",
     "work.pause",
@@ -251,6 +255,7 @@ describe("office commands and reads", () => {
         "office.digest",
         "story.gate",
         "office.stats",
+        "work.preview",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);

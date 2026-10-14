@@ -324,6 +324,58 @@ export const storyGate = defineRead({
   since: 1,
 });
 
+// The worker launch `work.run` would make for the story it would pick (DIPO-74): the branch and
+// worktree it would create, the launch (absolute program path first in `argv`, the environment
+// variable names without their values, the files written into the run directory, such as the run
+// settings with the sandbox), and the system file and task message the worker would get. The run
+// id, the session id and the run directory are placeholders until a real run makes them.
+export const WorkerLaunchPreview = z.object({
+  adapter: z.string(),
+  branch: z.string(),
+  worktree: z.string(),
+  runDir: z.string(),
+  cwd: z.string(),
+  argv: z.array(z.string()).min(1),
+  model: z.string(),
+  effort: z.string(),
+  caps: z.object({
+    budgetTokens: Count,
+    maxTurns: Count,
+    maxMinutes: Count,
+    loops: Count,
+  }),
+  envNames: z.array(z.string()),
+  files: z.array(z.object({ name: z.string(), content: z.string() })),
+  systemFile: z.object({ path: z.string(), text: z.string() }),
+  taskMessage: z.string(),
+});
+export type WorkerLaunchPreview = z.infer<typeof WorkerLaunchPreview>;
+
+// What `work.run` would do now, without doing it (DIPO-74, `dipo run --dry-run`). It selects as
+// `work.run` does, from the base as last fetched, and claims, creates and stores nothing, not
+// even a gate decision. `refusals` are the office checks that would refuse `work.run`; `story` is
+// the story it would start and `launch` its worker launch, or null; `problem` says why no launch
+// could be planned for that story.
+export const workPreview = defineRead({
+  name: "work.preview",
+  args: z.object({ office: OfficeId, stories: z.array(StoryRefValue).optional() }),
+  result: z.object({
+    refusals: z.array(z.object({ check: z.string(), message: z.string() })),
+    story: StoryResult.nullable(),
+    skipped: z.array(
+      z.object({
+        story: StoryId,
+        key: StoryKey,
+        reason: SkipReason,
+        detail: z.array(z.string()).optional(),
+      }),
+    ),
+    launch: WorkerLaunchPreview.nullable(),
+    problem: z.string().nullable(),
+  }),
+  since: 1,
+});
+
 export const UsageWindow = z.enum(["today", "7d", "30d"]);
 export type UsageWindow = z.infer<typeof UsageWindow>;
 
@@ -568,6 +620,7 @@ export const officeReads = [
   officeDigest,
   storyGate,
   officeStats,
+  workPreview,
 ] as const;
 
 export const officeEvents = [

@@ -294,6 +294,33 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       ],
     },
   },
+  "work.preview": {
+    args: { office: ids.office, stories: ["DIPO-21"] },
+    result: {
+      refusals: [],
+      story: { story: "DIPO-21", key: ids.storyKey },
+      skipped: [],
+      launch: {
+        adapter: "claude-cli",
+        branch: "DIPO-21/add-retry",
+        worktree: "/home/me/code/shop.worktrees/DIPO-21",
+        runDir: "/home/me/code/shop/.git/dipo/runs/<run-id>",
+        cwd: "/home/me/code/shop.worktrees/DIPO-21",
+        argv: ["/home/me/.local/bin/claude", "-p", "--model", "sonnet"],
+        model: "sonnet",
+        effort: "medium",
+        caps: { budgetTokens: 800_000, maxTurns: 120, maxMinutes: 60, loops: 4 },
+        envNames: ["DIPO_RUN", "HOME", "PATH"],
+        files: [{ name: "claude-settings.json", content: '{ "sandbox": { "enabled": true } }\n' }],
+        systemFile: {
+          path: "/home/me/code/shop/.git/dipo/runs/<run-id>/system.md",
+          text: "You are a worker.\n",
+        },
+        taskMessage: "<story>\nDIPO-21 Add retry\n</story>\n",
+      },
+      problem: null,
+    },
+  },
   "office.digest": {
     args: { office: ids.office, since: "2026-10-11T18:00:00Z" },
     result: {

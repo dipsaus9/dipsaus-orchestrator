@@ -18,4 +18,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-36 ships the command `office.init` in the same, still unreleased, minor.
 // DIPO-48 adds the optional `from` of `work.run`, the retryable `git.fetchFailed` and the office
 // code `run.refused` to the same, still unreleased, minor.
+// DIPO-74 adds the read `work.preview` (the dry run of `work.run`) to the same, still unreleased,
+// minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
