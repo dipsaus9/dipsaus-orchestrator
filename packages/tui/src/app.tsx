@@ -1,17 +1,39 @@
-// The TUI root (0009 sections 4, 6, 7 and 9): the header with office, daemon state and
-// connection, the banners, the office body or the office switcher, and the footer with the keys
-// that work now. Global keys: `o` offices, `q` twice within 2 s quits, Ctrl+C quits. In the
+// The TUI root (0009 sections 4 to 7 and 9): the header with office, daemon state and connection,
+// the banners, the office overview (`1`), the queue (`2`) or the office switcher, and the footer
+// with the keys that work now. Global keys: `1` overview, `2` queue, `o` offices, `q` twice within
+// 2 s quits, Ctrl+C quits. In the queue: `j`/`k` or arrows move, `u` runs the selected story (or
+// lets the engine pick the next Ready one) with `work.run`, `.` shows Done stories. In the
 // switcher: `j`/`k` or arrows move, Enter opens the office through `office.switch`, `n` opens a
 // new repository path through `office.open`, Esc goes back. Action keys are off while offline.
+//
+// An action is done only when the office stream passes its reply cursor (read-your-writes). An
+// error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
+// with the same request id. The store's state is taken at most 10 times per second.
 
-import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
-import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
-import { Box, Text, useInput, useWindowSize } from "ink";
-import { useState, useSyncExternalStore } from "react";
+import {
+  cursorReached,
+  type OfficeStore,
+  type OfficeStoreState,
+} from "@dipsaus-orchestrator/client";
+import type {
+  Clock,
+  Cursor,
+  EngineError,
+  OfficeId,
+  RequestId,
+  StoryRefValue,
+} from "@dipsaus-orchestrator/contract";
+import { Box, type Key, Text, useInput, useWindowSize } from "ink";
+import { useEffect, useState } from "react";
 
+import { useBatchedState } from "./batch";
+import { skipReason, widthOf } from "./format";
 import type { Display } from "./options";
+import { EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
+import { Queue, queueRows } from "./queue";
 import {
   Banners,
+  bannerLines,
   Footer,
   glyphs,
   Header,
@@ -19,9 +41,11 @@ import {
   NARROW_COLUMNS,
   NARROW_ROWS,
   NarrowBody,
-  OfficeBody,
   SwitcherBody,
 } from "./views";
+
+/** A key event with no modifier, for keys taken one by one from a multi-key write. */
+const NO_KEY = {} as Key;
 
 /** A second `q` within this window quits (0009 section 6). */
 export const QUIT_WINDOW_MS = 2_000;
@@ -30,12 +54,34 @@ export type ActionResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly message: string };
 
+/** What `work.run` answered, as far as the TUI shows it. */
+export interface RunResult {
+  readonly started: readonly { readonly story: string; readonly run: string }[];
+  readonly skipped: readonly { readonly story: string; readonly reason: string }[];
+}
+
+/** A command reply; a failure on the client side comes back as an error too. */
+export type RunOutcome =
+  | { readonly ok: true; readonly result: RunResult; readonly cursor?: Cursor }
+  | { readonly ok: false; readonly error: EngineError };
+
+export interface RunRequest {
+  readonly office: OfficeId;
+  /** Omitted: the engine picks the next Ready story. */
+  readonly stories?: readonly StoryRefValue[];
+  readonly requestId: RequestId;
+}
+
 /** The commands the TUI sends; `run` builds them on the client session. */
 export interface TuiActions {
   /** `office.open` for a path the maintainer typed. */
   openPath(path: string): Promise<ActionResult<OfficeId>>;
   /** `daemon.resumeScheduling`, after the maintainer agreed. */
   resumeScheduling(): Promise<ActionResult<null>>;
+  /** `work.run` with `origin: "tui"` and the given request id (0009 section 5). */
+  runStories(request: RunRequest): Promise<RunOutcome>;
+  /** A fresh request id for a new action; a retry reuses the old one. */
+  newRequestId(): RequestId;
 }
 
 type Mode =
@@ -43,6 +89,20 @@ type Mode =
   | { readonly kind: "switcher"; readonly index: number }
   | { readonly kind: "path"; readonly index: number; readonly text: string }
   | { readonly kind: "confirm-resume" };
+
+type View = "overview" | "queue";
+
+/** One `work.run` the maintainer sent, from send to done. */
+interface RunAction {
+  readonly request: RunRequest;
+  readonly label: string;
+  readonly status: "sending" | "syncing" | "done" | "failed";
+  readonly result?: RunResult;
+  readonly cursor?: Cursor;
+  /** The store's snapshot count when the reply arrived; a later re-read has seen the write. */
+  readonly snapshots?: number;
+  readonly error?: EngineError;
+}
 
 export interface AppProps {
   readonly store: OfficeStore;
@@ -55,29 +115,88 @@ export interface AppProps {
   readonly startInSwitcher?: boolean;
 }
 
-function useStoreState(store: OfficeStore): OfficeStoreState {
-  return useSyncExternalStore(
-    (listener) => store.subscribe(listener),
-    () => store.state,
-  );
-}
-
 function selectedIndex(state: OfficeStoreState): number {
   const index = state.offices.findIndex((entry) => entry.office === state.office);
   return index === -1 ? 0 : index;
 }
 
+/** The lines under the body for a run: what started, what was skipped and why. */
+function runLines(action: RunAction, state: OfficeStoreState, ellipsis: string): string[] {
+  const lines: string[] = [];
+  switch (action.status) {
+    case "sending":
+      lines.push(`run ${action.label}: sending${ellipsis}`);
+      break;
+    case "syncing":
+      lines.push(`run ${action.label}: answered, waiting for the office stream${ellipsis}`);
+      break;
+    case "done":
+      lines.push(`run ${action.label}: done`);
+      break;
+    case "failed":
+      return lines;
+  }
+  const result = action.result;
+  if (result === undefined) return lines;
+  for (const story of result.started) lines.push(`  started ${story.story} (${story.run})`);
+  for (const story of result.skipped) {
+    const view = state.stories.find((candidate) => String(candidate.story) === story.story);
+    const needs =
+      story.reason === "dependency" && view?.waitingOn !== undefined && view.waitingOn.length > 0
+        ? ` (needs ${view.waitingOn.join(", ")})`
+        : "";
+    lines.push(`  skipped ${story.story}: ${skipReason(story.reason)}${needs}`);
+  }
+  if (result.started.length === 0 && result.skipped.length === 0) {
+    lines.push("  no Ready story to start");
+  }
+  return lines;
+}
+
 export function App(props: AppProps) {
   const { store, clock, display, actions } = props;
-  const state = useStoreState(store);
+  const state = useBatchedState(store, clock);
   const { columns, rows } = useWindowSize();
   const [mode, setMode] = useState<Mode>(
     props.startInSwitcher === true ? { kind: "switcher", index: 0 } : { kind: "home" },
   );
+  const [view, setView] = useState<View>("overview");
+  // The selected queue row by story key, so it follows the story when the queue changes; null is
+  // the "next Ready story" row.
+  const [queueKey, setQueueKey] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
+  const [run, setRun] = useState<RunAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Why a `u` was refused; cleared by the next key and when the run it names ends.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // Keys that arrived in one write (fast typing, a paste), handled one per render so each sees
+  // the state the one before it left.
+  const [pending, setPending] = useState("");
   const [quitArmedAt, setQuitArmedAt] = useState<number | null>(null);
   const offline = isOffline(state);
   const { ellipsis } = glyphs(display.ascii);
+  const queue = queueRows(state.stories, showDone);
+  const queueSelected = Math.max(
+    0,
+    queue.findIndex((row) => (row.kind === "next" ? null : row.view.key) === queueKey),
+  );
+  const selectQueue = (index: number) => {
+    const row = queue[Math.max(0, Math.min(queue.length - 1, index))];
+    setQueueKey(row === undefined || row.kind === "next" ? null : row.view.key);
+  };
+
+  // Read-your-writes: a run is done once the office stream passes its reply cursor, once the store
+  // read a snapshot again after the reply (a history gap, whatever the epoch), or once the
+  // maintainer switched to another office, whose stream will never carry it.
+  useEffect(() => {
+    if (run?.status !== "syncing") return;
+    const passed =
+      run.cursor === undefined ||
+      state.office !== run.request.office ||
+      cursorReached(state.cursor, run.cursor) ||
+      (run.snapshots !== undefined && state.snapshots > run.snapshots);
+    if (passed) setRun({ ...run, status: "done" });
+  }, [run, state.cursor, state.office, state.snapshots]);
 
   const quit = () => props.onQuit();
 
@@ -87,6 +206,7 @@ export function App(props: AppProps) {
       if (outcome.ok) {
         setMessage(null);
         setMode({ kind: "home" });
+        setQueueKey(null);
       } else {
         setMessage(`${outcome.error.code}: ${outcome.error.message}`);
       }
@@ -105,11 +225,55 @@ export function App(props: AppProps) {
     });
   };
 
-  useInput((input, key) => {
+  const send = (request: RunRequest, label: string) => {
+    setMessage(null);
+    setRun({ request, label, status: "sending" });
+    void actions.runStories(request).then((outcome) => {
+      if (!outcome.ok) {
+        setRun({ request, label, status: "failed", error: outcome.error });
+        return;
+      }
+      setRun({
+        request,
+        label,
+        status: "syncing",
+        result: outcome.result,
+        ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
+        // Live, not the batched state: a re-read before this moment does not count.
+        snapshots: store.state.snapshots,
+      });
+    });
+  };
+
+  const runSelected = () => {
+    if (state.office === null) return;
+    if (run?.status === "sending" || run?.status === "syncing") {
+      setRefusal(
+        run.status === "sending"
+          ? `run ${run.label} is being sent; wait for its reply`
+          : `run ${run.label} waits for the office stream; wait until it is done`,
+      );
+      return;
+    }
+    const row = queue[queueSelected];
+    const requestId = actions.newRequestId();
+    if (row === undefined || row.kind === "next") {
+      send({ office: state.office, requestId }, "next Ready story");
+    } else {
+      send({ office: state.office, stories: [row.view.key], requestId }, String(row.view.story));
+    }
+  };
+
+  useEffect(() => {
+    if (run?.status !== "sending" && run?.status !== "syncing") setRefusal(null);
+  }, [run?.status]);
+
+  const handleKey = (input: string, key: Key) => {
     if (key.ctrl && input === "c") {
       quit();
       return;
     }
+    setRefusal(null);
     if (state.notice !== null) store.dismissNotice();
 
     if (mode.kind === "path") {
@@ -187,25 +351,87 @@ export function App(props: AppProps) {
       return;
     }
 
-    // Home.
-    if (input === "o") {
+    // Home: the overview or the queue.
+    if (key.ctrl && input === "r") {
+      if (run?.status !== "failed" || run.error?.retryable !== true) return;
+      if (offline) {
+        setMessage("offline: actions are disabled");
+        return;
+      }
+      // The same request id: the engine runs the command at most once (0005 section 9).
+      send(run.request, run.label);
+      return;
+    }
+    if (input === "1") {
+      setView("overview");
+    } else if (input === "2") {
+      setView("queue");
+    } else if (input === "o") {
       setMessage(null);
       setMode({ kind: "switcher", index: selectedIndex(state) });
+    } else if (key.escape) {
+      setRun(null);
+      setMessage(null);
     } else if (input === "S" && state.daemon === "safe") {
       if (offline) {
         setMessage("offline: actions are disabled");
         return;
       }
       setMode({ kind: "confirm-resume" });
+    } else if (view === "queue") {
+      if (key.downArrow || input === "j") {
+        selectQueue(queueSelected + 1);
+      } else if (key.upArrow || input === "k") {
+        selectQueue(queueSelected - 1);
+      } else if (input === ".") {
+        setShowDone(!showDone);
+      } else if (input === "u") {
+        if (offline) {
+          setMessage("offline: actions are disabled");
+          return;
+        }
+        runSelected();
+      }
     }
+  };
+
+  useInput((input, key) => {
+    // Several printable keys in one write: the first acts now, the rest one per render. A typed
+    // path keeps the whole text.
+    const several =
+      mode.kind !== "path" &&
+      input.length > 1 &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.escape &&
+      !key.return &&
+      /^[\x20-\x7e]+$/.test(input);
+    if (!several) {
+      handleKey(input, key);
+      return;
+    }
+    handleKey(input.slice(0, 1), key);
+    setPending((rest) => rest + input.slice(1));
   });
+
+  useEffect(() => {
+    if (pending === "") return;
+    setPending(pending.slice(1));
+    handleKey(pending.slice(0, 1), NO_KEY);
+    // handleKey is this render's: it sees the state the key before it left.
+  }, [pending]);
 
   const narrow = columns < NARROW_COLUMNS || rows < NARROW_ROWS;
   const inSwitcher = mode.kind === "switcher" || mode.kind === "path";
   const switcherIndex = mode.kind === "switcher" || mode.kind === "path" ? mode.index : 0;
   const notice = state.notice;
-  const footerMessage = message ?? notice;
-  const keys = footerKeys(mode, state, offline);
+  const failure =
+    run?.status === "failed" && run.error !== undefined
+      ? `run ${run.label}: ${run.error.code}: ${run.error.message}`
+      : null;
+  const footerMessage = message ?? refusal ?? failure ?? notice;
+  // The footer line starts with a space.
+  const keys = footerKeys(mode, view, state, offline, run, columns - 1);
 
   if (narrow) {
     return (
@@ -220,15 +446,37 @@ export function App(props: AppProps) {
     );
   }
 
+  const panel = !inSwitcher && run !== null ? runLines(run, state, ellipsis) : [];
+  // Header, banners, footer keys and message, and the run lines stay on screen; the queue gets
+  // the rest.
+  const height =
+    rows -
+    3 -
+    bannerLines(state, display.ascii).length -
+    panel.length -
+    (footerMessage === null ? 0 : 1);
+
   return (
     <Box flexDirection="column">
       <Header state={state} display={display} />
       <Banners state={state} display={display} />
       {inSwitcher ? (
         <SwitcherBody state={state} display={display} index={switcherIndex} now={clock.now()} />
+      ) : view === "queue" ? (
+        <Queue
+          rows={queue}
+          selected={queueSelected}
+          display={display}
+          columns={columns}
+          height={height}
+          now={clock.now()}
+        />
       ) : (
-        <OfficeBody state={state} display={display} />
+        <Overview state={state} display={display} width={widthOf(columns)} columns={columns} />
       )}
+      {panel.map((line, i) => (
+        <Text key={i} wrap="truncate-end">{` ${line}`}</Text>
+      ))}
       {mode.kind === "path" ? <Text>{` open repository path: ${mode.text}_`}</Text> : null}
       {mode.kind === "confirm-resume" ? <Text>{" Resume scheduling? [y/N]"}</Text> : null}
       <Footer keys={keys} message={footerMessage} display={display} />
@@ -236,16 +484,75 @@ export function App(props: AppProps) {
   );
 }
 
-function footerKeys(mode: Mode, state: OfficeStoreState, offline: boolean): string {
-  const off = offline ? " (offline: actions disabled)" : "";
+/** A footer hint; when the line is too wide the lowest priority goes first, `[q] quit` never. */
+type Hint = readonly [text: string, priority: number];
+
+/** The hints in their order, without the lowest-priority ones that do not fit in `width`. */
+export function fitHints(hints: readonly Hint[], width: number): string {
+  const kept = [...hints];
+  const text = () => kept.map(([hint]) => hint).join("  ");
+  while (text().length > width && kept.length > 1) {
+    let lowest = 0;
+    for (let i = 1; i < kept.length; i++) {
+      if ((kept[i]?.[1] ?? 0) < (kept[lowest]?.[1] ?? 0)) lowest = i;
+    }
+    kept.splice(lowest, 1);
+  }
+  return text();
+}
+
+const QUIT = 100;
+
+function footerKeys(
+  mode: Mode,
+  view: View,
+  state: OfficeStoreState,
+  offline: boolean,
+  run: RunAction | null,
+  width: number,
+): string {
+  const quit: Hint = [`[q] quit${offline ? " (offline: actions disabled)" : ""}`, QUIT];
+  const hints: Hint[] = [];
   switch (mode.kind) {
     case "path":
-      return "[Enter] open  [Esc] cancel";
+      return fitHints(
+        [
+          ["[Enter] open", QUIT],
+          ["[Esc] cancel", QUIT],
+        ],
+        width,
+      );
     case "confirm-resume":
-      return "[y] resume scheduling  [any other key] cancel";
+      return fitHints(
+        [
+          ["[y] resume scheduling", QUIT],
+          ["[any other key] cancel", 50],
+        ],
+        width,
+      );
     case "switcher":
-      return `[Enter] open  [n] open new repo path  [j/k] move${state.office === null ? "" : "  [Esc] back"}  [q] quit${off}`;
+      hints.push(["[Enter] open", 70], ["[n] open new repo path", 40], ["[j/k] move", 30]);
+      if (state.office !== null) hints.push(["[Esc] back", 50]);
+      hints.push(quit);
+      return fitHints(hints, width);
     default:
-      return `[o] offices${state.daemon === "safe" ? "  [S] resume scheduling" : ""}  [q] quit${off}`;
+      if (run?.status === "failed" && run.error?.retryable === true) {
+        hints.push(["[Ctrl-R] retry", 80]);
+      }
+      if (view === "queue") {
+        hints.push(
+          ["r[u]n selected", 70],
+          ["[j/k] move", 30],
+          ["[.] show done", 20],
+          ["[1] overview", 50],
+        );
+      } else {
+        hints.push(["[2] queue", 50]);
+      }
+      hints.push(["[o] offices", 40]);
+      if (state.daemon === "safe") hints.push(["[S] resume scheduling", 60]);
+      hints.push(quit);
+      if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
+      return fitHints(hints, width);
   }
 }

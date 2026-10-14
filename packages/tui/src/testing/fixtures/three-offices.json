@@ -2,7 +2,10 @@
   "description": "Golden event log (DIPO-53): engine.hello knows one office; the software stream registers two more and sends their summaries; each office has an office.snapshot. Every event parses with its contract schema.",
   "hello": {
     "engine": "0.1.0",
-    "contract": { "major": 1, "minor": 1 },
+    "contract": {
+      "major": 1,
+      "minor": 1
+    },
     "capabilities": [],
     "daemon": "running",
     "offices": [
@@ -10,17 +13,25 @@
         "office": "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
         "name": "dipsaus-orchestrator",
         "path": "/work/dipsaus-orchestrator",
-        "running": 1,
+        "running": 3,
         "parked": 1,
         "onHold": 1,
         "waitingOnMaintainer": 2
       }
     ],
-    "cursor": { "stream": "software", "epoch": "e1", "seq": 40 }
+    "cursor": {
+      "stream": "software",
+      "epoch": "e1",
+      "seq": 40
+    }
   },
   "software": [
     {
-      "cursor": { "stream": "software", "epoch": "e1", "seq": 41 },
+      "cursor": {
+        "stream": "software",
+        "epoch": "e1",
+        "seq": 41
+      },
       "at": "2026-10-14T10:00:01.000Z",
       "type": "office.registered",
       "data": {
@@ -30,7 +41,11 @@
       }
     },
     {
-      "cursor": { "stream": "software", "epoch": "e1", "seq": 42 },
+      "cursor": {
+        "stream": "software",
+        "epoch": "e1",
+        "seq": 42
+      },
       "at": "2026-10-14T10:00:02.000Z",
       "type": "office.registered",
       "data": {
@@ -40,7 +55,11 @@
       }
     },
     {
-      "cursor": { "stream": "software", "epoch": "e1", "seq": 42 },
+      "cursor": {
+        "stream": "software",
+        "epoch": "e1",
+        "seq": 42
+      },
       "at": "2026-10-14T10:00:03.000Z",
       "type": "office.summary",
       "data": {
@@ -54,7 +73,11 @@
       }
     },
     {
-      "cursor": { "stream": "software", "epoch": "e1", "seq": 42 },
+      "cursor": {
+        "stream": "software",
+        "epoch": "e1",
+        "seq": 42
+      },
       "at": "2026-10-14T10:00:03.000Z",
       "type": "office.summary",
       "data": {
@@ -65,19 +88,34 @@
         "parked": 1,
         "onHold": 0,
         "waitingOnMaintainer": 1,
-        "dayUsage": { "tokens": 3360000, "limit": 4000000, "share": 0.84, "alert": true }
+        "dayUsage": {
+          "tokens": 3360000,
+          "limit": 4000000,
+          "share": 0.84,
+          "alert": true
+        }
       }
     },
     {
-      "cursor": { "stream": "software", "epoch": "e1", "seq": 42 },
+      "cursor": {
+        "stream": "software",
+        "epoch": "e1",
+        "seq": 42
+      },
       "at": "2026-10-14T10:00:03.000Z",
       "type": "stream.mark",
-      "data": { "caughtUp": true }
+      "data": {
+        "caughtUp": true
+      }
     }
   ],
   "snapshots": {
     "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA": {
-      "cursor": { "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA", "epoch": "e2", "seq": 7 },
+      "cursor": {
+        "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
+        "epoch": "e2",
+        "seq": 7
+      },
       "stories": [
         {
           "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C01",
@@ -105,6 +143,106 @@
           "lifecycle": "Ready",
           "tier": "S",
           "column": "ready"
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "story": "DIPO-24",
+          "provisional": false,
+          "title": "Add verify retry",
+          "lifecycle": "In Progress",
+          "column": "running",
+          "tier": "S",
+          "work": {
+            "story": "DIPO-24",
+            "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+            "run": "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+            "agent": "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+            "role": "developer",
+            "tier": "S",
+            "model": "claude-sonnet"
+          }
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+          "story": "DIPO-19",
+          "provisional": false,
+          "title": "Review the merge slot",
+          "lifecycle": "In Progress",
+          "column": "running",
+          "tier": "L",
+          "work": {
+            "story": "DIPO-19",
+            "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+            "run": "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+            "agent": "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+            "role": "reviewer",
+            "tier": "L",
+            "model": "claude-opus"
+          }
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C32",
+          "story": "DIPO-32",
+          "provisional": false,
+          "title": "Desk sort order",
+          "lifecycle": "Ready",
+          "column": "ready",
+          "tier": "M"
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C31",
+          "story": "DIPO-31",
+          "provisional": false,
+          "title": "Cost view",
+          "lifecycle": "Ready",
+          "column": "waiting",
+          "tier": "M",
+          "waitingOn": ["DIPO-21"]
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C33",
+          "story": "DIPO-33",
+          "provisional": false,
+          "title": "Office forget flow",
+          "lifecycle": "Refined",
+          "column": "refined",
+          "tier": "M",
+          "gateMessages": [
+            "ready DIPO-33 failed R15: 2 unknowns open or resolved without an answer: \"Keep the branch?\"",
+            "ready DIPO-33 failed R7: no test plan"
+          ]
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C40",
+          "story": "DRAFT-4",
+          "provisional": true,
+          "title": "Retro ritual",
+          "lifecycle": "Draft",
+          "column": "draft"
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C29",
+          "story": "DIPO-29",
+          "provisional": false,
+          "title": "Web client shell",
+          "lifecycle": "Parked",
+          "column": "held",
+          "tier": "L",
+          "parked": {
+            "reason": "on-hold",
+            "detail": "after M2",
+            "from": "Ready",
+            "since": "2026-10-11T10:00:00.000Z"
+          }
+        },
+        {
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C12",
+          "story": "DIPO-12",
+          "provisional": false,
+          "title": "Office registry",
+          "lifecycle": "Done",
+          "column": "done",
+          "tier": "S"
         }
       ],
       "work": [
@@ -144,12 +282,118 @@
               "turns": 31,
               "elapsedMs": 2280000
             },
-            "budget": { "unit": "tokens", "limit": 300000, "used": 234000 },
-            "budgetShare": 0.78
+            "budget": {
+              "unit": "tokens",
+              "limit": 300000,
+              "used": 156000
+            },
+            "budgetShare": 0.52
           },
           "health": "busy",
           "signals": [],
           "startedAt": "2026-10-14T09:22:00.000Z"
+        },
+        {
+          "work": {
+            "story": "DIPO-24",
+            "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+            "run": "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+            "agent": "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+            "role": "developer",
+            "tier": "S",
+            "model": "claude-sonnet"
+          },
+          "phase": "verify",
+          "progress": {
+            "criteriaMet": 2,
+            "criteriaTotal": 3,
+            "loop": 2,
+            "loopCap": 3,
+            "verify": "failing",
+            "reviewRound": 0
+          },
+          "usage": {
+            "agent": {
+              "inputTokens": 1000,
+              "outputTokens": 100,
+              "cacheCreateTokens": 0,
+              "cacheReadTokens": 0,
+              "turns": 22,
+              "elapsedMs": 1320000
+            },
+            "run": {
+              "inputTokens": 1000,
+              "outputTokens": 100,
+              "cacheCreateTokens": 0,
+              "cacheReadTokens": 0,
+              "turns": 22,
+              "elapsedMs": 1320000
+            },
+            "budget": {
+              "unit": "tokens",
+              "limit": 300000,
+              "used": 234000
+            },
+            "budgetShare": 0.78
+          },
+          "health": "looping",
+          "signals": [],
+          "startedAt": "2026-10-14T09:42:00.000Z",
+          "evidence": {
+            "progress.criteriaMet": "claimed",
+            "usage.budgetShare": "claimed"
+          }
+        },
+        {
+          "work": {
+            "story": "DIPO-19",
+            "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+            "run": "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+            "agent": "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
+            "role": "reviewer",
+            "tier": "L",
+            "model": "claude-opus"
+          },
+          "phase": "review",
+          "progress": {
+            "criteriaMet": 9,
+            "criteriaTotal": 9,
+            "loop": 1,
+            "loopCap": 8,
+            "verify": "passing",
+            "reviewRound": 0
+          },
+          "usage": {
+            "agent": {
+              "inputTokens": 1000,
+              "outputTokens": 100,
+              "cacheCreateTokens": 0,
+              "cacheReadTokens": 0,
+              "turns": 12,
+              "elapsedMs": 3900000
+            },
+            "run": {
+              "inputTokens": 1000,
+              "outputTokens": 100,
+              "cacheCreateTokens": 0,
+              "cacheReadTokens": 0,
+              "turns": 12,
+              "elapsedMs": 3900000
+            },
+            "budget": {
+              "unit": "tokens",
+              "limit": 800000,
+              "used": 144000
+            },
+            "budgetShare": 0.18
+          },
+          "health": "asking",
+          "signals": [],
+          "startedAt": "2026-10-14T08:59:00.000Z",
+          "evidence": {
+            "progress.criteriaMet": "claimed",
+            "usage.budgetShare": "claimed"
+          }
         }
       ],
       "gates": [],
@@ -157,7 +401,11 @@
       "tests": []
     },
     "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CBB": {
-      "cursor": { "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CBB", "epoch": "e3", "seq": 3 },
+      "cursor": {
+        "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CBB",
+        "epoch": "e3",
+        "seq": 3
+      },
       "stories": [
         {
           "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C03",
@@ -175,7 +423,11 @@
       "tests": []
     },
     "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CCC": {
-      "cursor": { "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CCC", "epoch": "e4", "seq": 12 },
+      "cursor": {
+        "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CCC",
+        "epoch": "e4",
+        "seq": 12
+      },
       "stories": [
         {
           "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C04",
@@ -233,7 +485,11 @@
               "turns": 3,
               "elapsedMs": 60000
             },
-            "budget": { "unit": "tokens", "limit": 100000, "used": 1100 },
+            "budget": {
+              "unit": "tokens",
+              "limit": 100000,
+              "used": 1100
+            },
             "budgetShare": 0.011
           },
           "health": "looping",

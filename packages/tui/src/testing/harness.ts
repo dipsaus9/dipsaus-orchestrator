@@ -25,6 +25,7 @@ const KEYS: Readonly<Record<string, string>> = {
   backspace: "\u007f",
   tab: "\t",
   "ctrl-c": "\u0003",
+  "ctrl-r": "\u0012",
 };
 
 const POLL_MS = 5;
