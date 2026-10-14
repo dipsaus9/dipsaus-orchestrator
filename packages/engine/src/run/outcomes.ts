@@ -368,7 +368,7 @@ export class RunOutcomes implements RunOutcomesPort {
         office,
         view.runId,
         "steer",
-        `${INTENT_TAGS.reportFeedback} ${why}`,
+        `${INTENT_TAGS.reportFeedback} ${view.work.agent} ${why}`,
         this.#deps.clock.now(),
       ),
     );
@@ -510,17 +510,18 @@ export class RunOutcomes implements RunOutcomesPort {
       await this.#byIntent(office, run, view, agent, intent);
       return;
     }
-    // The worker exited before it answered the report feedback: resume with it.
+    // This worker exited before it answered its report feedback: resume with it. The feedback
+    // is resolved only once the next session started, so a restart in between resumes again.
     const feedback = this.#reportFeedbacks(office, view.runId).find(
-      (row) => row.resolvedAt === null,
+      (row) => row.resolvedAt === null && feedbackOf(row.detail).agent === agent,
     );
     if (feedback !== undefined) {
-      this.#resolve(office, view.runId, feedback, "resumed", at);
-      await this.#next(office, run, view, {
+      const started = await this.#next(office, run, view, {
         mode: "resume",
         why: "the worker exited before it answered the report feedback",
-        message: reportFeedbackText(intentRest(feedback.detail)),
+        message: reportFeedbackText(feedbackOf(feedback.detail).why),
       });
+      if (started) this.#resolve(office, view.runId, feedback, "resumed", this.#deps.clock.now());
       return;
     }
     await this.#byResult(office, run, view, agent, exit.end);
@@ -649,24 +650,28 @@ export class RunOutcomes implements RunOutcomesPort {
             });
             return;
           }
-          // The one feedback turn, as the first message of a resume.
+          // The one feedback turn, as the first message of a resume; resolved once it started.
           const at = this.#deps.clock.now();
-          office.immediate(() => {
-            const id = recordIntent(
+          const id = office.immediate(() => {
+            const recorded = recordIntent(
               office,
               run.runId,
               "steer",
-              `${INTENT_TAGS.reportFeedback} ${why}`,
+              `${INTENT_TAGS.reportFeedback} ${agent} ${why}`,
               at,
             );
-            markIntentSent(office, run.runId, id, at, null);
-            resolveIntent(office, run.runId, id, "resumed", at);
+            markIntentSent(office, run.runId, recorded, at, null);
+            return recorded;
           });
-          await this.#next(office, run, view, {
+          const started = await this.#next(office, run, view, {
             mode: "resume",
             why: "a turn without a valid report",
             message: reportFeedbackText(why),
           });
+          if (started) {
+            const now = this.#deps.clock.now();
+            office.immediate(() => resolveIntent(office, run.runId, id, "resumed", now));
+          }
           return;
         }
         await park({
@@ -733,7 +738,7 @@ export class RunOutcomes implements RunOutcomesPort {
       readonly why: string;
       readonly message?: string;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const resumer = this.#deps.resumer;
     if (resumer === undefined) {
       await this.#park(office, run, view.work, {
@@ -743,7 +748,7 @@ export class RunOutcomes implements RunOutcomesPort {
         detail: `${request.why}; dipo cannot start another session of the run`,
         endKind: OUTCOME_ENDS.crashed,
       });
-      return;
+      return false;
     }
     let outcome;
     try {
@@ -763,10 +768,10 @@ export class RunOutcomes implements RunOutcomesPort {
     }
     switch (outcome.kind) {
       case "started":
-        return;
+        return true;
       case "startFailed":
         await this.#startFailed(office, run, view.work, holdMessage(outcome.hold), outcome.hold);
-        return;
+        return false;
       case "failed":
         await this.#park(office, run, view.work, {
           intent: "park",
@@ -775,7 +780,7 @@ export class RunOutcomes implements RunOutcomesPort {
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.crashed,
         });
-        return;
+        return false;
     }
   }
 
@@ -893,7 +898,9 @@ export class RunOutcomes implements RunOutcomesPort {
   /**
    * Decides the exits that were ingested but not decided before the daemon stopped: every active
    * story run whose newest agent ended with no recorded decision (`end_reason` still `exited`),
-   * no open wait and no other session after it.
+   * no open wait and no other session after it. A newest agent that ended `crashed` or
+   * `prompt-too-long` had its decision recorded but its next session never started: that session
+   * starts now (a resume after a crash, a handoff after a full context).
    */
   async redispatch(officeId: OfficeId): Promise<number> {
     const office = this.#deps.offices.get(officeId);
@@ -912,7 +919,13 @@ export class RunOutcomes implements RunOutcomesPort {
           order by started_at desc, rowid desc limit 1`,
         { run: run.runId },
       );
-      if (agent === null || agent.ended_at === null || agent.end_reason !== "exited") continue;
+      if (agent === null || agent.ended_at === null) continue;
+      // A crash or a full context decided before the stop, whose next session never started.
+      const decided =
+        agent.end_reason === "crashed" || agent.end_reason === "prompt-too-long"
+          ? agent.end_reason
+          : null;
+      if (agent.end_reason !== "exited" && decided === null) continue;
       if (openWait(office, run.runId) !== null) continue;
       const cursor = office.get<{ parse_state: string }>(
         `select parse_state from ingest_cursors
@@ -934,15 +947,36 @@ export class RunOutcomes implements RunOutcomesPort {
       const caps = this.#deps.caps?.(officeId, run) ?? null;
       if (cursor === null || work === null || caps === null) continue;
       count += 1;
+      const view: RunView = {
+        office: officeId,
+        runId: run.runId,
+        work,
+        caps,
+        startedAt: host?.started_at ?? run.startedAt,
+        snapshot: null,
+      };
+      if (decided !== null) {
+        const key = `${run.runId} ${agent.agent_id}`;
+        this.#deciding.add(key);
+        try {
+          await this.#next(
+            office,
+            run,
+            view,
+            decided === "crashed"
+              ? { mode: "resume", why: "a crash decided before the daemon restarted" }
+              : {
+                  mode: "handoff",
+                  why: "a full context (prompt_too_long) decided before the daemon restarted",
+                },
+          );
+        } finally {
+          this.#deciding.delete(key);
+        }
+        continue;
+      }
       await this.onExit({
-        view: {
-          office: officeId,
-          runId: run.runId,
-          work,
-          caps,
-          startedAt: host?.started_at ?? run.startedAt,
-          snapshot: null,
-        },
+        view,
         agent: agent.agent_id,
         turns: Promise.resolve(),
         ending: null,
@@ -1044,6 +1078,15 @@ export class RunOutcomes implements RunOutcomesPort {
     });
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
   }
+}
+
+/** The agent a report feedback was sent to and why, from its intent detail. */
+function feedbackOf(detail: string): { readonly agent: string; readonly why: string } {
+  const rest = intentRest(detail);
+  const space = rest.indexOf(" ");
+  return space === -1
+    ? { agent: rest, why: "" }
+    : { agent: rest.slice(0, space), why: rest.slice(space + 1) };
 }
 
 /** The one feedback turn "report in the schema" (0008 section 7, 0014 section 2). */

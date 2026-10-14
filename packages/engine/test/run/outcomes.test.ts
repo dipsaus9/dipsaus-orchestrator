@@ -253,6 +253,27 @@ function earlierAgent(reason: string): void {
   );
 }
 
+/** Records why the fixture's agent ended, as a decision before a stop would have. */
+function setEndReason(reason: string): void {
+  w.f.office.immediate(() =>
+    w.f.office.run(
+      "update agents set end_reason = $reason where office_id = $office_id and agent_id = $agent",
+      { reason, agent: w.f.agent },
+    ),
+  );
+}
+
+/** A next session that records its agent, as the real resumer does. */
+function startedAgent(): void {
+  w.f.office.immediate(() =>
+    w.f.office.run(
+      `insert into agents (office_id, agent_id, run_id, role, model, started_at)
+       values ($office_id, $agent, $run, 'developer', 'haiku', $at)`,
+      { agent: w.f.t.ids.next("agt"), run: w.f.run, at: w.f.t.clock.now() + 1 },
+    ),
+  );
+}
+
 function turnWith(problem: TurnProblem): WorkerEvent {
   return { t: "turn", report: null, totals: {}, numTurns: 1, terminal: "completed", problem };
 }
@@ -646,13 +667,73 @@ describe("a plan limit (AC #8)", () => {
 
 describe("after a restart (decision Q6)", () => {
   it("decides an exit that was ingested but not decided", async () => {
+    w.onNext = startedAgent;
     await ingestRecording("terminated", true);
     expect(w.next).toEqual([]);
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
     expect(w.next.map((request) => request.mode)).toEqual(["resume"]);
     expect(endReason()).toBe("crashed");
-    // Decided once: the agent no longer ended `exited`.
+    // Decided once: the next session is the newest agent now.
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
+  });
+
+  it("starts the resume of a crash decided before the stop", async () => {
+    // The daemon stopped after the agent was ended `crashed`, before the next session started.
+    await ingestRecording("terminated", true);
+    setEndReason("crashed");
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(w.next.map((request) => request.mode)).toEqual(["resume"]);
+    expect(w.next[0]?.why).toContain("before the daemon restarted");
+    expect(parks()).toEqual([]);
+    expectActive();
+  });
+
+  it("starts the handoff of a full context decided before the stop", async () => {
+    await ingestRecording("prompt-too-long", true);
+    setEndReason("prompt-too-long");
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(w.next.map((request) => request.mode)).toEqual(["handoff"]);
+    expect(parks()).toEqual([]);
+    expectActive();
+  });
+
+  it("resumes with an unanswered report feedback after a stop before the resume started", async () => {
+    // The feedback was sent, the worker exited, and the daemon stopped before the resume.
+    await ingestRecording("report-invalid", true);
+    w.f.office.immediate(() =>
+      recordIntent(
+        w.f.office,
+        w.f.run,
+        "steer",
+        `report-feedback ${w.f.agent} error_max_structured_output_retries`,
+        0,
+      ),
+    );
+    let openWhileStarting: (string | null)[] = [];
+    w.onNext = () => {
+      openWhileStarting = runIntents(w.f.office, w.f.run).map((intent) => intent.outcome);
+    };
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    const text = reportFeedbackText("error_max_structured_output_retries");
+    expect(w.next.map((request) => [request.mode, request.message])).toEqual([["resume", text]]);
+    // Resolved only once the next session started.
+    expect(openWhileStarting).toEqual([null]);
+    expect(intents()).toEqual([["steer", "report-feedback", "resumed"]]);
+    expect(parks()).toEqual([]);
+    expectActive();
+  });
+
+  it("keeps a report feedback recorded at the exit open until its resume started", async () => {
+    // No feedback was sent before the exit: it is recorded at the exit, then the resume starts.
+    let openWhileStarting: (string | null)[] = [];
+    w.onNext = () => {
+      openWhileStarting = runIntents(w.f.office, w.f.run).map((intent) => intent.outcome);
+    };
+    await ingestRecording("report-invalid-missing", true);
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(openWhileStarting).toEqual([null]);
+    expect(intents()).toEqual([["steer", "report-feedback", "resumed"]]);
+    expect(parks()).toEqual([]);
   });
 
   it("leaves a run waiting for a plan-limit reset alone", async () => {
