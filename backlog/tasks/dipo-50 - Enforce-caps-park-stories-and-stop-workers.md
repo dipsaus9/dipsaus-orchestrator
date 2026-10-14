@@ -4,7 +4,7 @@ title: 'Enforce caps, park stories and stop workers'
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 10:52'
+updated_date: '2026-10-14 11:02'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -31,6 +31,7 @@ references:
   - packages/daemon/src/foreground.ts
   - packages/engine/test/ingest/helpers.ts
   - packages/engine/test/workers/scripts.ts
+  - packages/engine/src/ingest/ingestor.ts
 documentation:
   - docs/decisions/0001-foundational-decisions.md
   - docs/decisions/0005-command-and-event-model.md
@@ -97,4 +98,6 @@ test_plan:
 M0 breakdown draft number S34 (DIPO-15). Before cutover: built by hand-run agents.
 
 Built: migration 19 (parks, run_intents; tier S), run/caps.ts (budget tokens, summed turns, wall-clock minutes from the host start; checked after every usage and turn event of a committed pass and on a 1-minute tick of the injected clock), run/intents.ts (stop, cap and park intents stored pending before the ops are sent; the exit is resolved from the intent first), run/park.ts (parkStory: F16 park block plus status Parked in one commit '<ID>: status Parked' in the story worktree inside the git queue, pushed without force; parks row, run ended with end_kind stopped/capped/blocked, story.state and story.parked with actions filtered to registered commands, which is empty in M0; git.worktreeTampered parks scope-violation without writing on the branch), run/control.ts (RunControl: ingestion hooks, cap tick, blocked report parks with closeStdin, work.stop with the adapter's stop sequence through the host socket), dipo stop with confirmation (workStop.confirm, --yes). The turn WorkerEvent gains optional 'capped' when the CLI backstop (error_max_turns) ended the turn. WorkerPort gains encode. The park is written right after the stop sequence is sent, not after the worker exit; the intent explains the later exit. Caps are tracked in memory per started run; re-attaching after a daemon restart is DIPO-57. A done report with no intent is left to DIPO-49/51.
+
+Review fix: caps are now evaluated as of each usage and turn event inside the ingestion pass (Ingestor hook onEventApplied, called in the pass transaction after the event is folded into usage_totals); RunControl marks the crossing event and acts after the commit at the first deciding event, so the park detail names the total at the crossing and an earlier blocked report or backstop turn wins.
 <!-- SECTION:NOTES:END -->
