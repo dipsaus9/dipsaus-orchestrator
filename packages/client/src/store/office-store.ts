@@ -97,6 +97,18 @@ export interface OfficeStoreState {
   readonly gates: readonly GateView[];
   readonly questions: readonly QuestionView[];
   readonly tests: readonly TestView[];
+  /**
+   * The last stored cursor of the selected office stream the store applied, starting at the
+   * snapshot cursor; null without an office. A client compares a command reply cursor with it to
+   * wait for its own write (read-your-writes, 0009 section 5).
+   */
+  readonly cursor: Cursor | null;
+  /**
+   * How many office snapshots the store has applied (opens, switches and re-reads after a history
+   * gap). A client waiting for its own write counts a re-read after the reply as caught up,
+   * whatever the epoch (read-your-writes, 0009 section 5).
+   */
+  readonly snapshots: number;
   /** A one-time message, such as `RELOADED_NOTICE`; cleared by `dismissNotice`. */
   readonly notice: string | null;
   /** The last failed read or ended subscription, until the next success. */
@@ -116,6 +128,7 @@ const EMPTY_OFFICE = {
   gates: [],
   questions: [],
   tests: [],
+  cursor: null,
 } as const;
 
 /** Event types whose data carries `work` and an optional engine-derived `view` of that run. */
@@ -124,6 +137,17 @@ const WORK_EVENTS = [workAssigned, workPhase, workProgress, workOutput, workObse
 /** True when `cursor` was delivered already: same epoch, not past the last one (0005 section 8). */
 function seen(last: Cursor | undefined, cursor: Cursor): boolean {
   return last !== undefined && last.epoch === cursor.epoch && cursor.seq <= last.seq;
+}
+
+/**
+ * True when `current`, the store's office cursor, is at or past `target`, a command reply cursor
+ * of the same office stream (read-your-writes, 0009 section 5). A reply from another epoch counts
+ * only once the store itself is on that epoch, that is after it read the stream again; epochs have
+ * no order, so a store still on the old one has not seen the write.
+ */
+export function cursorReached(current: Cursor | null, target: Cursor): boolean {
+  if (current === null || current.stream !== target.stream) return false;
+  return current.epoch === target.epoch && current.seq >= target.seq;
 }
 
 export class OfficeStore {
@@ -160,6 +184,7 @@ export class OfficeStore {
       loading: false,
       ...EMPTY_OFFICE,
       notice: null,
+      snapshots: 0,
       error: null,
     };
   }
@@ -229,6 +254,7 @@ export class OfficeStore {
     if (stream === SOFTWARE) this.#applySoftware(event);
     else if (this.#state.office !== null && stream === `office:${this.#state.office}`) {
       this.#applyOffice(event);
+      if (!derived) this.#update({ cursor: event.cursor });
     }
   }
 
@@ -282,6 +308,8 @@ export class OfficeStore {
       gates: snapshot.gates,
       questions: snapshot.questions,
       tests: snapshot.tests,
+      cursor: snapshot.cursor,
+      snapshots: this.#state.snapshots + 1,
     });
     const generation = this.#generation;
     this.#officeSub = this.#client.subscribe(stream, {

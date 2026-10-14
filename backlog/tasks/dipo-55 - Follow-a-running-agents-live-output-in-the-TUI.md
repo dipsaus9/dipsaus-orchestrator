@@ -4,7 +4,7 @@ title: Follow a running agent's live output in the TUI
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-14 15:29'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -62,4 +62,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S39 (DIPO-15). Before cutover: built by hand-run agents.
+
+Maintainer feedback from the DIPO-54 hand test (2026-10-14): 'I find it a bit confusing on what is happening ... If a process is running I want to be able to view what is happening.' Design the detail view so it answers 'what is the worker doing right now' at a glance; overview and switcher clarity is DIPO-81.
 <!-- SECTION:NOTES:END -->

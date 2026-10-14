@@ -4,13 +4,19 @@
 // else the switcher. Quitting, Ctrl+C and SIGTERM unmount Ink, which leaves the alternate screen
 // and raw mode, so the shell gets its terminal back.
 
-import { type DipoClient, OfficeStore, type StoreClient } from "@dipsaus-orchestrator/client";
+import {
+  type DipoClient,
+  OfficeStore,
+  type StoreClient,
+  ulidRequestIds,
+} from "@dipsaus-orchestrator/client";
 import {
   type Clock,
   daemonResumeScheduling,
   type EngineError,
   type OfficeId,
   officeOpen,
+  workRun,
 } from "@dipsaus-orchestrator/contract";
 import { Box, render, Text, useInput } from "ink";
 import { useState } from "react";
@@ -119,6 +125,7 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
       return;
     }
     const connected = session;
+    const requestIds = ulidRequestIds(deps.clock);
     store = new OfficeStore({ client: connected, clock: deps.clock, clientInfo: deps.clientInfo });
     store.start();
     const here = options.office ?? (await deps.currentOffice().catch(() => null));
@@ -147,6 +154,22 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
           return { ok: false, message: errorText(error) };
         }
       },
+      runStories: async (request) => {
+        try {
+          // No deadline: `work.run` waits for a fetch, the gate and the claim (as `dipo run`).
+          return await connected.command(
+            workRun,
+            request.stories === undefined ? {} : { stories: [...request.stories] },
+            { office: request.office, requestId: request.requestId },
+          );
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      newRequestId: requestIds,
     };
     instance.rerender(
       <App
