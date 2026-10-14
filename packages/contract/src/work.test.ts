@@ -210,6 +210,7 @@ describe("office commands and reads", () => {
     "office.stats": 1,
     "story.gate": 1,
     "work.preview": 1,
+    "office.switch": 1,
   };
   const provisional = [
     "work.steer",
@@ -249,6 +250,7 @@ describe("office commands and reads", () => {
     expect(officeReads.map((d): string => d.name).toSorted()).toEqual(
       [
         "office.snapshot",
+        "office.switch",
         "story.detail",
         "work.outputRange",
         "office.usage",

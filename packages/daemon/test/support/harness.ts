@@ -24,6 +24,8 @@ import {
   MemoryRequestTable,
   newLogState,
   noOfficeSummaries,
+  officeSummaryOfSource,
+  officeSummarySource,
   openStateDatabase,
   Renderer,
   serveUnixSocket,
@@ -130,6 +132,8 @@ export interface HarnessOptions {
   readonly tools?: ToolPaths;
   /** Feature modules registered after the fixtures, for a test that needs a real command name. */
   readonly features?: readonly FeatureModule[];
+  /** Office summaries from the state database (DIPO-52); none by default. */
+  readonly officeSummaries?: boolean;
 }
 
 export async function startHarness(dir: string, options: HarnessOptions = {}): Promise<Harness> {
@@ -185,7 +189,11 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     softwareRequests: new MemoryRequestTable(clock),
     lifecycle,
     software,
-    officeSummaries: noOfficeSummaries,
+    officeSummaries:
+      options.officeSummaries === true ? officeSummarySource(() => state) : noOfficeSummaries,
+    ...(options.officeSummaries === true
+      ? { officeSummary: officeSummaryOfSource(() => state) }
+      : {}),
     engineVersion: TEST_VERSION,
     logger,
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),

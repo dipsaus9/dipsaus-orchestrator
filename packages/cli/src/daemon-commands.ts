@@ -452,7 +452,8 @@ export function engineFailure(deps: DaemonCommandDeps, error: EngineError): numb
 
 /**
  * Connects, runs one exchange under the reply deadline (`timeoutMs`, `REPLY_TIMEOUT_MS` by
- * default), and always closes the connection.
+ * default; `Infinity` for none, as `dipo watch` runs until stopped), and always closes the
+ * connection.
  */
 export async function withDaemon(
   deps: DaemonCommandDeps,
@@ -467,6 +468,7 @@ export async function withDaemon(
   }
   let timer: ReturnType<Clock["setTimeout"]> | null = null;
   const deadline = new Promise<number>((resolve) => {
+    if (!Number.isFinite(timeoutMs)) return;
     timer = deps.clock.setTimeout(() => {
       deps.writeError(`dipo: the daemon did not answer within ${timeoutMs / 1000} s.`);
       resolve(1);

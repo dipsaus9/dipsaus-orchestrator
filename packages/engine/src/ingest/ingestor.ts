@@ -20,6 +20,8 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { PriceBook } from "../pricing/estimate";
 import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
+import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
+import { withWorkViews } from "../views/work";
 import type { HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, outputText } from "./output";
@@ -94,6 +96,16 @@ export interface IngestHooks {
   readonly onWorkerEvents?: (run: string, agent: string, events: readonly WorkerEvent[]) => void;
   /** The worker's exit line was ingested; its usage is final. */
   readonly onEnded?: (run: string, agent: string) => void;
+  /**
+   * A pass committed complete lines of the run (DIPO-52): the worker is alive, so the watchdog
+   * starts its quiet and stall timers again. `quiet` and `no-output` were cleared in the pass.
+   */
+  readonly onLines?: (run: string, agent: string) => void;
+  /**
+   * Change-log entries were appended (DIPO-52), so the daemon sends them to subscribers. Called
+   * after the transaction that appended them, once per transaction.
+   */
+  readonly onAppended?: () => void;
 }
 
 export interface IngestorOptions {
@@ -300,9 +312,8 @@ export class Ingestor {
       this.#clearOutputTimer(tracked);
       const at = this.#clock.now();
       cursor =
-        this.#office.immediate(() =>
-          appendEntries(this.#office, this.#outputEntries(tracked.target), { at }),
-        ) ?? cursor;
+        this.#office.immediate(() => this.#append(this.#outputEntries(tracked.target), at)) ??
+        cursor;
     }
     return cursor;
   }
@@ -485,6 +496,21 @@ export class Ingestor {
         entries.push(...this.#usageEntries(target));
         usageSent = true;
       }
+      // A line clears `quiet` and `no-output` (0009 section 3, DIPO-52).
+      for (const cleared of clearSignals(this.#office, run, LIVENESS_SIGNALS, now)) {
+        if (target.work === undefined) continue;
+        entries.push({
+          type: "work.observed",
+          key: target.work.key,
+          run: target.work.run,
+          delta: {
+            work: target.work,
+            signal: cleared.signal,
+            since: new Date(cleared.since).toISOString(),
+            clearedAt: new Date(now).toISOString(),
+          },
+        });
+      }
       if (exited) {
         finalizeAgentUsage(this.#office, run, agent, now);
         this.#office.run(
@@ -493,7 +519,7 @@ export class Ingestor {
           { now, agent },
         );
       }
-      appendEntries(this.#office, entries, { at: now });
+      this.#append(entries, now);
     });
 
     // Only a committed `usage.updated` counts as sent; a rolled-back one is sent again.
@@ -507,6 +533,7 @@ export class Ingestor {
       this.#armOutput(tracked);
       this.#armUsage(tracked);
     }
+    this.#hooks.onLines?.(run, agent);
     if (events.length > 0) this.#hooks.onWorkerEvents?.(run, agent, events);
     for (const reason of rejected) this.#hooks.onInitRejected?.(run, agent, reason);
     if (exited) this.#hooks.onEnded?.(run, agent);
@@ -531,9 +558,7 @@ export class Ingestor {
     tracked.outputTimer = this.#clock.setTimeout(() => {
       tracked.outputTimer = null;
       const at = this.#clock.now();
-      this.#office.immediate(() =>
-        appendEntries(this.#office, this.#outputEntries(tracked.target), { at }),
-      );
+      this.#office.immediate(() => this.#append(this.#outputEntries(tracked.target), at));
     }, this.#timings.outputFlushMs);
   }
 
@@ -550,9 +575,7 @@ export class Ingestor {
         tracked.usageTimer = null;
         if (!tracked.usageDirty) return;
         const at = this.#clock.now();
-        this.#office.immediate(() =>
-          appendEntries(this.#office, this.#usageEntries(tracked.target), { at }),
-        );
+        this.#office.immediate(() => this.#append(this.#usageEntries(tracked.target), at));
         this.#usageSent(tracked, at);
       },
       Math.max(0, dueAt - this.#clock.now()),
@@ -575,6 +598,17 @@ export class Ingestor {
   }
 
   // ---- entries (inside a transaction) --------------------------------------------------------
+
+  /**
+   * Appends `entries`, each work entry with the run's `WorkView` derived now (DIPO-52), and has
+   * `onAppended` called once the transaction is done. Runs inside the caller's transaction.
+   */
+  #append(entries: readonly NewEntry[], at: number): Cursor | undefined {
+    const cursor = appendEntries(this.#office, withWorkViews(this.#office, entries), { at });
+    const notify = this.#hooks.onAppended;
+    if (cursor !== undefined && notify !== undefined) queueMicrotask(notify);
+    return cursor;
+  }
 
   /** `work.output` for the agent's output not yet sent; advances the emitted mark. */
   #outputEntries(target: IngestTarget): NewEntry[] {
@@ -681,7 +715,7 @@ export class Ingestor {
           text: `The event file of ${target.run} changed (${detail}); ingestion for the run stopped.`,
         },
       });
-      appendEntries(this.#office, entries, { at: now });
+      this.#append(entries, now);
     });
     if (tracked.usageDirty && target.work !== undefined) this.#usageSent(tracked, now);
     this.#hooks.onFileChanged?.({ run: target.run, agent: target.agent, path, detail });

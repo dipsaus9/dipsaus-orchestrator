@@ -270,16 +270,24 @@ export type {
   StoryResolution,
 } from "./stories";
 export {
+  activeWorkViews,
   columnCounts,
   columnOf,
+  deriveHealth,
   deriveOfficeSummary,
   deriveStoryView,
   lifecycleOf,
   officeSummaries,
+  officeSummaryOfSource,
   officeSummarySource,
+  snapshot,
   storyView,
+  viewsFeature,
+  withWorkViews,
+  workRefOf,
+  workView,
 } from "./views";
-export type { StoryFacts } from "./views";
+export type { HealthFacts, StoryFacts } from "./views";
 export {
   canonicalJson,
   configHash,

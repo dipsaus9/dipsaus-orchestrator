@@ -4,7 +4,7 @@ title: Verify and commit the story at In Review
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 18:36'
+updated_date: '2026-10-14 11:53'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -81,4 +81,6 @@ test_plan:
 M0 breakdown draft number S33 (DIPO-15). Before cutover: built by hand-run agents.
 
 Follow-ups from DIPO-63 and DIPO-65 (2026-10-13): (1) the verify step calls WorkTracker.beginVerify() (packages/engine/src/keepawake/activity.ts) and calls the returned function when verify ends, so keep-awake holds during verify; (2) add the run_summaries table: retention's runSummaryExists (packages/engine/src/retention/run-files.ts) looks for it, and until it exists processed event files wait for the retention fallback.
+
+Maintainer decision 2026-10-14: engine steps in the step sandbox (install at setup, verify here) get their own writable TMPDIR inside the run's allowed write area, so package-manager wrappers such as Aikido Safe-Chain (~/.bun/bin/bun on the maintainer's machine, which calls mktemp) work inside the sandbox and keep checking installs. Found in the DIPO-74 live test, where setup failed with 'mktemp: mkstemp failed … Operation not permitted'. Check on the first live install with dependencies whether Safe-Chain also needs network access to Aikido.
 <!-- SECTION:NOTES:END -->

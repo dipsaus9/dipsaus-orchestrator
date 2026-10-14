@@ -1,4 +1,4 @@
-// Migration 19 (DIPO-50): `parks` and `run_intents` (0007 section 4, 0008 sections 6 and 7).
+// Migration 20 (DIPO-50): `parks` and `run_intents` (0007 section 4, 0008 sections 6 and 7).
 //
 // `parks` holds the park history of a story: one row per park with its reason (0005 `ParkReason`),
 // the lifecycle it left, the detail, the last good commit (the branch tip before the park commit)
@@ -17,7 +17,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const parksRunIntents: SqlMigration = {
-  version: 19,
+  version: 20,
   name: "parks and run_intents",
   sql: `
 create table parks (

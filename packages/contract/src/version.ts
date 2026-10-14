@@ -20,4 +20,7 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // code `run.refused` to the same, still unreleased, minor.
 // DIPO-74 adds the read `work.preview` (the dry run of `work.run`) to the same, still unreleased,
 // minor.
+// DIPO-52 adds the read `office.switch`, the optional `view` (a `WorkView`) on the work events and
+// `usage.updated`, `work.observed.clearedAt`, and `Verdict.failures` with `Verdict.run` optional
+// to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

@@ -48,6 +48,7 @@ import {
   MergeSlot,
   officeFeature,
   OfficeInit,
+  officeSummaryOfSource,
   officeSummarySource,
   OfficeManager,
   openLogFile,
@@ -349,6 +350,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
     ingest: { close(): void } | null;
+    contract: ContractServer | null;
   } = {
     socket: null,
     database: null,
@@ -361,6 +363,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     retention: null,
     maintenance: null,
     ingest: null,
+    contract: null,
   };
   let lockLost = false;
   let clean = false;
@@ -702,10 +705,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lifecycle,
       software,
       officeSummaries: summaries,
+      officeSummary: officeSummaryOfSource(() => held.database),
       engineVersion: io.version,
       logger: logger.child({ component: "server" }),
     });
     server = contract;
+    held.contract = contract;
     held.socket = serveUnixSocket(socketPath, (connection) => contract.accept(connection));
 
     // The stale-break window (0006 decision 6): re-read the lock after binding and before
@@ -841,6 +846,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.teardown?.stop();
     held.mergeSlot?.stop();
     held.ingest?.close();
+    // No more debounced office summaries once the daemon stops.
+    held.contract?.close();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
     await held.maintenance?.stop();

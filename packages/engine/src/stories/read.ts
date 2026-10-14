@@ -9,12 +9,13 @@
 
 import { createHash } from "node:crypto";
 
-import { StoryId } from "@dipsaus-orchestrator/contract";
+import { type FieldBlockPark, StoryId } from "@dipsaus-orchestrator/contract";
 
 import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
 import { BacklogParseError, parseList, parseView, plainLines } from "../backlog/plain";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
+import { openDependencies } from "../run/select";
 
 export type StoryKind = "task" | "draft";
 
@@ -36,6 +37,12 @@ export interface BacklogStory {
   readonly frozenBranch?: string;
   /** sha256 of the view output without its `File:` line, so moving the worktree changes nothing. */
   readonly contentHash: string;
+  /** The dependencies that are not Done (DIPO-52); absent when the view did not parse. */
+  readonly waitingOn?: readonly string[];
+  /** The field block's park record (0010 section 3), when the block parses and holds one. */
+  readonly park?: FieldBlockPark;
+  /** Acceptance criteria checked and in all; absent when the view did not parse. */
+  readonly criteria?: { readonly met: number; readonly total: number };
 }
 
 /** How many CLI views run at once. */
@@ -75,10 +82,13 @@ export function storyFromView(
   }
   const labels = readLabels(view.labels);
   let frozenBranch: string | undefined;
+  let park: FieldBlockPark | undefined;
   try {
-    frozenBranch = parseFieldBlock(view.description).fields.branch;
+    const { fields } = parseFieldBlock(view.description);
+    frozenBranch = fields.branch;
+    park = fields.park;
   } catch {
-    // An invalid block (R02) leaves the branch unknown; the Ready gate reports it.
+    // An invalid block (R02) leaves the branch and park unknown; the Ready gate reports it.
     frozenBranch = undefined;
   }
   const tier = single(labels.tiers);
@@ -94,6 +104,12 @@ export function storyFromView(
     ...(role === undefined ? {} : { role }),
     ...(frozenBranch === undefined ? {} : { frozenBranch }),
     contentHash: hash,
+    waitingOn: openDependencies(view),
+    ...(park === undefined ? {} : { park }),
+    criteria: {
+      met: view.acceptanceCriteria.filter((criterion) => criterion.checked).length,
+      total: view.acceptanceCriteria.length,
+    },
   };
 }
 

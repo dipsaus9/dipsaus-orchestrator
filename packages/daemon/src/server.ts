@@ -18,6 +18,7 @@ import {
   type Event,
   type IdSource,
   OfficeId,
+  type OfficeSummary,
   type ReadReply,
   RequestId,
   type ServerFrame,
@@ -54,6 +55,11 @@ export const HEARTBEAT_MS = 15_000;
  * this plus one page, well under the backpressure limit.
  */
 export const PUMP_HIGH_WATER_BYTES = 1024 * 1024;
+/**
+ * `office.summary` follows changes to an office at most this often (0005 section 5): the first
+ * change starts the wait, and the summary then sent covers every change made during it.
+ */
+export const SUMMARY_DEBOUNCE_MS = 1_000;
 /** At most this many events go in one `events` frame. */
 export const EVENTS_PER_FRAME = 500;
 /**
@@ -81,6 +87,8 @@ export interface ContractServerDeps {
   readonly lifecycle: DaemonLifecycle;
   readonly software: SoftwareStream;
   readonly officeSummaries: OfficeSummarySource;
+  /** The summary of one office; the debounced `office.summary` derives only the changed office. */
+  readonly officeSummary?: (office: OfficeId) => OfficeSummary | undefined;
   readonly engineVersion: string;
   readonly logger: Logger;
   readonly renderer?: Renderer;
@@ -134,6 +142,10 @@ export class ContractServer {
   readonly #renderer: Renderer;
   readonly #heartbeatMs: number;
   readonly #connections = new Set<Connection>();
+  /** Offices whose summary is due, with the debounce timer that sends it. */
+  readonly #summaryTimers = new Map<OfficeId, ReturnType<Clock["setTimeout"]>>();
+  /** The last summary sent per office, so an unchanged one is not sent again. */
+  readonly #lastSummaries = new Map<OfficeId, string>();
 
   constructor(deps: ContractServerDeps) {
     this.#deps = deps;
@@ -183,6 +195,42 @@ export class ContractServer {
    */
   notifyOffice(office: OfficeId): void {
     for (const connection of this.#connections) connection.officeChanged(office);
+    this.#scheduleSummary(office);
+  }
+
+  /**
+   * Sends `office.summary` for `office` to every software subscriber once the debounce wait ends,
+   * when it differs from the last one sent (0005 section 5: derived, debounced on change).
+   */
+  #scheduleSummary(office: OfficeId): void {
+    if (this.#summaryTimers.has(office)) return;
+    const clock = this.#deps.clock;
+    const timer = clock.setTimeout(() => {
+      this.#summaryTimers.delete(office);
+      let summary;
+      try {
+        summary =
+          this.#deps.officeSummary === undefined
+            ? this.#deps.officeSummaries().find((candidate) => candidate.office === office)
+            : this.#deps.officeSummary(office);
+      } catch (error) {
+        this.#deps.logger.warn("office summary failed", { office, error });
+        return;
+      }
+      if (summary === undefined) return;
+      const text = JSON.stringify(summary);
+      if (this.#lastSummaries.get(office) === text) return;
+      this.#lastSummaries.set(office, text);
+      for (const connection of this.#connections)
+        connection.derivedSoftware("office.summary", summary);
+    }, SUMMARY_DEBOUNCE_MS);
+    this.#summaryTimers.set(office, timer);
+  }
+
+  /** Stops pending summary timers; a closing daemon sends no more. */
+  close(): void {
+    for (const timer of this.#summaryTimers.values()) this.#deps.clock.clearTimeout(timer);
+    this.#summaryTimers.clear();
   }
 }
 
@@ -225,6 +273,15 @@ class Connection implements ConnectionSession {
     const subscription = this.#subscriptions.get(SOFTWARE_STREAM);
     if (subscription === undefined) return;
     this.#deliver(subscription, [event], event.cursor);
+  }
+
+  /** A derived software event (not stored, cursor repeats the position) to a software subscriber. */
+  derivedSoftware(type: string, data: unknown): void {
+    const subscription = this.#subscriptions.get(SOFTWARE_STREAM);
+    if (subscription === undefined || this.#closed) return;
+    this.#sendEvents(subscription, [
+      { cursor: subscription.position, at: this.#now(), type, data },
+    ]);
   }
 
   officeChanged(office: OfficeId): void {

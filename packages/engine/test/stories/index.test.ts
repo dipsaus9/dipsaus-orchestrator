@@ -114,7 +114,8 @@ describe("story index on the Backlog CLI", () => {
         ["DRAFT-1", "Draft", "draft"],
         ["TASK-1", "Ready", "ready"],
         ["TASK-2", "Refined", "refined"],
-        ["TASK-3", "Parked", "desk"],
+        // TASK-3 is parked on-hold in its field block (DIPO-52).
+        ["TASK-3", "Parked", "held"],
       ]);
 
       // A status pushed to the remote is indexed by the poll after polling.fetchSeconds, not before.

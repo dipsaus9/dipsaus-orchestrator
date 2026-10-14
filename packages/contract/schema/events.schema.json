@@ -487,6 +487,300 @@
             }
           },
           "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "criteriaMet": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "criteriaTotal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loopCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verify": {
+                  "type": "string",
+                  "enum": ["none", "passing", "failing"]
+                },
+                "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "criteriaMet",
+                "criteriaTotal",
+                "loop",
+                "loopCap",
+                "verify",
+                "reviewRound"
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "run": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "const": "tokens"
+                    },
+                    "limit": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "used": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["unit", "limit", "used"]
+                },
+                "budgetShare": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["agent", "run", "budget", "budgetShare"]
+            },
+            "health": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "lost",
+                    "asking",
+                    "limited",
+                    "paused",
+                    "looping",
+                    "stuck",
+                    "quiet",
+                    "busy"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "signal": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "quiet",
+                          "no-output",
+                          "same-failure",
+                          "input-wait",
+                          "plan-limit",
+                          "host-lost",
+                          "follow-only"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["signal", "since"]
+              }
+            },
+            "lastOutputAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
         }
       },
       "required": ["work"]
@@ -579,6 +873,300 @@
             }
           },
           "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "criteriaMet": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "criteriaTotal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loopCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verify": {
+                  "type": "string",
+                  "enum": ["none", "passing", "failing"]
+                },
+                "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "criteriaMet",
+                "criteriaTotal",
+                "loop",
+                "loopCap",
+                "verify",
+                "reviewRound"
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "run": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "const": "tokens"
+                    },
+                    "limit": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "used": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["unit", "limit", "used"]
+                },
+                "budgetShare": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["agent", "run", "budget", "budgetShare"]
+            },
+            "health": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "lost",
+                    "asking",
+                    "limited",
+                    "paused",
+                    "looping",
+                    "stuck",
+                    "quiet",
+                    "busy"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "signal": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "quiet",
+                          "no-output",
+                          "same-failure",
+                          "input-wait",
+                          "plan-limit",
+                          "host-lost",
+                          "follow-only"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["signal", "since"]
+              }
+            },
+            "lastOutputAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
         }
       },
       "required": ["work", "phase", "progress"]
@@ -660,6 +1248,300 @@
             }
           },
           "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "criteriaMet": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "criteriaTotal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loopCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verify": {
+                  "type": "string",
+                  "enum": ["none", "passing", "failing"]
+                },
+                "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "criteriaMet",
+                "criteriaTotal",
+                "loop",
+                "loopCap",
+                "verify",
+                "reviewRound"
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "run": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "const": "tokens"
+                    },
+                    "limit": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "used": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["unit", "limit", "used"]
+                },
+                "budgetShare": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["agent", "run", "budget", "budgetShare"]
+            },
+            "health": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "lost",
+                    "asking",
+                    "limited",
+                    "paused",
+                    "looping",
+                    "stuck",
+                    "quiet",
+                    "busy"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "signal": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "quiet",
+                          "no-output",
+                          "same-failure",
+                          "input-wait",
+                          "plan-limit",
+                          "host-lost",
+                          "follow-only"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["signal", "since"]
+              }
+            },
+            "lastOutputAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
         }
       },
       "required": ["work", "progress"]
@@ -723,6 +1605,300 @@
         },
         "text": {
           "type": "string"
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "criteriaMet": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "criteriaTotal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loopCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verify": {
+                  "type": "string",
+                  "enum": ["none", "passing", "failing"]
+                },
+                "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "criteriaMet",
+                "criteriaTotal",
+                "loop",
+                "loopCap",
+                "verify",
+                "reviewRound"
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "run": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "const": "tokens"
+                    },
+                    "limit": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "used": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["unit", "limit", "used"]
+                },
+                "budgetShare": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["agent", "run", "budget", "budgetShare"]
+            },
+            "health": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "lost",
+                    "asking",
+                    "limited",
+                    "paused",
+                    "looping",
+                    "stuck",
+                    "quiet",
+                    "busy"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "signal": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "quiet",
+                          "no-output",
+                          "same-failure",
+                          "input-wait",
+                          "plan-limit",
+                          "host-lost",
+                          "follow-only"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["signal", "since"]
+              }
+            },
+            "lastOutputAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
         }
       },
       "required": ["work", "source", "from", "to", "text"]
@@ -793,6 +1969,305 @@
           "type": "string",
           "format": "date-time",
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "clearedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "criteriaMet": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "criteriaTotal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loopCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verify": {
+                  "type": "string",
+                  "enum": ["none", "passing", "failing"]
+                },
+                "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "criteriaMet",
+                "criteriaTotal",
+                "loop",
+                "loopCap",
+                "verify",
+                "reviewRound"
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "run": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "const": "tokens"
+                    },
+                    "limit": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "used": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["unit", "limit", "used"]
+                },
+                "budgetShare": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["agent", "run", "budget", "budgetShare"]
+            },
+            "health": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "lost",
+                    "asking",
+                    "limited",
+                    "paused",
+                    "looping",
+                    "stuck",
+                    "quiet",
+                    "busy"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "signal": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "quiet",
+                          "no-output",
+                          "same-failure",
+                          "input-wait",
+                          "plan-limit",
+                          "host-lost",
+                          "follow-only"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["signal", "since"]
+              }
+            },
+            "lastOutputAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
         }
       },
       "required": ["work", "signal", "since"]
@@ -961,6 +2436,300 @@
             }
           },
           "required": ["agent", "run", "budget", "budgetShare"]
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "work": {
+              "type": "object",
+              "properties": {
+                "story": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "run": {
+                  "type": "string",
+                  "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "agent": {
+                  "type": "string",
+                  "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "tier": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["S", "M", "L"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "criteriaMet": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "criteriaTotal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "loopCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verify": {
+                  "type": "string",
+                  "enum": ["none", "passing", "failing"]
+                },
+                "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "criteriaMet",
+                "criteriaTotal",
+                "loop",
+                "loopCap",
+                "verify",
+                "reviewRound"
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "run": {
+                  "type": "object",
+                  "properties": {
+                    "inputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "outputTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheCreateTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "cacheReadTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "elapsedMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "estimatedCost": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreateTokens",
+                    "cacheReadTokens",
+                    "turns",
+                    "elapsedMs"
+                  ]
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "const": "tokens"
+                    },
+                    "limit": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "used": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["unit", "limit", "used"]
+                },
+                "budgetShare": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": ["agent", "run", "budget", "budgetShare"]
+            },
+            "health": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "lost",
+                    "asking",
+                    "limited",
+                    "paused",
+                    "looping",
+                    "stuck",
+                    "quiet",
+                    "busy"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "signal": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "quiet",
+                          "no-output",
+                          "same-failure",
+                          "input-wait",
+                          "plan-limit",
+                          "host-lost",
+                          "follow-only"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["signal", "since"]
+              }
+            },
+            "lastOutputAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "evidence": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["checked", "claimed", "estimated", "none"]
+              }
+            }
+          },
+          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
         }
       },
       "required": ["work", "usage"]

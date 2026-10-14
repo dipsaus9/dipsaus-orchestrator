@@ -38,6 +38,7 @@ import {
   systemSandboxHost,
   systemSpawn,
   type currentPlatform,
+  Watchdog,
 } from "@dipsaus-orchestrator/engine";
 
 /** The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). */
@@ -94,6 +95,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
   const runStep = (request: Parameters<typeof runSandboxedStep>[1]) =>
     runSandboxedStep({ clock, platform, host: systemSandboxHost(platform) }, request);
+  // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
+  // entry ingestion or the watchdog appends reaches subscribers at once.
+  const watchdog = new Watchdog({
+    clock,
+    timeouts: (office) => options.offices.config(office)?.timeouts,
+    onAppended: options.onChanged,
+  });
   const worker = claudeWorkerPort({
     spawn: systemSpawn,
     clock,
@@ -126,6 +134,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     hooks: control.hooks,
     pricing: () => options.database()?.pricing ?? null,
     warn: (message, fields) => options.logger.warn(message, fields),
+    watchdog,
+    onAppended: options.onChanged,
   });
   const launcher = new RunLauncher({
     worker,

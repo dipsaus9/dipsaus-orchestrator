@@ -51,6 +51,10 @@ export {
   systemHostStarter,
 } from "./hosts";
 export type { OfficeIngestOptions, SystemHostStarterOptions } from "./hosts";
+export { Watchdog, WATCHDOG_DEFAULTS } from "./watchdog";
+export type { WatchdogOptions, WatchdogTimeouts } from "./watchdog";
+export { activeSignals, clearSignals, LIVENESS_SIGNALS, raiseSignal } from "./signals";
+export type { StoredSignal } from "./signals";
 // Caps, parks and `work.stop` (DIPO-50).
 export {
   CAP_TICK_MS,
