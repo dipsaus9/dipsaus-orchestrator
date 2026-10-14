@@ -49,6 +49,9 @@ import type { HookEvent, HookReply, PermissionDecision } from "./types";
 /** The error of `work.answer` for a question that is not waiting (0005 section 4). */
 export const QUESTION_CLOSED = "question.closed";
 
+/** The host's error for a hook call it no longer holds. */
+const HOOK_GONE = "hook.unknown";
+
 /** `engine.notice` code when a decision could not reach the worker host. */
 export const REPLY_NOT_SENT = "run.hookReplyNotSent";
 
@@ -279,11 +282,16 @@ export class PermissionAsks {
     const question = findQuestion(office, questionId);
     if (question === null || question.closedAt !== null || question.hook === null) return;
     this.#close(office, [question], "timeout");
-    this.#reply(office, question.runId as RunId, {
-      hook: question.hook,
-      decision: "deny",
-      reason: `The maintainer did not answer within ${seconds} s.`,
-    });
+    this.#reply(
+      office,
+      question.runId as RunId,
+      {
+        hook: question.hook,
+        decision: "deny",
+        reason: `The maintainer did not answer within ${seconds} s.`,
+      },
+      true,
+    );
   }
 
   /** Closes `questions` as `how` in one transaction, with their entries. */
@@ -352,14 +360,14 @@ export class PermissionAsks {
   }
 
   /** Sends a reply without waiting for it. */
-  #reply(office: OfficeHandle, run: RunId, reply: HookReply): void {
-    const job = this.#send(office, run, reply);
+  #reply(office: OfficeHandle, run: RunId, reply: HookReply, timedOut = false): void {
+    const job = this.#send(office, run, reply, timedOut);
     this.#inflight.add(job);
     void job.finally(() => this.#inflight.delete(job));
   }
 
   /** Sends a reply to the run's worker host; a failure puts a notice on the office. */
-  async #send(office: OfficeHandle, run: RunId, reply: HookReply): Promise<void> {
+  async #send(office: OfficeHandle, run: RunId, reply: HookReply, timedOut = false): Promise<void> {
     let error: string | null = null;
     try {
       const sent = await this.#deps.steering.send(
@@ -372,6 +380,9 @@ export class PermissionAsks {
       error = messageOf(thrown);
     }
     if (error === null) return;
+    // A timeout reply the host no longer holds a call for: the call was answered already (the
+    // worker exited, or the host gave up), so there is nothing to report.
+    if (timedOut && error.includes(HOOK_GONE)) return;
     this.#deps.warn?.("a permission decision did not reach the worker host", {
       run,
       hook: reply.hook,

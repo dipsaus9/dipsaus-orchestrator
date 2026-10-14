@@ -6,11 +6,14 @@
 // denial, as 0017 allows for a derived recording.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  type ChildExit,
+  type ChildProcess,
   type CommandReply,
+  type Spawn,
   type OfficeId,
   type OfficeSnapshot,
   RequestId,
@@ -26,6 +29,13 @@ import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { findQuestion, openQuestions } from "../../src/hooks/questions";
 import { PermissionAsks, type Presence } from "../../src/hooks/permissions";
+import { connectHost } from "../../src/host/client";
+import { WorkerHost } from "../../src/host/main";
+import { type HostLaunch, LAUNCH_FILE } from "../../src/host/protocol";
+import { relayHookPayload } from "../../src/host/relay";
+import { systemClock } from "../../src/platform/clock";
+import { hostSocketSteering } from "../../src/run/hosts";
+import { HOST_WAIT_MARGIN_SECONDS } from "../../src/workers/claude-cli/hooks";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import { insertRun } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
@@ -406,5 +416,114 @@ describe("no decision at once (AC #5)", () => {
         "select closed_how from questions where office_id = $office_id",
       ),
     ).toEqual({ closed_how: "expired" });
+  });
+});
+
+/** A worker that runs until `end` is called. */
+function heldWorker(): { spawn: Spawn; end: () => void } {
+  let end!: () => void;
+  const exited = new Promise<ChildExit>((resolve) => {
+    end = () => resolve({ code: 0, signal: null });
+  });
+  const closed = () =>
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await exited;
+        controller.close();
+      },
+    });
+  const child: ChildProcess = {
+    pid: 4242,
+    stdin: { write: () => 0, end: () => undefined } as unknown as ChildProcess["stdin"],
+    stdout: closed(),
+    stderr: closed(),
+    exited,
+    kill: () => undefined,
+  };
+  return { spawn: () => child, end };
+}
+
+describe("the timeout against the real worker host (DIPO-59 review)", () => {
+  it("delivers the engine's timeout deny with its reason before the host gives up, and raises no notice", async () => {
+    const { f } = w;
+    // The fixture's worker host row names `<dir>/host.sock` and `<dir>/events.ndjson`.
+    const launch: HostLaunch = {
+      version: 1,
+      run: f.run,
+      agent: f.agent,
+      socket: join(w.dir, "host.sock"),
+      plan: { argv: ["/usr/local/bin/claude", "-p"], env: {}, cwd: w.dir, files: [], stdin: [] },
+    };
+    writeFileSync(join(w.dir, LAUNCH_FILE), JSON.stringify(launch), { mode: 0o600 });
+    const worker = heldWorker();
+    const host = WorkerHost.start({
+      runId: f.run,
+      runDir: w.dir,
+      clock: f.t.clock,
+      spawn: worker.spawn,
+      killGroup: () => undefined,
+      pid: 777,
+    });
+    const steering = hostSocketSteering({ clock: systemClock });
+    const asks = new PermissionAsks({
+      clock: f.t.clock,
+      ids: f.t.ids,
+      offices: { get: () => f.office, config: () => OFFICE_DEFAULTS },
+      steering,
+      encode,
+      presence: { connected: () => true, lastRequestAt: () => f.t.clock.now() },
+    });
+    try {
+      const engine = await connectHost(launch.socket, {
+        runId: f.run,
+        clock: systemClock,
+        timeoutMs: 2000,
+      });
+      if (!engine.ok) throw new Error("no engine connection");
+      await engine.client.watch(() => undefined);
+      // `dipo hook PermissionRequest --wait <permissionWaitSeconds + margin>`.
+      const call = relayHookPayload({
+        socketPath: launch.socket,
+        runId: f.run,
+        payload: JSON.stringify({ hook_event_name: "PermissionRequest", tool_name: "Write" }),
+        waitMs: (WAIT_SECONDS + HOST_WAIT_MARGIN_SECONDS) * 1000,
+        clock: systemClock,
+        timeoutMs: 2000,
+      });
+      for (let i = 0; i < 200 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+      const office = f.office;
+      const ingestor = new Ingestor({
+        office,
+        clock: f.t.clock,
+        pricing: null,
+        hooks: {
+          onWorkerEvents: (run, agent, events) => asks.onWorkerEvents(office, run, agent, events),
+        },
+      });
+      ingestor.track(
+        target(f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
+      );
+      ingestor.close();
+      expect(openQuestions(office)).toHaveLength(1);
+
+      f.t.clock.advance(WAIT_SECONDS * 1000);
+      await asks.idle();
+      const output = await call;
+      expect(JSON.parse(output ?? "{}")).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PermissionRequest",
+          decision: {
+            behavior: "deny",
+            message: `The maintainer did not answer within ${WAIT_SECONDS} s.`,
+          },
+        },
+      });
+      expect(types()).not.toContain("engine.notice");
+      engine.client.close();
+    } finally {
+      asks.close();
+      worker.end();
+      await host.done;
+    }
   });
 });
