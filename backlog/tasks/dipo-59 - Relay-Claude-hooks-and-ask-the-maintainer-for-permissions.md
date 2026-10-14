@@ -1,7 +1,7 @@
 ---
 id: DIPO-59
 title: Relay Claude hooks and ask the maintainer for permissions
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
 updated_date: '2026-10-14 21:09'
@@ -124,4 +124,6 @@ Review fixes (DIPO-59):
 - Known limit: when `PostCompact` arrives before `compact_boundary`, `compacted` carries `preTokens: 0` and the boundary's `pre_tokens` is not re-emitted (no engine consumer reads it yet).
 
 AC #8: the maintainer captured `permission-wait` live (Claude Code 2.1.300, 10 s wait); the engine tests now replay that recording instead of the derived scenario, and it joins the recording expectation tables (outcome blocked, park ambiguous-spec: the worker reported the fixture question after the denied wait).
+
+Manual test 2026-10-14: the maintainer approved the live capture; bun run recordings:capture permission-wait (Haiku, $0.0014) wrote a recording with a ch: hook PermissionRequest line and no secret (1d703f1); the replay tests pass on it.
 <!-- SECTION:NOTES:END -->
