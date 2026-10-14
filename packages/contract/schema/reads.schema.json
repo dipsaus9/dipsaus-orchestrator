@@ -2020,6 +2020,12 @@
             "required": ["check", "message"]
           }
         },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "story": {
           "anyOf": [
             {

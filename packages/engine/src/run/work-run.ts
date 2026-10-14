@@ -261,11 +261,7 @@ export class WorkRun {
     // DIPO-74): they lift the hold when they pass. Without names the hold refuses the run.
     const hold = deps.adapterHeld(config.worker.adapter);
     if (hold !== null && (args.stories === undefined || deps.launcher === undefined)) {
-      throw refused(
-        office,
-        "adapter",
-        `${holdMessage(hold)} To repeat the checks, name the story: \`dipo run <ID>\`.`,
-      );
+      throw refused(office, "adapter", holdMessage(hold));
     }
 
     try {
@@ -634,7 +630,8 @@ export class WorkRun {
    * `work.preview`, the dry run of `work.run`: the same refusals (as `refusals`, not errors, except
    * an invalid configuration), the same candidates and skips from the base as last fetched, and
    * the worker launch of the story it would start. Nothing is fetched, indexed, stored, claimed or
-   * created; the pickup gate is evaluated without storing a decision.
+   * created; the pickup gate is evaluated without storing a decision. Reading the base may create
+   * the engine's `_base` read worktree (DIPO-31) when the office has none yet.
    */
   async preview(ctx: ReadContext, args: PreviewArgs): Promise<Preview> {
     const deps = this.#deps;
@@ -656,7 +653,18 @@ export class WorkRun {
     }
     const refusals: Preview["refusals"] = [];
     const hold = deps.adapterHeld(config.worker.adapter);
-    if (hold !== null) refusals.push({ check: "adapter", message: holdMessage(hold) });
+    // As in `work.run`: a run that names its stories repeats the launch checks, so the hold is
+    // information then, not a refusal.
+    const notes: string[] = [];
+    // `notes` only when there is one, so the usual reply keeps the shape 0005 names.
+    const info = () => (notes.length === 0 ? { refusals } : { refusals, notes });
+    if (hold !== null) {
+      if (args.stories !== undefined && deps.launcher !== undefined) {
+        notes.push(`${holdMessage(hold)} The launch checks will be repeated for the named story.`);
+      } else {
+        refusals.push({ check: "adapter", message: holdMessage(hold) });
+      }
+    }
     const statuses = await deps.statuses(office);
     if (statuses !== null) refusals.push({ check: "statuses", message: statuses });
     const verify = deps.profiles.verifyResolved(handle);
@@ -724,17 +732,17 @@ export class WorkRun {
       }
       chosen = { candidate, startable: checked };
     }
-    if (chosen === null) return { refusals, story: null, skipped, launch: null, problem: null };
+    if (chosen === null) return { ...info(), story: null, skipped, launch: null, problem: null };
 
     const { candidate, startable } = chosen;
     const story = { story: candidate.story, key: candidate.key };
     const launcher = deps.launcher;
     if (launcher === undefined) {
-      return { refusals, story, skipped, launch: null, problem: "this daemon starts no workers" };
+      return { ...info(), story, skipped, launch: null, problem: "this daemon starts no workers" };
     }
     if (launcher.adapterId !== config.worker.adapter) {
       return {
-        refusals,
+        ...info(),
         story,
         skipped,
         launch: null,
@@ -753,13 +761,13 @@ export class WorkRun {
         taskFile: startable.taskFile,
         base: read.checkout,
       });
-      return { refusals, story, skipped, launch, problem: null };
+      return { ...info(), story, skipped, launch, problem: null };
     } catch (error) {
       const problem =
         error instanceof PlanError
           ? planRefusedText(candidate.story, error)
           : `the launch could not be planned: ${error instanceof Error ? error.message : String(error)}`;
-      return { refusals, story, skipped, launch: null, problem };
+      return { ...info(), story, skipped, launch: null, problem };
     }
   }
 

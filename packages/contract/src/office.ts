@@ -353,7 +353,8 @@ export type WorkerLaunchPreview = z.infer<typeof WorkerLaunchPreview>;
 
 // What `work.run` would do now, without doing it (DIPO-74, `dipo run --dry-run`). It selects as
 // `work.run` does, from the base as last fetched, and claims, creates and stores nothing, not
-// even a gate decision. `refusals` are the office checks that would refuse `work.run`; `story` is
+// even a gate decision. `refusals` are the office checks that would refuse `work.run`; `notes`
+// say what would not refuse it but matters (an adapter hold a named run re-checks); `story` is
 // the story it would start and `launch` its worker launch, or null; `problem` says why no launch
 // could be planned for that story.
 export const workPreview = defineRead({
@@ -361,6 +362,8 @@ export const workPreview = defineRead({
   args: z.object({ office: OfficeId, stories: z.array(StoryRefValue).optional() }),
   result: z.object({
     refusals: z.array(z.object({ check: z.string(), message: z.string() })),
+    // Information that refuses nothing, such as an adapter hold the named run will re-check.
+    notes: z.array(z.string()).optional(),
     story: StoryResult.nullable(),
     skipped: z.array(
       z.object({

@@ -57,7 +57,7 @@ export function holdMessage(hold: AdapterHold): string {
   const lines = hold.failures.map(describeFailure).join(" ");
   return (
     `New runs on ${hold.adapter} are held in every office: ${lines} ` +
-    "Fix it, then start a run explicitly to repeat the launch checks; the hold lifts when they pass."
+    "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the hold lifts when they pass."
   );
 }
 

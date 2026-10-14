@@ -141,6 +141,7 @@ async function dryRun(
         ...(preview.refusals.length === 0
           ? ["none refuse the run"]
           : preview.refusals.map((refusal) => `refused (${refusal.check}): ${refusal.message}`)),
+        ...(preview.notes ?? []).map((note) => `note: ${note}`),
         section("Story"),
         preview.story === null
           ? "no story would start"

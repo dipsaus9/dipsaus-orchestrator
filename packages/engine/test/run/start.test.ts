@@ -145,6 +145,8 @@ interface World {
   checks: LaunchCheckOutcome;
   worktreeRoot: string;
   hostFails: boolean;
+  releaseFails: boolean;
+  readonly warnings: string[];
   gate: GateResult;
 }
 
@@ -173,6 +175,8 @@ beforeEach(async () => {
     checks: { ok: true } as LaunchCheckOutcome,
     worktreeRoot: join(dir, "trees"),
     hostFails: false,
+    releaseFails: false,
+    warnings: [] as string[],
     gate: { mode: "pickup", passed: true, failures: [] } as GateResult,
   } as unknown as World;
 
@@ -233,12 +237,14 @@ beforeEach(async () => {
     hosts,
     ingest: { start: (_office, _host, target) => w.ingested.push(target) },
     release: async (_office, claim, reason) => {
+      if (w.releaseFails) throw new Error("git worktree remove failed: busy");
       w.released.push({ claim, reason });
       office.immediate(() =>
         releaseClaim(office, claim.runId, { at: t.clock.now(), reason, keepBranch: true }),
       );
     },
     workspace: (_git, path) => memoryWorkspace(path),
+    warn: (message, fields) => w.warnings.push(`${message}: ${String(fields["reason"])}`),
   });
 
   const read = (ids: readonly string[] | null): BaseRead => ({
@@ -508,6 +514,23 @@ describe("work.run starts the worker of a claimed run", () => {
   });
 });
 
+describe("a failed release after a failed host start", () => {
+  it("is logged and named in the run.startFailed notice", async () => {
+    story("TASK-1", "Ready");
+    world.hostFails = true;
+    world.releaseFails = true;
+    const result = resultOf<RunResult>(await run());
+    expect(result.started).toEqual([]);
+    expect(world.warnings).toEqual([
+      "releasing the claim after a failed host start failed: git worktree remove failed: busy",
+    ]);
+    const notice = entries().find((e) => e.delta["code"] === LAUNCH_NOTICES.startFailed);
+    expect(String(notice?.delta["text"])).toContain(
+      "releasing its claim also failed (git worktree remove failed: busy)",
+    );
+  });
+});
+
 describe("work.preview, the dry run", () => {
   interface PreviewResult {
     refusals: { check: string; message: string }[];
@@ -565,7 +588,7 @@ describe("work.preview, the dry run", () => {
     expect(result.problem).toBeNull();
   });
 
-  it("names the refusing office checks and the failed pickup gate without storing anything", async () => {
+  it("names the failed pickup gate without storing anything", async () => {
     story("TASK-1", "Ready");
     world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     world.gate = {
@@ -576,7 +599,8 @@ describe("work.preview, the dry run", () => {
     const before = snapshot();
     const result = resultOf<PreviewResult>(await preview({ stories: ["TASK-1"] }));
     expect(snapshot()).toEqual(before);
-    expect(result.refusals.map((r) => r.check)).toEqual(["adapter"]);
+    // Named, the hold is a note (work.run repeats the checks); the failed gate still skips.
+    expect(result.refusals).toEqual([]);
     expect(result.story).toBeNull();
     expect(result.skipped).toEqual([
       {
@@ -586,6 +610,21 @@ describe("work.preview, the dry run", () => {
         detail: ["ready TASK-1 failed R15: unknown is open"],
       } as never,
     ]);
+  });
+
+  it("shows a hold as a note, not a refusal, when the story is named, as work.run repeats the checks", async () => {
+    story("TASK-1", "Ready");
+    world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    const named = resultOf<PreviewResult & { notes?: string[] }>(
+      await preview({ stories: ["TASK-1"] }),
+    );
+    expect(named.refusals).toEqual([]);
+    expect(named.notes?.[0]).toContain("The launch checks will be repeated for the named story.");
+    expect(named.notes?.[0]).toContain("`dipo run <ID>`");
+    expect(named.launch).not.toBeNull();
+    const unnamed = resultOf<PreviewResult & { notes?: string[] }>(await preview());
+    expect(unnamed.refusals.map((r) => r.check)).toEqual(["adapter"]);
+    expect(unnamed.notes).toBeUndefined();
   });
 
   it("reports a path the plan refuses as the problem", async () => {
