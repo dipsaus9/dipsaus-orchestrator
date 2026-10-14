@@ -3,13 +3,15 @@
 // result schemas, `since` or `provisional`, and for commands `confirm` and `irreversible`.
 // `features.ts` lists the modules, so a later story adds a command or read in its own directory
 // plus one line there, without editing `commands/` or `reads/`. Modules also add office load steps
-// and active-work checks here (DIPO-27), which `office/` runs without knowing the modules.
+// and active-work checks here (DIPO-27), which `office/` runs without knowing the modules, and
+// config-reload listeners (DIPO-48), which `office.reloadConfig` calls with the new configuration.
 
 import {
   checkVersioning,
   type Clock,
   type CommandDefinition,
   type IdSource,
+  type OfficeId,
   type Origin,
   type ReadDefinition,
   type RequestId,
@@ -17,6 +19,7 @@ import {
 import type { z } from "zod";
 
 import type { NewEntry } from "../changelog/log";
+import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type {
   ActiveWorkCheck,
@@ -62,6 +65,47 @@ export interface CommandOutcome<R> {
  * as events (0005 section 1). Throw `CommandError` for a command-specific error.
  */
 export type OfficeCommandHandler<A, R> = (ctx: CommandContext, args: A) => CommandOutcome<R>;
+
+/**
+ * What a waiting office-level handler gets (DIPO-48). Its story references resolve and its retry
+ * check runs in one transaction first; the handler then runs outside any transaction and writes
+ * each fact with its entries through `commit`, one immediate transaction per call.
+ */
+export interface AsyncCommandContext extends Omit<CommandContext, "emit"> {
+  /** Runs `fn` in one immediate transaction and appends the entries it returns. */
+  commit(fn: () => readonly NewEntry[] | void): void;
+}
+
+/**
+ * An office-level handler that waits on git, the Backlog CLI or a claim (`work.run`). The command's
+ * request record is written after it resolves; a handler that throws leaves no record, but the
+ * facts it committed before the throw stay, so each must be idempotent under a re-run of the
+ * handler (see `runAsyncOfficeCommand` in `execute.ts`).
+ */
+export type AsyncOfficeCommandHandler<A, R> = (
+  ctx: AsyncCommandContext,
+  args: A,
+) => Promise<CommandOutcome<R>>;
+
+export interface AsyncOfficeCommandRegistration<D extends CommandDefinition> {
+  readonly definition: D;
+  readonly handle: AsyncOfficeCommandHandler<z.output<D["args"]>, z.input<D["result"]>>;
+}
+
+/** What a config-reload listener gets after `office.reloadConfig` read a valid configuration. */
+export interface ConfigReloadContext {
+  readonly officeId: OfficeId;
+  readonly office: OfficeHandle;
+  readonly config: OfficeConfig;
+}
+
+export type ConfigReloadListener = (ctx: ConfigReloadContext) => void;
+
+export interface RegisteredConfigReload {
+  readonly module: string;
+  readonly name: string;
+  readonly listen: ConfigReloadListener;
+}
 
 /** Software-level handlers write no office facts, so they may wait (for git, for example). */
 export type SoftwareCommandHandler<A, R> = (
@@ -129,6 +173,12 @@ export interface FeatureRegistry {
   registerLoadStep(name: string, run: LoadStep): void;
   /** A check `office.forget` asks; any that reports work refuses with `office.busy`. */
   registerActiveWorkCheck(name: string, check: ActiveWorkCheck): void;
+  /** An office-level command whose handler waits; see `AsyncOfficeCommandHandler`. */
+  addAsyncOfficeCommand<D extends CommandDefinition>(
+    registration: AsyncOfficeCommandRegistration<D>,
+  ): void;
+  /** Called after `office.reloadConfig` read a valid configuration of a loaded office (DIPO-48). */
+  registerConfigReload(name: string, listen: ConfigReloadListener): void;
 }
 
 /** A feature module listed in `features.ts`. */
@@ -143,7 +193,15 @@ export type RegisteredCommand =
       readonly module: string;
       readonly level: "office";
       readonly definition: CommandDefinition;
+      readonly waits: false;
       readonly handle: OfficeCommandHandler<unknown, unknown>;
+    }
+  | {
+      readonly module: string;
+      readonly level: "office";
+      readonly definition: CommandDefinition;
+      readonly waits: true;
+      readonly handle: AsyncOfficeCommandHandler<unknown, unknown>;
     }
   | {
       readonly module: string;
@@ -169,7 +227,7 @@ export type RegisteredRead =
 /** A command or read name registered by two modules; startup fails naming both. */
 export class DuplicateRegistrationError extends Error {
   constructor(
-    readonly kind: "command" | "read" | "load step" | "active-work check",
+    readonly kind: "command" | "read" | "load step" | "active-work check" | "config reload",
     readonly registeredName: string,
     readonly modules: readonly [string, string],
   ) {
@@ -193,6 +251,12 @@ export class Registry {
   readonly #reads = new Map<string, RegisteredRead>();
   readonly #loadSteps = new Map<string, RegisteredLoadStep>();
   readonly #activeWorkChecks = new Map<string, RegisteredActiveWorkCheck>();
+  readonly #configReloads = new Map<string, RegisteredConfigReload>();
+
+  /** Config-reload listeners, in registration order. */
+  configReloads(): RegisteredConfigReload[] {
+    return [...this.#configReloads.values()];
+  }
 
   /** Office load steps, in registration order. */
   loadSteps(): RegisteredLoadStep[] {
@@ -256,7 +320,16 @@ export class Registry {
           module,
           level: "office",
           definition,
+          waits: false,
           handle: handle as OfficeCommandHandler<unknown, unknown>,
+        }),
+      addAsyncOfficeCommand: ({ definition, handle }) =>
+        addCommand({
+          module,
+          level: "office",
+          definition,
+          waits: true,
+          handle: handle as AsyncOfficeCommandHandler<unknown, unknown>,
         }),
       addSoftwareCommand: ({ definition, handle }) =>
         addCommand({
@@ -295,6 +368,13 @@ export class Registry {
           ]);
         }
         this.#activeWorkChecks.set(name, { module, name, check });
+      },
+      registerConfigReload: (name, listen) => {
+        const existing = this.#configReloads.get(name);
+        if (existing !== undefined) {
+          throw new DuplicateRegistrationError("config reload", name, [existing.module, module]);
+        }
+        this.#configReloads.set(name, { module, name, listen });
       },
     });
   }

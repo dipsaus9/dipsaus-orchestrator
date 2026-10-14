@@ -160,7 +160,7 @@ export const officeSnapshot = {
 
 const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> = {
   "work.run": {
-    args: { stories: ["DIPO-21", ids.storyKey], maxAgents: 1 },
+    args: { stories: ["DIPO-21", ids.storyKey], maxAgents: 1, from: "/work/app" },
     result: {
       started: [{ story: "DIPO-21", key: ids.storyKey, run: ids.run }],
       skipped: [{ story: "DIPO-31", key: ids.storyKey, reason: "dependency" }],

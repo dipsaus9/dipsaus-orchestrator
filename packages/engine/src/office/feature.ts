@@ -18,11 +18,11 @@ export function officeFeature(manager: OfficeManager): FeatureModule {
       });
       registry.addSoftwareCommand({
         definition: officeForget,
-        handle: (_ctx, args) => manager.forget(args.office, args.from),
+        handle: (_ctx, args) => manager.forget(args.office),
       });
       registry.addSoftwareCommand({
         definition: officeReloadConfig,
-        handle: (_ctx, args) => manager.reloadConfig(args.office, args.from),
+        handle: (_ctx, args) => manager.reloadConfig(args.office),
       });
     },
   };

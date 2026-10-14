@@ -6,11 +6,13 @@ import { describe, expect, it } from "bun:test";
 import { cpSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
 import type { FeatureModule } from "../../src/commands/registry";
+import { insertRun, WorkRun, type WorkRunDeps } from "../../src/run";
+import { insertClaim } from "../../src/worktree/records";
 import {
   BACKLOG_FIXTURE,
   errorOf,
@@ -144,6 +146,80 @@ describe("the from path", () => {
         symlinkSync(repo.dir, via);
         resultOf(await send(s, "office.reloadConfig", { office, from: via }));
         resultOf(await send(s, "office.forget", { office, from: repo.dir }));
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
+describe("office.forget and runs (DIPO-48)", () => {
+  it("fails with office.busy while a story run with a live claim is active", async () => {
+    await withTempRepo(
+      async (repo) => {
+        // Only the feature's registrations are used: the command and the active-run check.
+        const s = await officeSetup(repo.root, {
+          features: [new WorkRun({} as WorkRunDeps).feature],
+        });
+        const office = await openOffice(s, repo.dir);
+        const handle = s.state.office(office);
+        const runId = RunId.parse(s.ids.next("run"));
+        const key = StoryKey.parse(s.ids.next("sto"));
+        const worktree = join(repo.root, "trees", "TASK-1");
+        handle.immediate(() => {
+          insertClaim(handle, {
+            runId,
+            key,
+            story: "TASK-1",
+            branch: "TASK-1/a-story",
+            worktree,
+            base: "main",
+            baseSha: "b".repeat(40),
+            startSha: "a".repeat(40),
+            claimSha: "c".repeat(40),
+            reused: false,
+            snapshot: {
+              path: worktree,
+              adminDir: "/x",
+              commondir: "/x",
+              gitdir: "/x",
+              pointer: "/x",
+            },
+            firstFeedback: null,
+            claimedAt: 0,
+          });
+          insertRun(handle, {
+            runId,
+            kind: "story",
+            key,
+            story: "TASK-1",
+            tier: "S",
+            role: "developer",
+            model: "haiku",
+            startSha: "a".repeat(40),
+            branch: "TASK-1/a-story",
+            worktree,
+            slot: null,
+            budgetUnit: "tokens",
+            budgetLimit: 300_000,
+            loopCap: 3,
+            reviewRoundCap: null,
+            configHash: "hash",
+            overrideKeys: null,
+            runProfileId: null,
+            startedAt: 0,
+          });
+        });
+        const reply = await send(s, "office.forget", { office });
+        expect(errorOf(reply)).toBe("office.busy");
+        expect(!reply.ok && reply.error.details).toEqual({ office, check: "runs" });
+
+        // A released claim ends the run's activity.
+        handle.immediate(() =>
+          handle.run(
+            "update claims set released_at = 1, release_reason = 'done' where office_id = $office_id",
+          ),
+        );
+        resultOf(await send(s, "office.forget", { office }));
       },
       { fixture: BACKLOG_FIXTURE },
     );

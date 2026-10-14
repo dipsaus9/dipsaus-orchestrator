@@ -20,7 +20,12 @@ import {
 
 import { appendEntries, newLogState } from "../changelog/log";
 import { CommandError } from "../commands/errors";
-import { type OfficeAccess, type OfficeDirectory, officeUnknown } from "../commands/offices";
+import {
+  type OfficeAccess,
+  type OfficeDirectory,
+  type OfficePath,
+  officeUnknown,
+} from "../commands/offices";
 import type { CommandOutcome, Registry } from "../commands/registry";
 import { loadOfficeConfig, type OfficeConfig } from "../config";
 import type { StateDatabase } from "../db/database";
@@ -35,7 +40,6 @@ import {
   type GitRunner,
   isBacklogProject,
   networkFsType,
-  canonicalPath,
   type Repository,
   resolveRepository,
 } from "./repository";
@@ -135,6 +139,21 @@ export class OfficeManager implements OfficeDirectory {
   /** The configuration in force for `office`: the last valid one read, kept through invalid reloads. */
   config(office: OfficeId): OfficeConfig | undefined {
     return this.#instances.get(office)?.config?.config;
+  }
+
+  /** The hash of the configuration in force for `office` (0017), as `runs.config_hash` records it. */
+  configHash(office: OfficeId): string | undefined {
+    return this.#instances.get(office)?.config?.configHash;
+  }
+
+  /** The registered path of `office`, forgotten or not (see `OfficeDirectory.registeredPath`). */
+  registeredPath(office: OfficeId): OfficePath {
+    const db = this.#deps.database();
+    if (db === null) return { ok: false, error: recovering() };
+    const row = this.#row(db, office);
+    return row === null
+      ? { ok: false, error: officeUnknown(office) }
+      : { ok: true, path: row.path };
   }
 
   // Loading
@@ -274,40 +293,27 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
-   * `office.forget { office, from? }`: hides the office from the list and keeps every row. `from`
-   * is the main worktree a client resolved the office from; see `#checkFrom`.
+   * `office.forget { office, from? }`: hides the office from the list and keeps every row. The
+   * executor has already checked `from` against the registered path (DIPO-48).
    */
-  forget(office: OfficeId, from?: string): Promise<CommandOutcome<ForgetResult>> {
-    return this.#serialised(async () => this.#forget(office, from));
-  }
-
-  /** `office.reloadConfig { office, from? }` (0017 section 5). */
-  reloadConfig(office: OfficeId, from?: string): Promise<CommandOutcome<ReloadConfigResult>> {
-    return this.#serialised(() => this.#reloadConfig(office, from));
+  forget(office: OfficeId): Promise<CommandOutcome<ForgetResult>> {
+    return this.#serialised(async () => this.#forget(office));
   }
 
   /**
-   * A client that resolved the office from its current directory names the main worktree it found
-   * there. When that is not the office's registered path (canonical on both sides) the directory is
-   * not this office, for example an unopened copy that still carries the original's marker, so the
-   * command fails with `office.unknown` and acts on nothing.
+   * `office.reloadConfig { office, from? }` (0017 section 5). A valid configuration of a loaded
+   * office goes to every registered config-reload listener, for example the office's git (DIPO-48).
    */
-  #checkFrom(db: StateDatabase, officeId: OfficeId, from: string | undefined): OfficeRow {
+  reloadConfig(office: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {
+    return this.#serialised(() => this.#reloadConfig(office));
+  }
+
+  /** The office's row; `office.unknown` for an id that was never registered. */
+  #existing(db: StateDatabase, officeId: OfficeId): OfficeRow {
     const row = this.#row(db, officeId);
     if (row === null) {
       const error = officeUnknown(officeId);
       throw new CommandError(error.code, error.message, error.details);
-    }
-    if (from !== undefined && canonicalPath(from) !== canonicalPath(row.path)) {
-      throw new CommandError(
-        "office.unknown",
-        `${from} is not office ${officeId}, which is registered at ${row.path}.`,
-        {
-          office: officeId,
-          from,
-          reason: "path",
-        },
-      );
     }
     return row;
   }
@@ -505,10 +511,10 @@ export class OfficeManager implements OfficeDirectory {
     return { office, registered: false, changed: true };
   }
 
-  #forget(officeId: OfficeId, from: string | undefined): CommandOutcome<ForgetResult> {
+  #forget(officeId: OfficeId): CommandOutcome<ForgetResult> {
     const db = this.#deps.database();
     if (db === null) throw new CommandError(recovering().code, recovering().message);
-    const row = this.#checkFrom(db, officeId, from);
+    const row = this.#existing(db, officeId);
     // Target state: forgetting a forgotten office changes nothing (0005 section 9).
     if (row.forgotten_at !== null) {
       return { result: { office: officeId, path: row.path }, changed: false };
@@ -535,13 +541,10 @@ export class OfficeManager implements OfficeDirectory {
     return { result: { office: officeId, path: row.path }, changed: true };
   }
 
-  async #reloadConfig(
-    officeId: OfficeId,
-    from: string | undefined,
-  ): Promise<CommandOutcome<ReloadConfigResult>> {
+  async #reloadConfig(officeId: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {
     const db = this.#deps.database();
     if (db === null) throw new CommandError(recovering().code, recovering().message);
-    this.#checkFrom(db, officeId, from);
+    this.#existing(db, officeId);
     const wasLoaded = this.#instances.has(officeId);
     const access = await this.load(officeId);
     if (!access.ok)
@@ -553,6 +556,12 @@ export class OfficeManager implements OfficeDirectory {
     }
     // A load just read the configuration; only an office loaded before reads it again.
     const changed = wasLoaded ? await this.#readConfig(instance) : false;
+    if (wasLoaded && instance.config !== null && instance.configErrors.length === 0) {
+      const config = instance.config.config;
+      for (const { listen } of this.#deps.registry().configReloads()) {
+        listen({ officeId, office: instance.office, config });
+      }
+    }
     return {
       result: {
         office: officeId,

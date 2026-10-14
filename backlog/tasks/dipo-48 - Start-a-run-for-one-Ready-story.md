@@ -1,10 +1,10 @@
 ---
 id: DIPO-48
 title: Pick and claim one Ready story with work.run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-13 18:36'
+updated_date: '2026-10-14 08:38'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -29,6 +29,12 @@ references:
   - packages/engine/src/git/
   - packages/engine/test/git/
   - packages/engine/test/office/
+  - packages/daemon/src/
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/gate/store/
+  - packages/engine/src/retention/
+  - packages/engine/src/index.ts
+  - docs/decisions/0005-command-and-event-model.md
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -71,19 +77,19 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Migrations add `runs` (with `kind` `story` or `session` and a nullable `key`), `run_steps` and `config_snapshots`; a `session` run has no key, worktree or branch, and its usage is recorded under the office.
-- [ ] #2 Without `stories`, the engine indexes stories (DIPO-32), then picks the first Ready story on `origin/<base>` by priority and ordinal whose dependencies are all Done; with `stories`, only those; `maxAgents` above 1 fails with `args.invalid`.
-- [ ] #3 Each story not started is a skip with a `SkipReason`: `notReady`, `dependency`, `notRunnable` (including `pendingLaneOp` and `backlogCheckBlocked`), `collision`, `capacity` or `pickupCheckFailed`.
-- [ ] #4 The run is refused with the predicate's message when `verifyResolved`, `officeStatusesReady`, `configBlocksRuns` or `adapterHeld` refuses, and with the retryable `scheduling.off` in `safe`.
-- [ ] #5 A failed pickup re-check, stored through DIPO-71, moves the story to Refined through the backlog lane and emits `story.state` with the gate messages in `detail`.
-- [ ] #6 Before the claim, `assembleContract` (DIPO-47) runs; `prompt.contractTooLarge` moves the story to Refined like a failed pickup re-check, with the assembly error in `detail`.
-- [ ] #7 The engine registers its active-run check, so `office.forget` (DIPO-27) fails with `office.busy` while a run is active.
-- [ ] #8 A claimed run records kind `story`, tier, role `developer`, model, start SHA, branch, worktree, budget unit and limit, loop cap, `config_hash` and run profile id.
-- [ ] #9 The engine emits `work.assigned` and `work.phase setup`, and keeps one active run per office.
-- [ ] #10 `dipo run [ID]` prints started and skipped stories with reasons.
-- [ ] #11 `work.run` resolved from the current directory carries the CLI's main worktree as an optional `from` argument (an additive minor contract change, `CONTRACT_VERSION.minor` bumped only when no unreleased bump exists yet), and the daemon refuses with `office.unknown` when it differs from the office's registered path, as DIPO-27 does for `office.forget` and `office.reloadConfig`; the check moves into shared office resolution in `commands/execute.ts` so every later cwd-resolved command gets it. A test covers an unopened copy.
-- [ ] #12 `office.reloadConfig` passes the new git settings to `OfficeGit.configure()` (DIPO-31 reads them only at office load); a test changes `base` and the worktree root through a reload.
-- [ ] #13 `git.fetchFailed` (DIPO-31) is added to the contract's `RETRYABLE_ERROR_CODES` (0005 amendment of 2026-10-13; additive minor, `CONTRACT_VERSION.minor` bumped only when no unreleased bump exists yet), `work.run` fails with it as a retryable command error, and the test 'marks only engine.recovering, scheduling.off and run.hostAlive retryable' in packages/contract/src/index.test.ts gets the new code in its title and expected list.
+- [x] #1 Migrations add `runs` (with `kind` `story` or `session` and a nullable `key`), `run_steps` and `config_snapshots`; a `session` run has no key, worktree or branch, and its usage is recorded under the office.
+- [x] #2 Without `stories`, the engine indexes stories (DIPO-32), then picks the first Ready story on `origin/<base>` by priority and ordinal whose dependencies are all Done; with `stories`, only those; `maxAgents` above 1 fails with `args.invalid`.
+- [x] #3 Each story not started is a skip with a `SkipReason`: `notReady`, `dependency`, `notRunnable` (including `pendingLaneOp` and `backlogCheckBlocked`), `collision`, `capacity` or `pickupCheckFailed`.
+- [x] #4 The run is refused with the predicate's message when `verifyResolved`, `officeStatusesReady`, `configBlocksRuns` or `adapterHeld` refuses, and with the retryable `scheduling.off` in `safe`.
+- [x] #5 A failed pickup re-check, stored through DIPO-71, moves the story to Refined through the backlog lane and emits `story.state` with the gate messages in `detail`.
+- [x] #6 Before the claim, `assembleContract` (DIPO-47) runs; `prompt.contractTooLarge` moves the story to Refined like a failed pickup re-check, with the assembly error in `detail`.
+- [x] #7 The engine registers its active-run check, so `office.forget` (DIPO-27) fails with `office.busy` while a run is active.
+- [x] #8 A claimed run records kind `story`, tier, role `developer`, model, start SHA, branch, worktree, budget unit and limit, loop cap, `config_hash` and run profile id.
+- [x] #9 The engine emits `work.assigned` and `work.phase setup`, and keeps one active run per office.
+- [x] #10 `dipo run [ID]` prints started and skipped stories with reasons.
+- [x] #11 `work.run` resolved from the current directory carries the CLI's main worktree as an optional `from` argument (an additive minor contract change, `CONTRACT_VERSION.minor` bumped only when no unreleased bump exists yet), and the daemon refuses with `office.unknown` when it differs from the office's registered path, as DIPO-27 does for `office.forget` and `office.reloadConfig`; the check moves into shared office resolution in `commands/execute.ts` so every later cwd-resolved command gets it. A test covers an unopened copy.
+- [x] #12 `office.reloadConfig` passes the new git settings to `OfficeGit.configure()` (DIPO-31 reads them only at office load); a test changes `base` and the worktree root through a reload.
+- [x] #13 `git.fetchFailed` (DIPO-31) is added to the contract's `RETRYABLE_ERROR_CODES` (0005 amendment of 2026-10-13; additive minor, `CONTRACT_VERSION.minor` bumped only when no unreleased bump exists yet), `work.run` fails with it as a retryable command error, and the test 'marks only engine.recovering, scheduling.off and run.hostAlive retryable' in packages/contract/src/index.test.ts gets the new code in its title and expected list.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -92,4 +98,8 @@ test_plan:
 M0 breakdown draft number S32 (DIPO-15). Before cutover: built by hand-run agents.
 
 Follow-up from DIPO-36 (2026-10-13): work.run must call officeStatusesReady(office) (packages/engine/src/office/init/) and refuse with its message while the base lacks the 0012 statuses (DIPO-36 AC #10).
+
+DIPO-48 implementation (2026-10-14): work.run is an async office command (new registry seam addAsyncOfficeCommand: retry check and story refs in one transaction, handler outside it, request record after). Engine module packages/engine/src/run/ (WorkRun, cliRunBase, run records, pickup order). Refusals: config.invalid (configBlocksRuns), run.refused with details.check adapter|statuses|verify (adapterHeld, officeStatusesReady, verifyResolved), retryable git.fetchFailed, args.invalid for maxAgents > 1; scheduling.off in safe stays the daemon's lifecycle gate. The pickup re-check calls GateStore.recordGateDecision in pickup mode inside the claim's git queue item (new optional checkout argument). A failed re-check or prompt.contractTooLarge journals an edit to Refined on the backlog lane, flushes it, and emits story.state with detail. A story the claim cannot be asked for (no view, unparsable block, no frozen branch, no tier) goes through the pickup gate on its own. Active run = not ended and its claim live (or a session run). The from check moved from OfficeManager into commands/execute.ts (OfficeDirectory.registeredPath). office.reloadConfig calls config-reload listeners (registerConfigReload); EngineGit configures the office git. Migration 18 adds runs, run_steps, config_snapshots with retention lines. CLI: dipo run [ID...] [--office]. Deferred to DIPO-74: setup, launch checks (which lift adapter holds), worker start. Open point: run.refused is a new error code not yet named in 0005.
+
+Live test 2026-10-14 on dipsaus9/dipo-scratch-backlog (build 78f4bd7): dipo run started TASK-1, pushed its claim commit and created the locked worktree; a second run skipped it as not runnable (exit 1); office forget answered office.busy while the claim was live.
 <!-- SECTION:NOTES:END -->

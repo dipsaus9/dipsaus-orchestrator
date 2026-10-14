@@ -34,6 +34,9 @@ export const RETRYABLE_ERROR_CODES = [
   "engine.recovering",
   "scheduling.off",
   "run.hostAlive",
+  // Since minor 1 (DIPO-48; 0005 amendment of 2026-10-13): fetching the base failed, for example
+  // offline; `work.run` waits until a fetch succeeds.
+  "git.fetchFailed",
 ] as const;
 
 // Specific codes of the software-level commands (0005 section 4). Since minor 1 (DIPO-27):
@@ -53,8 +56,9 @@ export const SOFTWARE_ERROR_CODES = [
 // Specific codes of office-level commands and reads. Since minor 1 (DIPO-71): `config.invalid`
 // when the office has no valid configuration, so the command or read cannot run, and
 // `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the office's
-// base branch.
-export const OFFICE_ERROR_CODES = ["config.invalid", "backlog.unreadable"] as const;
+// base branch. Since minor 1 (DIPO-48): `run.refused` when an office check refuses `work.run`;
+// `details.check` names it (`adapter`, `statuses` or `verify`).
+export const OFFICE_ERROR_CODES = ["config.invalid", "backlog.unreadable", "run.refused"] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];
 export type RetryableErrorCode = (typeof RETRYABLE_ERROR_CODES)[number];

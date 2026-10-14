@@ -203,15 +203,19 @@ describe("errors", () => {
       ].toSorted(),
     );
     expect(([...RETRYABLE_ERROR_CODES] as string[]).toSorted()).toEqual(
-      ["engine.recovering", "run.hostAlive", "scheduling.off"].toSorted(),
+      ["engine.recovering", "run.hostAlive", "scheduling.off", "git.fetchFailed"].toSorted(),
     );
   });
 
-  it("exports the office-level codes of minor 1 (DIPO-71)", () => {
-    expect([...OFFICE_ERROR_CODES]).toEqual(["config.invalid", "backlog.unreadable"]);
+  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48)", () => {
+    expect([...OFFICE_ERROR_CODES]).toEqual([
+      "config.invalid",
+      "backlog.unreadable",
+      "run.refused",
+    ]);
   });
 
-  it("marks only engine.recovering, scheduling.off and run.hostAlive retryable", () => {
+  it("marks only engine.recovering, scheduling.off, run.hostAlive and git.fetchFailed retryable", () => {
     const retryable = [
       ...GENERIC_ERROR_CODES,
       ...RETRYABLE_ERROR_CODES,
@@ -221,7 +225,12 @@ describe("errors", () => {
     ]
       .filter((code) => engineError(code, "m").retryable)
       .toSorted();
-    expect(retryable).toEqual(["engine.recovering", "run.hostAlive", "scheduling.off"]);
+    expect(retryable).toEqual([
+      "engine.recovering",
+      "git.fetchFailed",
+      "run.hostAlive",
+      "scheduling.off",
+    ]);
     expect(isRetryableErrorCode("internal")).toBe(false);
   });
 

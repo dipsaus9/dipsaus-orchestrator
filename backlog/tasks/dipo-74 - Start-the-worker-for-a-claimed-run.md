@@ -80,5 +80,7 @@ Split from DIPO-48 in the M0 review (DIPO-15). Before cutover: built by hand-run
 
 Follow-up from DIPO-39 (2026-10-13): the daemon builds StoryClaims without the SlotTable (packages/daemon/src/foreground.ts); pass slots: SlotTable.inState(stateDir) as StoryTeardown does, so a claim's setup takes and frees its slot in the real daemon.
 
+Follow-up from DIPO-48 (2026-10-14): releasing a claim (teardown, rollback, work.stop or work.discard), or ending a run in any other way, must set runs.ended_at and runs.end_kind for its run. Retention removes runs and run_steps only once ended_at is set (packages/engine/src/retention/run.ts), and config_snapshots only once no kept run names them. Until then, activeRuns treats a story run whose claim is released as inactive, but its rows are kept forever.
+
 Added 2026-10-14 by the maintainer: a dry-run preview of the worker call, so the instructions Claude gets can be checked without a live session, and branch and worktree creation tested on its own. The dry-run option on work.run is a contract addition and needs a 0005 amendment approved by the maintainer when this story is built.
 <!-- SECTION:NOTES:END -->

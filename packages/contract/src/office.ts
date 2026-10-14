@@ -56,10 +56,13 @@ const RunResult = z.object({ run: RunId });
 export const workRun = defineCommand({
   name: "work.run",
   level: "office",
-  // Omit `stories` and the engine picks from the Ready queue.
+  // Omit `stories` and the engine picks from the Ready queue. Since minor 1 (DIPO-48): `from` is
+  // the main worktree a client resolved the office from (its current directory); the daemon
+  // answers `office.unknown` when it is not the office's registered path.
   args: z.object({
     stories: z.array(StoryRefValue).optional(),
     maxAgents: z.int().positive().optional(),
+    from: z.string().min(1).optional(),
   }),
   // Per-story problems are skips, not command errors.
   result: z.object({

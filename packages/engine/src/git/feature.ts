@@ -1,5 +1,6 @@
 // The engine's git (0010, 0008 section 2): one `OfficeGit` per loaded office, and the office load
 // step that checks `git --version` once per load (DIPO-27 seam) and records the office's paths.
+// `office.reloadConfig` passes a new valid configuration on through `configure` (DIPO-48).
 // Claims, the backlog lane and the story index reach an office's git through `forOffice`.
 
 import type { Clock, OfficeId, Spawn } from "@dipsaus-orchestrator/contract";
@@ -95,6 +96,11 @@ export class EngineGit {
         registry.registerLoadStep("git.version", async (ctx) => {
           const reason = await this.attach(ctx);
           return reason === null ? { ok: true } : { ok: false, reason };
+        });
+        // `office.reloadConfig` (DIPO-48): the office's git takes the new base, remote and
+        // worktree root at once, not only at the next load.
+        registry.registerConfigReload("git.settings", (ctx) => {
+          this.#offices.get(ctx.officeId)?.configure(gitSettings(ctx.config));
         });
       },
     };
