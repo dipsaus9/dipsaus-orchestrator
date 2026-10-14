@@ -22,6 +22,11 @@
 // Every op is stored as a pending intent before it is sent (`intents.ts`), and when the worker
 // exits the intent that explains the exit is resolved with its outcome. After the first decision
 // on a run nothing else is decided for it: later events of the same or a later pass are ignored.
+//
+// Worker outcomes (DIPO-51, `outcomes.ts`): a rejected init, a plan limit, a classifier switch
+// and a turn's problem (no valid report, a full context, an execution error, a start failure) are
+// handed to the run's outcomes, and so is the worker's exit once the turns before it are done.
+// Run control is their `RunEnder`: it records the intent, sends the ops and parks.
 
 import {
   type Clock,
@@ -39,9 +44,16 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import type { IngestHooks } from "../ingest/ingestor";
+import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { withWorkViews, workRefOf } from "../views/work";
-import type { Caps, HostOp, SteerOp, WorkerEvent, WorkerReport } from "../workers/types";
+import type {
+  Caps,
+  HostOp,
+  SteerOp,
+  TurnProblem,
+  WorkerEvent,
+  WorkerReport,
+} from "../workers/types";
 
 import type { BackstopSnapshot } from "./backstop";
 
@@ -55,6 +67,13 @@ import {
 } from "./intents";
 import { type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { activeRuns, endRun, findRun, type StoredRun } from "./records";
+import {
+  initRejectedEnding,
+  type RunAct,
+  type RunEnder,
+  type RunOutcomesPort,
+  type RunView,
+} from "./outcomes";
 import type { RunFinisher } from "./verify-commit";
 
 /** The error of `work.stop` for a story with no active run (0005 section 4). */
@@ -111,6 +130,11 @@ export interface RunControlDeps {
    * a `done` report. Without it a turn decides nothing beyond caps and blocked reports.
    */
   readonly finisher?: RunFinisher;
+  /**
+   * Worker outcomes (DIPO-51): turn problems, rejected inits, plan limits, classifier switches and
+   * the decision at the worker's exit. Read when needed, so it can be built after run control.
+   */
+  readonly outcomes?: () => RunOutcomesPort | undefined;
 }
 
 /** What a started run is tracked with. */
@@ -136,15 +160,25 @@ interface Tracked extends TrackedRun {
 }
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */
-interface Ending {
+export interface RunEnding {
   readonly intent: IntentKind;
+  /** The intent's detail; the park detail by default (DIPO-51 stores its tag here). */
+  readonly intentDetail?: string;
   readonly ops: readonly HostOp[];
   readonly reason: ParkReason;
   readonly detail: string;
   readonly endKind: string;
   /** The report that led to the end, when a turn decided it. */
   readonly report?: WorkerReport | null;
+  /** An `engine.notice` written before the park (DIPO-51). */
+  readonly notice?: {
+    readonly level: "info" | "warn" | "error";
+    readonly code: string;
+    readonly text: string;
+  };
 }
+
+type Ending = RunEnding;
 
 type StopArgs = { readonly story: string; readonly note?: string | undefined };
 type StopResult = { run: RunId };
@@ -168,7 +202,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export class RunControl {
+export class RunControl implements RunEnder {
   readonly #deps: RunControlDeps;
   readonly #tracked = new Map<string, Tracked>();
   readonly #inflight = new Set<Promise<unknown>>();
@@ -184,7 +218,8 @@ export class RunControl {
     return {
       onEventApplied: (run, _agent, event) => this.onEventApplied(run, event),
       onWorkerEvents: (run, _agent, events) => this.onWorkerEvents(run, events),
-      onEnded: (run) => this.onEnded(run),
+      onInitRejected: (run, _agent, reason) => this.#initRejected(run, reason),
+      onEnded: (run, agent, end) => this.onEnded(run, agent, end),
     };
   }
 
@@ -242,7 +277,26 @@ export class RunControl {
   onWorkerEvents(run: string, events: readonly WorkerEvent[]): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined || tracked.ending !== null) return;
+    const outcomes = this.#deps.outcomes?.();
     for (const event of events) {
+      if (tracked.ending !== null) return;
+      if (event.t === "initRejected") {
+        // 0008 section 2: stop the worker before it does anything (DIPO-51).
+        this.#initRejected(run, event.reason);
+        return;
+      }
+      if (
+        event.t === "limit" &&
+        outcomes !== undefined &&
+        (event.status === "rejected" || event.creditsRequired === true)
+      ) {
+        outcomes.onPlanLimit(this.#view(tracked), {
+          credits: event.creditsRequired === true,
+          ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
+        });
+        return;
+      }
+      if (event.t === "modelSwitched") outcomes?.onModelSwitched(this.#view(tracked), event.to);
       if (event.t === "turn") {
         if (event.capped !== undefined) {
           this.#cap(tracked, "maxTurns", event.capped);
@@ -250,6 +304,12 @@ export class RunControl {
         }
         const report = event.report;
         if (report !== null) tracked.lastReport = report;
+        // A turn after the report feedback answers it (DIPO-51).
+        outcomes?.answered(this.#view(tracked));
+        if (event.problem?.kind === "planLimit" && outcomes !== undefined) {
+          outcomes.onPlanLimit(this.#view(tracked), { credits: false });
+          return;
+        }
         if (report?.status === "blocked") {
           const permission = report.needsPermission;
           const reason: ParkReason =
@@ -267,8 +327,12 @@ export class RunControl {
           });
           return;
         }
-        // The backstop, and verify and commit at `done` (DIPO-49), after the pass, in turn order.
-        if (this.#deps.finisher !== undefined) this.#afterTurn(tracked, report);
+        // The backstop, and verify and commit at `done` (DIPO-49), after the pass, in turn order;
+        // then the turn's problem, if any (DIPO-51).
+        const problem = outcomes === undefined ? undefined : event.problem;
+        if (this.#deps.finisher !== undefined || problem !== undefined) {
+          this.#afterTurn(tracked, report, problem);
+        }
       }
       // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
       const fired = this.#crossings.get(event);
@@ -279,14 +343,38 @@ export class RunControl {
     }
   }
 
-  /** The worker's exit was ingested: the intent that explains it is resolved, the tick stops. */
-  onEnded(run: string): void {
+  /**
+   * The worker's exit was ingested: the tick stops, and once the turns before the exit are
+   * handled the run's outcomes decide what follows (DIPO-51). Without outcomes the intent that
+   * explains the exit is resolved here.
+   */
+  onEnded(run: string, agent?: string, end?: IngestedExit): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
     this.#disarm(tracked);
     this.#tracked.delete(run);
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return;
+    const outcomes = this.#deps.outcomes?.();
+    if (outcomes !== undefined && agent !== undefined && end !== undefined) {
+      const job = outcomes
+        .onExit({
+          view: this.#view(tracked),
+          agent,
+          turns: tracked.turns,
+          ending: tracked.ending,
+          end,
+        })
+        .catch((error: unknown) => {
+          this.#deps.warn?.("deciding a worker's exit failed", {
+            run,
+            reason: messageOf(error),
+          });
+        });
+      this.#inflight.add(job);
+      void job.finally(() => this.#inflight.delete(job));
+      return;
+    }
     const at = this.#deps.clock.now();
     office.immediate(() => {
       const explained = outcomeOfIntent(office, tracked.runId);
@@ -294,6 +382,84 @@ export class RunControl {
         resolveIntent(office, tracked.runId, explained.intent.intentId, explained.outcome, at);
       }
     });
+  }
+
+  // ---- the run ender of worker outcomes (DIPO-51) ------------------------------------------------
+
+  /** True while the run is tracked and nothing was decided for it yet. */
+  live(runId: string): boolean {
+    const tracked = this.#tracked.get(runId);
+    return tracked !== undefined && tracked.ending === null;
+  }
+
+  /** The first decision on a tracked run, parking it; false when one was decided already. */
+  begin(runId: string, ending: RunEnding): boolean {
+    const tracked = this.#tracked.get(runId);
+    if (tracked === undefined || tracked.ending !== null) return false;
+    this.#begin(tracked, ending);
+    return tracked.ending !== null;
+  }
+
+  /**
+   * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
+   * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
+   * worker's exit is decided from the intent. False when a decision was made already.
+   */
+  act(runId: string, act: RunAct): boolean {
+    const tracked = this.#tracked.get(runId);
+    if (tracked === undefined || tracked.ending !== null) return false;
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return false;
+    this.#disarm(tracked);
+    const intentId = office.immediate(() =>
+      recordIntent(office, tracked.runId, act.intent, act.detail, this.#deps.clock.now()),
+    );
+    const done = (async (): Promise<null> => {
+      let error: string | null = null;
+      if (act.ops.length > 0) {
+        try {
+          const sent = await this.#deps.steering.send(office, tracked.runId, act.ops);
+          if (!sent.ok) error = sent.reason;
+        } catch (thrown) {
+          error = messageOf(thrown);
+        }
+      }
+      const at = this.#deps.clock.now();
+      office.immediate(() => markIntentSent(office, tracked.runId, intentId, at, error));
+      return null;
+    })();
+    tracked.ending = done;
+    this.#inflight.add(done);
+    void done.finally(() => this.#inflight.delete(done));
+    return true;
+  }
+
+  /** Parks a run whose worker exited (a decision at the exit, DIPO-51). */
+  park(
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef | undefined,
+    ending: RunEnding,
+  ): Promise<ParkOutcome> {
+    return this.#end(office, run, work, ending, this.#writer(office, office.officeId));
+  }
+
+  #view(tracked: Tracked): RunView {
+    return {
+      office: tracked.office,
+      runId: tracked.runId,
+      work: tracked.work,
+      caps: tracked.caps,
+      startedAt: tracked.startedAt,
+      snapshot: tracked.snapshot ?? null,
+    };
+  }
+
+  /** A `system/init` that failed its checks: stop the worker and park `worker-failed`. */
+  #initRejected(run: string, reason: string): void {
+    const tracked = this.#tracked.get(run);
+    if (tracked === undefined || tracked.ending !== null) return;
+    this.#begin(tracked, initRejectedEnding(tracked.work.story, reason));
   }
 
   /** `work.stop`: see the file comment. */
@@ -570,9 +736,26 @@ export class RunControl {
     const write = (fn: () => readonly NewEntry[]): void =>
       commit(() => withWorkViews(office, fn()));
     const intentId = office.immediate(() =>
-      recordIntent(office, run.runId, ending.intent, ending.detail, this.#deps.clock.now()),
+      recordIntent(
+        office,
+        run.runId,
+        ending.intent,
+        ending.intentDetail ?? ending.detail,
+        this.#deps.clock.now(),
+      ),
     );
     return (async () => {
+      const notice = ending.notice;
+      if (notice !== undefined) {
+        write(() => [
+          {
+            type: "engine.notice",
+            ...(run.key === null ? {} : { key: run.key }),
+            run: run.runId,
+            delta: notice,
+          },
+        ]);
+      }
       let error: string | null = null;
       if (ending.ops.length > 0) {
         try {
@@ -633,9 +816,9 @@ export class RunControl {
   // ---- after every turn (DIPO-49) --------------------------------------------------------------
 
   /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
-  #afterTurn(tracked: Tracked, report: WorkerReport | null): void {
+  #afterTurn(tracked: Tracked, report: WorkerReport | null, problem?: TurnProblem): void {
     const job = tracked.turns
-      .then(() => this.#runTurn(tracked, report))
+      .then(() => this.#runTurn(tracked, report, problem))
       .catch((error: unknown) => {
         this.#deps.warn?.("verify and commit after a turn failed", {
           run: tracked.runId,
@@ -647,13 +830,32 @@ export class RunControl {
     void job.finally(() => this.#inflight.delete(job));
   }
 
-  async #runTurn(tracked: Tracked, report: WorkerReport | null): Promise<void> {
+  async #runTurn(
+    tracked: Tracked,
+    report: WorkerReport | null,
+    problem?: TurnProblem,
+  ): Promise<void> {
+    if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
-    if (finisher === undefined || tracked.ending !== null) return;
+    const decided =
+      finisher === undefined ? "continue" : await this.#finishTurn(tracked, finisher, report);
+    // A turn the finisher let continue: its problem decides next (DIPO-51).
+    const outcomes = this.#deps.outcomes?.();
+    if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
+      if (tracked.ending === null) await outcomes.onTurnProblem(this.#view(tracked), problem);
+    }
+  }
+
+  /** Verify and commit after one turn (DIPO-49); `continue` when the turn decided nothing. */
+  async #finishTurn(
+    tracked: Tracked,
+    finisher: RunFinisher,
+    report: WorkerReport | null,
+  ): Promise<"continue" | "decided"> {
     const office = this.#deps.offices.get(tracked.office);
-    if (office === undefined) return;
+    if (office === undefined) return "decided";
     const run = findRun(office, tracked.runId);
-    if (run === null || run.endedAt !== null) return;
+    if (run === null || run.endedAt !== null) return "decided";
     const { promise: mine, resolve: settle } = Promise.withResolvers<ParkOutcome | null>();
     const claim = (): boolean => {
       if (tracked.ending !== null) return tracked.ending === mine;
@@ -676,9 +878,9 @@ export class RunControl {
       });
       switch (decision.kind) {
         case "continue":
-          return;
+          return "continue";
         case "park": {
-          if (!claim()) return;
+          if (!claim()) return "decided";
           const outcome = await this.#end(
             office,
             run,
@@ -694,12 +896,12 @@ export class RunControl {
             write,
           );
           settle(outcome);
-          return;
+          return "decided";
         }
         case "feedback":
-          if (tracked.ending !== null) return;
+          if (tracked.ending !== null) return "decided";
           await this.#sendFeedback(office, run, decision.text, write);
-          return;
+          return "decided";
         case "ended":
           // The In Review commit is read again at the branch tip (DIPO-56).
           await this.#refresh(office, run, "In Review");
@@ -707,7 +909,7 @@ export class RunControl {
           await this.#deps.steering.send(office, run.runId, [{ closeStdin: true }]).catch(() => {
             // A worker that already exited needs nothing more.
           });
-          return;
+          return "decided";
       }
     } finally {
       settle(null);

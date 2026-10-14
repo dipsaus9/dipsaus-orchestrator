@@ -511,8 +511,8 @@ export class WorkRun {
       // The engine-made session id is stored on the run's agent (0007 section 4, `agents`).
       handle.run(
         `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
-           started_at)
-         values ($office_id, $agent, $run, $role, $model, $effort, $session, $at)`,
+           system_hash, started_at)
+         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
         {
           agent,
           run: runId,
@@ -520,6 +520,8 @@ export class WorkRun {
           model: caps.model,
           effort: prepared === null ? null : caps.effort,
           session,
+          // The L1+L2 hash a resume compares (DIPO-51).
+          hash: prepared?.systemHash ?? null,
           at,
         },
       );

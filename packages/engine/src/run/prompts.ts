@@ -15,6 +15,7 @@ import { gatherContext } from "../context/gather";
 import { sizeClassOfWorkspace } from "../context/size";
 import type { Workspace } from "../context/types";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
+import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
 import { renderSystemFile } from "../prompts/system";
 
@@ -33,6 +34,8 @@ export interface RunPromptsInput {
   /** The commit the story branch starts from. */
   readonly baseSha: string;
   readonly config: Pick<OfficeConfig, "prompt">;
+  /** The handoff of a new session for a story with earlier work (0014 section 6, DIPO-51). */
+  readonly handoff?: HandoffFacts;
 }
 
 export interface RunPrompts {
@@ -42,7 +45,10 @@ export interface RunPrompts {
   readonly taskMessage: string;
 }
 
-/** Renders the system file and the task message of a run's first session. */
+/**
+ * Renders the system file and the task message of a run's first session, or of a later new
+ * session with its handoff block (DIPO-51).
+ */
 export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPrompts> {
   const { workspace, config } = input;
   const story = promptStoryOf(input.view, {
@@ -74,6 +80,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     pack,
     budgets: taskBudgetsFor(budgets, size),
     contractMax: config.prompt.contractMax,
+    ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
   });
   return { systemFile: renderSystemFile("implement", "developer"), taskMessage: task.text };
 }

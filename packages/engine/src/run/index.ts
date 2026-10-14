@@ -17,7 +17,10 @@ export {
   planRefusedText,
   PREVIEW_RUN,
   RunLauncher,
+  runLaunchPaths,
+  runWorkerSpec,
   START_FAILED_END,
+  systemHashOf,
 } from "./launch";
 export type {
   HostStarter,
@@ -68,7 +71,13 @@ export {
   STOPPED_DETAIL,
   STORY_NOT_RUNNING,
 } from "./control";
-export type { ReconcileNotice, RunControlDeps, RunSteering, TrackedRun } from "./control";
+export type {
+  ReconcileNotice,
+  RunControlDeps,
+  RunEnding,
+  RunSteering,
+  TrackedRun,
+} from "./control";
 export { firedCap, runTotals } from "./caps";
 export type { CapName, FiredCap, RunTotals } from "./caps";
 export {
@@ -142,3 +151,33 @@ export type {
   StoredVerifyResult,
   VerifyProfile,
 } from "./verify-records";
+// Worker outcomes and the run's next session (DIPO-51).
+export {
+  INIT_REJECTED_SIGKILL_AFTER_MS,
+  initRejectedEnding,
+  INTENT_TAGS,
+  intentTag,
+  openWait,
+  OUTCOME_ENDS,
+  OUTCOME_NOTICES,
+  REASSIGN_SIGTERM_AFTER_MS,
+  reportFeedbackText,
+  RunOutcomes,
+} from "./outcomes";
+export type {
+  ExitContext,
+  RunAct,
+  RunEnder,
+  RunOutcomesDeps,
+  RunOutcomesPort,
+  RunView,
+  WaitFact,
+} from "./outcomes";
+export { RESUME_NOTICES, RESUME_POLICY, RunResumer } from "./resume";
+export type {
+  NextSession,
+  NextSessionOutcome,
+  NextSessionRequest,
+  RunResumerDeps,
+  RunStoryFacts,
+} from "./resume";

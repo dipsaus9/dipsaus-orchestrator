@@ -4,7 +4,17 @@
 
 import type { OfficeConfig } from "../config";
 import type { AdapterHold } from "./hold";
-import type { HostOp, LaunchPlan, ParseState, SteerOp, WorkerAdapter, WorkerSpec } from "./types";
+import type {
+  ExitRecord,
+  HostOp,
+  LaunchPlan,
+  ParseState,
+  SteerOp,
+  WorkerAdapter,
+  WorkerReport,
+  WorkerResult,
+  WorkerSpec,
+} from "./types";
 
 /** Where one run lives; every path is absolute. */
 export interface RunLaunchPaths {
@@ -49,4 +59,18 @@ export interface WorkerPort {
   initialState(spec: WorkerSpec, previous?: ParseState): ParseState;
   /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
   encode(op: SteerOp): HostOp[];
+  /** Pure: the run's result from a session's parser state and exit (the adapter's `result`). */
+  result(state: ParseState, exit: ExitRecord): WorkerResult;
+  /** Pure: what a session's parser state says for a resume or a handoff (DIPO-51). */
+  sessionFacts(state: ParseState): SessionFacts;
+}
+
+/** What a session's parser state says for its next session (DIPO-51). */
+export interface SessionFacts {
+  /** Context tokens of the last request; null when unknown. */
+  readonly contextTokens: number | null;
+  /** The model's context window; null when unknown. */
+  readonly contextWindow: number | null;
+  /** The last valid report of the session; null when there is none. */
+  readonly lastReport: WorkerReport | null;
 }

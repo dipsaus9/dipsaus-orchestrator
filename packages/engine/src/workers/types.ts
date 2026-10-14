@@ -231,6 +231,8 @@ export interface WorkerResult {
    * new session with a handoff, `report-feedback` sends one turn asking for a valid report.
    */
   readonly retry?: WorkerRetry;
+  /** What failed, for a start failure that proposes no park (DIPO-51). */
+  readonly detail?: string;
 }
 
 /** A recovery step the engine tries once before the proposed park (0008 section 7). */

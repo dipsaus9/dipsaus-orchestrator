@@ -44,9 +44,18 @@ import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/run
 import type { StepResult } from "../../src/sandbox/step";
 import type { RunProfile } from "../../src/scan/detect";
 import { StoryIndex } from "../../src/stories/feature";
-import { claudeCliAdapter, claudeLaunchContext } from "../../src/workers/claude-cli/adapter";
+import {
+  claudeCliAdapter,
+  claudeLaunchContext,
+  claudeSessionFacts,
+} from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
-import { initialState } from "../../src/workers/claude-cli/interpret";
+import {
+  type ClaudeParseState,
+  initialState,
+  nextSessionOptions,
+} from "../../src/workers/claude-cli/interpret";
+import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { Caps, HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
@@ -179,8 +188,19 @@ export async function withRunOffice(
           const gate = await gateLaunch("claude-cli", holds, async () => options.checks);
           return gate.ok ? { ok: true, plan } : gate;
         },
-        initialState: (spec) => initialState({ plannedModel: spec.model }) as unknown as ParseState,
+        initialState: (spec, previous) =>
+          initialState(
+            previous === undefined
+              ? { plannedModel: spec.model }
+              : nextSessionOptions(
+                  previous as unknown as ClaudeParseState,
+                  spec.session.resume,
+                  spec.model,
+                ),
+          ) as unknown as ParseState,
         encode,
+        result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
+        sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
       };
       const runtimeDir = join(repo.root, "rt");
       const hosts: Running["hosts"] = [];

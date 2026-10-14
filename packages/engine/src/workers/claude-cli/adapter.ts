@@ -9,7 +9,7 @@ import type { OfficeConfig } from "../../config";
 import type { DipoPlatform } from "../../platform/paths";
 import type { RunStep } from "../credential-check";
 import type { AdapterHolds } from "../hold";
-import type { RunLaunchPaths, WorkerPort } from "../port";
+import type { RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
 import type {
   AdapterStatus,
   ExitRecord,
@@ -140,5 +140,16 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
             ),
       ) as unknown as ParseState,
     encode,
+    result: (state, exit) => result(state as unknown as ClaudeParseState, exit),
+    sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
+  };
+}
+
+/** What a Claude session's parser state says for its next session (DIPO-51). */
+export function claudeSessionFacts(state: Partial<ClaudeParseState>): SessionFacts {
+  return {
+    contextTokens: state.contextTokens ?? null,
+    contextWindow: state.contextWindow ?? null,
+    lastReport: state.lastTurn?.report ?? null,
   };
 }

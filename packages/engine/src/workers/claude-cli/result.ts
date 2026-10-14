@@ -16,6 +16,7 @@ interface Decision {
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   readonly resumable: boolean;
   readonly retry?: WorkerRetry;
+  readonly detail?: string;
 }
 
 function exitText(exit: ExitRecord): string {
@@ -46,7 +47,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
   }
   // The story stays Ready: a start failure is never a park.
   if (state.startFailure !== null)
-    return { outcome: "startFailed", report: null, resumable: false };
+    return { outcome: "startFailed", report: null, resumable: false, detail: state.startFailure };
   // Plan limits wait for the reset; never a park.
   if (state.planLimit !== null) return { outcome: "plan-limit", report: null, resumable: true };
   if (state.capped !== null) {
@@ -134,5 +135,6 @@ export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult 
     resumable: decision.resumable && sessionId !== "",
     ...(decision.park === undefined ? {} : { park: decision.park }),
     ...(decision.retry === undefined ? {} : { retry: decision.retry }),
+    ...(decision.detail === undefined ? {} : { detail: decision.detail }),
   };
 }
