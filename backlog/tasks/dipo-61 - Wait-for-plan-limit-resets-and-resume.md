@@ -4,7 +4,7 @@ title: Wait for plan-limit resets and resume
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:59'
+updated_date: '2026-10-14 15:10'
 labels:
   - 'tier:M'
   - after-cutover
@@ -20,8 +20,6 @@ references:
   - packages/engine/src/workers/claude-cli/interpret.ts
   - packages/engine/src/workers/types.ts
   - packages/engine/test/workers/
-  - packages/engine/test/recordings/claude-cli/
-  - packages/engine/src/index.ts
   - packages/daemon/src/runs.ts
   - packages/daemon/src/foreground.ts
   - packages/daemon/src/server.ts
@@ -58,16 +56,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `allowed_warning` stops starting new runs on the affected scope until the reset.
-- [ ] #2 On the injected clock, a run with `resetsAt` resumes two minutes after it with "continue"; without it, a cheapest-resume probe runs once an hour.
-- [ ] #3 Scope `session`, `weekly` and `unknown` hold scheduling in every office; `model:<family>` holds only runs on that family.
-- [ ] #4 No fallback to another model and no maximum wait.
-- [ ] #5 `credits_required` writes scope `credits`, holds the run as paused and new runs on the adapter in every office, raises a notice, and is lifted by `work.resume` (implemented here for held runs only).
-- [ ] #6 Wait facts survive a daemon restart and are rescheduled in recovery.
+- [x] #1 `allowed_warning` stops starting new runs on the affected scope until the reset.
+- [x] #2 On the injected clock, a run with `resetsAt` resumes two minutes after it with "continue"; without it, a cheapest-resume probe runs once an hour.
+- [x] #3 Scope `session`, `weekly` and `unknown` hold scheduling in every office; `model:<family>` holds only runs on that family.
+- [x] #4 No fallback to another model and no maximum wait.
+- [x] #5 `credits_required` writes scope `credits`, holds the run as paused and new runs on the adapter in every office, raises a notice, and is lifted by `work.resume` (implemented here for held runs only).
+- [x] #6 Wait facts survive a daemon restart and are rescheduled in recovery.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S45 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+DIPO-61 implementation:
+- Scope: the Claude adapter maps rateLimitType to the limit event's scope (five_hour session, seven_day weekly, seven_day_<family> model:<family>, else absent and the engine writes unknown, held as session). The live recordings show five_hour; the other names follow the same pattern and are unverified.
+- run/plan-limit.ts: PlanLimits, the schedule. RunOutcomes tells it of every wait fact (waits dep) and every allowed_warning (onPlanWarning). A fact with resetsAt resumes two minutes after it, without one an hourly probe from since; both call RunOutcomes.resumeWait, which resumes the native session with 'continue' (a handoff when canResume refuses), resolves the stale pause intent and clears the plan-limit signal in the transaction that records the new agent (NextSessionRequest.clear; closes the DIPO-51 known gap). credits has no timer. Timers run on the injected clock; while the daemon is in safe or the held worker has not exited, the resume is tried again a minute later.
+- Scheduling holds: held(adapter, model). session, weekly, unknown and warnings of those hold every office; model:<family> holds only models of that family; credits holds the adapter in every office. work.run refuses with run.refused check plan-limit (named stories too, since the launch checks do not lift a plan limit); a model-family hold skips the story as capacity (skip reasons are a closed enum). work.preview lists the refusal.
+- allowed_warning holds its scope until resetsAt (an hour without one), in memory, with one engine.notice run.planLimitWarning on the software stream.
+- Recovery: the load step plan-limits/recover reads every open wait fact back (openWait) and arms it; a reset passed while down resumes at once.
+- work.resume ships with since 1 for held runs: resumes at once, lifts a credits adapter hold; story.notPausedOrParked for a story with no held run (parked stories too, not built yet, and park actions no longer offer work.resume); run.hostAlive while the held worker has not exited. Added to the daemon's SCHEDULING_COMMANDS (scheduling.off in safe).
+- Tests: test/run/plan-limit.test.ts (manual clock: plan-limit-rejected, plan-limit-429 probes, model family, warnings, api_retry rate_limit, credits and work.resume, restart before and after the reset), work-run.test.ts (refusal and capacity skip), plan-limit.ci.test.ts (real resumer and git: held, restart, resume clears the signal).
 <!-- SECTION:NOTES:END -->
