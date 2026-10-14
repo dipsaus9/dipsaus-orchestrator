@@ -10,15 +10,21 @@
 // a launch, else 1.
 
 import {
+  type Clock,
+  engineNotice,
+  type Event,
+  type OfficeId,
   StoryId,
   StoryKey,
   type StoryRefValue,
+  StreamName,
+  storyState,
   type WorkerLaunchPreview,
   workPreview,
   workRun,
 } from "@dipsaus-orchestrator/contract";
 
-import { engineFailure, usage } from "./daemon-commands";
+import { type DaemonSession, engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 /**
@@ -38,8 +44,87 @@ const REASONS: Readonly<Record<string, string>> = {
   collision: "its branch or worktree path is taken",
   capacity: "the office already runs a story",
   pickupCheckFailed:
-    "it failed its pickup check (it goes back to Refined) or its setup or launch checks (it stays Ready); the office notices say which",
+    "it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
 };
+
+/** Skips whose reason the engine explains on the office stream (a notice or the gate output). */
+const EXPLAINED: ReadonlySet<string> = new Set(["pickupCheckFailed", "collision"]);
+
+/** The part of `story.state` that explains a move back to Refined. */
+const StoryMove = storyState.data.pick({ story: true, to: true, detail: true });
+
+/** How long `dipo run` waits after the reply for the office events that explain its skips. */
+export const EXPLAIN_WAIT_MS = 3_000;
+
+/** The story id a notice is about: the engine starts claim, setup and launch notices with it. */
+const NOTICE_STORY = /^([A-Z][A-Z0-9]*-\d+(?:\.\d+)?) /;
+
+/**
+ * What the office stream says about stories, from the moment `dipo run` subscribed: each
+ * `engine.notice` that names a story first, and the gate output of a move back to Refined.
+ */
+class StoryExplanations {
+  readonly #lines = new Map<string, string[]>();
+  #changed: (() => void) | null = null;
+
+  onEvent(event: Event): void {
+    if (event.type === engineNotice.type) {
+      const data = engineNotice.data.safeParse(event.data);
+      const story = data.success ? NOTICE_STORY.exec(data.data.text)?.[1] : undefined;
+      if (data.success && story !== undefined) this.#add(story, [data.data.text]);
+    } else if (event.type === storyState.type) {
+      // Only the fields this needs, so a view this client does not know still explains.
+      const data = StoryMove.safeParse(event.data);
+      if (data.success && data.data.to === "Refined" && data.data.detail !== undefined) {
+        this.#add(data.data.story, data.data.detail);
+      }
+    }
+  }
+
+  #add(story: string, lines: readonly string[]): void {
+    this.#lines.set(story, [...(this.#lines.get(story) ?? []), ...lines]);
+    this.#changed?.();
+  }
+
+  of(story: string): readonly string[] {
+    return this.#lines.get(story) ?? [];
+  }
+
+  /** Resolves once every story in `stories` has a line, or after `ms` on `clock`. */
+  async waitFor(stories: readonly string[], clock: Clock, ms: number): Promise<void> {
+    const done = () => stories.every((story) => this.of(story).length > 0);
+    if (done()) return;
+    await new Promise<void>((resolve) => {
+      const timer = clock.setTimeout(finish, ms);
+      function finish(): void {
+        clock.clearTimeout(timer);
+        resolve();
+      }
+      this.#changed = () => {
+        if (done()) finish();
+      };
+    });
+    this.#changed = null;
+  }
+}
+
+/** Subscribes to the office stream's live events; resolves once the subscription is live. */
+async function explainOffice(
+  session: DaemonSession,
+  office: OfficeId,
+  explanations: StoryExplanations,
+): Promise<{ unsubscribe(): void }> {
+  const live = Promise.withResolvers<void>();
+  // No `filter`: it names the event type prefixes the daemon leaves out (0005 section 5).
+  const subscription = session.subscribe(StreamName.parse(`office:${office}`), {
+    onEvent: (event) => explanations.onEvent(event),
+    onCaughtUp: () => live.resolve(),
+    // Without the stream the skips are still printed, only without their explanation.
+    onEnded: () => live.resolve(),
+  });
+  await live.promise;
+  return subscription;
+}
 
 /** The file holding the report schema the `--json-schema` argument carries. */
 const REPORT_SCHEMA_FILE = "report-schema.json";
@@ -198,14 +283,28 @@ export async function runCommand(
     deps,
     options.office,
     async (session, office, from) => {
-      const outcome = await session.command(
-        workRun,
-        {
-          ...(stories.length === 0 ? {} : { stories }),
-          ...(from === undefined ? {} : { from }),
-        },
-        { office },
-      );
+      // Subscribed before the command, so the notices that explain a skip cannot be missed.
+      const explanations = new StoryExplanations();
+      const subscription = await explainOffice(session, office, explanations);
+      let outcome;
+      try {
+        outcome = await session.command(
+          workRun,
+          {
+            ...(stories.length === 0 ? {} : { stories }),
+            ...(from === undefined ? {} : { from }),
+          },
+          { office },
+        );
+        if (outcome.ok) {
+          const explained = outcome.result.skipped
+            .filter((story) => EXPLAINED.has(story.reason))
+            .map((story) => story.story);
+          await explanations.waitFor(explained, deps.clock, EXPLAIN_WAIT_MS);
+        }
+      } finally {
+        subscription.unsubscribe();
+      }
       if (!outcome.ok) {
         return outcome.error.code === "office.unknown"
           ? "unknown"
@@ -215,6 +314,7 @@ export async function runCommand(
       for (const story of started) deps.writeLine(`started ${story.story} (run ${story.run})`);
       for (const story of skipped) {
         deps.writeLine(`skipped ${story.story}: ${REASONS[story.reason] ?? story.reason}`);
+        for (const line of explanations.of(story.story)) deps.writeLine(`  ${line}`);
       }
       if (started.length > 0) return 0;
       if (skipped.length === 0) deps.writeLine("no Ready story to start");
