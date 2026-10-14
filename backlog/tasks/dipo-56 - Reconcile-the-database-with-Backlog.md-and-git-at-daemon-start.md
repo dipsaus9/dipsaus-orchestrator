@@ -1,10 +1,10 @@
 ---
 id: DIPO-56
 title: Reconcile the database with Backlog.md and git at daemon start
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:50'
+updated_date: '2026-10-14 13:56'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -98,4 +98,6 @@ Review follow-ups (2026-10-14):
 - Adopting open dipo/backlog-* PRs after a lost database is DIPO-80 (m-1).
 
 Follow-up for a later story: scratch directories <worktree root>/_branch-read-* left behind by a daemon crash during a branch read are not swept yet; each read removes its own directory when it finishes.
+
+Live test 2026-10-14 by the test agent (head 1fe91d4, scratch TASK-1, Haiku): TASK-1 read Ready from base, In Progress from its branch right after dipo run, Parked/stopped with the maintainer's note after dipo stop (the maintainer's DIPO-50 finding is fixed); one run_outcomes row; on restart 'office reconciled' came before 'running' with no findings and the park survived; hand-removed worktree gave reconcile.handChanged and dipo did not prune. reconcile.prunable was missing because dipo locks its worktrees; fixed in 3d7c9a5 (locked worktree with a missing directory counts as gone; the notice gives the unlock and prune commands), covered by a real-git test.
 <!-- SECTION:NOTES:END -->
