@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:08'
+updated_date: '2026-10-14 13:14'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -20,6 +20,14 @@ references:
   - packages/engine/src/recovery/
   - packages/engine/src/scan/
   - packages/engine/src/features.ts
+  - packages/engine/src/stories/
+  - packages/engine/test/stories/
+  - packages/engine/src/run/
+  - packages/engine/test/run/
+  - packages/engine/src/office/
+  - packages/engine/src/index.ts
+  - packages/daemon/src/
+  - packages/daemon/test/integration/
 documentation:
   - docs/decisions/0001-foundational-decisions.md
   - docs/decisions/0005-command-and-event-model.md
