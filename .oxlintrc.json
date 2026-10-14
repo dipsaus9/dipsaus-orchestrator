@@ -122,6 +122,49 @@
       }
     },
     {
+      "files": ["packages/tui/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@dipsaus-orchestrator/engine",
+                "message": "tui and client never import engine (0004). Go through the contract and client."
+              },
+              {
+                "name": "@dipsaus-orchestrator/daemon",
+                "message": "tui and client never import daemon (0004). Go through the contract and client."
+              },
+              {
+                "name": "@dipsaus-orchestrator/cli",
+                "message": "tui imports only contract and client (0009 section 2)."
+              },
+              {
+                "name": "@dipsaus-orchestrator/testkit",
+                "message": "tui imports only contract and client (0009 section 2); its test helpers are in packages/tui/src/testing/."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "@dipsaus-orchestrator/engine/**",
+                  "@dipsaus-orchestrator/daemon/**",
+                  "@dipsaus-orchestrator/cli/**",
+                  "@dipsaus-orchestrator/testkit/**"
+                ],
+                "message": "tui imports only contract and client (0004, 0009 section 2)."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/client/src/**"],
       "rules": {
         "no-restricted-imports": [

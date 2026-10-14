@@ -4,9 +4,10 @@
     "composite": true,
     "rootDir": "src",
     "outDir": ".tsbuild",
-    "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo"
+    "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo",
+    "jsx": "react-jsx"
   },
-  "include": ["src"],
+  "include": ["src", "src/**/*.json"],
   "references": [
     {
       "path": "../client"

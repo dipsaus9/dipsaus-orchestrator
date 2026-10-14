@@ -10,6 +10,8 @@ const RULE = "eslint(no-restricted-imports)";
 const violations: Placement[] = [
   { fixture: "tui-imports-engine.ts", target: "packages/tui/src/fixture.ts" },
   { fixture: "tui-imports-daemon.ts", target: "packages/tui/src/fixture.ts" },
+  { fixture: "tui-imports-cli.ts", target: "packages/tui/src/fixture.ts" },
+  { fixture: "tui-imports-testkit.ts", target: "packages/tui/src/fixture.ts" },
   { fixture: "client-imports-engine.ts", target: "packages/client/src/fixture.ts" },
   { fixture: "client-imports-daemon.ts", target: "packages/client/src/fixture.ts" },
   { fixture: "cli-imports-engine.ts", target: "packages/cli/src/fixture.ts" },
@@ -43,6 +45,18 @@ describe("oxlint import boundaries", () => {
     () => {
       const { exitCode, diagnostics } = lintTree([
         { fixture: "cli-allowed.ts", target: "packages/cli/src/fixture.ts" },
+      ]);
+      expect(diagnostics).toEqual([]);
+      expect(exitCode).toBe(0);
+    },
+    LINT_TIMEOUT_MS,
+  );
+
+  it(
+    "allows tui to import contract, client and client/node",
+    () => {
+      const { exitCode, diagnostics } = lintTree([
+        { fixture: "tui-allowed.ts", target: "packages/tui/src/fixture.ts" },
       ]);
       expect(diagnostics).toEqual([]);
       expect(exitCode).toBe(0);

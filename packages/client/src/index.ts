@@ -26,5 +26,7 @@ export type {
   Subscription,
 } from "./client";
 export { ulidRequestIds } from "./request-id";
+export { OfficeStore, RELOADED_NOTICE } from "./store/index";
+export type { OfficeEntry, OfficeStoreOptions, OfficeStoreState, StoreClient } from "./store/index";
 export type { RandomBytes, RequestIds } from "./request-id";
 export type { Transport, TransportConnection, TransportHandlers } from "./transport";
