@@ -24,8 +24,9 @@ async function inPty(quit: (terminal: Bun.Terminal, proc: Bun.Subprocess) => voi
   try {
     const proc = Bun.spawn([process.execPath, MAIN], { terminal });
     const limit = performance.now() + 10_000;
-    while (!text.includes("dipsaus-orchestrator")) {
-      if (performance.now() > limit) throw new Error(`no frame:\n${text}`);
+    // The office frame, and raw mode: a frame can come before Ink's raw-mode effect.
+    while (!text.includes("dipsaus-orchestrator") || (terminal.localFlags & ICANON) !== 0) {
+      if (performance.now() > limit) throw new Error(`no frame in raw mode:\n${text}`);
       await Bun.sleep(20);
     }
     const raw = (terminal.localFlags & ICANON) === 0;
