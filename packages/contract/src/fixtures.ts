@@ -451,7 +451,7 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
     },
   },
   "office.purge": {
-    args: { office: ids.office },
+    args: { office: ids.office, from: "/Users/me/Projects/demo" },
     result: {
       office: ids.office,
       path: "/Users/me/Projects/demo",
@@ -502,7 +502,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
           name: "office.purge",
           args: {
             type: "object",
-            properties: { office: { type: "string" } },
+            properties: { office: { type: "string" }, from: { type: "string" } },
             required: ["office"],
           },
           result: { type: "object" },

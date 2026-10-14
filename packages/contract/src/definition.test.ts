@@ -92,6 +92,10 @@ describe("commands.describe", () => {
       ["directory", "office", "path", "rows"].toSorted(),
     );
     expect(result?.required?.toSorted()).toEqual(["office", "path", "rows"]);
+    // `from` since the 0005 amendment of 2026-10-14, optional as on `office.forget`.
+    const args = entry?.args as { properties?: object; required?: string[] } | undefined;
+    expect(Object.keys(args?.properties ?? {}).toSorted()).toEqual(["from", "office"]);
+    expect(args?.required).toEqual(["office"]);
   });
 
   it("leaves provisional definitions out", () => {

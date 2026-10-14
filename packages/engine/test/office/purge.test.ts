@@ -5,7 +5,7 @@
 // gone.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
@@ -292,6 +292,47 @@ describe("office.purge", () => {
         const result = resultOf<{ directory?: string }>(await send(s, "office.purge", { office }));
         expect(result.directory).toBeUndefined();
         expect(existsSync(marker)).toBe(true);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
+describe("office.purge from (0005 amendment of 2026-10-14)", () => {
+  it("purges with a matching from and refuses a copy or another repository with office.unknown", async () => {
+    await withTempRepo(
+      async (repo) => {
+        const s = await officeSetup(repo.root);
+        const office = await openOffice(s, repo.dir);
+        const copy = join(repo.root, "copy");
+        cpSync(repo.dir, copy, { recursive: true });
+        const before = rowsOf(s, office);
+
+        const fromCopy = await send(s, "office.purge", { office, from: copy });
+        expect(errorOf(fromCopy)).toBe("office.unknown");
+        expect(!fromCopy.ok && fromCopy.error.details).toEqual({
+          office,
+          from: copy,
+          reason: "path",
+        });
+        expect(rowsOf(s, office)).toEqual(before);
+        expect(existsSync(markerPath(join(repo.dir, ".git")))).toBe(true);
+        expect(existsSync(markerPath(join(copy, ".git")))).toBe(true);
+
+        // A forgotten office named by id from another repository is refused the same way.
+        resultOf(await send(s, "office.forget", { office }));
+        expect(errorOf(await send(s, "office.purge", { office, from: copy }))).toBe(
+          "office.unknown",
+        );
+        expect(rowsOf(s, office)["offices"]).toBe(1);
+
+        const purged = resultOf<{ directory?: string }>(
+          await send(s, "office.purge", { office, from: repo.dir }),
+        );
+        expect(purged.directory).toBe(officeDirectory(join(repo.dir, ".git")));
+        expect(rowsOf(s, office)).toEqual({});
+        // The copy's directory is left alone.
+        expect(existsSync(markerPath(join(copy, ".git")))).toBe(true);
       },
       { fixture: BACKLOG_FIXTURE },
     );

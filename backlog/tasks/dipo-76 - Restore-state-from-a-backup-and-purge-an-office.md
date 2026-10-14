@@ -4,7 +4,7 @@ title: Restore state from a backup and purge an office
 status: In Progress
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 14:29'
+updated_date: '2026-10-14 15:19'
 labels:
   - 'tier:M'
   - after-cutover
@@ -86,4 +86,6 @@ DIPO-76 implementation:
 - `dipo office purge [--office <id>] [--yes]` asks at a terminal and says it cannot be undone; a script needs `--yes`. Resolved from the current directory, it checks the `engine.hello` office list first and refuses a copy whose marker names an office registered elsewhere, or an office not in the list, pointing to `--office <id>`.
 - AC #7: the DIPO-56 recovery step loads every registered office at start, and the load refuses a missing path with the notice text on the software stream and in daemon.log; a CI test proves it at a real start.
 - Finding outside scope: the logger redacts every field named `code`, so daemon.log shows `"code":"[redacted]"` for engine error codes.
+
+Update after the 0005 amendment of 2026-10-14: `office.purge` takes an optional `from` (contract minor 1, schema regenerated), checked by the executor's shared `from` check, so a mismatch answers `office.unknown` with `details.reason: "path"`. `dipo office purge` sends the main worktree of the repository around the current directory as `from`, also with `--office`, and none outside a repository; this replaces the earlier `engine.hello` office-list check in the CLI.
 <!-- SECTION:NOTES:END -->

@@ -123,10 +123,12 @@ export const officeInit = defineCommand({
 // amendment). `path` is the office's registered path and `rows` the number of rows deleted.
 // `directory` is the `<git-common-dir>/dipo/` it removed; it is absent when the path is missing or
 // its marker does not name this office.
+// `from` is checked as for `office.forget` (0005 amendment of 2026-10-14), so a copied repository
+// never purges the original.
 export const officePurge = defineCommand({
   name: "office.purge",
   level: "software",
-  args: OfficeArgs,
+  args: OfficeTargetArgs,
   result: z.object({
     office: OfficeId,
     path: z.string(),

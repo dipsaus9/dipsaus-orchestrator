@@ -8,8 +8,6 @@
 // that is not an office the CLI says so and, at a terminal, asks once whether to open it (0006
 // open question 2); a script is never asked.
 
-import { realpathSync } from "node:fs";
-
 import {
   type OfficeId,
   OfficeId as OfficeIdSchema,
@@ -232,20 +230,6 @@ async function forgetCommand(args: readonly string[], deps: OfficeCommandDeps): 
   return withOffice(deps, options.office, forget, confirm);
 }
 
-/** The real path, or the path as written when it does not resolve. */
-function realOrAsIs(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
-
-/** True when both name the same directory. */
-function samePath(a: string, b: string): boolean {
-  return realOrAsIs(a) === realOrAsIs(b);
-}
-
 async function purgeCommand(args: readonly string[], deps: OfficeCommandDeps): Promise<number> {
   const options = parseOptions(args, true);
   if (typeof options === "string") return usage(deps, `office purge: ${options}`);
@@ -267,27 +251,27 @@ async function purgeCommand(args: readonly string[], deps: OfficeCommandDeps): P
     deps.writeLine("nothing purged");
     return false;
   };
-  const purge: Act = async (session, office, from) => {
-    // The office came from the current directory: purge only the office registered at this
-    // repository, so a copy that carries the original's marker never purges the original.
-    // `office.purge` takes no `from`, so the check is the office list of `engine.hello`.
-    const listed = session.hello?.offices.find((entry) => entry.office === office);
-    if (from !== undefined && session.hello != null) {
-      if (listed === undefined) {
-        deps.writeError(
-          `dipo: office ${office} of ${from} is not in the office list (forgotten or unknown); to purge it, run \`dipo office purge --office ${office}\`.`,
-        );
-        return 1;
-      }
-      if (!samePath(listed.path, from)) {
-        deps.writeError(
-          `dipo: ${from} carries the marker of office ${office}, which is registered at ${listed.path}; nothing purged. To purge that office, run \`dipo office purge --office ${office}\`.`,
-        );
-        return 1;
-      }
-    }
-    const outcome = await session.command(officePurge, { office });
+  // `from` is the main worktree of the repository around the current directory, also with
+  // `--office`: the daemon answers `office.unknown` when it is not the office's registered path,
+  // so a copy that carries the original's marker never purges the original (0005 amendment of
+  // 2026-10-14). Outside any repository no `from` is sent.
+  const here = options.office === null ? null : await deps.workspace.locate(deps.workspace.cwd);
+  const purge: Act = async (session, office, resolvedFrom) => {
+    const from = resolvedFrom ?? here?.mainWorktree;
+    const outcome = await session.command(officePurge, {
+      office,
+      ...(from === undefined ? {} : { from }),
+    });
     if (!outcome.ok) {
+      const details = outcome.error.details as { reason?: unknown } | undefined;
+      // A `from` that is not the registered path: say so, rather than offer to open the copy.
+      if (outcome.error.code === "office.unknown" && details?.reason === "path") {
+        engineFailure(deps, outcome.error);
+        deps.writeError(
+          `dipo: nothing purged; run \`dipo office purge --office ${office}\` from outside this repository, or from the office's own repository.`,
+        );
+        return 1;
+      }
       return outcome.error.code === "office.unknown"
         ? "unknown"
         : engineFailure(deps, outcome.error);

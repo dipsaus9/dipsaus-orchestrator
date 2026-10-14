@@ -421,22 +421,6 @@ describe("dipo office init", () => {
   });
 });
 
-/** The fake session with an `engine.hello` office list, as a real connection has. */
-function withHello(ctx: ReturnType<typeof fake>, offices: { office: OfficeId; path: string }[]) {
-  const inner = ctx.deps.connectDaemon;
-  const deps: CliDeps = {
-    ...ctx.deps,
-    connectDaemon: async () => {
-      const session = await inner();
-      return {
-        ...session,
-        hello: { offices: offices.map((entry) => ({ ...entry, name: "app" })) } as never,
-      };
-    },
-  };
-  return deps;
-}
-
 describe("dipo office purge", () => {
   const purged = ok({
     office: OFFICE,
@@ -451,11 +435,12 @@ describe("dipo office purge", () => {
       interactive: true,
       answers: ["yes"],
     });
-    const deps = withHello(ctx, [{ office: OFFICE, path: "/work/app" }]);
-    expect(await main(["office", "purge"], deps)).toBe(0);
+    expect(await main(["office", "purge"], ctx.deps)).toBe(0);
     expect(ctx.questions[0]).toMatch(/^Purge the office at \/work\/app\? /);
     expect(ctx.questions[0]).toContain("This cannot be undone.");
-    expect(ctx.sent).toEqual([{ name: "office.purge", args: { office: OFFICE } }]);
+    expect(ctx.sent).toEqual([
+      { name: "office.purge", args: { office: OFFICE, from: "/work/app" } },
+    ]);
     expect(ctx.out).toEqual([
       `purged office ${OFFICE} at /work/app: 42 rows deleted`,
       "removed /work/app/.git/dipo",
@@ -487,20 +472,40 @@ describe("dipo office purge", () => {
     ]);
   });
 
-  it("refuses a copy whose marker names an office registered elsewhere, and an unlisted office", async () => {
-    const copy = fake(() => purged, { repository: { ...REPO, office: OFFICE, backlog: true } });
-    const copyDeps = withHello(copy, [{ office: OFFICE, path: "/work/original" }]);
-    expect(await main(["office", "purge", "--yes"], copyDeps)).toBe(1);
-    expect(copy.sent).toEqual([]);
-    expect(copy.err[0]).toContain("which is registered at /work/original; nothing purged");
+  it("sends the repository as from, also with --office, and reports a path mismatch", async () => {
+    const mismatch = {
+      ok: false,
+      error: {
+        code: "office.unknown",
+        message: `/work/app is not office ${OFFICE}, which is registered at /work/original.`,
+        retryable: false,
+        details: { office: OFFICE, from: "/work/app", reason: "path" },
+      },
+    };
+    // A copy: the marker names an office registered elsewhere.
+    const copy = fake(() => mismatch, { repository: { ...REPO, office: OFFICE, backlog: true } });
+    expect(await main(["office", "purge", "--yes"], copy.deps)).toBe(1);
+    expect(copy.sent).toEqual([
+      { name: "office.purge", args: { office: OFFICE, from: "/work/app" } },
+    ]);
+    expect(copy.err[0]).toBe(
+      `dipo: office.unknown: /work/app is not office ${OFFICE}, which is registered at /work/original.`,
+    );
+    expect(copy.err[1]).toContain("nothing purged");
+    expect(copy.questions).toEqual([]);
 
-    const forgotten = fake(() => purged, {
-      repository: { ...REPO, office: OFFICE, backlog: true },
-    });
-    const forgottenDeps = withHello(forgotten, []);
-    expect(await main(["office", "purge", "--yes"], forgottenDeps)).toBe(1);
-    expect(forgotten.sent).toEqual([]);
-    expect(forgotten.err[0]).toContain(`run \`dipo office purge --office ${OFFICE}\``);
+    // --office inside a repository still sends that repository as from.
+    const named = fake(() => mismatch, { repository: { ...REPO, office: OTHER, backlog: true } });
+    expect(await main(["office", "purge", "--office", OFFICE, "--yes"], named.deps)).toBe(1);
+    expect(named.sent).toEqual([
+      { name: "office.purge", args: { office: OFFICE, from: "/work/app" } },
+    ]);
+  });
+
+  it("sends no from outside any repository", async () => {
+    const ctx = fake(() => ok({ office: OFFICE, path: "/work/app", rows: 2 }));
+    expect(await main(["office", "purge", "--office", OFFICE, "--yes"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([{ name: "office.purge", args: { office: OFFICE } }]);
   });
 
   it("reports office.busy", async () => {
