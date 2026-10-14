@@ -1,10 +1,10 @@
 ---
 id: DIPO-56
 title: Reconcile the database with Backlog.md and git at daemon start
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 10:23'
+updated_date: '2026-10-14 12:38'
 labels:
   - 'tier:M'
 milestone: m-0
