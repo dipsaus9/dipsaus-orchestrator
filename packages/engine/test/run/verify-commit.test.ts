@@ -15,6 +15,8 @@ import {
   backstopEvidence,
   type BackstopSnapshot,
   checkScope,
+  feedbackItemMax,
+  workspaceDirsOf,
   commitMessage,
   findRun,
   gateChanges,
@@ -45,6 +47,9 @@ function profileOf(scripts: Record<string, string>, workspaces: string[] = []): 
         scripts,
         workspaces,
       }),
+      ...Object.fromEntries(
+        workspaces.map((dir) => [`${dir}/package.json`, JSON.stringify({ name: dir })]),
+      ),
     },
     lockfiles: ["bun.lock"],
     workspaceDirs: workspaces,
@@ -156,6 +161,7 @@ interface World {
   base: RunProfile;
   branch: RunProfile;
   branchScripts: string | null;
+  config?: OfficeConfig;
   pushRejected: boolean;
 }
 
@@ -238,7 +244,7 @@ beforeEach(async () => {
         warnings: [],
       };
     },
-    config: () => config,
+    config: () => w.config ?? config,
     profile: () => w.base,
     scanWorktree: async () => w.branch,
     host: { home: dir, uid: 501, env: { PATH: "/usr/bin:/bin" } },
@@ -354,6 +360,55 @@ function events(type: string): Record<string, unknown>[] {
 function parks(): { reason: string; detail: string }[] {
   return w.f.office.all("select reason, detail from parks where office_id = $office_id");
 }
+
+describe("review fixes", () => {
+  it("budgets the feedback item by the run's tier, M when the tier has none", () => {
+    const config = {
+      ...OFFICE_DEFAULTS,
+      prompt: {
+        ...OFFICE_DEFAULTS.prompt,
+        budgets: {
+          ...OFFICE_DEFAULTS.prompt.budgets,
+          feedbackItem: { S: 500, M: 3_000, L: 4_000, XL: 5_000 },
+        },
+      },
+    } as OfficeConfig;
+    expect(feedbackItemMax(config, "S")).toBe(500);
+    expect(feedbackItemMax(config, "L")).toBe(4_000);
+    expect(feedbackItemMax(config, "Q")).toBe(3_000);
+    expect(feedbackItemMax(config, null)).toBe(3_000);
+  });
+
+  it("sends a feedback item within the S tier budget", async () => {
+    w.config = {
+      ...OFFICE_DEFAULTS,
+      prompt: {
+        ...OFFICE_DEFAULTS.prompt,
+        budgets: {
+          ...OFFICE_DEFAULTS.prompt.budgets,
+          feedbackItem: { ...OFFICE_DEFAULTS.prompt.budgets.feedbackItem, S: 300 },
+        },
+      },
+    } as OfficeConfig;
+    w.exitCodes = [1];
+    await play();
+    const message = w.sent[0]?.[0];
+    const line = message !== undefined && "write" in message ? message.write : "{}";
+    const text = (JSON.parse(line) as { message: { content: string } }).message.content;
+    expect(text.length).toBeLessThanOrEqual(300);
+  });
+
+  it("pairs the root lockfile with a workspace package the branch adds", async () => {
+    w.branch = profileOf({ verify: "bun test" }, ["src/pkg"]);
+    expect(workspaceDirsOf(w.base, w.branch)).toEqual(["src/pkg"]);
+    w.changed = ["src/pkg/package.json", "src/pkg/index.ts", "bun.lock"];
+    await play();
+    expect(parks()).toEqual([]);
+    expect(w.calls[0]).toBe(
+      "commit DIPO-1: print a greeting [bun.lock, src/pkg/index.ts, src/pkg/package.json]",
+    );
+  });
+});
 
 describe("verify and commit", () => {
   it("green: commits the scope paths, checks off met criteria, moves to In Review and pushes", async () => {

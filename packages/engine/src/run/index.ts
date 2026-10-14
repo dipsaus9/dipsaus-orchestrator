@@ -103,6 +103,7 @@ export {
   checkScope,
   commitMessage,
   DEFAULT_LOCKFILES,
+  feedbackItemMax,
   GATE_CAPABILITIES,
   gateChanges,
   OUTPUT_FLUSH_MS,
@@ -112,6 +113,7 @@ export {
   VERIFY_NOTICES,
   VerifyCommit,
   verifyPlan,
+  workspaceDirsOf,
 } from "./verify-commit";
 export type {
   RunFinisher,

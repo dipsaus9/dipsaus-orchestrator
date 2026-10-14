@@ -352,13 +352,15 @@ export class VerifyCommit implements RunFinisher {
     // 2. The scope check over every changed path.
     const scope = run.scope ?? [];
     const base = this.#deps.profile(ctx.office);
+    // The branch scan comes first: a workspace package the story adds pairs the root lockfile too.
+    const branch = await (this.#deps.scanWorktree ?? scanWorktree)(worktree, base);
     const view = await this.#deps.story.story(officeId, worktree, story);
     const paths = await this.#deps.story.changedPaths(officeId, worktree);
     const checked = checkScope({
       paths,
       scope,
       taskFile: view.taskFile,
-      workspaceDirs: base?.toolchain.workspaces.map((ws) => ws.dir) ?? [],
+      workspaceDirs: workspaceDirsOf(base, branch),
     });
     if (checked.outside.length > 0) return scopePark(scopeDetail(checked.outside, scope));
     if (!ctx.live()) return { kind: "continue" };
@@ -366,7 +368,7 @@ export class VerifyCommit implements RunFinisher {
     // 3. Verify.
     const config = this.#deps.config(officeId);
     if (config === undefined) throw new Error(`office ${officeId} has no configuration loaded`);
-    const steps = await this.#plan(ctx, base);
+    const steps = await this.#plan(ctx, base, branch);
     const loop = loopsOf(ctx.office, run.runId);
     ctx.flushOutput();
     ctx.write(() => {
@@ -400,7 +402,7 @@ export class VerifyCommit implements RunFinisher {
           exitCode: failure.exitCode,
           output: failure.output,
         },
-        { root: worktree, itemMax: config.prompt.budgets.feedbackItem.M },
+        { root: worktree, itemMax: feedbackItemMax(config, run.tier) },
       );
       if (loop + 1 >= run.loopCap) {
         return {
@@ -449,11 +451,14 @@ export class VerifyCommit implements RunFinisher {
   }
 
   /** The verify steps and the gate changes, recorded on the run. */
-  async #plan(ctx: TurnContext, base: RunProfile | null): Promise<VerifyStep[]> {
+  async #plan(
+    ctx: TurnContext,
+    base: RunProfile | null,
+    branch: RunProfile,
+  ): Promise<VerifyStep[]> {
     const { run } = ctx;
     const worktree = run.worktree as string;
     const officeId = ctx.office.officeId;
-    const branch = await (this.#deps.scanWorktree ?? scanWorktree)(worktree, base);
     const claim = findClaim(ctx.office, run.runId);
     const baseSha = claim?.baseSha ?? run.startSha;
     const baseScripts =
@@ -666,6 +671,18 @@ export class VerifyCommit implements RunFinisher {
     });
     return { kind: "ended" };
   }
+}
+
+/** Workspace package directories of the base and the branch profile, each once. */
+export function workspaceDirsOf(base: RunProfile | null, branch: RunProfile): string[] {
+  const dirs = [...(base?.toolchain.workspaces ?? []), ...branch.toolchain.workspaces];
+  return [...new Set(dirs.map((ws) => ws.dir))];
+}
+
+/** The feedback item budget of the run's tier, the `M` entry when the tier has none. */
+export function feedbackItemMax(config: Pick<OfficeConfig, "prompt">, tier: string | null): number {
+  const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+  return (tier === null ? undefined : budgets[tier]) ?? config.prompt.budgets.feedbackItem.M;
 }
 
 function scopePark(detail: string): TurnDecision {
