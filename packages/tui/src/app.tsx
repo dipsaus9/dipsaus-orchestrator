@@ -233,8 +233,12 @@ export function App(props: AppProps) {
 
   const runSelected = () => {
     if (state.office === null) return;
-    if (run?.status === "sending") {
-      setMessage(`a run is being sent${ellipsis}`);
+    if (run?.status === "sending" || run?.status === "syncing") {
+      setMessage(
+        run.status === "sending"
+          ? `run ${run.label} is being sent; wait for its reply`
+          : `run ${run.label} waits for the office stream; wait until it is done`,
+      );
       return;
     }
     const row = queue[queueSelected];

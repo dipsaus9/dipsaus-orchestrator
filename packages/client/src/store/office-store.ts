@@ -135,12 +135,13 @@ function seen(last: Cursor | undefined, cursor: Cursor): boolean {
 
 /**
  * True when `current`, the store's office cursor, is at or past `target`, a command reply cursor
- * of the same office stream (read-your-writes, 0009 section 5). Another epoch means the stream
- * restarted and the store reads a fresh snapshot, so the write is not waited for any longer.
+ * of the same office stream (read-your-writes, 0009 section 5). A reply from another epoch counts
+ * only once the store itself is on that epoch, that is after it read the stream again; epochs have
+ * no order, so a store still on the old one has not seen the write.
  */
 export function cursorReached(current: Cursor | null, target: Cursor): boolean {
   if (current === null || current.stream !== target.stream) return false;
-  return current.epoch !== target.epoch || current.seq >= target.seq;
+  return current.epoch === target.epoch && current.seq >= target.seq;
 }
 
 export class OfficeStore {

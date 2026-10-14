@@ -115,6 +115,25 @@ describe("u runs stories", () => {
     expect(done).toContain("started DIPO-30");
   });
 
+  it("refuses a second u while the first run waits for the office stream, and keeps its lines", async () => {
+    const { ui, session } = await openQueue();
+    session.runReply = () => ({
+      ok: true,
+      result: {
+        started: [{ story: "DIPO-30", key: KEY_30, run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0R30" }],
+        skipped: [],
+      },
+      changed: true,
+      cursor: { stream: STREAM, epoch: "e2", seq: 9 },
+    });
+    await ui.press("u");
+    await ui.waitFor("waiting for the office stream");
+    await ui.press("u");
+    const frame = await ui.waitFor("waits for the office stream; wait until it is done");
+    expect(frame).toContain("started DIPO-30");
+    expect(session.commands).toHaveLength(1);
+  });
+
   it("sends no story from the next Ready row and shows a dependency skip with its reason", async () => {
     const { ui, session } = await openQueue();
     session.runReply = () => ({

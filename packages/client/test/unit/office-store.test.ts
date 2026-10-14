@@ -432,7 +432,11 @@ describe("OfficeStore", () => {
     );
     expect(store.state.cursor).toEqual(reply);
     expect(cursorReached(store.state.cursor, reply)).toBe(true);
-    expect(cursorReached(store.state.cursor, cursor(stream, 3, "e2"))).toBe(true);
+    // A reply from a newer epoch is not reached while the store is on the old one, only after it
+    // read the stream again on that epoch.
+    expect(cursorReached(store.state.cursor, cursor(stream, 3, "e2"))).toBe(false);
+    expect(cursorReached(cursor(stream, 3, "e2"), cursor(stream, 3, "e2"))).toBe(true);
+    expect(cursorReached(cursor(stream, 2, "e2"), cursor(stream, 3, "e2"))).toBe(false);
     expect(cursorReached(store.state.cursor, cursor(`office:${B}`, 1))).toBe(false);
     expect(cursorReached(null, reply)).toBe(false);
   });
