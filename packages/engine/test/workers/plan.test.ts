@@ -195,6 +195,19 @@ describe("claude-cli plan", () => {
     expect(launch.argv).not.toContain("--session-id");
   });
 
+  it("resumes with the full flag set: only the session flag differs (DIPO-51, 0008 section 8)", () => {
+    const fresh = plan(spec("M"), context());
+    const resumed = plan(
+      spec("M", { session: { id: spec("M").session.id, resume: true } }),
+      context(),
+    );
+    expect([...resumed.argv]).toEqual(
+      fresh.argv.map((arg) => (arg === "--session-id" ? "--resume" : arg)),
+    );
+    expect(resumed.env).toEqual(fresh.env);
+    expect(resumed.files).toEqual(fresh.files);
+  });
+
   it("keeps --strict-mcp-config when the office has no mcp.json", () => {
     const { mcpConfig: _none, ...rest } = context();
     const launch = plan(spec("S"), rest);

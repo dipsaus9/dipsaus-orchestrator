@@ -1,0 +1,14 @@
+{
+  "scenario": "plan-limit-429",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Outcome plan-limit: a turn ended by a 429 rate-limit error is a rejected plan limit; never a park (0008 section 7).",
+  "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
+  "derivedFrom": "success-single",
+  "transform": "The first result becomes error_during_execution with api_error_status 429 and no report; exit 1.",
+  "cites": [
+    "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)",
+    "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\""
+  ]
+}

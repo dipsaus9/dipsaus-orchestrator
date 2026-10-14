@@ -13,6 +13,7 @@
 import type {
   HostLine,
   ModelUsageTotals,
+  TurnProblem,
   UsageTotalsByModel,
   WorkerEvent,
   WorkerReport,
@@ -116,6 +117,19 @@ export interface ClaudeParseState {
   readonly unknownTypes: readonly string[];
   /** Known lines that failed their schema or did not parse, with a short reason. */
   readonly problems: readonly string[];
+  /**
+   * The CLI totals a resumed session restored (DIPO-51): the previous session's totals at its
+   * last turn end. Set only until the first turn end of the resumed session; a field the CLI
+   * reports below `baseline` but at or above this floor counts only this session's live numbers.
+   * Absent in states stored before it existed and outside a resume.
+   */
+  readonly restoredFloor?: UsageTotalsByModel;
+  /** The CLI cost a resumed session restored, as `restoredFloor` for `costUSD`. */
+  readonly costFloor?: Readonly<Record<string, number>>;
+  /** Context tokens (input, cache creation, cache read) of the main agent's last request. */
+  readonly contextTokens?: number | null;
+  /** The main model's context window as the last result reported it. */
+  readonly contextWindow?: number | null;
 }
 
 export interface InitialStateOptions {
@@ -131,11 +145,42 @@ export interface InitialStateOptions {
   readonly costUsd?: Readonly<Record<string, number>>;
   /** The CLI cost stored at the last turn end, for a resumed session; defaults to `costUsd`. */
   readonly costBaseline?: Readonly<Record<string, number>>;
+  /** The CLI totals a resumed session restores (DIPO-51); see `ClaudeParseState.restoredFloor`. */
+  readonly restoredFloor?: UsageTotalsByModel;
+  /** The CLI cost a resumed session restores. */
+  readonly costFloor?: Readonly<Record<string, number>>;
+}
+
+/**
+ * The options of the next session of a run from the previous session's stored state (DIPO-51):
+ * the recorded classifier switches always carry over. A `resume` continues the CLI's counts, so
+ * the new agent starts with no totals of its own, a baseline of what the previous process had
+ * counted (its last turn totals plus the live numbers after them), and the previous turn totals
+ * as the restored floor; a new session's counts start at zero.
+ */
+export function nextSessionOptions(
+  previous: ClaudeParseState,
+  resume: boolean,
+  plannedModel: string,
+): InitialStateOptions {
+  const accepted = { plannedModel, acceptedModels: [...(previous.acceptedModels ?? [])] };
+  if (!resume) return accepted;
+  return {
+    ...accepted,
+    totals: {},
+    baseline: addTotals(previous.baseline ?? {}, previous.live ?? {}),
+    restoredFloor: previous.baseline ?? {},
+    costUsd: {},
+    costBaseline: previous.costBaseline ?? {},
+    costFloor: previous.costBaseline ?? {},
+  };
 }
 
 export function initialState(options: InitialStateOptions = {}): ClaudeParseState {
   const totals = options.totals ?? {};
   return {
+    ...(options.restoredFloor === undefined ? {} : { restoredFloor: options.restoredFloor }),
+    ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     pending: "",
     truncated: false,
     sessionId: null,
@@ -204,6 +249,34 @@ function delta(now: ModelUsageTotals, before: ModelUsageTotals): ModelUsageTotal
   };
 }
 
+/**
+ * The change at the first turn end of a resumed session (DIPO-51), per field: at or above the
+ * baseline (what the previous process had counted) the rise is new, but at least this session's
+ * live numbers, since a CLI that restored only the floor reaches the baseline with less new
+ * spend than it shows; between the restored floor and the baseline the CLI restored less than
+ * was counted, so only this session's live numbers are new; below the floor the CLI's count
+ * restarted, so all of it is new.
+ */
+function resumedDelta(
+  now: ModelUsageTotals,
+  baseline: ModelUsageTotals,
+  floor: ModelUsageTotals,
+  live: ModelUsageTotals,
+): ModelUsageTotals {
+  const field = (name: (typeof FIELDS)[number]): number =>
+    now[name] >= baseline[name]
+      ? Math.max(now[name] - baseline[name], live[name])
+      : now[name] >= floor[name]
+        ? live[name]
+        : now[name];
+  return {
+    input: field("input"),
+    output: field("output"),
+    cacheCreate: field("cacheCreate"),
+    cacheRead: field("cacheRead"),
+  };
+}
+
 /** Per field the larger of two totals. */
 function larger(a: ModelUsageTotals, b: ModelUsageTotals): ModelUsageTotals {
   return {
@@ -234,10 +307,22 @@ function costStep(
 ): Pick<ClaudeParseState, "costCommitted" | "costBaseline"> {
   const committed: Record<string, number> = { ...state.costCommitted };
   const baseline: Record<string, number> = { ...state.costBaseline };
+  const floor = state.costFloor;
   for (const [model, entry] of Object.entries(modelUsage)) {
     if (entry.costUSD === undefined) continue;
     const before = baseline[model] ?? 0;
-    const change = entry.costUSD >= before ? entry.costUSD - before : entry.costUSD;
+    // A resumed session's first turn end. The cost baseline is the floor (costs come only from
+    // results, so the previous session's spend after its last result was never priced): at or
+    // above it the rise is new whichever way the CLI restored, so nothing is undercounted. A value
+    // between floor and baseline (only possible with a baseline above the floor) adds nothing the
+    // engine can price; below the floor the count restarted.
+    const restored = floor === undefined ? null : (floor[model] ?? 0);
+    const change =
+      entry.costUSD >= before
+        ? entry.costUSD - before
+        : restored !== null && entry.costUSD >= restored
+          ? 0
+          : entry.costUSD;
     committed[model] = (committed[model] ?? 0) + change;
     baseline[model] = entry.costUSD;
   }
@@ -434,6 +519,22 @@ function modelMatches(planned: string, actual: string): boolean {
   return MODEL_ALIASES.includes(planned) && actual.startsWith(`claude-${planned}-`);
 }
 
+/**
+ * Records `model` as a classifier switch when it is neither the planned model nor already
+ * recorded, with one `modelSwitched` event (DIPO-51). The recorded switches carry over to the
+ * run's next session, so each switch is reported once per run.
+ */
+function acceptSwitch(state: ClaudeParseState, model: string): Step {
+  const planned = state.plannedModel;
+  if (planned === null || modelMatches(planned, model) || state.acceptedModels.includes(model)) {
+    return { events: [], state };
+  }
+  return {
+    events: [{ t: "modelSwitched", from: state.model ?? planned, to: model }],
+    state: { ...state, acceptedModels: [...state.acceptedModels, model] },
+  };
+}
+
 function init(value: unknown, state: ClaudeParseState): Step {
   const parsed = parseWith(InitMessage, value, state);
   if (!parsed.ok) return { events: [], state: parsed.state };
@@ -474,7 +575,10 @@ function init(value: unknown, state: ClaudeParseState): Step {
     });
     next = { ...next, started: true, model: msg.model };
   } else if (next.model !== null && next.model !== msg.model) {
-    events.push({ t: "modelSwitched", from: next.model, to: msg.model });
+    // With a planned model the switch was reported when a message or a result first showed it.
+    if (next.plannedModel === null) {
+      events.push({ t: "modelSwitched", from: next.model, to: msg.model });
+    }
     next = { ...next, model: msg.model };
   }
   return { events, state: { ...next, models: remember(next.models, msg.model) } };
@@ -553,7 +657,18 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       ...next,
       seen: [...next.seen, msg.message.id],
       live: addTotals(next.live, { [msg.message.model]: counted }),
+      // The main agent's context size, for the resume check (0014 section 6).
+      ...(agentId === undefined
+        ? { contextTokens: counted.input + counted.cacheCreate + counted.cacheRead }
+        : {}),
     };
+  }
+  // A main-agent message on a model the plan did not name is a classifier switch (0008 section
+  // 2): recorded, so the next `system/init` on it is accepted.
+  if (agentId === undefined) {
+    const switched = acceptSwitch(next, msg.message.model);
+    events.push(...switched.events);
+    next = switched.state;
   }
 
   if (msg.error !== undefined) {
@@ -612,9 +727,15 @@ function result(value: unknown, state: ClaudeParseState): Step {
     (msg.terminal_reason ?? (msg.subtype === "success" ? "completed" : msg.subtype)) ===
     "completed";
   const change: Record<string, ModelUsageTotals> = {};
+  // The first turn end of a resumed session tells restored spend from a restarted count.
+  const floor = next.restoredFloor;
   if (!none) {
     for (const [model, usage] of Object.entries(reported)) {
-      change[model] = delta(usage, next.baseline[model] ?? ZERO_USAGE);
+      const base = next.baseline[model] ?? ZERO_USAGE;
+      change[model] =
+        floor === undefined
+          ? delta(usage, base)
+          : resumedDelta(usage, base, floor[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
     }
   }
   let drift = next.costDrift === true;
@@ -626,24 +747,38 @@ function result(value: unknown, state: ClaudeParseState): Step {
       if (FIELDS.some((field) => change[model]?.[field] !== before[field])) drift = true;
     }
   }
+  const { restoredFloor: _floor, costFloor: _costFloor, ...rest } = next;
+  const cost = costStep(next, msg.modelUsage);
   next = {
-    ...next,
+    ...(none ? next : rest),
     committed: addTotals(next.committed, change),
     live: {},
     baseline: none ? next.baseline : { ...next.baseline, ...reported },
-    ...costStep(next, msg.modelUsage),
+    ...cost,
     costDrift: drift,
   };
   for (const model of Object.keys(reported)) {
-    if (!next.models.includes(model) && next.models.length > 0) {
-      events.push({
-        t: "modelSwitched",
-        from: next.models[next.models.length - 1] ?? model,
-        to: model,
-      });
+    if (next.plannedModel === null) {
+      if (!next.models.includes(model) && next.models.length > 0) {
+        events.push({
+          t: "modelSwitched",
+          from: next.models[next.models.length - 1] ?? model,
+          to: model,
+        });
+      }
+    } else {
+      const switched = acceptSwitch(next, model);
+      events.push(...switched.events);
+      next = switched.state;
     }
     next = { ...next, models: remember(next.models, model) };
   }
+  // The main model's context window, for the resume check (0014 section 6).
+  const main = next.model === null ? undefined : msg.modelUsage[next.model];
+  const window =
+    main?.contextWindow ??
+    Object.values(msg.modelUsage).find((entry) => entry.contextWindow !== undefined)?.contextWindow;
+  if (window !== undefined) next = { ...next, contextWindow: window };
 
   const { report, problem: reportProblem } = readReport(msg.structured_output);
   const terminal = msg.terminal_reason ?? msg.subtype;
@@ -663,12 +798,17 @@ function result(value: unknown, state: ClaudeParseState): Step {
   if (turn.startupFailure !== null && next.startFailure === null) {
     next = { ...next, startFailure: `startup_failure_reason ${turn.startupFailure}` };
   }
-  if (turn.apiErrorStatus === 429 && next.planLimit === null) {
-    next = { ...next, planLimit: "turn ended by a 429 rate-limit error" };
+  if (turn.apiErrorStatus === 429) {
+    // 0008 section 7: a turn ended by a 429 is a rejected plan limit, as a `rate_limit_event`
+    // with `status: rejected` would be.
+    events.push({ t: "limit", status: "rejected" });
+    if (next.planLimit === null)
+      next = { ...next, planLimit: "turn ended by a 429 rate-limit error" };
   }
 
   const costUsd = next.costCommitted ?? {};
   const comparable = !drift && Object.keys(costUsd).length > 0;
+  const trouble = turnProblem(msg.subtype, turn, next);
   events.push({
     t: "turn",
     report,
@@ -679,6 +819,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     ...(msg.subtype === "error_max_turns"
       ? { capped: `turn cap (--max-turns) after ${msg.num_turns} turns` }
       : {}),
+    ...(trouble === null ? {} : { problem: trouble }),
   });
   if (
     report?.status === "blocked" &&
@@ -688,6 +829,41 @@ function result(value: unknown, state: ClaudeParseState): Step {
     events.push({ t: "waiting", on: "question", detail: report.question });
   }
   return { events, state: next };
+}
+
+/**
+ * What was wrong with a turn, in the order 0008 section 7 reads it (DIPO-51): a plan limit, a
+ * start failure, a full context, an execution error, then a missing or invalid report. A turn at
+ * the CLI's turn cap carries `capped` instead.
+ */
+function turnProblem(
+  subtype: string,
+  turn: TurnRecord,
+  state: ClaudeParseState,
+): TurnProblem | null {
+  if (turn.apiErrorStatus === 429) {
+    return { kind: "planLimit", detail: "turn ended by a 429 rate-limit error" };
+  }
+  if (state.startFailure !== null) return { kind: "startFailed", detail: state.startFailure };
+  if (subtype === "error_max_turns") return null;
+  if (turn.terminal === "prompt_too_long") {
+    return { kind: "contextFull", detail: "prompt_too_long: the context is full" };
+  }
+  if (subtype === "error_max_structured_output_retries") {
+    return { kind: "report", detail: "error_max_structured_output_retries" };
+  }
+  if (subtype !== "success") {
+    const why =
+      turn.apiErrorStatus === null
+        ? turn.terminal
+        : `${turn.terminal}, HTTP ${turn.apiErrorStatus}`;
+    const last = state.lastError === null ? "" : `, last error ${state.lastError}`;
+    return { kind: "error", detail: `${subtype} (${why})${last}` };
+  }
+  if (turn.report === null) {
+    return { kind: "report", detail: turn.reportProblem ?? "no report" };
+  }
+  return null;
 }
 
 function epochIso(seconds: number | undefined): string | undefined {

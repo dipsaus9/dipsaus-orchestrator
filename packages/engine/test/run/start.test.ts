@@ -44,9 +44,14 @@ import {
 } from "../../src/run";
 import { recordWorkerHost, type LaunchedHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
-import { claudeCliAdapter, claudeLaunchContext } from "../../src/workers/claude-cli/adapter";
+import {
+  claudeCliAdapter,
+  claudeLaunchContext,
+  claudeSessionFacts,
+} from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
-import { initialState } from "../../src/workers/claude-cli/interpret";
+import { type ClaudeParseState, initialState } from "../../src/workers/claude-cli/interpret";
+import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { LaunchPlan, ParseState } from "../../src/workers/types";
@@ -203,6 +208,8 @@ beforeEach(async () => {
     },
     initialState: (spec) => initialState({ plannedModel: spec.model }) as unknown as ParseState,
     encode,
+    result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
+    sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
   };
   const hosts: HostStarter = {
     start: async (handle, started) => {

@@ -98,9 +98,9 @@ export class OfficeIngest implements RunIngest {
         watchdog?.lineSeen(run);
         hooks.onLines?.(run, agent);
       },
-      onEnded: (run, agent) => {
+      onEnded: (run, agent, end) => {
         watchdog?.untrack(run);
-        hooks.onEnded?.(run, agent);
+        hooks.onEnded?.(run, agent, end);
       },
       onAppended: () => {
         onAppended?.(office);

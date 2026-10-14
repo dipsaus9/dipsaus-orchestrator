@@ -8,6 +8,7 @@ import { realpathSync } from "node:fs";
 import type {
   Clock,
   CommandName,
+  IdSource,
   OfficeId,
   Spawn,
   StoryKey,
@@ -16,6 +17,8 @@ import type {
 import {
   type AdapterHolds,
   type BacklogCli,
+  baseStoryFacts,
+  capsOf,
   claudeWorkerPort,
   currentProfile,
   gitParkWriter,
@@ -29,6 +32,8 @@ import {
   type RunBase,
   RunControl,
   RunLauncher,
+  RunOutcomes,
+  RunResumer,
   runSandboxedStep,
   selfCommand,
   setupWorktree,
@@ -40,6 +45,7 @@ import {
   systemHostStarter,
   systemProcessProbe,
   systemSandboxHost,
+  storyHoldsWork,
   systemSpawn,
   type currentPlatform,
   VerifyCommit,
@@ -56,6 +62,8 @@ export interface DaemonRunsOptions {
   readonly tools: ToolPaths;
   readonly platform: ReturnType<typeof currentPlatform>;
   readonly clock: Clock;
+  /** Ids of the agents a run's next session makes (DIPO-51). */
+  readonly ids: IdSource;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly home: string;
   readonly uid: number;
@@ -86,6 +94,8 @@ export interface DaemonRuns {
   readonly ingest: OfficeIngest;
   /** Caps, report parks and `work.stop` (DIPO-50). */
   readonly control: RunControl;
+  /** Worker outcomes and the run's next session (DIPO-51); its feature decides exits at load. */
+  readonly outcomes: RunOutcomes;
 }
 
 /**
@@ -128,10 +138,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
     return git;
   };
+  const storyGit = gitStoryOps({
+    git: (office) => options.engineGit.forOffice(office),
+    cli: options.cli,
+  });
   // Verify and commit at In Review and the backstop after every turn (DIPO-49).
   const finisher = new VerifyCommit({
     clock,
-    story: gitStoryOps({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+    story: storyGit,
     mainCheckout: (office) => gitOf(office).mainWorktree,
     runStep,
     config: (office) => options.offices.config(office),
@@ -142,8 +156,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   });
   // The ingestion hooks call the control, and the control flushes ingestion's output first.
   let ingest: OfficeIngest | null = null;
+  let outcomes: RunOutcomes | null = null;
   const control = new RunControl({
     finisher,
+    outcomes: () => outcomes ?? undefined,
     clock,
     offices: options.offices,
     writer: gitParkWriter({
@@ -170,6 +186,54 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     warn: (message, fields) => options.logger.warn(message, fields),
     watchdog,
     onAppended: options.onChanged,
+  });
+  const hosts = systemHostStarter({
+    clock,
+    runtimeDir: options.runtimeDir,
+    dipoCommand: selfCommand(),
+    env,
+    probe: systemProcessProbe(platform),
+  });
+  const release = (
+    office: OfficeId,
+    claim: Parameters<StoryClaims["releaseUnstarted"]>[1],
+    reason: string,
+  ) => options.claims.releaseUnstarted(office, claim, reason);
+  // A run's next session after a crash, a full context or a missing report (DIPO-51).
+  const resumer = new RunResumer({
+    clock,
+    ids: options.ids,
+    offices: options.offices,
+    worker,
+    git: (office) => options.engineGit.forOffice(office),
+    story: baseStoryFacts(options.base),
+    runtimeDir: options.runtimeDir,
+    tmpRoot: realDir(options.tmpRoot),
+    hosts,
+    ingest,
+    control,
+    onChanged: options.onChanged,
+  });
+  outcomes = new RunOutcomes({
+    clock,
+    offices: options.offices,
+    steering: hostSocketSteering({ clock }),
+    encode: (op) => worker.encode(op),
+    worker,
+    ender: () => control,
+    resumer,
+    holds: options.holds,
+    release,
+    holdsWork: storyHoldsWork(storyGit),
+    caps: (office, run) => {
+      const tier =
+        run.tier === null
+          ? undefined
+          : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
+      return tier === undefined ? null : capsOf(tier);
+    },
+    onChanged: options.onChanged,
+    warn: (message, fields) => options.logger.warn(message, fields),
   });
   const launcher = new RunLauncher({
     worker,
@@ -206,18 +270,12 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       ids.length === 0 ? [] : (await options.base.read(office, ids)).views,
     runtimeDir: options.runtimeDir,
     tmpRoot: realDir(options.tmpRoot),
-    hosts: systemHostStarter({
-      clock,
-      runtimeDir: options.runtimeDir,
-      dipoCommand: selfCommand(),
-      env,
-      probe: systemProcessProbe(platform),
-    }),
+    hosts,
     ingest,
     control,
     snapshot: (office, worktree) => readBackstop(gitOf(office), worktree),
-    release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
+    release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control };
+  return { launcher, ingest, control, outcomes };
 }
