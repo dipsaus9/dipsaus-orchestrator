@@ -5,22 +5,22 @@
 //
 // A claimed story is read on its story branch (DIPO-56, 0007 section 6 step 3; 0010 section 2a):
 // from the claim commit until the claim is released, its status, park record (F16), criteria and
-// tier live there, so the pass reads it again inside the claim's worktree and mirrors that read
-// with the branch as `source`. A claimed story whose worktree cannot be read (missing, or its git
-// links changed) keeps its base read and is listed in `branchUnread`; reconcile reports it.
+// tier live there, so the pass reads it again as committed at the branch tip (`branch-read.ts`;
+// never the worktree's uncommitted edits) and mirrors that read with the branch as `source`. A
+// claimed story whose branch cannot be read (the ref or its task file missing) keeps its base
+// read and is listed in `branchUnread`; reconcile reports it.
 // `refreshStory` reads one story the same way, right after a commit on its branch.
-
-import { existsSync } from "node:fs";
 
 import type { Clock, Cursor, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { BacklogCli } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import type { OfficeGit } from "../git/office";
+import type { GitSession, OfficeGit } from "../git/office";
 import { type ClaimRecord, liveClaimOf, liveClaims } from "../worktree/records";
 
 import { applyIndex, applyStory, type IndexStats } from "./apply";
+import { readOnBranch } from "./branch-read";
 import { findStoryByKey, isProvisionalId } from "./keys";
 import { type BacklogStory, readBacklog, readStory } from "./read";
 
@@ -66,24 +66,6 @@ export function readsOnBranch(claim: ClaimRecord): boolean {
 }
 
 /**
- * Reads the story of `claim` in its worktree. Must run inside a queue item of `git`; throws when
- * the worktree is missing, is not a registered worktree, its git links changed since the claim
- * (`git.worktreeTampered`), or the Backlog CLI fails.
- */
-export async function readOnBranch(
-  git: OfficeGit,
-  cli: BacklogCli,
-  claim: ClaimRecord,
-  listed: { readonly id: string; readonly title: string; readonly status: string },
-): Promise<BacklogStory> {
-  if (!existsSync(claim.worktree)) throw new Error(`its worktree ${claim.worktree} is missing`);
-  const location = git.worktreeLocation(claim.worktree);
-  if (location.kind !== "worktree") throw new Error(`${claim.worktree} is not a worktree`);
-  const story = await readStory(cli, location.workTree, "task", listed);
-  return { ...story, source: claim.branch };
-}
-
-/**
  * Indexes the office's stories from `_base`, claimed ones from their branch. Throws `GitError`
  * when the office has no base or `origin/<base>` is missing, and the Backlog CLI errors of
  * `readBacklog`; nothing is written then.
@@ -95,7 +77,7 @@ export async function indexStories(deps: IndexDeps): Promise<IndexResult> {
     const location = deps.git.worktreeLocation(base.path);
     const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
     const fromBase = await readBacklog(deps.cli, base.path);
-    const { read, branchUnread } = await overlayClaimed(deps, fromBase);
+    const { read, branchUnread } = await overlayClaimed(deps, git, base.path, fromBase);
     const at = deps.clock.now();
     return deps.office.immediate(() => {
       const { stats, entries } = applyIndex(deps.office, deps.ids, read, { at, source: "base" });
@@ -108,6 +90,8 @@ export async function indexStories(deps: IndexDeps): Promise<IndexResult> {
 /** The base read with every claimed story replaced by its read on the story branch. */
 async function overlayClaimed(
   deps: IndexDeps,
+  session: GitSession,
+  basePath: string,
   fromBase: readonly BacklogStory[],
 ): Promise<{ read: BacklogStory[]; branchUnread: BranchUnread[] }> {
   const read = [...fromBase];
@@ -121,7 +105,7 @@ async function overlayClaimed(
     const listed = read[index];
     if (listed === undefined || isProvisionalId(id)) continue;
     try {
-      read[index] = await readOnBranch(deps.git, deps.cli, claim, {
+      read[index] = await readOnBranch(deps.git, session, deps.cli, claim, basePath, {
         id,
         title: listed.title,
         status: listed.status,
@@ -159,11 +143,11 @@ export async function refreshStory(
   const kind = isProvisionalId(identity.story) ? "draft" : "task";
   const claim = liveClaimOf(deps.office, key);
   const onBranch = claim !== null && readsOnBranch(claim);
-  const base = onBranch ? null : await deps.git.ensureBaseWorktree();
-  const story = await deps.git.run(async () => {
+  const base = await deps.git.ensureBaseWorktree();
+  const story = await deps.git.run(async (session) => {
     const listed = { id: identity.story as string, title: "", status: "" };
-    if (onBranch) return readOnBranch(deps.git, deps.cli, claim, listed);
-    return readStory(deps.cli, base?.path ?? "", kind, listed);
+    if (onBranch) return readOnBranch(deps.git, session, deps.cli, claim, base.path, listed);
+    return readStory(deps.cli, base.path, kind, listed);
   });
   const at = deps.clock.now();
   return deps.office.immediate(() => {

@@ -5,7 +5,8 @@ export { applyIndex, applyStory, writeMirror } from "./apply";
 export type { ApplyOptions, ApplyResult, IndexStats, MirrorSource } from "./apply";
 export { INDEX_STEP, StoryIndex } from "./feature";
 export type { StoryIndexDeps } from "./feature";
-export { indexStories, readOnBranch, readsOnBranch, refreshStory } from "./index-stories";
+export { BRANCH_READ_PREFIX, readOnBranch } from "./branch-read";
+export { indexStories, readsOnBranch, refreshStory } from "./index-stories";
 export type { BranchUnread, IndexDeps, IndexResult, RefreshOptions } from "./index-stories";
 export {
   addStory,

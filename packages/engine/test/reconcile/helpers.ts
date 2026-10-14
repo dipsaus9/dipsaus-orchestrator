@@ -1,10 +1,12 @@
 // Shared setup for the reconcile tests (DIPO-56): the Backlog fixture on a bare `origin`, opened
 // and loaded as an office with real git, the story index and (optionally) more features, but with
-// a scripted Backlog CLI that answers from per-worktree task tables. So a test sets what `_base`
-// and a claimed story's worktree say without running the real CLI, and stays fast. Claims are real
-// git worktrees with their rows written directly, as a claim records them.
+// a scripted Backlog CLI. `_base` answers from a task table; any other checkout (the branch read's
+// scratch directory) answers from the story's own task file there, which these tests write as
+// JSON. So a test sets what the base and a story branch say without the real CLI, and stays fast.
+// Claims are real git worktrees with a claim commit and their rows written directly, as a claim
+// records them; `setBranch` commits on the branch, `editWorktree` changes the file uncommitted.
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -20,7 +22,6 @@ import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/t
 import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
-import { canonicalFuturePath } from "../../src/git/paths";
 import { readWorktreeSnapshot } from "../../src/git/snapshot";
 import { systemSpawn } from "../../src/platform/process";
 import { insertRun } from "../../src/run/records";
@@ -40,7 +41,7 @@ export interface FakeTask {
   readonly criteria?: readonly (readonly [boolean, string])[];
 }
 
-/** The task table of one worktree: `_base`, or a claimed story's worktree path. */
+/** The task table of `_base` (key `BASE`). */
 export type Tables = Map<string, Map<string, FakeTask>>;
 
 export const BASE = "base";
@@ -116,16 +117,54 @@ export function fakeBacklog(tables: Tables): { spawn: Spawn; calls: SpawnOptions
   const spawn: Spawn = (options) => {
     calls.push(options);
     const cwd = options.cwd ?? "";
-    const table = cwd.endsWith("/_base") ? tables.get(BASE) : tables.get(canonicalFuturePath(cwd));
-    if (table === undefined) return child("", `no table for ${cwd}`, 1);
     const [kind, verb, id] = options.cmd.slice(1);
     if (kind === "draft") return child("");
+    if (!cwd.endsWith("/_base")) {
+      const file = id === undefined ? undefined : taskFileIn(cwd, id);
+      if (verb !== "view" || file === undefined) return child("", `Task ${id ?? ""} not found.`, 1);
+      return child(viewText(JSON.parse(readFileSync(file, "utf8")) as FakeTask));
+    }
+    const table = tables.get(BASE);
+    if (table === undefined) return child("", `no table for ${cwd}`, 1);
     if (verb === "list") return child(listText(table.values()));
     const task = id === undefined ? undefined : table.get(id);
     if (verb === "view" && task !== undefined) return child(viewText(task));
     return child("", `Task ${id ?? ""} not found.`, 1);
   };
   return { spawn, calls };
+}
+
+/** The task file of `id` in the checkout `dir`, or undefined. */
+function taskFileIn(dir: string, id: string): string | undefined {
+  const tasks = join(dir, "backlog", "tasks");
+  const name = readdirSync(tasks).find((n) => n.toLowerCase().startsWith(`${id.toLowerCase()} - `));
+  return name === undefined ? undefined : join(tasks, name);
+}
+
+/** Writes `task` over its task file in the worktree, as JSON the fake CLI reads. */
+export function editWorktree(claimed: Pick<ClaimRecord, "worktree">, task: FakeTask): string {
+  const path =
+    taskFileIn(claimed.worktree, task.id) ??
+    join(claimed.worktree, "backlog", "tasks", `${task.id.toLowerCase()} - Story.md`);
+  writeFileSync(path, JSON.stringify(task));
+  return path;
+}
+
+/** Commits `task` as the story's task file on its branch, as the claim and park commits do. */
+export async function setBranch(
+  o: Pick<ReconcileOffice, "repo">,
+  claimed: Pick<ClaimRecord, "worktree">,
+  task: FakeTask,
+): Promise<string> {
+  const path = editWorktree(claimed, task);
+  for (const args of [
+    ["git", "add", "--", path],
+    ["git", "commit", "--quiet", "--no-verify", "-m", `${task.id}: status ${task.status}`],
+  ] as const) {
+    const result = await o.repo.run(args, claimed.worktree);
+    if (result.exitCode !== 0) throw new Error(`${args.join(" ")}: ${result.stderr}`);
+  }
+  return (await o.repo.run(["git", "rev-parse", "HEAD"], claimed.worktree)).stdout.trim();
 }
 
 export interface ReconcileOffice {
@@ -236,7 +275,7 @@ export function keyOf(office: OfficeHandle, id: string): StoryKey {
 export interface ClaimOptions {
   /** The run is active (not ended); true by default. */
   readonly active?: boolean;
-  /** What the claim's worktree reads; the story In Progress by default. */
+  /** What the claim commit writes on the branch; the story In Progress by default. */
   readonly task?: FakeTask;
 }
 
@@ -254,7 +293,9 @@ export async function claim(
 ): Promise<ClaimRecord> {
   const worktree = join(o.repo.root, "trees", id);
   await o.repo.git("worktree", "add", "--quiet", "-b", branchOf(id), worktree, "origin/main");
-  const sha = (await o.repo.git("rev-parse", "HEAD")).trim();
+  const sha = (await o.repo.git("rev-parse", "origin/main")).trim();
+  // The claim commit: the story's task file as the branch now holds it.
+  const claimSha = await setBranch(o, { worktree }, options.task ?? { id, status: "In Progress" });
   const adminDir = (
     await o.repo.run(["git", "rev-parse", "--absolute-git-dir"], worktree)
   ).stdout.trim();
@@ -270,7 +311,7 @@ export async function claim(
       base: "main",
       baseSha: sha,
       startSha: sha,
-      claimSha: sha,
+      claimSha,
       reused: false,
       snapshot,
       firstFeedback: null,
@@ -305,22 +346,9 @@ export async function claim(
     }
   });
   o.engineGit.forOffice(office.officeId)?.pinWorktree(snapshot);
-  o.tables.set(
-    canonicalFuturePath(worktree),
-    tableOf([options.task ?? { id, status: "In Progress" }]),
-  );
   const record = liveClaimOf(office, key);
   if (record === null || !existsSync(worktree)) throw new Error("the claim was not recorded");
   return record;
-}
-
-/** Sets what a claimed story's worktree reads. */
-export function setBranch(
-  o: Pick<ReconcileOffice, "tables">,
-  claimed: ClaimRecord,
-  task: FakeTask,
-) {
-  o.tables.set(canonicalFuturePath(claimed.worktree), tableOf([task]));
 }
 
 /** The `engine.notice` codes written after `afterSeq`, with their keys. */

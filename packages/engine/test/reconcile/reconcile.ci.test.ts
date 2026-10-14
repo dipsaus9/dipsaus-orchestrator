@@ -150,7 +150,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       withWorld(undefined, async (w) => {
         const key = keyOf(w.o.office, "TASK-1");
         const claimed = await claim(w.o, w.o.office, "TASK-1", key);
-        setBranch(w.o, claimed, { id: "TASK-1", status: "Done" });
+        await setBranch(w.o, claimed, { id: "TASK-1", status: "Done" });
         const report = await w.rescan();
         expect(w.calls).toEqual([
           { kind: "stop", run: claimed.runId, code: RECONCILE_NOTICES.runStopped },
