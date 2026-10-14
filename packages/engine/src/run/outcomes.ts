@@ -562,9 +562,8 @@ export class RunOutcomes implements RunOutcomesPort {
     end: IngestedExit,
   ): Promise<void> {
     const result = this.#deps.worker.result(end.state, end.exit);
-    const ender = this.#deps.ender();
     const park = (ending: Omit<RunEnding, "ops"> & { readonly ops?: readonly HostOp[] }) =>
-      ender.park(office, run, view.work, { ops: [], ...ending });
+      this.#park(office, run, view.work, { ops: [], ...ending });
     switch (result.outcome) {
       case "initRejected": {
         const reason = result.park?.detail ?? "the start checks failed";
@@ -684,7 +683,7 @@ export class RunOutcomes implements RunOutcomesPort {
   ): Promise<void> {
     const refused = this.#noRetry(office, view, agent);
     if (refused !== null) {
-      await this.#deps.ender().park(office, run, view.work, {
+      await this.#park(office, run, view.work, {
         intent: "park",
         ops: [],
         reason: "worker-failed",
@@ -723,9 +722,8 @@ export class RunOutcomes implements RunOutcomesPort {
     },
   ): Promise<void> {
     const resumer = this.#deps.resumer;
-    const ender = this.#deps.ender();
     if (resumer === undefined) {
-      await ender.park(office, run, view.work, {
+      await this.#park(office, run, view.work, {
         intent: "park",
         ops: [],
         reason: "worker-failed",
@@ -757,7 +755,7 @@ export class RunOutcomes implements RunOutcomesPort {
         await this.#startFailed(office, run, view.work, holdMessage(outcome.hold), outcome.hold);
         return;
       case "failed":
-        await ender.park(office, run, view.work, {
+        await this.#park(office, run, view.work, {
           intent: "park",
           ops: [],
           reason: "worker-failed",
@@ -800,7 +798,7 @@ export class RunOutcomes implements RunOutcomesPort {
     }
     const story = run.story ?? run.runId;
     if (holdsWork || claim === null) {
-      await this.#deps.ender().park(office, run, work, {
+      await this.#park(office, run, work, {
         intent: "stop",
         intentDetail: `${INTENT_TAGS.startFailed} ${detail}`,
         ops: [],
@@ -941,6 +939,24 @@ export class RunOutcomes implements RunOutcomesPort {
       });
     }
     return count;
+  }
+
+  /**
+   * Parks a run whose worker already exited: the intent the park stores explains that exit, so
+   * it is resolved at once.
+   */
+  async #park(
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef,
+    ending: RunEnding,
+  ): Promise<ParkOutcome> {
+    const parked = await this.#deps.ender().park(office, run, work, ending);
+    const intent = this.#explaining(office, run.runId);
+    if (intent !== null) {
+      this.#resolve(office, run.runId, intent, this.#outcomeOf(intent), this.#deps.clock.now());
+    }
+    return parked;
   }
 
   // ---- facts -----------------------------------------------------------------------------------

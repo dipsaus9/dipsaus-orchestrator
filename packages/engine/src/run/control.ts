@@ -352,29 +352,33 @@ export class RunControl implements RunEnder {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
     this.#disarm(tracked);
-    this.#tracked.delete(run);
-    const office = this.#deps.offices.get(tracked.office);
-    if (office === undefined) return;
     const outcomes = this.#deps.outcomes?.();
     if (outcomes !== undefined && agent !== undefined && end !== undefined) {
-      const job = outcomes
-        .onExit({
+      // The turns before the exit are decided first, with the run still tracked; then the run is
+      // untracked and the exit decided (DIPO-51).
+      const job = (async () => {
+        await tracked.turns.catch(() => undefined);
+        if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
+        await outcomes.onExit({
           view: this.#view(tracked),
           agent,
-          turns: tracked.turns,
+          turns: Promise.resolve(),
           ending: tracked.ending,
           end,
-        })
-        .catch((error: unknown) => {
-          this.#deps.warn?.("deciding a worker's exit failed", {
-            run,
-            reason: messageOf(error),
-          });
         });
+      })().catch((error: unknown) => {
+        this.#deps.warn?.("deciding a worker's exit failed", {
+          run,
+          reason: messageOf(error),
+        });
+      });
       this.#inflight.add(job);
       void job.finally(() => this.#inflight.delete(job));
       return;
     }
+    this.#tracked.delete(run);
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
     const at = this.#deps.clock.now();
     office.immediate(() => {
       const explained = outcomeOfIntent(office, tracked.runId);
