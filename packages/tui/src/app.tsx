@@ -589,7 +589,10 @@ export function App(props: AppProps) {
         : stop.status === "syncing"
           ? `stop ${stop.story}: answered, waiting for the office stream${ellipsis}`
           : `stop ${stop.story}: done; the worker ends and the story parks as stopped`;
-  const footerMessage = message ?? refusal ?? failure ?? stopLine ?? notice;
+  // A refusal names a run on its way; the effect that clears it runs only after the frame that
+  // shows the run done, so the footer drops it in that same frame.
+  const activeRefusal = run?.status === "sending" || run?.status === "syncing" ? refusal : null;
+  const footerMessage = message ?? activeRefusal ?? failure ?? stopLine ?? notice;
   const inDetail = detail !== null && !(mode.kind === "switcher" || mode.kind === "path");
   // The footer line starts with a space.
   const keys = footerKeys(mode, inDetail ? "detail" : view, state, offline, run, columns - 1);
