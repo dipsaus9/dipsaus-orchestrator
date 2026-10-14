@@ -7,7 +7,7 @@
 // Liveness is PID plus start time through the DIPO-23 identity check, where a zombie is dead;
 // the socket is never asked (0006 decision 8).
 
-import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
@@ -15,8 +15,10 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import {
   EVENTS_FILE,
+  EXIT_FILE,
   HOST_LOG_FILE,
   HOST_PROTOCOL_VERSION,
+  HostExitFileSchema,
   HOSTS_DIR,
   hostSocketPath,
   LAUNCH_FILE,
@@ -139,13 +141,27 @@ export async function launchWorkerHost(options: LaunchWorkerHostOptions): Promis
   };
 }
 
+/** What is recorded together with a started host, in the same transaction (DIPO-57). */
+export interface HostRecordExtras {
+  /** Where ingestion of the host starts in the run's event file; 0 by default. */
+  readonly processedOffset?: number;
+  /** Writes that belong with the host row (the new agent), run inside the same transaction. */
+  readonly record?: () => void;
+}
+
 /** Records a started host in `worker_hosts`, in its own write transaction. */
-export function recordWorkerHost(office: OfficeHandle, host: LaunchedHost, clock: Clock): void {
-  office.immediate(() =>
+export function recordWorkerHost(
+  office: OfficeHandle,
+  host: LaunchedHost,
+  clock: Clock,
+  extras: HostRecordExtras = {},
+): void {
+  office.immediate(() => {
     office.run(
       `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-         protocol_version, run_dir, event_file, started_at)
-       values ($office_id, $run, $agent, $pid, $start, $socket, $protocol, $dir, $events, $now)`,
+         protocol_version, run_dir, event_file, processed_offset, started_at)
+       values ($office_id, $run, $agent, $pid, $start, $socket, $protocol, $dir, $events,
+         $offset, $now)`,
       {
         run: host.runId,
         agent: host.agentId,
@@ -155,10 +171,12 @@ export function recordWorkerHost(office: OfficeHandle, host: LaunchedHost, clock
         protocol: host.protocolVersion,
         dir: host.runDir,
         events: host.eventFile,
+        offset: extras.processedOffset ?? 0,
         now: clock.now(),
       },
-    ),
-  );
+    );
+    extras.record?.();
+  });
 }
 
 /** Starts the host for a run and records it (DIPO-74 calls this for a claimed run). */
@@ -166,9 +184,10 @@ export async function startWorkerHost(
   office: OfficeHandle,
   clock: Clock,
   options: LaunchWorkerHostOptions,
+  extras: HostRecordExtras = {},
 ): Promise<LaunchedHost> {
   const host = await launchWorkerHost(options);
-  recordWorkerHost(office, host, clock);
+  recordWorkerHost(office, host, clock, extras);
   return host;
 }
 
@@ -211,7 +230,7 @@ interface RawRow {
 export function workerHostsOf(office: OfficeHandle, runId: string): WorkerHostRow[] {
   return office
     .all<RawRow>(
-      "select * from worker_hosts where office_id = $office_id and run_id = $run order by started_at, agent_id",
+      "select * from worker_hosts where office_id = $office_id and run_id = $run order by started_at, rowid",
       { run: runId },
     )
     .map((row) => ({
@@ -249,6 +268,32 @@ export function recordHostExit(office: OfficeHandle, agentId: string, exit: Host
       },
     ),
   );
+}
+
+/** The run directory's `exit.json`, or null when it is missing or unreadable. */
+export function readHostExit(runDir: string): HostExitFile | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(join(runDir, EXIT_FILE), "utf8"));
+  } catch {
+    return null;
+  }
+  const parsed = HostExitFileSchema.safeParse(raw);
+  return parsed.success ? (parsed.data as HostExitFile) : null;
+}
+
+/**
+ * The exit file of `host`, or null (DIPO-57). The hosts of a run share its run directory, so the
+ * file may be an earlier host's; that one ends where this host's ingestion started. This host's
+ * own file ends past its exit line, which is not processed while its agent has not ended, so a
+ * file counts when it ends past the processed offset.
+ */
+export function exitFileOf(
+  host: Pick<WorkerHostRow, "runId" | "runDir" | "processedOffset">,
+): HostExitFile | null {
+  const exit = readHostExit(host.runDir);
+  if (exit === null || exit.run !== host.runId) return null;
+  return exit.finalOffset > host.processedOffset ? exit : null;
 }
 
 /**

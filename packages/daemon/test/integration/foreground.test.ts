@@ -122,6 +122,14 @@ describe("dipo daemon --foreground", () => {
             .map((line) => (JSON.parse(line) as { msg: string }).msg);
           expect(messages).toContain("opened state database");
           expect(messages.at(-1)).toBe("daemon stopped");
+          // Re-attach is a recovery step after reconcile (DIPO-57 AC #8).
+          const steps = log
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as { msg: string; step?: string })
+            .filter((line) => line.msg === "recovery step")
+            .map((line) => line.step);
+          expect(steps).toEqual(["migrations", "reconcile", "reattach"]);
           // The database opens only after the post-bind re-read: after "listening".
           expect(messages.indexOf("listening")).toBeLessThan(
             messages.indexOf("opened state database"),

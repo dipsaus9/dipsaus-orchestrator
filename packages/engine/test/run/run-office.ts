@@ -280,7 +280,10 @@ export async function withRunOffice(
             });
             await started.done;
           }
-          recordWorkerHost(office, host, loaded().clock);
+          recordWorkerHost(office, host, loaded().clock, {
+            ...(run.processedOffset === undefined ? {} : { processedOffset: run.processedOffset }),
+            ...(run.record === undefined ? {} : { record: run.record }),
+          });
           return host;
         },
       };

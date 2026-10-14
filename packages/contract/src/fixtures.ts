@@ -450,7 +450,15 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
       leftAlone: ["DIPO-36"],
     },
   },
-  "office.purge": { args: { office: ids.office }, result: { office: ids.office } },
+  "office.purge": {
+    args: { office: ids.office, from: "/Users/me/Projects/demo" },
+    result: {
+      office: ids.office,
+      path: "/Users/me/Projects/demo",
+      rows: 1284,
+      directory: "/Users/me/Projects/demo/.git/dipo",
+    },
+  },
   "office.rescan": { args: {}, result: { scan: "started" } },
   "office.reloadConfig": {
     args: { office: ids.office },
@@ -494,11 +502,11 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
           name: "office.purge",
           args: {
             type: "object",
-            properties: { office: { type: "string" } },
+            properties: { office: { type: "string" }, from: { type: "string" } },
             required: ["office"],
           },
           result: { type: "object" },
-          since: 0,
+          since: 1,
           level: "software",
           confirm: true,
           irreversible: true,

@@ -544,6 +544,8 @@ export {
   hostAlive,
   HostStartError,
   launchWorkerHost,
+  exitFileOf,
+  readHostExit,
   recordHostExit,
   recordWorkerHost,
   RUN_DIR_ENV,
@@ -551,6 +553,7 @@ export {
   startWorkerHost,
   workerHostsOf,
   type LaunchedHost,
+  type HostRecordExtras,
   type LaunchWorkerHostOptions,
   type WorkerHostRow,
 } from "./runs/worker-hosts";

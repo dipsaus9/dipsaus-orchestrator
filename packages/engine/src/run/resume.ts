@@ -32,6 +32,7 @@ import type {
   FieldBlock,
   IdSource,
   OfficeId,
+  RetryableErrorCode,
   RunId,
   WatchdogSignal,
   WorkRef,
@@ -49,6 +50,7 @@ import type { OfficeGit } from "../git/office";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
+import type { ProcessProbe } from "../platform/process";
 import { CHARS_PER_TOKEN } from "../prompts/parts";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
@@ -58,6 +60,7 @@ import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
 import { findClaim } from "../worktree/records";
+import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 
 import type { BackstopSnapshot } from "./backstop";
 import { runTotals } from "./caps";
@@ -78,6 +81,13 @@ import type { RunBase } from "./work-run";
 
 /** 0014 section 6 until `office.yaml` version 2 (0014 amendment, DIPO-51): engine constants. */
 export const RESUME_POLICY = { maxContextShare: 0.6, rereadFactor: 3 } as const;
+
+/** How long a run's next session waits for an earlier host of the run to end (0006 decision 8). */
+export const HOST_EXIT_WAIT_MS = 30_000;
+const HOST_EXIT_POLL_MS = 250;
+
+/** The signals a run's new session clears: what a restart observed of the old host (DIPO-57). */
+const HOST_SIGNALS = ["host-lost", "follow-only"] as const;
 
 /** `engine.notice` codes of a run's next session. */
 export const RESUME_NOTICES = {
@@ -122,6 +132,13 @@ export interface RunResumerDeps {
     ): void;
   };
   readonly onChanged?: (office: OfficeId) => void;
+  /**
+   * Liveness of the run's earlier hosts (DIPO-57, 0006 decision 8): no new host starts while one
+   * of them still runs. Without it nothing is checked.
+   */
+  readonly probe?: ProcessProbe;
+  /** How long the next session waits for an earlier host to end; `HOST_EXIT_WAIT_MS` by default. */
+  readonly hostExitWaitMs?: number;
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
   /** The handoff facts of the worktree; `gatherHandoff` on the office git by default. */
@@ -143,6 +160,11 @@ export interface NextSessionRequest {
   readonly why: string;
   /** The first message instead of the resume delta, added after the handoff block otherwise. */
   readonly message?: string;
+  /**
+   * Only a resume will do (DIPO-57: a host lost while the daemon was down): when the session
+   * cannot be resumed nothing starts and the outcome is `notResumed`.
+   */
+  readonly requireResume?: boolean;
   /** The run's caps as run control tracks them. */
   readonly caps: Caps;
   /** When the run's first worker started, on the engine clock. */
@@ -165,6 +187,16 @@ export type NextSessionOutcome =
       readonly notResumed?: string;
     }
   | { readonly kind: "startFailed"; readonly hold: AdapterHold }
+  | { readonly kind: "notResumed"; readonly reason: string }
+  /**
+   * An earlier host of the run still runs after the wait (0006 decision 8): nothing started. The
+   * code is 0005's retryable `run.hostAlive`.
+   */
+  | {
+      readonly kind: "hostAlive";
+      readonly code: Extract<RetryableErrorCode, "run.hostAlive">;
+      readonly pid: number;
+    }
   | { readonly kind: "failed"; readonly reason: string };
 
 /** Starts a run's next session. */
@@ -293,6 +325,9 @@ export class RunResumer implements NextSession {
     } else if (request.mode === "resume") {
       notResumed = "the previous session never started";
     }
+    if (request.requireResume === true && !resume) {
+      return { kind: "notResumed", reason: notResumed ?? "the session cannot be resumed" };
+    }
     if (!resume && "error" in handoff) {
       return { kind: "failed", reason: `the handoff could not be built: ${handoff.error}` };
     }
@@ -343,6 +378,10 @@ export class RunResumer implements NextSession {
     }
     if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
 
+    // Never a new host while an earlier host of the run still runs (0006 decision 8).
+    const alive = await this.#earlierHostAlive(office, run.runId);
+    if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
+
     // The new host appends to the run's event file: its ingestion starts after what is there.
     const eventFile = join(paths.runDir, EVENTS_FILE);
     let offset = 0;
@@ -351,28 +390,17 @@ export class RunResumer implements NextSession {
     } catch {
       offset = 0;
     }
-    let host;
-    try {
-      host = await deps.hosts.start(office, {
-        runId: run.runId,
-        agentId: agent,
-        officeDir: paths.officeDir,
-        plan: prepared.plan,
-      });
-    } catch (error) {
-      return { kind: "failed", reason: `the worker host did not start: ${messageOf(error)}` };
-    }
-    const at = deps.clock.now();
+    // The host row, its start offset and the new agent are one transaction (DIPO-57), so a daemon
+    // that stops while the host starts finds the new agent at its restart and follows its host
+    // instead of starting another session. The same transaction ends what the restart observed of
+    // the old host (DIPO-57) and the signals the caller names (DIPO-61), before the new session's
+    // first ingestion pass can raise any of them again.
     const work: WorkRef = { ...request.work, agent, model: tier.model };
-    office.immediate(() => {
+    let recorded = false;
+    const recordAgent = () => {
       office.run(
-        `update worker_hosts set processed_offset = $offset
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { offset, run: run.runId, agent },
-      );
-      office.run(
-        `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
-           system_hash, started_at)
+        `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
+           session_id, system_hash, started_at)
          values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
         {
           agent,
@@ -383,31 +411,63 @@ export class RunResumer implements NextSession {
           session: session.id,
           // A resume keeps the system file the session started with.
           hash: resume ? previous.systemHash : systemHash,
-          at,
+          at: deps.clock.now(),
         },
       );
-      const cleared = clearSignals(office, run.runId, request.clear ?? [], at);
-      if (cleared.length > 0) {
-        appendEntries(
+      const at = deps.clock.now();
+      const cleared = clearSignals(
+        office,
+        run.runId,
+        [...HOST_SIGNALS, ...(request.clear ?? [])],
+        at,
+      );
+      if (cleared.length === 0) return;
+      appendEntries(
+        office,
+        withWorkViews(
           office,
-          withWorkViews(
-            office,
-            cleared.map((signal) => ({
-              type: "work.observed",
-              key: work.key,
-              run: run.runId,
-              delta: {
-                work,
-                signal: signal.signal,
-                since: new Date(signal.since).toISOString(),
-                clearedAt: new Date(at).toISOString(),
-              },
-            })),
-          ),
-          { at },
+          cleared.map((signal): NewEntry => ({
+            type: "work.observed",
+            key: work.key,
+            run: run.runId,
+            delta: {
+              work,
+              signal: signal.signal,
+              since: new Date(signal.since).toISOString(),
+              clearedAt: new Date(at).toISOString(),
+            },
+          })),
+        ),
+        { at },
+      );
+    };
+    let host;
+    try {
+      host = await deps.hosts.start(office, {
+        runId: run.runId,
+        agentId: agent,
+        officeDir: paths.officeDir,
+        plan: prepared.plan,
+        processedOffset: offset,
+        record: () => {
+          recordAgent();
+          recorded = true;
+        },
+      });
+    } catch (error) {
+      return { kind: "failed", reason: `the worker host did not start: ${messageOf(error)}` };
+    }
+    if (!recorded) {
+      // A host starter that does not take the extras: the same writes, after the start.
+      office.immediate(() => {
+        office.run(
+          `update worker_hosts set processed_offset = $offset
+            where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          { offset, run: run.runId, agent },
         );
-      }
-    });
+        recordAgent();
+      });
+    }
     deps.control.track(request.office, {
       runId: run.runId,
       work,
@@ -449,6 +509,29 @@ export class RunResumer implements NextSession {
       resumed: resume,
       ...(notResumed === undefined ? {} : { notResumed }),
     };
+  }
+
+  /**
+   * The PID of an earlier host of the run that still runs after waiting up to the host exit wait,
+   * or null. A host whose exit was just ingested writes `exit.json` and ends within moments.
+   */
+  async #earlierHostAlive(office: OfficeHandle, runId: RunId): Promise<number | null> {
+    const probe = this.#deps.probe;
+    if (probe === undefined) return null;
+    const deadline = this.#deps.clock.now() + (this.#deps.hostExitWaitMs ?? HOST_EXIT_WAIT_MS);
+    for (;;) {
+      let alive: number | null = null;
+      for (const host of workerHostsOf(office, runId)) {
+        if (await hostAlive(host, probe)) {
+          alive = host.pid;
+          break;
+        }
+      }
+      if (alive === null || this.#deps.clock.now() >= deadline) return alive;
+      await new Promise<void>((resolve) => {
+        this.#deps.clock.setTimeout(resolve, HOST_EXIT_POLL_MS);
+      });
+    }
   }
 
   /** What remains of the run's caps for the CLI's own caps; at least one of each. */

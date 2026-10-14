@@ -50,6 +50,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
+import { finalizeAgentUsage } from "../ingest/usage";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { workRefOf, withWorkViews } from "../views/work";
 import { type AdapterHold, holdMessage, type LaunchCheckFailure } from "../workers/hold";
@@ -101,7 +102,14 @@ export const OUTCOME_ENDS = {
   crashed: "crashed",
   capped: "capped",
   blocked: "blocked",
+  interrupted: "interrupted",
 } as const;
+
+/** `agents.end_reason` of an agent whose host died without an exit file (DIPO-57). */
+export const HOST_LOST_END = "host-lost";
+
+/** Why a run lost its host, for the park and the resume (0006 decision 8, 0008 section 7). */
+export const HOST_LOST_WHY = "the worker host died while the daemon was down";
 
 /** Milliseconds from closing stdin to SIGTERM for a reassign (0008 section 6). */
 export const REASSIGN_SIGTERM_AFTER_MS = 10_000;
@@ -196,6 +204,8 @@ export interface RunAct {
 export interface RunEnder {
   /** True while the run is tracked and nothing was decided for it. */
   live(runId: string): boolean;
+  /** True while the run is tracked, decided or not (DIPO-57); its exit is decided there. */
+  isTracked?(runId: string): boolean;
   /** The first decision on a tracked run, parking it; false when one was made already. */
   begin(runId: string, ending: RunEnding): boolean;
   /** The first decision on a tracked run without a park; false when one was made already. */
@@ -252,6 +262,16 @@ export interface RunOutcomesPort {
   /** A turn arrived: an open report feedback is answered. */
   answered(view: RunView): void;
   onExit(exit: ExitContext): Promise<void>;
+  /** The run's host died without an exit file or an exit line (DIPO-57). */
+  onHostLost?(lost: HostLostContext): Promise<void>;
+}
+
+/** A host found dead without `exit.json` after a restart, as run control hands it over. */
+export interface HostLostContext {
+  readonly view: RunView;
+  readonly agent: string;
+  /** A decision on the run under way (from its caught-up turns), or null. */
+  readonly ending: Promise<unknown> | null;
 }
 
 /** The ending of a rejected init (0008 sections 2 and 7). */
@@ -535,6 +555,103 @@ export class RunOutcomes implements RunOutcomesPort {
     }
   }
 
+  /** True while an exit or a lost host of the run is being decided here (DIPO-57). */
+  busy(runId: string): boolean {
+    return [...this.#deciding].some((key) => key.startsWith(`${runId} `));
+  }
+
+  /**
+   * A host found dead after a restart, with no `exit.json` and no exit line (0006 decision 8,
+   * 0008 section 7): `work.observed host-lost` (health `lost`) and the agent ends `host-lost`;
+   * then as a crash row, except that only a resume will do: the session is resumed once when
+   * budget remains and `canResume` holds (the dead agent's usage finalized first), else the story
+   * parks `interrupted`. An intent from before the stop that explains an exit decides it instead.
+   */
+  async onHostLost(lost: HostLostContext): Promise<void> {
+    const key = `${lost.view.runId} ${lost.agent}`;
+    if (this.#deciding.has(key)) return;
+    this.#deciding.add(key);
+    try {
+      await lost.ending?.catch(() => undefined);
+      const { view, agent } = lost;
+      const office = this.#deps.offices.get(view.office);
+      if (office === undefined) return;
+      const intent = this.#explaining(office, view.runId);
+      const at = this.#deps.clock.now();
+      // The agent ends with the signal in one transaction: a restart before the decision below
+      // finds `host-lost` and decides it again.
+      this.#write(office, () => {
+        office.run(
+          `update agents set ended_at = coalesce(ended_at, $at),
+             end_reason = coalesce(end_reason, $reason)
+           where office_id = $office_id and agent_id = $agent`,
+          { at, agent, reason: intent === null ? HOST_LOST_END : "exited" },
+        );
+        office.run(
+          `update ingest_cursors set ended_at = coalesce(ended_at, $at)
+            where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          { at, run: view.runId, agent },
+        );
+        office.run(
+          `update worker_hosts set ended_at = coalesce(ended_at, $at)
+            where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          { at, run: view.runId, agent },
+        );
+        const raised = raiseSignal(office, view.runId, "host-lost", at);
+        if (raised === null) return [];
+        return [
+          {
+            type: "work.observed",
+            key: view.work.key,
+            run: view.runId,
+            delta: { work: view.work, signal: "host-lost", since: new Date(at).toISOString() },
+          },
+        ];
+      });
+      const run = findRun(office, view.runId);
+      if (run === null) return;
+      if (run.endedAt !== null) {
+        if (intent !== null) this.#resolve(office, view.runId, intent, this.#outcomeOf(intent), at);
+        return;
+      }
+      if (intent !== null) {
+        await this.#byIntent(office, run, view, agent, intent);
+        return;
+      }
+      await this.#hostLost(office, run, view, agent);
+    } finally {
+      this.#deciding.delete(key);
+    }
+  }
+
+  /** The decision on an agent that ended `host-lost`: one resume, else park `interrupted`. */
+  async #hostLost(
+    office: OfficeHandle,
+    run: StoredRun,
+    view: RunView,
+    agent: string,
+  ): Promise<void> {
+    const refused = this.#noRetry(office, view, agent);
+    if (refused !== null) {
+      const suffix = refused === "" ? "; dipo cannot start another session of the run" : refused;
+      await this.#park(office, run, view.work, {
+        intent: "park",
+        ops: [],
+        reason: "interrupted",
+        detail: `${HOST_LOST_WHY}${suffix}`,
+        endKind: OUTCOME_ENDS.interrupted,
+      });
+      return;
+    }
+    // The dead agent's usage is final before the resumed session adds its own (AC #9).
+    office.immediate(() => finalizeAgentUsage(office, run.runId, agent, this.#deps.clock.now()));
+    await this.#next(office, run, view, {
+      mode: "resume",
+      why: HOST_LOST_WHY,
+      requireResume: true,
+    });
+  }
+
   async #decideExit(exit: ExitContext): Promise<void> {
     await exit.turns.catch(() => undefined);
     await exit.ending?.catch(() => undefined);
@@ -579,9 +696,13 @@ export class RunOutcomes implements RunOutcomesPort {
   ): Promise<void> {
     const at = this.#deps.clock.now();
     const tag = intentTag(intent.detail);
+    // The intent is resolved in the transaction that records why the agent ended (DIPO-57), so a
+    // restart before the next session started finds the decision and starts that session.
     if (intent.kind === "reassign" && tag === INTENT_TAGS.contextFull) {
-      this.#resolve(office, view.runId, intent, "reassigned", at);
-      this.#endAgent(office, agent, "prompt-too-long");
+      office.immediate(() => {
+        resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
+        this.#endAgentIn(office, agent, "prompt-too-long");
+      });
       await this.#next(office, run, view, {
         mode: "handoff",
         why: "a full context (prompt_too_long)",
@@ -589,8 +710,10 @@ export class RunOutcomes implements RunOutcomesPort {
       return;
     }
     if (intent.kind === "reassign" && tag === INTENT_TAGS.error) {
-      this.#resolve(office, view.runId, intent, "reassigned", at);
-      this.#endAgent(office, agent, "crashed");
+      office.immediate(() => {
+        resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
+        this.#endAgentIn(office, agent, "crashed");
+      });
       await this.#next(office, run, view, {
         mode: "resume",
         why: `an execution error (${intentRest(intent.detail)})`,
@@ -760,7 +883,10 @@ export class RunOutcomes implements RunOutcomesPort {
   /** Why a crash gets no retry, as a detail suffix; null when it gets one. */
   #noRetry(office: OfficeHandle, view: RunView, agent: string): string | null {
     if (this.#deps.resumer === undefined) return "";
-    if (this.#endedAs(office, view.runId, agent, "crashed")) {
+    if (
+      this.#endedAs(office, view.runId, agent, "crashed") ||
+      this.#endedAs(office, view.runId, agent, HOST_LOST_END)
+    ) {
       return "; the run's one resume after a crash was used";
     }
     const cap = firedCap(
@@ -780,6 +906,8 @@ export class RunOutcomes implements RunOutcomesPort {
       readonly mode: "resume" | "handoff";
       readonly why: string;
       readonly message?: string;
+      /** Only a resume will do; a session that cannot be resumed parks `interrupted` (DIPO-57). */
+      readonly requireResume?: boolean;
       readonly clear?: readonly WatchdogSignal[];
     },
   ): Promise<boolean> {
@@ -803,6 +931,7 @@ export class RunOutcomes implements RunOutcomesPort {
         mode: request.mode,
         why: request.why,
         ...(request.message === undefined ? {} : { message: request.message }),
+        ...(request.requireResume === true ? { requireResume: true } : {}),
         ...(request.clear === undefined ? {} : { clear: request.clear }),
         caps: view.caps,
         startedAt: view.startedAt,
@@ -824,6 +953,25 @@ export class RunOutcomes implements RunOutcomesPort {
           reason: "worker-failed",
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.crashed,
+        });
+        return false;
+      case "hostAlive":
+        // Retryable: `work.resume` starts the session once the old host has ended.
+        await this.#park(office, run, view.work, {
+          intent: "park",
+          ops: [],
+          reason: "worker-failed",
+          detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
+          endKind: OUTCOME_ENDS.crashed,
+        });
+        return false;
+      case "notResumed":
+        await this.#park(office, run, view.work, {
+          intent: "park",
+          ops: [],
+          reason: "interrupted",
+          detail: `${request.why}; its session cannot be resumed: ${outcome.reason}`,
+          endKind: OUTCOME_ENDS.interrupted,
         });
         return false;
     }
@@ -952,8 +1100,9 @@ export class RunOutcomes implements RunOutcomesPort {
     if (office === undefined) return 0;
     let count = 0;
     for (const run of activeRuns(office)) {
-      const deciding = [...this.#deciding].some((key) => key.startsWith(`${run.runId} `));
-      if (run.kind !== "story" || deciding) continue;
+      // A run decided here, or followed by run control (re-attached, DIPO-57), is decided there.
+      const tracked = this.#deps.ender().isTracked?.(run.runId) ?? false;
+      if (run.kind !== "story" || this.busy(run.runId) || tracked) continue;
       const agent = office.get<{
         agent_id: string;
         end_reason: string | null;
@@ -965,9 +1114,20 @@ export class RunOutcomes implements RunOutcomesPort {
         { run: run.runId },
       );
       if (agent === null || agent.ended_at === null) continue;
-      // A crash or a full context decided before the stop, whose next session never started.
+      // A host newer than the newest agent is a session that started while the daemon stopped
+      // (DIPO-57): re-attach follows it; no other session may start next to it.
+      const newestHost = office.get<{ agent_id: string }>(
+        `select agent_id from worker_hosts where office_id = $office_id and run_id = $run
+          order by started_at desc, rowid desc limit 1`,
+        { run: run.runId },
+      );
+      if (newestHost !== null && newestHost.agent_id !== agent.agent_id) continue;
+      // A crash, a full context or a lost host decided before the stop, whose next session never
+      // started.
       const decided =
-        agent.end_reason === "crashed" || agent.end_reason === "prompt-too-long"
+        agent.end_reason === "crashed" ||
+        agent.end_reason === "prompt-too-long" ||
+        agent.end_reason === HOST_LOST_END
           ? agent.end_reason
           : null;
       if (agent.end_reason !== "exited" && decided === null) continue;
@@ -1004,6 +1164,10 @@ export class RunOutcomes implements RunOutcomesPort {
         const key = `${run.runId} ${agent.agent_id}`;
         this.#deciding.add(key);
         try {
+          if (decided === HOST_LOST_END) {
+            await this.#hostLost(office, run, view, agent.agent_id);
+            continue;
+          }
           await this.#next(
             office,
             run,
@@ -1172,13 +1336,16 @@ export class RunOutcomes implements RunOutcomesPort {
 
   /** Records why the agent ended, replacing the ingestor's `exited` (a decision, so once). */
   #endAgent(office: OfficeHandle, agent: string, reason: string): void {
-    office.immediate(() =>
-      office.run(
-        `update agents set end_reason = $reason
-          where office_id = $office_id and agent_id = $agent
-            and (end_reason is null or end_reason = 'exited')`,
-        { reason, agent },
-      ),
+    office.immediate(() => this.#endAgentIn(office, agent, reason));
+  }
+
+  /** `#endAgent` inside the caller's transaction. */
+  #endAgentIn(office: OfficeHandle, agent: string, reason: string): void {
+    office.run(
+      `update agents set end_reason = $reason
+        where office_id = $office_id and agent_id = $agent
+          and (end_reason is null or end_reason = 'exited')`,
+      { reason, agent },
     );
   }
 

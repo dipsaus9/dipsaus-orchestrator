@@ -1,13 +1,14 @@
 // The daemon package's only export is `runDaemon(argv)` (0004, 0006 decision 2): every form of the
 // binary that runs daemon-side code calls it with the arguments after `daemon` (or `self-check`),
 // and it dispatches on the first one. The table below is the one place a form is added; later
-// stories add `hook` (DIPO-59) and `restore` (DIPO-76).
+// stories add `hook` (DIPO-59). `restore` (DIPO-76) is reached as `dipo restore <file>`.
 
 import { tmpdir } from "node:os";
 
 import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine";
 
 import { FOREGROUND_USAGE, runForeground } from "./foreground";
+import { RESTORE_USAGE, runRestoreForm } from "./restore";
 import { runSandboxExecForm } from "./sandbox-exec";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
@@ -48,6 +49,8 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
       },
     },
   ],
+  // Offline maintenance outside the contract (0006 amendment of 2026-10-12, DIPO-76).
+  ["restore", { usage: RESTORE_USAGE, run: (args, io) => runRestoreForm(args, io) }],
   // Hidden: runs one engine step inside the bundled sandbox runtime (DIPO-37).
   ["sandbox-exec", { usage: null, run: runSandboxExecForm }],
   // Hidden: the daemon side of `dipo self-check` (DIPO-17).
