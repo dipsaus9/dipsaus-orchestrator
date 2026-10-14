@@ -213,6 +213,7 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
   "office.snapshot": { args: { office: ids.office }, result: officeSnapshot },
+  "office.switch": { args: { office: ids.office }, result: officeSnapshot },
   "story.detail": {
     args: { office: ids.office, story: "DIPO-21" },
     result: {
@@ -238,6 +239,14 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
           by: "rule",
           note: "blocking finding",
           at: "2026-10-12T08:50:00Z",
+        },
+        {
+          gate: ids.gate,
+          kind: "ready",
+          decision: "rejected",
+          by: "rule",
+          failures: ["ready DIPO-21 failed R07: milestone is missing or does not exist"],
+          at: "2026-10-12T08:10:00Z",
         },
       ],
     },
@@ -351,8 +360,14 @@ const officeEventFixtures: Record<string, unknown> = {
     to: 1040,
     text: "Running tests…\n",
   },
-  "work.observed": { work: workRef, signal: "same-failure", since: "2026-10-12T09:01:00Z" },
-  "usage.updated": { work: workRef, usage },
+  "work.observed": {
+    work: workRef,
+    signal: "quiet",
+    since: "2026-10-12T09:01:00Z",
+    clearedAt: "2026-10-12T09:02:00Z",
+    view: workView,
+  },
+  "usage.updated": { work: workRef, usage, view: workView },
   "gate.reached": gateView,
   "gate.decided": { gate: ids.gate, decision: "approved", by: "maintainer" },
   "question.asked": questionView,

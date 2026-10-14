@@ -247,6 +247,16 @@ export const officeSnapshot = defineRead({
   since: 0,
 });
 
+// Switching offices changes no engine fact, so it is a read (0005 sections 4 and 7, 0009 section 4):
+// the same args and result as `office.snapshot`. The client keeps the chosen office and sends it on
+// every command. Since minor 1 (DIPO-52).
+export const officeSwitch = defineRead({
+  name: "office.switch",
+  args: OfficeArgs,
+  result: OfficeSnapshot,
+  since: 1,
+});
+
 // One past or current run of a story.
 export const RunRecord = z.object({
   run: RunId,
@@ -261,14 +271,17 @@ export const RunRecord = z.object({
 });
 export type RunRecord = z.infer<typeof RunRecord>;
 
-// One decided gate: a verdict on a run.
+// One decided gate: a verdict on the story. `run` names the run it was decided on, absent for a
+// gate outside a run, such as the Ready gate (`ready`) or its pickup re-check (`pickup`);
+// `failures` holds the messages of the rules that failed (checked before v0.1.0, DIPO-52).
 export const Verdict = z.object({
   gate: GateId,
-  run: RunId,
+  run: RunId.optional(),
   kind: GateKind,
   decision: GateDecision,
   by: DecidedBy,
   note: z.string().optional(),
+  failures: z.array(z.string()).optional(),
   at: Timestamp,
 });
 export type Verdict = z.infer<typeof Verdict>;
@@ -472,19 +485,23 @@ export const storyRenumbered = defineEvent({
   }),
 });
 
+// The work events below carry, since minor 1 (DIPO-52), the optional `view`: the `WorkView` the
+// engine derived when it stored the fact (0005 section 6), so a client replaces the run's view
+// and never derives health or phase itself.
+
 // Run start, re-attach on resume, reassign.
 export const workAssigned = defineEvent({
   type: "work.assigned",
   stream: "office",
   derived: false,
-  data: z.object({ work: WorkRef }),
+  data: z.object({ work: WorkRef, view: WorkView.optional() }),
 });
 
 export const workPhase = defineEvent({
   type: "work.phase",
   stream: "office",
   derived: false,
-  data: z.object({ work: WorkRef, phase: Phase, progress: Progress }),
+  data: z.object({ work: WorkRef, phase: Phase, progress: Progress, view: WorkView.optional() }),
 });
 
 // Debounced, latest wins.
@@ -492,7 +509,7 @@ export const workProgress = defineEvent({
   type: "work.progress",
   stream: "office",
   derived: false,
-  data: z.object({ work: WorkRef, progress: Progress }),
+  data: z.object({ work: WorkRef, progress: Progress, view: WorkView.optional() }),
 });
 
 // A byte range in the stored output.
@@ -506,15 +523,23 @@ export const workOutput = defineEvent({
     from: Offset,
     to: Offset,
     text: z.string(),
+    view: WorkView.optional(),
   }),
 });
 
-// Watchdog facts.
+// Watchdog facts. `clearedAt` is set when the signal stopped, for example `quiet` on the next line
+// (DIPO-52).
 export const workObserved = defineEvent({
   type: "work.observed",
   stream: "office",
   derived: false,
-  data: z.object({ work: WorkRef, signal: WatchdogSignal, since: Timestamp }),
+  data: z.object({
+    work: WorkRef,
+    signal: WatchdogSignal,
+    since: Timestamp,
+    clearedAt: Timestamp.optional(),
+    view: WorkView.optional(),
+  }),
 });
 
 // Cumulative, so a duplicate or skipped one is harmless.
@@ -522,7 +547,7 @@ export const usageUpdated = defineEvent({
   type: "usage.updated",
   stream: "office",
   derived: false,
-  data: z.object({ work: WorkRef, usage: Usage }),
+  data: z.object({ work: WorkRef, usage: Usage, view: WorkView.optional() }),
 });
 
 export const gateReached = defineEvent({
@@ -617,6 +642,7 @@ export const officeCommands = [
 
 export const officeReads = [
   officeSnapshot,
+  officeSwitch,
   storyDetail,
   workOutputRange,
   officeUsage,
