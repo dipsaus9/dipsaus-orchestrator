@@ -1,10 +1,10 @@
 ---
 id: DIPO-57
 title: Re-attach worker hosts after a daemon restart
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:37'
+updated_date: '2026-10-14 14:52'
 labels:
   - 'tier:M'
 milestone: m-0
