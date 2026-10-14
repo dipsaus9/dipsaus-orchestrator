@@ -4,6 +4,7 @@
 export {
   cliRunBase,
   DEVELOPER_ROLE,
+  PLAN_LIMIT_CHECK,
   REFINED_STATUS,
   RUN_NOTICES,
   RUN_REFUSED,
@@ -160,6 +161,7 @@ export {
   intentTag,
   openWait,
   OUTCOME_ENDS,
+  PLAN_LIMIT_CONTINUE,
   OUTCOME_NOTICES,
   REASSIGN_SIGTERM_AFTER_MS,
   reportFeedbackText,
@@ -173,9 +175,28 @@ export type {
   RunEnder,
   RunOutcomesDeps,
   RunOutcomesPort,
+  PlanLimitHit,
+  PlanLimitWaits,
+  PlanLimitWarning,
   RunView,
   WaitFact,
+  WaitScope,
 } from "./outcomes";
+// Waiting for plan-limit resets and `work.resume` of held runs (DIPO-61).
+export {
+  inFamily,
+  NOT_PAUSED_OR_PARKED,
+  PLAN_LIMIT_NOTICES,
+  PLAN_LIMIT_PROBE_MS,
+  PLAN_LIMIT_RESUME_AFTER_MS,
+  PLAN_LIMIT_RETRY_MS,
+  PLAN_LIMIT_STEP,
+  PlanLimits,
+  RUN_HOST_ALIVE,
+  scopeHolds,
+  wakeAt,
+} from "./plan-limit";
+export type { PlanLimitsDeps, ResumeWaitOutcome } from "./plan-limit";
 export { baseStoryFacts, RESUME_NOTICES, RESUME_POLICY, RunResumer } from "./resume";
 export type {
   NextSession,
