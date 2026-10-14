@@ -1,10 +1,10 @@
 ---
 id: DIPO-54
 title: Show the office overview and queue and run stories from the TUI
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:10'
+updated_date: '2026-10-14 15:29'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -74,4 +74,6 @@ Implementation (DIPO-54):
 - Batching (packages/tui/src/batch.ts): the TUI takes the store state at most once per 100 ms (first change at once, the rest at the end of the window).
 - Client additions (no contract change): `CommandOptions.requestId` so a retry reuses its id; `OfficeStoreState.cursor` (last stored office cursor, from the snapshot on) and `cursorReached(current, target)`.
 - Tests: overview frames from the golden log at 120 and 80 (exact) and 70 columns, evidence markers, no line wider than the terminal at 120/100/80/79/60, queue frame, `.`, `u` on a Ready row (args, request id, office), next Ready with a dependency skip, read-your-writes on seq 8 vs 9, Ctrl-R retry with the same id, no retry for non-retryable, offline; Batcher unit tests; client tests for the request id option and the store cursor. The golden log's dipsaus office gained stories in every section and two more runs.
+
+Tested 2026-10-14. Test agent (PTY, two live Haiku runs): overview, queue sections, u start, phase/health/budget updates, width tiers and q-q exit pass; its TUI defects (stuck refusal line, uu in one write, [q] quit cut at 70 columns) were fixed. Its two engine findings (Ready 1 during a run, Ready after In Review) came from a branch that predated DIPO-56 and do not occur on main. Maintainer hand test (after merging main): Ready 0 during the run and TASK-1 under REVIEW afterwards work. Maintainer feedback: the overview is confusing, the layout feels odd, the switcher has no Ready count, and a running story's activity should be visible; recorded as DIPO-81 (overview and switcher clarity) and on DIPO-55 (live view).
 <!-- SECTION:NOTES:END -->
