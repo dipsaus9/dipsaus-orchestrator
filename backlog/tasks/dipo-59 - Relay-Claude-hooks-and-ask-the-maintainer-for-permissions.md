@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:52'
+updated_date: '2026-10-14 15:21'
 labels:
   - 'tier:M'
   - after-cutover
@@ -41,6 +41,8 @@ references:
   - packages/engine/test/host/
   - packages/engine/test/run/
   - packages/engine/test/views/
+  - packages/daemon/test/
+  - packages/contract/schema/
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
