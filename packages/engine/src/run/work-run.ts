@@ -29,6 +29,7 @@ import { relative } from "node:path";
 import {
   type AgentId,
   type ConfigError,
+  type OfficeErrorCode,
   type OfficeId,
   type Progress,
   RoleId,
@@ -84,7 +85,7 @@ export const DEVELOPER_ROLE = RoleId.parse("developer");
 export const REFINED_STATUS = "Refined";
 
 /** The error code of a run refused by an office check (`details.check` names it). */
-export const RUN_REFUSED = "run.refused";
+export const RUN_REFUSED = "run.refused" satisfies OfficeErrorCode;
 
 /** The active-work check `office.forget` asks (DIPO-27). */
 export const RUNS_CHECK = "runs";

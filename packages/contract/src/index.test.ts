@@ -207,8 +207,12 @@ describe("errors", () => {
     );
   });
 
-  it("exports the office-level codes of minor 1 (DIPO-71)", () => {
-    expect([...OFFICE_ERROR_CODES]).toEqual(["config.invalid", "backlog.unreadable"]);
+  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48)", () => {
+    expect([...OFFICE_ERROR_CODES]).toEqual([
+      "config.invalid",
+      "backlog.unreadable",
+      "run.refused",
+    ]);
   });
 
   it("marks only engine.recovering, scheduling.off, run.hostAlive and git.fetchFailed retryable", () => {
