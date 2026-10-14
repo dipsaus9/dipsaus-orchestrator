@@ -1,10 +1,10 @@
 ---
 id: DIPO-49
 title: Verify and commit the story at In Review
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 11:53'
+updated_date: '2026-10-14 12:39'
 labels:
   - 'tier:M'
   - test-before-merge
