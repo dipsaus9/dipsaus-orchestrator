@@ -336,3 +336,4 @@ Changes to accepted ADRs, each with a dated line under its "Amendments":
 ## Amendments
 
 - 2026-10-10, decision 0016 (maintainer): section 3's "base sync only when needed" applies while the worker builds. At merge time the engine always merges the base into the story branch when the base requires up-to-date branches (this repository does), through 0010's merge slot. Conflict feedback (section 7) also arises from that merge-time sync, and red required checks return the failing check's log as feedback.
+- 2026-10-14, DIPO-51 (maintainer): section 6. Until `office.yaml` reaches version 2, the 60% context share and the three-times re-read factor are engine constants; they become `office.yaml` keys with the first version 2 schema. The re-read check compares the last request's context tokens times 0.1 (cache read, last request under one hour ago) or times 2 (one-hour cache write, otherwise) with three times the handoff task message's estimated tokens times 2.

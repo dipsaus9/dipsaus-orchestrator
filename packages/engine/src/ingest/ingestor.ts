@@ -22,12 +22,14 @@ import type { PriceBook } from "../pricing/estimate";
 import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
 import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
 import { withWorkViews } from "../views/work";
-import type { HostLine, ParseState, WorkerEvent } from "../workers/types";
+import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, outputText } from "./output";
 import {
   applyTurnTotals,
+  feedFinalChanges,
   finalizeAgentUsage,
+  finalRows,
   readUsage,
   recordUsageMessage,
   setElapsed,
@@ -94,8 +96,11 @@ export interface IngestHooks {
   readonly onEventApplied?: (run: string, agent: string, event: WorkerEvent) => void;
   /** Every worker event of a committed pass, in order, for health and caps. */
   readonly onWorkerEvents?: (run: string, agent: string, events: readonly WorkerEvent[]) => void;
-  /** The worker's exit line was ingested; its usage is final. */
-  readonly onEnded?: (run: string, agent: string) => void;
+  /**
+   * The worker's exit line was ingested; its usage is final. `end` carries the exit record and the
+   * parser state after the exit line, so the engine can ask the adapter's `result` (DIPO-51).
+   */
+  readonly onEnded?: (run: string, agent: string, end: IngestedExit) => void;
   /**
    * A pass committed complete lines of the run (DIPO-52): the worker is alive, so the watchdog
    * starts its quiet and stall timers again. `quiet` and `no-output` were cleared in the pass.
@@ -106,6 +111,26 @@ export interface IngestHooks {
    * after the transaction that appended them, once per transaction.
    */
   readonly onAppended?: () => void;
+}
+
+/** A worker exit as ingestion read it (DIPO-51). */
+export interface IngestedExit {
+  readonly exit: ExitRecord;
+  /** The parser state after the exit line. */
+  readonly state: ParseState;
+}
+
+/** The exit record of an `exit` host line; unknown fields read as null. */
+export function exitRecordOf(data: string): ExitRecord {
+  try {
+    const value = JSON.parse(data) as Record<string, unknown> | null;
+    return {
+      code: typeof value?.["code"] === "number" ? value["code"] : null,
+      signal: typeof value?.["signal"] === "string" ? value["signal"] : null,
+    };
+  } catch {
+    return { code: null, signal: null };
+  }
 }
 
 export interface IngestorOptions {
@@ -347,11 +372,16 @@ export class Ingestor {
     const events: WorkerEvent[] = [];
     const rejected: string[] = [];
     let exited = false;
+    let exit: ExitRecord = { code: null, signal: null };
+    let endState: ParseState = {};
     let usageDirty = false;
     let usageSent = false;
     const end = lines[lines.length - 1]?.end ?? offset;
 
     this.#office.immediate(() => {
+      // Rows a run's end already made final (0007 amendment, DIPO-51): what changes in them now
+      // feeds `usage_daily` as a change only.
+      const finalBefore = finalRows(this.#office, run, agent);
       let state = JSON.parse(cursor.parse_state) as ParseState;
       let firstT = cursor.first_line_t;
       let lastT = cursor.last_line_t;
@@ -371,7 +401,10 @@ export class Ingestor {
         }
         firstT ??= hostLine.t;
         lastT = hostLine.t;
-        if (hostLine.ch === "exit") exited = true;
+        if (hostLine.ch === "exit") {
+          exited = true;
+          exit = exitRecordOf(hostLine.data);
+        }
         const step = target.adapter.interpret(hostLine, state);
         state = step.state;
         for (const event of step.events) {
@@ -511,12 +544,21 @@ export class Ingestor {
           },
         });
       }
+      feedFinalChanges(this.#office, run, agent, finalBefore, now);
       if (exited) {
+        endState = state;
         finalizeAgentUsage(this.#office, run, agent, now);
         this.#office.run(
           `update agents set ended_at = $now, end_reason = coalesce(end_reason, 'exited')
            where office_id = $office_id and agent_id = $agent`,
           { now, agent },
+        );
+        // The exit as the host wrote it, for a decision after a restart (DIPO-51).
+        this.#office.run(
+          `update worker_hosts set exit_code = coalesce(exit_code, $code),
+             exit_signal = coalesce(exit_signal, $signal)
+           where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          { code: exit.code, signal: exit.signal, run, agent },
         );
       }
       this.#append(entries, now);
@@ -536,7 +578,7 @@ export class Ingestor {
     this.#hooks.onLines?.(run, agent);
     if (events.length > 0) this.#hooks.onWorkerEvents?.(run, agent, events);
     for (const reason of rejected) this.#hooks.onInitRejected?.(run, agent, reason);
-    if (exited) this.#hooks.onEnded?.(run, agent);
+    if (exited) this.#hooks.onEnded?.(run, agent, { exit, state: endState });
     return { status: exited ? "ended" : "ingested", lines: lines.length, offset: end };
   }
 

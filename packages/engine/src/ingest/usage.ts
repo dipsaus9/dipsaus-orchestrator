@@ -173,7 +173,8 @@ export function setElapsed(
   );
 }
 
-interface TotalsRow {
+/** One `usage_totals` row as `usage_daily` is fed from it. */
+export interface TotalsRow {
   run_id: string;
   model: string;
   role: string;
@@ -320,4 +321,94 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
     budget: { unit: "tokens", limit, used },
     budgetShare: limit > 0 ? used / limit : 0,
   };
+}
+
+/** An agent's `usage_totals` rows that are final, by model (DIPO-51). */
+export type FinalRows = ReadonlyMap<string, TotalsRow>;
+
+/** The agent's final rows now, by model; read before a change, for `feedFinalChanges`. */
+export function finalRows(office: OfficeHandle, run: string, agent: string): FinalRows {
+  const rows = office.all<TotalsRow>(
+    `select run_id, model, role, tier, input, output, cache_create, cache_create_5m,
+       cache_create_1h, cache_read, turns, elapsed_ms,
+       budget_used, budget_limit, est_cost_micros
+     from usage_totals
+     where office_id = $office_id and run_id = $run and agent_id = $agent and final = 1`,
+    { run, agent },
+  );
+  return new Map(rows.map((row) => [row.model, row]));
+}
+
+/**
+ * Usage ingested after the run ended (0007 amendment of 2026-10-14, DIPO-51): a run usually ends
+ * before its worker's exit is ingested, so `endRun` made the agent's rows final. What ingestion
+ * changed since `before` in a row that was already final feeds only its change into
+ * `usage_daily`, in the caller's transaction, and a new row of such an agent becomes final at
+ * once. So `usage_daily` stays the sum of final rows: nothing counted twice or lost.
+ */
+export function feedFinalChanges(
+  office: OfficeHandle,
+  run: string,
+  agent: string,
+  before: FinalRows,
+  at: number,
+): void {
+  if (before.size === 0) return;
+  const day = utcDay(at);
+  for (const [model, row] of finalRows(office, run, agent)) {
+    const old = before.get(model);
+    if (old === undefined) continue;
+    const change = {
+      input: row.input - old.input,
+      output: row.output - old.output,
+      create: row.cache_create - old.cache_create,
+      create5m: row.cache_create_5m - old.cache_create_5m,
+      create1h: row.cache_create_1h - old.cache_create_1h,
+      read: row.cache_read - old.cache_read,
+      turns: row.turns - old.turns,
+      used: row.budget_used - old.budget_used,
+      cost: row.est_cost_micros === null ? null : row.est_cost_micros - (old.est_cost_micros ?? 0),
+    };
+    const moved = Object.values(change).some((value) => value !== null && value !== 0);
+    if (!moved) continue;
+    office.run(
+      `insert into usage_daily (office_id, day, role, tier, model, input, output, cache_create,
+         cache_create_5m, cache_create_1h, cache_read, turns, runs, est_cost_micros, budget_used,
+         budget_limit_sum)
+       values ($office_id, $day, $role, $tier, $model, $input, $output, $create, $create5m,
+         $create1h, $read, $turns, 0, $cost, $used, 0)
+       on conflict (office_id, day, role, tier, model) do update set
+         input = input + excluded.input,
+         output = output + excluded.output,
+         cache_create = cache_create + excluded.cache_create,
+         cache_create_5m = cache_create_5m + excluded.cache_create_5m,
+         cache_create_1h = cache_create_1h + excluded.cache_create_1h,
+         cache_read = cache_read + excluded.cache_read,
+         turns = turns + excluded.turns,
+         est_cost_micros = case
+           when excluded.est_cost_micros is null then est_cost_micros
+           else coalesce(est_cost_micros, 0) + excluded.est_cost_micros end,
+         budget_used = budget_used + excluded.budget_used`,
+      { day, role: row.role, tier: row.tier, model, ...change },
+    );
+  }
+  // A model first seen after the end: its row is final from the start.
+  finalizeAgentUsage(office, run, agent, at);
+}
+
+/**
+ * Makes the usage of every agent of the run whose exit was not ingested final, so it reaches
+ * `usage_daily` (0007 amendment of 2026-10-14, DIPO-51). `endRun` calls it in its transaction.
+ */
+export function finalizeRunAgents(office: OfficeHandle, run: string, at: number): void {
+  const agents = office.all<{ agent_id: string }>(
+    `select distinct t.agent_id from usage_totals t
+      where t.office_id = $office_id and t.run_id = $run and t.final = 0
+        and not exists (select 1 from ingest_cursors c
+          where c.office_id = t.office_id and c.run_id = t.run_id and c.agent_id = t.agent_id
+            and c.ended_at is not null)
+      order by t.agent_id`,
+    { run },
+  );
+  for (const { agent_id: agent } of agents) finalizeAgentUsage(office, run, agent, at);
 }
