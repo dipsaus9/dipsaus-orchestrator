@@ -662,3 +662,56 @@ describe("the In Review commit (DIPO-49) and the story view (DIPO-56)", () => {
     }
   });
 });
+
+describe("reconcile against after-turn work (DIPO-56)", () => {
+  it("lets no verify and commit in progress commit once reconcile stopped the run", async () => {
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    let claimed: boolean | undefined;
+    const summaries: string[] = [];
+    const control = new RunControl({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office },
+      writer: { write: async () => Promise.reject(new Error("no park expected")) },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+      finisher: {
+        afterTurn: async (ctx) => {
+          // Verify runs while reconcile decides; the commit claims the run's end first.
+          enter();
+          await gate;
+          claimed = ctx.claimEnd();
+          return claimed ? { kind: "ended" } : { kind: "continue" };
+        },
+        summarize: async (_office, run) => {
+          summaries.push(run.runId);
+        },
+      },
+    });
+    try {
+      control.track(w.f.office.officeId, {
+        runId: w.f.run,
+        work: w.work,
+        caps: ROOMY,
+        startedAt: w.f.t.clock.now(),
+      });
+      control.onWorkerEvents(w.f.run, [SCRIPTS["done"]?.at(-1) as WorkerEvent]);
+      await entered;
+      const run = findRun(w.f.office, w.f.run);
+      if (run === null) throw new Error("no run");
+      const stopped = control.stopForReconcile(w.f.office, run, {
+        code: "reconcile.runStopped",
+        text: "DIPO-1 is Done in Backlog.md",
+      });
+      open();
+      await stopped;
+      await control.idle();
+      expect(claimed).toBe(false);
+      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+      expect(summaries).toEqual([w.f.run]);
+      expect(countRows(w.f.office, "run_outcomes")).toBe(1);
+    } finally {
+      control.close();
+    }
+  });
+});

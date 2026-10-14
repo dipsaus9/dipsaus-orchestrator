@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:15'
+updated_date: '2026-10-14 13:50'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -96,4 +96,6 @@ Review follow-ups (2026-10-14):
 - The branch read now reads the committed branch tip, never the claim worktree's uncommitted edits: backlog/ is materialised from _base in a scratch directory under the worktree root, with the story's own task file taken from git show <branch>:<path>, and read there with the Backlog CLI.
 - The claim's re-read emits one story.state (Ready to In Progress) after work.assigned and work.phase; no earlier entry of the claim emits story.state, so it is not a duplicate.
 - Adopting open dipo/backlog-* PRs after a lost database is DIPO-80 (m-1).
+
+Follow-up for a later story: scratch directories <worktree root>/_branch-read-* left behind by a daemon crash during a branch read are not swept yet; each read removes its own directory when it finishes.
 <!-- SECTION:NOTES:END -->

@@ -346,6 +346,11 @@ export class RunControl {
    * `stop` intent, sends the stop sequence to its worker host if one still answers, and ends the
    * run with `endKind`, together with `notice`, in one transaction. Nothing is parked: the
    * story's status already says where it is.
+   *
+   * The decision is claimed first, before any await: no after-turn work (verify and commit, an
+   * In Review commit, a second run summary) starts or commits once reconcile decided, since it
+   * claims the run's end the same way. A decision already being carried out wins; reconcile then
+   * waits for it and does nothing more.
    */
   async stopForReconcile(
     office: OfficeHandle,
@@ -354,11 +359,32 @@ export class RunControl {
     endKind = RECONCILED_END,
   ): Promise<void> {
     const tracked = this.#tracked.get(run.runId);
-    const lastReport = tracked?.lastReport ?? null;
+    if (tracked?.ending != null) {
+      await tracked.ending.catch(() => null);
+      return;
+    }
+    const { promise: mine, resolve } = Promise.withResolvers<ParkOutcome | null>();
     if (tracked !== undefined) {
       this.#disarm(tracked);
-      this.#tracked.delete(run.runId);
+      tracked.ending = mine;
     }
+    try {
+      await this.#stopForReconcile(office, run, notice, endKind, tracked?.lastReport ?? null);
+    } finally {
+      resolve(null);
+      if (tracked !== undefined && this.#tracked.get(run.runId) === tracked) {
+        this.#tracked.delete(run.runId);
+      }
+    }
+  }
+
+  async #stopForReconcile(
+    office: OfficeHandle,
+    run: StoredRun,
+    notice: ReconcileNotice,
+    endKind: string,
+    lastReport: WorkerReport | null,
+  ): Promise<void> {
     const intentId = office.immediate(() =>
       recordIntent(office, run.runId, "stop", notice.text, this.#deps.clock.now()),
     );
@@ -408,8 +434,10 @@ export class RunControl {
     run: StoredRun,
     detail: string,
     notice: ReconcileNotice,
-  ): Promise<ParkOutcome> {
+  ): Promise<ParkOutcome | null> {
     const tracked = this.#tracked.get(run.runId);
+    // A decision already being carried out wins (see `stopForReconcile`).
+    if (tracked?.ending != null) return tracked.ending.catch(() => null);
     if (tracked !== undefined) this.#disarm(tracked);
     const work = tracked?.work ?? workRefOf(office, run.runId) ?? undefined;
     const write = (fn: () => readonly NewEntry[]): void => {
