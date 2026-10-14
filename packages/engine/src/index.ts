@@ -203,10 +203,12 @@ export type {
 } from "./commands/registry";
 export { argsHash, MemoryRequestTable, REQUEST_TTL_MS } from "./commands/requests";
 export { findStoryRefFields, resolveStoryRefs } from "./commands/story-refs";
-export { engineRegistry, FEATURES } from "./features";
+export { engineFeatures, engineRegistry, FEATURES } from "./features";
+export type { EngineFeatureOptions } from "./features";
 export * from "./backup";
 export * from "./retention";
 export * from "./git";
+export type { BacklogCli } from "./backlog/runner";
 export * from "./backlog/lane";
 export * from "./backlog/pr";
 export * from "./merge-slot";
@@ -357,6 +359,7 @@ export type { SandboxExecOptions } from "./platform/sandbox-exec";
 export {
   KNOWN_WORKER_KINDS,
   PlanError,
+  type PlanErrorPath,
   type AdapterStatus,
   type Caps,
   type ExitRecord,
@@ -466,6 +469,14 @@ export {
   type ClaudeLaunchCheckDeps,
   type PreparedLaunch,
 } from "./workers/claude-cli/launch-checks";
+export {
+  claudeCliAdapter,
+  claudeLaunchContext,
+  claudeWorkerPort,
+  type ClaudeCliAdapterDeps,
+  type ClaudeWorkerPortDeps,
+} from "./workers/claude-cli/adapter";
+export type { PreparedWorker, RunLaunchPaths, WorkerPort } from "./workers/port";
 export {
   ScriptedWorker,
   ScriptError,

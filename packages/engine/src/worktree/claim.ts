@@ -48,6 +48,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
 import { changedLinks, readWorktreeSnapshot, worktreeTampered } from "../git/snapshot";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
+import { endRun } from "../run/records";
 
 import {
   type ClaimRecord,
@@ -58,6 +59,7 @@ import {
   keysTrackingBranch,
   liveClaimOf,
   markReclaimed,
+  releaseClaim,
   type ReleasedBranch,
   releasedBranchFor,
   releaseReclaimedBy,
@@ -662,6 +664,8 @@ async function rollback(
        where office_id = $office_id and run_id = $run and released_at is null`,
       { at, run: request.runId, reason },
     );
+    // A run recorded for this claim ends with it (DIPO-74).
+    if (ended.changes > 0) endRun(deps.office, request.runId, at, reason);
     if (ended.changes > 0 && released !== null) markReclaimed(deps.office, released, null, null);
   });
 }
@@ -707,6 +711,32 @@ export async function rollBackInterruptedSetup(
       claim.key,
     ),
   ]);
+}
+
+/**
+ * Releases a live claim whose worker did not start after the claim commit (DIPO-74): the worktree
+ * is unpinned, unlocked and removed; the branch, which may already be pushed with the claim
+ * commit, stays and is recorded as released for the story (0010 section 2a), so the next claim
+ * reuses it; the claim and its run end with `reason`. The removal is its own git queue item.
+ */
+export async function releaseUnstarted(
+  deps: RollbackDeps,
+  claim: ClaimRecord,
+  reason: string,
+): Promise<void> {
+  await deps.git.run(async (git) => {
+    deps.git.unpinWorktree(claim.worktree);
+    for (const args of [
+      ["worktree", "unlock", claim.worktree],
+      ["worktree", "remove", "--force", claim.worktree],
+    ]) {
+      await git.step(git.repository, args).catch(() => undefined);
+    }
+  });
+  const at = deps.clock.now();
+  deps.office.immediate(() =>
+    releaseClaim(deps.office, claim.runId, { at, reason, keepBranch: true }),
+  );
 }
 
 // ---- helpers ---------------------------------------------------------------------------------

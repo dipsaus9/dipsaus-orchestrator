@@ -1,0 +1,95 @@
+// The prompts of a run's first session (DIPO-74; 0014 sections 1, 2, 4 and 9): the L1+L2 system
+// file for `implement` and the developer role, and the L4 task message from the story, its
+// dependencies and the context pack the default provider gathers from a checkout. A real run reads
+// its new worktree; the dry run reads `_base`, which holds the same commit the worktree would start
+// from. The session id is made here too: a UUID derived from an engine-made id.
+
+import { createHash } from "node:crypto";
+
+import type { FieldBlock } from "@dipsaus-orchestrator/contract";
+
+import type { PlainTask } from "../backlog/plain";
+import type { OfficeConfig } from "../config";
+import { createDefaultProvider } from "../context/default-provider";
+import { gatherContext } from "../context/gather";
+import { sizeClassOfWorkspace } from "../context/size";
+import type { Workspace } from "../context/types";
+import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
+import { promptStoryOf } from "../prompts/story";
+import { renderSystemFile } from "../prompts/system";
+
+/** The system file's name in the run directory (0014 section 1). */
+export const SYSTEM_FILE = "system.md";
+
+export interface RunPromptsInput {
+  readonly view: PlainTask;
+  readonly fields: FieldBlock;
+  /** The F7 dependencies' views, in the story's dependency order. */
+  readonly dependencies: readonly PlainTask[];
+  /** Repo-relative path of the story's task file. */
+  readonly taskFile: string;
+  /** The checkout the context pack is gathered from. */
+  readonly workspace: Workspace;
+  /** The commit the story branch starts from. */
+  readonly baseSha: string;
+  readonly config: Pick<OfficeConfig, "prompt">;
+}
+
+export interface RunPrompts {
+  /** The system file's text (L1+L2). */
+  readonly systemFile: string;
+  /** The task message (L4), the first user message. */
+  readonly taskMessage: string;
+}
+
+/** Renders the system file and the task message of a run's first session. */
+export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPrompts> {
+  const { workspace, config } = input;
+  const story = promptStoryOf(input.view, {
+    dependencies: input.dependencies,
+    fields: input.fields,
+    taskFile: input.taskFile,
+  });
+  const size = await sizeClassOfWorkspace(workspace);
+  const budgets = config.prompt.budgets;
+  const pack = await gatherContext({
+    workspace,
+    defaultProvider: createDefaultProvider({ workspace }),
+    request: {
+      storyId: story.id,
+      outcome: story.outcome,
+      criteria: story.criteria.map((criterion) => criterion.text),
+      scope: story.scope,
+      inputs: story.inputs,
+      components: [],
+      baseSha: input.baseSha,
+      headSha: await workspace.headSha(),
+      sizeClass: size,
+      inputsBudget: budgets.inputs[size],
+    },
+    budget: budgets.context[size],
+  });
+  const task = assembleTaskMessage({
+    story,
+    pack,
+    budgets: taskBudgetsFor(budgets, size),
+    contractMax: config.prompt.contractMax,
+  });
+  return { systemFile: renderSystemFile("implement", "developer"), taskMessage: task.text };
+}
+
+/**
+ * A version 4 UUID derived from an engine-made id (Claude Code session ids are UUIDs), so the
+ * session id comes from the injected `IdSource` and the same id always gives the same UUID.
+ */
+export function sessionUuid(id: string): string {
+  const hex = createHash("sha256").update(`dipo-session:${id}`).digest("hex").slice(0, 32);
+  const variant = ((Number.parseInt(hex.charAt(16), 16) & 0x3) | 0x8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join("-");
+}

@@ -120,9 +120,14 @@ function expandHome(label: string, path: string, home: string): string {
 const RULE_SPECIAL = /[*?[\]{}()\\!]/;
 
 function ruleSafe(label: string, path: string): string {
-  const control = [...path].some((char) => char.charCodeAt(0) < 0x20 || char === "\u007f");
-  if (control || RULE_SPECIAL.test(path)) {
-    throw new PlanError(`${label} holds a character with a meaning in permission rules: ${path}`);
+  const character = [...path].find(
+    (char) => char.charCodeAt(0) < 0x20 || char === "\u007f" || RULE_SPECIAL.test(char),
+  );
+  if (character !== undefined) {
+    throw new PlanError(`${label} holds a character with a meaning in permission rules: ${path}`, {
+      path,
+      character,
+    });
   }
   return path;
 }
@@ -299,7 +304,9 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
   const tmp = absolute("tmpDir", ctx.tmpDir);
   const systemFile = absolute("systemFile", spec.systemFile);
   if (isInside(workdir, main) || isInside(main, workdir)) {
-    throw new PlanError(`the worktree ${workdir} must lie outside the main checkout ${main}`);
+    throw new PlanError(`the worktree ${workdir} must lie outside the main checkout ${main}`, {
+      path: workdir,
+    });
   }
   for (const [label, dir] of [
     ["workdir", workdir],
@@ -308,6 +315,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     if (dir === "/" || isInside(home, dir)) {
       throw new PlanError(
         `${label} ${dir} must not be the root or hold the home directory ${home}`,
+        { path: dir },
       );
     }
   }

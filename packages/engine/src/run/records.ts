@@ -206,3 +206,16 @@ export function currentProfileId(office: OfficeHandle): string | null {
   );
   return row === null ? null : String(row.profile_id);
 }
+
+/**
+ * Ends the run `runId` with `kind` (for example the release reason of its claim), once: a run
+ * that already ended keeps its end. Runs inside the caller's transaction. Retention removes a
+ * run's rows only once it ended (`retention/run.ts`).
+ */
+export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
+  office.run(
+    `update runs set ended_at = $at, end_kind = $kind
+     where office_id = $office_id and run_id = $run and ended_at is null`,
+    { run: runId, at, kind },
+  );
+}

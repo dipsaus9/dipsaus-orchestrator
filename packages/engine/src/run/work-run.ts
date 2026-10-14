@@ -1,11 +1,14 @@
 // `work.run` (DIPO-48; 0005 section 4, 0012 sections 2 and 3, 0010 sections 2 and 7, 0013 section 2,
 // 0014 section 4, 0008 section 9): pick one Ready story from `origin/<base>` (or the named ones),
-// re-check it at pickup, claim it and record the run. Starting the worker is DIPO-74.
+// re-check it at pickup, claim it and record the run. With a launcher (DIPO-74, `launch.ts`) the
+// claim's setup also renders the prompts and runs the launch checks, and the worker starts after
+// the claim. `work.preview` (DIPO-74) is the same selection as a read that changes nothing.
 //
 // Order:
 // 1. Refusals of the whole command, each with the predicate's message: `maxAgents` above 1
 //    (`args.invalid`, M0 runs one story at a time), an invalid configuration (`config.invalid`,
-//    `configBlocksRuns`), an adapter hold (`run.refused`, `adapterHeld`), a failed fetch (the
+//    `configBlocksRuns`), an adapter hold (`run.refused`, `adapterHeld`; a run that names its
+//    stories goes on and repeats the launch checks, which lift the hold), a failed fetch (the
 //    retryable `git.fetchFailed`), statuses the base lacks (`run.refused`, `officeStatusesReady`)
 //    and an unresolved verify (`run.refused`, `verifyResolved`). The daemon answers the retryable
 //    `scheduling.off` in `safe` before the command reaches the engine.
@@ -21,8 +24,11 @@
 // 6. The claim (DIPO-38) runs the pickup re-check (the Ready gate in `pickup` mode, stored through
 //    DIPO-71) first inside its git queue item. A failed re-check moves the story to Refined through
 //    the backlog lane and emits `story.state` with the gate messages in `detail`.
-// 7. A claimed story gets its run row, its developer agent, the configuration snapshot and the
-//    `setup` phase, and `work.assigned` and `work.phase setup` in the same transaction.
+// 7. A claimed story gets its run row (with the slot setup took), its developer agent (with the
+//    engine-made session id), the configuration snapshot and the `setup` phase, and
+//    `work.assigned` and `work.phase setup` in the same transaction.
+// 8. With a launcher, the worker host starts and `work.phase build` follows; a failed setup or
+//    launch check rolled the claim back in step 6 (a `pickupCheckFailed` skip, the story Ready).
 
 import { relative } from "node:path";
 
@@ -38,6 +44,7 @@ import {
   StoryId,
   type StoryKey,
   type WorkRef,
+  workPreview,
   workRun,
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -52,7 +59,12 @@ import { backlogCheckBlocked } from "../backlog/pr/records";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
-import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
+import type {
+  AsyncCommandContext,
+  CommandOutcome,
+  FeatureModule,
+  ReadContext,
+} from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate/store/feature";
@@ -65,8 +77,11 @@ import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { deriveStoryView, storyView } from "../views/story";
 import { type AdapterHold, holdMessage } from "../workers/hold";
+import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
-import { liveClaimOf } from "../worktree/records";
+import { type ClaimRecord, liveClaimOf } from "../worktree/records";
+
+import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
 
 import {
   activeRuns,
@@ -150,14 +165,34 @@ export interface WorkRunDeps {
       mode: GateMode,
       checkout?: BaseCheckout,
     ): Promise<{ readonly passed: boolean; readonly result: GateResult }>;
+    /** The gate evaluated on `_base` without storing it (`work.preview`). */
+    checkGate?(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateResult>;
   };
   readonly lane: (office: OfficeId) => RunLane | undefined;
+  /**
+   * Setup, the prompts, the launch checks and the worker start of a claimed run (DIPO-74). Without
+   * it a claimed run stops at the `setup` phase with no worker, as DIPO-48 left it.
+   */
+  readonly launcher?: RunLauncher;
 }
 
 type Args = z.output<typeof workRun.args>;
 type Result = z.input<typeof workRun.result>;
 type Started = Result["started"][number];
 type Skipped = Result["skipped"][number];
+
+type PreviewArgs = z.output<typeof workPreview.args>;
+type Preview = z.input<typeof workPreview.result>;
+
+/** What the claim of a candidate needs, once every check that writes nothing passed. */
+interface Startable {
+  readonly view: PlainTask;
+  readonly fields: ReturnType<typeof parseFieldBlock>["fields"];
+  readonly branch: string;
+  readonly tier: string;
+  readonly caps: OfficeConfig["tiers"]["S"];
+  readonly taskFile: string;
+}
 
 interface Candidate {
   readonly story: StoryId;
@@ -222,8 +257,16 @@ export class WorkRun {
         { office },
       );
     }
+    // A run that names its stories is the explicit run that repeats the launch checks (DIPO-43,
+    // DIPO-74): they lift the hold when they pass. Without names the hold refuses the run.
     const hold = deps.adapterHeld(config.worker.adapter);
-    if (hold !== null) throw refused(office, "adapter", holdMessage(hold));
+    if (hold !== null && (args.stories === undefined || deps.launcher === undefined)) {
+      throw refused(
+        office,
+        "adapter",
+        `${holdMessage(hold)} To repeat the checks, name the story: \`dipo run <ID>\`.`,
+      );
+    }
 
     try {
       await deps.base.fetch(office);
@@ -288,6 +331,61 @@ export class WorkRun {
     return { result: { started, skipped } };
   }
 
+  /**
+   * The checks of one candidate that write nothing (step 4 up to the contract): a skip reason,
+   * `gate` when only the pickup gate can say what is wrong, or what the claim needs.
+   */
+  #precheck(
+    handle: OfficeHandle,
+    c: {
+      readonly candidate: Candidate;
+      readonly status: string | undefined;
+      readonly view: PlainTask | undefined;
+      readonly unparsed: boolean;
+      readonly checkout: BaseCheckout;
+      readonly full: boolean;
+      readonly config: OfficeConfig;
+    },
+  ): SkipReason | "gate" | Startable | { readonly tooLarge: string } {
+    const { story, key } = c.candidate;
+    // Not on the base: a draft, or a story archived or completed since the last index.
+    if (c.status === undefined) return "notRunnable";
+    const byStatus = statusSkip(c.status);
+    if (byStatus !== null) return byStatus;
+    if (liveClaimOf(handle, key) !== null) return "notRunnable";
+    if (c.full) return "capacity";
+    if (pendingLaneOp(handle, key) !== null) return "notRunnable";
+    if (backlogCheckBlocked(handle, key) !== null) return "notRunnable";
+    const view = c.view;
+    if (view === undefined || c.unparsed) return "gate";
+    if (openDependencies(view).length > 0) return "dependency";
+
+    let fields;
+    try {
+      fields = parseFieldBlock(view.description).fields;
+    } catch {
+      return "gate";
+    }
+    const branch = fields.branch;
+    const tier = readLabels(view.labels).tiers[0];
+    const caps =
+      tier === undefined ? undefined : c.config.tiers[tier as keyof OfficeConfig["tiers"]];
+    if (typeof branch !== "string" || !branch.startsWith(`${story}/`) || caps === undefined) {
+      return "gate";
+    }
+    const taskFile = relative(c.checkout.path, view.file);
+    try {
+      assembleContract(
+        promptStoryOf(view, { dependencies: [], fields, taskFile }),
+        c.config.prompt.contractMax,
+      );
+    } catch (error) {
+      if (!(error instanceof ContractTooLargeError)) throw error;
+      return { tooLarge: `${story} cannot start: ${error.code}: ${error.message}` };
+    }
+    return { view, fields, branch, tier: tier as string, caps, taskFile };
+  }
+
   /** Starts one candidate, or returns why it was skipped. */
   async #tryStart(
     ctx: AsyncCommandContext,
@@ -306,49 +404,28 @@ export class WorkRun {
     const handle = ctx.office;
     const office = handle.officeId;
     const { story, key } = c.candidate;
-    // Not on the base: a draft, or a story archived or completed since the last index.
-    if (c.status === undefined) return "notRunnable";
-    const byStatus = statusSkip(c.status);
-    if (byStatus !== null) return byStatus;
-    if (liveClaimOf(handle, key) !== null) return "notRunnable";
-    if (c.full) return "capacity";
-    if (pendingLaneOp(handle, key) !== null) return "notRunnable";
-    if (backlogCheckBlocked(handle, key) !== null) return "notRunnable";
-    const view = c.view;
-    if (view === undefined || c.unparsed) return this.#gateOutsideClaim(ctx, c.candidate);
-    if (openDependencies(view).length > 0) return "dependency";
-
-    let fields;
-    try {
-      fields = parseFieldBlock(view.description).fields;
-    } catch {
-      return this.#gateOutsideClaim(ctx, c.candidate);
-    }
-    const branch = fields.branch;
-    const tier = readLabels(view.labels).tiers[0];
-    const caps =
-      tier === undefined ? undefined : c.config.tiers[tier as keyof OfficeConfig["tiers"]];
-    if (typeof branch !== "string" || !branch.startsWith(`${story}/`) || caps === undefined) {
-      return this.#gateOutsideClaim(ctx, c.candidate);
-    }
-    try {
-      assembleContract(
-        promptStoryOf(view, {
-          dependencies: [],
-          fields,
-          taskFile: relative(c.checkout.path, view.file),
-        }),
-        c.config.prompt.contractMax,
-      );
-    } catch (error) {
-      if (!(error instanceof ContractTooLargeError)) throw error;
-      await this.#toRefined(ctx, c.candidate, [
-        `${story} cannot start: ${error.code}: ${error.message}`,
-      ]);
+    const checked = this.#precheck(handle, c);
+    if (checked === "gate") return this.#gateOutsideClaim(ctx, c.candidate);
+    if (typeof checked === "string") return checked;
+    if ("tooLarge" in checked) {
+      await this.#toRefined(ctx, c.candidate, [checked.tooLarge]);
       return "pickupCheckFailed";
     }
+    const { view, fields, branch, tier, caps } = checked;
 
     const runId = RunId.parse(ctx.ids.next("run"));
+    const agent = ctx.ids.next("agt") as AgentId;
+    const launcher = this.#deps.launcher;
+    const facts: RunFacts = {
+      office,
+      runId,
+      agent,
+      view,
+      fields,
+      caps,
+      config: c.config,
+      taskFile: checked.taskFile,
+    };
     let failures: string[] | null = null;
     let outcome: ClaimOutcome;
     try {
@@ -368,6 +445,13 @@ export class WorkRun {
           failures = decision.result.failures.map((failure) => failure.message);
           return { ok: false, reason: "pickupCheckFailed", notice: null, code: null };
         },
+        // Setup, the prompts and the launch checks, before the claim commit (DIPO-74).
+        ...(launcher === undefined
+          ? {}
+          : {
+              setup: (claim: ClaimRecord) =>
+                launcher.prepare(facts, claim, (entry) => ctx.commit(() => [entry])),
+            }),
       });
     } catch (error) {
       throw commandErrorOf(error);
@@ -376,15 +460,16 @@ export class WorkRun {
       if (failures !== null) await this.#toRefined(ctx, c.candidate, failures);
       return outcome.reason;
     }
+    const prepared = outcome.setup as PreparedRun | null;
+    const session = prepared === null ? null : prepared.spec.session.id;
 
-    const agent = ctx.ids.next("agt") as AgentId;
     const work: WorkRef = {
       story,
       key,
       run: runId,
       agent,
       role: DEVELOPER_ROLE,
-      tier: tier as string,
+      tier,
       model: caps.model,
     };
     const progress: Progress = {
@@ -403,13 +488,13 @@ export class WorkRun {
         kind: "story",
         key,
         story,
-        tier: tier as string,
+        tier,
         role: DEVELOPER_ROLE,
         model: caps.model,
         startSha: outcome.claim.startSha,
         branch: outcome.claim.branch,
         worktree: outcome.claim.worktree,
-        slot: null,
+        slot: prepared?.slot ?? null,
         budgetUnit: "tokens",
         budgetLimit: caps.budgetTokens,
         loopCap: caps.loops,
@@ -419,10 +504,20 @@ export class WorkRun {
         runProfileId: currentProfileId(handle),
         startedAt: at,
       });
+      // The engine-made session id is stored on the run's agent (0007 section 4, `agents`).
       handle.run(
-        `insert into agents (office_id, agent_id, run_id, role, model, started_at)
-         values ($office_id, $agent, $run, $role, $model, $at)`,
-        { agent, run: runId, role: DEVELOPER_ROLE, model: caps.model, at },
+        `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
+           started_at)
+         values ($office_id, $agent, $run, $role, $model, $effort, $session, $at)`,
+        {
+          agent,
+          run: runId,
+          role: DEVELOPER_ROLE,
+          model: caps.model,
+          effort: prepared === null ? null : caps.effort,
+          session,
+          at,
+        },
       );
       appendRunStep(handle, runId, "phase", "setup", at);
       return [
@@ -430,6 +525,16 @@ export class WorkRun {
         { type: "work.phase", key, run: runId, delta: { work, phase: "setup", progress } },
       ];
     });
+    if (launcher !== undefined && prepared !== null) {
+      const startedRun = await launcher.start(ctx, {
+        facts,
+        prepared,
+        claim: outcome.claim,
+        work,
+        progress,
+      });
+      if (!startedRun.ok) return "pickupCheckFailed";
+    }
     c.started.push({ story, key, run: runId });
     return null;
   }
@@ -525,7 +630,140 @@ export class WorkRun {
     });
   }
 
-  /** The command `work.run` and the active-run check of `office.forget`. */
+  /**
+   * `work.preview`, the dry run of `work.run`: the same refusals (as `refusals`, not errors, except
+   * an invalid configuration), the same candidates and skips from the base as last fetched, and
+   * the worker launch of the story it would start. Nothing is fetched, indexed, stored, claimed or
+   * created; the pickup gate is evaluated without storing a decision.
+   */
+  async preview(ctx: ReadContext, args: PreviewArgs): Promise<Preview> {
+    const deps = this.#deps;
+    const handle = ctx.office;
+    if (handle === undefined) throw new Error("work.preview runs with its office");
+    const office = handle.officeId;
+    const blocks = deps.offices.configBlocksRuns(office);
+    const config = deps.offices.config(office);
+    if (blocks.length > 0 || config === undefined) {
+      const why =
+        blocks.length > 0
+          ? blocks.map((error) => error.message).join("; ")
+          : "the office has no valid configuration yet";
+      throw new CommandError(
+        "config.invalid",
+        `New runs are refused until \`dipo office reload-config\` reads a valid configuration: ${why}`,
+        { office },
+      );
+    }
+    const refusals: Preview["refusals"] = [];
+    const hold = deps.adapterHeld(config.worker.adapter);
+    if (hold !== null) refusals.push({ check: "adapter", message: holdMessage(hold) });
+    const statuses = await deps.statuses(office);
+    if (statuses !== null) refusals.push({ check: "statuses", message: statuses });
+    const verify = deps.profiles.verifyResolved(handle);
+    if (verify !== null) refusals.push({ check: "verify", message: verify });
+
+    const named: Candidate[] | null =
+      args.stories === undefined
+        ? null
+        : args.stories.map((ref) => {
+            const identity = ctx.stories.get(ref);
+            if (identity === undefined) throw new Error(`${ref} was not resolved`);
+            return identity;
+          });
+    let read: BaseRead;
+    try {
+      read = await deps.base.read(office, named === null ? null : named.map((c) => c.story));
+    } catch (error) {
+      throw commandErrorOf(error);
+    }
+    const views = new Map(read.views.map((view) => [view.id, view]));
+    const candidates: Candidate[] =
+      named ??
+      pickupOrder(read.views).flatMap((view) => {
+        const resolved = resolveStoryRef(handle, view.id);
+        return resolved.ok ? [{ story: resolved.story, key: resolved.key }] : [];
+      });
+
+    const skipped: Preview["skipped"] = [];
+    let chosen: { readonly candidate: Candidate; readonly startable: Startable } | null = null;
+    const busy = activeRuns(handle).length > 0;
+    for (const candidate of candidates) {
+      const checked = this.#precheck(handle, {
+        candidate,
+        status: read.statuses.get(candidate.story),
+        view: views.get(candidate.story),
+        unparsed: read.unparsed.includes(candidate.story),
+        checkout: read.checkout,
+        full: busy || chosen !== null,
+        config,
+      });
+      if (typeof checked === "string" && checked !== "gate") {
+        skipped.push({ ...candidate, reason: checked });
+        continue;
+      }
+      if (typeof checked === "object" && "tooLarge" in checked) {
+        skipped.push({ ...candidate, reason: "pickupCheckFailed", detail: [checked.tooLarge] });
+        continue;
+      }
+      const result =
+        deps.gates.checkGate === undefined
+          ? null
+          : await deps.gates.checkGate(office, candidate.story, "pickup");
+      if (result !== null && !result.passed) {
+        skipped.push({
+          ...candidate,
+          reason: "pickupCheckFailed",
+          detail: result.failures.map((failure) => failure.message),
+        });
+        continue;
+      }
+      // Only the gate could say what is wrong, and it passed: work.run skips it as not runnable.
+      if (typeof checked !== "object") {
+        skipped.push({ ...candidate, reason: "notRunnable" });
+        continue;
+      }
+      chosen = { candidate, startable: checked };
+    }
+    if (chosen === null) return { refusals, story: null, skipped, launch: null, problem: null };
+
+    const { candidate, startable } = chosen;
+    const story = { story: candidate.story, key: candidate.key };
+    const launcher = deps.launcher;
+    if (launcher === undefined) {
+      return { refusals, story, skipped, launch: null, problem: "this daemon starts no workers" };
+    }
+    if (launcher.adapterId !== config.worker.adapter) {
+      return {
+        refusals,
+        story,
+        skipped,
+        launch: null,
+        problem: `worker.adapter ${config.worker.adapter} is not available; this daemon has ${launcher.adapterId}`,
+      };
+    }
+    try {
+      const launch = await launcher.preview({
+        office,
+        story: candidate.story,
+        branch: startable.branch,
+        view: startable.view,
+        fields: startable.fields,
+        caps: startable.caps,
+        config,
+        taskFile: startable.taskFile,
+        base: read.checkout,
+      });
+      return { refusals, story, skipped, launch, problem: null };
+    } catch (error) {
+      const problem =
+        error instanceof PlanError
+          ? planRefusedText(candidate.story, error)
+          : `the launch could not be planned: ${error instanceof Error ? error.message : String(error)}`;
+      return { refusals, story, skipped, launch: null, problem };
+    }
+  }
+
+  /** The command `work.run`, the read `work.preview` and the active-run check of `office.forget`. */
   get feature(): FeatureModule {
     return {
       name: "run",
@@ -533,6 +771,10 @@ export class WorkRun {
         registry.addAsyncOfficeCommand({
           definition: workRun,
           handle: (ctx, args) => this.run(ctx, args),
+        });
+        registry.addAsyncRead({
+          definition: workPreview,
+          handle: (ctx, args) => this.preview(ctx, args),
         });
         registry.registerActiveWorkCheck(RUNS_CHECK, hasActiveRun);
       },

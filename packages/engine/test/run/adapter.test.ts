@@ -1,0 +1,133 @@
+// The Claude CLI `WorkerAdapter` per run (DIPO-74 AC #6 and #7): `plan(spec)` is DIPO-40's
+// `plan(spec, ctx)` with the run's launch context bound, the interpret half threads the parser
+// state, and a path the plan refuses names itself and its character.
+
+import { describe, expect, it } from "bun:test";
+
+import { ManualClock } from "@dipsaus-orchestrator/testkit";
+
+import { OFFICE_DEFAULTS } from "../../src/config";
+import { planRefusedText, sessionUuid } from "../../src/run";
+import {
+  claudeCliAdapter,
+  claudeLaunchContext,
+  claudeWorkerPort,
+} from "../../src/workers/claude-cli/adapter";
+import { initialState } from "../../src/workers/claude-cli/interpret";
+import { plan } from "../../src/workers/claude-cli/plan";
+import { AdapterHolds } from "../../src/workers/hold";
+import type { RunLaunchPaths } from "../../src/workers/port";
+import { PlanError, type ParseState } from "../../src/workers/types";
+import { context, HOME, MAIN, RUN_DIR, spec, TMP_DIR, WORKDIR } from "../workers/launch-fixtures";
+import { hostLines } from "../ingest/helpers";
+import { loadRecording } from "../workers/replay";
+
+const clock = new ManualClock();
+const neverSpawn = () => {
+  throw new Error("no process may start in this test");
+};
+const PATHS: RunLaunchPaths = {
+  workdir: WORKDIR,
+  mainCheckout: MAIN,
+  runDir: RUN_DIR,
+  hostSocket: `${RUN_DIR}/host.sock`,
+  tmpDir: TMP_DIR,
+};
+
+describe("the Claude CLI adapter of one run", () => {
+  it("binds plan(spec) to the run's launch context", () => {
+    const ctx = context();
+    const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
+    expect(adapter.id).toBe("claude-cli");
+    expect(adapter.plan(spec())).toEqual(plan(spec(), ctx));
+  });
+
+  it("builds the launch context from the run's paths, the office sandbox and the daemon", () => {
+    const deps = {
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", HOME },
+    };
+    const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
+    expect(ctx).toEqual({
+      claudePath: deps.claudePath,
+      home: HOME,
+      env: deps.env,
+      toolVariables: [],
+      mainCheckout: MAIN,
+      runDir: RUN_DIR,
+      hostSocket: `${RUN_DIR}/host.sock`,
+      tmpDir: TMP_DIR,
+      sandbox: OFFICE_DEFAULTS.sandbox,
+    });
+    const port = claudeWorkerPort({
+      ...deps,
+      spawn: neverSpawn,
+      clock,
+      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      platform: "darwin",
+      runStep: async () => {
+        throw new Error("no step may run in this test");
+      },
+      uid: 501,
+    });
+    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual(plan(spec(), ctx));
+  });
+
+  it("refuses to plan without a resolved claude", () => {
+    expect(() =>
+      claudeLaunchContext({ claudePath: undefined, home: HOME, env: {} }, PATHS, OFFICE_DEFAULTS),
+    ).toThrow(PlanError);
+  });
+
+  it("threads the parser state through interpret and reads the result", () => {
+    const adapter = claudeCliAdapter(context(), { spawn: neverSpawn, clock });
+    let state = initialState({ plannedModel: "haiku" }) as unknown as ParseState;
+    const kinds: string[] = [];
+    for (const line of hostLines(loadRecording("success-single"))) {
+      const step = adapter.interpret(line, state);
+      state = step.state;
+      kinds.push(...step.events.map((event) => event.t));
+    }
+    expect(kinds).toContain("started");
+    expect(kinds).toContain("turn");
+    expect(adapter.result(state, { code: 0, signal: null }).outcome).toBe("done");
+  });
+});
+
+describe("a path the plan refuses", () => {
+  it("names the path and the character, and suggests moving the checkout or the worktree root", () => {
+    const workdir = "/home/maintainer/code/shop (copy).worktrees/DIPO-999";
+    let error: unknown;
+    try {
+      plan(spec({ workdir }), context());
+    } catch (thrown) {
+      error = thrown;
+    }
+    expect(error).toBeInstanceOf(PlanError);
+    expect((error as PlanError).refused).toEqual({ path: workdir, character: "(" });
+    const text = planRefusedText("DIPO-999", error as PlanError);
+    expect(text).toContain(workdir);
+    expect(text).toContain('"("');
+    expect(text).toContain("Move the checkout, or set worktree.root in .dipo/office.yaml");
+  });
+
+  it("names a worktree that holds the home directory, without a character", () => {
+    let error: unknown;
+    try {
+      plan(spec({ workdir: "/home" }), context({ mainCheckout: "/srv/shop" }));
+    } catch (thrown) {
+      error = thrown;
+    }
+    expect((error as PlanError).refused).toEqual({ path: "/home" });
+  });
+});
+
+describe("session ids", () => {
+  it("are version 4 UUIDs, the same for the same engine id", () => {
+    const id = sessionUuid("agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(sessionUuid("agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D")).toBe(id);
+    expect(sessionUuid("agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E")).not.toBe(id);
+  });
+});
