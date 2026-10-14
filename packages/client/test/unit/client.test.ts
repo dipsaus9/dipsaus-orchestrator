@@ -175,6 +175,20 @@ describe("DipoClient handshake and requests", () => {
     await expect(wrong).rejects.toMatchObject({ code: "client.invalidReply" });
   });
 
+  it("sends a command with the request id the caller passes, so a retry reuses it (DIPO-54)", async () => {
+    const { transport, client } = await connected();
+    const connection = transport.current;
+    const id = "01J9ZK5Q8W3V4X6Y7Z8A9B0CRR" as RequestId;
+    const first = client.command(daemonResumeScheduling, {}, { requestId: id });
+    expect(requestIdOf(connection)).toBe(id);
+    connection.deliver(errorReply(id, "engine.recovering"));
+    expect(await first).toMatchObject({ ok: false, error: { code: "engine.recovering" } });
+    const retry = client.command(daemonResumeScheduling, {}, { requestId: id });
+    expect(requestIdOf(connection)).toBe(id);
+    connection.deliver(reply(id, { state: "running" }, true));
+    expect(await retry).toMatchObject({ ok: true, changed: true });
+  });
+
   it("ignores frames that are not ServerFrames", async () => {
     const { transport, client } = await connected();
     const connection = transport.current;

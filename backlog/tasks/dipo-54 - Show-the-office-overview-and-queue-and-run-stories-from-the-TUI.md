@@ -4,7 +4,7 @@ title: Show the office overview and queue and run stories from the TUI
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:54'
+updated_date: '2026-10-14 13:56'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +18,8 @@ references:
   - packages/client/src/store/office-store.ts
   - packages/client/test/unit/client.test.ts
   - packages/client/test/unit/office-store.test.ts
+  - packages/client/src/index.ts
+  - packages/client/src/store/index.ts
 documentation:
   - docs/decisions/0009-tui.md
 priority: high

@@ -97,6 +97,12 @@ export interface OfficeStoreState {
   readonly gates: readonly GateView[];
   readonly questions: readonly QuestionView[];
   readonly tests: readonly TestView[];
+  /**
+   * The last stored cursor of the selected office stream the store applied, starting at the
+   * snapshot cursor; null without an office. A client compares a command reply cursor with it to
+   * wait for its own write (read-your-writes, 0009 section 5).
+   */
+  readonly cursor: Cursor | null;
   /** A one-time message, such as `RELOADED_NOTICE`; cleared by `dismissNotice`. */
   readonly notice: string | null;
   /** The last failed read or ended subscription, until the next success. */
@@ -116,6 +122,7 @@ const EMPTY_OFFICE = {
   gates: [],
   questions: [],
   tests: [],
+  cursor: null,
 } as const;
 
 /** Event types whose data carries `work` and an optional engine-derived `view` of that run. */
@@ -124,6 +131,16 @@ const WORK_EVENTS = [workAssigned, workPhase, workProgress, workOutput, workObse
 /** True when `cursor` was delivered already: same epoch, not past the last one (0005 section 8). */
 function seen(last: Cursor | undefined, cursor: Cursor): boolean {
   return last !== undefined && last.epoch === cursor.epoch && cursor.seq <= last.seq;
+}
+
+/**
+ * True when `current`, the store's office cursor, is at or past `target`, a command reply cursor
+ * of the same office stream (read-your-writes, 0009 section 5). Another epoch means the stream
+ * restarted and the store reads a fresh snapshot, so the write is not waited for any longer.
+ */
+export function cursorReached(current: Cursor | null, target: Cursor): boolean {
+  if (current === null || current.stream !== target.stream) return false;
+  return current.epoch !== target.epoch || current.seq >= target.seq;
 }
 
 export class OfficeStore {
@@ -229,6 +246,7 @@ export class OfficeStore {
     if (stream === SOFTWARE) this.#applySoftware(event);
     else if (this.#state.office !== null && stream === `office:${this.#state.office}`) {
       this.#applyOffice(event);
+      if (!derived) this.#update({ cursor: event.cursor });
     }
   }
 
@@ -282,6 +300,7 @@ export class OfficeStore {
       gates: snapshot.gates,
       questions: snapshot.questions,
       tests: snapshot.tests,
+      cursor: snapshot.cursor,
     });
     const generation = this.#generation;
     this.#officeSub = this.#client.subscribe(stream, {
