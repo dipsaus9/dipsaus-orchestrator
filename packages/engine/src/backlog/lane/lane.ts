@@ -19,6 +19,11 @@
 // and the old branch is left as it is. An operation that no longer applies is dropped with an
 // `engine.notice`.
 //
+// A branch adopted from an open backlog PR after a lost database (DIPO-80) is journaled with
+// `ADOPTED_TARGET`: its commits are known, their target states are not. Later operations append
+// to it as usual. When it needs a rebuild, its adopted operations cannot be applied again and are
+// dropped with a notice; a branch holding nothing else is let go of (`abandoned`), never closed.
+//
 // While the office's merge slot holds the open branch (DIPO-73, `held`), a flush does nothing: new
 // operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
 //
@@ -58,6 +63,7 @@ import type { BacklogCli } from "../runner";
 import {
   type EntryChange,
   insertEntry,
+  isAdoptedTarget,
   type JournalEntry,
   type LaneOp,
   openEntries,
@@ -83,6 +89,7 @@ export const LANE_NOTICES = {
   flushFailed: "backlog.lane.flushFailed",
   commitStuck: "backlog.lane.commitStuck",
   baseUnset: "backlog.lane.baseUnset",
+  adoptedAbandoned: "backlog.lane.adoptedAbandoned",
 } as const;
 
 /** Why a commit made by the engine may fail or wait: config the maintainer controls. */
@@ -165,6 +172,12 @@ export interface FlushReport {
    * operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
    */
   readonly held?: boolean;
+  /**
+   * An adopted branch (DIPO-80) that needed a rebuild, which the lane cannot do: its operations'
+   * target states were lost with the database. The lane let go of it without a new branch; its PR
+   * stays open on the host for the maintainer. Absent or null otherwise.
+   */
+  readonly abandoned?: string | null;
 }
 
 export interface OfficeLaneOptions {
@@ -422,6 +435,7 @@ export class OfficeLane {
     const merged: number[] = [];
     const dropped: number[] = [];
     let rebuiltFrom: string | null = null;
+    let abandoned: string | null = null;
     let open = openEntries(this.#office);
     if (open.length === 0) {
       this.#waiting = null;
@@ -473,10 +487,26 @@ export class OfficeLane {
       if (rebuild) {
         const old = branch;
         const moved = openEntries(this.#office).filter((entry) => entry.branch === old);
-        if (tip !== null && moved.some((entry) => entry.commit !== null)) rebuiltFrom = old;
+        const withCommit = moved.filter((entry) => entry.commit !== null);
+        // Only operations the lane can apply again move to a new branch. An adopted branch
+        // (DIPO-80) with nothing else on it has none: the lane lets go of it and its PR stays open.
+        const replayable = withCommit.some((entry) => !isAdoptedTarget(entry.target));
+        if (tip !== null && withCommit.length > 0) {
+          if (replayable) rebuiltFrom = old;
+          else abandoned = old;
+        }
         this.#write(() => {
           for (const entry of moved) {
             this.#update(entry.opId, { state: "pending", branch: null, commit: null, prRef: null });
+          }
+          if (abandoned !== null) {
+            return [
+              this.#notice(
+                "warn",
+                LANE_NOTICES.adoptedAbandoned,
+                `The adopted backlog branch ${old} no longer merges into ${base.name}, and dipo cannot rebuild it: its operations were journaled in the lost database. dipo lets go of it; its PR stays open for you to merge or close by hand, and ${old} is left as it is.`,
+              ),
+            ];
           }
           if (rebuiltFrom === null) return [];
           return [
@@ -507,6 +537,15 @@ export class OfficeLane {
     }
 
     for (const entry of toApply) {
+      if (isAdoptedTarget(entry.target)) {
+        // Adopted from an open backlog PR after a lost database (DIPO-80): no target to apply.
+        this.#drop(
+          entry,
+          "it was adopted from an open backlog PR after the state database was lost, so dipo does not know its target state and cannot apply it again; its change is still on the old branch, so run the operation again if you still want it",
+        );
+        dropped.push(entry.opId);
+        continue;
+      }
       const kind = this.#kinds.get(entry.kind);
       if (kind === undefined) {
         this.#drop(entry, `no lane operation kind ${entry.kind} is known`);
@@ -594,6 +633,7 @@ export class OfficeLane {
       rebuiltFrom,
       pushed,
       waiting: this.#waiting,
+      abandoned,
     };
   }
 
