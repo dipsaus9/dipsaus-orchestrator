@@ -1,10 +1,10 @@
 ---
 id: DIPO-54
 title: Show the office overview and queue and run stories from the TUI
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-14 13:54'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -14,6 +14,10 @@ dependencies:
 references:
   - packages/tui/src/
   - packages/tui/test/
+  - packages/client/src/client.ts
+  - packages/client/src/store/office-store.ts
+  - packages/client/test/unit/client.test.ts
+  - packages/client/test/unit/office-store.test.ts
 documentation:
   - docs/decisions/0009-tui.md
 priority: high
