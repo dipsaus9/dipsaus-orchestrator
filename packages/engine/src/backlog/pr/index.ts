@@ -20,7 +20,9 @@ export type {
 } from "./check";
 export { collectPrDiff, RestoreError, taskOfPath } from "./diff";
 export { BacklogPrs, factsFor, PR_NOTICES, repoOfUrl } from "./feature";
-export type { BacklogPrsDeps, PrWaiting, PrWaitingReason } from "./feature";
+export type { AdoptReport, BacklogPrsDeps, PrWaiting, PrWaitingReason } from "./feature";
+export { placeBranch, readBranch } from "./adopt";
+export type { AdoptableBranch, BranchOp, BranchReading, BranchToRead } from "./adopt";
 export { backlogCheckBlocked, backlogPrMergeable, findPr, openPrs } from "./records";
 export type { BacklogCheckBlock, BacklogPrRecord, BacklogPrState, CheckState } from "./records";
 export { MAX_SUBJECT, prBody, prSummary, prTitle, TITLE_PREFIX } from "./title";

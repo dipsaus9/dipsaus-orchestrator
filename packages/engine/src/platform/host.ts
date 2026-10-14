@@ -350,7 +350,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
       .filter((item) => (item as { isCrossRepository?: unknown }).isCrossRepository !== true)
       .map((item) => prOf(item as PrJson))
       .filter((pr) => pr.state === "open" && pr.head.startsWith(prefix))
-      .sort((a, b) => a.number - b.number);
+      .toSorted((a, b) => a.number - b.number);
   }
 
   async createPr(repo: string, pr: NewPr): Promise<HostPr> {
