@@ -8,7 +8,7 @@ import type { OfficeConfig } from "../../config";
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
-import { DEFAULT_PERMISSION_WAIT_SECONDS, hookSettings } from "./hooks";
+import { DEFAULT_PERMISSION_WAIT_SECONDS, HOOK_BUNFIG_FILE, hookSettings } from "./hooks";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
 /** Run settings file, in the run directory (0008 section 10). */
@@ -211,6 +211,7 @@ interface Paths {
   readonly workdir: string;
   readonly main: string;
   readonly tmp: string;
+  readonly runDir: string;
 }
 
 function permissions(spec: WorkerSpec, paths: Paths) {
@@ -295,6 +296,7 @@ function hooks(
   spec: WorkerSpec,
   ctx: ClaudeLaunchContext,
   workdir: string,
+  runDir: string,
 ): Record<string, unknown> | undefined {
   if (!spec.hookRelay) return undefined;
   const command = ctx.hookCommand;
@@ -316,7 +318,7 @@ function hooks(
       `permissionWaitSeconds must be a whole number from 1 to ${MAX_PERMISSION_WAIT_SECONDS}: ${wait}`,
     );
   }
-  return hookSettings(command, wait);
+  return hookSettings(command, wait, runDir);
 }
 
 /** The largest `timeouts.permissionWaitSeconds` the relay accepts (`dipo hook --wait`): one hour. */
@@ -324,7 +326,7 @@ export const MAX_PERMISSION_WAIT_SECONDS = 3_600;
 
 /** The run settings file: rules, sandbox, hooks and git instruction switches (0008 section 2). */
 function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
-  const hookBlock = hooks(spec, ctx, paths.workdir);
+  const hookBlock = hooks(spec, ctx, paths.workdir, paths.runDir);
   return {
     includeGitInstructions: false,
     attribution: { commit: "", pr: "" },
@@ -370,7 +372,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
       throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
     }
   }
-  const paths: Paths = { home, workdir, main, tmp };
+  const paths: Paths = { home, workdir, main, tmp, runDir };
   const reportSchema = JSON.stringify(spec.reportSchema);
 
   const argv: [string, ...string[]] = [
@@ -415,6 +417,10 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     files: [
       { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },
       { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
+      // Run from source, the hooks start Bun with this empty config (`hookCommandLine`).
+      ...(spec.hookRelay && (ctx.hookCommand?.length ?? 0) > 1
+        ? [{ name: HOOK_BUNFIG_FILE, content: "" }]
+        : []),
     ],
     stdin: [userMessageLine(spec.taskMessage)],
   };

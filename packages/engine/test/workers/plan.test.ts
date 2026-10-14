@@ -10,7 +10,7 @@ import {
   SETTINGS_FILE,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
-import { REGISTERED_HOOKS } from "../../src/workers/claude-cli/hooks";
+import { HOOK_BUNFIG_FILE, REGISTERED_HOOKS } from "../../src/workers/claude-cli/hooks";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { PlanError } from "../../src/workers/types";
 import type { LaunchPlan, WorkerSpec } from "../../src/workers/types";
@@ -403,17 +403,19 @@ describe("claude-cli plan", () => {
     const file = launch.files.find((f) => f.name === SETTINGS_FILE);
     const hooks = (JSON.parse(file?.content ?? "{}") as { hooks: Record<string, unknown> }).hooks;
     expect(Object.keys(hooks)).toEqual([...REGISTERED_HOOKS]);
-    const quoted = `'/opt/dipo'\\''s tools/bin/dipo'`;
+    const quoted = `cd '${context().runDir}' && '/opt/dipo'\\''s tools/bin/dipo'`;
     expect(hooks["Stop"]).toEqual([
       { hooks: [{ type: "command", command: `${quoted} hook Stop`, timeout: 5 }] },
     ]);
-    // The permission hook waits for the maintainer; its timeout is 30 s above the wait.
+    // A compiled binary needs no Bun config file.
+    expect(launch.files.map((f) => f.name)).not.toContain(HOOK_BUNFIG_FILE);
+    // The host holds the call 10 s past the engine's wait; the hook timeout is 30 s above the wait.
     expect(hooks["PermissionRequest"]).toEqual([
       {
         hooks: [
           {
             type: "command",
-            command: `${quoted} hook PermissionRequest --wait 120`,
+            command: `${quoted} hook PermissionRequest --wait 130`,
             timeout: 150,
           },
         ],
