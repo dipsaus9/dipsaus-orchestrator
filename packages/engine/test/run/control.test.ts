@@ -1,0 +1,486 @@
+// Run control (DIPO-50), fast and local: a migrated state database with one claimed story run, the
+// real DIPO-45 ingestion of committed Claude recordings with run control as its hooks, scripted
+// worker events, a fake park writer for the story branch (the real one runs in park.ci.test.ts on
+// real git) and a steering fake. `work.stop` runs through the executor; its stop sequence goes to a
+// FakeProcess through the worker host's own `Steering`.
+
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+import {
+  type CommandReply,
+  type OfficeId,
+  RequestId,
+  StoryId,
+  type RunId,
+  type WorkRef,
+} from "@dipsaus-orchestrator/contract";
+import { FakeProcess, readRecording } from "@dipsaus-orchestrator/testkit";
+
+import { executeCommand } from "../../src/commands/execute";
+import { stateOfficeDirectory } from "../../src/commands/offices";
+import { buildRegistry } from "../../src/commands/registry";
+import { MemoryRequestTable } from "../../src/commands/requests";
+import { GitError } from "../../src/git/runner";
+import { Steering } from "../../src/host/steering";
+import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
+import {
+  type BranchPark,
+  CAP_TICK_MS,
+  findRun,
+  insertRun,
+  type ParkBranchRequest,
+  RunControl,
+  runIntents,
+  type RunSteering,
+  STORY_NOT_RUNNING,
+} from "../../src/run";
+import { addStory } from "../../src/stories/keys";
+import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
+import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
+import type { Caps, HostOp, ParseState, WorkerEvent } from "../../src/workers/types";
+import { insertClaim } from "../../src/worktree/records";
+import { countRows } from "../commands/helpers";
+import {
+  appendLines,
+  hostLines,
+  type IngestFixture,
+  ingestFixture,
+  loggedEvents,
+  target,
+} from "../ingest/helpers";
+import { RECORDINGS_DIR } from "../workers/replay";
+import { SCRIPTS } from "../workers/scripts";
+
+const claude: IngestAdapter = {
+  interpret: (line, state) =>
+    interpret(line, state as unknown as ReturnType<typeof initialState>) as unknown as {
+      events: [];
+      state: ParseState;
+    },
+};
+
+const ROOMY: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
+
+interface World {
+  readonly dir: string;
+  readonly f: IngestFixture;
+  readonly control: RunControl;
+  readonly writes: ParkBranchRequest[];
+  readonly sent: HostOp[][];
+  readonly work: WorkRef;
+  writer: "ok" | "tampered" | "fails";
+  steer: RunSteering["send"] | null;
+  ingestor: Ingestor | null;
+}
+
+let w: World;
+
+beforeEach(async () => {
+  const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "run-control-"));
+  const f = await ingestFixture(dir);
+  const writes: ParkBranchRequest[] = [];
+  const sent: HostOp[][] = [];
+  const world = {
+    dir,
+    f,
+    writes,
+    sent,
+    writer: "ok",
+    steer: null,
+    ingestor: null,
+  } as unknown as World;
+  const control = new RunControl({
+    clock: f.t.clock,
+    offices: { get: () => f.office },
+    writer: {
+      write: async (_office, request): Promise<BranchPark> => {
+        writes.push(request);
+        if (world.writer === "tampered") {
+          throw new GitError(
+            "git.worktreeTampered",
+            `The git links of ${request.worktree} changed since dipo claimed it (${request.worktree}/.git); dipo runs no git in that worktree.`,
+          );
+        }
+        if (world.writer === "fails") throw new Error("the Backlog CLI exited 1");
+        return {
+          commit: "c".repeat(40),
+          lastGoodCommit: "a".repeat(40),
+          from: "In Progress",
+          pushed: true,
+          pushError: null,
+        };
+      },
+    },
+    steering: {
+      send: async (office, runId, ops) => {
+        sent.push([...ops]);
+        return world.steer === null ? { ok: true } : world.steer(office, runId, ops);
+      },
+    },
+    encode,
+  });
+  (world as { control: RunControl }).control = control;
+  w = world;
+  // The claimed story run of the fixture's work.
+  const { office, run } = f;
+  const { key } = office.immediate(() =>
+    addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
+  );
+  (world as { work: WorkRef }).work = { ...f.work, key };
+  const work = world.work;
+  office.immediate(() => {
+    insertRun(office, {
+      runId: run,
+      kind: "story",
+      key: work.key,
+      story: "DIPO-1",
+      tier: "M",
+      role: "developer",
+      model: "haiku",
+      startSha: "b".repeat(40),
+      branch: "DIPO-1/add-a-greeting",
+      worktree: join(dir, "trees", "DIPO-1"),
+      slot: 1,
+      budgetUnit: "tokens",
+      budgetLimit: ROOMY.budgetTokens,
+      loopCap: 3,
+      reviewRoundCap: null,
+      configHash: "h",
+      overrideKeys: null,
+      runProfileId: null,
+      startedAt: f.t.clock.now(),
+    });
+    insertClaim(office, {
+      runId: run,
+      key: work.key,
+      story: "DIPO-1",
+      branch: "DIPO-1/add-a-greeting",
+      worktree: join(dir, "trees", "DIPO-1"),
+      base: "main",
+      baseSha: "b".repeat(40),
+      startSha: "b".repeat(40),
+      claimSha: "d".repeat(40),
+      reused: false,
+      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
+      firstFeedback: null,
+      claimedAt: f.t.clock.now(),
+    });
+  });
+});
+
+afterEach(() => {
+  w.ingestor?.close();
+  w.control.close();
+  w.f.t.state.close();
+  rmSync(w.dir, { recursive: true, force: true });
+});
+
+function track(caps: Caps = ROOMY): void {
+  w.control.track(w.f.office.officeId, {
+    runId: w.f.run,
+    work: w.work,
+    caps,
+    startedAt: w.f.t.clock.now(),
+  });
+}
+
+/** Ingests a committed recording's event file with run control as the ingestion hooks. */
+async function ingestRecording(name: string): Promise<void> {
+  const recording = readRecording(join(RECORDINGS_DIR, name));
+  appendLines(w.f.eventFile, hostLines(recording));
+  const ingestor = new Ingestor({
+    office: w.f.office,
+    clock: w.f.t.clock,
+    pricing: null,
+    hooks: w.control.hooks,
+  });
+  w.ingestor = ingestor;
+  ingestor.track(
+    target(w.f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
+  );
+  await w.control.idle();
+}
+
+function parks(): {
+  reason: string;
+  from_state: string;
+  detail: string;
+  last_good_commit: string;
+}[] {
+  return w.f.office.all(
+    "select reason, from_state, detail, last_good_commit from parks where office_id = $office_id",
+  );
+}
+
+function parkedEvents(): Record<string, unknown>[] {
+  return loggedEvents(w.f.office)
+    .filter((event) => event.type === "story.parked")
+    .map((event) => event.data as Record<string, unknown>);
+}
+
+describe("caps", () => {
+  it("parks budget-exceeded at 100% of budgetTokens (budget-engine-cap) and never raises it", async () => {
+    const recording = readRecording(join(RECORDINGS_DIR, "budget-engine-cap"));
+    const budget = recording.meta.testConfig?.["budgetTokens"] as number;
+    track({ ...ROOMY, budgetTokens: budget });
+    await ingestRecording("budget-engine-cap");
+
+    const [park] = parks();
+    expect(park?.reason).toBe("budget-exceeded");
+    expect(park?.detail).toContain("token budget reached");
+    expect(park?.detail).toContain(`of ${budget.toLocaleString("en-US")} budget tokens`);
+    expect(park?.from_state).toBe("In Progress");
+    expect(park?.last_good_commit).toBe("a".repeat(40));
+    // The cap intent was stored, then the stop sequence sent.
+    const intents = runIntents(w.f.office, w.f.run);
+    expect(intents.map((i) => [i.kind, i.state])).toEqual([["cap", "resolved"]]);
+    expect(intents[0]?.outcome).toBe("capped");
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    const run = findRun(w.f.office, w.f.run);
+    expect(run?.endKind).toBe("capped");
+    expect(run?.endedAt).not.toBeNull();
+    expect(run?.budgetLimit).toBe(ROOMY.budgetTokens);
+    expect(w.writes.map((r) => [r.reason, r.story, r.branch])).toEqual([
+      ["budget-exceeded", "DIPO-1", "DIPO-1/add-a-greeting"],
+    ]);
+    // story.state to Parked, then story.parked with no action the engine does not implement.
+    const types = loggedEvents(w.f.office).map((event) => event.type);
+    expect(types.indexOf("story.state")).toBeLessThan(types.indexOf("story.parked"));
+    const [parked] = parkedEvents();
+    expect(parked?.["reason"]).toBe("budget-exceeded");
+    expect(parked?.["from"]).toBe("In Progress");
+    expect(parked?.["lastGoodCommit"]).toBe("a".repeat(40));
+    expect(parked?.["actions"]).toEqual([]);
+    expect((parked?.["work"] as WorkRef | undefined)?.run).toBe(w.f.run);
+  });
+
+  it("parks budget-exceeded naming the turn cap when the CLI backstop fires (max-turns), and the later done turn never overrides it", async () => {
+    track();
+    await ingestRecording("max-turns");
+    expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+    expect(parks()[0]?.detail).toBe("turn cap (--max-turns) after 2 turns");
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+    expect(w.writes).toHaveLength(1);
+  });
+
+  it("stops at the first turn that ends at the backstop, even with a done turn in the same pass", async () => {
+    track();
+    const capped: WorkerEvent = {
+      t: "turn",
+      report: null,
+      totals: {},
+      numTurns: 1,
+      terminal: "max_turns",
+      capped: "turn cap (--max-turns) after 1 turns",
+    };
+    const done = SCRIPTS["done"]?.at(-1) as WorkerEvent;
+    w.control.onWorkerEvents(w.f.run, [capped, done]);
+    w.control.onWorkerEvents(w.f.run, [done]);
+    await w.control.idle();
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["budget-exceeded", "turn cap (--max-turns) after 1 turns"],
+    ]);
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it("parks at the engine's summed turn cap", async () => {
+    track({ ...ROOMY, maxTurns: 2 });
+    await ingestRecording("success-single");
+    expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+    expect(parks()[0]?.detail).toMatch(/^turn cap reached: \d+ of 2 turns$/);
+  });
+
+  it("fires the time cap on the next tick with no events after the start", async () => {
+    track({ ...ROOMY, maxMinutes: 30 });
+    w.f.t.clock.advance(29 * CAP_TICK_MS);
+    await w.control.idle();
+    expect(parks()).toEqual([]);
+    // Wall-clock time: a jump such as a machine waking from sleep counts in full.
+    w.f.t.clock.advance(5 * CAP_TICK_MS);
+    await w.control.idle();
+    expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+    expect(parks()[0]?.detail).toBe("time cap reached: 30 of 30 minutes since the worker started");
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["cap", "sent"],
+    ]);
+  });
+});
+
+describe("reports", () => {
+  it("parks ambiguous-spec with the question as detail (worker-park-ambiguous)", async () => {
+    track();
+    await ingestRecording("worker-park-ambiguous");
+    const [park] = parks();
+    expect(park?.reason).toBe("ambiguous-spec");
+    const question = parkedEvents()[0]?.["detail"];
+    expect(typeof question).toBe("string");
+    expect(park?.detail).toBe(question as string);
+    expect(w.sent).toEqual([[{ closeStdin: true }]]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.outcome])).toEqual([
+      ["park", "blocked"],
+    ]);
+  });
+
+  it("parks needs-permission with the tool and action, keeping worktree, branch, claim and session", async () => {
+    track();
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
+         values ($office_id, $agent, $run, 'developer', 'haiku', 'session-1', 0)`,
+        { agent: w.f.agent, run: w.f.run },
+      ),
+    );
+    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-permission"] as WorkerEvent[]);
+    await w.control.idle();
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["needs-permission", "Bash: bun add left-pad"],
+    ]);
+    const claim = w.f.office.get<{ released_at: number | null }>(
+      "select released_at from claims where office_id = $office_id and run_id = $run",
+      { run: w.f.run },
+    );
+    expect(claim?.released_at).toBeNull();
+    const agent = w.f.office.get<{ session_id: string; end_reason: string }>(
+      "select session_id, end_reason from agents where office_id = $office_id and agent_id = $agent",
+      { agent: w.f.agent },
+    );
+    expect(agent).toEqual({ session_id: "session-1", end_reason: "blocked" });
+    expect(w.writes[0]?.worktree).toBe(join(w.dir, "trees", "DIPO-1"));
+  });
+});
+
+describe("a tampered worktree", () => {
+  it("parks scope-violation when the park commit is refused with git.worktreeTampered", async () => {
+    track();
+    w.writer = "tampered";
+    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-question"] as WorkerEvent[]);
+    await w.control.idle();
+    const [park] = parks();
+    expect(park?.reason).toBe("scope-violation");
+    expect(park?.detail).toContain("dipo runs no git in that worktree");
+    expect(park?.detail).toContain("parking it as ambiguous-spec");
+    // One write attempt; nothing else ran in the worktree.
+    expect(w.writes).toHaveLength(1);
+    const notices = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => (event.data as { code: string }).code);
+    expect(notices).toEqual(["park.notWritten"]);
+  });
+
+  it("still records a park whose branch write failed, with a notice", async () => {
+    track();
+    w.writer = "fails";
+    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-question"] as WorkerEvent[]);
+    await w.control.idle();
+    expect(parks().map((p) => p.reason)).toEqual(["ambiguous-spec"]);
+    expect(parks()[0]?.last_good_commit).toBeNull();
+  });
+});
+
+let requests = 0;
+function stopCommand(story: string, note?: string): Promise<CommandReply> {
+  requests += 1;
+  const registry = buildRegistry([w.control.feature]);
+  return executeCommand(
+    {
+      registry,
+      offices: stateOfficeDirectory(w.f.t.state),
+      clock: w.f.t.clock,
+      ids: w.f.t.ids,
+      softwareRequests: new MemoryRequestTable(w.f.t.clock),
+    },
+    {
+      requestId: RequestId.parse(
+        `01J9ZK5Q8W3V4X6Y7Z${(90_000 + requests).toString().padStart(8, "0")}`,
+      ),
+      name: "work.stop",
+      args: { story, ...(note === undefined ? {} : { note }) },
+      origin: "cli",
+      confirmed: true,
+      office: w.f.office.officeId as OfficeId,
+    },
+  );
+}
+
+describe("work.stop", () => {
+  it("is registered with confirm: true, as commands.describe shows it", () => {
+    const stop = buildRegistry([w.control.feature])
+      .commandDefinitions()
+      .find((definition) => definition.name === "work.stop");
+    expect(stop?.confirm).toBe(true);
+  });
+
+  it("records the stop intent, sends the stop sequence the fake process sees, and parks stopped", async () => {
+    track();
+    const recording = readRecording(join(RECORDINGS_DIR, "success-single"));
+    const child = new FakeProcess({ lines: recording.lines, clock: w.f.t.clock, stdin: "pipe" });
+    const steering = new Steering(child, w.f.t.clock);
+    let intentBeforeSend: string | undefined;
+    w.steer = async (_office, runId, ops) => {
+      intentBeforeSend = runIntents(w.f.office, runId as RunId)[0]?.state;
+      for (const op of ops) steering.apply(op);
+      return { ok: true };
+    };
+    const reply = await stopCommand("DIPO-1", "Wrong approach; I will rewrite the story.");
+    if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
+    expect(reply.result).toEqual({ run: w.f.run });
+    expect(intentBeforeSend).toBe("pending");
+
+    // The fake process got the now-priority stop message and its stdin closed; SIGTERM at 10 s,
+    // SIGKILL at 30 s.
+    expect(child.stdinWrites.map((line) => JSON.parse(line) as { priority?: string })).toEqual([
+      expect.objectContaining({ priority: "now" }),
+    ]);
+    expect(child.stdinWrites[0]).toContain(STOP_MESSAGE.slice(0, 20));
+    expect(steering.stdinOpen).toBe(false);
+    w.f.t.clock.advance(10_000);
+    expect(child.signals).toEqual(["SIGTERM"]);
+
+    expect(parks().map((p) => [p.reason, p.from_state, p.detail])).toEqual([
+      ["stopped", "In Progress", "Wrong approach; I will rewrite the story."],
+    ]);
+    const run = findRun(w.f.office, w.f.run);
+    expect(run?.endKind).toBe("stopped");
+    expect(run?.endedAt).not.toBeNull();
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "sent"],
+    ]);
+    // Branch and worktree are kept: the claim stays live.
+    expect(countRows(w.f.office, "claims")).toBe(1);
+    const claim = w.f.office.get<{ released_at: number | null }>(
+      "select released_at from claims where office_id = $office_id",
+    );
+    expect(claim?.released_at).toBeNull();
+  });
+
+  it("fails story.notRunning for a story with no active run, and after the stop", async () => {
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set ended_at = 1, end_kind = 'done' where office_id = $office_id",
+      ),
+    );
+    const reply = await stopCommand("DIPO-1");
+    expect(reply.ok).toBe(false);
+    if (!reply.ok) expect(reply.error.code).toBe(STORY_NOT_RUNNING);
+    expect(parks()).toEqual([]);
+  });
+
+  it("parks stopped even when the host cannot be reached, with a notice", async () => {
+    w.steer = async () => ({ ok: false, reason: "the worker host socket is unreachable" });
+    const reply = await stopCommand("DIPO-1");
+    expect(reply.ok).toBe(true);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["stopped", "Stopped by the maintainer."],
+    ]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "failed"],
+    ]);
+    const codes = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => (event.data as { code: string }).code);
+    expect(codes).toEqual(["run.stopNotSent"]);
+  });
+});
