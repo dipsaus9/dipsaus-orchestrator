@@ -26,6 +26,7 @@ import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
+import { stopCommand } from "./stop-command";
 import { statsCommand } from "./stats-command";
 import {
   compiledStamp,
@@ -118,6 +119,9 @@ Usage:
                     arguments, model, effort, caps, sandbox settings, variable
                     names) and the system file and task message the worker
                     would get; claims, creates and starts nothing
+  dipo stop <id> [--note <text>] [--office <id>] [--yes]
+                    stop the story's worker after asking; the story parks as
+                    stopped with branch and worktree kept
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
@@ -224,6 +228,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "run") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return runCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "stop") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return stopCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "stats") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
