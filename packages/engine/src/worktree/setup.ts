@@ -72,6 +72,24 @@ export interface SetupDeps extends Pick<
   readonly slots: SlotTable;
   /** Runs one sandboxed step: `runSandboxedStep` with the daemon's step dependencies. */
   readonly runStep: (request: StepRequest) => Promise<StepResult>;
+  /**
+   * Logs a failed step (the daemon's logger at warn): script, command and exit; the output tails
+   * go in `stdout` and `stderr`, which the logger shows only at debug (0006 decision 13).
+   */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}
+
+/** Characters of a failed step's stderr (else stdout) the failure reason and its notice carry. */
+export const REASON_OUTPUT_TAIL = 300;
+
+/** The last `max` characters of a step's output on one line, or null when it printed nothing. */
+export function outputTail(
+  output: CapturedOutput,
+  max: number = REASON_OUTPUT_TAIL,
+): string | null {
+  const text = output.text.trim().replace(/\s+/g, " ");
+  if (text === "") return null;
+  return text.length > max ? `…${text.slice(-max)}` : text;
 }
 
 /** The daemon's facts a sandboxed step needs. */
@@ -269,7 +287,20 @@ async function runCommands(
     log.push(`${step.script}: ${ended}`);
     pushOutput(log, step.script, "stdout", result.stdout);
     pushOutput(log, step.script, "stderr", result.stderr);
-    throw new SetupFailure(`${step.script} (${shown}) failed: ${ended}`);
+    deps.warn?.("a setup step failed", {
+      story: request.claim.story,
+      script: step.script,
+      command: shown,
+      exitCode: result.code,
+      signal: result.signal,
+      timedOut: result.timedOut,
+      stdout: result.stdout.text.slice(-STEP_OUTPUT_TAIL),
+      stderr: result.stderr.text.slice(-STEP_OUTPUT_TAIL),
+    });
+    const tail = outputTail(result.stderr) ?? outputTail(result.stdout);
+    throw new SetupFailure(
+      `${step.script} (${shown}) failed: ${ended}${tail === null ? "" : `: ${tail}`}`,
+    );
   }
 }
 

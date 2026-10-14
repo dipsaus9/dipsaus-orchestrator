@@ -35,6 +35,7 @@ import {
 } from "../../src/worktree";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import { insertClaim } from "../../src/worktree/records";
+import { outputTail } from "../../src/worktree/setup";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { BRANCH_1, type ClaimSetup, inRemote, notices, TASK_1, TASK_FILE_1 } from "./helpers";
 import {
@@ -163,11 +164,32 @@ describe("setup inside the claim", () => {
       const h = await harness(repo);
       const key = h.s.key();
       const steps = fakeSteps({ setup: exited(3, "database not reachable\n") });
+      const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
 
-      const outcome = skipped(await h.claim(key, { steps, worktree: { post_create: [] } }));
+      const outcome = skipped(
+        await h.claim(key, {
+          steps,
+          worktree: { post_create: [] },
+          warn: (message, fields) => warnings.push({ message, fields }),
+        }),
+      );
 
       expect(steps.requests.map((r) => r.script)).toEqual(["install", "setup"]);
-      expect(outcome.notice).toContain("setup (bun run setup) failed: exit 3");
+      // The notice names the step, its exit and the tail of what it printed.
+      expect(outcome.notice).toContain(
+        "setup (bun run setup) failed: exit 3: database not reachable",
+      );
+      // The failed step is logged at warn: command and exit; the output for debug lines.
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.message).toBe("a setup step failed");
+      expect(warnings[0]?.fields).toMatchObject({
+        script: "setup",
+        command: "bun run setup",
+        exitCode: 3,
+      });
+      expect(
+        String(warnings[0]?.fields["stdout"]) + String(warnings[0]?.fields["stderr"]),
+      ).toContain("database not reachable");
       expect(outcome.notice).toContain("stays Ready");
       expect(outcome.log).toContain("database not reachable");
       expect(notices(h.s.office).map((n) => n.code)).toContain(SETUP_NOTICES.failed);
@@ -355,5 +377,16 @@ describe("setting up a worktree", () => {
       // setupWorktree leaves the worktree; the claim's rollback removes it.
       expect(existsSync(claim.worktree)).toBe(true);
     }, FIXTURE);
+  });
+});
+
+describe("the output tail a setup failure carries", () => {
+  it("is the end of the output on one line, bounded, and null for no output", () => {
+    expect(outputTail({ text: "\n  first line\nsecond  line\n", truncated: false })).toBe(
+      "first line second line",
+    );
+    const long = outputTail({ text: `${"x".repeat(500)}END`, truncated: false }, 10);
+    expect(long).toBe("…xxxxxxxEND");
+    expect(outputTail({ text: " \n", truncated: false })).toBeNull();
   });
 });

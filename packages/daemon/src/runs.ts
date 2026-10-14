@@ -115,6 +115,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           disk: systemDiskProbe,
           slots: options.slots,
           runStep,
+          warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
         },
         {
           claim,
