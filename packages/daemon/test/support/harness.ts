@@ -128,6 +128,8 @@ export interface HarnessOptions {
   readonly renderer?: Renderer;
   /** What `daemon.status` reports as the resolved tool paths. */
   readonly tools?: ToolPaths;
+  /** Feature modules registered after the fixtures, for a test that needs a real command name. */
+  readonly features?: readonly FeatureModule[];
 }
 
 export async function startHarness(dir: string, options: HarnessOptions = {}): Promise<Harness> {
@@ -172,6 +174,7 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
       requestStop: (request) => stops.push(request),
     }),
     fixtureFeature,
+    ...(options.features ?? []),
   ]);
   const ids = createSystemIds(clock);
   const server = new ContractServer({

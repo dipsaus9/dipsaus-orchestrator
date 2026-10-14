@@ -4,7 +4,7 @@ title: Store run profiles and rescan offices on change
 status: Done
 assignee: []
 created_date: '2026-10-12 09:21'
-updated_date: '2026-10-13 08:20'
+updated_date: '2026-10-14 08:21'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -20,6 +20,8 @@ references:
   - packages/engine/src/features.ts
   - packages/cli/src/
   - packages/engine/test/scan/
+  - packages/daemon/test/support/harness.ts
+  - test/office-rescan/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
@@ -84,4 +86,6 @@ Scope additions:
 Scope addition (review): packages/engine/src/db/schema.ts registers migration 8.
 
 Scope addition: docs/decisions/0005-command-and-event-model.md gains the maintainer-approved 2026-10-13 amendment line for the scan.finished fields.
+
+Fix 2026-10-14 (PR #90): office rescan hung 120 s because the CLI subscribed with filter scan.finished, and a subscription filter skips the named types (0005 section 5). The subscription now has no filter; a regression test runs the CLI against a real ContractServer.
 <!-- SECTION:NOTES:END -->

@@ -337,8 +337,9 @@ async function rescanAndWait(
 > {
   const finished = Promise.withResolvers<ScanFinished>();
   const live = Promise.withResolvers<void>();
+  // No `filter`: it names the event type prefixes the daemon leaves out (0005 section 5), so
+  // `filter: ["scan.finished"]` dropped the very event this waits for (DIPO-72).
   const subscription = session.subscribe(StreamName.parse(`office:${office}`), {
-    filter: [scanFinished.type],
     onEvent: (event) => {
       if (event.type !== scanFinished.type) return;
       const data = scanFinished.data.safeParse(event.data);
