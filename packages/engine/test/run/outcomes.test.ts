@@ -632,7 +632,7 @@ describe("a plan limit (AC #8)", () => {
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     expect(intents()).toEqual([["pause", "plan-limit", "plan-limit"]]);
     const wait = openWait(w.f.office, w.f.run);
-    expect(wait?.scope).toBe("unknown");
+    expect(wait?.scope).toBe("session");
     expect(wait?.resetsAt).toBe(new Date(1_791_827_400 * 1000).toISOString());
     expect(wait?.since).toBe(w.f.t.clock.now());
     const observed = loggedEvents(w.f.office).filter((event) => event.type === "work.observed");

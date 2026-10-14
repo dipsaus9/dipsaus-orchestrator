@@ -13,6 +13,7 @@
 import type {
   HostLine,
   ModelUsageTotals,
+  PlanLimitScope,
   TurnProblem,
   UsageTotalsByModel,
   WorkerEvent,
@@ -870,6 +871,18 @@ function epochIso(seconds: number | undefined): string | undefined {
   return seconds === undefined ? undefined : new Date(seconds * 1000).toISOString();
 }
 
+/**
+ * The plan-limit scope of a `rateLimitType` (DIPO-61): the live recordings show `five_hour`, the
+ * session window; `seven_day` is the weekly window and `seven_day_<family>` that model family's
+ * weekly limit. Anything else is left out, so the engine treats it as `unknown`.
+ */
+export function rateLimitScope(type: string | undefined): PlanLimitScope | undefined {
+  if (type === "five_hour") return "session";
+  if (type === "seven_day") return "weekly";
+  const family = /^seven_day_([a-z]+)$/.exec(type ?? "")?.[1];
+  return family === undefined ? undefined : `model:${family}`;
+}
+
 function rateLimit(value: unknown, state: ClaudeParseState): Step {
   const parsed = parseWith(RateLimitMessage, value, state);
   if (!parsed.ok) return { events: [], state: parsed.state };
@@ -885,6 +898,7 @@ function rateLimit(value: unknown, state: ClaudeParseState): Step {
   }
   const resetsAt = epochIso(info.resetsAt);
   const credits = info.errorCode === "credits_required";
+  const scope = rateLimitScope(info.rateLimitType);
   const events: WorkerEvent[] = [
     {
       t: "limit",
@@ -892,6 +906,7 @@ function rateLimit(value: unknown, state: ClaudeParseState): Step {
       ...(utilization === undefined ? {} : { utilization: Math.min(1, utilization) }),
       ...(resetsAt === undefined ? {} : { resetsAt }),
       ...(credits ? { creditsRequired: true } : {}),
+      ...(scope === undefined ? {} : { scope }),
     },
   ];
   let next = state;
