@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:21'
+updated_date: '2026-10-14 15:39'
 labels:
   - 'tier:M'
   - after-cutover
@@ -43,6 +43,7 @@ references:
   - packages/engine/test/views/
   - packages/daemon/test/
   - packages/contract/schema/
+  - packages/engine/src/runs/worker-hosts.ts
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
@@ -113,4 +114,12 @@ Implementation (DIPO-59):
 - `work.answer` (async office command): `question.closed` for an unknown or closed question, `args.invalid` without decision on a permission question; a deny's text is the message to the worker. `dipo answer <q> allow|deny [reason]|<text>`; `dipo watch` prints questions with the answer command.
 - Contract (minor 1, unreleased): office error code `question.closed`; optional `questions` on `story.detail`. Snapshot questions and `waitingOnMaintainer` count open questions.
 - AC #8 is the maintainer's: `bun run recordings:capture permission-wait` (new scenario, fixture host that never answers, 10 s wait). Until then the engine test derives the scenario from `permission-denied` with a PermissionRequest hook line; it switches to the live recording once committed.
+
+Review fixes (DIPO-59):
+- Hook commands are `cd <runDir> && <dipo> hook <Event>`. Run from source (`[bun, entry]`) Bun also gets `--no-env-file` and `--config=<runDir>/hook-bunfig.toml` (an empty plan file), so no `bunfig.toml` preload or `.env` planted in the worktree loads in a hook, which runs outside the sandbox (test: `hook-command.test.ts` runs the planned command with both planted). The compiled binary keeps its `--no-compile-autoload-*` safety and also runs from the run directory.
+- Engine token: `launchWorkerHost` writes a random 32-byte secret into `launch.json` (removed by the host before the worker starts) and `worker_hosts.engine_token` (migration 22). Only a connection whose hello presents it may send `hookReply` (`not.permitted` otherwise) or count as the engine watching. The ingest watch and host steering present it.
+- The host holds a PermissionRequest call `permissionWaitSeconds + 10` s (`--wait`); the engine's timeout deny with its reason arrives first. A timeout reply that meets `hook.unknown` is taken as already answered, without a notice. Hook timeout stays 30 s above the wait.
+- `dipo hook` keeps one deadline (1.8 s) over stdin, handshake and answer for a call that does not wait.
+- A call that does not wait relays only its short scalar fields (`tool_input`, `tool_response` and texts over 1 KiB are dropped); a PermissionRequest is relayed whole. Cost: every tool call starts one `dipo hook PostToolUse` process (about 0.1 to 0.3 s, outside the turn's critical path only as far as Claude runs hooks in parallel).
+- Known limit: when `PostCompact` arrives before `compact_boundary`, `compacted` carries `preTokens: 0` and the boundary's `pre_tokens` is not re-emitted (no engine consumer reads it yet).
 <!-- SECTION:NOTES:END -->
