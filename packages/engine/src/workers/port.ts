@@ -40,8 +40,13 @@ export interface WorkerPort {
     config: OfficeConfig,
     checkSession: string,
   ): Promise<PreparedWorker>;
-  /** The parser state ingestion of a new session starts from. */
-  initialState(spec: WorkerSpec): ParseState;
+  /**
+   * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
+   * `previous` is the previous session's stored state: recorded classifier switches carry over,
+   * and a resume (`spec.session.resume`) starts from its usage baseline, so restored spend is
+   * not counted twice.
+   */
+  initialState(spec: WorkerSpec, previous?: ParseState): ParseState;
   /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
   encode(op: SteerOp): HostOp[];
 }

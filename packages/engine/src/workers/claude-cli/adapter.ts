@@ -16,16 +16,18 @@ import type {
   HostLine,
   ParseState,
   ResumeCheck,
+  ResumeFacts,
   SessionRef,
   WorkerAdapter,
   WorkerSpec,
 } from "../types";
 import { PlanError } from "../types";
 import { encode } from "./encode";
-import { initialState, interpret, type ClaudeParseState } from "./interpret";
+import { initialState, interpret, nextSessionOptions, type ClaudeParseState } from "./interpret";
 import { prepareLaunch } from "./launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
+import { checkResume } from "./resume-check";
 import { result } from "./result";
 
 export interface ClaudeCliAdapterDeps {
@@ -69,12 +71,9 @@ export function claudeCliAdapter(
       },
     result: (state: ParseState, exit: ExitRecord) =>
       result(state as unknown as ClaudeParseState, exit),
-    // The version and prompt hash checks belong to the resume (DIPO-51); a session without a
-    // transcript can never resume.
-    canResume: (ref: SessionRef): ResumeCheck =>
-      ref.transcriptPath === null
-        ? { ok: false, reason: `session ${ref.id} has no transcript to resume` }
-        : { ok: true },
+    // Transcript, version, prompt hash, context share and re-read cost (DIPO-51).
+    canResume: (ref: SessionRef, _spec: WorkerSpec, facts: ResumeFacts): ResumeCheck =>
+      checkResume(ref, { ...facts, home: ctx.home }),
   };
 }
 
@@ -130,7 +129,16 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         runStep: deps.runStep,
         uid: deps.uid,
       }),
-    initialState: (spec) => initialState({ plannedModel: spec.model }) as unknown as ParseState,
+    initialState: (spec, previous) =>
+      initialState(
+        previous === undefined
+          ? { plannedModel: spec.model }
+          : nextSessionOptions(
+              previous as unknown as ClaudeParseState,
+              spec.session.resume,
+              spec.model,
+            ),
+      ) as unknown as ParseState,
     encode,
   };
 }

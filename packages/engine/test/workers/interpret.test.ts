@@ -8,6 +8,7 @@ import {
   initialState,
   interpret,
   interpretLogged,
+  nextSessionOptions,
 } from "../../src/workers/claude-cli/interpret";
 import { result } from "../../src/workers/claude-cli/result";
 import type { HostLine, WorkerEvent, WorkerReport } from "../../src/workers/types";
@@ -426,7 +427,8 @@ describe("interpret (0008 section 3)", () => {
       compact_metadata: { pre_tokens: 9000 },
     });
     expect(run([compact]).events).toEqual([{ t: "compacted", preTokens: 9000 }]);
-    const switched = run([init(), init({ model: "claude-sonnet-4-5" })]).events;
+    // Without a planned model every change of the init model is reported.
+    const switched = run([init(), init({ model: "claude-sonnet-4-5" })], initialState()).events;
     expect(switched).toContainEqual({ t: "modelSwitched", from: MODEL, to: "claude-sonnet-4-5" });
     const usageSwitch = run([
       init(),
@@ -491,5 +493,174 @@ describe("interpret (0008 section 3)", () => {
     const { events, state } = run([out({ type: "result", subtype: "success" })]);
     expect(events).toEqual([]);
     expect(state.problems).toEqual(["result failed its schema at session_id"]);
+  });
+});
+
+const SONNET = "claude-sonnet-4-5";
+const on = (model: string, id: string, extra: Record<string, unknown> = {}) =>
+  out({
+    type: "assistant",
+    message: { model, id, type: "message", role: "assistant", content: [], usage },
+    parent_tool_use_id: null,
+    session_id: "session-1",
+    ...extra,
+  });
+const problemOf = (lines: readonly HostLine[]) =>
+  run(lines).events.find(
+    (event): event is Extract<WorkerEvent, { t: "turn" }> => event.t === "turn",
+  )?.problem;
+
+describe("worker outcomes (DIPO-51)", () => {
+  it("records a classifier switch once, and the next system/init on it is accepted", () => {
+    const { events, state } = run([
+      init(),
+      on(SONNET, "msg-1"),
+      on(SONNET, "msg-2"),
+      // A subagent on another model is not a switch of the main agent.
+      on("claude-opus-5", "msg-3", { parent_tool_use_id: "toolu-1" }),
+      init({ model: SONNET }),
+    ]);
+    expect(events.filter((event) => event.t === "modelSwitched")).toEqual([
+      { t: "modelSwitched", from: MODEL, to: SONNET },
+    ]);
+    expect(events.some((event) => event.t === "initRejected")).toBe(false);
+    expect(state.acceptedModels).toEqual([SONNET]);
+    // A model only a result shows is recorded too.
+    const viaResult = run([
+      init(),
+      resultLine({
+        modelUsage: {
+          [SONNET]: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+          },
+        },
+      }),
+    ]);
+    expect(viaResult.state.acceptedModels).toEqual([SONNET]);
+  });
+
+  it("a resumed session inherits the recorded switches, so neither init nor a message repeats it", () => {
+    const first = run([init(), on(SONNET, "msg-1"), EXIT_OK]).state;
+    const resumed = initialState(nextSessionOptions(first, true, "haiku"));
+    const { events } = run([init({ model: SONNET }), on(SONNET, "msg-2")], resumed);
+    expect(events.some((event) => event.t === "modelSwitched" || event.t === "initRejected")).toBe(
+      false,
+    );
+  });
+
+  it("names what was wrong with a turn", () => {
+    expect(problemOf([init(), resultLine()])).toBeUndefined();
+    expect(problemOf([init(), resultLine({ structured_output: undefined })])).toEqual({
+      kind: "report",
+      detail: "no structured_output",
+    });
+    expect(problemOf([init(), resultLine({ structured_output: { status: "done" } })])?.detail).toBe(
+      "structured_output fails the report schema",
+    );
+    expect(
+      problemOf([
+        init(),
+        resultLine({ subtype: "error_max_structured_output_retries", structured_output: null }),
+      ]),
+    ).toEqual({ kind: "report", detail: "error_max_structured_output_retries" });
+    expect(
+      problemOf([
+        init(),
+        resultLine({ subtype: "error_during_execution", terminal_reason: "prompt_too_long" }),
+      ]),
+    ).toEqual({ kind: "contextFull", detail: "prompt_too_long: the context is full" });
+    expect(
+      problemOf([
+        init(),
+        on(MODEL, "msg-1", { error: "server_error" }),
+        resultLine({ subtype: "error_during_execution", terminal_reason: "aborted_streaming" }),
+      ]),
+    ).toEqual({
+      kind: "error",
+      detail: "error_during_execution (aborted_streaming), last error server_error",
+    });
+    expect(
+      problemOf([
+        init(),
+        resultLine({ subtype: "error_during_execution", startup_failure_reason: "sandbox" }),
+      ]),
+    ).toEqual({ kind: "startFailed", detail: "startup_failure_reason sandbox" });
+    expect(problemOf([init(), resultLine({ subtype: "error_max_turns" })])).toBeUndefined();
+  });
+
+  it("a turn ended by a 429 is a rejected plan limit", () => {
+    const { events } = run([
+      init(),
+      resultLine({ subtype: "error_during_execution", api_error_status: 429 }),
+    ]);
+    const limit = events.findIndex((event) => event.t === "limit");
+    const turn = events.findIndex((event) => event.t === "turn");
+    expect(events[limit]).toEqual({ t: "limit", status: "rejected" });
+    expect(limit).toBeLessThan(turn);
+    expect((events[turn] as Extract<WorkerEvent, { t: "turn" }>).problem?.kind).toBe("planLimit");
+  });
+
+  it("tracks the main agent's context tokens and the context window", () => {
+    const { state } = run([
+      init(),
+      on(MODEL, "msg-1"),
+      on(SONNET, "msg-2", { parent_tool_use_id: "toolu-1" }),
+      resultLine({
+        modelUsage: {
+          [MODEL]: {
+            inputTokens: 4,
+            outputTokens: 155,
+            cacheReadInputTokens: 100,
+            cacheCreationInputTokens: 200,
+            contextWindow: 200_000,
+          },
+        },
+      }),
+    ]);
+    expect(state.contextTokens).toBe(usage.input_tokens + 100 + 50);
+    expect(state.contextWindow).toBe(200_000);
+  });
+
+  it("a resume tells restored spend from a restarted count, per field", () => {
+    const previous = run([init(), resultLine(), on(MODEL, "msg-9"), EXIT_OK]).state;
+    // The previous process counted its turn totals plus one message after them.
+    const options = nextSessionOptions(previous, true, "haiku");
+    expect(options.restoredFloor).toEqual({
+      [MODEL]: { input: 4, output: 155, cacheCreate: 200, cacheRead: 100 },
+    });
+    expect(options.baseline).toEqual({
+      [MODEL]: { input: 6, output: 155, cacheCreate: 300, cacheRead: 150 },
+    });
+    const resumed = initialState(options);
+    const totals = (fields: { i: number; o: number; c: number; r: number }) =>
+      resultLine({
+        modelUsage: {
+          [MODEL]: {
+            inputTokens: fields.i,
+            outputTokens: fields.o,
+            cacheCreationInputTokens: fields.c,
+            cacheReadInputTokens: fields.r,
+          },
+        },
+      });
+    // input above the baseline: the rise; output between floor and baseline: live (zero);
+    // cache creation below the floor: all of it; cache read between: live.
+    const step = run(
+      [init(), on(MODEL, "msg-10"), totals({ i: 10, o: 155, c: 50, r: 120 })],
+      resumed,
+    );
+    expect(step.state.committed).toEqual({
+      [MODEL]: { input: 4, output: 0, cacheCreate: 50, cacheRead: 50 },
+    });
+    // The floor applies to the first turn end only.
+    expect(step.state.restoredFloor).toBeUndefined();
+    // A new session (not a resume) starts its counts at zero and keeps only the switches.
+    expect(nextSessionOptions(previous, false, "haiku")).toEqual({
+      plannedModel: "haiku",
+      acceptedModels: [],
+    });
   });
 });
