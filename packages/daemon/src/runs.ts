@@ -5,17 +5,26 @@
 
 import { realpathSync } from "node:fs";
 
-import type { Clock, OfficeId, Spawn, ToolPaths } from "@dipsaus-orchestrator/contract";
+import type {
+  Clock,
+  CommandName,
+  OfficeId,
+  Spawn,
+  ToolPaths,
+} from "@dipsaus-orchestrator/contract";
 import {
   type AdapterHolds,
   type BacklogCli,
   claudeWorkerPort,
   currentProfile,
+  gitParkWriter,
+  hostSocketSteering,
   type EngineGit,
   type Logger,
   OfficeIngest,
   type OfficeManager,
   type RunBase,
+  RunControl,
   RunLauncher,
   runSandboxedStep,
   selfCommand,
@@ -55,11 +64,17 @@ export interface DaemonRunsOptions {
   readonly database: () => StateDatabase | null;
   readonly onChanged: (office: OfficeId) => void;
   readonly logger: Logger;
+  /** The Backlog CLI the park commit runs (DIPO-50). */
+  readonly cli: BacklogCli;
+  /** True when the engine implements a command; a park offers only those (DIPO-50). */
+  readonly implemented: (name: CommandName) => boolean;
 }
 
 export interface DaemonRuns {
   readonly launcher: RunLauncher;
   readonly ingest: OfficeIngest;
+  /** Caps, report parks and `work.stop` (DIPO-50). */
+  readonly control: RunControl;
 }
 
 /**
@@ -79,23 +94,41 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
   const runStep = (request: Parameters<typeof runSandboxedStep>[1]) =>
     runSandboxedStep({ clock, platform, host: systemSandboxHost(platform) }, request);
-  const ingest = new OfficeIngest({
+  const worker = claudeWorkerPort({
+    spawn: systemSpawn,
     clock,
+    claudePath: options.tools.claude,
+    home,
+    env,
+    holds: options.holds,
+    platform,
+    runStep,
+    uid,
+  });
+  // The ingestion hooks call the control, and the control flushes ingestion's output first.
+  let ingest: OfficeIngest | null = null;
+  const control = new RunControl({
+    clock,
+    offices: options.offices,
+    writer: gitParkWriter({
+      git: (office) => options.engineGit.forOffice(office),
+      cli: options.cli,
+    }),
+    steering: hostSocketSteering({ clock }),
+    encode: (op) => worker.encode(op),
+    implemented: options.implemented,
+    flushOutput: (office, run) => ingest?.flushOutput(office, run),
+    onChanged: options.onChanged,
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
+  ingest = new OfficeIngest({
+    clock,
+    hooks: control.hooks,
     pricing: () => options.database()?.pricing ?? null,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   const launcher = new RunLauncher({
-    worker: claudeWorkerPort({
-      spawn: systemSpawn,
-      clock,
-      claudePath: options.tools.claude,
-      home,
-      env,
-      holds: options.holds,
-      platform,
-      runStep,
-      uid,
-    }),
+    worker,
     git: (office) => options.engineGit.forOffice(office),
     setup: async (office, claim) => {
       const handle = options.offices.get(office);
@@ -137,8 +170,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       probe: systemProcessProbe(platform),
     }),
     ingest,
+    control,
     release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest };
+  return { launcher, ingest, control };
 }
