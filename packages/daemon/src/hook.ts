@@ -27,14 +27,15 @@ export interface HookArgs {
   readonly waitMs?: number;
 }
 
-/** The longest string field a call that does not wait keeps. */
+/** The longest string field a call that does not wait keeps; a longer one is cut to this. */
 export const MAX_KEPT_STRING = 1024;
 
 /**
  * The payload as relayed. A call that waits (a permission request) keeps it whole, since its input
  * is what the maintainer is asked about. Any other call keeps only its top-level numbers, booleans
- * and short strings: tool inputs and responses (`PostToolUse` carries the whole tool result) and
- * long texts are dropped, so the event file stays small. A payload that is not a JSON object is
+ * and strings, each string cut to `MAX_KEPT_STRING` characters (so a `StopFailure` error survives):
+ * tool inputs and responses (`PostToolUse` carries the whole tool result) are dropped, so the event
+ * file stays small. A payload that is not a JSON object is
  * relayed as given.
  */
 export function trimPayload(payload: string, waits: boolean): string {
@@ -50,7 +51,7 @@ export function trimPayload(payload: string, waits: boolean): string {
   for (const [key, field] of Object.entries(value)) {
     if (typeof field === "number" || typeof field === "boolean" || field === null)
       kept[key] = field;
-    else if (typeof field === "string" && field.length <= MAX_KEPT_STRING) kept[key] = field;
+    else if (typeof field === "string") kept[key] = field.slice(0, MAX_KEPT_STRING);
   }
   return JSON.stringify(kept);
 }

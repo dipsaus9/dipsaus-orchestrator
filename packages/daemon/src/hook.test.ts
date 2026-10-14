@@ -98,7 +98,7 @@ describe("dipo hook", () => {
 });
 
 describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
-  it("relays only short scalar fields of a call that does not wait, and a waiting call whole", () => {
+  it("relays only scalar fields, long strings cut, of a call that does not wait, and a waiting call whole", () => {
     const payload = JSON.stringify({
       hook_event_name: "PostToolUse",
       tool_name: "Read",
@@ -110,7 +110,18 @@ describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
     expect(JSON.parse(trimPayload(payload, false))).toEqual({
       hook_event_name: "PostToolUse",
       tool_name: "Read",
+      last_assistant_message: "y".repeat(1024),
       stop_hook_active: false,
+    });
+    const failure = JSON.stringify({
+      hook_event_name: "StopFailure",
+      error: "rate_limit",
+      error_type: "e".repeat(2000),
+    });
+    expect(JSON.parse(trimPayload(failure, false))).toEqual({
+      hook_event_name: "StopFailure",
+      error: "rate_limit",
+      error_type: "e".repeat(1024),
     });
     expect(trimPayload(payload, true)).toBe(payload);
     expect(trimPayload("not json", false)).toBe("not json");
