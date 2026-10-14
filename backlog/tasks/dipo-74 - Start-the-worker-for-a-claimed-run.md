@@ -1,10 +1,10 @@
 ---
 id: DIPO-74
 title: Start the worker for a claimed run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 09:26'
+updated_date: '2026-10-14 10:15'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -116,4 +116,6 @@ Follow-up from DIPO-48 (2026-10-14): releasing a claim (teardown, rollback, work
 Added 2026-10-14 by the maintainer: a dry-run preview of the worker call, so the instructions Claude gets can be checked without a live session, and branch and worktree creation tested on its own. The dry-run option on work.run is a contract addition and needs a 0005 amendment approved by the maintainer when this story is built.
 
 Built 2026-10-14 (DIPO-74). work.run with a RunLauncher (packages/engine/src/run/launch.ts) passes ClaimRequest.setup: DIPO-39 setup, then the system file and task message (run/prompts.ts, context pack from the new worktree), the WorkerSpec from the tier with a session id derived from the agent id (UUID v4 shape), and the launch checks through the WorkerPort (workers/port.ts; Claude CLI in workers/claude-cli/adapter.ts). Any failure there fails setup, so claimStory rolls back (worktree removed, new branch deleted at its start, story Ready, pickupCheckFailed). A path the plan refuses also emits engine.notice run.planRefused naming the path and the character (PlanError now carries refused.path and refused.character). After the claim commit the host starts (run/hosts.ts systemHostStarter), OfficeIngest tracks it (first pass plus 1 s poll, advanced via the host socket when it answers), and work.phase build follows. A host that does not start releases the claim keeping the branch as released (StoryClaims.releaseUnstarted) and ends the run as start-failed. releaseClaim and the claim rollback now set runs.ended_at and end_kind. The session id and effort are stored on the run's agents row (no migration). A held adapter still refuses work.run without stories; a run that names its stories repeats the launch checks, which lift the hold (the DIPO-43 hold text asks for an explicit run). Dry run: read work.preview (contract minor 1, since: 1) and dipo run --dry-run; it skips fetch, index and profile refresh and evaluates the pickup gate with GateStore.checkGate (stores nothing). Daemon: one BacklogCli with the resolved absolute backlog for every feature (engineFeatures({ backlog })), StoryClaims gets the SlotTable, the run temp directory is <realpath tmp>/dipo-run-<run>. Deferred: worker exit handling (onEnded, onInitRejected) and run end on exit are DIPO-51; mcp.json and tool variables are not passed yet (toolVariables: []); the run temp directory is not removed at run end; canResume checks only the transcript (version and prompt hash at DIPO-51); prompt parts and context pack are not recorded. 0005 amendment for work.preview awaits the maintainer's approval.
+
+Live test 2026-10-14 on dipsaus9/dipo-scratch-backlog (build d532010): dry run printed the launch and changed nothing; the stubbed CI test showed branch, locked worktree and claim commit; a live dipo run TASK-1 ran setup, the sandbox self-test and a haiku worker that implemented the story (2 tests pass), reported done with evidence, cost USD 0.005 in 8 turns, and committed nothing. The worker stays idle after its report until DIPO-51; the worker host outlives daemon stop (DIPO-57). Setup failed first because ~/.bun/bin/bun is a Safe-Chain wrapper that cannot write its temp file in the step sandbox; the daemon ran with ~/.bun/bin-originals first on PATH.
 <!-- SECTION:NOTES:END -->
