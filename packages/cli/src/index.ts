@@ -21,6 +21,7 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
+import { answerCommand } from "./answer-command";
 import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
@@ -126,6 +127,11 @@ Usage:
   dipo stop <id> [--note <text>] [--office <id>] [--yes]
                     stop the story's worker after asking; the story parks as
                     stopped with branch and worktree kept
+  dipo answer <question> allow|deny [reason] [--office <id>]
+                    answer a permission question a worker asked while you were
+                    at a client: allow lets its call run once, deny refuses it
+                    and tells the worker the reason; any other text answers a
+                    worker question
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -210,6 +216,9 @@ export function defaultDeps(): CliDeps {
 /** Runs the command line and resolves to the process exit code. */
 export async function main(argv: readonly string[], deps: CliDeps): Promise<number> {
   const args = [...argv];
+  // Hidden: a worker's command hook (DIPO-59). First, so nothing else runs before it and no flag in
+  // its arguments is read as a CLI option.
+  if (args[0] === "hook") return deps.runDaemon(args);
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     deps.writeLine(HELP);
     return 0;
@@ -250,6 +259,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "stop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return stopCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "answer") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return answerCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
