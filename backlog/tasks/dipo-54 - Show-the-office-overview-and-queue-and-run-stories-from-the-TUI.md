@@ -4,7 +4,7 @@ title: Show the office overview and queue and run stories from the TUI
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:56'
+updated_date: '2026-10-14 14:10'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -53,17 +53,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The overview lists each `WorkView` with story, role, tier, phase, health word and glyph, AC, loop, verify, budget bar with percentage, and elapsed time.
-- [ ] #2 A summary line shows Ready, waiting and held counts.
-- [ ] #3 The queue lists sections in column order with counts; `waiting` rows name the dependency; Refined rows show the first gate message with its rule id.
-- [ ] #4 `u` sends `work.run` with the selected story, or none for the next Ready one, and shows started and skipped stories with reasons.
-- [ ] #5 After a reply the action is marked done only when the stream passes the reply cursor; an error shows its message in the footer, and a retryable one offers Ctrl-R with the same request id.
-- [ ] #6 Columns drop at the 0009 width breakpoints and nothing scrolls horizontally.
-- [ ] #7 Events are applied in batches at most 10 times per second.
+- [x] #1 The overview lists each `WorkView` with story, role, tier, phase, health word and glyph, AC, loop, verify, budget bar with percentage, and elapsed time.
+- [x] #2 A summary line shows Ready, waiting and held counts.
+- [x] #3 The queue lists sections in column order with counts; `waiting` rows name the dependency; Refined rows show the first gate message with its rule id.
+- [x] #4 `u` sends `work.run` with the selected story, or none for the next Ready one, and shows started and skipped stories with reasons.
+- [x] #5 After a reply the action is marked done only when the stream passes the reply cursor; an error shows its message in the footer, and a retryable one offers Ctrl-R with the same request id.
+- [x] #6 Columns drop at the 0009 width breakpoints and nothing scrolls horizontally.
+- [x] #7 Events are applied in batches at most 10 times per second.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S38 (DIPO-15). Before cutover: built by hand-run agents.
+
+Implementation (DIPO-54):
+- Overview (`1`, packages/tui/src/overview.tsx): one row per WorkView with story, role, tier, phase, health word and glyph, AC, loop, verify, `[####----] 52%` budget bar, elapsed time from `usage.run.elapsedMs`; MODEL and TURNS at 120+ columns; 80-119 drops them and shortens the role (dev, rev); 60-79 two-line cards; below 60 or 16 rows the DIPO-53 narrow list. Evidence markers (`*` claimed, `~` estimated, `?` none) and the footer legend only with the `evidence` capability. Summary line: Ready, waiting (with the ids waited on), held and desk counts, plus today's tokens when `dayUsage` is sent. Every line is cut to the width; rows are React.memo by run key.
+- Queue (`2`, packages/tui/src/queue.tsx): sections in the 0009 layout order (ready, waiting, refined, draft, running, review, desk, held, unknown columns, done after `.`) with counts; waiting rows say `needs <ids>`; Refined rows show the first gate message with its rule id first (`R15 ...`); held rows show the note and age. First row "next Ready story": `u` there sends `work.run {}`, `u` on a story sends `work.run { stories: [key] }`. Selection is kept by story key; the list scrolls vertically around the selection.
+- Run result lines under the body: started stories with their run, skipped ones with the reason in words (a `dependency` skip names the ids waited on). Read-your-writes: status "answered, waiting for the office stream" until the store's office cursor reaches the reply cursor, then "done". Errors show `code: message` in the footer; a retryable error offers Ctrl-R, which resends the same args with the same request id. `u` is off while offline.
+- Batching (packages/tui/src/batch.ts): the TUI takes the store state at most once per 100 ms (first change at once, the rest at the end of the window).
+- Client additions (no contract change): `CommandOptions.requestId` so a retry reuses its id; `OfficeStoreState.cursor` (last stored office cursor, from the snapshot on) and `cursorReached(current, target)`.
+- Tests: overview frames from the golden log at 120 and 80 (exact) and 70 columns, evidence markers, no line wider than the terminal at 120/100/80/79/60, queue frame, `.`, `u` on a Ready row (args, request id, office), next Ready with a dependency skip, read-your-writes on seq 8 vs 9, Ctrl-R retry with the same id, no retry for non-retryable, offline; Batcher unit tests; client tests for the request id option and the store cursor. The golden log's dipsaus office gained stories in every section and two more runs.
 <!-- SECTION:NOTES:END -->
