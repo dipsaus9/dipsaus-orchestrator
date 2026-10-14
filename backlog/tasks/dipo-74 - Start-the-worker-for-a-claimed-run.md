@@ -4,7 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 09:22'
+updated_date: '2026-10-14 09:26'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -39,6 +39,14 @@ references:
   - packages/cli/src/run-command.ts
   - packages/cli/src/run-command.test.ts
   - packages/cli/src/index.ts
+  - packages/engine/src/workers/hold.ts
+  - docs/decisions/0005-command-and-event-model.md
+  - >-
+    backlog/tasks/dipo-51 -
+    Handle-worker-outcomes-and-resume-a-crashed-session-once.md
+  - >-
+    backlog/tasks/dipo-52 -
+    Derive-story-and-work-views-snapshots-and-a-plain-watch-command.md
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
