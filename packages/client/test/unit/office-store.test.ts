@@ -391,4 +391,17 @@ describe("OfficeStore", () => {
     });
     expect(store.state.office).toBe(A);
   });
+
+  it("does not undo a switch made while a history-gap reload reads engine.hello", async () => {
+    const { client, store } = await setup();
+    const held = Promise.withResolvers<{ ok: true; result: HelloResult }>();
+    client.answers.set("engine.hello", () => held.promise);
+    client.end(`office:${A}`, { code: "stream.resetRequired", message: "gap", retryable: false });
+    await store.switchTo(B);
+    held.resolve({ ok: true, result: hello(30) });
+    await settle();
+    expect(store.state.office).toBe(B);
+    expect(store.state.stories.map((view) => String(view.story))).toEqual(["BETA-1"]);
+    expect(client.reads.filter((read) => read.name === "office.snapshot")).toHaveLength(1);
+  });
 });

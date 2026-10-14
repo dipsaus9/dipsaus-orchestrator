@@ -303,11 +303,13 @@ export class OfficeStore {
 
   /** A history gap: drop the view, read `engine.hello` and the snapshot again, say so once. */
   async #reload(office: OfficeId): Promise<void> {
+    const generation = this.#generation;
     const hello = await this.#read(engineHello, {
       contract: CONTRACT_VERSION,
       client: this.#clientInfo,
     });
-    if (this.#closed) return;
+    // A switch during the read owns the state now; reloading the old office would undo it.
+    if (this.#closed || generation !== this.#generation) return;
     if (hello.ok) this.#applyHello(hello.result);
     this.#update({ ...EMPTY_OFFICE, notice: RELOADED_NOTICE });
     await this.#load(office, "snapshot");
