@@ -60,6 +60,8 @@ import {
   resolveSoftwareDirs,
   resolveTools,
   RunProfiles,
+  RECONCILE_STEP,
+  Reconciler,
   Retention,
   runtimeCandidates,
   selfCommand,
@@ -589,6 +591,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const runProfiles = new RunProfiles({
       git: engineGit,
       stories: storyIndex,
+      reconcile: (office) => reconciler.reconcile(office),
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "scan" }),
     });
@@ -624,8 +627,21 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "runs" }),
       cli: backlogCli,
+      stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
+    });
+    // Reconcile (DIPO-56, 0007 section 6): the last office load step, so every office the daemon
+    // loads in `recovering` (below) is reconciled before scheduling turns on; `office.rescan` runs
+    // it again. It stops and parks runs through the run control and releases orphaned claims.
+    const reconciler = new Reconciler({
+      git: (office) => engineGit.forOffice(office),
+      stories: storyIndex,
+      runs: runs.control,
+      releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+      refuse: (office, text) => offices.refuse(office, text),
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "reconcile" }),
     });
     // Ingestion and the cap ticks of run control (DIPO-50) stop together.
     held.ingest = {
@@ -673,6 +689,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       runs.control.feature,
       retention.feature,
+      reconciler.feature,
       officeFeature(offices),
       helloFeature({
         engineVersion: io.version,
@@ -765,6 +782,26 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
           clock,
           engineVersion: io.version,
         });
+      },
+    });
+    // Every registered office loads in `recovering` (DIPO-56): its load steps end with reconcile,
+    // so scheduling stays off until each office is reconciled, and the merge slot poll and Done
+    // detection resume without waiting for an office command. An office that is refused stays
+    // unloaded with its notice; the daemon still starts.
+    steps.register({
+      name: RECONCILE_STEP,
+      run: async (context) => {
+        for (const office of offices.registeredOffices()) {
+          if (lifecycle.state !== "recovering") return;
+          const access = await offices.load(office);
+          if (!access.ok) {
+            context.logger.warn("office not loaded at start", {
+              office,
+              code: access.error.code,
+              reason: access.error.message,
+            });
+          }
+        }
       },
     });
     for (const step of options.recoverySteps ?? []) steps.register(step);
