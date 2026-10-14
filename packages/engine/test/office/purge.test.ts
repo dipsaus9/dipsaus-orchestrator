@@ -240,6 +240,44 @@ describe("office.purge", () => {
     );
   });
 
+  it("finishes a purge that stopped halfway", async () => {
+    await withTempRepo(
+      async (repo) => {
+        const s = await officeSetup(repo.root);
+        const office = await openOffice(s, repo.dir);
+        resultOf(await send(s, "fixture.ping", {}, office));
+        for (let i = 0; i < 3; i++) note(s, office, `entry ${i}`);
+        addRun(s, office, join(repo.root, "trees", "TASK-1"));
+        // As a first purge leaves it when it stops: forgotten, .git/dipo gone, some tables empty.
+        const handle = s.state.office(office);
+        handle.immediate(() => {
+          handle.run("delete from change_log where office_id = $office_id");
+          handle.run("delete from claims where office_id = $office_id");
+        });
+        s.state.connection.immediate(() =>
+          s.state.connection.run("update offices set forgotten_at = 1 where office_id = $office", {
+            office,
+          }),
+        );
+        rmSync(officeDirectory(join(repo.dir, ".git")), { recursive: true, force: true });
+        const left = rowsOf(s, office);
+        expect(left["offices"]).toBe(1);
+        expect(left["runs"]).toBe(1);
+        expect(left["change_log"]).toBeUndefined();
+
+        const result = resultOf<{ rows: number; directory?: string }>(
+          await send(s, "office.purge", { office }),
+        );
+
+        expect(result.directory).toBeUndefined();
+        expect(result.rows).toBe(Object.values(left).reduce((sum, n) => sum + n, 0));
+        expect(rowsOf(s, office)).toEqual({});
+        expect(officeRows(s.state)).toEqual([]);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
   it("leaves a .git/dipo directory whose marker names another office", async () => {
     await withTempRepo(
       async (repo) => {
