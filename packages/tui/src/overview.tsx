@@ -2,7 +2,8 @@
 // tier, phase, health word and glyph, criteria, loop, verify, budget bar with its share and
 // elapsed time, and a summary line with the Ready, waiting and held counts. At 120 columns or more
 // the model and turns show too; from 80 to 119 they drop and the role is shortened; from 60 to 79
-// each run is a two-line card. Rows are memoised by run, and each line is cut to the width.
+// each run is a two-line card. Rows are memoised by run, and each line is cut to the width. The
+// selected run is marked with `>` in the first column; Enter opens its live detail (DIPO-55).
 
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type { StoryView, WorkView } from "@dipsaus-orchestrator/contract";
@@ -98,28 +99,27 @@ const TableRow = memo(
     columns: readonly Column[];
     evidence: boolean;
     columnsKey: string;
+    selected: boolean;
   }) {
     const row = cells(props.view, props.evidence);
-    return (
-      <Text wrap="truncate-end">
-        {line(
-          props.columns.map((column) => column.cell(row)),
-          props.columns,
-        )}
-      </Text>
+    const text = line(
+      props.columns.map((column) => column.cell(row)),
+      props.columns,
     );
+    return <Text wrap="truncate-end">{props.selected ? `>${text.slice(1)}` : text}</Text>;
   },
   (prev, next) =>
     prev.view === next.view &&
     prev.evidence === next.evidence &&
-    prev.columnsKey === next.columnsKey,
+    prev.columnsKey === next.columnsKey &&
+    prev.selected === next.selected,
 );
 
-const Card = memo(function Card(props: { view: WorkView; evidence: boolean }) {
+const Card = memo(function Card(props: { view: WorkView; evidence: boolean; selected: boolean }) {
   const row = cells(props.view, props.evidence);
   return (
     <Box flexDirection="column">
-      <Text wrap="truncate-end">{` ${row.story}  ${row.health}  ${row.phase}`}</Text>
+      <Text wrap="truncate-end">{`${props.selected ? ">" : " "}${row.story}  ${row.health}  ${row.phase}`}</Text>
       <Text wrap="truncate-end">{`   AC ${row.ac}  loop ${row.loop}  budget ${row.share}`}</Text>
     </Box>
   );
@@ -151,6 +151,8 @@ export function Overview(props: {
   display: Display;
   width: Width;
   columns: number;
+  /** The selected run, marked with `>`; Enter opens its detail. */
+  selected?: string | null;
 }) {
   const { state, display, width } = props;
   const { dot, ellipsis } = glyphs(display.ascii);
@@ -174,7 +176,12 @@ export function Overview(props: {
     return (
       <Box flexDirection="column">
         {state.work.map((view) => (
-          <Card key={view.work.run} view={view} evidence={evidence} />
+          <Card
+            key={view.work.run}
+            view={view}
+            evidence={evidence}
+            selected={view.work.run === props.selected}
+          />
         ))}
         {summary}
       </Box>
@@ -204,6 +211,7 @@ export function Overview(props: {
           columns={columns}
           evidence={evidence}
           columnsKey={columnsKey}
+          selected={view.work.run === props.selected}
         />
       ))}
       {summary}
