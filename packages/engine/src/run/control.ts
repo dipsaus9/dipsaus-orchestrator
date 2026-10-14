@@ -2,11 +2,12 @@
 // worker's report asks for and `work.stop`.
 //
 // - Caps. Each started run is tracked with its tier's caps and the time its worker started. After
-//   every committed ingestion pass with a `usage` or `turn` event, and on a 1-minute tick of the
-//   injected clock (so the time cap fires without new events), the run's budget tokens, summed
-//   turns and wall-clock minutes are compared with the caps (`caps.ts`). At 100% of one the engine
-//   records a `cap` intent, sends the stop sequence and parks the story `budget-exceeded` naming
-//   the cap. A turn that ended at the adapter's own turn cap (the CLI backstop, `error_max_turns`)
+//   every `usage` and `turn` event, as of that event inside its ingestion pass (`onEventApplied`),
+//   and on a 1-minute tick of the injected clock (so the time cap fires without new events), the
+//   run's budget tokens, summed turns and wall-clock minutes are compared with the caps
+//   (`caps.ts`). After the pass commits, the engine acts at the first event that decides. At
+//   100% of one it records a `cap` intent, sends the stop sequence and parks the story
+//   `budget-exceeded` naming the cap and the total at the crossing. A turn that ended at the adapter's own turn cap (the CLI backstop, `error_max_turns`)
 //   does the same at that turn, so a later turn of a queued message never overrides it.
 // - Reports. A turn whose report is `blocked` parks the story: `needs-permission` with the tool and
 //   action as detail when it carries `needsPermission` (a call `--permission-prompts none` denied,
@@ -43,7 +44,7 @@ import type { OfficeHandle } from "../db/office";
 import type { IngestHooks } from "../ingest/ingestor";
 import type { Caps, HostOp, SteerOp, WorkerEvent } from "../workers/types";
 
-import { type CapName, firedCap, runTotals } from "./caps";
+import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
 import {
   type IntentKind,
   markIntentSent,
@@ -151,6 +152,8 @@ export class RunControl {
   readonly #deps: RunControlDeps;
   readonly #tracked = new Map<string, Tracked>();
   readonly #inflight = new Set<Promise<unknown>>();
+  /** Events at which a cap was reached, as of that event inside its pass (`onEventApplied`). */
+  readonly #crossings = new WeakMap<WorkerEvent, FiredCap>();
 
   constructor(deps: RunControlDeps) {
     this.#deps = deps;
@@ -159,6 +162,7 @@ export class RunControl {
   /** The ingestion hooks: caps and reports after every committed pass, intents at the exit. */
   get hooks(): IngestHooks {
     return {
+      onEventApplied: (run, _agent, event) => this.onEventApplied(run, event),
       onWorkerEvents: (run, _agent, events) => this.onWorkerEvents(run, events),
       onEnded: (run) => this.onEnded(run),
     };
@@ -186,6 +190,25 @@ export class RunControl {
   close(): void {
     for (const tracked of this.#tracked.values()) this.#disarm(tracked);
     this.#tracked.clear();
+  }
+
+  /**
+   * Inside an ingestion pass, right after a `usage` or `turn` event was folded into the stored
+   * totals: compares the totals as of that event with the caps and remembers the event when one
+   * is reached. Nothing is written or sent here; `onWorkerEvents` acts after the commit, at the
+   * first event that decides, so a blocked report or backstop turn before the crossing wins and
+   * the park detail names the total at the crossing. A rolled-back pass leaves only unused marks.
+   */
+  onEventApplied(run: string, event: WorkerEvent): void {
+    const tracked = this.#tracked.get(run);
+    if (tracked === undefined || tracked.ending !== null) return;
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    const fired = firedCap(
+      tracked.caps,
+      runTotals(office, tracked.runId, tracked.startedAt, this.#deps.clock.now()),
+    );
+    if (fired !== null) this.#crossings.set(event, fired);
   }
 
   /** The events of one committed ingestion pass, in order. */
@@ -217,7 +240,12 @@ export class RunControl {
           return;
         }
       }
-      if ((event.t === "usage" || event.t === "turn") && this.#checkCaps(tracked)) return;
+      // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
+      const fired = this.#crossings.get(event);
+      if (fired !== undefined) {
+        this.#cap(tracked, fired.cap, fired.detail);
+        return;
+      }
     }
   }
 

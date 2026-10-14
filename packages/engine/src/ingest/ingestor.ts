@@ -84,6 +84,12 @@ export interface IngestHooks {
   readonly onFileChanged?: (report: FileChangedReport) => void;
   /** The worker failed its start checks; the caller stops it at once. */
   readonly onInitRejected?: (run: string, agent: string, reason: string) => void;
+  /**
+   * Called inside the pass transaction right after a `usage` or `turn` event was folded into the
+   * stored totals, so a reader sees the totals as of that event (DIPO-50 caps). It must not throw
+   * and must not write; what it learns is acted on after the commit.
+   */
+  readonly onEventApplied?: (run: string, agent: string, event: WorkerEvent) => void;
   /** Every worker event of a committed pass, in order, for health and caps. */
   readonly onWorkerEvents?: (run: string, agent: string, events: readonly WorkerEvent[]) => void;
   /** The worker's exit line was ingested; its usage is final. */
@@ -363,6 +369,7 @@ export class Ingestor {
           switch (event.t) {
             case "usage":
               usageChanged = recordUsageMessage(this.#office, target, event, now) || usageChanged;
+              this.#hooks.onEventApplied?.(run, agent, event);
               break;
             case "turn":
               applyTurnTotals(
@@ -386,6 +393,7 @@ export class Ingestor {
               }
               usageChanged = true;
               turnEnded = true;
+              this.#hooks.onEventApplied?.(run, agent, event);
               break;
             case "started":
               model = event.model;

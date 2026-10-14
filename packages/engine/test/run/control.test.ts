@@ -231,6 +231,15 @@ describe("caps", () => {
     expect(park?.reason).toBe("budget-exceeded");
     expect(park?.detail).toContain("token budget reached");
     expect(park?.detail).toContain(`of ${budget.toLocaleString("en-US")} budget tokens`);
+    // The detail names the total at the crossing event, not the end of the pass.
+    const used = Number(/reached: ([\d,]+) of/.exec(park?.detail ?? "")?.[1]?.replaceAll(",", ""));
+    const end = w.f.office.get<{ used: number }>(
+      `select sum(input + output + cache_create) as used from usage_totals
+       where office_id = $office_id and run_id = $run`,
+      { run: w.f.run },
+    );
+    expect(used).toBeGreaterThanOrEqual(budget);
+    expect(used).toBeLessThan(end?.used ?? 0);
     expect(park?.from_state).toBe("In Progress");
     expect(park?.last_good_commit).toBe("a".repeat(40));
     // The cap intent was stored, then the stop sequence sent.
@@ -306,6 +315,77 @@ describe("caps", () => {
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
       ["cap", "sent"],
     ]);
+  });
+});
+
+describe("caps as of each event in one pass", () => {
+  const MODEL = "claude-haiku-5-5";
+  const usage = (n: number, input: number): WorkerEvent => ({
+    t: "usage",
+    messageId: `msg-${n}`,
+    model: MODEL,
+    input,
+    output: 0,
+    cacheCreate: 0,
+    cacheCreate5m: 0,
+    cacheCreate1h: 0,
+    cacheRead: 0,
+  });
+  const blocked = (input: number): WorkerEvent => ({
+    t: "turn",
+    report: {
+      status: "blocked",
+      criteria: [],
+      summary: "Blocked.",
+      commitSubject: "nothing",
+      question: "Which greeting?",
+    },
+    totals: { [MODEL]: { input, output: 0, cacheCreate: 0, cacheRead: 0 } },
+    numTurns: 1,
+    terminal: "completed",
+  });
+  /** An adapter whose host lines are worker events as JSON, so one pass holds exactly these. */
+  const passThrough: IngestAdapter = {
+    interpret: (line, state) =>
+      line.ch === "stdout"
+        ? { events: [JSON.parse(line.data) as WorkerEvent], state }
+        : { events: [], state },
+  };
+  function onePass(events: readonly WorkerEvent[]): Promise<void> {
+    appendLines(
+      w.f.eventFile,
+      events.map((event, i) => ({ t: i, ch: "stdout", data: JSON.stringify(event) })),
+    );
+    const ingestor = new Ingestor({
+      office: w.f.office,
+      clock: w.f.t.clock,
+      pricing: null,
+      hooks: w.control.hooks,
+    });
+    w.ingestor = ingestor;
+    ingestor.track(target(w.f, passThrough, {}));
+    return w.control.idle();
+  }
+
+  it("parks at the crossing event with its total, before a later blocked report", async () => {
+    track({ ...ROOMY, budgetTokens: 1_500 });
+    await onePass([usage(1, 1_000), usage(2, 1_000), usage(3, 1_000), blocked(3_000)]);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      [
+        "budget-exceeded",
+        "token budget reached: 2,000 of 1,500 budget tokens (input, output and cache creation)",
+      ],
+    ]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
+  });
+
+  it("lets a blocked report that came before the crossing win", async () => {
+    track({ ...ROOMY, budgetTokens: 1_500 });
+    await onePass([usage(1, 500), blocked(500), usage(2, 1_000), usage(3, 1_000)]);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["ambiguous-spec", "Which greeting?"],
+    ]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["park"]);
   });
 });
 
