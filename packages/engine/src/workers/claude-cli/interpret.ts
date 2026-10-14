@@ -18,6 +18,7 @@ import type {
   WorkerEvent,
   WorkerReport,
 } from "../types";
+import { hookEventOf } from "./hooks";
 import { WorkerReportSchema } from "./report-schema";
 import {
   ApiRetryMessage,
@@ -130,6 +131,13 @@ export interface ClaudeParseState {
   readonly contextTokens?: number | null;
   /** The main model's context window as the last result reported it. */
   readonly contextWindow?: number | null;
+  /**
+   * Compactions this process reported through `compact_boundary` and through the `PostCompact`
+   * hook (DIPO-59). One compaction shows on both paths in either order, so `compacted` is emitted
+   * only when a path's count passes the other's. Absent in states stored before they existed.
+   */
+  readonly compactBoundaries?: number;
+  readonly compactHooks?: number;
 }
 
 export interface InitialStateOptions {
@@ -363,12 +371,14 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
     case "stdout":
       return stdoutText(line.data, state);
     case "hook":
-      return hookLine(line.data, state);
-    case "exit":
+      return hookLine(line.data, state, line.end ?? null);
+    case "exit": {
+      // Compaction counts are per process.
+      const { compactBoundaries: _boundaries, compactHooks: _hooks, ...rest } = state;
       return {
         events: [],
         state: {
-          ...state,
+          ...rest,
           pending: "",
           truncated: state.truncated || state.pending !== "",
           started: false,
@@ -376,6 +386,7 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
           exits: state.exits + 1,
         },
       };
+    }
     default:
       // stderr is redacted in recordings and never decides anything.
       return { events: [], state };
@@ -495,10 +506,15 @@ export function message(value: unknown, state: ClaudeParseState): Step {
     case "system/compact_boundary": {
       const parsed = parseWith(CompactBoundaryMessage, value, state);
       if (!parsed.ok) return { events: [], state: parsed.state };
-      return {
-        events: [{ t: "compacted", preTokens: parsed.value.compact_metadata.pre_tokens }],
-        state,
-      };
+      const boundaries = (state.compactBoundaries ?? 0) + 1;
+      const next = { ...state, compactBoundaries: boundaries };
+      // The `PostCompact` hook may have reported this compaction first (DIPO-59).
+      return boundaries > (state.compactHooks ?? 0)
+        ? {
+            events: [{ t: "compacted", preTokens: parsed.value.compact_metadata.pre_tokens }],
+            state: next,
+          }
+        : { events: [], state: next };
     }
     case "system/session_state_changed": {
       const parsed = parseWith(SessionStateMessage, value, state);
@@ -522,16 +538,24 @@ function modelMatches(planned: string, actual: string): boolean {
 /**
  * Records `model` as a classifier switch when it is neither the planned model nor already
  * recorded, with one `modelSwitched` event (DIPO-51). The recorded switches carry over to the
- * run's next session, so each switch is reported once per run.
+ * run's next session, so each switch is reported once per run. A switch already recorded under
+ * its alias or its full id (the `PostModelSwitch` hook and the stream may name it differently,
+ * DIPO-59) records the other name too, without a second event.
  */
-function acceptSwitch(state: ClaudeParseState, model: string): Step {
+function acceptSwitch(state: ClaudeParseState, model: string, from?: string): Step {
   const planned = state.plannedModel;
   if (planned === null || modelMatches(planned, model) || state.acceptedModels.includes(model)) {
     return { events: [], state };
   }
+  const accepted = { ...state, acceptedModels: [...state.acceptedModels, model] };
+  if (
+    state.acceptedModels.some((known) => modelMatches(known, model) || modelMatches(model, known))
+  ) {
+    return { events: [], state: accepted };
+  }
   return {
-    events: [{ t: "modelSwitched", from: state.model ?? planned, to: model }],
-    state: { ...state, acceptedModels: [...state.acceptedModels, model] },
+    events: [{ t: "modelSwitched", from: from ?? state.model ?? planned, to: model }],
+    state: accepted,
   };
 }
 
@@ -910,33 +934,69 @@ function rateLimit(value: unknown, state: ClaudeParseState): Step {
   return { events, state: next };
 }
 
-function hookLine(data: string, state: ClaudeParseState): Step {
+/**
+ * One relayed hook payload (0008 sections 3 and 5, DIPO-59): the neutral `hook` event the engine
+ * acts on, plus the worker events the payload also stands for. `call` is the hook line's end
+ * offset, the id of a waiting `PermissionRequest` call.
+ */
+function hookLine(data: string, state: ClaudeParseState, call: number | null): Step {
   const parsedJson = tryParse(data);
   if (!parsedJson.ok) return { events: [], state: problem(state, "unparseable hook line") };
   const parsed = parseWith(HookPayload, parsedJson.value, state);
   if (!parsed.ok) return { events: [], state: parsed.state };
   const hook = parsed.value;
-  switch (hook.hook_event_name) {
-    case "PermissionRequest":
+  const neutral = hookEventOf(hook, call);
+  const events: WorkerEvent[] = neutral === null ? [] : [{ t: "hook", hook: neutral }];
+  let next = state;
+  switch (neutral?.kind) {
+    case "permissionRequest":
       // The primary permission-wait signal (0008 sections 3 and 5).
-      return {
-        events: [{ t: "waiting", on: "permission", detail: hook.tool_name ?? "PermissionRequest" }],
-        state,
-      };
-    case "StopFailure":
+      events.push({ t: "waiting", on: "permission", detail: neutral.tool });
+      break;
+    case "stopFailed":
       if (hook.error === "rate_limit") {
-        return {
-          events: [
-            { t: "limit", status: "rate_limit" },
-            { t: "waiting", on: "plan-limit", detail: "StopFailure rate_limit" },
-          ],
-          state: { ...state, planLimit: state.planLimit ?? "StopFailure rate_limit" },
-        };
+        events.push(
+          { t: "limit", status: "rate_limit" },
+          { t: "waiting", on: "plan-limit", detail: "StopFailure rate_limit" },
+        );
+        next = { ...next, planLimit: next.planLimit ?? "StopFailure rate_limit" };
       }
-      return { events: [], state };
+      break;
+    case "compacted": {
+      // The same compaction as a `compact_boundary` line, in either order (DIPO-42 review).
+      const hooks = (next.compactHooks ?? 0) + 1;
+      if (hooks > (next.compactBoundaries ?? 0)) events.push({ t: "compacted", preTokens: 0 });
+      next = { ...next, compactHooks: hooks };
+      break;
+    }
+    case "modelSwitched": {
+      const switched = hookModelSwitch(next, neutral.to, neutral.from);
+      events.push(...switched.events);
+      next = switched.state;
+      break;
+    }
     default:
-      return { events: [], state };
+      break;
   }
+  return { events, state: next };
+}
+
+/**
+ * A `PostModelSwitch` hook, deduplicated against the `system/init` and `modelUsage` paths
+ * (DIPO-42 review): with a planned model, as a recorded classifier switch; without one, only when
+ * the stream has not shown the model yet.
+ */
+function hookModelSwitch(state: ClaudeParseState, to: string, from: string | undefined): Step {
+  if (state.plannedModel !== null) return acceptSwitch(state, to, from);
+  if (state.model === to || state.models.includes(to)) return { events: [], state };
+  return {
+    events: [{ t: "modelSwitched", from: from ?? state.model ?? to, to }],
+    state: {
+      ...state,
+      ...(state.started ? { model: to } : {}),
+      models: remember(state.models, to),
+    },
+  };
 }
 
 /** `interpret` plus a log line for each message type seen for the first time in this run. */

@@ -407,7 +407,10 @@ describe("interpret (0008 section 3)", () => {
         session_id: "session-1",
       }),
     };
-    expect(run([hook]).events).toEqual([{ t: "waiting", on: "permission", detail: "Bash" }]);
+    expect(run([{ ...hook, end: 512 }]).events).toEqual([
+      { t: "hook", hook: { kind: "permissionRequest", id: 512, tool: "Bash", input: "" } },
+      { t: "waiting", on: "permission", detail: "Bash" },
+    ]);
     const requires = out({
       type: "system",
       subtype: "session_state_changed",

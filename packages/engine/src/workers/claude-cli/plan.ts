@@ -8,6 +8,7 @@ import type { OfficeConfig } from "../../config";
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
+import { DEFAULT_PERMISSION_WAIT_SECONDS, hookSettings } from "./hooks";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
 /** Run settings file, in the run directory (0008 section 10). */
@@ -97,6 +98,17 @@ export interface ClaudeLaunchContext {
   readonly tmpDir: string;
   /** The office `mcp.json`, when the office has one. */
   readonly mcpConfig?: string;
+  /**
+   * How to run this `dipo` (`selfCommand()`): the binary's `process.execPath`, or Bun with the
+   * entry script when run from source. The hooks of the run settings file run `<it> hook <event>`
+   * (0008 section 5), so they need no `PATH`. Required when the spec asks for the hook relay.
+   */
+  readonly hookCommand?: readonly [string, ...string[]];
+  /**
+   * `timeouts.permissionWaitSeconds` (0008 section 5): how long the `PermissionRequest` hook may
+   * wait for the maintainer; its hook timeout is 30 s above it. 300 by default.
+   */
+  readonly permissionWaitSeconds?: number;
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
@@ -153,11 +165,6 @@ function checkSpec(spec: WorkerSpec): void {
   if (!PLANNED_KINDS.includes(spec.kind)) {
     throw new PlanError(
       `the ${CLAUDE_CLI_ADAPTER_ID} adapter cannot plan worker kind "${spec.kind}"; it plans ${PLANNED_KINDS.join(", ")}`,
-    );
-  }
-  if (spec.hookRelay) {
-    throw new PlanError(
-      "hook relay is not available yet: the run settings file registers no hooks",
     );
   }
   if (!UUID.test(spec.session.id)) {
@@ -283,13 +290,47 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
   };
 }
 
-/** The run settings file: rules, sandbox and git instruction switches (0008 section 2). */
+/** The `hooks` block when the spec asks for the hook relay (0008 section 5), else none. */
+function hooks(
+  spec: WorkerSpec,
+  ctx: ClaudeLaunchContext,
+  workdir: string,
+): Record<string, unknown> | undefined {
+  if (!spec.hookRelay) return undefined;
+  const command = ctx.hookCommand;
+  if (command === undefined) {
+    throw new PlanError("the hook relay needs the dipo command the hooks run");
+  }
+  // Hooks run outside the sandbox: a command the worker could rewrite would run its code there.
+  for (const part of command) {
+    const path = absolute("hookCommand", part);
+    if (isInside(path, workdir)) {
+      throw new PlanError(`the hook command ${path} must lie outside the worktree ${workdir}`, {
+        path,
+      });
+    }
+  }
+  const wait = ctx.permissionWaitSeconds ?? DEFAULT_PERMISSION_WAIT_SECONDS;
+  if (!Number.isInteger(wait) || wait <= 0 || wait > MAX_PERMISSION_WAIT_SECONDS) {
+    throw new PlanError(
+      `permissionWaitSeconds must be a whole number from 1 to ${MAX_PERMISSION_WAIT_SECONDS}: ${wait}`,
+    );
+  }
+  return hookSettings(command, wait);
+}
+
+/** The largest `timeouts.permissionWaitSeconds` the relay accepts (`dipo hook --wait`): one hour. */
+export const MAX_PERMISSION_WAIT_SECONDS = 3_600;
+
+/** The run settings file: rules, sandbox, hooks and git instruction switches (0008 section 2). */
 function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
+  const hookBlock = hooks(spec, ctx, paths.workdir);
   return {
     includeGitInstructions: false,
     attribution: { commit: "", pr: "" },
     permissions: permissions(spec, paths),
     sandbox: sandbox(ctx, paths),
+    ...(hookBlock === undefined ? {} : { hooks: hookBlock }),
   };
 }
 

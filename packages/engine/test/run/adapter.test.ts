@@ -47,6 +47,7 @@ describe("the Claude CLI adapter of one run", () => {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
+      dipoCommand: ["/opt/dipo/bin/dipo"] as [string],
     };
     const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
     expect(ctx).toEqual({
@@ -59,6 +60,8 @@ describe("the Claude CLI adapter of one run", () => {
       hostSocket: `${RUN_DIR}/host.sock`,
       tmpDir: TMP_DIR,
       sandbox: OFFICE_DEFAULTS.sandbox,
+      hookCommand: ["/opt/dipo/bin/dipo"],
+      permissionWaitSeconds: 300,
     });
     const port = claudeWorkerPort({
       ...deps,

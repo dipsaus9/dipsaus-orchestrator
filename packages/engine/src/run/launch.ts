@@ -222,7 +222,8 @@ export function runWorkerSpec(
     tools: { allow: [...DEVELOPER_TOOLS], deny: [] },
     session,
     reportSchema: WORKER_REPORT_JSON_SCHEMA,
-    hookRelay: false,
+    // The adapter relays its hooks to the worker host (0008 section 5, DIPO-59).
+    hookRelay: true,
   };
 }
 

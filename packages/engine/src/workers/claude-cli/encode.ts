@@ -3,6 +3,7 @@
 // running turn: `next` once the running tool calls finish, `now` interrupts the turn.
 
 import type { HostOp, SteerOp } from "../types";
+import { permissionOutput } from "./hooks";
 
 export type MessagePriority = "now" | "next" | "later";
 
@@ -43,6 +44,9 @@ export function encode(op: SteerOp): HostOp[] {
       ];
     case "kill":
       return [{ signal: "SIGKILL" }];
+    case "hookReply":
+      // The waiting `PermissionRequest` hook prints this (0008 section 5); empty is no decision.
+      return [{ hookReply: op.reply.hook, output: permissionOutput(op.reply) }];
     default: {
       const unknown: never = op;
       throw new Error(`unknown steer op ${JSON.stringify(unknown)}`);
