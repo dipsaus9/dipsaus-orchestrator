@@ -38,7 +38,7 @@ describe("office switcher", () => {
     await ui.press("o");
     const frame = await ui.waitFor("slaydoku");
     expect(frame).toContain("Offices");
-    expect(frame).toContain("> dipsaus-orchestrator  1 running  desk 2  held 1  (open)");
+    expect(frame).toContain("> dipsaus-orchestrator  3 running  desk 2  held 1  (open)");
     expect(frame).toContain("   couchcade  0 running  desk 0  held 0");
     expect(frame).toContain("   slaydoku  1 running  desk 1  held 0  day 84%  ALERT day usage");
     expect(frame).toContain("[Enter] open  [n] open new repo path");
