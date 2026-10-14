@@ -429,7 +429,10 @@ export function App(props: AppProps) {
     run?.status === "failed" && run.error !== undefined
       ? `run ${run.label}: ${run.error.code}: ${run.error.message}`
       : null;
-  const footerMessage = message ?? refusal ?? failure ?? notice;
+  // A refusal names a run on its way; the effect that clears it runs only after the frame that
+  // shows the run done, so the footer drops it in that same frame.
+  const activeRefusal = run?.status === "sending" || run?.status === "syncing" ? refusal : null;
+  const footerMessage = message ?? activeRefusal ?? failure ?? notice;
   // The footer line starts with a space.
   const keys = footerKeys(mode, view, state, offline, run, columns - 1);
 
