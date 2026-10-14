@@ -626,6 +626,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       cli: backlogCli,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
+      work,
     });
     // Ingestion and the cap ticks of run control (DIPO-50) stop together.
     held.ingest = {

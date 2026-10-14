@@ -32,9 +32,14 @@ export interface NewRun {
   readonly overrideKeys: readonly string[] | null;
   readonly runProfileId: string | null;
   readonly startedAt: number;
+  /** The declared scope (F8) the story run started with; null for a session run (DIPO-49). */
+  readonly scope?: readonly string[] | null;
 }
 
 export interface StoredRun extends NewRun {
+  readonly scope: readonly string[] | null;
+  /** Gate commands the story branch changed against the base profile; null when none (DIPO-49). */
+  readonly gateChanges: readonly string[] | null;
   readonly endedAt: number | null;
   readonly endKind: string | null;
 }
@@ -59,13 +64,19 @@ interface RunRow {
   override_keys: string | null;
   run_profile_id: string | null;
   started_at: number;
+  scope: string | null;
+  gate_changes: string | null;
   ended_at: number | null;
   end_kind: string | null;
 }
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, worktree, slot,
   budget_unit, budget_limit, loop_cap, review_round_cap, config_hash, override_keys,
-  run_profile_id, started_at, ended_at, end_kind`;
+  run_profile_id, started_at, scope, gate_changes, ended_at, end_kind`;
+
+function jsonList(text: string | null): string[] | null {
+  return text === null ? null : (JSON.parse(text) as string[]);
+}
 
 function toRecord(row: RunRow): StoredRun {
   return {
@@ -88,6 +99,8 @@ function toRecord(row: RunRow): StoredRun {
     overrideKeys: row.override_keys === null ? null : (JSON.parse(row.override_keys) as string[]),
     runProfileId: row.run_profile_id,
     startedAt: row.started_at,
+    scope: jsonList(row.scope),
+    gateChanges: jsonList(row.gate_changes),
     endedAt: row.ended_at,
     endKind: row.end_kind,
   };
@@ -95,10 +108,10 @@ function toRecord(row: RunRow): StoredRun {
 
 export function insertRun(office: OfficeHandle, run: NewRun): void {
   office.run(
-    `insert into runs (office_id, ${COLUMNS.replace(", ended_at, end_kind", "")})
+    `insert into runs (office_id, ${COLUMNS.replace(", gate_changes, ended_at, end_kind", "")})
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
        $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $review_round_cap,
-       $config_hash, $override_keys, $run_profile_id, $started_at)`,
+       $config_hash, $override_keys, $run_profile_id, $started_at, $scope)`,
     {
       run_id: run.runId,
       kind: run.kind,
@@ -119,7 +132,20 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
       override_keys: run.overrideKeys === null ? null : JSON.stringify(run.overrideKeys),
       run_profile_id: run.runProfileId,
       started_at: run.startedAt,
+      scope: run.scope == null ? null : JSON.stringify(run.scope),
     },
+  );
+}
+
+/** Records the gate commands the story branch changed (0013 section 5, DIPO-49 AC #7). */
+export function recordGateChanges(
+  office: OfficeHandle,
+  runId: RunId,
+  changes: readonly string[],
+): void {
+  office.run(
+    `update runs set gate_changes = $changes where office_id = $office_id and run_id = $run`,
+    { run: runId, changes: changes.length === 0 ? null : JSON.stringify(changes) },
   );
 }
 
@@ -207,15 +233,147 @@ export function currentProfileId(office: OfficeHandle): string | null {
   return row === null ? null : String(row.profile_id);
 }
 
+/** The outcome of a run that ended at In Review (DIPO-49). */
+export const IN_REVIEW_END = "in-review";
+
+/** The `run_outcomes.outcome` of a run that parked its story. */
+export const PARKED_OUTCOME = "parked";
+
 /**
  * Ends the run `runId` with `kind` (for example the release reason of its claim), once: a run
  * that already ended keeps its end. Runs inside the caller's transaction. Retention removes a
  * run's rows only once it ended (`retention/run.ts`).
+ *
+ * The one place a run ends (DIPO-49, 0007 amendment of 2026-10-12): the call that ends it also
+ * writes its `run_outcomes` row, kept until purge: tier, role, model, the outcome (`parked` when
+ * the run parked its story, with the park reasons; else the end kind, such as `in-review` or
+ * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes from start
+ * to end, the story's criteria count and the declared scope size. A park writes its `parks` row
+ * before it ends the run, so its reason is counted.
  */
 export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
-  office.run(
+  const ended = office.run(
     `update runs set ended_at = $at, end_kind = $kind
      where office_id = $office_id and run_id = $run and ended_at is null`,
     { run: runId, at, kind },
   );
+  if (ended.changes > 0) writeRunOutcome(office, runId, at, kind);
+}
+
+function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
+  const run = findRun(office, runId);
+  if (run === null) return;
+  const parks = office
+    .all<{ reason: string }>(
+      `select reason from parks where office_id = $office_id and run_id = $run order by park_id`,
+      { run: runId },
+    )
+    .map((row) => row.reason);
+  const count = (sql: string): number => office.get<{ n: number }>(sql, { run: runId })?.n ?? 0;
+  const loops = count(
+    `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
+      and kind = 'loop'`,
+  );
+  const reviews = count(
+    `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
+      and kind = 'review'`,
+  );
+  const failures = count(
+    `select count(*) as n from verify_results where office_id = $office_id and run_id = $run
+      and passed = 0`,
+  );
+  const budget = count(
+    `select coalesce(sum(input + output + cache_create), 0) as n from usage_totals
+      where office_id = $office_id and run_id = $run`,
+  );
+  const criteria =
+    run.key === null
+      ? null
+      : (office.get<{ total: number | null }>(
+          `select criteria_total as total from backlog_mirror
+            where office_id = $office_id and key = $key`,
+          { key: run.key },
+        )?.total ?? null);
+  office.run(
+    `insert or ignore into run_outcomes (office_id, run_id, story_id, tier, role, model, outcome,
+       park_reasons, loops, review_rounds, verify_failures, budget_tokens, minutes,
+       criteria_count, scope_size, ended_at)
+     values ($office_id, $run, $story, $tier, $role, $model, $outcome, $parks, $loops, $reviews,
+       $failures, $budget, $minutes, $criteria, $scope, $at)`,
+    {
+      run: runId,
+      story: run.story,
+      tier: run.tier,
+      role: run.role,
+      model: run.model,
+      outcome: parks.length > 0 ? PARKED_OUTCOME : kind,
+      parks: JSON.stringify(parks),
+      loops,
+      reviews,
+      failures,
+      budget,
+      minutes: Math.round(((at - run.startedAt) / 60_000) * 100) / 100,
+      criteria,
+      scope: run.scope === null ? null : run.scope.length,
+      at,
+    },
+  );
+}
+
+/** A run's `run_outcomes` row (DIPO-49). */
+export interface RunOutcome {
+  readonly runId: string;
+  readonly story: string | null;
+  readonly tier: string | null;
+  readonly role: string;
+  readonly model: string;
+  readonly outcome: string;
+  readonly parkReasons: readonly string[];
+  readonly loops: number;
+  readonly reviewRounds: number;
+  readonly verifyFailures: number;
+  readonly budgetTokens: number;
+  readonly minutes: number;
+  readonly criteriaCount: number | null;
+  readonly scopeSize: number | null;
+  readonly endedAt: number;
+}
+
+export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | null {
+  const row = office.get<{
+    run_id: string;
+    story_id: string | null;
+    tier: string | null;
+    role: string;
+    model: string;
+    outcome: string;
+    park_reasons: string;
+    loops: number;
+    review_rounds: number;
+    verify_failures: number;
+    budget_tokens: number;
+    minutes: number;
+    criteria_count: number | null;
+    scope_size: number | null;
+    ended_at: number;
+  }>(`select * from run_outcomes where office_id = $office_id and run_id = $run`, { run: runId });
+  return row === null
+    ? null
+    : {
+        runId: row.run_id,
+        story: row.story_id,
+        tier: row.tier,
+        role: row.role,
+        model: row.model,
+        outcome: row.outcome,
+        parkReasons: JSON.parse(row.park_reasons) as string[],
+        loops: row.loops,
+        reviewRounds: row.review_rounds,
+        verifyFailures: row.verify_failures,
+        budgetTokens: row.budget_tokens,
+        minutes: row.minutes,
+        criteriaCount: row.criteria_count,
+        scopeSize: row.scope_size,
+        endedAt: row.ended_at,
+      };
 }

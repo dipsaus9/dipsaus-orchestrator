@@ -35,13 +35,17 @@ export {
   appendRunStep,
   currentProfileId,
   endRun,
+  IN_REVIEW_END,
+  PARKED_OUTCOME,
+  recordGateChanges,
+  runOutcome,
   findRun,
   hasActiveRun,
   insertRun,
   recordConfigSnapshot,
   runSteps,
 } from "./records";
-export type { NewRun, RunKind, StoredRun, StoredRunStep, RunStepKind } from "./records";
+export type { NewRun, RunKind, RunOutcome, StoredRun, StoredRunStep, RunStepKind } from "./records";
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export {
   HOST_CONNECT_TIMEOUT_MS,
@@ -90,3 +94,50 @@ export type {
   ParkRequest,
   ParkWriter,
 } from "./park";
+// Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
+export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
+export type { BackstopSnapshot } from "./backstop";
+export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
+export type { PushResult, StoryGit, WorktreeStory } from "./story-git";
+export {
+  checkScope,
+  commitMessage,
+  DEFAULT_LOCKFILES,
+  feedbackItemMax,
+  GATE_CAPABILITIES,
+  gateChanges,
+  OUTPUT_FLUSH_MS,
+  scanWorktree,
+  scopeCovers,
+  scopeDetail,
+  VERIFY_NOTICES,
+  VerifyCommit,
+  verifyPlan,
+  workspaceDirsOf,
+} from "./verify-commit";
+export type {
+  RunFinisher,
+  ScopeInput,
+  ScopeResult,
+  TurnContext,
+  TurnDecision,
+  VerifyCommitDeps,
+  VerifyStep,
+} from "./verify-commit";
+export {
+  appendVerifyOutput,
+  insertVerifyResult,
+  outputTail,
+  recordCodeTreeKey,
+  runSummary,
+  storeRunSummary,
+  SUMMARY_OUTPUT_LINES,
+  verifyOutputEnd,
+  verifyResults,
+} from "./verify-records";
+export type {
+  NewVerifyResult,
+  RunSummary,
+  StoredVerifyResult,
+  VerifyProfile,
+} from "./verify-records";
