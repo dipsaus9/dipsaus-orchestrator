@@ -76,6 +76,7 @@ import { promptStoryOf } from "../prompts/story";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { deriveStoryView, storyView } from "../views/story";
+import { withWorkViews } from "../views/work";
 import { type AdapterHold, holdMessage } from "../workers/hold";
 import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
@@ -516,10 +517,10 @@ export class WorkRun {
         },
       );
       appendRunStep(handle, runId, "phase", "setup", at);
-      return [
+      return withWorkViews(handle, [
         { type: "work.assigned", key, run: runId, delta: { work } },
         { type: "work.phase", key, run: runId, delta: { work, phase: "setup", progress } },
-      ];
+      ]);
     });
     if (launcher !== undefined && prepared !== null) {
       const startedRun = await launcher.start(ctx, {
@@ -608,6 +609,7 @@ export class WorkRun {
         title: current?.title ?? "",
         lifecycle: "Refined",
         ...(current?.tier === undefined ? {} : { tier: current.tier }),
+        gateFailures: detail,
       });
       return [
         {

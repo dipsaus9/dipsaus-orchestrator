@@ -126,17 +126,17 @@ describe("office summary", () => {
         task("TASK-1", { status: "Parked" }),
         task("TASK-2", { status: "In Progress" }),
       ]);
+      // Active runs (DIPO-52): runs that have not ended; session runs need no claim.
       office.immediate(() => {
-        for (const [run, agent, ended] of [
-          ["run_1", "agt_1", null],
-          ["run_1", "agt_2", null],
-          ["run_2", "agt_3", 5],
+        for (const [run, ended] of [
+          ["run_1", null],
+          ["run_2", 5],
         ] as const) {
           office.run(
-            `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-               protocol_version, run_dir, event_file, ended_at, started_at)
-             values ($office_id, $run, $agent, 1, 1, '/s', 1, '/r', '/e', $ended, 0)`,
-            { run, agent, ended },
+            `insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
+               loop_cap, config_hash, started_at, ended_at)
+             values ($office_id, $run, 'session', 'developer', 'haiku', 'tokens', 1, 1, 'h', 0, $ended)`,
+            { run, ended },
           );
         }
       });
