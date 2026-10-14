@@ -1,10 +1,10 @@
 ---
 id: DIPO-57
 title: Re-attach worker hosts after a daemon restart
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:27'
+updated_date: '2026-10-14 15:56'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -104,4 +104,6 @@ Follow-ups (not in this story):
 - A pending host row or PID marker written before or right after the spawn, which closes the remaining milliseconds between spawning a host and recording it.
 - A stop fallback for follow-only hosts: signal the host by PID after a start-time check, since `work.stop` cannot reach them over the socket.
 - Persist the backstop snapshot, so re-attach can restore it and the DIPO-49 backstop keeps running after a restart.
+
+Live test 2026-10-14 (test agent, Haiku on dipo-scratch-backlog, ~$0.015): restart while the host lives re-attached with steer and reached In Review with one agent, one host, contiguous output; host killed while the daemon was down gave host-lost and one resume; follow-only mode raised run.followOnly and the follow-only signal. Findings fixed in 91a5390, 9c599bc, 4fb30cc, 04b7de4 (dead host's output sent as work.output; followed host closed out once gone, with a last ingestion pass; next session's signals cleared with its agent). Left for follow-up: stopping a follow-only host by pid needs an ADR amendment (0006 decision 8, 0008 stop sequence); a followed host still running after its run ended is not closed out across a second restart.
 <!-- SECTION:NOTES:END -->
