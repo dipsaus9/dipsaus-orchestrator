@@ -4,7 +4,7 @@ title: Pick and claim one Ready story with work.run
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 07:58'
+updated_date: '2026-10-14 08:04'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -29,6 +29,12 @@ references:
   - packages/engine/src/git/
   - packages/engine/test/git/
   - packages/engine/test/office/
+  - packages/daemon/src/
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/gate/store/
+  - packages/engine/src/retention/
+  - packages/engine/src/index.ts
+  - docs/decisions/0005-command-and-event-model.md
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0007-state-database.md
