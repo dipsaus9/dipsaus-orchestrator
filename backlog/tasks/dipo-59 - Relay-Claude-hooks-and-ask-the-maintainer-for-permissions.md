@@ -4,7 +4,7 @@ title: Relay Claude hooks and ask the maintainer for permissions
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:51'
+updated_date: '2026-10-14 14:52'
 labels:
   - 'tier:M'
   - after-cutover
@@ -27,6 +27,20 @@ references:
   - packages/engine/test/hooks/
   - packages/engine/test/recordings/claude-cli/
   - packages/engine/src/index.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/src/workers/port.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/run/
+  - packages/engine/src/retention/
+  - packages/engine/src/db/schema.ts
+  - packages/contract/src/
+  - tools/recordings/
+  - .oxlintrc.json
+  - test/lint-boundaries/
+  - packages/engine/test/workers/
+  - packages/engine/test/host/
+  - packages/engine/test/run/
+  - packages/engine/test/views/
 documentation:
   - docs/decisions/0004-language-and-runtime.md
   - docs/decisions/0005-command-and-event-model.md
