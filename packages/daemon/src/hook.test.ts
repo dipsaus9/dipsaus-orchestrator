@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { listenLineSocket, systemClock } from "@dipsaus-orchestrator/engine";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { parseHookArgs, runHookForm } from "./hook";
+import { parseHookArgs, runHookForm, trimPayload } from "./hook";
 import { defaultIo, type DaemonIo } from "./io";
 
 const RUN = "run_01JZ0000000000000000000009";
@@ -95,4 +95,24 @@ describe("dipo hook", () => {
         await server.stop();
       }
     }));
+});
+
+describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
+  it("relays only short scalar fields of a call that does not wait, and a waiting call whole", () => {
+    const payload = JSON.stringify({
+      hook_event_name: "PostToolUse",
+      tool_name: "Read",
+      tool_input: { file_path: "a.ts" },
+      tool_response: { content: "x".repeat(100_000) },
+      last_assistant_message: "y".repeat(5000),
+      stop_hook_active: false,
+    });
+    expect(JSON.parse(trimPayload(payload, false))).toEqual({
+      hook_event_name: "PostToolUse",
+      tool_name: "Read",
+      stop_hook_active: false,
+    });
+    expect(trimPayload(payload, true)).toBe(payload);
+    expect(trimPayload("not json", false)).toBe("not json");
+  });
 });

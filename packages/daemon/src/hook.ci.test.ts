@@ -4,8 +4,13 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
+import { listenLineSocket, systemClock } from "@dipsaus-orchestrator/engine";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { HOOK_DEADLINE_MS, runHookForm } from "./hook";
+import { defaultIo } from "./io";
+
+const RUN = "run_01JZ0000000000000000000009";
 const CLI_MAIN = join(import.meta.dir, "..", "..", "cli", "src", "main.ts");
 if (process.env["DIPO_TEST_CI"] === "1")
   describe("dipo hook process", () => {
@@ -37,3 +42,37 @@ if (process.env["DIPO_TEST_CI"] === "1")
       );
     }
   });
+
+// One deadline end to end (DIPO-59 review): a host that answers the handshake but never the call.
+if (process.env["DIPO_TEST_CI"] === "1") {
+  describe("dipo hook deadline", () => {
+    it("ends a call that does not wait within the deadline when the host never answers it", () =>
+      withTempDir(async (dir) => {
+        const socket = join(dir, "s.sock");
+        const server = listenLineSocket(socket, (connection) => ({
+          line: (text) => {
+            if ((JSON.parse(text) as { kind?: string }).kind === "hello") {
+              connection.send(JSON.stringify({ kind: "hello", version: 2, run: RUN, pid: 1 }));
+            }
+          },
+          closed: () => undefined,
+        }));
+        try {
+          const out: string[] = [];
+          const started = performance.now();
+          const code = await runHookForm(["Stop"], {
+            ...defaultIo,
+            env: { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN },
+            clock: systemClock,
+            write: (text) => out.push(text),
+            readInput: async () => '{"hook_event_name":"Stop"}',
+          });
+          expect(code).toBe(0);
+          expect(out).toEqual([]);
+          expect(performance.now() - started).toBeLessThan(HOOK_DEADLINE_MS + 150);
+        } finally {
+          await server.stop();
+        }
+      }));
+  });
+}

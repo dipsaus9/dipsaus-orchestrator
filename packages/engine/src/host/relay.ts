@@ -19,7 +19,10 @@ export interface HookRelayRequest {
   /** How long the call may wait for the engine's reply; absent for a call that does not wait. */
   readonly waitMs?: number;
   readonly clock: Clock;
-  /** The time for the handshake, and for the answer of a call that does not wait. */
+  /**
+   * One deadline, from the call, for the handshake and the answer of a call that does not wait: the
+   * answer gets only what the handshake left.
+   */
   readonly timeoutMs: number;
   /** Versions offered in the handshake; this binary's hook versions by default. */
   readonly versions?: readonly number[];
@@ -28,6 +31,7 @@ export interface HookRelayRequest {
 /** The host's output for the call (empty for no decision), or null when the relay failed. */
 export async function relayHookPayload(request: HookRelayRequest): Promise<string | null> {
   if (request.payload.length > MAX_HOOK_PAYLOAD) return null;
+  const started = request.clock.now();
   let connected;
   try {
     connected = await connectHost(request.socketPath, {
@@ -43,13 +47,15 @@ export async function relayHookPayload(request: HookRelayRequest): Promise<strin
   const { client } = connected;
   try {
     const waits = request.waitMs !== undefined && request.waitMs > 0;
+    const left = request.timeoutMs - (request.clock.now() - started);
+    if (!waits && left <= 0) return null;
     const reply = await client.request(
       {
         op: "hook",
         payload: request.payload,
         ...(waits ? { waitMs: request.waitMs } : {}),
       },
-      waits ? (request.waitMs ?? 0) + HOOK_REPLY_GRACE_MS : request.timeoutMs,
+      waits ? (request.waitMs ?? 0) + HOOK_REPLY_GRACE_MS : left,
     );
     if (reply === null || !reply.ok) return null;
     const output = (reply.result as { output?: unknown } | undefined)?.output;
