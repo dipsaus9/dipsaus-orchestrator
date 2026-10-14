@@ -1,10 +1,10 @@
 ---
 id: DIPO-59
 title: Relay Claude hooks and ask the maintainer for permissions
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 14:34'
+updated_date: '2026-10-14 14:51'
 labels:
   - 'tier:M'
   - after-cutover
