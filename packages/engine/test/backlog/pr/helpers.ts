@@ -13,6 +13,7 @@ import {
   type CodeHostErrorCode,
   type HostPr,
   type NewPr,
+  type PrListHost,
   type RequiredCheck,
 } from "../../../src/platform/host";
 import { laneSetup, type LaneSetup, otherClone } from "../lane/helpers";
@@ -21,7 +22,7 @@ export const REPO = "o/r";
 export const REMOTE_URL = `https://github.com/${REPO}.git`;
 
 /** A code host that keeps its PRs in memory and records every call. */
-export class FakeHost implements CodeHost {
+export class FakeHost implements CodeHost, PrListHost {
   readonly prs = new Map<number, HostPr>();
   readonly calls: string[] = [];
   /** When set, every call fails with this code. */
@@ -41,6 +42,13 @@ export class FakeHost implements CodeHost {
   async findOpenPr(repo: string, branch: string): Promise<HostPr | null> {
     this.#enter(`find ${repo} ${branch}`);
     return [...this.prs.values()].find((pr) => pr.head === branch && pr.state === "open") ?? null;
+  }
+
+  async listOpenPrs(repo: string, prefix: string): Promise<HostPr[]> {
+    this.#enter(`list ${repo} ${prefix}`);
+    return [...this.prs.values()]
+      .filter((pr) => pr.state === "open" && pr.head.startsWith(prefix))
+      .toSorted((a, b) => a.number - b.number);
   }
 
   async createPr(repo: string, pr: NewPr): Promise<HostPr> {

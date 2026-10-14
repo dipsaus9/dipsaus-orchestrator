@@ -441,4 +441,49 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       );
     });
   });
+
+  describe("the office's open backlog PR (DIPO-80)", () => {
+    it("looks for one to adopt at load and on office.rescan; a failure is a notice", () => {
+      const adopts: string[] = [];
+      let fail = false;
+      let profiles: RunProfiles | undefined;
+      let reconciler: Reconciler | undefined;
+      return withReconcileOffice(
+        {
+          features: ({ engineGit, index }) => {
+            reconciler = new Reconciler({
+              git: (o) => engineGit.forOffice(o),
+              stories: index,
+              adoptBacklogPr: async (office) => {
+                adopts.push(office);
+                if (fail) throw new Error("the host answered nonsense");
+              },
+            });
+            profiles = new RunProfiles({
+              git: engineGit,
+              stories: index,
+              reconcile: (office) => (reconciler as Reconciler).reconcile(office),
+            });
+            return [profiles.feature, reconciler.feature];
+          },
+        },
+        async (o) => {
+          expect(adopts).toEqual([o.officeId]);
+          fail = true;
+          const seq = lastSeq(o.office);
+          resultOf(await send(o.s, "office.rescan", {}, o.officeId));
+          await profiles?.whenIdle(o.officeId);
+          await reconciler?.whenIdle(o.officeId);
+          expect(adopts).toEqual([o.officeId, o.officeId]);
+          const failed = noticesAfter(o.office, seq).filter(
+            (notice) => notice.code === RECONCILE_NOTICES.adoptFailed,
+          );
+          expect(failed.map((notice) => notice.text)).toEqual([
+            "dipo could not look for an open backlog PR to adopt: the host answered nonsense. It looks again at the next rescan.",
+          ]);
+          expect(codes(o.office, seq)).not.toContain(RECONCILE_NOTICES.failed);
+        },
+      );
+    });
+  });
 }
