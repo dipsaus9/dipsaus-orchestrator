@@ -1,10 +1,10 @@
 ---
 id: DIPO-53
 title: Start the TUI with the office store and the office switcher
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:07'
+updated_date: '2026-10-14 13:43'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -97,4 +97,6 @@ Fallback trigger not hit: Ink 8 stays.
 - Tests: store unit tests (10), TUI render tests over a golden event log (`packages/tui/src/testing/fixtures/three-offices.json`, every event parsed with its contract schema), `runTui` tests, CLI tests; `pty.ci.test.ts` (CI only) runs `runTui` on a real PTY. Local suite: about +1 s.
 
 Not in this story (follow-ups if wanted): the last-used office (0009 section 7 falls back to the first registered office here), switcher `/` filter and `F` forget, keys from `commands.describe`, store batching at 10 Hz, the "Since you left" digest.
+
+Tested 2026-10-14. Test agent (head 5a37f41, PTY via expect): no-TTY message and exit 1, header, switcher, q twice, terminal restored, --ascii --inline, NO_COLOR, offline banner, narrow layout all pass; its two defects (TypeError with stdin from /dev/null, stale 'draining' header when offline) were fixed in 34b55fd. Maintainer visual check (34b55fd): readable, no problems with the look or the offline switch; UI refinements later.
 <!-- SECTION:NOTES:END -->
