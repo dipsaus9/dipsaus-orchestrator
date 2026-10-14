@@ -254,6 +254,11 @@ describe("dipo office rescan", () => {
       type: "scan.finished",
       data: eventData,
     });
+    // As the daemon does: `filter` names the event type prefixes left out (0005 section 5).
+    const deliver = (sent: ReturnType<typeof event>) => {
+      if (listener?.filter?.some((prefix) => sent.type.startsWith(prefix)) === true) return;
+      listener?.onEvent(sent as never);
+    };
     const inner = ctx.deps.connectDaemon;
     const deps: CliDeps = {
       ...ctx.deps,
@@ -268,8 +273,8 @@ describe("dipo office rescan", () => {
               options as never,
             );
             if (data !== undefined) {
-              listener?.onEvent(event({ scripts: {}, warnings: [], trigger: "start" }) as never);
-              listener?.onEvent(event(data) as never);
+              deliver(event({ scripts: {}, warnings: [], trigger: "start" }));
+              deliver(event(data));
             }
             return result;
           }) as DaemonSession["command"],
@@ -301,7 +306,7 @@ describe("dipo office rescan", () => {
       diff: ["~ verify: bun run test -> bun run verify"],
     });
     expect(await main(["office", "rescan"], ctx.deps)).toBe(0);
-    expect(ctx.subscribed).toEqual([{ stream: `office:${OFFICE}`, filter: ["scan.finished"] }]);
+    expect(ctx.subscribed).toEqual([{ stream: `office:${OFFICE}`, filter: undefined }]);
     expect(ctx.sent).toEqual([{ name: "office.rescan", args: {} }]);
     expect(ctx.out).toEqual([
       `office ${OFFICE}: rescanned, conformance partial`,
