@@ -55,9 +55,10 @@ import type { Caps, ParseState } from "../workers/types";
 
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
+import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
 import { activeRuns, findRun, type StoredRun } from "./records";
-import { raiseSignal } from "./signals";
+import { clearSignals, raiseSignal } from "./signals";
 
 /** The daemon's recovery step that re-attaches worker hosts (0006 decision 7). */
 export const REATTACH_STEP = "reattach";
@@ -318,8 +319,11 @@ export class RunReattacher {
 
   /**
    * A followed host is never asked over its socket, so its death without an exit line would go
-   * unnoticed: every `FOLLOW_CHECK_MS` its liveness is checked again by PID and start time, and a
-   * dead host is closed out as at the restart (exit file, or lost). Ends with the agent or run.
+   * unnoticed: every `FOLLOW_CHECK_MS` its liveness is checked again by PID and start time until
+   * its process is gone. The run may have ended meanwhile (a park whose stop could not reach the
+   * host), or its agent with an exit line; the checks go on regardless. A dead host of a running
+   * run whose agent has not ended is closed out as at the restart (exit file, or lost); any other
+   * dead host is closed out on its own (`#closeFollowed`).
    */
   #watchFollowed(
     office: OfficeHandle,
@@ -330,20 +334,102 @@ export class RunReattacher {
     const key = `${run.runId} ${host.agentId}`;
     const check = async (): Promise<void> => {
       this.#followTimers.delete(key);
-      const ended = office.get<{ ended_at: number | null }>(
-        "select ended_at from agents where office_id = $office_id and agent_id = $agent",
-        { agent: host.agentId },
-      );
-      const current = findRun(office, run.runId);
-      if (ended?.ended_at != null || current === null || current.endedAt !== null) return;
       if (await hostAlive(host, this.#deps.probe)) {
         this.#armFollowed(key, check);
         return;
       }
+      const current = findRun(office, run.runId);
+      if (current === null) return;
       const row = workerHostsOf(office, run.runId).find((h) => h.agentId === host.agentId) ?? host;
-      this.#closeDead(office, current, row, target);
+      if (current.endedAt === null && this.#agentEndedAt(office, host.agentId) === null) {
+        this.#closeDead(office, current, row, target);
+        return;
+      }
+      this.#closeFollowed(office, current, row, target);
     };
     this.#armFollowed(key, check);
+  }
+
+  #agentEndedAt(office: OfficeHandle, agent: string): number | null {
+    return (
+      office.get<{ ended_at: number | null }>(
+        "select ended_at from agents where office_id = $office_id and agent_id = $agent",
+        { agent },
+      )?.ended_at ?? null
+    );
+  }
+
+  /**
+   * A followed host that died after its run or its agent ended: nothing is decided any more, so
+   * the host row, the agent and its cursor end, its pending output is sent, and the run's
+   * `follow-only` signal is cleared while this is the run's newest host. The exit is the host's
+   * own `exit.json` when there is one; without it the agent ends `host-lost` unless an end reason
+   * (the park's) is already recorded.
+   */
+  #closeFollowed(
+    office: OfficeHandle,
+    run: StoredRun,
+    host: WorkerHostRow,
+    target: IngestTarget,
+  ): void {
+    const deps = this.#deps;
+    const agentEnded = this.#agentEndedAt(office, host.agentId) !== null;
+    // An ended run is followed by nobody else: its ingestion polls stop here. A running run whose
+    // agent ended has moved on, and its ingestion and watchdog belong to the next session.
+    if (run.endedAt !== null) deps.ingest.untrack(office.officeId, run.runId, host.agentId);
+    const own = readHostExit(host.runDir);
+    // After its exit line the host's own file ends where the processed lines end; before it, past.
+    const exit =
+      own?.run === host.runId &&
+      (agentEnded
+        ? own.finalOffset === host.processedOffset
+        : own.finalOffset > host.processedOffset)
+        ? own
+        : null;
+    const at = deps.clock.now();
+    const newest = workerHostsOf(office, run.runId).at(-1)?.agentId === host.agentId;
+    // The exit as `exit.json` says (its own transaction), then the rest of the close-out.
+    if (exit !== null) recordHostExit(office, host.agentId, exit);
+    const appended = office.immediate(() => {
+      office.run(
+        `update worker_hosts set ended_at = coalesce(ended_at, $at)
+          where office_id = $office_id and run_id = $run and agent_id = $agent`,
+        { at, run: run.runId, agent: host.agentId },
+      );
+      if (!agentEnded) {
+        finalizeAgentUsage(office, run.runId, host.agentId, at);
+        office.run(
+          `update agents set ended_at = coalesce(ended_at, $at),
+             end_reason = coalesce(end_reason, $reason)
+           where office_id = $office_id and agent_id = $agent`,
+          { at, agent: host.agentId, reason: exit === null ? HOST_LOST_END : "exited" },
+        );
+      }
+      office.run(
+        `update ingest_cursors set ended_at = coalesce(ended_at, $at)
+          where office_id = $office_id and run_id = $run and agent_id = $agent`,
+        { at, run: run.runId, agent: host.agentId },
+      );
+      const work = target.work;
+      if (!newest || work === undefined) return 0;
+      const entries: NewEntry[] = clearSignals(office, run.runId, ["follow-only"], at).map(
+        (cleared) => ({
+          type: "work.observed",
+          key: work.key,
+          run: work.run,
+          delta: {
+            work,
+            signal: cleared.signal,
+            since: new Date(cleared.since).toISOString(),
+            clearedAt: new Date(at).toISOString(),
+          },
+        }),
+      );
+      if (entries.length === 0) return 0;
+      appendEntries(office, withWorkViews(office, entries), { at });
+      return entries.length;
+    });
+    if (appended > 0) deps.onChanged?.(office.officeId);
   }
 
   #armFollowed(key: string, check: () => Promise<void>): void {

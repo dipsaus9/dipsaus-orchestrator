@@ -375,6 +375,56 @@ describe("re-attach (0006 decision 8)", () => {
     expect(w.next.map((request) => request.requireResume)).toEqual([true]);
   });
 
+  it("closes out a followed host that outlives its parked run once its process is gone", async () => {
+    // Over its caps after the catch-up: the run parks while the follow-only host keeps running.
+    w.answers = false;
+    w.caps = { ...ROOMY, budgetTokens: 10 };
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    await d.control.idle();
+    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
+    expect(agentRow()).toEqual({ end_reason: "capped", ended_at: null });
+    // Still alive at the first check after the park: nothing is closed yet.
+    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    await Bun.sleep(1);
+    expect(hostRow().endedAt).toBeNull();
+    expect(signals()).toEqual(["follow-only"]);
+    // Killed later, with no exit line and no exit file: host, agent and signal end.
+    w.alive = false;
+    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
+    expect(hostRow().endedAt).not.toBeNull();
+    expect(agentRow()?.end_reason).toBe("capped");
+    expect(agentRow()?.ended_at).not.toBeNull();
+    expect(signals()).toEqual([]);
+    expect(observed()).toEqual(["follow-only", "follow-only"]);
+    expect(w.next).toEqual([]);
+  });
+
+  it("records the exit.json of a followed host whose agent exited, once its process is gone", async () => {
+    w.answers = false;
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    // The rest of the recording, with the exit line, ends the agent; the host lingers a moment.
+    appendLines(
+      w.f.eventFile,
+      hostLines(readRecording(join(RECORDINGS_DIR, "success-single"))).slice(20),
+    );
+    w.f.t.clock.advance(1_000);
+    await d.control.idle();
+    expect(agentRow()?.end_reason).toBe("exited");
+    expect(hostRow().endedAt).toBeNull();
+    writeExitFile({ code: 0 });
+    w.alive = false;
+    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
+    expect(hostRow().exitCode).toBe(0);
+    expect(hostRow().endedAt).not.toBeNull();
+    expect(signals()).not.toContain("follow-only");
+  });
+
   it("a dead host with exit.json: the remaining events and the exit are processed (AC #3)", async () => {
     w.alive = false;
     beforeRestart("success-single", 6);
