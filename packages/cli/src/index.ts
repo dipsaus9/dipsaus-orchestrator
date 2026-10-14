@@ -25,6 +25,7 @@ import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./da
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { runCommand } from "./run-command";
 import { statsCommand } from "./stats-command";
 import {
   compiledStamp,
@@ -106,6 +107,11 @@ Usage:
                     check a story against the Ready gate on the office's base
                     branch without storing anything; prints "ready <ID> passed"
                     or each failure, and exits 1 when any rule fails
+  dipo run [<id>...] [--office <id>]
+                    pick the first Ready story on the office's base branch (or
+                    the named ones), claim it and start its run; prints each
+                    started story and each skipped one with its reason, and
+                    exits 1 when none started
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
@@ -208,6 +214,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "gate") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return gateCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "run") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return runCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "stats") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
