@@ -1,10 +1,10 @@
 ---
 id: DIPO-53
 title: Start the TUI with the office store and the office switcher
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 12:02'
+updated_date: '2026-10-14 12:17'
 labels:
   - 'tier:M'
   - test-before-merge
