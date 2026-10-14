@@ -4,7 +4,7 @@ title: Wait for plan-limit resets and resume
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:48'
+updated_date: '2026-10-14 14:59'
 labels:
   - 'tier:M'
   - after-cutover
@@ -24,6 +24,8 @@ references:
   - packages/engine/src/index.ts
   - packages/daemon/src/runs.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/src/server.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
 documentation:
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0008-worker-adapter.md
