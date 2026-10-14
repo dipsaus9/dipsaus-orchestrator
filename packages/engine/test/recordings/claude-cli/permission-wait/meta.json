@@ -1,0 +1,68 @@
+{
+  "scenario": "permission-wait",
+  "source": "live",
+  "claude_code_version": "2.1.300",
+  "captured_at": "2026-10-14",
+  "expected": "With the hook relay registered, the write outside the worktree reaches the PermissionRequest hook, whose payload is a ch: hook line. The fixture host never answers, so after timeouts.permissionWaitSeconds (10 s here) the call is denied and the worker continues: with the maintainer present the engine emits question.asked (kind permission) and work.observed input-wait first.",
+  "usage_checksum": "931805e850fce3fd2035bb94d33ed22bf61efe0c1a635849d0a735e117a89978",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "5",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,Write",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 563,
+  "prompt_sha256": "50d0e366501638172e9d0bcf238c3d2e626e70f75604968d83cf882a61db0084",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 8,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 9,
+      "op": "user",
+      "bytes": 441
+    },
+    {
+      "t": 39049,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "testConfig": {
+    "permissionWaitSeconds": 10
+  }
+}
