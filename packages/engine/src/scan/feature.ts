@@ -1,7 +1,7 @@
 // The run profile as a feature (DIPO-72, 0013 sections 2, 4 and 5; 0007 sections 4 and 6). It
 // adds the `scan.profile` office load step, which computes the fingerprint on `_base` and runs
 // detection only on a mismatch, and the `office.rescan` command, which fetches, re-indexes the
-// stories (DIPO-32) and always runs detection. `work.run` (DIPO-48) calls `ensureFreshProfile`
+// stories (DIPO-32), reconciles them (DIPO-56) and always runs detection. `work.run` (DIPO-48) calls `ensureFreshProfile`
 // first and `verifyResolved` for its refusal. Scans of one office run one at a time. M0 scans
 // are code only: no model is asked (0013 amendment of 2026-10-11).
 //
@@ -43,6 +43,8 @@ export interface RunProfilesDeps {
   readonly git: { forOffice(office: OfficeId): OfficeGit | undefined };
   /** The story index, which `office.rescan` runs again. */
   readonly stories?: { indexStories(office: OfficeId): Promise<unknown> };
+  /** Reconcile (DIPO-56), which `office.rescan` runs after a successful index pass. */
+  readonly reconcile?: (office: OfficeId) => Promise<unknown>;
   /** The file facts of a checkout; git-backed by default. */
   readonly files?: (dir: string) => RepoFiles;
   /** Detection; the pure DIPO-33 `detect` by default. Tests count its calls. */
@@ -214,11 +216,15 @@ export class RunProfiles {
       const fetched = await this.#git(office).fetch();
       if (!fetched.ok) warnings.push(`${fetched.error.message} The scan used local refs.`);
       if (this.#deps.stories !== undefined) {
-        await this.#deps.stories
-          .indexStories(office)
-          .catch((error: unknown) =>
-            warnings.push(`The stories were not indexed again: ${reasonOf(error)}`),
-          );
+        const indexed = await this.#deps.stories.indexStories(office).then(
+          () => true,
+          (error: unknown) => {
+            warnings.push(`The stories were not indexed again: ${reasonOf(error)}`);
+            return false;
+          },
+        );
+        // Reconcile compares that pass with the database; it reports its own failure.
+        if (indexed) await this.#deps.reconcile?.(office);
       }
     } catch (error) {
       warnings.push(reasonOf(error));

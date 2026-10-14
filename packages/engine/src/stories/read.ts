@@ -15,6 +15,8 @@ import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
 import { BacklogParseError, parseList, parseView, plainLines } from "../backlog/plain";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
+import { gateStoryFromView } from "../gate/input";
+import { gateContentHash } from "../gate/store/hash";
 import { openDependencies } from "../run/select";
 
 export type StoryKind = "task" | "draft";
@@ -43,6 +45,17 @@ export interface BacklogStory {
   readonly park?: FieldBlockPark;
   /** Acceptance criteria checked and in all; absent when the view did not parse. */
   readonly criteria?: { readonly met: number; readonly total: number };
+  /**
+   * The content hash a Ready gate decision applies to (`gateContentHash`), so reconcile can tell a
+   * Ready story without a decision for its content (0007 section 6); absent when the view did not
+   * parse.
+   */
+  readonly gateHash?: string;
+  /**
+   * Where the story was read (0007 section 6 step 3): the story branch while the story is
+   * claimed; absent means the pass's own source, `base`.
+   */
+  readonly source?: string;
 }
 
 /** How many CLI views run at once. */
@@ -110,6 +123,12 @@ export function storyFromView(
       met: view.acceptanceCriteria.filter((criterion) => criterion.checked).length,
       total: view.acceptanceCriteria.length,
     },
+    gateHash: gateContentHash(
+      gateStoryFromView(
+        view,
+        view.subtasks.map((task) => task.id),
+      ),
+    ),
   };
 }
 
@@ -149,8 +168,19 @@ export async function readBacklog(cli: BacklogCli, cwd: string): Promise<Backlog
       });
     }
   }
-  return mapLimited(listed, VIEW_CONCURRENCY, async (entry) => {
-    const { stdout } = await runBacklog(cli, cwd, [entry.kind, "view", entry.id, "--plain"]);
-    return storyFromView(entry.kind, stdout, entry);
-  });
+  return mapLimited(listed, VIEW_CONCURRENCY, (entry) => readStory(cli, cwd, entry.kind, entry));
+}
+
+/**
+ * Reads one story in the worktree `cwd` (a claimed story's worktree, DIPO-56); `listed` fills in
+ * when the view does not parse. Throws as `runBacklog` does.
+ */
+export async function readStory(
+  cli: BacklogCli,
+  cwd: string,
+  kind: StoryKind,
+  listed: { readonly id: string; readonly title: string; readonly status: string },
+): Promise<BacklogStory> {
+  const { stdout } = await runBacklog(cli, cwd, [kind, "view", listed.id, "--plain"]);
+  return storyFromView(kind, stdout, listed);
 }

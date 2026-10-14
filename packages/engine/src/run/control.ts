@@ -29,6 +29,7 @@ import {
   type OfficeId,
   type ParkReason,
   type RunId,
+  type StoryKey,
   type TimerHandle,
   type WorkRef,
   workStop,
@@ -53,7 +54,7 @@ import {
   resolveIntent,
 } from "./intents";
 import { type ParkOutcome, type ParkWriter, parkStory } from "./park";
-import { activeRuns, findRun, type StoredRun } from "./records";
+import { activeRuns, endRun, findRun, type StoredRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
 
 /** The error of `work.stop` for a story with no active run (0005 section 4). */
@@ -61,6 +62,9 @@ export const STORY_NOT_RUNNING = "story.notRunning";
 
 /** How often the caps are rechecked without new events (DIPO-15 M0 review): one minute. */
 export const CAP_TICK_MS = 60_000;
+
+/** The end kind of a run reconcile stopped or parked (DIPO-56). */
+export const RECONCILED_END = "reconciled";
 
 /** The park detail of `work.stop` without a note. */
 export const STOPPED_DETAIL = "Stopped by the maintainer.";
@@ -93,6 +97,12 @@ export interface RunControlDeps {
   readonly flushOutput?: (office: OfficeId, run: string) => void;
   /** Called after change-log entries were appended outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
+  /**
+   * Reads the story again at its branch tip after the park commit or the In Review commit
+   * (DIPO-56), so the story view and snapshots say Parked (with the F16 record) or In Review at
+   * once. Both already emitted the story's state.
+   */
+  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The cap tick; one minute by default. */
   readonly tickMs?: number;
@@ -138,6 +148,21 @@ interface Ending {
 
 type StopArgs = { readonly story: string; readonly note?: string | undefined };
 type StopResult = { run: RunId };
+
+/** A notice reconcile puts on the office with what it did to a run (DIPO-56). */
+export interface ReconcileNotice {
+  readonly code: string;
+  readonly text: string;
+}
+
+function noticeEntry(run: StoredRun, notice: ReconcileNotice): NewEntry {
+  return {
+    type: "engine.notice",
+    ...(run.key === null ? {} : { key: run.key }),
+    run: run.runId,
+    delta: { level: "warn", code: notice.code, text: notice.text },
+  };
+}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -309,6 +334,145 @@ export class RunControl {
     return { result: { run: run.runId } };
   }
 
+  /** True while a decision on the run (a cap, a report, `work.stop`) is being carried out. */
+  isEnding(run: string): boolean {
+    const ending = this.#tracked.get(run)?.ending;
+    return ending !== undefined && ending !== null;
+  }
+
+  /**
+   * Reconcile (DIPO-56, 0007 section 6): the run is active in the database, but its story's
+   * status is no longer In Progress or In Review, or the story was removed. The engine records a
+   * `stop` intent, sends the stop sequence to its worker host if one still answers, and ends the
+   * run with `endKind`, together with `notice`, in one transaction. Nothing is parked: the
+   * story's status already says where it is.
+   *
+   * The decision is claimed first, before any await: no after-turn work (verify and commit, an
+   * In Review commit, a second run summary) starts or commits once reconcile decided, since it
+   * claims the run's end the same way. A decision already being carried out wins; reconcile then
+   * waits for it and does nothing more.
+   */
+  async stopForReconcile(
+    office: OfficeHandle,
+    run: StoredRun,
+    notice: ReconcileNotice,
+    endKind = RECONCILED_END,
+  ): Promise<void> {
+    const tracked = this.#tracked.get(run.runId);
+    if (tracked?.ending != null) {
+      await tracked.ending.catch(() => null);
+      return;
+    }
+    const { promise: mine, resolve } = Promise.withResolvers<ParkOutcome | null>();
+    if (tracked !== undefined) {
+      this.#disarm(tracked);
+      tracked.ending = mine;
+    }
+    try {
+      await this.#stopForReconcile(office, run, notice, endKind, tracked?.lastReport ?? null);
+    } finally {
+      resolve(null);
+      if (tracked !== undefined && this.#tracked.get(run.runId) === tracked) {
+        this.#tracked.delete(run.runId);
+      }
+    }
+  }
+
+  async #stopForReconcile(
+    office: OfficeHandle,
+    run: StoredRun,
+    notice: ReconcileNotice,
+    endKind: string,
+    lastReport: WorkerReport | null,
+  ): Promise<void> {
+    const intentId = office.immediate(() =>
+      recordIntent(office, run.runId, "stop", notice.text, this.#deps.clock.now()),
+    );
+    let error: string | null = null;
+    try {
+      const sent = await this.#deps.steering.send(
+        office,
+        run.runId,
+        this.#deps.encode({ kind: "stop" }),
+      );
+      if (!sent.ok) error = sent.reason;
+    } catch (thrown) {
+      error = messageOf(thrown);
+    }
+    const at = this.#deps.clock.now();
+    const appended = office.immediate(() => {
+      markIntentSent(office, run.runId, intentId, at, error);
+      endRun(office, run.runId, at, endKind);
+      office.run(
+        `update agents set end_reason = coalesce(end_reason, $kind)
+         where office_id = $office_id and run_id = $run and ended_at is null`,
+        { kind: endKind, run: run.runId },
+      );
+      const entries = withWorkViews(office, [noticeEntry(run, notice)]);
+      appendEntries(office, entries, { at });
+      return entries.length;
+    });
+    if (appended > 0) this.#deps.onChanged?.(office.officeId);
+    // The run summary (DIPO-49), as for every run that ends here.
+    await this.#deps.finisher?.summarize(office, run, lastReport).catch((thrown: unknown) => {
+      this.#deps.warn?.("storing the run summary failed", {
+        run: run.runId,
+        reason: messageOf(thrown),
+      });
+    });
+  }
+
+  /**
+   * Reconcile (DIPO-56, 0010 section 7 "Worktree or branch changed by hand"): the running story's
+   * worktree or branch changed by hand. The worker is stopped and the story parks
+   * `scope-violation` with the evidence as detail. The park is not written on the branch, since
+   * the worktree can no longer be trusted; `notice` says why and the park's own notice says what
+   * is missing.
+   */
+  async parkForReconcile(
+    office: OfficeHandle,
+    run: StoredRun,
+    detail: string,
+    notice: ReconcileNotice,
+  ): Promise<ParkOutcome | null> {
+    const tracked = this.#tracked.get(run.runId);
+    // A decision already being carried out wins (see `stopForReconcile`).
+    if (tracked?.ending != null) return tracked.ending.catch(() => null);
+    if (tracked !== undefined) this.#disarm(tracked);
+    const work = tracked?.work ?? workRefOf(office, run.runId) ?? undefined;
+    const write = (fn: () => readonly NewEntry[]): void => {
+      const at = this.#deps.clock.now();
+      const appended = office.immediate(() => {
+        const entries = fn() ?? [];
+        appendEntries(office, entries, { at });
+        return entries.length;
+      });
+      if (appended > 0) this.#deps.onChanged?.(office.officeId);
+    };
+    write(() => [noticeEntry(run, notice)]);
+    const done = this.#end(
+      office,
+      run,
+      work,
+      {
+        intent: "stop",
+        ops: this.#deps.encode({ kind: "stop" }),
+        reason: "scope-violation",
+        detail,
+        endKind: RECONCILED_END,
+      },
+      write,
+      {
+        write: () =>
+          Promise.reject(
+            new Error("its worktree or branch changed by hand, so dipo writes nothing there"),
+          ),
+      },
+    );
+    if (tracked !== undefined) tracked.ending = done;
+    return done;
+  }
+
   /** The command `work.stop`. */
   get feature(): FeatureModule {
     return {
@@ -401,6 +565,7 @@ export class RunControl {
     work: WorkRef | undefined,
     ending: Ending,
     commit: (fn: () => readonly NewEntry[]) => void,
+    writer: ParkWriter = this.#deps.writer,
   ): Promise<ParkOutcome> {
     const write = (fn: () => readonly NewEntry[]): void =>
       commit(() => withWorkViews(office, fn()));
@@ -437,7 +602,7 @@ export class RunControl {
       const parked = await parkStory(
         {
           office,
-          writer: this.#deps.writer,
+          writer,
           now: () => this.#deps.clock.now(),
           write,
           implemented: this.#deps.implemented ?? (() => false),
@@ -459,6 +624,8 @@ export class RunControl {
             reason: messageOf(thrown),
           });
         });
+      // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
+      if (writer === this.#deps.writer) await this.#refresh(office, run, "parked");
       return parked;
     })();
   }
@@ -534,6 +701,8 @@ export class RunControl {
           await this.#sendFeedback(office, run, decision.text, write);
           return;
         case "ended":
+          // The In Review commit is read again at the branch tip (DIPO-56).
+          await this.#refresh(office, run, "In Review");
           // The worker's turn ended and it waits on stdin: closing it ends the worker.
           await this.#deps.steering.send(office, run.runId, [{ closeStdin: true }]).catch(() => {
             // A worker that already exited needs nothing more.
@@ -543,6 +712,21 @@ export class RunControl {
     } finally {
       settle(null);
     }
+  }
+
+  /**
+   * Reads the run's story again at its branch tip after a status commit there (DIPO-56), so the
+   * story view and snapshots read the new status at once. A read that fails is logged; the next
+   * index pass reads it.
+   */
+  async #refresh(office: OfficeHandle, run: StoredRun, what: string): Promise<void> {
+    if (run.key === null || this.#deps.refreshStory === undefined) return;
+    await this.#deps.refreshStory(office.officeId, run.key).catch((thrown: unknown) => {
+      this.#deps.warn?.(`reading the ${what} story again failed`, {
+        run: run.runId,
+        reason: messageOf(thrown),
+      });
+    });
   }
 
   /** Sends a verify feedback item as the next user message, stored first as a `steer` intent. */

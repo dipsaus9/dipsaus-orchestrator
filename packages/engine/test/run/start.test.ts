@@ -141,6 +141,8 @@ interface World {
   readonly released: { claim: ClaimRecord; reason: string }[];
   readonly setupReleases: number[];
   readonly claimCalls: ClaimRequest[];
+  /** Stories read again after their claim commit (DIPO-56). */
+  readonly refreshed: StoryKey[];
   config: OfficeConfig;
   setup: "ok" | "fail";
   checks: LaunchCheckOutcome;
@@ -171,6 +173,7 @@ beforeEach(async () => {
     released: [] as World["released"],
     setupReleases: [] as number[],
     claimCalls: [] as ClaimRequest[],
+    refreshed: [] as StoryKey[],
     config: OFFICE_DEFAULTS,
     setup: "ok" as "ok" | "fail",
     checks: { ok: true } as LaunchCheckOutcome,
@@ -263,7 +266,12 @@ beforeEach(async () => {
       configBlocksRuns: () => [],
     },
     base: { fetch: async () => undefined, read: async (_office, ids) => read(ids) },
-    stories: { indexStories: async () => undefined },
+    stories: {
+      indexStories: async () => undefined,
+      refreshStory: async (_office, key) => {
+        w.refreshed.push(key);
+      },
+    },
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => null },
     statuses: async () => null,
     adapterHeld: (adapter) => holds.adapterHeld(adapter),
@@ -406,6 +414,8 @@ describe("work.run starts the worker of a claimed run", () => {
     const argv: readonly string[] = host?.plan.argv ?? [];
     const flag = (name: string) => argv[argv.indexOf(name) + 1];
     expect(argv[0]).toBe(CLAUDE);
+    // The claim commit is read again on the branch at once, so the views say In Progress.
+    expect(world.refreshed).toEqual([world.keys.get("TASK-1") as StoryKey]);
     expect(flag("--model")).toBe(caps.model);
     expect(flag("--effort")).toBe(caps.effort);
     expect(flag("--max-turns")).toBe(String(caps.maxTurns));

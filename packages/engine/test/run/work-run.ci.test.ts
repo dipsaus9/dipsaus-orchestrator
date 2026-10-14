@@ -193,8 +193,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(decisions).toEqual([{ decision: "approved" }]);
             const run = findRun(r.office, result.started[0]?.run as never);
             expect(run).toMatchObject({ kind: "story", story: "TASK-1", branch, tier: "S" });
-            const events = types(r).map((entry) => entry.type);
-            expect(events.slice(-2)).toEqual(["work.assigned", "work.phase"]);
+            const entries = types(r);
+            expect(entries.slice(-3).map((entry) => entry.type)).toEqual([
+              "work.assigned",
+              "work.phase",
+              "story.state",
+            ]);
+            // The claim commit is read on the branch at once (DIPO-56): the story is In Progress.
+            expect(entries.at(-1)?.delta).toMatchObject({ from: "Ready", to: "In Progress" });
           },
         ),
       30_000,
