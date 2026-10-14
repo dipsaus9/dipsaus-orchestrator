@@ -311,6 +311,9 @@ export const ClaudeWorkerEventSchema = z.union([
     utilization: z.number().min(0).max(1).exactOptional(),
     resetsAt: Iso.exactOptional(),
     creditsRequired: z.literal(true).exactOptional(),
+    scope: z
+      .union([z.literal("session"), z.literal("weekly"), z.string().regex(/^model:[a-z0-9]+$/)])
+      .exactOptional(),
   }),
   z.strictObject({ t: z.literal("hook"), hook: HookEventSchema }),
   z.strictObject({ t: z.literal("compacted"), preTokens: Count }),

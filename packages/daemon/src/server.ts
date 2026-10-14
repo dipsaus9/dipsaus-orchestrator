@@ -69,8 +69,11 @@ export const EVENTS_PER_FRAME = 500;
  */
 const REPLAY_PAGE = 100;
 
-/** Commands that would schedule work and so fail with `scheduling.off` in `safe` (0006 decision 7). */
-export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run"]);
+/**
+ * Commands that would schedule work and so fail with `scheduling.off` in `safe` (0006 decision 7):
+ * `work.run`, and `work.resume`, which resumes a held run (DIPO-61).
+ */
+export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run", "work.resume"]);
 
 /** Names any connection may use in every daemon state (0006 decision 7: `starting`). */
 const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["engine.hello", "commands.describe"]);

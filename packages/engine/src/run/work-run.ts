@@ -8,16 +8,18 @@
 // 1. Refusals of the whole command, each with the predicate's message: `maxAgents` above 1
 //    (`args.invalid`, M0 runs one story at a time), an invalid configuration (`config.invalid`,
 //    `configBlocksRuns`), an adapter hold (`run.refused`, `adapterHeld`; a run that names its
-//    stories goes on and repeats the launch checks, which lift the hold), a failed fetch (the
-//    retryable `git.fetchFailed`), statuses the base lacks (`run.refused`, `officeStatusesReady`)
-//    and an unresolved verify (`run.refused`, `verifyResolved`). The daemon answers the retryable
-//    `scheduling.off` in `safe` before the command reaches the engine.
+//    stories goes on and repeats the launch checks, which lift the hold), a plan limit of every
+//    model or `credits` (`run.refused`, check `plan-limit`, DIPO-61; named stories too), a failed
+//    fetch (the retryable `git.fetchFailed`), statuses the base lacks (`run.refused`,
+//    `officeStatusesReady`) and an unresolved verify (`run.refused`, `verifyResolved`). The daemon
+//    answers the retryable `scheduling.off` in `safe` before the command reaches the engine.
 // 2. The stories are indexed (DIPO-32) and the run profile refreshed (DIPO-72).
 // 3. Without `stories`, the candidates are the Ready stories on the base in pickup order; with
 //    `stories`, only those, in the order given.
 // 4. Each candidate not started is a skip: its status (`notReady`, `parked`, `notRunnable`), a
 //    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), the one
-//    active run per office (`capacity`), a dependency not Done (`dependency`), or a failed pickup
+//    active run per office (`capacity`), a model-family plan limit on the story's tier model
+//    (`capacity`, DIPO-61), a dependency not Done (`dependency`), or a failed pickup
 //    check (`pickupCheckFailed`).
 // 5. Before the claim the story contract is assembled (DIPO-47); `prompt.contractTooLarge` moves
 //    the story to Refined like a failed pickup re-check.
@@ -103,6 +105,9 @@ export const REFINED_STATUS = "Refined";
 /** The error code of a run refused by an office check (`details.check` names it). */
 export const RUN_REFUSED = "run.refused" satisfies OfficeErrorCode;
 
+/** `details.check` of the `run.refused` a plan-limit hold gives `work.run` (DIPO-61). */
+export const PLAN_LIMIT_CHECK = "plan-limit";
+
 /** The active-work check `office.forget` asks (DIPO-27). */
 export const RUNS_CHECK = "runs";
 
@@ -164,6 +169,11 @@ export interface WorkRunDeps {
   readonly statuses: (office: OfficeId) => Promise<string | null>;
   /** `adapterHeld` (DIPO-43). */
   readonly adapterHeld: (adapter: string) => AdapterHold | null;
+  /**
+   * The plan-limit hold (DIPO-61, `PlanLimits.held`): why a new run on the adapter and model must
+   * wait, or null. With `model` null only the holds of every model count.
+   */
+  readonly planLimitHeld?: (adapter: string, model: string | null) => string | null;
   readonly claims: { claim(office: OfficeId, request: ClaimRequest): Promise<ClaimOutcome> };
   readonly gates: {
     recordGateDecision(
@@ -270,6 +280,9 @@ export class WorkRun {
     if (hold !== null && (args.stories === undefined || deps.launcher === undefined)) {
       throw refused(office, "adapter", holdMessage(hold));
     }
+    // A plan limit of every model, or `credits`, holds every run, named or not (DIPO-61).
+    const planLimit = deps.planLimitHeld?.(config.worker.adapter, null) ?? null;
+    if (planLimit !== null) throw refused(office, PLAN_LIMIT_CHECK, planLimit);
 
     try {
       await deps.base.fetch(office);
@@ -376,6 +389,8 @@ export class WorkRun {
     if (typeof branch !== "string" || !branch.startsWith(`${story}/`) || caps === undefined) {
       return "gate";
     }
+    // A model-family plan limit holds only stories whose tier runs that family (DIPO-61).
+    if (this.#deps.planLimitHeld?.(c.config.worker.adapter, caps.model) != null) return "capacity";
     const taskFile = relative(c.checkout.path, view.file);
     try {
       assembleContract(
@@ -679,6 +694,8 @@ export class WorkRun {
         refusals.push({ check: "adapter", message: holdMessage(hold) });
       }
     }
+    const planLimit = deps.planLimitHeld?.(config.worker.adapter, null) ?? null;
+    if (planLimit !== null) refusals.push({ check: PLAN_LIMIT_CHECK, message: planLimit });
     const statuses = await deps.statuses(office);
     if (statuses !== null) refusals.push({ check: "statuses", message: statuses });
     const verify = deps.profiles.verifyResolved(handle);

@@ -26,11 +26,13 @@ import {
   readBackstop,
   hostSocketSteering,
   type EngineGit,
+  type HoldNotice,
   type Logger,
   OfficeIngest,
   type OfficeManager,
   PermissionAsks,
   type Presence,
+  PlanLimits,
   type RunBase,
   RunControl,
   RunLauncher,
@@ -91,6 +93,10 @@ export interface DaemonRunsOptions {
   readonly work?: WorkTracker;
   /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
   readonly presence?: Presence;
+  /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
+  readonly notify?: (notice: HoldNotice) => void;
+  /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
+  readonly scheduling?: () => boolean;
 }
 
 export interface DaemonRuns {
@@ -102,6 +108,11 @@ export interface DaemonRuns {
   readonly outcomes: RunOutcomes;
   /** The permission wait and `work.answer` (DIPO-59). */
   readonly permissions: PermissionAsks;
+  /**
+   * The plan-limit schedule (DIPO-61): holds scheduling while a plan limit is open, resumes held
+   * runs after the reset, recovers waits at load and implements `work.resume` for held runs.
+   */
+  readonly planLimits: PlanLimits;
 }
 
 /**
@@ -235,7 +246,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     control,
     onChanged: options.onChanged,
   });
+  let planLimits: PlanLimits | null = null;
   outcomes = new RunOutcomes({
+    waits: () => planLimits ?? undefined,
     clock,
     offices: options.offices,
     steering: hostSocketSteering({ clock }),
@@ -254,6 +267,16 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       return tier === undefined ? null : capsOf(tier);
     },
     onChanged: options.onChanged,
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
+  const runOutcomes = outcomes;
+  planLimits = new PlanLimits({
+    clock,
+    offices: options.offices,
+    resume: (office, run, why) => runOutcomes.resumeWait(office, run, why),
+    holds: options.holds,
+    ...(options.notify === undefined ? {} : { notify: options.notify }),
+    ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   const launcher = new RunLauncher({
@@ -298,5 +321,5 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control, outcomes, permissions };
+  return { launcher, ingest, control, outcomes, permissions, planLimits };
 }

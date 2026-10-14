@@ -111,7 +111,9 @@ export const workPause = defineCommand({
 });
 
 // A paused run continues; a parked story returns to `park.from`, and to In Progress or In Review
-// it starts or re-attaches a run. Provisional until DIPO-61 ships it for held runs.
+// it starts or re-attaches a run. Since minor 1 (DIPO-61) the engine implements it for runs held
+// by a plan limit: the held session continues at once and a `credits` hold is lifted. A parked
+// story is not resumed yet; it fails `story.notPausedOrParked` like a story with no held run.
 export const workResume = defineCommand({
   name: "work.resume",
   level: "office",
@@ -119,7 +121,7 @@ export const workResume = defineCommand({
   result: z.object({ story: StoryId, key: StoryKey, to: Lifecycle, run: RunId.optional() }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
 // A new agent with a bounded handoff; the old one is stopped first.

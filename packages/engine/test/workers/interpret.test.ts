@@ -9,6 +9,7 @@ import {
   interpret,
   interpretLogged,
   nextSessionOptions,
+  rateLimitScope,
 } from "../../src/workers/claude-cli/interpret";
 import { result } from "../../src/workers/claude-cli/result";
 import type { HostLine, WorkerEvent, WorkerReport } from "../../src/workers/types";
@@ -342,7 +343,13 @@ describe("interpret (0008 section 3)", () => {
     };
     const allowed = run([out({ type: "rate_limit_event", rate_limit_info: info })]);
     expect(allowed.events).toEqual([
-      { t: "limit", status: "allowed", utilization: 0.04, resetsAt: "2026-10-12T17:50:00.000Z" },
+      {
+        t: "limit",
+        status: "allowed",
+        utilization: 0.04,
+        resetsAt: "2026-10-12T17:50:00.000Z",
+        scope: "session",
+      },
     ]);
     expect(allowed.state.planLimit).toBeNull();
 
@@ -705,5 +712,16 @@ describe("worker outcomes (DIPO-51)", () => {
       plannedModel: "haiku",
       acceptedModels: [],
     });
+  });
+});
+
+describe("plan-limit scopes (DIPO-61)", () => {
+  it("names the session, weekly and model-family windows, and nothing else", () => {
+    expect(rateLimitScope("five_hour")).toBe("session");
+    expect(rateLimitScope("seven_day")).toBe("weekly");
+    expect(rateLimitScope("seven_day_opus")).toBe("model:opus");
+    expect(rateLimitScope("seven_day_sonnet")).toBe("model:sonnet");
+    expect(rateLimitScope("overage")).toBeUndefined();
+    expect(rateLimitScope(undefined)).toBeUndefined();
   });
 });

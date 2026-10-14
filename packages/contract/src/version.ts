@@ -26,4 +26,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-59 ships `work.answer` (with `decision` for permission questions), `question.asked` and
 // `question.closed`, adds the optional `questions` of `story.detail` and the office code
 // `question.closed` to the same, still unreleased, minor.
+// DIPO-61 ships the command `work.resume` (for runs held by a plan limit) in the same, still
+// unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
