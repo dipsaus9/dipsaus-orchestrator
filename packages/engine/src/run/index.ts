@@ -45,3 +45,7 @@ export type { NewRun, RunKind, StoredRun, StoredRunStep, RunStepKind } from "./r
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export { HOST_CONNECT_TIMEOUT_MS, OfficeIngest, systemHostStarter } from "./hosts";
 export type { OfficeIngestOptions, SystemHostStarterOptions } from "./hosts";
+export { Watchdog, WATCHDOG_DEFAULTS } from "./watchdog";
+export type { WatchdogOptions, WatchdogTimeouts } from "./watchdog";
+export { activeSignals, clearSignals, LIVENESS_SIGNALS, raiseSignal } from "./signals";
+export type { StoredSignal } from "./signals";
