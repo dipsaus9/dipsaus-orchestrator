@@ -69,6 +69,8 @@ test_plan:
 - [ ] #6 The Claude CLI `WorkerAdapter` is built per run in `workers/claude-cli/adapter.ts` with `plan(spec)` closing over a `ClaudeLaunchContext` (DIPO-40's `plan(spec, ctx)`), so the engine calls the 0008 signature; a test under `packages/engine/test/run/` covers the binding.
 - [ ] #7 When `plan` refuses a path (DIPO-40: rule-special characters such as parentheses, a workdir at home or `/`), the run is not started and an `engine.notice` names the path and the character and suggests moving the checkout or the worktree root; a test covers it.
 - [ ] #8 The daemon passes its resolved absolute `backlog` path into `backlogFeature` (DIPO-28 runs `backlog` from PATH today), next to AC #3's resolved `claude` path; a test covers it.
+- [ ] #9 `dipo run --dry-run [<ID>...]` selects a story as `work.run` does and prints, without claiming, creating a branch or worktree, writing a run row or starting a worker: the branch and worktree path it would create, the full `claude` launch (absolute path, arguments, model, effort, caps, sandbox settings, environment variable names without values), the system file and the task message; a test shows that no fact, branch, worktree or run changed.
+- [ ] #10 Branch and worktree creation is tested apart from the worker launch: with the worker start stubbed, a run creates the branch named in the story field block, the locked worktree at `<root>/<ID>` and the claim commit, and stops before any worker starts; a manual test step checks them before a live session.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -79,4 +81,6 @@ Split from DIPO-48 in the M0 review (DIPO-15). Before cutover: built by hand-run
 Follow-up from DIPO-39 (2026-10-13): the daemon builds StoryClaims without the SlotTable (packages/daemon/src/foreground.ts); pass slots: SlotTable.inState(stateDir) as StoryTeardown does, so a claim's setup takes and frees its slot in the real daemon.
 
 Follow-up from DIPO-48 (2026-10-14): releasing a claim (teardown, rollback, work.stop or work.discard), or ending a run in any other way, must set runs.ended_at and runs.end_kind for its run. Retention removes runs and run_steps only once ended_at is set (packages/engine/src/retention/run.ts), and config_snapshots only once no kept run names them. Until then, activeRuns treats a story run whose claim is released as inactive, but its rows are kept forever.
+
+Added 2026-10-14 by the maintainer: a dry-run preview of the worker call, so the instructions Claude gets can be checked without a live session, and branch and worktree creation tested on its own. The dry-run option on work.run is a contract addition and needs a 0005 amendment approved by the maintainer when this story is built.
 <!-- SECTION:NOTES:END -->
