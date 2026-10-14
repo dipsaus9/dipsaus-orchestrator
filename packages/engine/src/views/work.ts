@@ -160,9 +160,12 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   if (work === null) return null;
   const progress = progressOf(office, run);
   const signals = activeSignals(office, run.runId);
+  // A run held for a plan limit (DIPO-51) has an exited worker on purpose: it waits for the
+  // reset, so it shows `limited`, not `lost`.
+  const waiting = signals.some((signal) => signal.signal === "plan-limit");
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
-    exitUnprocessed: agent.ended_at !== null && run.endedAt === null,
+    exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,
     loop: progress.loop,
     loopCap: progress.loopCap,
   });

@@ -8,6 +8,7 @@ import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
+import { finalizeRunAgents } from "../ingest/usage";
 
 export type RunKind = "story" | "session";
 
@@ -249,7 +250,8 @@ export const PARKED_OUTCOME = "parked";
  * the run parked its story, with the park reasons; else the end kind, such as `in-review` or
  * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes from start
  * to end, the story's criteria count and the declared scope size. A park writes its `parks` row
- * before it ends the run, so its reason is counted.
+ * before it ends the run, so its reason is counted. It also makes the usage of every agent whose
+ * exit was not ingested final (`finalizeRunAgents`, DIPO-51).
  */
 export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
   const ended = office.run(
@@ -257,7 +259,12 @@ export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: str
      where office_id = $office_id and run_id = $run and ended_at is null`,
     { run: runId, at, kind },
   );
-  if (ended.changes > 0) writeRunOutcome(office, runId, at, kind);
+  if (ended.changes > 0) {
+    // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
+    // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
+    finalizeRunAgents(office, runId, at);
+    writeRunOutcome(office, runId, at, kind);
+  }
 }
 
 function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
