@@ -1,10 +1,10 @@
 ---
 id: DIPO-76
 title: Restore state from a backup and purge an office
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 21:47'
+updated_date: '2026-10-14 14:11'
 labels:
   - 'tier:M'
   - after-cutover
@@ -22,6 +22,11 @@ references:
   - packages/engine/test/office/
   - packages/contract/
   - packages/engine/src/index.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/office/feature.ts
+  - packages/engine/src/office/index.ts
+  - packages/engine/src/platform/sqlite.ts
+  - packages/daemon/test/
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0006-daemon-and-ipc.md
