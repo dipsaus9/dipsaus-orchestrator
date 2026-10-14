@@ -107,6 +107,8 @@ export interface StepRequest {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Variables the engine sets for the step, such as ports. */
   readonly extraEnv?: Readonly<Record<string, string>>;
+  /** Called with each piece of stdout or stderr text as it arrives (verify streams it, DIPO-49). */
+  readonly onOutput?: (text: string) => void;
 }
 
 export interface CapturedOutput {
@@ -203,8 +205,8 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
     }, minutes * 60_000);
 
     const [stdout, stderr, exit] = await Promise.all([
-      capture(child.stdout),
-      capture(child.stderr),
+      capture(child.stdout, OUTPUT_LIMIT_BYTES, request.onOutput),
+      capture(child.stderr, OUTPUT_LIMIT_BYTES, request.onOutput),
       child.exited,
     ]);
     deps.clock.clearTimeout(timeoutTimer);
@@ -244,15 +246,24 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Reads a stream to the end, keeping at most `limit` bytes of its tail. */
+/**
+ * Reads a stream to the end, keeping at most `limit` bytes of its tail. `onText` gets each piece
+ * as it arrives, decoded as UTF-8 across chunk boundaries.
+ */
 export async function capture(
   stream: ReadableStream<Uint8Array>,
   limit: number = OUTPUT_LIMIT_BYTES,
+  onText?: (text: string) => void,
 ): Promise<CapturedOutput> {
   const chunks: Uint8Array[] = [];
   let size = 0;
   let truncated = false;
+  const live = onText === undefined ? null : new TextDecoder();
   for await (const chunk of stream) {
+    if (live !== null) {
+      const text = live.decode(chunk, { stream: true });
+      if (text !== "") onText?.(text);
+    }
     chunks.push(chunk);
     size += chunk.byteLength;
     while (size > limit && chunks.length > 0) {
@@ -268,6 +279,8 @@ export async function capture(
       }
     }
   }
+  const rest = live?.decode() ?? "";
+  if (rest !== "") onText?.(rest);
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
