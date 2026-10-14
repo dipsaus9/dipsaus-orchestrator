@@ -624,6 +624,46 @@ describe("worker outcomes (DIPO-51)", () => {
     expect(state.contextWindow).toBe(200_000);
   });
 
+  it("counts a resumed session's spend once whether the CLI restores the floor or the floor plus later spend", () => {
+    const usageOf = (i: number, o: number, c: number, r: number, cost: number) =>
+      resultLine({
+        modelUsage: {
+          [MODEL]: {
+            inputTokens: i,
+            outputTokens: o,
+            cacheCreationInputTokens: c,
+            cacheReadInputTokens: r,
+            costUSD: cost,
+          },
+        },
+      });
+    // The previous process: totals at its turn end, then one message (live 2/0/100/50).
+    const previous = run([
+      init(),
+      usageOf(4, 155, 200, 100, 0.01),
+      on(MODEL, "msg-9"),
+      EXIT_OK,
+    ]).state;
+    const resumed = () => initialState(nextSessionOptions(previous, true, "haiku"));
+    // The resumed process spends one message (2/100/50) and 20 output tokens.
+    const spent = { [MODEL]: { input: 2, output: 20, cacheCreate: 100, cacheRead: 50 } };
+    // Restores only the floor (the previous turn totals).
+    const floorOnly = run(
+      [init(), on(MODEL, "msg-10"), usageOf(4 + 2, 155 + 20, 200 + 100, 100 + 50, 0.012)],
+      resumed(),
+    ).state;
+    expect(floorOnly.committed).toEqual(spent);
+    expect(floorOnly.costCommitted?.[MODEL]).toBeCloseTo(0.002, 9);
+    // Restores the floor plus the previous process's spend after its turn end.
+    const withLive = run(
+      [init(), on(MODEL, "msg-10"), usageOf(6 + 2, 155 + 20, 300 + 100, 150 + 50, 0.013)],
+      resumed(),
+    ).state;
+    expect(withLive.committed).toEqual(spent);
+    // That later spend was never priced by a result, so its cost counts now.
+    expect(withLive.costCommitted?.[MODEL]).toBeCloseTo(0.003, 9);
+  });
+
   it("a resume tells restored spend from a restarted count, per field", () => {
     const previous = run([init(), resultLine(), on(MODEL, "msg-9"), EXIT_OK]).state;
     // The previous process counted its turn totals plus one message after them.

@@ -251,9 +251,11 @@ function delta(now: ModelUsageTotals, before: ModelUsageTotals): ModelUsageTotal
 
 /**
  * The change at the first turn end of a resumed session (DIPO-51), per field: at or above the
- * baseline (what the previous process had counted) only the rise is new; between the restored
- * floor and the baseline the CLI restored less than was counted, so only this session's live
- * numbers are new; below the floor the CLI's count restarted, so all of it is new.
+ * baseline (what the previous process had counted) the rise is new, but at least this session's
+ * live numbers, since a CLI that restored only the floor reaches the baseline with less new
+ * spend than it shows; between the restored floor and the baseline the CLI restored less than
+ * was counted, so only this session's live numbers are new; below the floor the CLI's count
+ * restarted, so all of it is new.
  */
 function resumedDelta(
   now: ModelUsageTotals,
@@ -263,7 +265,7 @@ function resumedDelta(
 ): ModelUsageTotals {
   const field = (name: (typeof FIELDS)[number]): number =>
     now[name] >= baseline[name]
-      ? now[name] - baseline[name]
+      ? Math.max(now[name] - baseline[name], live[name])
       : now[name] >= floor[name]
         ? live[name]
         : now[name];
@@ -309,8 +311,11 @@ function costStep(
   for (const [model, entry] of Object.entries(modelUsage)) {
     if (entry.costUSD === undefined) continue;
     const before = baseline[model] ?? 0;
-    // A resumed session's first turn end: a value between the restored floor and the baseline
-    // adds nothing the engine can price; below the floor the count restarted.
+    // A resumed session's first turn end. The cost baseline is the floor (costs come only from
+    // results, so the previous session's spend after its last result was never priced): at or
+    // above it the rise is new whichever way the CLI restored, so nothing is undercounted. A value
+    // between floor and baseline (only possible with a baseline above the floor) adds nothing the
+    // engine can price; below the floor the count restarted.
     const restored = floor === undefined ? null : (floor[model] ?? 0);
     const change =
       entry.costUSD >= before
