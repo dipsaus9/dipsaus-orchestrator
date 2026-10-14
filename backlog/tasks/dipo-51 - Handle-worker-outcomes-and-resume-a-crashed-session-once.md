@@ -4,7 +4,7 @@ title: Handle worker outcomes and resume a crashed session once
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:27'
+updated_date: '2026-10-14 14:31'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -105,4 +105,6 @@ Review follow-ups (2026-10-14):
 - The restart step also starts the next session of a run whose newest agent ended crashed or prompt-too-long with no newer agent (a decision recorded before a stop); a report feedback is resolved only once its resume started, and carries the agent it was sent to.
 - On the first resumed turn end a field at or above the baseline counts max(rise, live), so a CLI that restores only the floor is not undercounted. Cost needs no change: its baseline equals the floor, since costs come only from results.
 - agents.claude_code_version is used by the generic resume path (SessionRef.version); a neutral column alias is a later follow-up.
+
+Review follow-ups for DIPO-57 (re-attach after a restart): (1) RunResumer.next awaits hosts.start before inserting the new agents row; a daemon stop inside that await means redispatch starts a second session while the first host may have outlived the daemon (two workers on one worktree). Fix in DIPO-57: in redispatch's decided branch, skip or re-attach when the run has a worker_hosts row for an agent other than the newest, or insert the agent row before spawning. (2) #byIntent resolves the intent before #endAgent; a stop between them leaves end_reason 'exited' with no open intent, so redispatch decides by WorkerPort.result instead of the tag (matters for the error-reassign path). Fix: #endAgent first, or resolve after #next started.
 <!-- SECTION:NOTES:END -->
