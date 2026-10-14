@@ -4,7 +4,7 @@ title: Reconcile the database with Backlog.md and git at daemon start
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:14'
+updated_date: '2026-10-14 13:15'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -90,4 +90,10 @@ Implementation (2026-10-14):
 - Follow-up from DIPO-63/DIPO-36: at daemon start a live claim whose active run never got a worker host is released as orphaned (branch kept); a run directory with a launch file only gets a notice, since its host may have started without its row.
 - Not done: adopting open dipo/backlog-* PRs after a lost database. It needs a new code-host listing and adoption into backlog_prs and the lane journal, and the structural check would fail without the lost gate decisions; proposed as its own story.
 - Tests: fast local branch.test.ts and git-facts.test.ts; the per-row cases are packages/engine/test/reconcile/reconcile.ci.test.ts and the daemon start ordering is packages/daemon/test/integration/reconcile.ci.test.ts.
+
+Review follow-ups (2026-10-14):
+- AC #5 is implemented as "no passing Ready gate decision for the story's current gate content hash", not "no gate_decisions row": a rejected decision for the same content does not make a Ready story runnable, and the 0010 structural check also requires a passing decision for each new Ready, so a failed one is reported the same way. The hash is gateContentHash of the same view the index read.
+- The branch read now reads the committed branch tip, never the claim worktree's uncommitted edits: backlog/ is materialised from _base in a scratch directory under the worktree root, with the story's own task file taken from git show <branch>:<path>, and read there with the Backlog CLI.
+- The claim's re-read emits one story.state (Ready to In Progress) after work.assigned and work.phase; no earlier entry of the claim emits story.state, so it is not a duplicate.
+- Adopting open dipo/backlog-* PRs after a lost database is DIPO-80 (m-1).
 <!-- SECTION:NOTES:END -->
