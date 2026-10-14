@@ -1,0 +1,11 @@
+{
+  "scenario": "model-switch",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "A classifier switch: recorded on the run with an engine.notice, the next system/init on that model is accepted, no park (0008 section 2).",
+  "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
+  "derivedFrom": "success-single",
+  "transform": "The first main-agent assistant message reports model \"claude-sonnet-4-5\", a classifier switch the plan did not ask for.",
+  "cites": ["the switched model is illustrative; no live run switched models"]
+}

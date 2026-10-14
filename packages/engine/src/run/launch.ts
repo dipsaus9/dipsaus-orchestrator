@@ -16,6 +16,7 @@
 // 3. `preview` builds the same spec and plan for `work.preview` (the dry run), on `_base`, with
 //    placeholders for the run id and session, and writes nothing.
 
+import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -171,11 +172,61 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly plan: LaunchPlan;
   readonly paths: RunLaunchPaths;
   readonly officeDir: string;
+  /** sha256 of the system file (L1+L2), stored on the agent for `canResume` (DIPO-51). */
+  readonly systemHash: string;
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
-function capsOf(caps: TierCaps): Caps {
+/** sha256 of a system file's text: the L1+L2 hash a resume compares (0008 section 8). */
+export function systemHashOf(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/** The paths of a run; the run directory sits in `<git-common-dir>/dipo/runs`. */
+export function runLaunchPaths(
+  git: OfficeGit,
+  dirs: { readonly runtimeDir: string; readonly tmpRoot: string },
+  worktree: string,
+  runId: string,
+): RunLaunchPaths & { officeDir: string } {
+  const officeDir = officeDirectory(git.commonDir);
+  return {
+    workdir: worktree,
+    mainCheckout: git.mainWorktree,
+    runDir: runDirectory(officeDir, runId),
+    hostSocket: hostSocketPath(dirs.runtimeDir, runId),
+    tmpDir: join(dirs.tmpRoot, `dipo-run-${runId}`),
+    officeDir,
+  };
+}
+
+/** The `WorkerSpec` of one session of a run (DIPO-74; DIPO-51 for the later sessions). */
+export function runWorkerSpec(
+  facts: { readonly runId: string; readonly agent: string; readonly caps: TierCaps },
+  paths: RunLaunchPaths,
+  taskMessage: string,
+  session: { readonly id: string; readonly resume: boolean },
+  caps: Caps = capsOf(facts.caps),
+): WorkerSpec {
+  return {
+    run: facts.runId,
+    agent: facts.agent,
+    kind: "implement",
+    workdir: paths.workdir,
+    model: facts.caps.model,
+    effort: facts.caps.effort,
+    caps,
+    systemFile: join(paths.runDir, SYSTEM_FILE),
+    taskMessage,
+    tools: { allow: [...DEVELOPER_TOOLS], deny: [] },
+    session,
+    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    hookRelay: false,
+  };
+}
+
+export function capsOf(caps: TierCaps): Caps {
   return { budgetTokens: caps.budgetTokens, maxTurns: caps.maxTurns, maxMinutes: caps.maxMinutes };
 }
 
@@ -218,15 +269,7 @@ export class RunLauncher {
 
   /** The run's paths; the run directory sits in `<git-common-dir>/dipo/runs`. */
   #paths(git: OfficeGit, worktree: string, runId: string): RunLaunchPaths & { officeDir: string } {
-    const officeDir = officeDirectory(git.commonDir);
-    return {
-      workdir: worktree,
-      mainCheckout: git.mainWorktree,
-      runDir: runDirectory(officeDir, runId),
-      hostSocket: hostSocketPath(this.#deps.runtimeDir, runId),
-      tmpDir: join(this.#deps.tmpRoot, `dipo-run-${runId}`),
-      officeDir,
-    };
+    return runLaunchPaths(git, this.#deps, worktree, runId);
   }
 
   #spec(
@@ -235,21 +278,7 @@ export class RunLauncher {
     taskMessage: string,
     session: string,
   ): WorkerSpec {
-    return {
-      run: facts.runId,
-      agent: facts.agent,
-      kind: "implement",
-      workdir: paths.workdir,
-      model: facts.caps.model,
-      effort: facts.caps.effort,
-      caps: capsOf(facts.caps),
-      systemFile: join(paths.runDir, SYSTEM_FILE),
-      taskMessage,
-      tools: { allow: [...DEVELOPER_TOOLS], deny: [] },
-      session: { id: session, resume: false },
-      reportSchema: WORKER_REPORT_JSON_SCHEMA,
-      hookRelay: false,
-    };
+    return runWorkerSpec(facts, paths, taskMessage, { id: session, resume: false });
   }
 
   /** The session id of a run's first session (AC #3). */
@@ -280,6 +309,7 @@ export class RunLauncher {
       return { ok: false, reason, log: [...setup.log, `launch: ${reason}`].join("\n") };
     };
     let spec: WorkerSpec;
+    let systemHash: string;
     try {
       const dependencies = await this.#deps.dependencies(
         facts.office,
@@ -298,6 +328,7 @@ export class RunLauncher {
       ensurePrivateDir(paths.tmpDir);
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
+      systemHash = systemHashOf(prompts.systemFile);
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
@@ -331,6 +362,7 @@ export class RunLauncher {
       plan: prepared.plan,
       paths,
       officeDir: paths.officeDir,
+      systemHash,
       release: () => {
         setup.release();
         cleanup();

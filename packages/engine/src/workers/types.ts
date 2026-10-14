@@ -168,6 +168,12 @@ export type WorkerEvent =
        * what fired, for the park detail. The engine stops the worker at this turn (DIPO-50).
        */
       readonly capped?: string;
+      /**
+       * Set when the turn ended without what the engine needs from it (DIPO-51, 0008 section 7):
+       * no valid report, a full context, an execution error, a start failure or a plan limit.
+       * Adapter-neutral; the engine decides what follows.
+       */
+      readonly problem?: TurnProblem;
     }
   | {
       readonly t: "waiting";
@@ -191,6 +197,14 @@ export type WorkerEvent =
    * as a live start; the result is `initRejected`.
    */
   | { readonly t: "initRejected"; readonly reason: string };
+
+/** What was wrong with a turn (0008 section 7); `detail` is one line for a park or a notice. */
+export interface TurnProblem {
+  readonly kind: TurnProblemKind;
+  readonly detail: string;
+}
+
+export type TurnProblemKind = "report" | "contextFull" | "error" | "startFailed" | "planLimit";
 
 export type WorkerOutcome =
   | "done"
@@ -217,6 +231,8 @@ export interface WorkerResult {
    * new session with a handoff, `report-feedback` sends one turn asking for a valid report.
    */
   readonly retry?: WorkerRetry;
+  /** What failed, for a start failure that proposes no park (DIPO-51). */
+  readonly detail?: string;
 }
 
 /** A recovery step the engine tries once before the proposed park (0008 section 7). */
@@ -251,9 +267,34 @@ export interface ExitRecord {
 /** The native session a resume would continue. */
 export interface SessionRef {
   readonly id: string;
+  /** The transcript file when known; null lets the adapter look for it. */
   readonly transcriptPath: string | null;
-  readonly version: string;
+  /** The adapter version the session ran on; null when it never started. */
+  readonly version: string | null;
+  /** The L1+L2 hash the session ran with; null when it was never recorded. */
+  readonly systemHash: string | null;
+  /** The context tokens of the session's last request; null or absent when unknown. */
+  readonly contextTokens?: number | null;
+  /** The model's context window; null or absent when unknown. */
+  readonly contextWindow?: number | null;
+  /** When the session's last request was made (engine clock, ms); null or absent when unknown. */
+  readonly lastRequestAt?: number | null;
+}
+
+/** What a resume would run with now (0008 section 8, 0014 section 6). */
+export interface ResumeFacts {
+  /** The engine clock now. */
+  readonly now: number;
+  /** The adapter version a resume would run; null when the probe gave none. */
+  readonly version: string | null;
+  /** The L1+L2 hash a resume would run with. */
   readonly systemHash: string;
+  /** The estimated tokens of the handoff task message a new session would get instead. */
+  readonly handoffTokens: number;
+  /** Resume only under this share of the context window (0014 section 6; 0.6 in M0). */
+  readonly maxContextShare: number;
+  /** Resume only when re-reading costs at most this many handoffs (0014 section 6; 3 in M0). */
+  readonly rereadFactor: number;
 }
 
 export type ResumeCheck = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -274,8 +315,11 @@ export interface WorkerAdapter {
   ): { readonly events: WorkerEvent[]; readonly state: ParseState };
   /** Pure: the run's result once `exit.json` exists. */
   result(state: ParseState, exit: ExitRecord): WorkerResult;
-  /** Transcript present, version and prompt hash unchanged. */
-  canResume(ref: SessionRef, spec: WorkerSpec): ResumeCheck;
+  /**
+   * Transcript present, version and prompt hash unchanged, and resuming cheaper than a handoff
+   * (0008 section 8, 0014 section 6).
+   */
+  canResume(ref: SessionRef, spec: WorkerSpec, facts: ResumeFacts): ResumeCheck;
 }
 
 /** What a refused path is about, when `plan` refused a path (DIPO-74 AC #7). */

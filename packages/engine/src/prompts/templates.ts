@@ -4,6 +4,8 @@
 // over every template file.
 
 import implementContract from "./contract/implement.md" with { type: "text" };
+import reportFeedback from "./feedback/report.md" with { type: "text" };
+import resumeMessage from "./feedback/resume.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
@@ -51,8 +53,15 @@ export const TASK_TEMPLATES = {
   feedback,
 } as const;
 
-/** Feedback item templates (0014 section 7). M0 builds verify items. */
-export const FEEDBACK_TEMPLATES = { verify: verifyFeedback } as const;
+/**
+ * Feedback item templates (0014 section 7). M0 builds verify items, the one feedback turn for a
+ * missing or invalid report, and the short first message of a resumed session (DIPO-51).
+ */
+export const FEEDBACK_TEMPLATES = {
+  verify: verifyFeedback,
+  report: reportFeedback,
+  resume: resumeMessage,
+} as const;
 
 /** A slot: `{{name}}` with a lowercase name of letters, digits and `_`. */
 const SLOT = /\{\{([a-z][a-z0-9_]*)\}\}/g;

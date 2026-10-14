@@ -63,6 +63,8 @@ export const ModelUsageEntry = z.object({
   cacheCreationInputTokens: Tokens,
   /** The CLI's own cost estimate, cumulative per process (0008 section 4, DIPO-62). */
   costUSD: z.number().nonnegative().optional(),
+  /** The model's context window in tokens, for the resume check (DIPO-51, 0014 section 6). */
+  contextWindow: Count.optional(),
 });
 
 export const ResultMessage = z.object({
@@ -265,6 +267,12 @@ export const ClaudeWorkerEventSchema = z.union([
     numTurns: Count,
     terminal: Name,
     capped: Name.exactOptional(),
+    problem: z
+      .strictObject({
+        kind: z.enum(["report", "contextFull", "error", "startFailed", "planLimit"]),
+        detail: Name,
+      })
+      .exactOptional(),
   }),
   z.strictObject({
     t: z.literal("waiting"),

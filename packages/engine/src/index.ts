@@ -419,10 +419,19 @@ export {
   initialState as initialClaudeState,
   interpret as interpretClaudeLine,
   interpretLogged as interpretClaudeLineLogged,
+  nextSessionOptions as nextClaudeSessionOptions,
   type ClaudeParseState,
   type InitialStateOptions as ClaudeInitialStateOptions,
 } from "./workers/claude-cli/interpret";
 export { result as claudeResult } from "./workers/claude-cli/result";
+export {
+  CACHE_READ_RATE,
+  CACHE_WARM_MS,
+  CACHE_WRITE_1H_RATE,
+  checkResume as checkClaudeResume,
+  findTranscript as findClaudeTranscript,
+  type ResumeCheckContext as ClaudeResumeCheckContext,
+} from "./workers/claude-cli/resume-check";
 export { ClaudeWorkerEventSchema } from "./workers/claude-cli/schema";
 export {
   AdapterHolds,
@@ -488,11 +497,12 @@ export {
 export {
   claudeCliAdapter,
   claudeLaunchContext,
+  claudeSessionFacts,
   claudeWorkerPort,
   type ClaudeCliAdapterDeps,
   type ClaudeWorkerPortDeps,
 } from "./workers/claude-cli/adapter";
-export type { PreparedWorker, RunLaunchPaths, WorkerPort } from "./workers/port";
+export type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "./workers/port";
 export {
   ScriptedWorker,
   ScriptError,
