@@ -105,7 +105,12 @@ function memoryWorkspace(root: string): Workspace {
 
 const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
   claudeLaunchContext(
-    { claudePath: CLAUDE, home: HOME, env: { PATH: "/usr/bin:/bin", GH_TOKEN: "not-a-token" } },
+    {
+      claudePath: CLAUDE,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", GH_TOKEN: "not-a-token" },
+      dipoCommand: ["/opt/dipo/bin/dipo"],
+    },
     paths,
     config,
   );

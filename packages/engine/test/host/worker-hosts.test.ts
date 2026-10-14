@@ -99,7 +99,9 @@ describe("launchWorkerHost", () => {
         protocolVersion: HOST_PROTOCOL_VERSION,
         runDir,
         eventFile: join(runDir, "events.ndjson"),
+        engineToken: host.engineToken as string,
       });
+      expect(host.engineToken).toMatch(/^[0-9a-f]{64}$/);
       expect(statSync(runDir).mode & 0o777).toBe(0o700);
       expect(statSync(join(dir, "rt", "hosts")).mode & 0o777).toBe(0o700);
       const launchPath = join(runDir, LAUNCH_FILE);
@@ -111,6 +113,8 @@ describe("launchWorkerHost", () => {
         agent: AGENT,
         socket: host.socketPath,
         plan: PLAN,
+        // The engine's secret goes to the host in launch.json only (DIPO-59).
+        token: host.engineToken as string,
       });
     }));
 
@@ -163,7 +167,7 @@ describe("worker_hosts", () => {
             pid: 5150,
             startTimeMs: START,
             socketPath: host.socketPath,
-            protocolVersion: 1,
+            protocolVersion: 2,
             runDir: host.runDir,
             eventFile: host.eventFile,
             processedOffset: 0,
@@ -173,8 +177,11 @@ describe("worker_hosts", () => {
             endedAt: null,
             mode: "steer",
             startedAt: clock.now(),
+            // The engine's secret, also in launch.json (DIPO-59).
+            engineToken: host.engineToken ?? "",
           },
         ]);
+        expect(host.engineToken).toMatch(/^[0-9a-f]{64}$/);
         recordHostExit(office, AGENT, {
           run: RUN,
           code: 143,

@@ -77,6 +77,13 @@ export interface Scenario {
   readonly systemPrompt?: string;
   /** Runs before the session starts, after the fixture is built. */
   readonly prepare?: (paths: CapturePaths) => void;
+  /**
+   * Registers the run settings file's hooks (0008 section 5, DIPO-59) and runs a fixture worker
+   * host that records every relayed payload as a `ch: "hook"` line and never answers a waiting
+   * call, so the `PermissionRequest` hook gives no decision once `waitSeconds` and the relay's grace
+   * have passed.
+   */
+  readonly hookRelay?: { readonly waitSeconds: number };
 }
 
 export const SYSTEM_PROMPT = [
@@ -264,6 +271,27 @@ const SCENARIOS_BASE: readonly Scenario[] = [
     expected:
       "--permission-prompts none denies the write outside the worktree: system/permission_denied and result permission_denials reach the engine as a denied signal.",
     timeoutMs: 180_000,
+  },
+  {
+    name: "permission-wait",
+    fixture: "greeter",
+    model: "haiku",
+    effort: "low",
+    maxTurns: 5,
+    tools: ["Read", "Write"],
+    turns: [
+      'Use the Write tool to create the file ../outside.txt with the content "x". If the call is denied, do not retry. ' +
+        report(
+          "blocked",
+          "The write was denied.",
+          "chore: record permission wait",
+          ' and question "May I write outside the worktree?"',
+        ),
+    ],
+    hookRelay: { waitSeconds: 10 },
+    expected:
+      "With the hook relay registered, the write outside the worktree reaches the PermissionRequest hook, whose payload is a ch: hook line. The fixture host never answers, so after timeouts.permissionWaitSeconds (10 s here) the call is denied and the worker continues: with the maintainer present the engine emits question.asked (kind permission) and work.observed input-wait first.",
+    timeoutMs: 240_000,
   },
   {
     name: "interrupt",

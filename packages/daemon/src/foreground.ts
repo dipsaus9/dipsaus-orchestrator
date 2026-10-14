@@ -636,6 +636,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
       work,
+      // The maintainer is present while a client is connected and sent a command or read lately
+      // (0008 section 5, DIPO-59); the server is made below.
+      presence: {
+        connected: () => server?.presence.connected() ?? false,
+        lastRequestAt: () => server?.presence.lastRequestAt() ?? null,
+      },
       // Plan limits (DIPO-61): a warning's notice goes to the software stream, and a held run
       // resumes only while the daemon schedules work.
       notify: (notice) => software.append("engine.notice", notice),
@@ -660,6 +666,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       close: () => {
         runs.planLimits.close();
         runs.control.close();
+        runs.permissions.close();
         runs.ingest.close();
         runs.reattacher.close();
       },
@@ -704,6 +711,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       runs.control.feature,
       runs.outcomes.feature,
+      runs.permissions.feature,
       runs.planLimits.feature,
       retention.feature,
       reconciler.feature,

@@ -34,6 +34,7 @@ import {
   headCursor,
   type Logger,
   type MemoryRequestTable,
+  type Presence,
   type OfficeDirectory,
   type OfficeSummarySource,
   Renderer,
@@ -149,6 +150,8 @@ export class ContractServer {
   readonly #summaryTimers = new Map<OfficeId, ReturnType<Clock["setTimeout"]>>();
   /** The last summary sent per office, so an unchanged one is not sent again. */
   readonly #lastSummaries = new Map<OfficeId, string>();
+  /** When a client's last command or read arrived (DIPO-59); null before any. */
+  #lastRequestAt: number | null = null;
 
   constructor(deps: ContractServerDeps) {
     this.#deps = deps;
@@ -178,6 +181,22 @@ export class ContractServer {
   /** Open connections. */
   get connections(): number {
     return this.#connections.size;
+  }
+
+  /**
+   * A client's command or read after its handshake arrived: the maintainer is at a client
+   * (0008 section 5, DIPO-59). Stream heartbeats, subscriptions and the handshake do not count.
+   */
+  noteRequest(): void {
+    this.#lastRequestAt = this.#deps.clock.now();
+  }
+
+  /** Whether the maintainer is present, for the permission wait (0008 section 5). */
+  get presence(): Presence {
+    return {
+      connected: () => this.#connections.size > 0,
+      lastRequestAt: () => this.#lastRequestAt,
+    };
   }
 
   /** The session for one accepted connection; `serveUnixSocket` calls it. */
@@ -389,9 +408,11 @@ class Connection implements ConnectionSession {
   async #ready(frame: ClientFrame): Promise<void> {
     switch (frame.kind) {
       case "read":
+        this.#server.noteRequest();
         this.#reply(await this.#read(frame));
         return;
       case "command":
+        this.#server.noteRequest();
         this.#command(frame);
         return;
       case "subscribe":

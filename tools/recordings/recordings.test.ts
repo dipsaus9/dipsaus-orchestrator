@@ -15,6 +15,7 @@ const LIVE = [
   "success-tools-subagent",
   "max-turns",
   "permission-denied",
+  "permission-wait",
   "interrupt",
   "resume",
   "worker-park-ambiguous",

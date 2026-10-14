@@ -296,6 +296,8 @@ export const storyDetail = defineRead({
     work: WorkView.optional(), // the active run, if any
     runs: z.array(RunRecord), // oldest first
     verdicts: z.array(Verdict),
+    // The story's open questions (DIPO-59, minor 1), oldest first.
+    questions: z.array(QuestionView).optional(),
   }),
   since: 0,
 });

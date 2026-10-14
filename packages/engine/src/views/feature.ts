@@ -23,6 +23,7 @@ import type { z } from "zod";
 import { headCursor } from "../changelog/log";
 import type { FeatureModule, ReadContext } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
+import { openQuestionViews, storyQuestionViews } from "../hooks/questions";
 import { readUsage } from "../ingest/usage";
 
 import { activeStoryViews, storyView } from "./story";
@@ -44,8 +45,8 @@ export function snapshot(office: OfficeHandle): OfficeSnapshot {
     stories: activeStoryViews(office),
     work: activeWorkViews(office),
     gates: openGateViews(office),
-    // Questions arrive with DIPO-59, test sessions with M1.
-    questions: [],
+    questions: openQuestionViews(office),
+    // Test sessions arrive with M1.
     tests: [],
   };
 }
@@ -149,7 +150,7 @@ export function storyVerdicts(office: OfficeHandle, key: StoryKey): Verdict[] {
 
 type DetailResult = z.input<typeof storyDetail.result>;
 
-/** The story's view, its active run's view, its runs and its verdicts. */
+/** The story's view, its active run's view, its runs, its verdicts and its open questions. */
 export function detail(office: OfficeHandle, key: StoryKey): DetailResult {
   const view = storyView(office, key);
   if (view === null) throw new Error(`story ${key} resolved but has no row`);
@@ -160,6 +161,7 @@ export function detail(office: OfficeHandle, key: StoryKey): DetailResult {
     ...(active === null ? {} : { work: active }),
     runs,
     verdicts: storyVerdicts(office, key),
+    questions: storyQuestionViews(office, key),
   };
 }
 

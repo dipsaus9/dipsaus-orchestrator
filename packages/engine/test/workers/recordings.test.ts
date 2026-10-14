@@ -31,6 +31,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
   "permission-denied": ["blocked", "needs-permission"],
+  // The worker reports the fixture question after the denied wait, without needsPermission.
+  "permission-wait": ["blocked", "ambiguous-spec"],
   "plan-limit-429": ["plan-limit", null],
   "plan-limit-rejected": ["plan-limit", null],
   "prompt-too-long": ["capped", "budget-exceeded"],

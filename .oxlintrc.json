@@ -722,6 +722,43 @@
       }
     },
     {
+      "files": ["packages/engine/src/hooks/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "node:child_process",
+                "importNames": ["spawnSync", "execSync", "execFileSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "child_process",
+                "importNames": ["spawnSync", "execSync", "execFileSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              },
+              {
+                "name": "bun",
+                "importNames": ["spawnSync"],
+                "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["**/workers/claude-cli", "**/workers/claude-cli/**"],
+                "message": "engine/src/hooks stays adapter-neutral (0008 amendment of 2026-10-12): Claude hook payloads and replies are mapped inside the adapter."
+              },
+              {
+                "group": ["@dipsaus-orchestrator/*/src", "@dipsaus-orchestrator/*/src/**"],
+                "message": "Deep imports are banned (0004). Import the package entry instead."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/engine/src/platform/**"],
       "rules": {
         "no-restricted-globals": "off",

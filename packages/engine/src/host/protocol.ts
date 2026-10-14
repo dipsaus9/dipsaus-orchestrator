@@ -2,9 +2,12 @@
 // protocol is tiny, versioned and separate from the client contract: one JSON object per line on
 // `<runtime>/hosts/<run-id>.sock`. A client opens with `hello`, naming the protocol versions it
 // speaks and the run it expects; the host answers with the version it picked, or refuses and
-// closes. After that it accepts only the ops `write`, `signal`, `closeStdin`, `status` and `watch`.
-// A later version adds ops (the `dipo hook` relay, DIPO-59) without breaking older clients: the
-// handshake lets a newer binary talk to an older host and the reverse.
+// closes. After that it accepts only the ops `write`, `signal`, `closeStdin`, `status` and `watch`
+// (version 1), plus `hook` and `hookReply` (version 2, DIPO-59): `dipo hook <event>` relays a hook
+// payload with `hook`, and the engine answers a waiting hook call with `hookReply`. A later
+// version adds ops without breaking older clients: the handshake lets a newer binary talk to an
+// older host and the reverse, and an op is accepted only on a connection whose picked version
+// has it.
 
 import { join } from "node:path";
 
@@ -13,9 +16,14 @@ import { z } from "zod";
 import type { LaunchPlan } from "../workers/types";
 
 /** The host protocol version this binary speaks; recorded in `worker_hosts`. */
-export const HOST_PROTOCOL_VERSION = 1;
+export const HOST_PROTOCOL_VERSION = 2;
 /** Every host protocol version this binary can serve or speak, oldest first. */
-export const HOST_PROTOCOL_VERSIONS: readonly number[] = [1];
+export const HOST_PROTOCOL_VERSIONS: readonly number[] = [1, 2];
+/**
+ * The versions a hook relay offers: those with the `hook` op. A newer binary adds its own version
+ * here and keeps the older ones, so it can still relay to a host an older binary started.
+ */
+export const HOOK_PROTOCOL_VERSIONS: readonly number[] = [2];
 
 /** Files in `<git-common-dir>/dipo/runs/<run-id>/` (0007 section 2). */
 export const EVENTS_FILE = "events.ndjson";
@@ -77,6 +85,8 @@ export const HostLaunchSchema = z.object({
   agent: z.string().min(1),
   socket: z.string().startsWith("/"),
   plan: LaunchPlanSchema,
+  /** The engine's secret (DIPO-59): a hello that presents it is the engine. Gone with this file. */
+  token: z.string().min(32).optional(),
 });
 
 export interface HostLaunch {
@@ -85,6 +95,8 @@ export interface HostLaunch {
   readonly agent: string;
   readonly socket: string;
   readonly plan: LaunchPlan;
+  /** The engine's secret; only a connection that presents it may answer a hook call (DIPO-59). */
+  readonly token?: string;
 }
 
 /** `exit.json`, written once when the worker has ended (0006 decision 8). */
@@ -117,16 +129,60 @@ export const HelloFrame = z.object({
   /** Versions the client speaks; the host picks the highest it also speaks. */
   versions: z.array(z.number().int().positive()).min(1),
   run: z.string(),
+  /** The engine's secret from `launch.json`, sent by the engine only (DIPO-59). */
+  token: z.string().optional(),
 });
 export type HelloFrame = z.infer<typeof HelloFrame>;
 
 const RequestId = z.number().int().nonnegative();
 
-/** The only ops a host accepts (DIPO-44). */
-export const HOST_OPS = ["write", "signal", "closeStdin", "status", "watch"] as const;
+/** The only ops a host accepts (DIPO-44; `hook` and `hookReply` since version 2, DIPO-59). */
+export const HOST_OPS = [
+  "write",
+  "signal",
+  "closeStdin",
+  "status",
+  "watch",
+  "hook",
+  "hookReply",
+] as const;
 export type HostOpName = (typeof HOST_OPS)[number];
 
+/** The protocol version that introduced each op. */
+export const OP_SINCE: Readonly<Record<HostOpName, number>> = {
+  write: 1,
+  signal: 1,
+  closeStdin: 1,
+  status: 1,
+  watch: 1,
+  hook: 2,
+  hookReply: 2,
+};
+
+/** The largest hook payload a relay sends (1 MiB); a larger one is not relayed. */
+export const MAX_HOOK_PAYLOAD = 1024 * 1024;
+
 export const OpFrame = z.discriminatedUnion("op", [
+  /**
+   * A hook payload to append as a `hook` line. With `waitMs` the call waits for the engine's
+   * `hookReply` at most that long; without it, or while no engine watches the host, the host
+   * answers at once with no output.
+   */
+  z.object({
+    kind: z.literal("op"),
+    id: RequestId,
+    op: z.literal("hook"),
+    payload: z.string().max(MAX_HOOK_PAYLOAD),
+    waitMs: z.number().int().nonnegative().optional(),
+  }),
+  /** The engine's answer to the waiting hook call `hook` (its line's end offset). */
+  z.object({
+    kind: z.literal("op"),
+    id: RequestId,
+    op: z.literal("hookReply"),
+    hook: z.number().int().nonnegative(),
+    output: z.string(),
+  }),
   z.object({ kind: z.literal("op"), id: RequestId, op: z.literal("write"), data: z.string() }),
   z.object({
     kind: z.literal("op"),
@@ -162,6 +218,8 @@ export type HostErrorCode =
   | "run.mismatch"
   | "frame.invalid"
   | "op.unknown"
+  | "hook.unknown"
+  | "not.permitted"
   | "worker.exited"
   | "stdin.closed"
   | "stdin.failed";

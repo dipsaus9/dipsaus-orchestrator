@@ -80,6 +80,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   parks: { tier: "S", rule: "resolved more than stateDays ago; an open park is kept" },
   verify_results: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_summaries: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  questions: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_outcomes: { tier: "P", rule: "kept until purge, for retro and tier tuning" },
   config_snapshots: {
     tier: "S",

@@ -83,7 +83,12 @@ function neverSpawn(): never {
 
 const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
   claudeLaunchContext(
-    { claudePath: CLAUDE, home: "/home/maintainer", env: { PATH: "/usr/bin:/bin" } },
+    {
+      claudePath: CLAUDE,
+      home: "/home/maintainer",
+      env: { PATH: "/usr/bin:/bin" },
+      dipoCommand: ["/opt/dipo/bin/dipo"],
+    },
     paths,
     config,
   );

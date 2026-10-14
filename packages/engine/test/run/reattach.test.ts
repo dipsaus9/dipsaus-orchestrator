@@ -98,6 +98,8 @@ interface World {
   alive: boolean;
   answers: boolean;
   caps: Caps;
+  /** The engine tokens re-attach connected with (DIPO-59). */
+  readonly tokens: (string | null)[];
   readonly daemons: Daemon[];
 }
 
@@ -166,8 +168,10 @@ function daemon(options: { followCheckMs?: number } = {}): Daemon {
     offices,
     probe: async (pid) =>
       w.alive ? { pid, startTimeMs: 0, zombie: false, command: "dipo" } : null,
-    connect: async () =>
-      w.answers ? { ok: true, client: fakeClient() } : { ok: false, reason: "unreachable" },
+    connect: async (_socket, _run, token) => {
+      w.tokens.push(token);
+      return w.answers ? { ok: true, client: fakeClient() } : { ok: false, reason: "unreachable" };
+    },
     ingest,
     control,
     outcomes,
@@ -200,6 +204,7 @@ beforeEach(async () => {
     alive: true,
     answers: true,
     caps: ROOMY,
+    tokens: [],
     daemons: [],
   };
   office.immediate(() => {
@@ -328,6 +333,24 @@ describe("re-attach (0006 decision 8)", () => {
     expect(w.next).toEqual([]);
     // A second re-attach leaves the followed run alone.
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
+  });
+
+  it("connects to a re-attached host as the engine, with its stored token (DIPO-59)", async () => {
+    beforeRestart("success-single", 6, 20);
+    const token = "e".repeat(64);
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update worker_hosts set engine_token = $token where office_id = $office_id and run_id = $run",
+        { token, run: w.f.run },
+      ),
+    );
+    const d = daemon();
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+    ]);
+    // Only a connection with the token may answer the run's hook calls after the restart.
+    expect(w.tokens).toEqual([token]);
+    expect(hostRow().engineToken).toBe(token);
   });
 
   it("a living host whose socket is gone: follow-only, and steering fails with a message (AC #2)", async () => {

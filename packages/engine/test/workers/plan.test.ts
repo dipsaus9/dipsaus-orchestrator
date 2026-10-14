@@ -10,6 +10,7 @@ import {
   SETTINGS_FILE,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
+import { HOOK_BUNFIG_FILE, REGISTERED_HOOKS } from "../../src/workers/claude-cli/hooks";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { PlanError } from "../../src/workers/types";
 import type { LaunchPlan, WorkerSpec } from "../../src/workers/types";
@@ -393,8 +394,52 @@ describe("claude-cli plan", () => {
     }
   });
 
-  it("refuses hook relay until hooks are registered", () => {
+  it("registers the 0008 hooks with the binary's own path when the spec asks for the relay (DIPO-59)", () => {
+    const dipo = "/opt/dipo's tools/bin/dipo";
+    const launch = plan(
+      spec("S", { hookRelay: true }),
+      context({ hookCommand: [dipo], permissionWaitSeconds: 120 }),
+    );
+    const file = launch.files.find((f) => f.name === SETTINGS_FILE);
+    const hooks = (JSON.parse(file?.content ?? "{}") as { hooks: Record<string, unknown> }).hooks;
+    expect(Object.keys(hooks)).toEqual([...REGISTERED_HOOKS]);
+    const quoted = `cd '${context().runDir}' && '/opt/dipo'\\''s tools/bin/dipo'`;
+    expect(hooks["Stop"]).toEqual([
+      { hooks: [{ type: "command", command: `${quoted} hook Stop`, timeout: 5 }] },
+    ]);
+    // A compiled binary needs no Bun config file.
+    expect(launch.files.map((f) => f.name)).not.toContain(HOOK_BUNFIG_FILE);
+    // The host holds the call 10 s past the engine's wait; the hook timeout is 30 s above the wait.
+    expect(hooks["PermissionRequest"]).toEqual([
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `${quoted} hook PermissionRequest --wait 130`,
+            timeout: 150,
+          },
+        ],
+      },
+    ]);
+    // Hooks reach the host through the plan's environment.
+    expect(launch.env["DIPO_HOST_SOCKET"]).toBe(context().hostSocket);
+    expect(launch.env["DIPO_RUN"]).toBe("run-0001");
+  });
+
+  it("refuses the relay without a hook command, with one inside the worktree, or a bad wait", () => {
     expect(() => plan(spec("S", { hookRelay: true }), context())).toThrow(/hook relay/);
+    expect(() =>
+      plan(
+        spec("S", { hookRelay: true }),
+        context({ hookCommand: ["/home/maintainer/code/shop.worktrees/DIPO-999/dipo"] }),
+      ),
+    ).toThrow(/outside the worktree/);
+    expect(() =>
+      plan(
+        spec("S", { hookRelay: true }),
+        context({ hookCommand: ["/opt/dipo"], permissionWaitSeconds: 0 }),
+      ),
+    ).toThrow(/permissionWaitSeconds/);
   });
 
   it("refuses a session id that is not a UUID", () => {
