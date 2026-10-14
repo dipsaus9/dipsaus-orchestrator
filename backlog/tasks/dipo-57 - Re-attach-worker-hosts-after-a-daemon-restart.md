@@ -4,7 +4,7 @@ title: Re-attach worker hosts after a daemon restart
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:15'
+updated_date: '2026-10-14 15:23'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -93,4 +93,13 @@ Implementation (DIPO-57):
 - Re-attached runs are tracked without a backstop snapshot (the snapshot from before the worker started is lost at a restart), so the DIPO-49 backstop does not run for the rest of that session.
 - `work.stop` on a follow-only run cannot reach the worker: the stop intent is marked failed with the follow-only reason, `run.stopNotSent` is posted and the story still parks. No ADR or contract change; `run.followOnly` is a new `engine.notice` code string.
 - Tests: `test/run/reattach.test.ts` (14 fast tests, about 0.3 s: the four cases, follow-only steering, caps after catch-up, a truncated or already-reported event file, the host-lost resume with usage finalized first, park `interrupted`, restart windows 1 and 2). `test/run/reattach.ci.test.ts`: a restart during a replayed run on a real host socket, with output continuing without gaps or duplicates.
+
+Review fixes (DIPO-57):
+- When an earlier host of the run still runs after the 30 s wait, `RunResumer.next` now returns `{ kind: "hostAlive", code: "run.hostAlive", pid }`. This is an engine-internal outcome that reuses 0005's existing retryable code, so it is not a contract change. Worker outcomes park the story `worker-failed` with `run.hostAlive` in the detail; `work.resume` retries once the host has ended. A fast test covers it, with the probe reporting the host alive and `hostExitWaitMs` set to 0: `hosts.start` is never called.
+- Follow-only hosts are checked again by PID and start time every `FOLLOW_CHECK_MS` (the cap tick, 1 minute) until the agent or the run ends. A dead host goes down the restart path: its `exit.json` if present, else `onHostLost`. A fast test covers it. The daemon closes these timers with ingestion.
+
+Follow-ups (not in this story):
+- A pending host row or PID marker written before or right after the spawn, which closes the remaining milliseconds between spawning a host and recording it.
+- A stop fallback for follow-only hosts: signal the host by PID after a start-time check, since `work.stop` cannot reach them over the socket.
+- Persist the backstop snapshot, so re-attach can restore it and the DIPO-49 backstop keeps running after a restart.
 <!-- SECTION:NOTES:END -->
