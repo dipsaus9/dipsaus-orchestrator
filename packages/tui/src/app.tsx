@@ -92,7 +92,7 @@ export type StopOutcome =
 export interface TuiActions {
   /** `work.outputRange` for the live agent detail (0005 section 7). */
   readOutput: ReadOutput;
-  /** `work.stop` with `origin: "tui"`, confirmed by the maintainer (0009 section 5). */
+  /** `work.stop`, confirmed by the maintainer (0009 section 5). */
   stopStory(request: StopRequest): Promise<StopOutcome>;
   /** `office.open` for a path the maintainer typed. */
   openPath(path: string): Promise<ActionResult<OfficeId>>;
