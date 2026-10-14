@@ -8,6 +8,11 @@ import { engineError, type EngineError, type OfficeId } from "@dipsaus-orchestra
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 
+/** The registered path of an office, or why it cannot be named (DIPO-48). */
+export type OfficePath =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: EngineError };
+
 export type OfficeAccess =
   | { readonly ok: true; readonly office: OfficeHandle }
   | { readonly ok: false; readonly error: EngineError };
@@ -21,10 +26,11 @@ export interface OfficeDirectory {
   /** The handle of an office that is already loaded; undefined for any other id. */
   get(office: OfficeId): OfficeHandle | undefined;
   /**
-   * The registered path of an office, forgotten or not; null for an id never registered (DIPO-48). The executor
-   * compares a command's `from` with it; a directory without it skips that check.
+   * The registered path of an office, forgotten or not (DIPO-48): `office.unknown` for an id never
+   * registered, `engine.recovering` while the state database is not open. The executor compares a
+   * command's `from` with it; a directory without it skips that check.
    */
-  registeredPath?(office: OfficeId): string | null;
+  registeredPath?(office: OfficeId): OfficePath;
 }
 
 export function officeUnknown(office: OfficeId): EngineError {
@@ -42,10 +48,15 @@ export function stateOfficeDirectory(state: StateDatabase): OfficeDirectory {
   };
   return {
     get,
-    registeredPath: (office) =>
-      state.connection.get<{ path: string }>("select path from offices where office_id = $office", {
-        office,
-      })?.path ?? null,
+    registeredPath: (office) => {
+      const row = state.connection.get<{ path: string }>(
+        "select path from offices where office_id = $office",
+        { office },
+      );
+      return row === null
+        ? { ok: false, error: officeUnknown(office) }
+        : { ok: true, path: row.path };
+    },
     load: async (office) => {
       const handle = get(office);
       return handle === undefined

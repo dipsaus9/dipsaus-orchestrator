@@ -30,6 +30,9 @@ import type { OfficeHandle } from "../../src/db/office";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { GitError } from "../../src/git/runner";
+import { createLogger } from "../../src/log/logger";
+import { OfficeManager } from "../../src/office/manager";
+import { systemSpawn } from "../../src/platform/process";
 import {
   findRun,
   hasActiveRun,
@@ -40,6 +43,7 @@ import {
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
+import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/stories/keys";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
@@ -528,6 +532,26 @@ describe("work.run refusals", () => {
 
     expect(world.claims).toEqual([]);
     expect(resultOf(await run()).started).toHaveLength(1);
+  });
+
+  it("answers engine.recovering for from while the state database is not open", async () => {
+    const t = world.t;
+    const manager = new OfficeManager({
+      database: () => null,
+      registry: () => world.registry,
+      software: new SoftwareStream({ clock: t.clock }),
+      clock: t.clock,
+      ids: t.ids,
+      git: { spawn: systemSpawn },
+      logger: createLogger({ clock: t.clock, sinks: [], component: "office", level: "error" }),
+    });
+    expect(manager.registeredPath(world.officeId)).toMatchObject({
+      ok: false,
+      error: { code: "engine.recovering", retryable: true },
+    });
+    world.deps = { ...world.deps, offices: manager };
+    const reply = await run({ from: "/repos/demo" });
+    expect(!reply.ok && reply.error).toMatchObject({ code: "engine.recovering", retryable: true });
   });
 
   it("refuses office.unknown when from is an unopened copy of the office", async () => {

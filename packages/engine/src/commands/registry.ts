@@ -79,7 +79,8 @@ export interface AsyncCommandContext extends Omit<CommandContext, "emit"> {
 /**
  * An office-level handler that waits on git, the Backlog CLI or a claim (`work.run`). The command's
  * request record is written after it resolves; a handler that throws leaves no record, but the
- * facts it committed before the throw stay.
+ * facts it committed before the throw stay, so each must be idempotent under a re-run of the
+ * handler (see `runAsyncOfficeCommand` in `execute.ts`).
  */
 export type AsyncOfficeCommandHandler<A, R> = (
   ctx: AsyncCommandContext,

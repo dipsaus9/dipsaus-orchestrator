@@ -26,7 +26,7 @@ import type { OfficeHandle } from "../db/office";
 import { canonicalPath } from "../office/repository";
 
 import { errorFromThrown } from "./errors";
-import { type OfficeDirectory, officeUnknown } from "./offices";
+import type { OfficeDirectory } from "./offices";
 import type {
   AsyncCommandContext,
   CommandContext,
@@ -165,6 +165,12 @@ function runOfficeCommand(
  * A waiting office command: the retry check and the story references in one transaction, the
  * handler outside any transaction (it commits its own facts), then the `requests` record. A
  * duplicate that arrives while the first still runs waits for the same reply.
+ *
+ * Invariant: a handler that throws leaves no `requests` record, but the facts it committed before
+ * the throw stay. A retry with the same request id then runs the handler again, so every fact a
+ * waiting handler commits must be idempotent under a re-run: the re-run must see it and not repeat
+ * its effect (for `work.run`, a claimed story has a live claim and an active run, so the re-run
+ * skips it instead of claiming it twice).
  */
 async function runAsyncOfficeCommand(
   deps: ExecutorDeps,
@@ -257,7 +263,8 @@ async function runAsyncOfficeCommand(
 
 /**
  * `office.unknown` when the args carry `from` and it is not the registered path of the office the
- * command acts on (canonical on both sides); null otherwise.
+ * command acts on (canonical on both sides), or the office was never registered;
+ * `engine.recovering` while the state database is not open. Null otherwise.
  */
 function checkFrom(
   deps: ExecutorDeps,
@@ -269,8 +276,9 @@ function checkFrom(
   if (typeof from !== "string" || officeId === undefined) return null;
   const lookup = deps.offices.registeredPath;
   if (lookup === undefined) return null;
-  const path = lookup.call(deps.offices, officeId);
-  if (path === null) return officeUnknown(officeId);
+  const registered = lookup.call(deps.offices, officeId);
+  if (!registered.ok) return registered.error;
+  const { path } = registered;
   if (canonicalPath(from) === canonicalPath(path)) return null;
   return engineError(
     "office.unknown",

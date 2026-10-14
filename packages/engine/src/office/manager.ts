@@ -20,7 +20,12 @@ import {
 
 import { appendEntries, newLogState } from "../changelog/log";
 import { CommandError } from "../commands/errors";
-import { type OfficeAccess, type OfficeDirectory, officeUnknown } from "../commands/offices";
+import {
+  type OfficeAccess,
+  type OfficeDirectory,
+  type OfficePath,
+  officeUnknown,
+} from "../commands/offices";
 import type { CommandOutcome, Registry } from "../commands/registry";
 import { loadOfficeConfig, type OfficeConfig } from "../config";
 import type { StateDatabase } from "../db/database";
@@ -141,11 +146,14 @@ export class OfficeManager implements OfficeDirectory {
     return this.#instances.get(office)?.config?.configHash;
   }
 
-  /** The registered path of `office`, forgotten or not; null for an id never registered. */
-  registeredPath(office: OfficeId): string | null {
+  /** The registered path of `office`, forgotten or not (see `OfficeDirectory.registeredPath`). */
+  registeredPath(office: OfficeId): OfficePath {
     const db = this.#deps.database();
-    if (db === null) return null;
-    return this.#row(db, office)?.path ?? null;
+    if (db === null) return { ok: false, error: recovering() };
+    const row = this.#row(db, office);
+    return row === null
+      ? { ok: false, error: officeUnknown(office) }
+      : { ok: true, path: row.path };
   }
 
   // Loading
