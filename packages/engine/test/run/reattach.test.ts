@@ -432,6 +432,25 @@ describe("re-attach (0006 decision 8)", () => {
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
   });
 
+  it("a dead host's leftover output is stored and sent as work.output, once (host-lost)", async () => {
+    w.alive = false;
+    beforeRestart("interrupt", 18, 28);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    await d.control.idle();
+    w.f.t.clock.advance(1_000);
+    expectOutputSentOnce();
+  });
+
+  it("a steered host's output is sent as work.output contiguously, without duplicates", async () => {
+    beforeRestart("interrupt", 18, 28);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    w.f.t.clock.advance(1_000);
+    await d.control.idle();
+    expectOutputSentOnce();
+  });
+
   it("a dead host whose session cannot be resumed parks interrupted (AC #4)", async () => {
     w.alive = false;
     w.nextOutcome = { kind: "notResumed", reason: "the transcript is gone" };
@@ -520,6 +539,23 @@ describe("re-attach (0006 decision 8)", () => {
     expect(parks()).toEqual([["interrupted", EVENT_FILE_CHANGED]]);
   });
 });
+
+/** Every stored worker output chunk is covered by `work.output` entries exactly once, in order. */
+function expectOutputSentOnce(): void {
+  const chunks = w.f.office.all<{ from_offset: number; to_offset: number }>(
+    `select from_offset, to_offset from output_chunks
+      where office_id = $office_id and run_id = $run and source = 'worker' order by from_offset`,
+    { run: w.f.run },
+  );
+  expect(chunks.length).toBeGreaterThan(0);
+  const sent = loggedEvents(w.f.office)
+    .filter((event) => event.type === "work.output")
+    .map((event) => event.data as { from: number; to: number });
+  expect(sent.length).toBeGreaterThan(0);
+  expect(sent[0]?.from).toBe(chunks[0]?.from_offset);
+  for (let i = 1; i < sent.length; i += 1) expect(sent[i]?.from).toBe(sent[i - 1]?.to);
+  expect(sent.at(-1)?.to).toBe(chunks.at(-1)?.to_offset);
+}
 
 function countDaily(): number {
   return (
