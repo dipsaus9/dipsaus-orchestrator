@@ -9,6 +9,7 @@ import {
   CodeHostError,
   compareVersions,
   GhHost,
+  LIST_OPEN_LIMIT,
   MIN_GH_VERSION,
   repoOfRemoteUrl,
 } from "../../src/platform/host";
@@ -142,6 +143,60 @@ describe("gh calls", () => {
     }));
     expect((await gh.findOpenPr("o/r", PR_JSON.headRefName))?.number).toBe(7);
     expect(await gh.findOpenPr("o/r", "dipo/none")).toBeNull();
+  });
+
+  it("lists the open PRs whose head starts with a prefix, oldest first, without forks (DIPO-80)", async () => {
+    const { host: gh, stub } = host(() => ({
+      stdout: JSON.stringify([
+        { ...PR_JSON, number: 9, headRefName: "dipo/backlog-20260102T000000" },
+        { ...PR_JSON, number: 8, headRefName: "TASK-1/x" },
+        { ...PR_JSON, number: 6, headRefName: "dipo/backlog-fork", isCrossRepository: true },
+        { ...PR_JSON, isCrossRepository: false },
+      ]),
+    }));
+    const prs = await gh.listOpenPrs("o/r", "dipo/backlog-");
+    expect(prs.map((pr) => pr.number)).toEqual([7, 9]);
+    expect(prs[0]).toMatchObject({ state: "open", head: PR_JSON.headRefName, base: "main" });
+    const args = stub.calls.at(-1)?.cmd.slice(1);
+    expect(args).toEqual([
+      "pr",
+      "list",
+      "--repo",
+      "o/r",
+      "--state",
+      "open",
+      "--limit",
+      "1000",
+      "--json",
+      "number,url,state,headRefName,headRefOid,baseRefName,title,mergeCommit,isCrossRepository",
+    ]);
+  });
+
+  it("warns when the open PR list reaches its limit, and not below it", async () => {
+    const full = Array.from({ length: LIST_OPEN_LIMIT }, (_, i) => ({
+      ...PR_JSON,
+      number: i + 1,
+      headRefName: `TASK-${i + 1}/x`,
+    }));
+    let answer = full;
+    const stub = scriptedSpawn(
+      (args) =>
+        args[0] === "--version" ? { stdout: VERSION } : { stdout: JSON.stringify(answer) },
+      ["gh"],
+    );
+    const warnings: string[] = [];
+    const gh = new GhHost({
+      spawn: stub.spawn,
+      env: {},
+      logger: { warn: (message) => warnings.push(message) },
+    });
+    expect(await gh.listOpenPrs("o/r", "dipo/backlog-")).toEqual([]);
+    expect(warnings).toEqual([
+      "the open pull request list reached its limit; later PRs were not read",
+    ]);
+    answer = full.slice(1);
+    await gh.listOpenPrs("o/r", "dipo/backlog-");
+    expect(warnings).toHaveLength(1);
   });
 
   it("finds the newest merged PR of a branch with its merge commit, or none (DIPO-58)", async () => {

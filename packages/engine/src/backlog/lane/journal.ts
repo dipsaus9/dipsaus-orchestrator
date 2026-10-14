@@ -113,6 +113,77 @@ export function insertEntry(office: OfficeHandle, op: LaneOp, now: number): Jour
   return entry;
 }
 
+/**
+ * The target of an entry adopted from an open backlog PR after the database was lost (DIPO-80):
+ * the commit is on the branch, but its target state was journaled in the lost database, so the
+ * lane cannot apply it again.
+ */
+export const ADOPTED_TARGET = { adoptedFromBranch: true } as const;
+
+/** True when `target` is `ADOPTED_TARGET`. */
+export function isAdoptedTarget(target: unknown): boolean {
+  return (
+    typeof target === "object" &&
+    target !== null &&
+    (target as { adoptedFromBranch?: unknown }).adoptedFromBranch === true
+  );
+}
+
+/** A lane commit found on an adopted backlog branch, with the op id its trailer names. */
+export interface AdoptedOp {
+  readonly opId: number;
+  readonly kind: string;
+  readonly subject: string;
+  readonly key: StoryKey | null;
+  readonly commit: string;
+  /** `pushed` when the commit is in the PR's head on the host, `committed` when only local. */
+  readonly state: "committed" | "pushed";
+}
+
+/** The op ids among `ids` the journal already has, in any state. */
+export function takenOpIds(office: OfficeHandle, ids: readonly number[]): number[] {
+  return ids.filter(
+    (op) =>
+      office.get<{ op_id: number }>(
+        "select op_id from backlog_journal where office_id = $office_id and op_id = $op",
+        { op },
+      ) !== null,
+  );
+}
+
+/**
+ * Journals a commit of an adopted backlog branch under the op id its trailer names, so later
+ * operations get higher ids than every commit on the branch and the lane's trailer recovery never
+ * mistakes an old commit for a new operation. Runs inside the caller's transaction.
+ */
+export function insertAdoptedEntry(
+  office: OfficeHandle,
+  op: AdoptedOp,
+  branch: string,
+  prRef: string,
+  now: number,
+): void {
+  office.run(
+    `insert into backlog_journal (office_id, op_id, key, subject, op_kind, target, branch, state,
+       commit_sha, pr_ref, notice, created_at, updated_at)
+     values ($office_id, $op, $key, $subject, $kind, $target, $branch, $state, $commit, $pr,
+       $notice, $now, $now)`,
+    {
+      op: op.opId,
+      key: op.key,
+      subject: op.subject,
+      kind: op.kind,
+      target: JSON.stringify(ADOPTED_TARGET),
+      branch,
+      state: op.state,
+      commit: op.commit,
+      pr: prRef,
+      notice: `adopted from ${branch} after the state database was lost`,
+      now,
+    },
+  );
+}
+
 export function findEntry(office: OfficeHandle, opId: number): JournalEntry | null {
   const row = office.get<JournalRow>(
     `select ${COLUMNS} from backlog_journal where office_id = $office_id and op_id = $op`,

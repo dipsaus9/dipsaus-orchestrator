@@ -60,6 +60,7 @@ import {
   resolveSoftwareDirs,
   resolveTools,
   RunProfiles,
+  REATTACH_STEP,
   RECONCILE_STEP,
   Reconciler,
   Retention,
@@ -499,6 +500,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       spawn: systemSpawn,
       ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
       env: io.env,
+      logger: logger.child({ component: "gh" }),
     });
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),
@@ -514,6 +516,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
       host,
+      // Reconcile lists the open `dipo/backlog-*` PRs to adopt one after a lost database (DIPO-80).
+      list: host,
       lane: (office) => lane.forOffice(office),
       cli: backlogCli,
       offices,
@@ -651,6 +655,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       runs: runs.control,
       releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+      adoptBacklogPr: (office) => backlogPrs.adopt(office),
       refuse: (office, text) => offices.refuse(office, text),
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "reconcile" }),
@@ -663,6 +668,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.control.close();
         runs.permissions.close();
         runs.ingest.close();
+        runs.reattacher.close();
       },
     };
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
@@ -819,6 +825,20 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
               code: access.error.code,
               reason: access.error.message,
             });
+          }
+        }
+      },
+    });
+    // Re-attach (DIPO-57, 0006 decisions 7 and 8): after reconcile, every active run of a loaded
+    // office follows its worker host again (or has its exit or lost host decided) before
+    // scheduling turns on.
+    steps.register({
+      name: REATTACH_STEP,
+      run: async (context) => {
+        for (const office of offices.loadedOffices()) {
+          if (lifecycle.state !== "recovering") return;
+          for (const done of await runs.reattacher.reattach(office)) {
+            context.logger.info("worker host re-attached", { office, ...done });
           }
         }
       },

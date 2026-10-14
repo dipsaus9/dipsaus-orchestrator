@@ -90,6 +90,7 @@ export {
   compareVersions,
   GhHost,
   CodeHostError,
+  LIST_OPEN_LIMIT,
   MIN_GH_VERSION,
   repoOfRemoteUrl,
 } from "./platform/host";
@@ -100,6 +101,7 @@ export type {
   GhHostOptions,
   HostPr,
   NewPr,
+  PrListHost,
   PrState,
   RequiredCheck,
 } from "./platform/host";
@@ -555,6 +557,8 @@ export {
   hostAlive,
   HostStartError,
   launchWorkerHost,
+  exitFileOf,
+  readHostExit,
   recordHostExit,
   recordWorkerHost,
   RUN_DIR_ENV,
@@ -562,6 +566,7 @@ export {
   startWorkerHost,
   workerHostsOf,
   type LaunchedHost,
+  type HostRecordExtras,
   type LaunchWorkerHostOptions,
   type WorkerHostRow,
 } from "./runs/worker-hosts";

@@ -312,11 +312,16 @@ export class Ingestor {
     this.announce(run, agent);
   }
 
-  /** Stops timers for one agent; stored facts and the cursor stay. */
+  /**
+   * Stops timers for one agent; stored facts and the cursor stay. Its stored output not yet sent
+   * goes out as `work.output` first, since no timer of this agent sends it later (DIPO-57).
+   */
   untrack(run: string, agent: string): void {
     const tracked = this.#tracked.get(keyOf(run, agent));
     if (tracked === undefined) return;
     this.#stopTimers(tracked);
+    const at = this.#clock.now();
+    this.#office.immediate(() => this.#append(this.#outputEntries(tracked.target), at));
     this.#tracked.delete(keyOf(run, agent));
   }
 

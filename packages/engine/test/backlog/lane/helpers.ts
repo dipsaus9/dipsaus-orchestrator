@@ -46,8 +46,10 @@ export async function publish(repo: TempRepo | TempRepoWithRemote): Promise<void
 export async function laneSetup(
   repo: TempRepo,
   settings: GitSettings = { remote: "origin", base: "main" },
+  /** The state directory under the repository root; another one is a fresh database (DIPO-80). */
+  stateDir = "state-dir",
 ): Promise<LaneSetup> {
-  const t = await openTestState(join(repo.root, "state-dir"));
+  const t = await openTestState(join(repo.root, stateDir));
   const office = addOffice(t);
   const exec = spawnGitExec(systemSpawn);
   const hooks: LaneSetup["hooks"] = {};
