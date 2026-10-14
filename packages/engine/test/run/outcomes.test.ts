@@ -76,6 +76,8 @@ interface World {
   readonly released: string[];
   readonly work: WorkRef;
   nextOutcome: NextSessionOutcome;
+  /** Runs inside the stubbed next session, before it returns. */
+  onNext: ((request: NextSessionRequest) => Promise<void> | void) | null;
   holdsWork: boolean;
   ingestor: Ingestor | null;
 }
@@ -95,6 +97,7 @@ beforeEach(async () => {
     nextOutcome: { kind: "started", agent: "agt_next", resumed: true },
     holdsWork: false,
     ingestor: null,
+    onNext: null,
   } as unknown as World;
   const steering = {
     send: async (_office: unknown, _run: unknown, ops: readonly HostOp[]) => {
@@ -132,6 +135,7 @@ beforeEach(async () => {
     resumer: {
       next: async (request) => {
         world.next.push(request);
+        await world.onNext?.(request);
         return world.nextOutcome;
       },
     },
@@ -430,6 +434,55 @@ describe("a crash (AC #3)", () => {
     track();
     await ingestRecording("crash-zeroed");
     expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
+    expectEnded("crashed", "parked");
+  });
+
+  it("a resumed session that crashes again at once parks worker-failed", async () => {
+    // The next session's host replays `terminated` too; its exit is ingested while the first
+    // exit's decision is still under way.
+    w.onNext = (request) => {
+      const agent = w.f.t.ids.next("agt");
+      const offset = statSync(w.f.eventFile).size;
+      recordWorkerHost(
+        w.f.office,
+        {
+          pid: 4243,
+          startTimeMs: 1,
+          runId: w.f.run,
+          agentId: agent,
+          socketPath: join(w.dir, "host2.sock"),
+          protocolVersion: 1,
+          runDir: w.dir,
+          eventFile: w.f.eventFile,
+        },
+        w.f.t.clock,
+      );
+      w.f.office.immediate(() =>
+        w.f.office.run(
+          `update worker_hosts set processed_offset = $offset
+            where office_id = $office_id and agent_id = $agent`,
+          { offset, agent },
+        ),
+      );
+      appendLines(w.f.eventFile, hostLines(readRecording(join(RECORDINGS_DIR, "terminated"))));
+      const work = { ...request.work, agent } as WorkRef;
+      w.control.track(w.f.office.officeId, {
+        runId: w.f.run,
+        work,
+        caps: request.caps,
+        startedAt: request.startedAt,
+      });
+      w.ingestor?.track({
+        ...target(w.f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
+        agent,
+        work,
+      });
+    };
+    track();
+    await ingestRecording("terminated");
+    expect(w.next).toHaveLength(1);
+    expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
+    expect(parks()[0]?.[1]).toContain("one resume after a crash was used");
     expectEnded("crashed", "parked");
   });
 

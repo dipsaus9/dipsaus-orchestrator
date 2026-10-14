@@ -284,6 +284,8 @@ const UNTAGGED_OUTCOMES: Readonly<Partial<Record<IntentKind, string>>> = {
 
 export class RunOutcomes implements RunOutcomesPort {
   readonly #deps: RunOutcomesDeps;
+  /** The exits being decided now, as run and agent; a restart step leaves their runs alone. */
+  readonly #deciding = new Set<string>();
 
   constructor(deps: RunOutcomesDeps) {
     this.#deps = deps;
@@ -480,6 +482,17 @@ export class RunOutcomes implements RunOutcomesPort {
   // ---- at the exit ---------------------------------------------------------------------------
 
   async onExit(exit: ExitContext): Promise<void> {
+    const key = `${exit.view.runId} ${exit.agent}`;
+    if (this.#deciding.has(key)) return;
+    this.#deciding.add(key);
+    try {
+      await this.#decideExit(exit);
+    } finally {
+      this.#deciding.delete(key);
+    }
+  }
+
+  async #decideExit(exit: ExitContext): Promise<void> {
     await exit.turns.catch(() => undefined);
     await exit.ending?.catch(() => undefined);
     const { view, agent } = exit;
@@ -887,7 +900,8 @@ export class RunOutcomes implements RunOutcomesPort {
     if (office === undefined) return 0;
     let count = 0;
     for (const run of activeRuns(office)) {
-      if (run.kind !== "story") continue;
+      const deciding = [...this.#deciding].some((key) => key.startsWith(`${run.runId} `));
+      if (run.kind !== "story" || deciding) continue;
       const agent = office.get<{
         agent_id: string;
         end_reason: string | null;
