@@ -4,7 +4,7 @@ title: Start the worker for a claimed run
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-14 09:14'
+updated_date: '2026-10-14 09:22'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -70,6 +70,12 @@ test_plan:
       check: "(engine) a failed sandbox self-test removes the worktree, deletes the branch at its start SHA, keeps the story Ready and sets the adapter hold."
     - kind: "automated"
       check: "(engine) the worker host receives the tier's model, effort and caps and the stored session id."
+    - kind: "manual"
+      check: "in a scratch office, run `dipo run --dry-run <ID>` for a Ready story"
+      expect: "prints the branch and worktree path it would create and the full worker launch; `git branch -a` and `git worktree list` are unchanged and no run is started."
+    - kind: "manual"
+      check: "in a scratch office, right after `dipo run <ID>`, before the session does anything, check the branch and worktree"
+      expect: "the branch from the field block exists, `git log -1 <branch>` shows the claim commit `<ID>: status In Progress`, and `git worktree list` shows `<root>/<ID>` locked."
     - kind: "manual"
       check: "in a scratch office, set a fixture story Ready through the Backlog CLI and run `dipo run`"
       expect: "prints the started story; `git worktree list` shows `<root>/<ID>` locked."
