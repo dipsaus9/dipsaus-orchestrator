@@ -1,10 +1,10 @@
 ---
 id: DIPO-48
 title: Pick and claim one Ready story with work.run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 08:04'
+updated_date: '2026-10-14 08:38'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -100,4 +100,6 @@ M0 breakdown draft number S32 (DIPO-15). Before cutover: built by hand-run agent
 Follow-up from DIPO-36 (2026-10-13): work.run must call officeStatusesReady(office) (packages/engine/src/office/init/) and refuse with its message while the base lacks the 0012 statuses (DIPO-36 AC #10).
 
 DIPO-48 implementation (2026-10-14): work.run is an async office command (new registry seam addAsyncOfficeCommand: retry check and story refs in one transaction, handler outside it, request record after). Engine module packages/engine/src/run/ (WorkRun, cliRunBase, run records, pickup order). Refusals: config.invalid (configBlocksRuns), run.refused with details.check adapter|statuses|verify (adapterHeld, officeStatusesReady, verifyResolved), retryable git.fetchFailed, args.invalid for maxAgents > 1; scheduling.off in safe stays the daemon's lifecycle gate. The pickup re-check calls GateStore.recordGateDecision in pickup mode inside the claim's git queue item (new optional checkout argument). A failed re-check or prompt.contractTooLarge journals an edit to Refined on the backlog lane, flushes it, and emits story.state with detail. A story the claim cannot be asked for (no view, unparsable block, no frozen branch, no tier) goes through the pickup gate on its own. Active run = not ended and its claim live (or a session run). The from check moved from OfficeManager into commands/execute.ts (OfficeDirectory.registeredPath). office.reloadConfig calls config-reload listeners (registerConfigReload); EngineGit configures the office git. Migration 18 adds runs, run_steps, config_snapshots with retention lines. CLI: dipo run [ID...] [--office]. Deferred to DIPO-74: setup, launch checks (which lift adapter holds), worker start. Open point: run.refused is a new error code not yet named in 0005.
+
+Live test 2026-10-14 on dipsaus9/dipo-scratch-backlog (build 78f4bd7): dipo run started TASK-1, pushed its claim commit and created the locked worktree; a second run skipped it as not runnable (exit 1); office forget answered office.busy while the claim was live.
 <!-- SECTION:NOTES:END -->
