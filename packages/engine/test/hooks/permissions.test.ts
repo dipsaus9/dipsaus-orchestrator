@@ -1,12 +1,10 @@
-// The permission wait (DIPO-59 AC #4 to #7 and #9; 0008 section 5): the `permission-wait`
-// scenario replayed through the real ingestion and the Claude CLI parser into `PermissionAsks`, on
-// a migrated state database and the manual clock, with a fake presence and a steering fake that
-// records what reaches the worker host. Until the maintainer captures `permission-wait` live
-// (AC #8), the scenario is `permission-denied` with a `PermissionRequest` hook line put before the
-// denial, as 0017 allows for a derived recording.
+// The permission wait (DIPO-59 AC #4 to #9; 0008 section 5): the live `permission-wait` recording
+// (0017) replayed through the real ingestion and the Claude CLI parser into `PermissionAsks`, on a
+// migrated state database and the manual clock, with a fake presence and a steering fake that
+// records what reaches the worker host.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -62,32 +60,28 @@ const claude: IngestAdapter = {
     },
 };
 
-const WAIT_SECONDS = OFFICE_DEFAULTS.timeouts.permissionWaitSeconds;
+const LIVE = readRecording(join(RECORDINGS_DIR, "permission-wait"));
 
-/** The `permission-wait` scenario's host lines, split after the `PermissionRequest` hook line. */
+/** The wait the live capture ran with (`meta.testConfig`, 10 s). */
+const WAIT_SECONDS = LIVE.meta.testConfig?.["permissionWaitSeconds"] as number;
+
+/** The office configuration of the replay: the defaults with the capture's wait. */
+const CONFIG: OfficeConfig = {
+  ...OFFICE_DEFAULTS,
+  timeouts: { ...OFFICE_DEFAULTS.timeouts, permissionWaitSeconds: WAIT_SECONDS },
+};
+
+/**
+ * The live `permission-wait` recording's host lines (AC #8), split after the `PermissionRequest`
+ * hook line the capture's relay received; `after` holds the denial, the worker continuing to its
+ * report and the exit.
+ */
 function scenario(): { before: HostLine[]; after: HostLine[] } {
-  const live = join(RECORDINGS_DIR, "permission-wait");
-  if (existsSync(join(live, "meta.json"))) {
-    const lines = hostLines(readRecording(live));
-    const at = lines.findIndex(
-      (line) => line.ch === "hook" && line.data.includes('"PermissionRequest"'),
-    );
-    return { before: lines.slice(0, at + 1), after: lines.slice(at + 1) };
-  }
-  const lines = hostLines(readRecording(join(RECORDINGS_DIR, "permission-denied")));
-  const at = lines.findIndex((line) => line.data.includes('"permission_denied"'));
-  const denial = lines[at] as HostLine;
-  const hook: HostLine = {
-    t: denial.t - 1,
-    ch: "hook",
-    data: JSON.stringify({
-      session_id: "session-1",
-      hook_event_name: "PermissionRequest",
-      tool_name: "Write",
-      tool_input: { file_path: "${ROOT}/repo.worktrees/outside.txt", content: "x" },
-    }),
-  };
-  return { before: [...lines.slice(0, at), hook], after: lines.slice(at) };
+  const lines = hostLines(LIVE);
+  const at = lines.findIndex(
+    (line) => line.ch === "hook" && line.data.includes('"PermissionRequest"'),
+  );
+  return { before: lines.slice(0, at + 1), after: lines.slice(at + 1) };
 }
 
 interface World {
@@ -115,7 +109,7 @@ beforeEach(async () => {
     dir,
     f,
     sent,
-    config: OFFICE_DEFAULTS,
+    config: CONFIG,
     connected: true,
     lastRequestAt: f.t.clock.now(),
     ending: false,
@@ -243,6 +237,13 @@ function outputOf(ops: readonly HostOp[] | undefined): unknown {
 describe("permission wait with the maintainer present (AC #4, #6, #7)", () => {
   it("asks with question.asked and input-wait, stores the question, and an allow passes the call", async () => {
     const { before, after } = scenario();
+    // The capture's relay received the PermissionRequest as a `ch: hook` line.
+    const request = before.at(-1);
+    expect(request?.ch).toBe("hook");
+    expect(JSON.parse(request?.data ?? "{}")).toMatchObject({
+      hook_event_name: "PermissionRequest",
+      tool_name: "Write",
+    });
     await ingest(before);
     const asked = loggedEvents(w.f.office).filter((event) => event.type === "question.asked");
     expect(asked).toHaveLength(1);
@@ -296,8 +297,9 @@ describe("permission wait with the maintainer present (AC #4, #6, #7)", () => {
     expect(w.sent).toHaveLength(1);
   });
 
-  it("denies the call once timeouts.permissionWaitSeconds pass without an answer", async () => {
-    await ingest(scenario().before);
+  it("denies the call once timeouts.permissionWaitSeconds pass without an answer, and the worker continues", async () => {
+    const { before, after } = scenario();
+    await ingest(before);
     const [question] = openQuestions(w.f.office);
     w.f.t.clock.advance(WAIT_SECONDS * 1000 - 1);
     expect(w.sent).toEqual([]);
@@ -317,6 +319,22 @@ describe("permission wait with the maintainer present (AC #4, #6, #7)", () => {
     // A late answer finds the question closed.
     const late = await answer({ question: question?.questionId, text: "", decision: "allow" });
     expect(late).toMatchObject({ ok: false, error: { code: "question.closed" } });
+    // The recorded rest: the call is denied, the worker goes on to its report and exits.
+    expect(after.some((line) => line.data.includes('"permission_denied"'))).toBe(true);
+    await ingest(after);
+    expect(w.sent).toHaveLength(1);
+    expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedHow).toBe("timeout");
+    const agent = w.f.office.get<{ ended_at: number | null }>(
+      "select ended_at from agents where office_id = $office_id and agent_id = $agent",
+      { agent: w.f.agent },
+    );
+    expect(agent?.ended_at).not.toBeNull();
+    expect(
+      w.f.office.get<{ turns: number }>(
+        "select count(*) as turns from usage_totals where office_id = $office_id and run_id = $run",
+        { run: w.f.run },
+      )?.turns,
+    ).toBeGreaterThan(0);
   });
 
   it("closes an open question when the worker exits, and an office load expires a stale one", async () => {
@@ -380,8 +398,8 @@ describe("no decision at once (AC #5)", () => {
       "permissions.ask is never",
       () =>
         (w.config = {
-          ...OFFICE_DEFAULTS,
-          permissions: { ...OFFICE_DEFAULTS.permissions, ask: "never" },
+          ...CONFIG,
+          permissions: { ...CONFIG.permissions, ask: "never" },
         }),
     ],
     ["the run is being ended", () => (w.ending = true)],
@@ -471,7 +489,7 @@ describe("the timeout against the real worker host (DIPO-59 review)", () => {
     const asks = new PermissionAsks({
       clock: f.t.clock,
       ids: f.t.ids,
-      offices: { get: () => f.office, config: () => OFFICE_DEFAULTS },
+      offices: { get: () => f.office, config: () => CONFIG },
       steering,
       encode,
       presence: { connected: () => true, lastRequestAt: () => f.t.clock.now() },
