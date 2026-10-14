@@ -324,6 +324,9 @@ export class DipoClient {
     };
     this.#streams.set(stream, entry);
     if (this.#ready) {
+      // The liveness window starts when the subscription is sent, not at the last frame of an
+      // idle connection, so a subscribe after a long quiet spell is not taken as hung at once.
+      this.#lastFrameAt = Math.max(this.#lastFrameAt, this.#clock.now());
       this.#sendSubscribe(entry);
       this.#armLiveness();
     }

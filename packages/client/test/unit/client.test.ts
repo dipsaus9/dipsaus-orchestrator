@@ -452,6 +452,17 @@ describe("DipoClient liveness (DIPO-52)", () => {
     expect(second.closedByClient).toBe(false);
   });
 
+  it("starts the liveness window at a subscribe sent after a long idle spell", async () => {
+    const { clock, transport, client } = await connected();
+    const first = transport.current;
+    clock.advance(LIVENESS_MS + 10_000);
+    client.subscribe(SOFTWARE, { onEvent: () => undefined });
+    clock.advance(LIVENESS_MS - 1);
+    expect(first.closedByClient).toBe(false);
+    clock.advance(1);
+    expect(first.closedByClient).toBe(true);
+  });
+
   it("leaves a connection with no subscription and no deadline open however long it is idle", async () => {
     const { clock, transport, client } = await connected();
     void client.read(daemonStatus, {});
