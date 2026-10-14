@@ -122,6 +122,30 @@ export class OfficeManager implements OfficeDirectory {
     return this.#instances.get(office)?.office;
   }
 
+  /**
+   * Every registered office that is not forgotten, oldest first; empty before the database opened.
+   * The daemon loads each of them in `recovering` (DIPO-56).
+   */
+  registeredOffices(): OfficeId[] {
+    const db = this.#deps.database();
+    if (db === null) return [];
+    return db.connection
+      .all<{ office_id: string }>(
+        "select office_id from offices where forgotten_at is null order by added_at, office_id",
+      )
+      .map((row) => OfficeId.parse(row.office_id));
+  }
+
+  /**
+   * Refuses a loaded office (reconcile on `office.rescan` found its `office.json` names another
+   * office, DIPO-56): its engine instance is dropped and a notice goes on the software stream. The
+   * next command loads it again, and the load refuses it while the marker still differs.
+   */
+  refuse(office: OfficeId, text: string): void {
+    if (!this.#instances.delete(office)) return;
+    this.#refuse("office.refused", text, { office, step: "reconcile" });
+  }
+
   /** Offices whose engine instance is loaded, in load order (`daemon.status`). */
   loadedOffices(): OfficeId[] {
     return [...this.#instances.keys()];

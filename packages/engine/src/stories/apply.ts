@@ -285,44 +285,7 @@ export function applyIndex(
   // 7. The mirror, and a `story.state` for every story whose view changed.
   const changes: { view: StoryView; from: Lifecycle }[] = [];
   for (const [key, story] of matched) {
-    // A park record keeps the time it was first seen while it stays the same (DIPO-52).
-    office.run(
-      `insert into backlog_mirror
-         (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source,
-          waiting_on, park, park_since, criteria_met, criteria_total)
-       values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source,
-          $waiting_on, $park, $park_since, $criteria_met, $criteria_total)
-       on conflict (office_id, key) do update set
-         content_hash = excluded.content_hash, kind = excluded.kind, status = excluded.status,
-         title = excluded.title, tier = excluded.tier, role = excluded.role,
-         labels = excluded.labels, read_at = excluded.read_at, source = excluded.source,
-         waiting_on = excluded.waiting_on,
-         park_since = case when excluded.park is null then null
-           when backlog_mirror.park is excluded.park then backlog_mirror.park_since
-           else excluded.park_since end,
-         park = excluded.park,
-         criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total`,
-      {
-        key,
-        hash: story.contentHash,
-        kind: story.kind,
-        status: story.status,
-        title: story.title,
-        tier: story.tier ?? null,
-        role: story.role ?? null,
-        labels: JSON.stringify(story.labels),
-        at,
-        source: options.source,
-        waiting_on:
-          story.waitingOn === undefined || story.waitingOn.length === 0
-            ? null
-            : JSON.stringify(story.waitingOn),
-        park: story.park === undefined ? null : JSON.stringify(story.park),
-        park_since: story.park === undefined ? null : at,
-        criteria_met: story.criteria?.met ?? null,
-        criteria_total: story.criteria?.total ?? null,
-      },
-    );
+    writeMirror(office, key, story, at, story.source ?? options.source);
     const view = storyView(office, key, work);
     if (view === null) continue;
     const previous = before.get(key);
@@ -355,6 +318,82 @@ export function applyIndex(
     },
     entries,
   };
+}
+
+/**
+ * Writes the `backlog_mirror` row of `key` from what was read. A park record keeps the time it
+ * was first seen while it stays the same (DIPO-52). Runs inside the caller's transaction.
+ */
+export function writeMirror(
+  office: OfficeHandle,
+  key: StoryKey,
+  story: BacklogStory,
+  at: number,
+  source: MirrorSource,
+): void {
+  office.run(
+    `insert into backlog_mirror
+       (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source,
+        waiting_on, park, park_since, criteria_met, criteria_total)
+     values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source,
+        $waiting_on, $park, $park_since, $criteria_met, $criteria_total)
+     on conflict (office_id, key) do update set
+       content_hash = excluded.content_hash, kind = excluded.kind, status = excluded.status,
+       title = excluded.title, tier = excluded.tier, role = excluded.role,
+       labels = excluded.labels, read_at = excluded.read_at, source = excluded.source,
+       waiting_on = excluded.waiting_on,
+       park_since = case when excluded.park is null then null
+         when backlog_mirror.park is excluded.park then backlog_mirror.park_since
+         else excluded.park_since end,
+       park = excluded.park,
+       criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total`,
+    {
+      key,
+      hash: story.contentHash,
+      kind: story.kind,
+      status: story.status,
+      title: story.title,
+      tier: story.tier ?? null,
+      role: story.role ?? null,
+      labels: JSON.stringify(story.labels),
+      at,
+      source,
+      waiting_on:
+        story.waitingOn === undefined || story.waitingOn.length === 0
+          ? null
+          : JSON.stringify(story.waitingOn),
+      park: story.park === undefined ? null : JSON.stringify(story.park),
+      park_since: story.park === undefined ? null : at,
+      criteria_met: story.criteria?.met ?? null,
+      criteria_total: story.criteria?.total ?? null,
+    },
+  );
+}
+
+/**
+ * Writes one story read again on its own (DIPO-56: right after a claim or park commit on its
+ * branch) to its mirror row, and returns a `story.state` when its view changed. Unlike a pass it
+ * matches no identity: `key` must be the key the story was read for. With `quiet` it returns
+ * nothing, for a caller that already emitted the state. Must run inside the caller's write
+ * transaction.
+ */
+export function applyStory(
+  office: OfficeHandle,
+  key: StoryKey,
+  story: BacklogStory,
+  options: ApplyOptions & { readonly quiet?: boolean },
+): NewEntry[] {
+  const work = workByKey(office);
+  const known = office.get<MirrorRow>(
+    "select status from backlog_mirror where office_id = $office_id and key = $key",
+    { key },
+  );
+  const previous = known === null ? null : storyView(office, key, work);
+  writeMirror(office, key, story, options.at, story.source ?? options.source);
+  const view = storyView(office, key, work);
+  if (options.quiet === true || view === null) return [];
+  if (previous !== null && sameView(previous, view)) return [];
+  return [stateEntry(view, previous?.lifecycle ?? view.lifecycle)];
 }
 
 function byStoryIdOf(a: StoryMove, b: StoryMove): number {

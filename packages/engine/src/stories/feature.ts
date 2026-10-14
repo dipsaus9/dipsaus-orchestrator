@@ -8,8 +8,10 @@
 
 import {
   type Clock,
+  type Cursor,
   type IdSource,
   type OfficeId,
+  type StoryKey,
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
@@ -21,7 +23,7 @@ import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 
-import { type IndexResult, indexStories } from "./index-stories";
+import { type IndexResult, indexStories, refreshStory, type RefreshOptions } from "./index-stories";
 
 /** The load step's name in the registry. */
 export const INDEX_STEP = "stories.index";
@@ -53,6 +55,8 @@ interface Indexed {
   timer: TimerHandle | null;
   /** The `_base` commit the last pass read. */
   sha: string | null;
+  /** The last pass that succeeded, for reconcile right after the load pass (DIPO-56). */
+  last: IndexResult | null;
   /** The pass or poll running now; the next one starts after it. */
   busy: Promise<unknown>;
 }
@@ -100,6 +104,45 @@ export class StoryIndex {
     return this.#serial(state, () => this.#pass(office, state));
   }
 
+  /**
+   * Reads one story of a loaded office again, after any pass already running (DIPO-56): on its
+   * branch while claimed, else on `_base`. Called right after the claim commit and a park commit,
+   * so the views read the new status at once. Throws when the office has not loaded or the read
+   * fails.
+   */
+  refreshStory(
+    office: OfficeId,
+    key: StoryKey,
+    options: RefreshOptions = {},
+  ): Promise<Cursor | undefined> {
+    const state = this.#offices.get(office);
+    if (state === undefined) {
+      return Promise.reject(
+        new Error(`Office ${office} has not loaded; its stories are not indexed.`),
+      );
+    }
+    return this.#serial(state, async () => {
+      const cursor = await refreshStory(
+        {
+          office: state.office,
+          git: this.#git(office),
+          cli: this.#deps.cli,
+          clock: state.clock,
+          ids: state.ids,
+        },
+        key,
+        options,
+      );
+      if (cursor !== undefined) this.#deps.onOfficeChanged?.(office);
+      return cursor;
+    });
+  }
+
+  /** The last pass of a loaded office that succeeded, or null (DIPO-56). */
+  lastPass(office: OfficeId): IndexResult | null {
+    return this.#offices.get(office)?.last ?? null;
+  }
+
   /** Resolves once the office's running pass or poll, if any, has finished. */
   async whenIdle(office: OfficeId): Promise<void> {
     await this.#offices.get(office)?.busy;
@@ -111,14 +154,20 @@ export class StoryIndex {
     for (const state of this.#offices.values()) this.#cancel(state);
   }
 
-  #track(office: OfficeId, values: Omit<Indexed, "timer" | "sha" | "busy">): Indexed {
+  #track(office: OfficeId, values: Omit<Indexed, "timer" | "sha" | "last" | "busy">): Indexed {
     const existing = this.#offices.get(office);
     if (existing !== undefined && existing.office === values.office) {
       existing.fetchSeconds = values.fetchSeconds;
       return existing;
     }
     if (existing !== undefined) this.#cancel(existing);
-    const state: Indexed = { ...values, timer: null, sha: null, busy: Promise.resolve() };
+    const state: Indexed = {
+      ...values,
+      timer: null,
+      sha: null,
+      last: null,
+      busy: Promise.resolve(),
+    };
     this.#offices.set(office, state);
     return state;
   }
@@ -146,8 +195,15 @@ export class StoryIndex {
       ids: state.ids,
     });
     state.sha = result.sha;
+    state.last = result;
     if (result.cursor !== undefined) this.#deps.onOfficeChanged?.(office);
     this.#deps.logger?.debug("stories indexed", { office, ...result.stats });
+    for (const unread of result.branchUnread) {
+      this.#deps.logger?.warn("a claimed story was read on the base, not its branch", {
+        office,
+        ...unread,
+      });
+    }
     return result;
   }
 

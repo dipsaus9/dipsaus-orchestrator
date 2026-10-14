@@ -63,11 +63,12 @@ export type { StoredSignal } from "./signals";
 export {
   CAP_TICK_MS,
   CONTROL_NOTICES,
+  RECONCILED_END,
   RunControl,
   STOPPED_DETAIL,
   STORY_NOT_RUNNING,
 } from "./control";
-export type { RunControlDeps, RunSteering, TrackedRun } from "./control";
+export type { ReconcileNotice, RunControlDeps, RunSteering, TrackedRun } from "./control";
 export { firedCap, runTotals } from "./caps";
 export type { CapName, FiredCap, RunTotals } from "./caps";
 export {

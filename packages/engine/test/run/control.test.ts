@@ -69,6 +69,8 @@ interface World {
   readonly control: RunControl;
   readonly writes: ParkBranchRequest[];
   readonly sent: HostOp[][];
+  /** Story keys read again after a park (DIPO-56). */
+  readonly refreshed: string[];
   readonly work: WorkRef;
   writer: "ok" | "tampered" | "fails";
   steer: RunSteering["send"] | null;
@@ -82,11 +84,13 @@ beforeEach(async () => {
   const f = await ingestFixture(dir);
   const writes: ParkBranchRequest[] = [];
   const sent: HostOp[][] = [];
+  const refreshed: string[] = [];
   const world = {
     dir,
     f,
     writes,
     sent,
+    refreshed,
     writer: "ok",
     steer: null,
     ingestor: null,
@@ -120,6 +124,9 @@ beforeEach(async () => {
       },
     },
     encode,
+    refreshStory: async (_office, key) => {
+      refreshed.push(key);
+    },
   });
   (world as { control: RunControl }).control = control;
   w = world;
@@ -562,5 +569,149 @@ describe("work.stop", () => {
       .filter((event) => event.type === "engine.notice")
       .map((event) => (event.data as { code: string }).code);
     expect(codes).toEqual(["run.stopNotSent"]);
+  });
+});
+
+describe("story views and reconcile (DIPO-56)", () => {
+  it("reads the parked story again on its branch right after the park commit", async () => {
+    const reply = await stopCommand("DIPO-1");
+    expect(reply.ok).toBe(true);
+    expect(w.refreshed).toEqual([w.work.key]);
+  });
+
+  it("stopForReconcile sends the stop sequence and ends the run with its notice, parking nothing", async () => {
+    const run = findRun(w.f.office, w.f.run);
+    if (run === null) throw new Error("no run");
+    await w.control.stopForReconcile(w.f.office, run, {
+      code: "reconcile.runStopped",
+      text: "DIPO-1 is Done in Backlog.md",
+    });
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    // The run ended through endRun (DIPO-49): one outcome row.
+    expect(countRows(w.f.office, "run_outcomes")).toBe(1);
+    expect(parks()).toEqual([]);
+    expect(w.writes).toEqual([]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "sent"],
+    ]);
+    const codes = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => (event.data as { code: string }).code);
+    expect(codes).toEqual(["reconcile.runStopped"]);
+  });
+
+  it("parkForReconcile parks scope-violation without writing on the branch", async () => {
+    const run = findRun(w.f.office, w.f.run);
+    if (run === null) throw new Error("no run");
+    await w.control.parkForReconcile(w.f.office, run, "Changed by hand: the worktree is gone.", {
+      code: "reconcile.handChanged",
+      text: "DIPO-1 changed by hand",
+    });
+    expect(w.writes).toEqual([]);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["scope-violation", "Changed by hand: the worktree is gone."],
+    ]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    // Nothing is read on a branch that cannot be trusted.
+    expect(w.refreshed).toEqual([]);
+    const codes = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => (event.data as { code: string }).code);
+    expect(codes).toEqual(["reconcile.handChanged", "park.notWritten"]);
+  });
+});
+
+describe("the In Review commit (DIPO-49) and the story view (DIPO-56)", () => {
+  it("reads the story again at its branch tip once verify and commit ended the run at In Review", async () => {
+    const refreshed: string[] = [];
+    const sent: HostOp[][] = [];
+    const control = new RunControl({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office },
+      writer: { write: async () => Promise.reject(new Error("no park expected")) },
+      steering: {
+        send: async (_office, _run, ops) => {
+          sent.push([...ops]);
+          return { ok: true };
+        },
+      },
+      encode,
+      finisher: {
+        afterTurn: async () => ({ kind: "ended" }),
+        summarize: async () => undefined,
+      },
+      refreshStory: async (_office, key) => {
+        refreshed.push(key);
+      },
+    });
+    try {
+      control.track(w.f.office.officeId, {
+        runId: w.f.run,
+        work: w.work,
+        caps: ROOMY,
+        startedAt: w.f.t.clock.now(),
+      });
+      const done = SCRIPTS["done"]?.at(-1) as WorkerEvent;
+      control.onWorkerEvents(w.f.run, [done]);
+      await control.idle();
+      expect(refreshed).toEqual([w.work.key]);
+      expect(sent).toEqual([[{ closeStdin: true }]]);
+    } finally {
+      control.close();
+    }
+  });
+});
+
+describe("reconcile against after-turn work (DIPO-56)", () => {
+  it("lets no verify and commit in progress commit once reconcile stopped the run", async () => {
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    let claimed: boolean | undefined;
+    const summaries: string[] = [];
+    const control = new RunControl({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office },
+      writer: { write: async () => Promise.reject(new Error("no park expected")) },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+      finisher: {
+        afterTurn: async (ctx) => {
+          // Verify runs while reconcile decides; the commit claims the run's end first.
+          enter();
+          await gate;
+          claimed = ctx.claimEnd();
+          return claimed ? { kind: "ended" } : { kind: "continue" };
+        },
+        summarize: async (_office, run) => {
+          summaries.push(run.runId);
+        },
+      },
+    });
+    try {
+      control.track(w.f.office.officeId, {
+        runId: w.f.run,
+        work: w.work,
+        caps: ROOMY,
+        startedAt: w.f.t.clock.now(),
+      });
+      control.onWorkerEvents(w.f.run, [SCRIPTS["done"]?.at(-1) as WorkerEvent]);
+      await entered;
+      const run = findRun(w.f.office, w.f.run);
+      if (run === null) throw new Error("no run");
+      const stopped = control.stopForReconcile(w.f.office, run, {
+        code: "reconcile.runStopped",
+        text: "DIPO-1 is Done in Backlog.md",
+      });
+      open();
+      await stopped;
+      await control.idle();
+      expect(claimed).toBe(false);
+      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+      expect(summaries).toEqual([w.f.run]);
+      expect(countRows(w.f.office, "run_outcomes")).toBe(1);
+    } finally {
+      control.close();
+    }
   });
 });

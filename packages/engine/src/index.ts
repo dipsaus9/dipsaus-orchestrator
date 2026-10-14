@@ -227,6 +227,14 @@ export {
   noOfficeSummaries,
 } from "./reads/hello";
 export type { HelloSource, OfficeSummarySource } from "./reads/hello";
+export {
+  RECONCILE_NOTICES,
+  RECONCILE_STEP,
+  Reconciler,
+  reconcileOffice,
+  RECORDED_BY_HAND,
+} from "./reconcile";
+export type { ReconcileReport, ReconcilerDeps, ReconcileRuns } from "./reconcile";
 export { currentProfile, diffProfiles, RunProfiles, SCAN_STEP, verifyResolved } from "./scan";
 export type { RunProfilesDeps, ScanOutcome, ScanTrigger, StoredProfile } from "./scan";
 export {
