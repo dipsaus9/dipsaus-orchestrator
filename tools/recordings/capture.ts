@@ -15,13 +15,15 @@ import { join, relative } from "node:path";
 
 import {
   encodeClaudeOp,
+  HOOK_PROTOCOL_VERSIONS,
+  listenLineSocket,
   OFFICE_DEFAULTS,
   planClaudeLaunch,
   SETTINGS_FILE,
   systemClock,
   WORKER_REPORT_JSON_SCHEMA,
 } from "../../packages/engine/src/index";
-import type { LaunchPlan, WorkerSpec } from "../../packages/engine/src/index";
+import type { LaunchPlan, LineServer, WorkerSpec } from "../../packages/engine/src/index";
 import { withTempRepo } from "../../packages/testkit/src/index";
 import { decisionFieldProblems } from "./checks";
 import type { Envelope, Meta, SteerRecord } from "./format";
@@ -43,6 +45,9 @@ import { stdoutOf, usageChecksum } from "./usage";
 /** Quiet time after a `result` before the next message is sent or stdin is closed. */
 const SETTLE_MS = 3_000;
 const EXTRA_FLAGS = ["--include-partial-messages", "--include-hook-events"] as const;
+
+/** The CLI entry the hooks run when capturing from source (`<bun> <main.ts> hook <event>`). */
+const CLI_MAIN = join(import.meta.dir, "..", "..", "packages", "cli", "src", "main.ts");
 
 const IDLE = Symbol("idle");
 const ENDED = Symbol("ended");
@@ -226,6 +231,61 @@ async function runProcess(
   });
 }
 
+/**
+ * A fixture worker host for the hook relay (0008 section 5, DIPO-59): it speaks the host
+ * protocol's handshake and `hook` op, hands every relayed payload to `onHook`, answers a call that
+ * does not wait with no output, and never answers a waiting call, so the `PermissionRequest` hook
+ * gives no decision once its wait has passed (0017 `permission-wait`: a fixture that never answers).
+ */
+function fixtureHost(path: string, onHook: (payload: unknown) => void): LineServer {
+  return listenLineSocket(path, (connection) => {
+    let version: number | null = null;
+    const send = (frame: unknown) => connection.send(JSON.stringify(frame));
+    return {
+      line: (text) => {
+        const frame = parseLine(text);
+        if (!isRecord(frame)) {
+          connection.close();
+          return;
+        }
+        if (version === null) {
+          const offered = Array.isArray(frame.versions) ? frame.versions : [];
+          const common = offered.filter(
+            (offer): offer is number =>
+              typeof offer === "number" && HOOK_PROTOCOL_VERSIONS.includes(offer),
+          );
+          if (frame.kind !== "hello" || common.length === 0) {
+            send({
+              kind: "refused",
+              error: { code: "protocol.unsupported", message: "fixture host" },
+              versions: HOOK_PROTOCOL_VERSIONS,
+            });
+            connection.close();
+            return;
+          }
+          version = Math.max(...common);
+          send({ kind: "hello", version, run: frame.run, pid: process.pid });
+          return;
+        }
+        if (frame.op !== "hook" || typeof frame.payload !== "string") {
+          send({
+            kind: "reply",
+            id: frame.id,
+            ok: false,
+            error: { code: "op.unknown", message: "fixture host" },
+          });
+          return;
+        }
+        onHook(parseLine(frame.payload));
+        if (typeof frame.waitMs !== "number") {
+          send({ kind: "reply", id: frame.id, ok: true, result: { output: "" } });
+        }
+      },
+      closed: () => undefined,
+    };
+  });
+}
+
 /** Adds a diagnostic scenario's extra allow rules to the run settings file. */
 function withExtraAllow(name: string, content: string, scenario: Scenario): string {
   const extra = scenario.extraAllow ?? [];
@@ -321,8 +381,9 @@ export async function capture(scenario: Scenario): Promise<string> {
         tools: { allow: scenario.tools, deny: [] },
         session: { id: sessionId, resume },
         reportSchema: WORKER_REPORT_JSON_SCHEMA,
-        hookRelay: false,
+        hookRelay: scenario.hookRelay !== undefined,
       });
+      const hostSocket = join(repo.root, "host.sock");
       const context = {
         claudePath,
         home,
@@ -330,9 +391,14 @@ export async function capture(scenario: Scenario): Promise<string> {
         toolVariables: [],
         mainCheckout: repo.dir,
         runDir,
-        hostSocket: join(repo.root, "host.sock"),
+        hostSocket,
         tmpDir: sandboxTmp,
         sandbox: OFFICE_DEFAULTS.sandbox,
+        // The hooks run this checkout's `dipo` from source with the Bun running the capture.
+        hookCommand: [process.execPath, CLI_MAIN] as [string, ...string[]],
+        ...(scenario.hookRelay === undefined
+          ? {}
+          : { permissionWaitSeconds: scenario.hookRelay.waitSeconds }),
       };
       const launches: [LaunchPlan, readonly string[], boolean][] = [];
       const first = planClaudeLaunch(specFor(false, turns[0] ?? ""), context);
@@ -347,12 +413,31 @@ export async function capture(scenario: Scenario): Promise<string> {
 
       const start = performance.now();
       const run = { lines: [] as Envelope[], steering: [] as SteerRecord[] };
-      for (const [launch, processTurns, resume] of launches) {
-        for (const file of launch.files) {
-          writeFileSync(join(runDir, file.name), withExtraAllow(file.name, file.content, scenario));
+      const host =
+        scenario.hookRelay === undefined
+          ? null
+          : fixtureHost(hostSocket, (payload) =>
+              run.lines.push({
+                t: Math.round(performance.now() - start),
+                ch: "hook",
+                data: payload,
+              }),
+            );
+      try {
+        for (const [launch, processTurns, resume] of launches) {
+          for (const file of launch.files) {
+            writeFileSync(
+              join(runDir, file.name),
+              withExtraAllow(file.name, file.content, scenario),
+            );
+          }
+          await runProcess(launch, scenario, processTurns, start, resume, run);
         }
-        await runProcess(launch, scenario, processTurns, start, resume, run);
+      } finally {
+        await host?.stop();
       }
+      // Hook lines arrive on the fixture host, stream lines through the process queue: by time.
+      run.lines.sort((a, b) => a.t - b.t);
       const checks =
         scenario.verify === undefined ? undefined : await scenario.verify(paths, run.lines);
 
@@ -396,6 +481,9 @@ export async function capture(scenario: Scenario): Promise<string> {
         processes: launches.length,
         steering: run.steering,
         unknown_types: scrubber.report.unknownTypes,
+        ...(scenario.hookRelay === undefined
+          ? {}
+          : { testConfig: { permissionWaitSeconds: scenario.hookRelay.waitSeconds } }),
         ...((scenario.extraAllow ?? []).length > 0
           ? { settings_patch: [`permissions.allow += ${JSON.stringify(scenario.extraAllow)}`] }
           : {}),
