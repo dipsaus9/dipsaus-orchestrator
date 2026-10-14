@@ -632,6 +632,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
       work,
+      // The maintainer is present while a client is connected and sent a command or read lately
+      // (0008 section 5, DIPO-59); the server is made below.
+      presence: {
+        connected: () => server?.presence.connected() ?? false,
+        lastRequestAt: () => server?.presence.lastRequestAt() ?? null,
+      },
     });
     // Reconcile (DIPO-56, 0007 section 6): the last office load step, so every office the daemon
     // loads in `recovering` (below) is reconciled before scheduling turns on; `office.rescan` runs
@@ -649,6 +655,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.ingest = {
       close: () => {
         runs.control.close();
+        runs.permissions.close();
         runs.ingest.close();
       },
     };
@@ -691,6 +698,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       runs.control.feature,
       runs.outcomes.feature,
+      runs.permissions.feature,
       retention.feature,
       reconciler.feature,
       officeFeature(offices),

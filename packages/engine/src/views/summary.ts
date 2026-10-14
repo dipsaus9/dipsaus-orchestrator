@@ -1,7 +1,7 @@
 // The office summary (0005 sections 5 and 7, 0009 section 3): the stories in each queue column,
 // the active runs and what waits on the maintainer, derived from the office's rows. `engine.hello`
 // and the software stream's `office.summary` take it from `officeSummarySource`. Open questions
-// arrive with DIPO-59 and test sessions with M1; until then they count none. The day usage is M1.
+// count from DIPO-59; test sessions arrive with M1 and count none until then. The day usage is M1.
 
 import {
   GateId,
@@ -14,6 +14,7 @@ import {
 
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
+import { openQuestions } from "../hooks/questions";
 import { activeRuns } from "../run/records";
 
 import { activeStoryViews } from "./story";
@@ -77,8 +78,8 @@ export interface OfficeIdentity {
 /**
  * The summary of one office: `running` counts active runs, `parked` the stories in the `desk` and
  * `held` columns, `onHold` those in `held`, and `waitingOnMaintainer` the parked stories other than
- * on-hold plus the open gates waiting on the maintainer (open questions and tests count from
- * DIPO-59 and M1).
+ * on-hold, the open gates waiting on the maintainer and the open questions (DIPO-59; tests count
+ * from M1).
  */
 export function deriveOfficeSummary(identity: OfficeIdentity, office: OfficeHandle): OfficeSummary {
   const counts = columnCounts(office);
@@ -92,7 +93,7 @@ export function deriveOfficeSummary(identity: OfficeIdentity, office: OfficeHand
     running: activeRunCount(office),
     parked: desk + held,
     onHold: held,
-    waitingOnMaintainer: desk + gates,
+    waitingOnMaintainer: desk + gates + openQuestions(office).length,
   };
 }
 

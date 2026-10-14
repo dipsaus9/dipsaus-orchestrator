@@ -249,6 +249,7 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
           at: "2026-10-12T08:10:00Z",
         },
       ],
+      questions: [questionView],
     },
   },
   "work.outputRange": {
