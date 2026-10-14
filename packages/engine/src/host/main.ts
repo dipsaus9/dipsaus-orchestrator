@@ -15,6 +15,7 @@
 // out of `host/`). Time comes from the injected clock and the process from the injected spawn, so
 // tests run it in-process with a fake process; only the detach test needs a real one.
 
+import { timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -102,6 +103,8 @@ interface Client {
   readonly connection: LineConnection;
   version: number | null;
   watching: boolean;
+  /** It presented the engine's token in its hello (DIPO-59). */
+  engine: boolean;
 }
 
 /** A hook call waiting for the engine's reply, held under its line's end offset. */
@@ -110,6 +113,14 @@ interface PendingHook {
   /** The `hook` op's request id, which the reply answers. */
   readonly id: number;
   readonly timer: TimerHandle;
+}
+
+/** Compares a presented token with the launch's in constant time. */
+function tokenMatches(presented: string | undefined, token: string): boolean {
+  if (presented === undefined) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(token);
+  return a.byteLength === b.byteLength && timingSafeEqual(a, b);
 }
 
 /** A hook payload as one compact JSON line when it parses, else the text as given. */
@@ -135,6 +146,11 @@ export class WorkerHost {
   readonly #startedAt: number;
   readonly #clients = new Set<Client>();
   readonly #pendingHooks = new Map<number, PendingHook>();
+  /**
+   * The engine's secret from `launch.json` (DIPO-59), null for a launch without one. Only a
+   * connection that presented it answers hook calls and counts as the engine watching.
+   */
+  readonly #token: string | null;
   #server: LineServer | null = null;
   #child: ChildProcess | null = null;
   #steering: Steering | null = null;
@@ -148,6 +164,7 @@ export class WorkerHost {
     this.runId = options.runId;
     this.runDir = options.runDir;
     this.socketPath = launch.socket;
+    this.#token = launch.token ?? null;
     this.#hostLog = hostLog;
     this.#logger = createLogger({
       clock: options.clock,
@@ -360,7 +377,7 @@ export class WorkerHost {
   }
 
   #accept(connection: LineConnection): { line(text: string): void; closed(): void } {
-    const client: Client = { connection, version: null, watching: false };
+    const client: Client = { connection, version: null, watching: false, engine: false };
     this.#clients.add(client);
     return {
       line: (text) => this.#frame(client, text),
@@ -373,14 +390,19 @@ export class WorkerHost {
         }
         // The last engine stopped watching (the daemon is down): nobody will answer, so every
         // waiting call gets no decision now.
-        if (client.watching && !this.#watched()) this.#answerAllHooks("");
+        if (client.watching && this.#isEngine(client) && !this.#watched()) this.#answerAllHooks("");
       },
     };
   }
 
+  /** The engine's connection: it presented the token; any connection when the launch had none. */
+  #isEngine(client: Client): boolean {
+    return this.#token === null || client.engine;
+  }
+
   /** True while an engine watches this host. */
   #watched(): boolean {
-    for (const client of this.#clients) if (client.watching) return true;
+    for (const client of this.#clients) if (client.watching && this.#isEngine(client)) return true;
     return false;
   }
 
@@ -460,6 +482,7 @@ export class WorkerHost {
         return;
       }
       client.version = version;
+      client.engine = this.#token !== null && tokenMatches(hello.data.token, this.#token);
       this.#send(client, { kind: "hello", version, run: this.runId, pid: this.#options.pid });
       return;
     }
@@ -500,6 +523,17 @@ export class WorkerHost {
       return;
     }
     if (frame.op === "hookReply") {
+      // Only the engine answers a hook call: any other client that reaches the socket could
+      // otherwise allow a pending permission request.
+      if (!this.#isEngine(client)) {
+        this.#send(client, {
+          kind: "reply",
+          id: frame.id,
+          ok: false,
+          error: { code: "not.permitted", message: "Only the engine answers a hook call." },
+        });
+        return;
+      }
       const answered = this.#answerHook(frame.hook, frame.output);
       this.#logger.debug("hook reply", { hook: frame.hook, answered });
       this.#send(

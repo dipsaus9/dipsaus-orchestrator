@@ -85,6 +85,8 @@ export const HostLaunchSchema = z.object({
   agent: z.string().min(1),
   socket: z.string().startsWith("/"),
   plan: LaunchPlanSchema,
+  /** The engine's secret (DIPO-59): a hello that presents it is the engine. Gone with this file. */
+  token: z.string().min(32).optional(),
 });
 
 export interface HostLaunch {
@@ -93,6 +95,8 @@ export interface HostLaunch {
   readonly agent: string;
   readonly socket: string;
   readonly plan: LaunchPlan;
+  /** The engine's secret; only a connection that presents it may answer a hook call (DIPO-59). */
+  readonly token?: string;
 }
 
 /** `exit.json`, written once when the worker has ended (0006 decision 8). */
@@ -125,6 +129,8 @@ export const HelloFrame = z.object({
   /** Versions the client speaks; the host picks the highest it also speaks. */
   versions: z.array(z.number().int().positive()).min(1),
   run: z.string(),
+  /** The engine's secret from `launch.json`, sent by the engine only (DIPO-59). */
+  token: z.string().optional(),
 });
 export type HelloFrame = z.infer<typeof HelloFrame>;
 
@@ -213,6 +219,7 @@ export type HostErrorCode =
   | "frame.invalid"
   | "op.unknown"
   | "hook.unknown"
+  | "not.permitted"
   | "worker.exited"
   | "stdin.closed"
   | "stdin.failed";

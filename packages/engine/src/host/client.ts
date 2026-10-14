@@ -58,6 +58,8 @@ export interface ConnectHostOptions {
   readonly timeoutMs: number;
   /** Versions offered in the handshake; this binary's by default. */
   readonly versions?: readonly number[];
+  /** The engine's token for this host (`worker_hosts.engine_token`); the engine only (DIPO-59). */
+  readonly token?: string | null;
 }
 
 type Failure = Extract<ConnectHostResult, { ok: false }>;
@@ -158,6 +160,9 @@ export async function connectHost(
           kind: "hello",
           versions: options.versions ?? HOST_PROTOCOL_VERSIONS,
           run: options.runId,
+          ...(options.token === undefined || options.token === null
+            ? {}
+            : { token: options.token }),
         }),
       );
     },

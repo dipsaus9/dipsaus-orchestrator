@@ -53,6 +53,7 @@ function heldWorker(): { spawn: Spawn; end: () => void } {
 
 async function withHost(
   fn: (ctx: { host: WorkerHost; socket: string; runDir: string }) => Promise<void>,
+  token?: string,
 ): Promise<void> {
   await withTempDir(async (dir) => {
     const runDir = join(dir, "run");
@@ -64,6 +65,7 @@ async function withHost(
       agent: "agt_01JZ0000000000000000000009",
       socket,
       plan: { argv: ["/usr/local/bin/claude", "-p"], env: {}, cwd: dir, files: [], stdin: [] },
+      ...(token === undefined ? {} : { token }),
     };
     writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(launch), { mode: 0o600 });
     const worker = heldWorker();
@@ -84,8 +86,13 @@ async function withHost(
   });
 }
 
-async function engine(socket: string): Promise<HostClient> {
-  const connected = await connectHost(socket, { runId: RUN, clock: systemClock, timeoutMs: 2000 });
+async function engine(socket: string, token?: string): Promise<HostClient> {
+  const connected = await connectHost(socket, {
+    runId: RUN,
+    clock: systemClock,
+    timeoutMs: 2000,
+    ...(token === undefined ? {} : { token }),
+  });
   if (!connected.ok) throw new Error(`cannot connect: ${connected.reason}`);
   return connected.client;
 }
@@ -186,4 +193,42 @@ describe("hook relay (DIPO-59)", () => {
     });
     expect(await (pending as unknown as Promise<string | null>)).toBe("");
   });
+});
+
+describe("only the engine answers a hook call (DIPO-59 review)", () => {
+  const TOKEN = "a".repeat(64);
+
+  it("refuses hookReply from a connection without the engine's token, and does not count it as watching", () =>
+    withHost(async ({ host, socket }) => {
+      const stranger = await engine(socket);
+      await stranger.watch(() => undefined);
+      // A watcher without the token is not the engine: with no engine watching, no call is held.
+      expect(await relay(socket, { waitMs: 5000 })).toBe("");
+
+      const real = await engine(socket, TOKEN);
+      await real.watch(() => undefined);
+      const call = relay(socket, { waitMs: 5000 });
+      for (let i = 0; i < 100 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+      const [hook] = host.pendingHooks;
+      expect(
+        await stranger.request({
+          op: "hookReply",
+          hook: hook ?? 0,
+          output: '{"hookSpecificOutput":{"decision":{"behavior":"allow"}}}',
+        }),
+      ).toMatchObject({ ok: false, error: { code: "not.permitted" } });
+      expect(host.pendingHooks).toEqual([hook ?? -1]);
+      // A wrong token is no better.
+      const guess = await engine(socket, "b".repeat(64));
+      expect(await guess.request({ op: "hookReply", hook: hook ?? 0, output: "x" })).toMatchObject({
+        ok: false,
+        error: { code: "not.permitted" },
+      });
+      expect(await real.request({ op: "hookReply", hook: hook ?? 0, output: "ok" })).toEqual({
+        ok: true,
+        result: undefined,
+      });
+      expect(await call).toBe("ok");
+      for (const client of [stranger, real, guess]) client.close();
+    }, TOKEN));
 });

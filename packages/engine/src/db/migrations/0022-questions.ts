@@ -8,8 +8,12 @@
 // `decision` the allow or deny of a permission question, `delivered` how the answer reached the
 // worker (`now`, `on-resume`), and `closed_at` with `closed_how` (`answered`, `timeout`,
 // `ended`: the worker exited, `expired`: a daemon restart left it unanswered) when it stopped
-// waiting. Retention: tier S, with its run, ended more than `stateDays` ago (a run's end closes its
-// questions).
+// waiting. Retention: tier S, with its run, ended more than `stateDays` ago (a run's end closes
+// its questions).
+//
+// `worker_hosts.engine_token` is the secret the engine wrote into `launch.json` (which the host
+// removes before the worker starts): the host lets only a connection that presents it answer a
+// hook call or count as the engine watching.
 
 import type { SqlMigration } from "../migrations";
 
@@ -40,5 +44,7 @@ create table questions (
 ) strict;
 
 create index questions_open on questions (office_id, run_id) where closed_at is null;
+
+alter table worker_hosts add column engine_token text;
 `,
 };

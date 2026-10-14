@@ -140,6 +140,8 @@ export class OfficeIngest implements RunIngest {
       runId: host.runId,
       clock: this.#options.clock,
       timeoutMs: HOST_CONNECT_TIMEOUT_MS,
+      // The engine's watch: only it may answer hook calls and count as the daemon being up.
+      token: host.engineToken ?? null,
     })
       .then(async (connected) => {
         // Without the socket the 1 s poll keeps ingesting.
@@ -195,6 +197,7 @@ export function hostSocketSteering(options: {
         runId,
         clock: options.clock,
         timeoutMs: options.timeoutMs ?? STEER_TIMEOUT_MS,
+        token: host.engineToken,
       });
       if (!connected.ok) {
         const why = connected.error === undefined ? "" : ` (${connected.error.message})`;
