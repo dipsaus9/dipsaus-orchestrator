@@ -1,10 +1,10 @@
 ---
 id: DIPO-61
 title: Wait for plan-limit resets and resume
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-14 14:48'
 labels:
   - 'tier:M'
   - after-cutover
