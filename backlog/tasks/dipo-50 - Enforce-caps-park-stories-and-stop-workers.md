@@ -1,10 +1,10 @@
 ---
 id: DIPO-50
 title: 'Enforce caps, park stories and stop workers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 11:55'
+updated_date: '2026-10-14 12:29'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -102,4 +102,6 @@ M0 breakdown draft number S34 (DIPO-15). Before cutover: built by hand-run agent
 Built: migration 19 (parks, run_intents; tier S), run/caps.ts (budget tokens, summed turns, wall-clock minutes from the host start; checked after every usage and turn event of a committed pass and on a 1-minute tick of the injected clock), run/intents.ts (stop, cap and park intents stored pending before the ops are sent; the exit is resolved from the intent first), run/park.ts (parkStory: F16 park block plus status Parked in one commit '<ID>: status Parked' in the story worktree inside the git queue, pushed without force; parks row, run ended with end_kind stopped/capped/blocked, story.state and story.parked with actions filtered to registered commands, which is empty in M0; git.worktreeTampered parks scope-violation without writing on the branch), run/control.ts (RunControl: ingestion hooks, cap tick, blocked report parks with closeStdin, work.stop with the adapter's stop sequence through the host socket), dipo stop with confirmation (workStop.confirm, --yes). The turn WorkerEvent gains optional 'capped' when the CLI backstop (error_max_turns) ended the turn. WorkerPort gains encode. The park is written right after the stop sequence is sent, not after the worker exit; the intent explains the later exit. Caps are tracked in memory per started run; re-attaching after a daemon restart is DIPO-57. A done report with no intent is left to DIPO-49/51.
 
 Review fix: caps are now evaluated as of each usage and turn event inside the ingestion pass (Ingestor hook onEventApplied, called in the pass transaction after the event is folded into usage_totals); RunControl marks the crossing event and acts after the commit at the first deciding event, so the park detail names the total at the crossing and an earlier blocked report or backstop turn wins.
+
+Live test 2026-10-14 (maintainer, head 4a7b460, scratch TASK-1, Haiku): dipo stop without a terminal asks for confirmation; --yes with no run gives story.notRunning; run then stop parks TASK-1 as stopped, keeps branch and worktree, commits 'TASK-1: status Parked' on the story branch; no leftover processes. Known gap: watch/snapshot still shows the story as Ready because the index reads status from the base only; fixed by DIPO-56 AC #2 (story-branch read while claimed), which goes first in DIPO-56.
 <!-- SECTION:NOTES:END -->
