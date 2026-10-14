@@ -117,6 +117,22 @@ export function runLine(run: RunRecord): string {
   return `  run ${run.run} · started ${clockTime(run.startedAt)} · ${end} · ${count(run.usage.turns)} turns`;
 }
 
+/**
+ * True when `text` names the story `id` as a whole id: the character after it is not a letter,
+ * digit, or a dot and a digit, so `DIPO-5` does not match `DIPO-52` or `DIPO-5.1`.
+ */
+export function mentions(text: string, id: string): boolean {
+  for (let at = text.indexOf(id); at !== -1; at = text.indexOf(id, at + 1)) {
+    const before = at === 0 ? "" : (text[at - 1] ?? "");
+    const after = text[at + id.length] ?? "";
+    const next = text[at + id.length + 1] ?? "";
+    // A dot ends a sentence unless a digit follows (`DIPO-5.1` is a sub-story).
+    const continues = /[A-Za-z0-9]/.test(after) || (after === "." && /[0-9]/.test(next));
+    if (!continues && !/[A-Za-z0-9-]/.test(before)) return true;
+  }
+  return false;
+}
+
 /** The story an event is about, by key; null for one that names none. */
 function keyOf(event: Event): string | null {
   const data = event.data as { key?: unknown; work?: { key?: unknown } } | null;
@@ -410,7 +426,7 @@ class Watch {
     const data = engineNotice.data.safeParse(event.data);
     if (!data.success) return;
     const notice = data.data;
-    if (this.#story !== null && !notice.text.includes(this.#story.id)) return;
+    if (this.#story !== null && !mentions(notice.text, this.#story.id)) return;
     this.#line(`${clockTime(event.at)} notice ${notice.level} ${notice.code}: ${notice.text}`);
     void this.#checkEnds();
   }

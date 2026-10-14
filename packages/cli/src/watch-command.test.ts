@@ -11,7 +11,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
 import { fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
-import { clockTime } from "./watch-command";
+import { clockTime, mentions } from "./watch-command";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
 const KEY = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C3F";
@@ -253,6 +253,15 @@ describe("dipo watch", () => {
     expect(ctx.reads.filter((name) => name === "office.snapshot")).toHaveLength(2);
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
     expect(await done).toBe(1);
+  });
+
+  it("matches a notice to a story by its whole id", () => {
+    expect(mentions("DIPO-5 was not started.", "DIPO-5")).toBe(true);
+    expect(mentions("Skipped DIPO-5: capacity", "DIPO-5")).toBe(true);
+    expect(mentions("DIPO-52 was not started.", "DIPO-5")).toBe(false);
+    expect(mentions("DIPO-5.1 was not started.", "DIPO-5")).toBe(false);
+    expect(mentions("XDIPO-5 is another prefix", "DIPO-5")).toBe(false);
+    expect(mentions("DIPO-52 and then DIPO-5.", "DIPO-5")).toBe(true);
   });
 
   it("refuses more than one story id", async () => {
