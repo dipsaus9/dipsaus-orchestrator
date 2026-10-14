@@ -1,10 +1,10 @@
 ---
 id: DIPO-49
 title: Verify and commit the story at In Review
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 13:12'
+updated_date: '2026-10-14 13:23'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -103,4 +103,6 @@ Implementation (DIPO-49 branch):
 Decision A outcome (2026-10-14): decision A was already covered, since sandboxed steps already get their own TMPDIR (the step temp root, since DIPO-37). The Safe-Chain failure comes from macOS /usr/bin/mktemp ignoring TMPDIR (it uses confstr(_CS_DARWIN_USER_TEMP_DIR), /var/folders/.../T). The maintainer chose to keep the sandbox tight: no ADR 0008 change and no /var/folders write access. The workaround stays: start the daemon with ~/.bun/bin-originals first on PATH. Possible follow-up: a mktemp shim on the step's PATH that honours TMPDIR; it changes no policy, but it is unproven if the wrapper calls /usr/bin/mktemp by its absolute path.
 
 Review fixes: the verify feedback item budget is indexed by the run's tier (prompt.budgets.feedbackItem[tier], M when the tier has none); root lockfile pairing uses the union of the base and branch workspace dirs, with the branch scan run before the scope check.
+
+Live test 2026-10-14 by the test agent (head eb90a0e, scratch TASK-1 made concrete in scratch PR #9, Haiku, about $0.004, 40 s): work.phase verify, verify output streamed, verify passed (bun run verify, 3 pass), code commit 'TASK-1: Add CSV export of stories' touched only src/ and test/, criteria #1 and #2 checked, status In Review committed and pushed (remote SHA = local tip), one run_outcomes row in-review, verify_results exit 0. An earlier run with the vague TASK-1 parked ambiguous-spec with the worker's question, which also showed the question path works. Follow-up: progress.criteriaMet stays 0/2 in work.phase/work.progress events up to In Review; the live counter never reflects the report's met criteria.
 <!-- SECTION:NOTES:END -->
