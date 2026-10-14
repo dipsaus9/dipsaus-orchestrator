@@ -4,7 +4,7 @@
 
 import type { OfficeConfig } from "../config";
 import type { AdapterHold } from "./hold";
-import type { LaunchPlan, ParseState, WorkerAdapter, WorkerSpec } from "./types";
+import type { HostOp, LaunchPlan, ParseState, SteerOp, WorkerAdapter, WorkerSpec } from "./types";
 
 /** Where one run lives; every path is absolute. */
 export interface RunLaunchPaths {
@@ -42,4 +42,6 @@ export interface WorkerPort {
   ): Promise<PreparedWorker>;
   /** The parser state ingestion of a new session starts from. */
   initialState(spec: WorkerSpec): ParseState;
+  /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
+  encode(op: SteerOp): HostOp[];
 }
