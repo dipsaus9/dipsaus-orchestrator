@@ -94,6 +94,12 @@ export interface CommandOptions extends RequestOptions {
   readonly office?: OfficeId;
   /** Set only after the maintainer agreed (0005 section 9). */
   readonly confirmed?: boolean;
+  /**
+   * The request id to send; a fresh one by default. A client that retries a command the engine
+   * refused with a retryable error passes the first id again, so the engine runs it at most once
+   * (0005 section 9, 0009 section 5).
+   */
+  readonly requestId?: RequestId;
 }
 
 export interface RequestOptions {
@@ -250,7 +256,7 @@ export class DipoClient {
         new ClientError("client.invalidArgs", `Invalid args for ${definition.name}.`),
       );
     }
-    const requestId = this.#newId();
+    const requestId = options.requestId ?? this.#newId();
     const frame: ClientFrame = {
       kind: "command",
       requestId,

@@ -16,7 +16,13 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { ClientError, type HelloResult, OfficeStore, RELOADED_NOTICE } from "../../src/index";
+import {
+  ClientError,
+  cursorReached,
+  type HelloResult,
+  OfficeStore,
+  RELOADED_NOTICE,
+} from "../../src/index";
 import { FakeStoreClient, settle } from "./fake-store-client";
 
 const A = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA" as OfficeId;
@@ -403,5 +409,44 @@ describe("OfficeStore", () => {
     expect(store.state.office).toBe(B);
     expect(store.state.stories.map((view) => String(view.story))).toEqual(["BETA-1"]);
     expect(client.reads.filter((read) => read.name === "office.snapshot")).toHaveLength(1);
+  });
+
+  it("keeps the office cursor for read-your-writes: the snapshot, then each stored event (DIPO-54)", async () => {
+    const { client, store } = await setup();
+    const stream = `office:${A}`;
+    expect(store.state.cursor).toEqual(cursor(stream, 5));
+    const reply = cursor(stream, 7);
+    expect(cursorReached(store.state.cursor, reply)).toBe(false);
+    const added = story(KEY2, "DIPO-2", "Ready");
+    const data = { story: "DIPO-2", key: KEY2, from: "Refined", to: "Ready", view: added };
+    client.emit(stream, event(stream, 6, "story.state", data));
+    expect(cursorReached(store.state.cursor, reply)).toBe(false);
+    // An event that changes no view still moves the cursor.
+    client.emit(
+      stream,
+      event(stream, 7, "work.phase", {
+        work: work("busy").work,
+        phase: "build",
+        progress: work("busy").progress,
+      }),
+    );
+    expect(store.state.cursor).toEqual(reply);
+    expect(cursorReached(store.state.cursor, reply)).toBe(true);
+    // A reply from a newer epoch is not reached while the store is on the old one, only after it
+    // read the stream again on that epoch.
+    expect(cursorReached(store.state.cursor, cursor(stream, 3, "e2"))).toBe(false);
+    expect(cursorReached(cursor(stream, 3, "e2"), cursor(stream, 3, "e2"))).toBe(true);
+    expect(cursorReached(cursor(stream, 2, "e2"), cursor(stream, 3, "e2"))).toBe(false);
+    expect(cursorReached(store.state.cursor, cursor(`office:${B}`, 1))).toBe(false);
+    expect(cursorReached(null, reply)).toBe(false);
+  });
+
+  it("counts the snapshots it applied, so a client sees a re-read after its reply (DIPO-54)", async () => {
+    const { store } = await setup();
+    expect(store.state.snapshots).toBe(1);
+    await store.switchTo(B);
+    expect(store.state.snapshots).toBe(2);
+    await store.open(A);
+    expect(store.state.snapshots).toBe(3);
   });
 });

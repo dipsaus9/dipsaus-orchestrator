@@ -293,8 +293,16 @@ export class RunControl implements RunEnder {
         outcomes.onPlanLimit(this.#view(tracked), {
           credits: event.creditsRequired === true,
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
+          ...(event.scope === undefined ? {} : { scope: event.scope }),
         });
         return;
+      }
+      // A warning lets the run go on; new runs on its scope wait for the reset (DIPO-61).
+      if (event.t === "limit" && event.status === "allowed_warning") {
+        outcomes?.onPlanWarning?.(this.#view(tracked), {
+          ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
+          ...(event.scope === undefined ? {} : { scope: event.scope }),
+        });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(this.#view(tracked), event.to);
       if (event.t === "turn") {

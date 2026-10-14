@@ -212,13 +212,22 @@ export interface ParkOutcome {
   readonly pushed: boolean;
 }
 
+/**
+ * Commands the engine implements, but not yet for a parked story: `work.resume` continues only
+ * runs held by a plan limit (DIPO-61).
+ */
+const NOT_FOR_PARKED: readonly CommandName[] = ["work.resume"] as CommandName[];
+
 /** The actions a parked story offers (0005 section 5): only commands the engine implements. */
 export function parkActions(
   reason: ParkReason,
   implemented: (name: CommandName) => boolean,
 ): CommandName[] {
   return PARK_ACTIONS.filter(
-    (name) => (name !== "work.answer" || reason === "needs-permission") && implemented(name),
+    (name) =>
+      (name !== "work.answer" || reason === "needs-permission") &&
+      !NOT_FOR_PARKED.includes(name) &&
+      implemented(name),
   );
 }
 

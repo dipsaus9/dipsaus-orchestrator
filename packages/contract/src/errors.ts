@@ -57,7 +57,7 @@ export const SOFTWARE_ERROR_CODES = [
 // when the office has no valid configuration, so the command or read cannot run, and
 // `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the office's
 // base branch. Since minor 1 (DIPO-48): `run.refused` when an office check refuses `work.run`;
-// `details.check` names it (`adapter`, `statuses` or `verify`).
+// `details.check` names it (`adapter`, `statuses` or `verify`; `plan-limit` since DIPO-61).
 export const OFFICE_ERROR_CODES = ["config.invalid", "backlog.unreadable", "run.refused"] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

@@ -1,9 +1,10 @@
 // Mounts the TUI `App` over the fake session and the harness, for render tests.
 
 import { OfficeStore } from "@dipsaus-orchestrator/client";
-import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
+import { systemClock } from "@dipsaus-orchestrator/client/node";
+import type { Clock, OfficeId, RequestId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import { App, type TuiActions } from "../app";
+import { App, type RunOutcome, type TuiActions } from "../app";
 import type { Display } from "../options";
 import { FakeSession } from "./fake-session";
 import { render, type RenderSize } from "./harness";
@@ -24,21 +25,29 @@ export class TestClock implements Clock {
     this.#now += ms;
   }
 
-  setTimeout(): TimerHandle {
-    throw new Error("the TUI arms no timers in these tests");
+  /** Real timers: the event batching (100 ms) runs on them while `now` stays where the test put it. */
+  setTimeout(callback: () => void, delayMs: number): TimerHandle {
+    return systemClock.setTimeout(callback, delayMs);
   }
 
-  clearTimeout(): void {}
+  clearTimeout(handle: TimerHandle): void {
+    systemClock.clearTimeout(handle);
+  }
 }
 
 export interface MountOptions extends RenderSize {
   readonly display?: Display;
   /** The office opened at start; null starts in the switcher. */
   readonly office?: OfficeId | null;
+  /** Capability flags `engine.hello` reports; none by default, as in the golden log. */
+  readonly capabilities?: readonly string[];
 }
 
 export async function mount(options: MountOptions = {}) {
   const session = new FakeSession();
+  if (options.capabilities !== undefined && session.hello !== null) {
+    session.hello = { ...session.hello, capabilities: [...options.capabilities] };
+  }
   const clock = new TestClock();
   const store = new OfficeStore({
     client: session,
@@ -50,6 +59,7 @@ export async function mount(options: MountOptions = {}) {
     options.office === undefined ? (store.state.offices[0]?.office ?? null) : options.office;
   if (office !== null) await store.open(office);
   let quits = 0;
+  let requests = 0;
   const actions: TuiActions = {
     openPath: async (path) => {
       const outcome = await session.command({ name: "office.open" } as never, { path } as never);
@@ -60,6 +70,16 @@ export async function mount(options: MountOptions = {}) {
     resumeScheduling: async () => {
       await session.command({ name: "daemon.resumeScheduling" } as never, {} as never);
       return { ok: true, value: null };
+    },
+    runStories: async (request) =>
+      (await session.command(
+        { name: "work.run" } as never,
+        (request.stories === undefined ? {} : { stories: [...request.stories] }) as never,
+        { office: request.office, requestId: request.requestId },
+      )) as RunOutcome,
+    newRequestId: () => {
+      requests += 1;
+      return `01J9ZK5Q8W3V4X6Y7Z8A9B0R${String(requests).padStart(2, "0")}` as RequestId;
     },
   };
   const ui = render(
