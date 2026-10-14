@@ -4,7 +4,7 @@ title: Handle worker outcomes and resume a crashed session once
 status: In Progress
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 14:18'
+updated_date: '2026-10-14 14:27'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -100,4 +100,9 @@ Deviations from the plan:
 - A worker exit with a done report on a still-active run is left to verify and commit (DIPO-49).
 
 Known gaps for follow-ups: DIPO-61 clears the plan-limit signal when it resumes; a daemon stop between a crash decision (end_reason crashed) and the next agent row leaves the run active without redispatch.
+
+Review follow-ups (2026-10-14):
+- The restart step also starts the next session of a run whose newest agent ended crashed or prompt-too-long with no newer agent (a decision recorded before a stop); a report feedback is resolved only once its resume started, and carries the agent it was sent to.
+- On the first resumed turn end a field at or above the baseline counts max(rise, live), so a CLI that restores only the floor is not undercounted. Cost needs no change: its baseline equals the floor, since costs come only from results.
+- agents.claude_code_version is used by the generic resume path (SessionRef.version); a neutral column alias is a later follow-up.
 <!-- SECTION:NOTES:END -->
