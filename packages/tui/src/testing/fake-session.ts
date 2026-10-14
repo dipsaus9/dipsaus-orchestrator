@@ -58,7 +58,20 @@ export class FakeSession implements TuiSession {
   state: ConnectionState = "open";
   hello: HelloResult | null = goldenHello;
   readonly reads: { readonly name: string; readonly args: unknown }[] = [];
-  readonly commands: { readonly name: string; readonly args: unknown }[] = [];
+  readonly commands: {
+    readonly name: string;
+    readonly args: unknown;
+    readonly options?: unknown;
+  }[] = [];
+  /** Answers `work.run`; by default every story asked for starts. */
+  runReply: (args: { stories?: string[] }) => unknown = (args) => ({
+    ok: true,
+    result: {
+      started: (args.stories ?? []).map((story) => ({ story, key: story, run: "run_x" })),
+      skipped: [],
+    },
+    changed: true,
+  });
   readonly subscriptions: RecordedSubscription[] = [];
   /** Replies to `office.open` by path; a missing path answers `office.notFound`. */
   readonly opened = new Map<string, OfficeId>();
@@ -88,8 +101,17 @@ export class FakeSession implements TuiSession {
     return { ok: true, result: snapshot };
   }) as unknown as TuiSession["read"];
 
-  command = (async (definition: { name: string }, args: { path?: string }) => {
-    this.commands.push({ name: definition.name, args });
+  command = (async (
+    definition: { name: string },
+    args: { path?: string; stories?: string[] },
+    options?: unknown,
+  ) => {
+    this.commands.push(
+      options === undefined
+        ? { name: definition.name, args }
+        : { name: definition.name, args, options },
+    );
+    if (definition.name === "work.run") return this.runReply(args);
     if (definition.name === "office.open") {
       const office = this.opened.get(args.path ?? "");
       if (office === undefined) {
