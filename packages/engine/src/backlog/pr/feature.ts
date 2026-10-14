@@ -401,16 +401,9 @@ export class BacklogPrs {
       refused.push({ number: pr.number, reason });
       this.#noticeNotAdopted(office, pr, reason);
     };
-    const own = openPrs(handle)[0];
-    const laneBranch = openEntries(handle).findLast((entry) => entry.branch !== null)?.branch;
-    if (own !== undefined || laneBranch !== undefined) {
-      const mine = own !== undefined ? `backlog PR #${own.number}` : `backlog branch ${laneBranch}`;
-      for (const pr of unknown) {
-        refuse(
-          pr,
-          `the office already has its own ${mine} open, and an office has at most one backlog PR`,
-        );
-      }
+    const mine = ownOpen(handle);
+    if (mine !== null) {
+      for (const pr of unknown) refuse(pr, mine);
       return { adopted: null, refused };
     }
     if (unknown.length > 1) {
@@ -439,6 +432,10 @@ export class BacklogPrs {
         base,
       });
       if (!read.ok) return read;
+      // Again inside the queue item: a flush queued since the look above may have cut a lane
+      // branch of the office's own, and the office keeps at most one.
+      const since = ownOpen(handle);
+      if (since !== null) return { ok: false as const, reason: since };
       const taken = takenOpIds(
         handle,
         read.ops.map((op) => op.opId),
@@ -804,4 +801,16 @@ function settleBlocks(
     result.touched.filter((key) => !blocked.has(key)),
     now,
   );
+}
+
+/**
+ * Why the office cannot adopt a backlog PR because it has one of its own: an open backlog PR or an
+ * open lane branch (DIPO-80); null when it has neither.
+ */
+function ownOpen(office: OfficeHandle): string | null {
+  const own = openPrs(office)[0];
+  const branch = openEntries(office).findLast((entry) => entry.branch !== null)?.branch;
+  if (own === undefined && branch === undefined) return null;
+  const mine = own !== undefined ? `backlog PR #${own.number}` : `backlog branch ${branch}`;
+  return `the office already has its own ${mine} open, and an office has at most one backlog PR`;
 }

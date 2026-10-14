@@ -15,6 +15,7 @@ import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestra
 
 import { viewStory } from "../../../src/backlog/fields/write";
 import { allEntries, LANE_NOTICES, OfficeLane, pendingLaneOp } from "../../../src/backlog/lane";
+import { insertEntry, updateEntry } from "../../../src/backlog/lane/journal";
 import { BacklogPrs, findPr, PR_NOTICES } from "../../../src/backlog/pr";
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
@@ -219,6 +220,44 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }, FIXTURE);
     });
 
+    it("rebuilds the new operations of an adopted branch that conflicts, and drops the adopted one naming its closed PR", async () => {
+      await withBareRemote(async (repo) => {
+        const { host, lost } = await start(repo);
+        await lost.lane.submit({
+          kind: "edit",
+          key: lost.keys.one,
+          subject: "TASK-1",
+          target: { status: "Refined" },
+        });
+        const fresh = await database(repo, host, "state-fresh");
+        expect((await fresh.prs.adopt(fresh.officeId)).adopted).toBe(1);
+        fresh.t.clock.advance(1000);
+        await fresh.lane.submit({
+          kind: "edit",
+          key: fresh.keys.two,
+          subject: "TASK-2",
+          target: { labels: { add: ["tier:M"] } },
+        });
+
+        // TASK-1 changed on main: the branch is rebuilt (0010 section 2) with TASK-2 only, and the
+        // adopted PR is closed as for any rebuild.
+        await pushStatusChange(repo, { "TASK-1": "In Progress" });
+        expect(await fresh.slot.tick(fresh.officeId)).toBe("rebuilt");
+        expect(host.prs.get(1)?.state).toBe("closed");
+        expect(host.prs.get(2)?.state).toBe("open");
+        const entries = allEntries(fresh.office);
+        expect(entries.map((entry) => [entry.subject, entry.state])).toEqual([
+          ["TASK-1", "dropped"],
+          ["TASK-2", "pushed"],
+        ]);
+        const dropped = notices(fresh.office).filter((n) => n.code === LANE_NOTICES.dropped);
+        expect(dropped).toHaveLength(1);
+        expect(dropped[0]?.text).toContain("its change is in the backlog PR #1, which dipo closes");
+        expect(dropped[0]?.text).toContain("it was not applied again there");
+        expect(dropped[0]?.text).not.toContain("still on");
+      }, FIXTURE);
+    });
+
     it("lets go of an adopted PR that conflicts with the base without closing it", async () => {
       await withBareRemote(async (repo) => {
         const { host, lost } = await start(repo);
@@ -253,6 +292,46 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         );
         // A rescan does not take it back.
         expect(await fresh.prs.adopt(fresh.officeId)).toEqual({ adopted: null, refused: [] });
+      }, FIXTURE);
+    });
+
+    it("adopts nothing when a lane branch of the office's own appears while it fetches", async () => {
+      await withBareRemote(async (repo) => {
+        const { host, lost } = await start(repo);
+        await lost.lane.submit({
+          kind: "edit",
+          key: lost.keys.one,
+          subject: "TASK-1",
+          target: { status: "Refined" },
+        });
+        const fresh = await database(repo, host, "state-fresh");
+        // A flush of the fresh lane lands between adopt's first look and its git queue item: it
+        // cut a branch of the office's own, which the journal names.
+        const own = "dipo/backlog-20990101T000000";
+        let armed = true;
+        fresh.hooks.onGit = (args) => {
+          if (!armed || !args.includes("fetch")) return;
+          armed = false;
+          fresh.office.immediate(() => {
+            const entry = insertEntry(
+              fresh.office,
+              { kind: "edit", key: fresh.keys.two, subject: "TASK-2", target: {} },
+              fresh.t.clock.now(),
+            );
+            updateEntry(
+              fresh.office,
+              entry.opId,
+              { state: "committed", branch: own, commit: "c".repeat(40) },
+              fresh.t.clock.now(),
+            );
+          });
+        };
+        const report = await fresh.prs.adopt(fresh.officeId);
+        expect(armed).toBe(false);
+        expect(report).toMatchObject({ adopted: null, refused: [{ number: 1 }] });
+        expect(report.refused[0]?.reason).toContain(`backlog branch ${own}`);
+        expect(findPr(fresh.office, 1)).toBeNull();
+        expect(allEntries(fresh.office).map((entry) => entry.branch)).toEqual([own]);
       }, FIXTURE);
     });
 
