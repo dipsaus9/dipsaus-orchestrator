@@ -85,16 +85,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `dipo hook <event>` is a hidden `runDaemon` form; the run settings file registers the 0008 hooks with the binary's `process.execPath` as the command, and the form forwards stdin to `DIPO_HOST_SOCKET` with a versioned handshake, prints nothing, exits 0 within 2 s and fails silently.
-- [ ] #2 The host accepts every hook handshake version it supports, so a newer binary can relay to a host an older binary started, and appends payloads as `ch: "hook"` lines, replayed like stdout.
-- [ ] #3 The Claude CLI adapter maps hook payloads to adapter-neutral hook events and maps the engine's neutral replies to the Claude reply format; `engine/src/hooks` holds no Claude-specific field, and a lint test fails when it imports `workers/claude-cli`.
-- [ ] #4 With `permissions.ask: when-present`, a connected client and a client command or read within `permissions.presentMinutes` (stream heartbeats do not count), a `PermissionRequest` emits `question.asked` (kind permission, tool and input summary) and `work.observed input-wait`, and waits up to `timeouts.permissionWaitSeconds` for `work.answer`, then denies.
-- [ ] #5 Without presence, with `permissions.ask: never`, or with the daemon down, the hook returns no decision at once, so the call is denied.
-- [ ] #6 A migration adds `questions`; a permission question is stored, emitted with `question.asked`, and included in `office.snapshot` and `story.detail`.
-- [ ] #7 `work.answer { question, decision }` answers a waiting permission question, and `dipo answer <question> <text|allow|deny>` sends `work.answer`.
+- [x] #1 `dipo hook <event>` is a hidden `runDaemon` form; the run settings file registers the 0008 hooks with the binary's `process.execPath` as the command, and the form forwards stdin to `DIPO_HOST_SOCKET` with a versioned handshake, prints nothing, exits 0 within 2 s and fails silently.
+- [x] #2 The host accepts every hook handshake version it supports, so a newer binary can relay to a host an older binary started, and appends payloads as `ch: "hook"` lines, replayed like stdout.
+- [x] #3 The Claude CLI adapter maps hook payloads to adapter-neutral hook events and maps the engine's neutral replies to the Claude reply format; `engine/src/hooks` holds no Claude-specific field, and a lint test fails when it imports `workers/claude-cli`.
+- [x] #4 With `permissions.ask: when-present`, a connected client and a client command or read within `permissions.presentMinutes` (stream heartbeats do not count), a `PermissionRequest` emits `question.asked` (kind permission, tool and input summary) and `work.observed input-wait`, and waits up to `timeouts.permissionWaitSeconds` for `work.answer`, then denies.
+- [x] #5 Without presence, with `permissions.ask: never`, or with the daemon down, the hook returns no decision at once, so the call is denied.
+- [x] #6 A migration adds `questions`; a permission question is stored, emitted with `question.asked`, and included in `office.snapshot` and `story.detail`.
+- [x] #7 `work.answer { question, decision }` answers a waiting permission question, and `dipo answer <question> <text|allow|deny>` sends `work.answer`.
 - [ ] #8 The `permission-wait` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
-- [ ] #9 `work.answer` on a permission question without `decision` fails with `args.invalid`; `text` stays required by the schema and may be empty, and for a permission question it is the reason given to the worker. A test covers both.
-- [ ] #10 The `PostModelSwitch` and `PostCompact` hook payloads map to `modelSwitched` and `compacted`, deduplicated against the `system/init`, `modelUsage` and `compact_boundary` paths (DIPO-42 review); a recording or fixture covers each.
+- [x] #9 `work.answer` on a permission question without `decision` fails with `args.invalid`; `text` stays required by the schema and may be empty, and for a permission question it is the reason given to the worker. A test covers both.
+- [x] #10 The `PostModelSwitch` and `PostCompact` hook payloads map to `modelSwitched` and `compacted`, deduplicated against the `system/init`, `modelUsage` and `compact_boundary` paths (DIPO-42 review); a recording or fixture covers each.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -103,4 +103,14 @@ test_plan:
 M0 breakdown draft number S43 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
 
 M0 review (DIPO-15): split; the needs-permission answer and resume moved to DIPO-75. Flagged test-before-merge because the live capture of `permission-wait` is a maintainer step.
+
+Implementation (DIPO-59):
+- Host protocol 2 adds the ops `hook` and `hookReply` (an op is accepted only on a connection whose picked version has it). `HOOK_PROTOCOL_VERSIONS` lists the versions a relay offers; a newer binary keeps the older ones. The host appends a payload as a `ch: hook` line; a call with `waitMs` is held under the line's end offset until the engine's `hookReply`, the wait, the worker's exit, or the last watching engine leaving. With no engine watching (daemon down) it answers at once with no output.
+- `dipo hook <event> [--wait <s>]` is a hidden runDaemon form routed first by the CLI. It reads stdin (1 MiB, 1 s), relays to `DIPO_HOST_SOCKET`/`DIPO_RUN`, prints only the host's answer, and always exits 0. Without --wait it ends within 2 s (CI test spawns the real process).
+- Claude specifics live in `workers/claude-cli/hooks.ts`: the registered hooks (`<selfCommand> hook <Event>`, quoted for sh; PermissionRequest `--wait permissionWaitSeconds`, timeout +30 s; others 5 s), the payload to `HookEvent` mapping and the `PermissionRequest` output. `engine/src/hooks` is neutral; an oxlint override plus `test/lint-boundaries/lint-hooks.test.ts` fail on a `workers/claude-cli` import there. The plan refuses a hook command inside the worktree (hooks run outside the sandbox).
+- New WorkerEvent `{ t: "hook", hook: HookEvent }`, `SteerOp { kind: "hookReply" }`, `HostOp { hookReply, output }` and `HostLine.end` (ingestion sets it; it is the hook call id). PostCompact/PostModelSwitch are deduplicated against compact_boundary and init/modelUsage, in either order (alias vs full id counts as one switch).
+- `PermissionAsks` (engine/src/hooks/permissions.ts): presence = a connected client plus a client command or read within presentMinutes (ContractServer.noteRequest on reads and commands after the handshake only). Present: question row (migration 22 `questions`), `question.asked` + `work.observed input-wait`, timer permissionWaitSeconds then deny. Otherwise, or while the run is being ended: no decision at once. Worker exit closes open questions (`ended`); an office load expires ones a previous daemon left (`expired`).
+- `work.answer` (async office command): `question.closed` for an unknown or closed question, `args.invalid` without decision on a permission question; a deny's text is the message to the worker. `dipo answer <q> allow|deny [reason]|<text>`; `dipo watch` prints questions with the answer command.
+- Contract (minor 1, unreleased): office error code `question.closed`; optional `questions` on `story.detail`. Snapshot questions and `waitingOnMaintainer` count open questions.
+- AC #8 is the maintainer's: `bun run recordings:capture permission-wait` (new scenario, fixture host that never answers, 10 s wait). Until then the engine test derives the scenario from `permission-denied` with a PermissionRequest hook line; it switches to the live recording once committed.
 <!-- SECTION:NOTES:END -->
