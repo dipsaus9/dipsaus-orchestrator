@@ -39,7 +39,7 @@ const CLOSED_HOME_WRITE_REASONS: Readonly<
   ".claude/debug":
     "srt opens it for Claude Code's debug logs, but Claude Code writes them from its own process outside the sandbox, so no sandboxed command needs it; it lies in the maintainer's Claude Code configuration directory.",
   ".npm/_logs":
-    "srt opens it for npm's debug logs. It is the maintainer's own npm log directory outside the sandbox, so worker code could leave files there that outlive the run; npm runs without it (it skips the log file), and with Safe-Chain npm's cache and logs are in the run temp directory.",
+    "srt opens it for npm's debug logs. It is the maintainer's own npm log directory outside the sandbox, so worker code could leave files there that outlive the run; the worker environment sets npm_config_logs_dir to the run temp directory, so npm, Claude Code's own start-up npm call included, logs there instead.",
 };
 const CLOSED_WRITE_REASONS: Readonly<Record<(typeof SRT_DEFAULT_WRITE_PATHS)[number], string>> = {
   "/tmp/claude":
@@ -242,11 +242,20 @@ function checkSpec(spec: WorkerSpec): void {
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
 }
 
-function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, home: string) {
+/** Where npm writes its debug logs in a worker run: the run temp directory (DIPO-98). */
+export const NPM_LOGS_SUBDIR = "npm-logs";
+// npm's log settings, which only dipo sets: an office value could point them back into home.
+const NPM_LOG_VARIABLE = /^npm_config_logs[-_]/i;
+
+function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, home: string, tmp: string) {
   const env: Record<string, string> = {};
   for (const name of ctx.toolVariables) {
     if (!VARIABLE_NAME.test(name)) throw new PlanError(`not a variable name: ${name}`);
-    if (REFUSED_TOOL_VARIABLE.test(name) || REFUSED_TOOL_VARIABLES.has(name)) {
+    if (
+      REFUSED_TOOL_VARIABLE.test(name) ||
+      REFUSED_TOOL_VARIABLES.has(name) ||
+      NPM_LOG_VARIABLE.test(name)
+    ) {
       throw new PlanError(`tool variable ${name} may not reach a worker`);
     }
   }
@@ -260,6 +269,9 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, home: string) {
   env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
   env.DIPO_RUN = spec.run;
   env.DIPO_HOST_SOCKET = absolute("hostSocket", ctx.hostSocket);
+  // Claude Code runs `npm root --global` at start, outside the sandbox, and npm would write a
+  // debug log into <home>/.npm/_logs; every npm the worker runs inherits this too (DIPO-98).
+  env.npm_config_logs_dir = `${tmp}/${NPM_LOGS_SUBDIR}`;
   if (ctx.safeChain !== undefined) {
     env.CLAUDE_CODE_SHELL = safeChainShellPath(ctx.safeChain.shellDir, ctx.safeChain);
   }
@@ -549,7 +561,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
 
   return {
     argv,
-    env: environment(spec, ctx, home),
+    env: environment(spec, ctx, home, tmp),
     cwd: workdir,
     files: [
       { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },

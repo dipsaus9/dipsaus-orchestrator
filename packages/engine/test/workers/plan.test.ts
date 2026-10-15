@@ -254,7 +254,7 @@ describe("claude-cli plan", () => {
     expect(JSON.stringify(launch)).not.toContain(API_KEY);
   });
 
-  it("holds only allowlisted variables, declared tool variables and the four run variables", () => {
+  it("holds only allowlisted variables, declared tool variables and the five run variables", () => {
     const launch = plan(spec("M"), context());
     expect(Object.keys(launch.env).toSorted()).toEqual([
       "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS",
@@ -269,11 +269,22 @@ describe("claude-cli plan", () => {
       "TERM",
       "TMPDIR",
       "USER",
+      "npm_config_logs_dir",
     ]);
     expect(launch.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
     expect(launch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("1");
     expect(launch.env.DIPO_RUN).toBe("run-0001");
     expect(launch.env.DIPO_HOST_SOCKET).toBe("/home/maintainer/.dipo/run/hosts/run-0001.sock");
+  });
+
+  it("points npm's debug logs into the run temp directory, never home (DIPO-98)", () => {
+    // Claude Code's own `npm root --global` at start runs outside the sandbox.
+    expect(plan(spec("M"), context()).env.npm_config_logs_dir).toBe("/tmp/claude-501/npm-logs");
+    for (const name of ["npm_config_logs_dir", "NPM_CONFIG_LOGS_DIR", "npm_config_logs_max"]) {
+      expect(() => plan(spec("M"), context({ toolVariables: [name] }))).toThrow(
+        `tool variable ${name} may not reach a worker`,
+      );
+    }
   });
 
   it("refuses tool variables that carry credentials", () => {

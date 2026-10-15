@@ -46,7 +46,8 @@
     "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
     "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
     "DIPO_RUN": "run-0001",
-    "DIPO_HOST_SOCKET": "/home/maintainer/.dipo/run/hosts/run-0001.sock"
+    "DIPO_HOST_SOCKET": "/home/maintainer/.dipo/run/hosts/run-0001.sock",
+    "npm_config_logs_dir": "/tmp/claude-501/npm-logs"
   },
   "cwd": "/home/maintainer/code/shop.worktrees/DIPO-999",
   "settings": {
