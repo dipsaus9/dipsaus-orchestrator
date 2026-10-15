@@ -4,7 +4,7 @@ title: 'Show commands, thinking and open questions in the live agent detail'
 status: To Do
 assignee: []
 created_date: '2026-10-15 11:34'
-updated_date: '2026-10-15 13:32'
+updated_date: '2026-10-15 13:47'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -74,4 +74,6 @@ Proposal (not built, for the maintainer):
 3. Next step: one live Haiku run on the scratch repo with --include-partial-messages (and any candidate setting) to see whether thinking text ever arrives.
 
 AC1 decisions: the opt-in key privacy.storeCommandBodies already existed (default false, local only), so no config version bump. The Claude adapter reads the input beyond the path for Bash (command), Grep and Glob (pattern), WebFetch (url) and WebSearch (query); file contents and edit bodies stay out. Ingestion stores it only with the opt-in, read at every pass, as one line (whitespace and control characters collapsed, cut at 200 characters with [cut N more chars]). OfficeSummary gains the optional optIns (contract minor 1); the overview summary line and the worker pane title show opt-in storeCommandBodies.
+
+AC5 phase markers (engine side chosen): each phase change (setup, build, verify, build again after a failed verify) and the run end (endRun: in-review, parks, stop, reconcile, claim release) stores one engine-written line in the run's worker output, [dipo] <ISO time> phase <name> or [dipo] <ISO time> ended <kind>, as a chunk with no agent, and sends it as work.output in the same transaction. Before the marker, every agent's pending output is sent and the agents' emitted marks move past the marker, so the work.output ranges stay contiguous and each byte goes out once (tested with ingestion interleaved, and the CI re-attach test). Past runs read the same lines through work.outputRange. The TUI shows a marker as `── 12:04:31 phase: verify ──` (`--` in ASCII mode), local time, and skips markers for the now line; the view's lastOutputAt ignores them. No contract change.
 <!-- SECTION:NOTES:END -->
