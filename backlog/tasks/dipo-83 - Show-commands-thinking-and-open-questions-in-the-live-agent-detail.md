@@ -4,11 +4,29 @@ title: 'Show commands, thinking and open questions in the live agent detail'
 status: To Do
 assignee: []
 created_date: '2026-10-15 11:34'
+updated_date: '2026-10-15 11:48'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
   - DIPO-55
+references:
+  - packages/engine/src/ingest/output.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
+  - packages/engine/src/run/hosts.ts
+  - packages/engine/src/office
+  - packages/daemon/src
+  - packages/contract/src/software.ts
+  - packages/contract/src/fixtures.ts
+  - packages/contract/src/version.ts
+  - packages/tui/src/detail.tsx
+  - packages/tui/src/overview.tsx
+  - packages/engine/test
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/overview.test.tsx
 priority: medium
 ordinal: 73000
 ---
