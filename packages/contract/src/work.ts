@@ -201,6 +201,17 @@ export const ParkRecord = z.object({
 });
 export type ParkRecord = z.infer<typeof ParkRecord>;
 
+// One failed Ready gate rule (0012 section 3): `rule` is the R-number, `message` the full line
+// `ready <ID> failed <rule>: <message>`.
+export const GateRuleFailure = z.object({ rule: z.string(), message: z.string() });
+export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
+
+// A failed Ready gate rule of a Refined story (minor 1, DIPO-97): the rule id and full line of
+// `GateRuleFailure`, and `text`, the line after `ready <ID> failed <rule>: `, so a client shows
+// the rule and what failed without parsing the line.
+export const StoryGateFailure = GateRuleFailure.extend({ text: z.string() });
+export type StoryGateFailure = z.infer<typeof StoryGateFailure>;
+
 export const StoryView = z.object({
   key: StoryKey,
   story: StoryId,
@@ -213,6 +224,10 @@ export const StoryView = z.object({
   parked: ParkRecord.optional(),
   waitingOn: z.array(StoryId).optional(), // dependencies not yet Done (column `waiting`)
   gateMessages: z.array(z.string()).optional(), // first Ready gate failures, for Refined
+  // Since minor 1 (DIPO-97): the failed rules among `gateMessages`, in the same order, each with
+  // its rule id. A message no rule gave (a pickup check that could not size the story) is only in
+  // `gateMessages`.
+  gateFailures: z.array(StoryGateFailure).optional(),
   evidence: EvidenceMap.optional(),
 });
 export type StoryView = z.infer<typeof StoryView>;

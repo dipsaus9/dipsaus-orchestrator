@@ -29,6 +29,7 @@ export const officeSummary = {
   waitingOnMaintainer: 1,
   optIns: ["privacy.storeCommandBodies"],
   ready: 2,
+  outputRetentionDays: 7,
 };
 
 // The story and work model.
@@ -112,6 +113,13 @@ export const refinedStoryView = {
   column: "refined",
   gateMessages: [
     'ready DIPO-33 failed R15: 2 unknowns open or resolved without an answer: "Keep…"',
+  ],
+  gateFailures: [
+    {
+      rule: "R15",
+      message: 'ready DIPO-33 failed R15: 2 unknowns open or resolved without an answer: "Keep…"',
+      text: '2 unknowns open or resolved without an answer: "Keep…"',
+    },
   ],
 };
 

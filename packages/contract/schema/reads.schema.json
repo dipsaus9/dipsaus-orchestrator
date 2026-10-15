@@ -150,6 +150,11 @@
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              "outputRetentionDays": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -563,6 +568,24 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "gateFailures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["rule", "message", "text"]
                 }
               },
               "evidence": {
@@ -1243,6 +1266,24 @@
                   "type": "string"
                 }
               },
+              "gateFailures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["rule", "message", "text"]
+                }
+              },
               "evidence": {
                 "type": "object",
                 "propertyNames": {
@@ -1910,6 +1951,24 @@
               "type": "array",
               "items": {
                 "type": "string"
+              }
+            },
+            "gateFailures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rule": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": ["rule", "message", "text"]
               }
             },
             "evidence": {
