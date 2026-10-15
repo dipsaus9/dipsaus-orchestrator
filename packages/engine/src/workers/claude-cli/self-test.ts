@@ -21,7 +21,7 @@
 // self-test made.
 
 import { constants } from "node:fs";
-import { access, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
 import type { ChildExit, ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
@@ -32,9 +32,10 @@ import {
   SRT_DEFAULT_WRITE_PATHS,
 } from "../../sandbox/policy";
 import type { LaunchCheckFailure } from "../hold";
-import type { WorkerOutcome, WorkerSpec } from "../types";
+import type { LaunchFile, WorkerOutcome, WorkerSpec } from "../types";
 import { initialState, interpret, type ClaudeParseState } from "./interpret";
 import { plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
+import { SAFE_CHAIN_SHELL_DIR } from "./safe-chain";
 import { WORKER_REPORT_JSON_SCHEMA } from "./report-schema";
 import { result } from "./result";
 
@@ -91,6 +92,11 @@ export interface SelfTestPaths {
   readonly nonce: string;
   /** Absolute `perl` and `gh`, resolved outside the sandbox from the daemon's PATH. */
   readonly tools: SelfTestTools;
+  /**
+   * With Safe-Chain (DIPO-82): a command such as `bun run --version` that runs first, through the
+   * worker's shell functions; perl records its exit code as `safe-chain exit <n>`.
+   */
+  readonly safeChainProbe?: string | undefined;
 }
 
 export interface SelfTestTools {
@@ -115,12 +121,15 @@ export interface SelfTestLayout {
   readonly byte: string;
   readonly command: string;
   readonly prompt: string;
+  /** The command the Safe-Chain probe runs, or null without Safe-Chain. */
+  readonly safeChainProbe: string | null;
 }
 
 /**
  * The probe program, one line for `perl -e`. It holds no credential code.
  * Arguments: the results file, the byte, then one triple per probe (name, open mode, path).
- * Write probes open their path and write the byte. One result line per probe. Passed
+ * Write probes open their path and write the byte. A triple with the mode `exit` records its third
+ * value as an exit code (the Safe-Chain probe, DIPO-82). One result line per probe. Passed
  * inline: Claude Code's permission layer denies `perl <script>` when the script lies outside the
  * working directory (seen live on 2.1.296), and a script inside the worktree could be changed by
  * a worker.
@@ -131,6 +140,7 @@ export function probeScript(): string {
     "my $out = shift @ARGV; my $b = shift @ARGV;",
     'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
     "while (@ARGV) { my ($n, $m, $p) = splice(@ARGV, 0, 3);",
+    'if ($m eq "exit") { print $o "$n exit $p\\n"; next }',
     'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" } }',
     "close $o;",
     'print "dipo-self-test finished\\n";',
@@ -178,12 +188,20 @@ export function selfTestLayout(
     ...writes.map((p) => where[p]),
   ];
   const script = probeScript();
+  const wrapped = paths.safeChainProbe;
+  if (wrapped !== undefined && !/^[a-z][a-z0-9]*( [a-z-]+)*$/.test(wrapped)) {
+    throw new Error(`the self-test cannot run the Safe-Chain probe ${JSON.stringify(wrapped)}`);
+  }
   const args = [
     resultsFile,
     byte,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
   ];
-  const command = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
+  // With Safe-Chain the wrapped command runs first, through the worker's own shell functions, and
+  // its exit code goes to perl as the last triple; its output is dropped.
+  const perl = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
+  const command =
+    wrapped === undefined ? perl : `${wrapped} >/dev/null 2>&1; ${perl} 'safe-chain' 'exit' "$?"`;
   const checks =
     writes.length === 0
       ? []
@@ -196,18 +214,35 @@ export function selfTestLayout(
     checks.length === 0
       ? "The perl program in it writes a control file inside this worktree, which should succeed, and records the result in a results file."
       : `The perl program in it writes a control file inside this worktree, which should succeed. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
+    ...(wrapped === undefined
+      ? []
+      : [
+          `Before that, \`${wrapped}\` checks that the package managers run through Safe-Chain in this sandbox.`,
+        ]),
     "",
     'After the command has run, whatever it printed, return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
   ].join("\n");
-  return { probes, targets, controlFile, resultsFile, script, byte, command, prompt };
+  return {
+    probes,
+    targets,
+    controlFile,
+    resultsFile,
+    script,
+    byte,
+    command,
+    prompt,
+    safeChainProbe: wrapped ?? null,
+  };
 }
 
 /** One parsed line of the results file. */
-export type ProbeLine = {
-  readonly kind: "write";
-  readonly written: boolean;
-  readonly detail: string;
-};
+export type ProbeLine =
+  | {
+      readonly kind: "write";
+      readonly written: boolean;
+      readonly detail: string;
+    }
+  | { readonly kind: "exit"; readonly code: number };
 
 /** Pure: the results file as one entry per probe name. */
 export function parseResults(text: string): Map<string, ProbeLine> {
@@ -215,6 +250,11 @@ export function parseResults(text: string): Map<string, ProbeLine> {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line === "") continue;
+    const exit = /^([a-z-]+) exit (\d+)$/.exec(line);
+    if (exit !== null) {
+      lines.set(exit[1] ?? "", { kind: "exit", code: Number(exit[2]) });
+      continue;
+    }
     const write = /^([a-z-]+) (written|blocked)(?: (.*))?$/.exec(line);
     if (write !== null) {
       lines.set(write[1] ?? "", {
@@ -248,6 +288,8 @@ export interface SelfTestEvidence {
   /** Bash calls the session made, and whether the one call was the planned one. */
   readonly bash: SelfTestBashCalls;
   readonly disk: SelfTestDisk;
+  /** With Safe-Chain (DIPO-82): the probed command and the install it should run through. */
+  readonly safeChain?: { readonly probe: string; readonly root: string };
 }
 
 export interface SelfTestBashCalls {
@@ -267,7 +309,7 @@ export type SelfTestVerdict =
       readonly ok: false;
       /** True when the sandbox let something through; false when the self-test could not run. */
       readonly unsafe: boolean;
-      readonly probe?: ProbeName | "control";
+      readonly probe?: ProbeName | "control" | "safe-chain";
       readonly reason: string;
     };
 
@@ -279,7 +321,7 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   pointer: "a write to the <worktree>/.git pointer",
 };
 
-function cannotRun(reason: string, probe?: ProbeName | "control"): SelfTestVerdict {
+function cannotRun(reason: string, probe?: ProbeName | "control" | "safe-chain"): SelfTestVerdict {
   return {
     ok: false,
     unsafe: false,
@@ -361,13 +403,30 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
   }
+  // Safe-Chain (DIPO-82): the wrapped command must have run through it inside the sandbox.
+  const safeChain = evidence.safeChain;
+  if (safeChain !== undefined) {
+    const line = lines.get("safe-chain");
+    if (line?.kind !== "exit") {
+      return cannotRun("no result for the Safe-Chain check", "safe-chain");
+    }
+    if (line.code !== 0) {
+      return {
+        ok: false,
+        unsafe: false,
+        probe: "safe-chain",
+        reason: `Safe-Chain is installed at ${safeChain.root}, but \`${safeChain.probe}\` through it exited ${line.code} inside the worker sandbox, so the worker's package managers cannot run there`,
+      };
+    }
+  }
   return { ok: true };
 }
 
 /** File access the self-test needs, outside the sandbox. Injectable for tests. */
 export interface SelfTestFs {
   mkdir(path: string): Promise<void>;
-  writeText(path: string, text: string): Promise<void>;
+  /** Writes a private file: mode 0600, or 0700 when `executable` (the Safe-Chain wrapper). */
+  writeText(path: string, text: string, executable?: boolean): Promise<void>;
   /** The text, or null when the file does not exist. */
   readText(path: string): Promise<string | null>;
   exists(path: string): Promise<boolean>;
@@ -383,7 +442,12 @@ export const nodeSelfTestFs: SelfTestFs = {
   mkdir: async (path) => {
     await mkdir(path, { recursive: true, mode: 0o700 });
   },
-  writeText: (path, text) => writeFile(path, text, { mode: 0o600 }),
+  writeText: async (path, text, executable) => {
+    const mode = executable === true ? 0o700 : 0o600;
+    await writeFile(path, text, { mode });
+    // A file that already existed keeps its mode; the wrapper must be executable all the same.
+    if (executable === true) await chmod(path, mode);
+  },
   readText: async (path) => {
     try {
       return await readFile(path, "utf8");
@@ -565,6 +629,11 @@ export interface SelfTestInput {
   readonly ctx: ClaudeLaunchContext;
   /** The run's own settings file content (`claude-settings.json` of the run's launch plan). */
   readonly runSettings: string;
+  /**
+   * The run's launch files. With Safe-Chain (DIPO-82) the self-test writes the run's shell
+   * wrapper and init file into the run directory first, so it runs the run's shell, not its own.
+   */
+  readonly runFiles?: readonly LaunchFile[];
 }
 
 export interface SelfTestReport {
@@ -701,8 +770,12 @@ export async function runSelfTest(
   const tools = await resolveSelfTestTools(
     {
       daemonPath: ctx.env["PATH"] ?? "",
-      // The plan passes the daemon's PATH through to the worker unchanged (ENV_ALLOWLIST).
-      workerPath: ctx.env["PATH"] ?? "",
+      // The plan passes the daemon's PATH through to the worker unchanged (ENV_ALLOWLIST); with
+      // Safe-Chain the wrapper sets its own, and the init script appends `<install>/bin`.
+      workerPath:
+        ctx.safeChain === undefined
+          ? (ctx.env["PATH"] ?? "")
+          : `${ctx.safeChain.path}:${ctx.safeChain.root}/bin`,
       writable: workerWritableRoots(workdir, ctx.tmpDir, ctx.home),
     },
     fs,
@@ -718,6 +791,7 @@ export async function runSelfTest(
     tmpDir: ctx.tmpDir,
     nonce,
     tools: tools.tools,
+    safeChainProbe: ctx.safeChain?.probe ?? undefined,
   });
   const selfDir = `${ctx.runDir}/${SELF_TEST_DIR}`;
   const systemFile = `${selfDir}/system.md`;
@@ -744,6 +818,19 @@ export async function runSelfTest(
     // The run's own settings file, byte for byte: the self-test proves that policy, no other.
     const content = file.name === SETTINGS_FILE ? input.runSettings : file.content;
     await fs.writeText(`${selfDir}/${file.name}`, content);
+  }
+  if (ctx.safeChain !== undefined) {
+    // The run's Safe-Chain shell (DIPO-82): the self-test runs the same wrapper the worker will.
+    const shellFiles = (input.runFiles ?? []).filter((file) =>
+      file.name.startsWith(`${SAFE_CHAIN_SHELL_DIR}/`),
+    );
+    if (shellFiles.length === 0) {
+      return fail(cannotRun("the run's Safe-Chain shell files are missing", "safe-chain"));
+    }
+    await fs.mkdir(`${ctx.runDir}/${SAFE_CHAIN_SHELL_DIR}`);
+    for (const file of shellFiles) {
+      await fs.writeText(`${ctx.runDir}/${file.name}`, file.content, file.executable === true);
+    }
   }
 
   const forbidden = layout.targets.filter(
@@ -802,6 +889,9 @@ export async function runSelfTest(
         ? { calls: 0, exact: false, shape: false }
         : bashCalls(session.stdout, layout.command),
     disk,
+    ...(layout.safeChainProbe === null || ctx.safeChain === undefined
+      ? {}
+      : { safeChain: { probe: layout.safeChainProbe, root: ctx.safeChain.root } }),
   };
   return {
     verdict: judgeSelfTest(evidence),
@@ -838,6 +928,8 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
     ...(verdict.probe === undefined ? {} : { key: verdict.probe }),
     fix: verdict.unsafe
       ? "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings."
-      : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
+      : verdict.probe === "safe-chain"
+        ? "Check the official Safe-Chain install (~/.safe-chain: bin/safe-chain, scripts/init-posix.sh, certs) and that a real package manager binary is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and read paths. Then start a run again."
+        : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
   };
 }

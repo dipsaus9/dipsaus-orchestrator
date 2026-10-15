@@ -485,3 +485,134 @@ describe("(unit) live safety recordings", () => {
     });
   }
 });
+
+describe("(unit) Safe-Chain self-test check (DIPO-82)", () => {
+  const PROBE = "bun run --version";
+  const SAFE_CHAIN = { probe: PROBE, root: `${HOME}/.safe-chain` };
+
+  it("runs the probe through the worker shell first and hands its exit code to perl", () => {
+    const layout = selfTestLayout({ ...PATHS, safeChainProbe: PROBE });
+    const plain = selfTestLayout(PATHS);
+    expect(layout.command).toBe(
+      `${PROBE} >/dev/null 2>&1; ${plain.command} 'safe-chain' 'exit' "$?"`,
+    );
+    expect(layout.safeChainProbe).toBe(PROBE);
+    expect(layout.prompt).toContain(layout.command);
+    // Without Safe-Chain the command is the plain perl call.
+    expect(plain.safeChainProbe).toBeNull();
+    expect(plain.command.startsWith(`'${TOOLS.perl}'`)).toBe(true);
+    expect(() => selfTestLayout({ ...PATHS, safeChainProbe: "bun; rm -rf /" })).toThrow(
+      "Safe-Chain probe",
+    );
+  });
+
+  it("parses the exit line next to the write lines", () => {
+    const lines = parseResults(`${BLOCKED_RESULTS}safe-chain exit 1\n`);
+    expect(lines.get("safe-chain")).toEqual({ kind: "exit", code: 1 });
+    expect(lines.get("control")).toMatchObject({ kind: "write", written: true });
+  });
+
+  it("passes on exit 0 and refuses clearly on another exit or no result", () => {
+    const ok = evidence(
+      { results: `${BLOCKED_RESULTS}safe-chain exit 0\n` },
+      { safeChain: SAFE_CHAIN },
+    );
+    expect(judgeSelfTest(ok)).toEqual({ ok: true });
+
+    const failed = judgeSelfTest(
+      evidence({ results: `${BLOCKED_RESULTS}safe-chain exit 127\n` }, { safeChain: SAFE_CHAIN }),
+    );
+    expect(failed).toEqual({
+      ok: false,
+      unsafe: false,
+      probe: "safe-chain",
+      reason: `Safe-Chain is installed at ${HOME}/.safe-chain, but \`${PROBE}\` through it exited 127 inside the worker sandbox, so the worker's package managers cannot run there`,
+    });
+    const failure = selfTestFailure({
+      verdict: failed,
+      evidence: null,
+      plugins: null,
+      targets: [],
+    });
+    expect(failure).toMatchObject({ check: "self-test", key: "safe-chain" });
+    expect(failure?.fix).toContain("dipo run --dry-run");
+
+    expect(judgeSelfTest(evidence({}, { safeChain: SAFE_CHAIN }))).toMatchObject({
+      ok: false,
+      unsafe: false,
+      probe: "safe-chain",
+    });
+    // Without Safe-Chain an exit line is not asked for.
+    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true });
+  });
+
+  it("records the exit code with the real perl program", async () => {
+    const perl = "/usr/bin/perl";
+    if (!existsSync(perl)) return;
+    const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
+    await withTempDir(async (dir) => {
+      const results = join(dir, "results.txt");
+      const layout = selfTestLayout({ ...PATHS, safeChainProbe: PROBE });
+      const child = Bun.spawn(
+        [
+          perl,
+          "-e",
+          layout.script,
+          results,
+          "n",
+          "control",
+          ">",
+          join(dir, "c"),
+          "safe-chain",
+          "exit",
+          "3",
+        ],
+        { stdout: "ignore" },
+      );
+      expect(await child.exited).toBe(0);
+      expect(await Bun.file(results).text()).toBe("control written\nsafe-chain exit 3\n");
+    });
+  });
+
+  it("runs the run's wrapper: writes the run's shell files into the run directory first", async () => {
+    const clock = new ManualClock();
+    const fs = new MemoryFs();
+    const safeChain = {
+      root: `${HOME}/.safe-chain`,
+      shell: "/bin/zsh",
+      path: "/usr/bin:/bin",
+      demoted: [],
+      dropped: [],
+      probe: PROBE,
+      shellDir: `${RUN_DIR}/safe-chain`,
+    };
+    const ctx = context({ safeChain });
+    const layout = selfTestLayout({ ...PATHS, nonce: NONCE, safeChainProbe: PROBE });
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([layout.command]),
+      onSession: () => {
+        fs.files.set(layout.resultsFile, `${BLOCKED_RESULTS}safe-chain exit 0\n`);
+        fs.files.set(layout.controlFile, "");
+      },
+    });
+    const runPlan = plan(spec(), ctx);
+    const runSettings = runPlan.files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
+    const report = await runSelfTest(
+      { spec: spec(), ctx, runSettings, runFiles: runPlan.files },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+    );
+    expect(report.verdict).toEqual({ ok: true });
+    expect(fs.executableWrites).toEqual(new Set([`${RUN_DIR}/safe-chain/zsh`]));
+    expect(fs.files.get(`${RUN_DIR}/safe-chain/.zshenv`)).toContain("init-posix.sh");
+    const session = fake.calls.find((call) => call.cmd.includes("-p"));
+    expect(session?.env?.["CLAUDE_CODE_SHELL"]).toBe(`${RUN_DIR}/safe-chain/zsh`);
+    expect(fs.files.get(`${RUN_DIR}/self-test/${SETTINGS_FILE}`)).toBe(runSettings);
+
+    // Without the run's files the check cannot run.
+    const missing = await runSelfTest(
+      { spec: spec(), ctx, runSettings },
+      { spawn: fake.spawn, clock, fs: new MemoryFs(), sessionId: SELF_TEST_SESSION },
+    );
+    expect(missing.verdict).toMatchObject({ ok: false, unsafe: false, probe: "safe-chain" });
+  });
+});

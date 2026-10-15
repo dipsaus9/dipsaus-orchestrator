@@ -9,6 +9,14 @@ import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
 import { DEFAULT_PERMISSION_WAIT_SECONDS, HOOK_BUNFIG_FILE, hookSettings } from "./hooks";
+import {
+  SAFE_CHAIN_SHELL_DIR,
+  safeChainReadPaths,
+  safeChainShellFiles,
+  safeChainShellPath,
+  SHELL_SNAPSHOTS_DIR,
+  type SafeChainLaunch,
+} from "./safe-chain";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
 /** Run settings file, in the run directory (0008 section 10). */
@@ -109,6 +117,13 @@ export interface ClaudeLaunchContext {
    * wait for the maintainer; its hook timeout is 30 s above it. 300 by default.
    */
   readonly permissionWaitSeconds?: number;
+  /**
+   * The official Safe-Chain install found at launch (DIPO-82), absent when there is none. Then
+   * Claude Code's shell is the wrapper in `shellDir` (`<runDir>/safe-chain` for a run; its
+   * self-test reuses the run's), the sandbox may read the install's `bin`, `scripts` and `certs`
+   * and the wrapper, and the shell snapshot is read-denied.
+   */
+  readonly safeChain?: SafeChainLaunch & { readonly shellDir: string };
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
@@ -198,6 +213,9 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, home: string) {
   env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
   env.DIPO_RUN = spec.run;
   env.DIPO_HOST_SOCKET = absolute("hostSocket", ctx.hostSocket);
+  if (ctx.safeChain !== undefined) {
+    env.CLAUDE_CODE_SHELL = safeChainShellPath(ctx.safeChain.shellDir, ctx.safeChain);
+  }
   return env;
 }
 
@@ -259,6 +277,10 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       expandHome("sandbox.toolchainReadPaths", path, home),
     ),
     ...ctx.sandbox.allowRead.map((path) => expandHome("sandbox.allowRead", path, home)),
+    // Read only, and only what `safe-chain` opens plus the shell wrapper (DIPO-82).
+    ...(ctx.safeChain === undefined
+      ? []
+      : [...safeChainReadPaths(ctx.safeChain.root), ctx.safeChain.shellDir]),
   ]);
   return {
     enabled: true,
@@ -268,7 +290,12 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       allowWrite: [workdir, tmp],
       // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
       // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
-      denyRead: [`${home}/Library/Keychains`],
+      // With Safe-Chain the shell snapshot stays closed too: its functions would replace the
+      // official Safe-Chain ones the wrapper loads (DIPO-82).
+      denyRead: [
+        `${home}/Library/Keychains`,
+        ...(ctx.safeChain === undefined ? [] : [`${home}/${SHELL_SNAPSHOTS_DIR}`]),
+      ],
       denyWrite: [
         `${main}/.git`,
         `${workdir}/.git`,
@@ -363,10 +390,17 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     }
   }
   const mcpConfig = ctx.mcpConfig === undefined ? undefined : absolute("mcpConfig", ctx.mcpConfig);
+  // The Safe-Chain wrapper also runs outside the sandbox (Claude Code's shell snapshot), so the
+  // worker must not be able to change it.
+  const shellDir =
+    ctx.safeChain === undefined
+      ? undefined
+      : absolute("safeChain.shellDir", ctx.safeChain.shellDir);
   for (const [label, path] of [
     ["runDir", runDir],
     ["systemFile", systemFile],
     ["mcpConfig", mcpConfig],
+    ["safeChain.shellDir", shellDir],
   ] as const) {
     if (path !== undefined && isInside(path, workdir)) {
       throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
@@ -420,6 +454,11 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
       // Run from source, the hooks start Bun with this empty config (`hookCommandLine`).
       ...(spec.hookRelay && (ctx.hookCommand?.length ?? 0) > 1
         ? [{ name: HOOK_BUNFIG_FILE, content: "" }]
+        : []),
+      // The Safe-Chain shell wrapper and its init file (DIPO-82); a self-test, whose run
+      // directory differs, uses the run's.
+      ...(ctx.safeChain !== undefined && shellDir === `${runDir}/${SAFE_CHAIN_SHELL_DIR}`
+        ? safeChainShellFiles(ctx.safeChain, shellDir)
         : []),
     ],
     stdin: [userMessageLine(spec.taskMessage)],

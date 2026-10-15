@@ -27,6 +27,8 @@ import { initialState, interpret, nextSessionOptions, type ClaudeParseState } fr
 import { prepareLaunch } from "./launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
+import { expandHome } from "../../sandbox/policy";
+import { SAFE_CHAIN_SHELL_DIR, type SafeChainInput, type SafeChainLaunch } from "./safe-chain";
 import { checkResume } from "./resume-check";
 import { result } from "./result";
 
@@ -93,11 +95,19 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * it the hooks are not registered, so a spec that asks for the hook relay cannot be planned.
    */
   readonly dipoCommand?: readonly [string, ...string[]];
+  /**
+   * Finds Safe-Chain at launch (DIPO-82; `detectSafeChain` in the daemon). Without it, or when it
+   * returns null, the launch is as on a machine without Safe-Chain.
+   */
+  readonly detectSafeChain?: (input: SafeChainInput) => SafeChainLaunch | null;
 }
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
 export function claudeLaunchContext(
-  deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env" | "dipoCommand">,
+  deps: Pick<
+    ClaudeWorkerPortDeps,
+    "claudePath" | "home" | "env" | "dipoCommand" | "detectSafeChain"
+  >,
   paths: RunLaunchPaths,
   config: OfficeConfig,
 ): ClaudeLaunchContext {
@@ -106,6 +116,13 @@ export function claudeLaunchContext(
       "claude was not found on the daemon's PATH; install Claude Code and restart the daemon with it on PATH",
     );
   }
+  const safeChain = deps.detectSafeChain?.({
+    home: deps.home,
+    env: deps.env,
+    readPaths: [...config.sandbox.toolchainReadPaths, ...config.sandbox.allowRead].map((path) =>
+      expandHome(path, deps.home),
+    ),
+  });
   return {
     claudePath: deps.claudePath,
     home: deps.home,
@@ -118,6 +135,9 @@ export function claudeLaunchContext(
     sandbox: config.sandbox,
     ...(deps.dipoCommand === undefined ? {} : { hookCommand: deps.dipoCommand }),
     permissionWaitSeconds: config.timeouts.permissionWaitSeconds,
+    ...(safeChain === null || safeChain === undefined
+      ? {}
+      : { safeChain: { ...safeChain, shellDir: `${paths.runDir}/${SAFE_CHAIN_SHELL_DIR}` } }),
   };
 }
 

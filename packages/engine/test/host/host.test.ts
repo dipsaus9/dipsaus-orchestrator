@@ -348,6 +348,56 @@ describe("worker host in-process", () => {
       ]);
     }));
 
+  it("writes a plan file one directory deep, executable when the plan says so (DIPO-82)", () =>
+    withTempDir(async (dir) => {
+      const { runDir, launch } = setup(dir);
+      const files = [
+        ...launch.plan.files,
+        { name: "safe-chain/zsh", content: "#!/bin/sh\n", executable: true },
+        { name: "safe-chain/.zshenv", content: ". init\n" },
+      ];
+      writeFileSync(
+        join(runDir, LAUNCH_FILE),
+        JSON.stringify({ ...launch, plan: { ...launch.plan, files } }),
+      );
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock: new ManualClock(),
+        spawn: () => {
+          throw new Error("ENOENT: claude");
+        },
+        killGroup: () => {},
+        pid: 783,
+      });
+      await host.done;
+      expect(readFileSync(join(runDir, "safe-chain/zsh"), "utf8")).toBe("#!/bin/sh\n");
+      expect(statSync(join(runDir, "safe-chain/zsh")).mode & 0o777).toBe(0o700);
+      expect(statSync(join(runDir, "safe-chain/.zshenv")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(runDir, "safe-chain")).mode & 0o777).toBe(0o700);
+    }));
+
+  it("refuses plan file names deeper than one directory or leaving the run directory", () =>
+    withTempDir((dir) => {
+      const { runDir, launch } = setup(dir);
+      for (const name of ["a/b/c", "../x", "safe-chain/..", "/abs", "a//b"]) {
+        const bad = { ...launch, plan: { ...launch.plan, files: [{ name, content: "x" }] } };
+        writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(bad));
+        expect(() =>
+          WorkerHost.start({
+            runId: RUN,
+            runDir,
+            clock: new ManualClock(),
+            spawn: () => {
+              throw new Error("not reached");
+            },
+            killGroup: () => {},
+            pid: 784,
+          }),
+        ).toThrow("at most one directory deep");
+      }
+    }));
+
   it("refuses plan files that would replace a file the host writes", () =>
     withTempDir((dir) => {
       const { runDir, launch } = setup(dir);

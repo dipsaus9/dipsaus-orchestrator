@@ -122,7 +122,7 @@ export async function claudeLaunchChecks(
   if (!credentials.ok) return { ok: false, failures: [credentials.failure] };
 
   const report = await runSelfTest(
-    { spec, ctx, runSettings: settingsOf(launch) },
+    { spec, ctx, runSettings: settingsOf(launch), runFiles: launch.files },
     {
       spawn: deps.spawn,
       clock: deps.clock,
