@@ -275,8 +275,7 @@ export const PARKED_OUTCOME = "parked";
  * One end is not always the last (DIPO-75): a run parked `needs-permission` is reopened when the
  * maintainer answers the park's question (`reopenParkedRun`): `ended_at` is cleared, the
  * `run_outcomes` row removed and the parked time added to `parked_ms`, so the next end writes the
- * row again with every park of the run and the minutes it worked. This awaits an ADR 0007
- * amendment the maintainer is asked about.
+ * row again with every park of the run and the minutes it worked (0007 amendment of 2026-10-15).
  */
 export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
   const ended = office.run(
