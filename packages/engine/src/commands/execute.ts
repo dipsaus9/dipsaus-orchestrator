@@ -22,6 +22,7 @@ import {
   type IdSource,
   OfficeId,
   type RequestId,
+  type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, headCursor, type NewEntry } from "../changelog/log";
@@ -45,6 +46,12 @@ import {
   saveOfficeRequest,
 } from "./requests";
 import { findStoryRefFields, resolveStoryRefs } from "./story-refs";
+
+/**
+ * How long a command waits for the story refreshes before it resolves its story references with the
+ * state it has (DIPO-104); a remote that does not answer then gives `story.unknown` promptly.
+ */
+export const STORY_REFRESH_MS = 3_000;
 
 export interface ExecutorDeps {
   readonly registry: Registry;
@@ -362,11 +369,14 @@ async function handleSoftwareCommand(
  * A story merged to the base since the last poll stays unknown to the office until an index pass
  * reads it (DIPO-104). When the args name a story the office does not know, the registered story
  * refreshes (a fetch, and an index pass when `_base` moved) run once first; the command then
- * resolves as usual and fails with `story.unknown` only when the story is still missing.
+ * resolves as usual and fails with `story.unknown` only when the story is still missing. A retry
+ * with a stored reply refreshes nothing, and the refreshes get at most `STORY_REFRESH_MS` on the
+ * office clock; past that the command resolves with the state it has.
  */
 async function refreshUnknownStories(
   deps: ExecutorDeps,
   command: Extract<RegisteredCommand, { level: "office" }>,
+  request: CommandRequest,
   officeId: OfficeId,
   office: OfficeHandle,
   args: unknown,
@@ -377,7 +387,17 @@ async function refreshUnknownStories(
   if (fields.length === 0) return;
   const resolved = resolveStoryRefs(office, fields, args);
   if (resolved.ok || resolved.error.code !== "story.unknown") return;
-  for (const { refresh } of refreshes) await refresh(officeId).catch(() => undefined);
+  if (findOfficeRequest(office, request.requestId, deps.clock.now()) !== null) return;
+  const all = Promise.all(refreshes.map(({ refresh }) => refresh(officeId).catch(() => undefined)));
+  let timer: TimerHandle | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = deps.clock.setTimeout(resolve, STORY_REFRESH_MS);
+  });
+  try {
+    await Promise.race([all, deadline]);
+  } finally {
+    if (timer !== undefined) deps.clock.clearTimeout(timer);
+  }
 }
 
 /**
@@ -433,7 +453,7 @@ export async function executeCommand(
   // The office's engine instance loads on its first command (0006 decision 4, DIPO-27).
   const access = await deps.offices.load(officeId);
   if (!access.ok) return failure(requestId, access.error);
-  await refreshUnknownStories(deps, command, officeId, access.office, parsed.data);
+  await refreshUnknownStories(deps, command, request, officeId, access.office, parsed.data);
   if (command.waits) {
     return runAsyncOfficeCommand(deps, command, access.office, request, parsed.data);
   }

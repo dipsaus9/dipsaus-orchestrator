@@ -14,7 +14,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { readLogState } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { CommandError } from "../../src/commands/errors";
-import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
+import { executeCommand, type ExecutorDeps, STORY_REFRESH_MS } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
 import { MemoryRequestTable, REQUEST_TTL_MS } from "../../src/commands/requests";
@@ -347,6 +347,7 @@ describe("executeCommand", () => {
       const refreshed: string[] = [];
       let merged: string | null = null;
       let failRefresh = false;
+      let mergedKey: ReturnType<typeof seedStory>["key"] | null = null;
       const refreshFeature: FeatureModule = {
         name: "test/refresh",
         register: (registry) =>
@@ -354,7 +355,7 @@ describe("executeCommand", () => {
             refreshed.push(office);
             if (failRefresh) throw new Error("the remote does not answer");
             // The refresh reads a story merged to the base since the last poll.
-            if (merged !== null) seedStory(s, merged);
+            if (merged !== null) mergedKey = seedStory(s, merged).key;
           }),
       };
       const s = await setup(dir, [refreshFeature]);
@@ -382,6 +383,45 @@ describe("executeCommand", () => {
         );
         expect(refreshed).toHaveLength(3);
         expect(s.calls.touch).toBe(2);
+
+        // A retry with a stored reply refreshes nothing, even when its story is gone.
+        failRefresh = false;
+        const story = mergedKey;
+        if (story === null) throw new Error("DIPO-8 was not merged");
+        s.office.immediate(() => removeStory(s.office, story, s.clock.now()));
+        expect(await touch(s, R2, { story: "DIPO-8", text: "x" })).toEqual(reply);
+        expect(refreshed).toHaveLength(3);
+      } finally {
+        s.state.close();
+      }
+    }));
+
+  it("resolves with the state it has when the story refresh outlasts its deadline", () =>
+    withTempDir(async (dir) => {
+      let calls = 0;
+      const hanging: FeatureModule = {
+        name: "test/hanging-refresh",
+        register: (registry) =>
+          registry.registerStoryRefresh("test.hanging", () => {
+            calls += 1;
+            return new Promise<void>(() => undefined);
+          }),
+      };
+      const s = await setup(dir, [hanging]);
+      try {
+        const pending = touch(s, R1, { story: "DIPO-404", text: "x" });
+        let settled = false;
+        void pending.then(() => {
+          settled = true;
+        });
+        while (s.clock.pendingTimers === 0) await Bun.sleep(0);
+        expect(calls).toBe(1);
+        s.clock.advance(STORY_REFRESH_MS - 1);
+        await Bun.sleep(0);
+        expect(settled).toBe(false);
+        s.clock.advance(1);
+        expect(errorCode(await pending)).toBe("story.unknown");
+        expect(s.clock.pendingTimers).toBe(0);
       } finally {
         s.state.close();
       }
