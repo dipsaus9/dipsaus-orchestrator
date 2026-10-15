@@ -4,12 +4,24 @@ title: Let workers install packages through Safe-Chain
 status: To Do
 assignee: []
 created_date: '2026-10-15 14:10'
-updated_date: '2026-10-15 14:23'
+updated_date: '2026-10-15 14:39'
 labels:
   - 'tier:M'
 milestone: m-0
 dependencies:
   - DIPO-82
+references:
+  - packages/engine/src/workers/claude-cli
+  - packages/engine/src/sandbox
+  - packages/engine/src/platform/safe-chain-proxy.ts
+  - packages/engine/src/run/verify-commit.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/index.ts
+  - packages/engine/test/workers
+  - packages/engine/test/sandbox
+  - packages/engine/test/run
+  - packages/daemon/src
+  - packages/cli/src
 priority: high
 ordinal: 74000
 ---
@@ -28,6 +40,7 @@ Context: the maintainer decided on 2026-10-15: workers always use Safe-Chain fro
 - [ ] #2 dipo run --dry-run shows the opened hosts, local binding and write paths with the reason (Safe-Chain installs), and the self-test or launch check reports clearly when Safe-Chain is present but installs cannot work.
 - [ ] #3 The approved ADR 0008 amendment for installs through Safe-Chain is recorded, and tests cover the plan with and without Safe-Chain.
 - [ ] #4 With Safe-Chain detected, workers install through a Safe-Chain checking proxy that dipo runs outside the worker sandbox (maintainer decision 2026-10-15, option B): the worker sandbox keeps allowLocalBinding false and localhost closed, its network reaches only that proxy route to the package registries (npm, yarn, pypi as measured) and Aikido's malware list, install caches go to the run temp dir, and ~/.safe-chain stays read-only. A machine without Safe-Chain launches exactly as before.
+- [ ] #5 When a run's committed changes include dependency files (package.json, bun.lock, bun.lockb, package-lock.json, pnpm-lock.yaml, yarn.lock, requirements*.txt, pyproject.toml, poetry.lock, uv.lock), dipo raises an engine notice on the run and story naming the changed files, detected by code from the run's diff at commit time with no model involved, so the maintainer sees new packages at review.
 <!-- AC:END -->
 
 ## Implementation Notes
