@@ -445,6 +445,13 @@ export function readHostMarker(runDir: string, runId: string, agentId: string): 
   return parsed.data.pid;
 }
 
+/**
+ * How long after its pending row is written a host process can have started (DIPO-93): the row is
+ * written right before the spawn, and the spawn returns at once. A process that started later is
+ * not the host, whatever its command says.
+ */
+export const SPAWN_WINDOW_MS = 5_000;
+
 const CLAIMED_PREFIX = `${LAUNCH_FILE}.claimed.`;
 
 /** A launch file a host claimed for `agent` but has not removed yet: its PID and path. */
@@ -492,7 +499,7 @@ export type PendingResolution =
  *    claimed file, then the marker again, give the PID; with neither nothing ran.
  *
  * A PID is taken as the host only when the process runs `dipo daemon worker-host <run>` and
- * started no earlier than the row was written; its start time is then recorded. Any other PID
+ * started inside the spawn window (from the row's write to `SPAWN_WINDOW_MS` later, each end widened by the start-time tolerance); its start time is then recorded. Any other PID
  * (gone, reused) is recorded with start time 0, which never matches a living process, so the
  * host is closed out as dead (`exit.json` or lost).
  */
@@ -535,7 +542,8 @@ export async function resolvePendingHost(
     !info.zombie &&
     info.pid === pid &&
     isWorkerHostCommand(info.command, runId) &&
-    info.startTimeMs >= host.startedAt - START_TIME_TOLERANCE_MS;
+    info.startTimeMs >= host.startedAt - START_TIME_TOLERANCE_MS &&
+    info.startTimeMs <= host.startedAt + SPAWN_WINDOW_MS + START_TIME_TOLERANCE_MS;
   // A dead host's claimed launch still holds the task message: it never stays.
   if (!alive && claimed !== null) rmSync(claimed, { force: true });
   office.immediate(() =>

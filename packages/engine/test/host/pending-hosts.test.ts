@@ -14,6 +14,7 @@ import {
   recordWorkerHost,
   resolvePendingHost,
   runDirectory,
+  SPAWN_WINDOW_MS,
   startWorkerHost,
   verifyHostForSignal,
   type WorkerHostRow,
@@ -132,6 +133,21 @@ describe("the pending host row (AC #3)", () => {
 });
 
 describe("resolvePendingHost after a restart (AC #3)", () => {
+  it("accepts a host that started inside the spawn window, up to its far end", async () => {
+    const row = pendingRow();
+    writeFileSync(
+      join(runDir, hostMarkerName(AGENT)),
+      JSON.stringify({ run: RUN, agent: AGENT, pid: 6006 }),
+    );
+    const late = row.startedAt + SPAWN_WINDOW_MS + 1_000;
+    expect(await resolvePendingHost(office, row, probeOf({ startTimeMs: late }))).toEqual({
+      kind: "recorded",
+      pid: 6006,
+      alive: true,
+    });
+    expect(workerHostsOf(office, RUN)[0]?.startTimeMs).toBe(late);
+  });
+
   it("takes the PID from the host's marker and records its start time when it is the host", async () => {
     const row = pendingRow();
     writeFileSync(
@@ -200,6 +216,8 @@ describe("resolvePendingHost after a restart (AC #3)", () => {
       { command: "/usr/bin/vim notes.txt" },
       { command: "/opt/dipo daemon worker-host run_01JZ0000000000000000000009" },
       { startTimeMs: 1 },
+      // Started after the spawn window: a later process that reused the PID.
+      { startTimeMs: t.clock.now() + SPAWN_WINDOW_MS + 3_000 },
       { zombie: true },
     ]) {
       office.immediate(() => office.run("delete from worker_hosts where office_id = $office_id"));
