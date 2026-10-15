@@ -54,6 +54,20 @@ export {
 export type { NewRun, RunKind, RunOutcome, StoredRun, StoredRunStep, RunStepKind } from "./records";
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export {
+  afterRunExits,
+  isRunTempDir,
+  prepareRunTempDir,
+  readRunTempOwner,
+  removeRunTempDir,
+  RUN_TEMP_OWNER_FILE,
+  RUN_TEMP_PREFIX,
+  RUN_TEMP_SWEEP_STEP,
+  RunTempDirs,
+  runTempDir,
+  runTempOwner,
+} from "./temp-dirs";
+export type { RunTempDirsDeps, RunTempSweep } from "./temp-dirs";
+export {
   followOnlyReason,
   HOST_CONNECT_TIMEOUT_MS,
   hostRequestOf,
