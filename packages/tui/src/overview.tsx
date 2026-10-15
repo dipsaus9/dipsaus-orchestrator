@@ -9,11 +9,20 @@
 // with its share, elapsed time and model; from 80 to 119 phase, health, criteria and budget; from
 // 60 to 79 each run is a two-line card with the `now` text on its second line. The board is cut
 // to the rows it has room for, running rows first, so the footer with `[q] quit` stays on screen.
-// The selected run is marked with `>`; Enter opens its live detail (DIPO-55). Lines are memoised
-// by their text and cut to the width.
+// The selected row is marked with `>`; `j`/`k` move over every row and Enter opens it: a running
+// story's live detail (DIPO-55), or the latest run of a story that ran (DIPO-81). Lines are
+// memoised by their text and cut to the width.
 
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
-import type { Clock, GateView, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
+import type {
+  Clock,
+  GateView,
+  RunId,
+  StoryId,
+  StoryKey,
+  StoryView,
+  WorkView,
+} from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 import { memo, useEffect, useState } from "react";
 
@@ -192,6 +201,30 @@ function waitingStories(state: OfficeStoreState) {
   };
 }
 
+/** One selectable board row: a story, with its run while it runs. */
+export interface BoardEntry {
+  readonly key: StoryKey;
+  readonly story: StoryId;
+  readonly run: RunId | null;
+}
+
+/** The board's selectable rows in screen order: running, needs you, in review, Ready. */
+export function boardEntries(state: OfficeStoreState): BoardEntry[] {
+  const { needs, review, ready } = waitingStories(state);
+  return [
+    ...state.work.map((view) => ({
+      key: view.work.key,
+      story: view.work.story,
+      run: view.work.run,
+    })),
+    ...[...needs, ...review, ...ready].map((story) => ({
+      key: story.key,
+      story: story.story,
+      run: null,
+    })),
+  ];
+}
+
 interface Widths {
   readonly story: number;
   readonly title: number;
@@ -260,7 +293,7 @@ function sections(options: {
   };
   const running = state.work.map((view, i): BoardRow => {
     const row = runCells[i]!;
-    const selected = view.work.run === options.selected;
+    const selected = String(view.work.key) === options.selected;
     const marker = selected ? ">" : " ";
     const title = titleOf.get(String(view.work.key)) ?? "";
     const nowText = boardNow({
@@ -284,7 +317,7 @@ function sections(options: {
     }
     const run = String(view.work.run);
     return {
-      key: run,
+      key: String(view.work.key),
       lines: [
         selected
           ? { key: `${run}:row`, text: first, tone: "selected" }
@@ -296,15 +329,18 @@ function sections(options: {
 
   const tier = (story: StoryView) =>
     width === "full" && story.tier !== undefined ? `${story.tier}  ` : "";
-  const line = (story: StoryView, note: string): BoardRow => ({
-    key: String(story.key),
-    lines: [
-      {
-        key: String(story.key),
-        text: `${head(String(story.story), story.title, widths, ellipsis)}  ${note}`,
-      },
-    ],
-  });
+  const line = (story: StoryView, note: string): BoardRow => {
+    const selected = String(story.key) === options.selected;
+    const text = `${head(String(story.story), story.title, widths, ellipsis, selected ? ">" : " ")}  ${note}`;
+    return {
+      key: String(story.key),
+      lines: [
+        selected
+          ? { key: String(story.key), text, tone: "selected" }
+          : { key: String(story.key), text },
+      ],
+    };
+  };
   const needsRows = needs.map((story) => {
     const gate = gated.get(String(story.key));
     if (gate !== undefined && story.column !== "desk") {
@@ -322,65 +358,85 @@ function sections(options: {
   const readyRows = ready.map((story, i) =>
     line(story, `${tier(story)}Ready${i === 0 ? ` ${dot} [2] queue, then u` : ""}`),
   );
-  const keep = state.work.findIndex((view) => view.work.run === options.selected);
+  const section = (title: string, rows: BoardRow[]): Section => {
+    const keep = rows.findIndex((row) => row.key === options.selected);
+    return keep === -1 ? { title, rows } : { title, rows, keep };
+  };
   return [
-    { title: "RUNNING", rows: running, ...(keep === -1 ? {} : { keep }) },
-    { title: "NEEDS YOU", rows: needsRows },
-    { title: "IN REVIEW", rows: reviewRows },
-    { title: "READY", rows: readyRows },
+    section("RUNNING", running),
+    section("NEEDS YOU", needsRows),
+    section("IN REVIEW", reviewRows),
+    section("READY", readyRows),
+  ];
+}
+
+/** The lines a section takes when it gets `space` lines: all of it, or a window with its kept row. */
+function cutSection(section: Section, space: number, ellipsis: string): BoardLine[] {
+  const title: BoardLine = {
+    key: `section:${section.title}`,
+    text: ` ${section.title} (${section.rows.length})`,
+    tone: "section",
+  };
+  const need = 1 + section.rows.reduce((sum, row) => sum + row.lines.length, 0);
+  if (need <= space) return [title, ...section.rows.flatMap((row) => row.lines)];
+  if (space < 2) return [];
+  // The title and the "more" line take two lines; whole rows fill the rest.
+  const rowSpace = space - 2;
+  const fitting = (from: number) => {
+    let used = 0;
+    let count = 0;
+    for (const row of section.rows.slice(from)) {
+      if (used + row.lines.length > rowSpace) break;
+      used += row.lines.length;
+      count += 1;
+    }
+    return count;
+  };
+  const keep = Math.min(section.keep ?? 0, section.rows.length - 1);
+  let start = 0;
+  let shown = fitting(0);
+  while (start < keep && keep >= start + shown) {
+    start += 1;
+    shown = fitting(start);
+  }
+  return [
+    title,
+    ...section.rows.slice(start, start + shown).flatMap((row) => row.lines),
+    { key: `more:${section.title}`, text: `   ${ellipsis} ${section.rows.length - shown} more` },
   ];
 }
 
 /**
  * The sections cut to `height` lines, in their order, which is their order of importance. A
  * section that does not fit shows its title, the whole rows that fit (always with its kept row)
- * and a line with the number left out; the sections after it are left out.
+ * and a line with the number left out. Room for the selected row's section (title, the row and
+ * the "more" line) is kept first, so the selection stays on screen.
  */
 export function fitSections(
   list: readonly Section[],
   height: number,
   ellipsis: string,
 ): BoardLine[] {
+  const selected = list.findIndex(
+    (section) => section.keep !== undefined && section.rows.length > 0,
+  );
+  const kept = list[selected];
+  const reserve =
+    kept === undefined
+      ? 0
+      : 1 + (kept.rows[kept.keep ?? 0]?.lines.length ?? 0) + (kept.rows.length > 1 ? 1 : 0);
   let room = height;
   const out: BoardLine[] = [];
-  for (const section of list) {
+  for (const [i, section] of list.entries()) {
     if (section.rows.length === 0) continue;
-    const title: BoardLine = {
-      key: `section:${section.title}`,
-      text: ` ${section.title} (${section.rows.length})`,
-      tone: "section",
-    };
-    const need = 1 + section.rows.reduce((sum, row) => sum + row.lines.length, 0);
-    if (need <= room) {
-      out.push(title, ...section.rows.flatMap((row) => row.lines));
-      room -= need;
-      continue;
+    const space = room - (i < selected ? reserve : 0);
+    const lines = cutSection(section, Math.max(0, space), ellipsis);
+    out.push(...lines);
+    room -= lines.length;
+    // A cut section ends the board, unless the selected section still follows.
+    if (lines.length === 0 || lines.at(-1)?.key.startsWith("more:")) {
+      if (i >= selected) break;
     }
-    if (room < 2) break;
-    // The title and the "more" line take two lines; whole rows fill the rest.
-    const space = room - 2;
-    const fitting = (from: number) => {
-      let used = 0;
-      let count = 0;
-      for (const row of section.rows.slice(from)) {
-        if (used + row.lines.length > space) break;
-        used += row.lines.length;
-        count += 1;
-      }
-      return count;
-    };
-    const keep = Math.min(section.keep ?? 0, section.rows.length - 1);
-    let start = 0;
-    let shown = fitting(0);
-    while (start < keep && keep >= start + shown) {
-      start += 1;
-      shown = fitting(start);
-    }
-    out.push(title, ...section.rows.slice(start, start + shown).flatMap((row) => row.lines), {
-      key: `more:${section.title}`,
-      text: `   ${ellipsis} ${section.rows.length - shown} more`,
-    });
-    break;
   }
   return out;
 }
@@ -430,7 +486,7 @@ export function Overview(props: {
   clock: Clock;
   /** The newest output lines of the running runs; null until an office is open. */
   latest: LatestLines | null;
-  /** The selected run, marked with `>`; Enter opens its detail. */
+  /** The selected row by story key, marked with `>`; Enter opens it. */
   selected?: string | null;
 }) {
   const { state, display, width, columns } = props;

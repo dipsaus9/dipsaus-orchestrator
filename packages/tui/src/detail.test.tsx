@@ -348,7 +348,7 @@ describe("live agent detail", () => {
     expect(frame).toContain("> RUNNING (3) DIPO-21");
   });
 
-  it("Enter on a story that is not running says so", async () => {
+  it("Enter on a story that never ran says it has not run yet (DIPO-81)", async () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     await view.ui.waitFor("· live");
@@ -356,6 +356,6 @@ describe("live agent detail", () => {
     await view.ui.waitFor("next Ready story");
     await view.ui.press("j");
     await view.ui.press("enter");
-    await view.ui.waitFor("DIPO-30 is not running");
+    await view.ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
   });
 });

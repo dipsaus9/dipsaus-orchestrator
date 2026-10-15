@@ -16,6 +16,7 @@ import {
   type EngineError,
   type OfficeId,
   officeOpen,
+  storyDetail,
   workOutputRange,
   workRun,
   workStop,
@@ -181,6 +182,22 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
             ...(request.to === undefined ? {} : { to: request.to }),
           });
           return outcome.ok ? { ok: true, result: outcome.result } : outcome;
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readStory: async (request) => {
+        try {
+          const outcome = await connected.read(storyDetail, {
+            office: request.office,
+            story: request.story,
+          });
+          return outcome.ok
+            ? { ok: true, result: { view: outcome.result.view, runs: outcome.result.runs } }
+            : outcome;
         } catch (error) {
           return {
             ok: false,

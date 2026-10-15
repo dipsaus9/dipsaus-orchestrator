@@ -10,7 +10,7 @@ import type {
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
-import { App, type RunOutcome, type StopOutcome, type TuiActions } from "../app";
+import { App, type RunOutcome, type StopOutcome, type StoryOutcome, type TuiActions } from "../app";
 import type { Display } from "../options";
 import type { RangeOutcome } from "../output";
 import { FakeSession } from "./fake-session";
@@ -101,6 +101,11 @@ export async function mount(options: MountOptions = {}) {
           ...(request.to === undefined ? {} : { to: request.to }),
         } as never,
       )) as RangeOutcome,
+    readStory: async (request) =>
+      (await session.read(
+        { name: "story.detail" } as never,
+        { office: request.office, story: request.story } as never,
+      )) as StoryOutcome,
     stopStory: async (request) =>
       (await session.command({ name: "work.stop" } as never, { story: request.story } as never, {
         office: request.office,

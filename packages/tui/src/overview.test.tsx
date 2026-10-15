@@ -9,6 +9,7 @@ import type {
   Event,
   OfficeId,
   OfficeSnapshot,
+  RunRecord,
   StoryView,
   WorkView,
 } from "@dipsaus-orchestrator/contract";
@@ -319,5 +320,134 @@ describe("fitSections", () => {
       "c1",
       "   … 2 more",
     ]);
+  });
+});
+
+const KEY_28 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C28";
+const RUN_28 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C28";
+
+/** DIPO-28's one stored run: it ended two hours before the test clock (10:04). */
+function record28(endedAt = "2026-10-14T08:04:00.000Z"): RunRecord {
+  return {
+    run: RUN_28,
+    agents: ["agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C28"],
+    role: "developer",
+    tier: "L",
+    model: "claude-haiku",
+    startedAt: "2026-10-14T07:00:00.000Z",
+    endedAt,
+    outcome: "completed",
+    usage: {
+      inputTokens: 12_000,
+      outputTokens: 3_400,
+      cacheCreateTokens: 0,
+      cacheReadTokens: 50_000,
+      turns: 14,
+      elapsedMs: 3_840_000,
+      estimatedCost: 0.12,
+    },
+  } as RunRecord;
+}
+
+/** Selects DIPO-28 (In Review) from the top: three running rows and DIPO-26 come first. */
+async function selectReview(ui: {
+  press(key: string): Promise<void>;
+  waitFor(text: string): Promise<string>;
+}) {
+  for (let i = 0; i < 4; i++) await ui.press("j");
+  return ui.waitFor(">DIPO-28");
+}
+
+describe("opening any board row (DIPO-81)", () => {
+  it("j and k move over every section, running first", async () => {
+    const { ui } = await open(120, 30, boardSnapshot());
+    for (const story of ["DIPO-24", "DIPO-19", "DIPO-26", "DIPO-28", "DIPO-30", "DIPO-32"]) {
+      await ui.press("j");
+      await ui.waitFor(`>${story}`);
+    }
+    await ui.press("j");
+    expect(ui.frame()).toContain(">DIPO-32");
+    await ui.press("k");
+    await ui.waitFor(">DIPO-30");
+    expect(ui.frame()).toContain(" DIPO-21 ");
+    expect(ui.frame()).not.toContain(">DIPO-21");
+  });
+
+  it("Enter on an In Review row opens its last run with the stored output; Esc goes back", async () => {
+    const { ui, session } = await open(120, 30, boardSnapshot());
+    session.runs.set(KEY_28, [record28()]);
+    session.output.set(`${RUN_28}:worker`, "Reading the story.\n[tool] Edit src/queue.ts\nDone.\n");
+    session.output.set(`${RUN_28}:verify`, "$ bun run verify\nall green\n");
+    await selectReview(ui);
+    await ui.press("enter");
+    let frame = await ui.waitFor("│ Done.");
+    const shown = lines(frame);
+    expect(shown.slice(0, 5)).toEqual([
+      " dipsaus-orchestrator · daemon running · live",
+      ` DIPO-28 Show the merge queue · developer · L · claude-haiku · ${RUN_28}`,
+      " run ended · DIPO-28 is In Review",
+      " run      ended 2h ago (completed)   │ output (worker) [w]orker* [v]erify",
+      " role     developer                  │ Reading the story.",
+    ]);
+    expect(frame).toContain(" model    claude-haiku");
+    expect(frame).toContain("│ Done.");
+    expect(frame).toContain(" usage    in 12k out 3k");
+    expect(shown.at(-1)).toBe(
+      " [w]orker [v]erify  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
+    );
+    expect(session.reads).toContainEqual({
+      name: "story.detail",
+      args: { office: OFFICES.dipsaus, story: KEY_28 },
+    });
+    await ui.press("v");
+    frame = await ui.waitFor("│ all green");
+    // X does nothing on an ended run.
+    await ui.press("X");
+    await ui.waitFor("this run has ended; there is no worker to stop");
+    expect(session.commands).toEqual([]);
+    await ui.press("escape");
+    frame = await ui.waitFor("RUNNING (3)");
+    expect(frame).toContain(">DIPO-28 Show the merge queue");
+  });
+
+  it("says the output was removed after the retention period, or that none was stored", async () => {
+    const old = await open(120, 30, boardSnapshot());
+    old.session.runs.set(KEY_28, [record28("2026-10-05T08:00:00.000Z")]);
+    await selectReview(old.ui);
+    await old.ui.press("enter");
+    let frame = await old.ui.waitFor("run ended · DIPO-28 is In Review");
+    frame = await old.ui.waitFor("│ output removed after the retention period");
+
+    const recent = await open(80, 30, boardSnapshot());
+    recent.session.runs.set(KEY_28, [record28()]);
+    await selectReview(recent.ui);
+    await recent.ui.press("enter");
+    frame = await recent.ui.waitFor(" no output stored");
+    expect(frame).toContain(" run ended 2h ago (completed)  role developer");
+    expect(lines(frame).at(-1)).toContain("[q] quit");
+  });
+
+  it("Enter on a Ready row that never ran says so in the footer", async () => {
+    const { ui } = await open(120, 30, boardSnapshot());
+    for (let i = 0; i < 5; i++) await ui.press("j");
+    await ui.waitFor(">DIPO-30");
+    await ui.press("enter");
+    const frame = await ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
+    expect(frame).toContain("RUNNING (3)");
+    expect(lines(frame).at(-1)).toContain("[q] quit");
+  });
+
+  it("keeps [q] quit visible in an ended run's detail at every width", async () => {
+    for (const columns of [120, 80, 70, 60]) {
+      const { ui, session } = await open(columns, 24, boardSnapshot());
+      session.runs.set(KEY_28, [record28()]);
+      await selectReview(ui);
+      await ui.press("enter");
+      const frame = await ui.waitFor("run ended");
+      const shown = lines(frame);
+      expect(shown.at(-1)).toContain("[q] quit");
+      expect(shown.length).toBeLessThanOrEqual(24);
+      for (const line of shown) expect(line.length).toBeLessThanOrEqual(columns);
+    }
   });
 });

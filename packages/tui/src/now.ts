@@ -46,6 +46,13 @@ export function phaseWord(phase: string): string {
   return PHASE_WORDS[phase] ?? phase;
 }
 
+/** The `now` line of a run that ended: where its story went; null when it left the office. */
+export function endedLine(ended: StoryView | null, dot: string): string {
+  if (ended === null) return `run ended ${dot} the story is no longer in this office`;
+  const parked = ended.parked === undefined ? "" : ` (${ended.parked.reason})`;
+  return `run ended ${dot} ${ended.story} is ${ended.lifecycle}${parked}`;
+}
+
 /**
  * What the worker is doing right now: health, phase, the newest output line and its age. While the
  * phase is verify the newest verify line leads. `ended` set means the run ended (null: the story
@@ -60,11 +67,7 @@ export function nowLine(options: {
   dot: string;
 }): string {
   const { view, ended, worker, verify, now, dot } = options;
-  if (ended !== undefined) {
-    if (ended === null) return `run ended ${dot} the story is no longer in this office`;
-    const parked = ended.parked === undefined ? "" : ` (${ended.parked.reason})`;
-    return `run ended ${dot} ${ended.story} is ${ended.lifecycle}${parked}`;
-  }
+  if (ended !== undefined) return endedLine(ended, dot);
   const parts = [`now  ${healthLabel(view.health)}`, view.phase];
   const newest = newestOutput(view, worker, verify);
   if (newest !== null) {
