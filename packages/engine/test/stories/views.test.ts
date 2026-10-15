@@ -153,7 +153,23 @@ describe("office summary", () => {
         parked: 1,
         onHold: 0,
         waitingOnMaintainer: 1,
+        ready: 0,
       });
+    }));
+
+  it("counts the Ready column as ready (DIPO-81)", () =>
+    withOffice((t, office) => {
+      pass(t, office, [
+        task("TASK-1", { status: "Ready" }),
+        task("TASK-2", { status: "Ready" }),
+        task("TASK-3", { status: "In Progress" }),
+      ]);
+      const summary = deriveOfficeSummary(
+        { office: office.officeId, name: "demo", path: "/repos/demo" },
+        office,
+      );
+      expect(summary.ready).toBe(2);
+      expect(summary.ready).toBe(columnCounts(office).ready);
     }));
 
   it("is the source engine.hello answers with, for every listed office", () =>

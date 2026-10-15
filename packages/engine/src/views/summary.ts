@@ -79,7 +79,7 @@ export interface OfficeIdentity {
  * The summary of one office: `running` counts active runs, `parked` the stories in the `desk` and
  * `held` columns, `onHold` those in `held`, and `waitingOnMaintainer` the parked stories other than
  * on-hold, the open gates waiting on the maintainer and the open questions (DIPO-59; tests count
- * from M1).
+ * from M1), and `ready` the stories in the `ready` column (DIPO-81).
  */
 export function deriveOfficeSummary(identity: OfficeIdentity, office: OfficeHandle): OfficeSummary {
   const counts = columnCounts(office);
@@ -94,6 +94,7 @@ export function deriveOfficeSummary(identity: OfficeIdentity, office: OfficeHand
     parked: desk + held,
     onHold: held,
     waitingOnMaintainer: desk + gates + openQuestions(office).length,
+    ready: counts.ready ?? 0,
   };
 }
 

@@ -56,6 +56,8 @@ async function openDetail(options: { columns?: number; rows?: number; tail?: num
   await view.ui.waitFor("· live");
   await view.ui.press("j");
   await view.ui.waitFor(">DIPO-24");
+  // Only the detail's own reads count; the overview read the tails of every run before (DIPO-81).
+  view.session.reads.splice(0);
   await view.ui.press("enter");
   await view.ui.waitFor("following the tail");
   return view;
@@ -331,7 +333,7 @@ describe("live agent detail", () => {
   it("Esc returns to the overview, or to the queue it came from", async () => {
     const { ui } = await openDetail();
     await ui.press("escape");
-    let frame = await ui.waitFor("STORY");
+    let frame = await ui.waitFor("RUNNING (3)");
     expect(frame).toContain(">DIPO-24");
 
     await ui.press("2");
@@ -346,7 +348,7 @@ describe("live agent detail", () => {
     expect(frame).toContain("> RUNNING (3) DIPO-21");
   });
 
-  it("Enter on a story that is not running says so", async () => {
+  it("Enter on a story that never ran says it has not run yet (DIPO-81)", async () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     await view.ui.waitFor("· live");
@@ -354,6 +356,6 @@ describe("live agent detail", () => {
     await view.ui.waitFor("next Ready story");
     await view.ui.press("j");
     await view.ui.press("enter");
-    await view.ui.waitFor("DIPO-30 is not running");
+    await view.ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
   });
 });
