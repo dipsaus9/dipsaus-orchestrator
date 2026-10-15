@@ -4,7 +4,7 @@ title: Record the exit signal of a worker stopped with SIGTERM
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 20:52'
+updated_date: '2026-10-15 21:09'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -24,6 +24,8 @@ references:
   - packages/engine/test/host/worker-hosts.test.ts
   - packages/engine/test/host/exit-signal.ci.test.ts
   - packages/engine/test/ingest/ingest.test.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/test/workers/result.test.ts
 priority: medium
 type: feature
 ordinal: 78000
