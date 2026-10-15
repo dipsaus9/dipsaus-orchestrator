@@ -4,7 +4,7 @@ title: Answer a needs-permission park with allow once or deny
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-15 11:46'
+updated_date: '2026-10-15 11:53'
 labels:
   - 'tier:M'
   - after-cutover
@@ -72,7 +72,7 @@ test_plan:
 - [ ] #3 Allow once never lifts a sandbox block; for a sandbox-bound action the question says so and points to office config.
 - [ ] #4 For a parked story, `work.answer` with a `decision` resumes only a story parked `needs-permission`; for any other park reason it fails and the story stays Parked.
 - [ ] #5 `dipo answer <question> allow|deny` (DIPO-59) on a park's permission question resumes the story as above and prints the resumed run.
-- [ ] #6 The `needs-permission` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
+- [x] #6 The `needs-permission` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
 - [ ] #7 The DIPO-59 rule that a permission `work.answer` needs `decision` also holds for a park's permission question; a test shows a parked permission answer without `decision` fails with `args.invalid`.
 <!-- AC:END -->
 
