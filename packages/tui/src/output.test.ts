@@ -205,8 +205,8 @@ describe("phase markers (DIPO-83)", () => {
   });
 
   it("take their shown width in rows and on screen, and never become the newest line", () => {
-    const lines = ["[tool] Read a.ts", phase, "done"];
-    expect(visibleRows(lines, 80, 3, 0, true)).toEqual([
+    const held = ["[tool] Read a.ts", phase, "done"];
+    expect(visibleRows(held, 80, 3, 0, true)).toEqual([
       "[tool] Read a.ts",
       `-- ${hms} phase: verify --`,
       "done",
