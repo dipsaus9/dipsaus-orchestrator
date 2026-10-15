@@ -4,10 +4,17 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, workRun } from "@dipsaus-orchestrator/contract";
+import { RECOVERY_POLL_MS } from "@dipsaus-orchestrator/client";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import type { DaemonControl, DaemonSession } from "./daemon-commands";
+import {
+  type DaemonControl,
+  type DaemonSession,
+  engineFailure,
+  REPLY_TIMEOUT_MS,
+  withDaemon,
+} from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
 
@@ -517,3 +524,130 @@ describe("dipo office purge", () => {
     expect(ctx.err).toEqual(["dipo: office.busy: has active work"]);
   });
 });
+
+// DIPO-86: a command refused with `engine.recovering` waits for `daemon.status` to leave
+// `starting` and `recovering` and goes again with the same request id, inside the reply deadline.
+describe("a command against a recovering daemon", () => {
+  const RECOVERING = { code: "engine.recovering", message: "recovering", retryable: true };
+
+  /**
+   * The daemon refuses the first `refusals` commands with `engine.recovering`, then answers with
+   * `answer`; `daemon.status` reports `states` one per poll, the last one repeating.
+   */
+  function recovering(
+    refusals: number,
+    states: string[],
+    answer: unknown = ok({ office: OFFICE, registered: true }),
+    reason?: string,
+  ) {
+    const ctx = fake(() => (refusals-- > 0 ? { ok: false, error: RECOVERING } : answer));
+    const clock = ctx.deps.clock as ManualClock;
+    const ids: unknown[] = [];
+    let polls = 0;
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async () => {
+        const session = await ctx.deps.connectDaemon();
+        return {
+          ...session,
+          command: ((definition: never, args: never, options: { requestId?: unknown }) => {
+            ids.push(options.requestId);
+            return session.command(definition, args, options as never);
+          }) as DaemonSession["command"],
+          read: (async (definition: { name: string }) => {
+            expect(definition.name).toBe("daemon.status");
+            polls += 1;
+            const state = states.length > 1 ? states.shift() : states[0];
+            return { ok: true, result: { state, ...(reason ? { stateReason: reason } : {}) } };
+          }) as DaemonSession["read"],
+        };
+      },
+    };
+    /** Moves the clock poll by poll, letting the replies through after each step. */
+    const advance = async (ms: number) => {
+      for (let at = 0; at < ms; at += RECOVERY_POLL_MS) {
+        await settle();
+        clock.advance(Math.min(RECOVERY_POLL_MS, ms - at));
+      }
+      await settle();
+    };
+    return { ...ctx, deps, ids, advance, polls: () => polls };
+  }
+
+  it("dipo office open waits out two engine.recovering replies and succeeds", async () => {
+    const ctx = recovering(2, ["running"]);
+    const code = main(["office", "open"], ctx.deps);
+    await ctx.advance(2 * RECOVERY_POLL_MS);
+    expect(await code).toBe(0);
+    expect(ctx.sent.map((sent) => sent.name)).toEqual([
+      "office.open",
+      "office.open",
+      "office.open",
+    ]);
+    expect(ctx.ids).toHaveLength(3);
+    expect(new Set(ctx.ids).size).toBe(1);
+    expect(ctx.ids[0]).toEqual(expect.any(String));
+    expect(ctx.polls()).toBe(2);
+    expect(ctx.out).toEqual([`opened /work/app/src as office ${OFFICE}`]);
+    // Half a second of waiting says nothing.
+    expect(ctx.err).toEqual([]);
+  });
+
+  it("says once that it waits when recovery takes longer than a second", async () => {
+    const ctx = recovering(1, ["recovering", "recovering", "recovering", "recovering", "running"]);
+    const code = main(["office", "open"], ctx.deps);
+    await ctx.advance(5 * RECOVERY_POLL_MS);
+    expect(await code).toBe(0);
+    expect(ctx.err).toEqual(["dipo: waiting for the daemon to finish recovering"]);
+    expect(ctx.out).toEqual([`opened /work/app/src as office ${OFFICE}`]);
+  });
+
+  it("names safe mode and resume-scheduling when recovery ends in safe", async () => {
+    const ctx = recovering(1, ["recovering", "safe"], undefined, "crash loop");
+    const code = main(["office", "open"], ctx.deps);
+    await ctx.advance(2 * RECOVERY_POLL_MS);
+    // Office commands run in safe (0006 decision 7); the maintainer is told scheduling is off.
+    expect(await code).toBe(0);
+    expect(ctx.err).toEqual([
+      "dipo: the daemon finished recovering in safe mode (crash loop): scheduling is off until you run `dipo daemon resume-scheduling`.",
+    ]);
+  });
+
+  it("fails a command that schedules work in safe with the safe-mode line, not a timeout", async () => {
+    const off = {
+      code: "scheduling.off",
+      message: "Scheduling is off (crash loop); run `dipo daemon resume-scheduling` to turn it on.",
+      retryable: true,
+    };
+    const ctx = recovering(1, ["safe"], { ok: false, error: off }, "crash loop");
+    const deps = { ...ctx.deps, version: "0.0.0-test" };
+    const code = withDaemon(deps, async (session) => {
+      const outcome = await session.command(workRun, {}, { office: OFFICE });
+      return outcome.ok ? 0 : engineFailure(deps, outcome.error);
+    });
+    await ctx.advance(RECOVERY_POLL_MS);
+    expect(await code).toBe(1);
+    expect(ctx.err).toEqual([
+      "dipo: the daemon finished recovering in safe mode (crash loop): scheduling is off until you run `dipo daemon resume-scheduling`.",
+      "dipo: scheduling.off: Scheduling is off (crash loop); run `dipo daemon resume-scheduling` to turn it on.",
+    ]);
+  });
+
+  it("gives up at the reply deadline with a line that says the daemon is still recovering", async () => {
+    const ctx = recovering(Infinity, ["recovering"]);
+    const code = main(["office", "open"], ctx.deps);
+    await ctx.advance(REPLY_TIMEOUT_MS);
+    expect(await code).toBe(1);
+    await settle();
+    expect(ctx.err).toEqual([
+      "dipo: waiting for the daemon to finish recovering",
+      "dipo: the daemon was still recovering after 10 s; try again shortly, or see `dipo daemon status`.",
+    ]);
+    expect((ctx.deps.clock as ManualClock).pendingTimers).toBe(0);
+  });
+});
+
+/** Lets every queued reply and the code awaiting it run. */
+async function settle(): Promise<void> {
+  await Bun.sleep(0);
+}
