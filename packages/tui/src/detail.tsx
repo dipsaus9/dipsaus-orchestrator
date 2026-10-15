@@ -26,6 +26,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { budgetBar, evidenceOf, marked, percent, tokens, truncate } from "./format";
 import type { Display } from "./options";
+import { nowLine } from "./now";
 import { evidenceEnabled } from "./overview";
 import {
   type FeedChange,
@@ -36,6 +37,9 @@ import {
   visibleRows,
 } from "./output";
 import { clockTime, glyphs, healthLabel } from "./views";
+
+// The `now` line is shared with the overview (DIPO-81).
+export { nowLine, shortAge } from "./now";
 
 /** The run the detail shows; the key finds its story when the id changes. */
 export interface DetailTarget {
@@ -80,45 +84,6 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
     String(work.run),
   ];
   return `${parts.join(` ${dot} `)}${signalFollowOnly(view) ? "  [follow]" : ""}`;
-}
-
-/** An age as `12s`, `4m` or `2h`. */
-export function shortAge(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h`;
-}
-
-/**
- * What the worker is doing right now: health, phase, the newest output line and its age. While the
- * phase is verify the newest verify line leads. Null `view` means the run ended.
- */
-export function nowLine(options: {
-  view: WorkView;
-  ended: StoryView | null | undefined;
-  worker: string | null;
-  verify: string | null;
-  now: number;
-  dot: string;
-}): string {
-  const { view, ended, worker, verify, now, dot } = options;
-  if (ended !== undefined) {
-    if (ended === null) return `run ended ${dot} the story is no longer in this office`;
-    const parked = ended.parked === undefined ? "" : ` (${ended.parked.reason})`;
-    return `run ended ${dot} ${ended.story} is ${ended.lifecycle}${parked}`;
-  }
-  const parts = [`now  ${healthLabel(view.health)}`, view.phase];
-  const line =
-    view.phase === "verify" && verify !== null
-      ? `verify: ${verify}`
-      : (worker ?? (view.phase === "verify" ? null : "no output yet"));
-  if (line !== null) parts.push(line);
-  if (view.lastOutputAt !== undefined) {
-    parts.push(`${shortAge(now - Date.parse(view.lastOutputAt))} ago`);
-  }
-  return parts.join(` ${dot} `);
 }
 
 function criteriaBoxes(met: number, total: number): string {
