@@ -4,6 +4,7 @@ title: Record the exit signal of a worker stopped with SIGTERM
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 20:52'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,6 +14,16 @@ references:
   - packages/engine/src/platform/sandbox.ts
   - packages/engine/src/runs/worker-hosts.ts
   - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/host/steering.ts
+  - packages/engine/src/host/protocol.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/db/migrations/0025-exit-signal-inferred.ts
+  - packages/engine/test/host/host.test.ts
+  - packages/engine/test/host/steering.test.ts
+  - packages/engine/test/host/worker-hosts.test.ts
+  - packages/engine/test/host/exit-signal.ci.test.ts
+  - packages/engine/test/ingest/ingest.test.ts
 priority: medium
 type: feature
 ordinal: 78000
