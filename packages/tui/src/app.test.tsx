@@ -166,7 +166,13 @@ describe("connection and daemon states", () => {
     stream!.active = false;
     stream?.options.onEnded?.({ code: "stream.resetRequired", message: "gap", retryable: false });
     await ui.waitFor(RELOADED_NOTICE);
-    await ui.press("j");
+    // Any key dismisses it; an unbound one changes nothing else, so the frame comes with the
+    // store's next batch (at most 100 ms later).
+    await ui.press("x");
+    const deadline = performance.now() + 1_000;
+    while (ui.frame().includes(RELOADED_NOTICE) && performance.now() < deadline) {
+      await Bun.sleep(5);
+    }
     expect(ui.frame()).not.toContain(RELOADED_NOTICE);
   });
 });

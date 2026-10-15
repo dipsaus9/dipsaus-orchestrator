@@ -27,6 +27,12 @@ export type {
 } from "./client";
 export { ulidRequestIds } from "./request-id";
 export { cursorReached, OfficeStore, RELOADED_NOTICE } from "./store/index";
-export type { OfficeEntry, OfficeStoreOptions, OfficeStoreState, StoreClient } from "./store/index";
+export type {
+  OfficeEntry,
+  OfficeStoreOptions,
+  OfficeStoreState,
+  OutputChunk,
+  StoreClient,
+} from "./store/index";
 export type { RandomBytes, RequestIds } from "./request-id";
 export type { Transport, TransportConnection, TransportHandlers } from "./transport";

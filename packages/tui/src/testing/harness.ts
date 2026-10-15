@@ -26,6 +26,10 @@ const KEYS: Readonly<Record<string, string>> = {
   tab: "\t",
   "ctrl-c": "\u0003",
   "ctrl-r": "\u0012",
+  pageup: "\u001b[5~",
+  pagedown: "\u001b[6~",
+  home: "\u001b[H",
+  end: "\u001b[F",
 };
 
 const POLL_MS = 5;

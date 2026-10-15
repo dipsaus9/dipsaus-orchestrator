@@ -29,11 +29,11 @@ describe("office overview", () => {
     expect(lines(ui.frame())).toEqual([
       " dipsaus-orchestrator · daemon running · live",
       " STORY   ROLE      T PHASE  HEALTH    AC  LOOP VERIFY  BUDGET         TIME MODEL         TURNS",
-      " DIPO-21 developer M build  busy >    4/7 2/5  passing [####----] 52% 38m  claude-sonnet 31",
+      ">DIPO-21 developer M build  busy >    4/7 2/5  passing [####----] 52% 38m  claude-sonnet 31",
       " DIPO-24 developer S verify looping @ 2/3 2/3  failing [######--] 78% 22m  claude-sonnet 22",
       " DIPO-19 reviewer  L review ASKING ?  9/9 1/8  passing [#-------] 18% 1h05 claude-opus   12",
       " Ready 2 · waiting 1 (on DIPO-21) · held 1 · desk 2",
-      " [2] queue  [o] offices  [q] quit",
+      " [Enter] detail  [j/k] move  [2] queue  [o] offices  [q] quit",
     ]);
   });
 
@@ -42,11 +42,11 @@ describe("office overview", () => {
     expect(lines(ui.frame())).toEqual([
       " dipsaus-orchestrator · daemon running · live",
       " STORY   ROLE T PHASE  HEALTH    AC  LOOP VERIFY  BUDGET         TIME",
-      " DIPO-21 dev  M build  busy >    4/7 2/5  passing [####----] 52% 38m",
+      ">DIPO-21 dev  M build  busy >    4/7 2/5  passing [####----] 52% 38m",
       " DIPO-24 dev  S verify looping @ 2/3 2/3  failing [######--] 78% 22m",
       " DIPO-19 rev  L review ASKING ?  9/9 1/8  passing [#-------] 18% 1h05",
       " Ready 2 · waiting 1 (on DIPO-21) · held 1 · desk 2",
-      " [2] queue  [o] offices  [q] quit",
+      " [Enter] detail  [j/k] move  [2] queue  [o] offices  [q] quit",
     ]);
   });
 
