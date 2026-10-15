@@ -24,6 +24,8 @@ export interface HookRelayRequest {
    * answer gets only what the handshake left.
    */
   readonly timeoutMs: number;
+  /** How much longer than `waitMs` the relay waits for the answer; `HOOK_REPLY_GRACE_MS` by default. */
+  readonly graceMs?: number;
   /** Versions offered in the handshake; this binary's hook versions by default. */
   readonly versions?: readonly number[];
 }
@@ -55,7 +57,7 @@ export async function relayHookPayload(request: HookRelayRequest): Promise<strin
         payload: request.payload,
         ...(waits ? { waitMs: request.waitMs } : {}),
       },
-      waits ? (request.waitMs ?? 0) + HOOK_REPLY_GRACE_MS : left,
+      waits ? (request.waitMs ?? 0) + (request.graceMs ?? HOOK_REPLY_GRACE_MS) : left,
     );
     if (reply === null || !reply.ok) return null;
     const output = (reply.result as { output?: unknown } | undefined)?.output;

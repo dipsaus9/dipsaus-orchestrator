@@ -136,14 +136,24 @@ export const HookPayload = z.looseObject({
 
 /** A neutral hook event as the adapter emits it (DIPO-59; `hooks/types.ts`). */
 const HookEventSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("sessionStarted"), source: z.string().exactOptional() }),
+  z.strictObject({
+    kind: z.literal("sessionStarted"),
+    id: z.int().nonnegative().nullable(),
+    source: z.string().exactOptional(),
+    resumed: z.literal(true).exactOptional(),
+  }),
   z.strictObject({
     kind: z.literal("permissionRequest"),
     id: z.int().nonnegative().nullable(),
     tool: z.string().min(1),
     input: z.string(),
   }),
-  z.strictObject({ kind: z.literal("toolUsed"), tool: z.string().min(1) }),
+  z.strictObject({
+    kind: z.literal("toolUsed"),
+    id: z.int().nonnegative().nullable(),
+    tool: z.string().min(1),
+    wrote: z.string().min(1).exactOptional(),
+  }),
   z.strictObject({ kind: z.literal("notification"), type: z.string().exactOptional() }),
   z.strictObject({ kind: z.literal("subagentStarted"), agentId: z.string().exactOptional() }),
   z.strictObject({ kind: z.literal("subagentStopped"), agentId: z.string().exactOptional() }),

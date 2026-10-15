@@ -9,8 +9,11 @@ import type { HookEvent } from "../../src/hooks/types";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   DEFAULT_DENY_MESSAGE,
+  HOOK_TIMEOUT_SECONDS,
   hookEventOf,
+  hookSettings,
   inputSummary,
+  NUDGE_HOOKS,
   REGISTERED_HOOKS,
 } from "../../src/workers/claude-cli/hooks";
 import {
@@ -30,14 +33,14 @@ const COMMON = {
 
 /** One fixture payload per registered hook (Claude Code hooks reference), and its neutral event. */
 const FIXTURES: Record<(typeof REGISTERED_HOOKS)[number], [Record<string, unknown>, HookEvent]> = {
-  SessionStart: [{ source: "startup" }, { kind: "sessionStarted", source: "startup" }],
+  SessionStart: [{ source: "startup" }, { kind: "sessionStarted", id: 640, source: "startup" }],
   PermissionRequest: [
     { tool_name: "Bash", tool_input: { command: "docker compose up", description: "start" } },
     { kind: "permissionRequest", id: 640, tool: "Bash", input: "docker compose up" },
   ],
   PostToolUse: [
     { tool_name: "Edit", tool_input: { file_path: "a.ts" }, tool_response: {} },
-    { kind: "toolUsed", tool: "Edit" },
+    { kind: "toolUsed", id: 640, tool: "Edit", wrote: "a.ts" },
   ],
   Notification: [
     { message: "Claude needs your permission", notification_type: "permission_prompt" },
@@ -214,5 +217,74 @@ describe("the engine's neutral reply as Claude's PermissionRequest output (DIPO-
     const bare = output("deny")[0] as { output: string };
     expect(JSON.parse(bare.output).hookSpecificOutput.decision.message).toBe(DEFAULT_DENY_MESSAGE);
     expect(output(null)).toEqual([{ hookReply: 640, output: "" }]);
+  });
+});
+
+describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", () => {
+  it("puts the text on the pending PostToolUse or SessionStart hook reply", () => {
+    const text = "`src/x.ts` is outside the declared scope; the engine will reject it.";
+    const [tool] = encode({ kind: "nudge", text, hook: 812, on: "toolUsed" });
+    expect(tool).toEqual({
+      hookReply: 812,
+      output: JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: text },
+      }),
+    });
+    const [start] = encode({ kind: "nudge", text, hook: 90, on: "sessionStarted" }) as [
+      { hookReply: number; output: string },
+    ];
+    expect(start.hookReply).toBe(90);
+    expect(JSON.parse(start.output)).toEqual({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text },
+    });
+    expect(encode({ kind: "nudge", text: "", hook: 90, on: "toolUsed" })).toEqual([
+      { hookReply: 90, output: "" },
+    ]);
+  });
+
+  it("names the written file of a write tool only, and marks a resumed session", () => {
+    expect(
+      hookEventOf(
+        {
+          hook_event_name: "PostToolUse",
+          tool_name: "Write",
+          tool_input: { file_path: "/w/a.ts" },
+        },
+        7,
+      ),
+    ).toEqual({ kind: "toolUsed", id: 7, tool: "Write", wrote: "/w/a.ts" });
+    expect(
+      hookEventOf(
+        {
+          hook_event_name: "PostToolUse",
+          tool_name: "NotebookEdit",
+          tool_input: { notebook_path: "n.ipynb" },
+        },
+        7,
+      ),
+    ).toEqual({ kind: "toolUsed", id: 7, tool: "NotebookEdit", wrote: "n.ipynb" });
+    expect(
+      hookEventOf(
+        { hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: "a.ts" } },
+        7,
+      ),
+    ).toEqual({ kind: "toolUsed", id: 7, tool: "Read" });
+    const resumed = hookEventOf({ hook_event_name: "SessionStart", source: "resume" }, 3);
+    expect(resumed).toEqual({ kind: "sessionStarted", id: 3, source: "resume", resumed: true });
+    expect(ClaudeWorkerEventSchema.safeParse({ t: "hook", hook: resumed }).success).toBe(true);
+  });
+
+  it("registers PostToolUse and SessionStart with --nudge and nothing else", () => {
+    const hooks = hookSettings(["/opt/dipo"], 300, "/run/dir") as Record<
+      string,
+      [{ hooks: [{ command: string; timeout: number }] }]
+    >;
+    for (const name of REGISTERED_HOOKS) {
+      const entry = hooks[name]?.[0].hooks[0];
+      if (entry === undefined) throw new Error(`no ${name} hook`);
+      const nudged = (NUDGE_HOOKS as readonly string[]).includes(name);
+      expect(entry.command.endsWith(" --nudge")).toBe(nudged);
+      if (nudged) expect(entry.timeout).toBe(HOOK_TIMEOUT_SECONDS);
+    }
   });
 });

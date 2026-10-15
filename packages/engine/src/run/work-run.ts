@@ -71,6 +71,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate/store/feature";
 import type { GateMode, GateResult } from "../gate/types";
+import { writeNudgeSources } from "../hooks/nudges";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { assembleContract, ContractTooLargeError } from "../prompts/contract";
@@ -540,6 +541,11 @@ export class WorkRun {
           at,
         },
       );
+      // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
+      if (prepared !== null) {
+        const { nudgeSources, sourceTexts } = prepared.promptSources;
+        writeNudgeSources(handle, runId, agent, nudgeSources, sourceTexts, at);
+      }
       appendRunStep(handle, runId, "phase", "setup", at);
       return withWorkViews(handle, [
         { type: "work.assigned", key, run: runId, delta: { work } },

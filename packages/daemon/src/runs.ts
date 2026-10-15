@@ -27,8 +27,10 @@ import {
   hostSocketSteering,
   type EngineGit,
   type HoldNotice,
+  gitInputChanges,
   type Logger,
   OfficeIngest,
+  type OfficeRunListener,
   type OfficeManager,
   PermissionAsks,
   type Presence,
@@ -43,6 +45,7 @@ import {
   runSandboxedStep,
   runWorkerSpec,
   type IngestAdapter,
+  Nudges,
   type StoredRun,
   selfCommand,
   setupWorktree,
@@ -113,6 +116,8 @@ export interface DaemonRuns {
   readonly outcomes: RunOutcomes;
   /** The permission wait and `work.answer` (DIPO-59). */
   readonly permissions: PermissionAsks;
+  /** The 0014 section 8 nudges (DIPO-60). */
+  readonly nudges: Nudges;
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
   /**
@@ -221,10 +226,30 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
+  // The 0014 section 8 nudges (DIPO-60): a tool use or a session start may get a short nudge.
+  const nudges = new Nudges({
+    clock,
+    steering: hostSocketSteering({ clock }),
+    encode: (op) => worker.encode(op),
+    inputChanges: gitInputChanges((handle) => options.engineGit.forOffice(handle.officeId)),
+    ending: (run) => control.isEnding(run),
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
+  // One listener per pass hears both: the permission wait and the nudges.
+  const hookEvents: OfficeRunListener = {
+    onWorkerEvents: (office, run, agent, events) => {
+      permissions.onWorkerEvents(office, run, agent, events);
+      nudges.onWorkerEvents(office, run, agent, events);
+    },
+    onEnded: (office, run) => {
+      permissions.onEnded(office, run);
+      nudges.onEnded(office, run);
+    },
+  };
   ingest = new OfficeIngest({
     clock,
     hooks: control.hooks,
-    hookEvents: permissions,
+    hookEvents,
     pricing: () => options.database()?.pricing ?? null,
     warn: (message, fields) => options.logger.warn(message, fields),
     watchdog,
@@ -374,5 +399,5 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control, outcomes, permissions, reattacher, planLimits };
+  return { launcher, ingest, control, outcomes, permissions, nudges, reattacher, planLimits };
 }

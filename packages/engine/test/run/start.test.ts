@@ -29,6 +29,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { Workspace } from "../../src/context/types";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GateResult } from "../../src/gate/types";
+import { contextPathsOf, nudgeCount } from "../../src/hooks/nudges";
 import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
 import { executeRead } from "../../src/reads/execute";
@@ -442,6 +443,10 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(agent?.session_id).toMatch(UUID);
     expect(flag("--session-id")).toBe(agent?.session_id);
     expect(agent).toMatchObject({ effort: caps.effort, model: caps.model });
+
+    // The context pack's paths are stored for the context nudge (DIPO-60), with no nudge yet.
+    expect(contextPathsOf(world.office, runId)).toEqual(["src/greet.ts"]);
+    expect(nudgeCount(world.office, runId)).toBe(0);
 
     // The system file is in the run directory; the task message is the first stdin line.
     const systemFile = flag("--append-system-prompt-file") as string;
