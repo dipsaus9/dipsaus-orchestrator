@@ -576,6 +576,18 @@ describe("work.run refusals", () => {
     expect(resultOf(await run()).started).toHaveLength(1);
   });
 
+  it("skips as capacity, not planLimit, when the office is full and a model-family hold also applies (DIPO-92)", async () => {
+    story("TASK-1", "Ready", { priority: "high" });
+    story("TASK-2", "Ready", { priority: "low" });
+    expect(resultOf(await run()).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    const model = world.config.tiers.S.model;
+    world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
+    expect(resultOf(await run()).skipped.map((s) => [s.story, s.reason])).toEqual([
+      ["TASK-1", "notRunnable"],
+      ["TASK-2", "capacity"],
+    ]);
+  });
+
   it("answers engine.recovering for from while the state database is not open", async () => {
     const t = world.t;
     const manager = new OfficeManager({
