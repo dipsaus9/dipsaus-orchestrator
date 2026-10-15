@@ -4,6 +4,7 @@ title: Let workers install packages through Safe-Chain
 status: To Do
 assignee: []
 created_date: '2026-10-15 14:10'
+updated_date: '2026-10-15 14:23'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -23,8 +24,14 @@ Context: the maintainer decided on 2026-10-15: workers always use Safe-Chain fro
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With Safe-Chain detected, the worker sandbox allows network only to the package registries the wrapped managers need (at least registry.npmjs.org; measure yarn, pnpm and pip/pypi hosts) plus Aikido's malware-list host(s), sets allowLocalBinding, and allows writes to the install cache paths and TMPDIR the installs need; nothing else opens, and a machine without Safe-Chain launches exactly as before.
-- [ ] #2 Inside the sandbox replay (no Claude session) and in a live Haiku run on the scratch repo, a worker's bun add of a small pinned package succeeds through Safe-Chain, and an install of Safe-Chain's own test malware package (or another documented blocked case) is refused by Safe-Chain.
-- [ ] #3 dipo run --dry-run shows the opened hosts, local binding and write paths with the reason (Safe-Chain installs), and the self-test or launch check reports clearly when Safe-Chain is present but installs cannot work.
-- [ ] #4 The approved ADR 0008 amendment for installs through Safe-Chain is recorded, and tests cover the plan with and without Safe-Chain.
+- [ ] #1 Inside the sandbox replay (no Claude session) and in a live Haiku run on the scratch repo, a worker's bun add of a small pinned package succeeds through Safe-Chain, and an install of Safe-Chain's own test malware package (or another documented blocked case) is refused by Safe-Chain.
+- [ ] #2 dipo run --dry-run shows the opened hosts, local binding and write paths with the reason (Safe-Chain installs), and the self-test or launch check reports clearly when Safe-Chain is present but installs cannot work.
+- [ ] #3 The approved ADR 0008 amendment for installs through Safe-Chain is recorded, and tests cover the plan with and without Safe-Chain.
+- [ ] #4 With Safe-Chain detected, workers install through a Safe-Chain checking proxy that dipo runs outside the worker sandbox (maintainer decision 2026-10-15, option B): the worker sandbox keeps allowLocalBinding false and localhost closed, its network reaches only that proxy route to the package registries (npm, yarn, pypi as measured) and Aikido's malware list, install caches go to the run temp dir, and ~/.safe-chain stays read-only. A machine without Safe-Chain launches exactly as before.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Maintainer decision 2026-10-15: option B. The DIPO-84 investigation found that Safe-Chain's own proxy needs allowLocalBinding, which on macOS lets sandboxed code connect to every localhost TCP service (for example the backlog browser on :6420) and listen on any interface; srt cannot narrow it. So dipo runs the checking proxy outside the sandbox instead. Measured per manager: bun and npm and pnpm use registry.npmjs.org, yarn 1 uses registry.yarnpkg.com (needs --no-default-rc), pip uses pypi.org and files.pythonhosted.org; all fetch malware-list.aikido.dev; caches redirect with BUN_INSTALL_CACHE_DIR, npm_config_cache, YARN_CACHE_FOLDER, XDG_DATA_HOME, XDG_CACHE_HOME, PIP_CACHE_DIR; blocked case: safe-chain-test (npm) is refused by bun, npm, pnpm and yarn; pip has no working test package. Never grant writes to ~/.safe-chain (its bin and scripts run unsandboxed in the maintainer's shell). Fallback if B proves infeasible: installs only in dipo's setup phase through Safe-Chain (option C), reported to the maintainer before building.
+<!-- SECTION:NOTES:END -->
