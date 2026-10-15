@@ -10,11 +10,17 @@ import { connectHost, type HostClient, type HostRequest } from "../host/client";
 import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
-import type { ProcessProbe, SpawnDetached } from "../platform/process";
+import type { ProcessProbe, SignalProcess, SpawnDetached } from "../platform/process";
 import { CostDriftWarnings } from "../pricing/drift";
 import type { PriceBook } from "../pricing/estimate";
 import type { HostOp, WorkerEvent } from "../workers/types";
-import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../runs/worker-hosts";
+import {
+  type LaunchedHost,
+  startWorkerHost,
+  verifyHostForSignal,
+  type WorkerHostRow,
+  workerHostsOf,
+} from "../runs/worker-hosts";
 
 import type { RunSteering } from "./control";
 import type { HostStarter, RunIngest } from "./launch";
@@ -239,20 +245,86 @@ export function followOnlyReason(pid: number): string {
 /** How long a steering op waits for the host's socket and reply. */
 export const STEER_TIMEOUT_MS = 5_000;
 
-/**
- * Sends host ops to a run's worker host over its socket (DIPO-44's protocol), to the newest host of
- * the run: one connection, the ops in order, then closed.
- */
-export function hostSocketSteering(options: {
+/** How often steering looks again at a host row that is still pending (DIPO-93). */
+export const PENDING_POLL_MS = 50;
+
+/** True when the ops end the worker: they carry SIGTERM or SIGKILL (the stop sequence). */
+export function isStopSequence(ops: readonly HostOp[]): boolean {
+  return ops.some((op) => "signal" in op && (op.signal === "SIGTERM" || op.signal === "SIGKILL"));
+}
+
+export interface HostSocketSteeringOptions {
   readonly clock: Clock;
   readonly timeoutMs?: number;
-}): RunSteering {
+  /**
+   * Liveness by PID and start time, and the one-process signal (DIPO-93): with both, a stop
+   * sequence for a follow-only host becomes one SIGTERM to the verified host PID. Without them a
+   * follow-only host is refused as before.
+   */
+  readonly probe?: ProcessProbe;
+  readonly signal?: SignalProcess;
+}
+
+/**
+ * Stops a follow-only host by signal (DIPO-93; ADR 0006 decision 8 and 0008 section 6
+ * amendment): its socket does not answer, so the stop message and the stdin close cannot reach
+ * it. After `verifyHostForSignal` passes, the host PID alone gets one SIGTERM; the host then
+ * closes its worker's stdin, sends it SIGTERM and SIGKILL 20 s later, and writes `exit.json` as
+ * always. Any doubt refuses, and nothing is signalled.
+ */
+async function stopFollowed(
+  host: WorkerHostRow,
+  probe: ProcessProbe,
+  signal: SignalProcess,
+): Promise<SteerResult> {
+  const check = await verifyHostForSignal(host, probe);
+  if (!check.ok) {
+    return {
+      ok: false,
+      reason: `${followOnlyReason(host.pid)}; dipo sent no signal, because ${check.reason}`,
+    };
+  }
+  if (!signal(host.pid, "SIGTERM")) {
+    return {
+      ok: false,
+      reason: `${followOnlyReason(host.pid)}; SIGTERM to the verified host was refused or it had just exited`,
+    };
+  }
+  return { ok: true, via: "signal" };
+}
+
+type SteerResult = Awaited<ReturnType<RunSteering["send"]>>;
+
+/**
+ * Sends host ops to a run's worker host over its socket (DIPO-44's protocol), to the newest host of
+ * the run: one connection, the ops in order, then closed. A newest host whose row is still pending
+ * (written before its spawn, DIPO-93) is waited for up to the timeout, so a stop in that window
+ * reaches it.
+ */
+export function hostSocketSteering(options: HostSocketSteeringOptions): RunSteering {
+  const newestHost = async (office: OfficeHandle, runId: string) => {
+    const deadline = options.clock.now() + (options.timeoutMs ?? STEER_TIMEOUT_MS);
+    for (;;) {
+      const host = workerHostsOf(office, runId).at(-1);
+      if (host === undefined || !host.pending || options.clock.now() >= deadline) return host;
+      await new Promise<void>((resolve) => options.clock.setTimeout(resolve, PENDING_POLL_MS));
+    }
+  };
   return {
     async send(office, runId, ops) {
-      const host = workerHostsOf(office, runId).at(-1);
+      const host = await newestHost(office, runId);
       if (host === undefined) return { ok: false, reason: "the run has no worker host" };
-      // After a restart a host whose socket did not answer is only followed (DIPO-57).
-      if (host.mode === "follow") return { ok: false, reason: followOnlyReason(host.pid) };
+      if (host.pending) {
+        return { ok: false, reason: "the run's worker host is still being started" };
+      }
+      // After a restart a host whose socket did not answer is only followed (DIPO-57); a stop
+      // reaches it by a verified signal (DIPO-93).
+      if (host.mode === "follow") {
+        if (isStopSequence(ops) && options.probe !== undefined && options.signal !== undefined) {
+          return stopFollowed(host, options.probe, options.signal);
+        }
+        return { ok: false, reason: followOnlyReason(host.pid) };
+      }
       const connected = await connectHost(host.socketPath, {
         runId,
         clock: options.clock,

@@ -100,6 +100,7 @@ export const STOPPED_DETAIL = "Stopped by the maintainer.";
 /** `engine.notice` codes of run control. */
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",
+  stopSignalled: "run.stopSignalled",
   feedbackNotSent: "run.feedbackNotSent",
 } as const;
 
@@ -110,7 +111,11 @@ export interface RunSteering {
     runId: RunId,
     ops: readonly HostOp[],
   ): Promise<
-    | { readonly ok: true }
+    | {
+        readonly ok: true;
+        /** `signal` when a verified SIGTERM stopped a follow-only host instead (DIPO-93). */
+        readonly via?: "socket" | "signal";
+      }
     | {
         readonly ok: false;
         readonly reason: string;
@@ -851,16 +856,33 @@ export class RunControl implements RunEnder {
         ]);
       }
       let error: string | null = null;
+      let signalled = false;
       if (ending.ops.length > 0) {
         try {
           const sent = await this.#deps.steering.send(office, run.runId, ending.ops);
           if (!sent.ok) error = sent.reason;
+          else signalled = sent.via === "signal";
         } catch (thrown) {
           error = messageOf(thrown);
         }
       }
       const at = this.#deps.clock.now();
       office.immediate(() => markIntentSent(office, run.runId, intentId, at, error));
+      if (signalled) {
+        // A follow-only host got one SIGTERM after its PID and start time were verified (DIPO-93).
+        write(() => [
+          {
+            type: "engine.notice",
+            ...(run.key === null ? {} : { key: run.key }),
+            run: run.runId,
+            delta: {
+              level: "info",
+              code: CONTROL_NOTICES.stopSignalled,
+              text: `${run.story ?? run.runId}: its worker host is followed only, so dipo sent it SIGTERM after checking its PID and start time; the host stops the worker and dipo follows it until it exits.`,
+            },
+          },
+        ]);
+      }
       if (error !== null) {
         write(() => [
           {
