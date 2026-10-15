@@ -24,6 +24,13 @@
 //   10%, it does not correct the estimate.
 // - Model ids are matched exactly, then with a `[1m]` marker and a `-yyyymmdd` snapshot suffix
 //   dropped. A model the catalog lacks keeps a null estimate and counts as 0 in the cross-check.
+// - The 1 hour cache writes of a totals row are matched to its messages by canonical model id
+//   (DIPO-89): messages name the model as the API answered it, turn totals may add a `[1m]`
+//   marker. Matched by exact id, every write of such a run was priced as a 5 minute write, about
+//   a quarter low for a cache-heavy run.
+// - Besides the per-run notice, each model of a finished agent whose estimate and CLI cost differ
+//   by more than 10% is logged as one warn line per model and UTC day (DIPO-89, `drift.ts`). The
+//   day's memory lives in the daemon process, so a restart may warn again the same day.
 
 export {
   CATALOGS,
@@ -36,6 +43,7 @@ export {
   type Rates,
   type ShippedCatalog,
 } from "./catalog";
+export { agentCostDrifts, CostDriftWarnings, type CostDrift } from "./drift";
 export {
   canonicalModel,
   costMicros,

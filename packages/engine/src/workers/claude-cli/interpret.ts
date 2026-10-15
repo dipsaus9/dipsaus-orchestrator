@@ -139,6 +139,13 @@ export interface ClaudeParseState {
    */
   readonly compactBoundaries?: number;
   readonly compactHooks?: number;
+  /**
+   * Compactions this process already emitted as `compacted` (DIPO-100). A hook that comes first
+   * carries no token count, so it waits for its `compact_boundary` and the real `pre_tokens`;
+   * only a turn end or the exit reports it with `preTokens` 0. Absent in states stored before it
+   * existed, where every counted compaction was already emitted.
+   */
+  readonly compactReported?: number;
 }
 
 export interface InitialStateOptions {
@@ -366,6 +373,24 @@ function problem(state: ClaudeParseState, text: string): ClaudeParseState {
   return { ...state, problems: [...state.problems, text] };
 }
 
+/** Compactions this process already emitted; a state stored before DIPO-100 emitted every one. */
+function reportedCompactions(state: ClaudeParseState): number {
+  return state.compactReported ?? Math.max(state.compactBoundaries ?? 0, state.compactHooks ?? 0);
+}
+
+/**
+ * Emits the compactions only the `PostCompact` hook reported, with `preTokens` 0: their
+ * `compact_boundary` did not come by the turn end or the exit (DIPO-100).
+ */
+function flushCompactions(state: ClaudeParseState): Step {
+  const reported = reportedCompactions(state);
+  const hooks = state.compactHooks ?? 0;
+  if (hooks <= reported) return { events: [], state };
+  const events: WorkerEvent[] = [];
+  for (let index = reported; index < hooks; index++) events.push({ t: "compacted", preTokens: 0 });
+  return { events, state: { ...state, compactReported: hooks } };
+}
+
 /** Pure: one host line to Worker events (0008 section 3). */
 export function interpret(line: HostLine, state: ClaudeParseState): Step {
   switch (line.ch) {
@@ -374,10 +399,16 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
     case "hook":
       return hookLine(line.data, state, line.end ?? null);
     case "exit": {
-      // Compaction counts are per process.
-      const { compactBoundaries: _boundaries, compactHooks: _hooks, ...rest } = state;
+      // Compaction counts are per process; a hook-only compaction is reported before they reset.
+      const flushed = flushCompactions(state);
+      const {
+        compactBoundaries: _boundaries,
+        compactHooks: _hooks,
+        compactReported: _reported,
+        ...rest
+      } = flushed.state;
       return {
-        events: [],
+        events: flushed.events,
         state: {
           ...rest,
           pending: "",
@@ -473,8 +504,11 @@ export function message(value: unknown, state: ClaudeParseState): Step {
       return init(value, state);
     case "assistant":
       return assistant(value, state);
-    case "result":
-      return result(value, state);
+    case "result": {
+      // A compaction only the hook reported is due by the turn end (DIPO-100).
+      const flushed = flushCompactions(state);
+      return merge(flushed, result(value, flushed.state));
+    }
     case "system/permission_denied": {
       const parsed = parseWith(PermissionDeniedMessage, value, state);
       if (!parsed.ok) return { events: [], state: parsed.state };
@@ -508,14 +542,21 @@ export function message(value: unknown, state: ClaudeParseState): Step {
       const parsed = parseWith(CompactBoundaryMessage, value, state);
       if (!parsed.ok) return { events: [], state: parsed.state };
       const boundaries = (state.compactBoundaries ?? 0) + 1;
-      const next = { ...state, compactBoundaries: boundaries };
-      // The `PostCompact` hook may have reported this compaction first (DIPO-59).
-      return boundaries > (state.compactHooks ?? 0)
+      // The `PostCompact` hook may have counted this compaction first (DIPO-59); it waits for this
+      // line's token count unless a turn end already reported it (DIPO-100).
+      return boundaries > reportedCompactions(state)
         ? {
             events: [{ t: "compacted", preTokens: parsed.value.compact_metadata.pre_tokens }],
-            state: next,
+            state: { ...state, compactBoundaries: boundaries, compactReported: boundaries },
           }
-        : { events: [], state: next };
+        : {
+            events: [],
+            state: {
+              ...state,
+              compactBoundaries: boundaries,
+              compactReported: reportedCompactions(state),
+            },
+          };
     }
     case "system/session_state_changed": {
       const parsed = parseWith(SessionStateMessage, value, state);
@@ -999,13 +1040,16 @@ function hookLine(data: string, state: ClaudeParseState, call: number | null): S
         next = { ...next, planLimit: next.planLimit ?? "StopFailure rate_limit" };
       }
       break;
-    case "compacted": {
-      // The same compaction as a `compact_boundary` line, in either order (DIPO-42 review).
-      const hooks = (next.compactHooks ?? 0) + 1;
-      if (hooks > (next.compactBoundaries ?? 0)) events.push({ t: "compacted", preTokens: 0 });
-      next = { ...next, compactHooks: hooks };
+    case "compacted":
+      // The same compaction as a `compact_boundary` line, in either order (DIPO-42 review). The
+      // hook has no token count, so a hook ahead of the boundaries emits nothing yet: the boundary
+      // that follows reports it with its `pre_tokens`, else the turn end or exit does (DIPO-100).
+      next = {
+        ...next,
+        compactHooks: (next.compactHooks ?? 0) + 1,
+        compactReported: reportedCompactions(next),
+      };
       break;
-    }
     case "modelSwitched": {
       const switched = hookModelSwitch(next, neutral.to, neutral.from);
       events.push(...switched.events);
