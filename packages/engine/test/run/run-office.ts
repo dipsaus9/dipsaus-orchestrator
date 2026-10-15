@@ -10,11 +10,12 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import type { IdPrefix, OfficeId } from "@dipsaus-orchestrator/contract";
 import {
   fakeSpawn,
   ManualClock,
   type TempRepoWithRemote,
+  type Recording,
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
@@ -32,6 +33,7 @@ import {
   capsOf,
   cliRunBase,
   gitParkWriter,
+  gitUnparkWriter,
   gitStoryOps,
   readBackstop,
   VerifyCommit,
@@ -121,7 +123,7 @@ export interface RunOfficeOptions {
   /** The recording a replay host plays; `success-single` by default. */
   readonly recording?: string;
   /** The recordings of the first, second, ... host start, before `recording` (DIPO-51). */
-  readonly recordings?: readonly string[];
+  readonly recordings?: readonly (string | Recording)[];
   /**
    * Wires worker outcomes and the run's next session (DIPO-51) into run control (which `control`
    * must also ask for): the real resumer on the office git and the base, its hosts the same
@@ -133,6 +135,11 @@ export interface RunOfficeOptions {
    * for), with the tier caps a held run is resumed with.
    */
   readonly planLimits?: boolean;
+  /**
+   * Lets worker outcomes resume a parked run (DIPO-75): the real unpark writer on the office git,
+   * the tier caps, and run control asking a `needs-permission` park's question.
+   */
+  readonly resumeParks?: boolean;
   /** Wires run control; `caps` replaces the tier's caps it tracks the run with. */
   readonly control?: { readonly caps?: Partial<Caps> };
   /**
@@ -279,7 +286,10 @@ export async function withRunOffice(
               runId: run.runId,
               runDir,
               clock: replayClock,
-              spawn: fakeSpawn(loadRecording(recording), replayClock).spawn,
+              spawn: fakeSpawn(
+                typeof recording === "string" ? loadRecording(recording) : recording,
+                replayClock,
+              ).spawn,
               killGroup: () => undefined,
               pid: 4242,
             });
@@ -342,7 +352,13 @@ export async function withRunOffice(
               get clock() {
                 return loaded().clock;
               },
-              offices: { get: (office) => loaded().manager.get(office) },
+              offices: {
+                get: (office) => loaded().manager.get(office),
+                config: (office) => loaded().manager.config(office),
+              },
+              ...(options.resumeParks === true
+                ? { ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) } }
+                : {}),
               writer: gitParkWriter({
                 git: (office) => engineGit.forOffice(office),
                 cli: CLI(repo),
@@ -408,11 +424,24 @@ export async function withRunOffice(
             gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
           ),
           caps: (office, run) => {
-            if (options.planLimits !== true || run.tier === null) return null;
+            if (
+              (options.planLimits !== true && options.resumeParks !== true) ||
+              run.tier === null
+            ) {
+              return null;
+            }
             const tier = loaded().manager.config(office)?.tiers[run.tier as "S" | "M" | "L"];
             return tier === undefined ? null : capsOf(tier);
           },
           waits: () => planLimits ?? undefined,
+          ...(options.resumeParks === true
+            ? {
+                unpark: gitUnparkWriter({
+                  git: (office) => engineGit.forOffice(office),
+                  cli: CLI(repo),
+                }),
+              }
+            : {}),
         });
         if (options.planLimits === true) {
           const decided = outcomes;

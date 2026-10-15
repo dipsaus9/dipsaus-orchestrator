@@ -28,6 +28,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "init-rejected-model": ["initRejected", "worker-failed"],
   interrupt: ["crashed", "worker-failed"],
   "max-turns": ["capped", "budget-exceeded"],
+  // DIPO-75: the blocked report carries needsPermission {Bash, docker ps}.
+  "needs-permission": ["blocked", "needs-permission"],
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
   "permission-denied": ["blocked", "needs-permission"],
@@ -66,6 +68,8 @@ const RETRY: Readonly<Record<string, string>> = {
  * table names them already, and the coverage check accepts them as missing until committed.
  */
 const AWAITING_CAPTURE = new Set([
+  // DIPO-75 AC #6: captured live by the maintainer (`bun run recordings:capture needs-permission`).
+  "needs-permission",
   "safety-gh-token",
   "safety-gitdir-write",
   "safety-pointer-write",
