@@ -11,14 +11,12 @@ import type { AdapterStatus } from "../types";
 export const MIN_CLAUDE_VERSION = "2.1.285";
 /** The only login a worker may run on (0008 section 2). */
 export const REQUIRED_AUTH_METHOD = "claude.ai";
-/**
- * What this adapter offers (0008 section 11). `hooks` joins when the hook relay lands (DIPO-59);
- * until then `plan` refuses `hookRelay`.
- */
+/** What this adapter offers (0008 section 11); `hooks` since the hook relay (DIPO-59). */
 export const CLAUDE_CLI_CAPABILITIES: readonly string[] = [
   "steer",
   "pause",
   "resume",
+  "hooks",
   "structuredReport",
   "planLimitEvents",
   "costEstimate",

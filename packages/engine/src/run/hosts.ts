@@ -11,6 +11,7 @@ import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { PriceBook } from "../pricing/estimate";
+import type { HostOp, WorkerEvent } from "../workers/types";
 import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../runs/worker-hosts";
 
 import type { RunSteering } from "./control";
@@ -70,6 +71,22 @@ export interface OfficeIngestOptions {
   readonly watchdog?: Watchdog;
   /** Ingestion appended change-log entries for `office`; the daemon sends them to subscribers. */
   readonly onAppended?: (office: OfficeId) => void;
+  /**
+   * The permission wait (DIPO-59): it hears every committed pass's worker events and every
+   * worker exit with the run's office.
+   */
+  readonly hookEvents?: OfficeRunListener;
+}
+
+/** Hears a run's worker events and its exit together with the run's office (DIPO-59). */
+export interface OfficeRunListener {
+  onWorkerEvents(
+    office: OfficeHandle,
+    run: string,
+    agent: string,
+    events: readonly WorkerEvent[],
+  ): void;
+  onEnded(office: OfficeHandle, run: string): void;
 }
 
 /** One `Ingestor` per office, made on the office's first started run. */
@@ -88,7 +105,7 @@ export class OfficeIngest implements RunIngest {
         office,
         clock: this.#options.clock,
         pricing: this.#options.pricing(),
-        hooks: this.#hooksFor(office.officeId),
+        hooks: this.#hooksFor(office),
         ...(this.#options.warn === undefined ? {} : { warn: this.#options.warn }),
       });
       this.#ingestors.set(office.officeId, ingestor);
@@ -97,17 +114,23 @@ export class OfficeIngest implements RunIngest {
   }
 
   /** The caller's hooks, with the watchdog and `onAppended` added. */
-  #hooksFor(office: OfficeId): IngestHooks {
+  #hooksFor(handle: OfficeHandle): IngestHooks {
+    const office = handle.officeId;
     const hooks = this.#options.hooks ?? {};
-    const { watchdog, onAppended } = this.#options;
+    const { watchdog, onAppended, hookEvents } = this.#options;
     return {
       ...hooks,
       onLines: (run, agent) => {
         watchdog?.lineSeen(run);
         hooks.onLines?.(run, agent);
       },
+      onWorkerEvents: (run, agent, events) => {
+        hooks.onWorkerEvents?.(run, agent, events);
+        hookEvents?.onWorkerEvents(handle, run, agent, events);
+      },
       onEnded: (run, agent, end) => {
         watchdog?.untrack(run);
+        hookEvents?.onEnded(handle, run);
         hooks.onEnded?.(run, agent, end);
       },
       onAppended: () => {
@@ -158,6 +181,8 @@ export class OfficeIngest implements RunIngest {
       runId: host.runId,
       clock: this.#options.clock,
       timeoutMs: HOST_CONNECT_TIMEOUT_MS,
+      // The engine's watch: only it may answer hook calls and count as the daemon being up.
+      token: host.engineToken ?? null,
     })
       .then(async (connected) => {
         // Without the socket the 1 s poll keeps ingesting.
@@ -182,6 +207,16 @@ export class OfficeIngest implements RunIngest {
     for (const ingestor of this.#ingestors.values()) ingestor.close();
     this.#ingestors.clear();
   }
+}
+
+/** The host socket request that carries one host op. */
+export function hostRequestOf(op: HostOp): HostRequest {
+  if ("write" in op) return { op: "write", data: op.write };
+  if ("closeStdin" in op) return { op: "closeStdin" };
+  if ("hookReply" in op) return { op: "hookReply", hook: op.hookReply, output: op.output };
+  return op.afterMs === undefined
+    ? { op: "signal", signal: op.signal }
+    : { op: "signal", signal: op.signal, afterMs: op.afterMs };
 }
 
 /** Why a follow-only host cannot be steered (0006 decision 8, 0009 section 3). */
@@ -210,6 +245,7 @@ export function hostSocketSteering(options: {
         runId,
         clock: options.clock,
         timeoutMs: options.timeoutMs ?? STEER_TIMEOUT_MS,
+        token: host.engineToken,
       });
       if (!connected.ok) {
         const why = connected.error === undefined ? "" : ` (${connected.error.message})`;
@@ -221,14 +257,7 @@ export function hostSocketSteering(options: {
       const client = connected.client;
       try {
         for (const op of ops) {
-          const request: HostRequest =
-            "write" in op
-              ? { op: "write", data: op.write }
-              : "closeStdin" in op
-                ? { op: "closeStdin" }
-                : op.afterMs === undefined
-                  ? { op: "signal", signal: op.signal }
-                  : { op: "signal", signal: op.signal, afterMs: op.afterMs };
+          const request = hostRequestOf(op);
           const reply = await client.request(request);
           if (reply === null) {
             return { ok: false, reason: `the worker host did not answer ${request.op}` };
@@ -237,6 +266,7 @@ export function hostSocketSteering(options: {
             return {
               ok: false,
               reason: `${request.op}: ${reply.error.code}: ${reply.error.message}`,
+              code: reply.error.code,
             };
           }
         }

@@ -9,6 +9,10 @@
 // here on every rescan: a marker that names another office refuses the office with a notice.
 // Reconciles of one office run one at a time. A reconcile that fails puts a notice on the office;
 // the office still loads.
+//
+// After the compare, reconcile looks on the code host for an open backlog PR (`dipo/backlog-*`)
+// the database does not know, as after a lost database, and adopts it (DIPO-80,
+// `BacklogPrs.adopt`). Adoption that fails puts its own notice on the office; the reconcile stands.
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
@@ -44,6 +48,11 @@ export interface ReconcilerDeps {
   readonly runs?: ReconcileRuns;
   /** Releases a claim whose worker never started (`StoryClaims.releaseUnstarted`). */
   readonly releaseClaim?: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
+  /**
+   * Adopts an open backlog PR the database does not know (DIPO-80, `BacklogPrs.adopt`). It puts
+   * its own notices on the office.
+   */
+  readonly adoptBacklogPr?: (office: OfficeId) => Promise<unknown>;
   /** Refuses a loaded office whose marker names another office (`OfficeManager.refuse`). */
   readonly refuse?: (office: OfficeId, text: string) => void;
   /** Reconcile appended entries outside a command; subscribers catch up. */
@@ -163,6 +172,7 @@ export class Reconciler {
         { trigger, pass, reindex: () => this.#deps.stories.indexStories(office) },
       );
       if (report.findings.length > 0) this.#deps.onOfficeChanged?.(office);
+      await this.#adopt(office, state, trigger);
       this.#deps.logger?.info("office reconciled", {
         office,
         trigger,
@@ -180,6 +190,25 @@ export class Reconciler {
         "warn",
       );
       return null;
+    }
+  }
+
+  /** Adopts an unknown open backlog PR; a failure is a notice and leaves the reconcile standing. */
+  async #adopt(office: OfficeId, state: Tracked, trigger: ReconcileTrigger): Promise<void> {
+    const adopt = this.#deps.adoptBacklogPr;
+    if (adopt === undefined) return;
+    try {
+      await adopt(office);
+    } catch (error) {
+      const reason = messageOf(error);
+      this.#deps.logger?.warn("adopting the backlog PR failed", { office, trigger, reason });
+      this.#notice(
+        office,
+        state,
+        RECONCILE_NOTICES.adoptFailed,
+        `dipo could not look for an open backlog PR to adopt: ${reason}. It looks again at the next rescan.`,
+        "warn",
+      );
     }
   }
 

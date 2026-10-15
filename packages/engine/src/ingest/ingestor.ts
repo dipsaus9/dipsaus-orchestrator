@@ -410,7 +410,8 @@ export class Ingestor {
           exited = true;
           exit = exitRecordOf(hostLine.data);
         }
-        const step = target.adapter.interpret(hostLine, state);
+        // The line's end offset is the id of a waiting hook call (DIPO-59).
+        const step = target.adapter.interpret({ ...hostLine, end: line.end }, state);
         state = step.state;
         for (const event of step.events) {
           events.push(event);

@@ -16,6 +16,8 @@ import {
   gateDecided,
   gateReached,
   type OfficeId,
+  questionAsked,
+  questionClosed,
   officeSnapshot,
   type RunRecord,
   storyDetail,
@@ -149,6 +151,8 @@ class Watch {
   readonly #office: OfficeId;
   /** The story watched, by key and id; null watches the whole office. */
   readonly #story: { readonly key: string; readonly id: string } | null;
+  /** Questions this watch printed, so their close is printed too (DIPO-59). */
+  readonly #questions = new Set<string>();
   /** The last health printed per run, so only a change is printed. */
   readonly #health = new Map<string, string>();
   /** The last usage line printed per run, so an unchanged one is not repeated. */
@@ -229,6 +233,13 @@ class Watch {
     if (target === null && running.length === 0) {
       this.#line("no story is running. Waiting for a run to start (dipo run).");
     }
+    for (const question of snapshot.result.questions) {
+      if (!this.#watches(question.work.key)) continue;
+      this.#questions.add(question.question);
+      this.#line(
+        `${question.work.story} asks ${question.kind} ${question.question}: ${question.text} (answer with dipo answer ${question.question} ${question.kind === "permission" ? "allow|deny" : "<text>"})`,
+      );
+    }
     this.#line("--");
     return this.#subscribe(snapshot.result.cursor);
   }
@@ -270,9 +281,32 @@ class Watch {
       this.#notice(event);
       return;
     }
+    if (event.type === questionClosed.type) {
+      // It names only the question: printed when this watch printed the question (DIPO-59).
+      const data = questionClosed.data.safeParse(event.data);
+      if (!data.success || !this.#questions.delete(data.data.question)) return;
+      const answer = data.data.answer;
+      this.#line(
+        `${clockTime(event.at)} question ${data.data.question} closed${answer === undefined ? " without an answer" : `: ${answer}`}`,
+      );
+      return;
+    }
     const key = keyOf(event);
     if (!this.#watches(key)) return;
     switch (event.type) {
+      case questionAsked.type: {
+        const data = questionAsked.data.safeParse(event.data);
+        if (!data.success) break;
+        const question = data.data;
+        this.#questions.add(question.question);
+        this.#event(
+          event,
+          question.work.story,
+          "asks",
+          `${question.kind} ${question.question}: ${question.text} (answer with dipo answer ${question.question} ${question.kind === "permission" ? "allow|deny" : "<text>"})`,
+        );
+        break;
+      }
       case workAssigned.type: {
         const data = workAssigned.data.safeParse(event.data);
         if (!data.success) break;

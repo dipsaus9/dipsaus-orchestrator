@@ -5,7 +5,8 @@
 //
 // `gh --version` is checked against `MIN_GH_VERSION`, the oldest release with every subcommand and
 // flag used here; an older `gh` is refused with the version it printed. Used here:
-// `pr create --repo --base --head --title --body`, `pr list --head --state --json`, `pr view --json`,
+// `pr create --repo --base --head --title --body`, `pr list --head --state --json`, `pr list --state
+// --limit --json` (DIPO-80), `pr view --json`,
 // `pr edit --title --body`, `pr close --comment`, `pr merge --squash --match-head-commit --subject
 // --body`, and `pr checks --required --json name,state,bucket`. The newest of these is
 // `pr checks --json`, added in gh 2.50.0 (https://github.com/cli/cli/releases/tag/v2.50.0).
@@ -96,6 +97,21 @@ export interface CodeHost {
 export interface PrStateHost {
   /** The newest merged pull request whose head is `branch`, or null. Throws `CodeHostError`. */
   findMergedPr(repo: string, branch: string): Promise<HostPr | null>;
+}
+
+/** How many open pull requests `listOpenPrs` reads at most. */
+export const LIST_OPEN_LIMIT = 1000;
+
+/**
+ * Lists open PRs by head-branch prefix (DIPO-80): reconcile looks for the office's backlog PR
+ * (`dipo/backlog-*`) after a lost database. Kept apart from `CodeHost`, like `PrStateHost`.
+ */
+export interface PrListHost {
+  /**
+   * The open pull requests of `repo` whose head branch starts with `prefix` and lives in `repo`
+   * itself (not a fork), oldest first. Throws `CodeHostError`.
+   */
+  listOpenPrs(repo: string, prefix: string): Promise<HostPr[]>;
 }
 
 /** `major.minor.patch` compared numerically; negative when `a` is older. */
@@ -242,6 +258,8 @@ export interface GhHostOptions {
   readonly gh?: string;
   /** The environment `gh` starts from; this process's by default. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Gets warnings, such as a PR list cut off at `LIST_OPEN_LIMIT`; none by default. */
+  readonly logger?: { warn(message: string, fields?: Readonly<Record<string, unknown>>): void };
 }
 
 interface GhResult {
@@ -251,16 +269,18 @@ interface GhResult {
 }
 
 /** The `CodeHost` that runs `gh`. */
-export class GhHost implements CodeHost, PrStateHost {
+export class GhHost implements CodeHost, PrStateHost, PrListHost {
   readonly #spawn: Spawn;
   readonly #gh: string;
   readonly #env: Record<string, string>;
+  readonly #logger: GhHostOptions["logger"];
   #version: string | null = null;
 
   constructor(options: GhHostOptions) {
     this.#spawn = options.spawn;
     this.#gh = options.gh ?? "gh";
     this.#env = ghEnv(options.env ?? process.env);
+    this.#logger = options.logger;
   }
 
   async checkVersion(): Promise<string> {
@@ -313,6 +333,37 @@ export class GhHost implements CodeHost, PrStateHost {
     // gh lists the newest first.
     const first = list.map((item) => prOf(item as PrJson)).find((pr) => pr.head === branch);
     return first ?? null;
+  }
+
+  async listOpenPrs(repo: string, prefix: string): Promise<HostPr[]> {
+    const out = await this.#ok([
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "open",
+      "--limit",
+      String(LIST_OPEN_LIMIT),
+      "--json",
+      `${PR_FIELDS},isCrossRepository`,
+    ]);
+    const list = parseJson(out, "a pull request list");
+    if (!Array.isArray(list)) throw new CodeHostError("failed", "gh printed no pull request list");
+    if (list.length >= LIST_OPEN_LIMIT) {
+      // `gh pr list` stops at the limit: an open PR beyond it is not seen. The prefix filter stays
+      // client-side, since `--search head:` matches words, not a branch prefix.
+      this.#logger?.warn("the open pull request list reached its limit; later PRs were not read", {
+        repo,
+        prefix,
+        limit: LIST_OPEN_LIMIT,
+      });
+    }
+    return list
+      .filter((item) => (item as { isCrossRepository?: unknown }).isCrossRepository !== true)
+      .map((item) => prOf(item as PrJson))
+      .filter((pr) => pr.state === "open" && pr.head.startsWith(prefix))
+      .toSorted((a, b) => a.number - b.number);
   }
 
   async createPr(repo: string, pr: NewPr): Promise<HostPr> {

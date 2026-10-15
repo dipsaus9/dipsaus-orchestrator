@@ -9,6 +9,13 @@
 // right away, against the head that merged; a failure is a notice and blocks the stories it names
 // (`backlogCheckBlocked`) until a later backlog PR that touches them merges with a passing check.
 // A PR closed on the host is recorded as closed. A lane rebuild (a new branch) closes the old PR.
+// An open PR whose check failed for want of a Ready gate decision is checked again once that gate
+// passes (DIPO-80).
+//
+// `adopt` (DIPO-80, called by reconcile) takes over the office's open backlog PR after the state
+// database was lost: it lists the open `dipo/backlog-*` PRs on the host and, when exactly one is
+// unknown and the office has none of its own, journals the lane commits of its branch and records
+// the PR, then checks it. Anything else is a notice; it never closes, edits or pushes a PR.
 //
 // Without a remote, with a push or fetch waiting, or when `gh` is missing, too old or not logged in,
 // no PR is opened: `waiting(office)` names the branch and why, and a notice says so once per cause.
@@ -22,13 +29,26 @@ import { appendEntries, type NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
 import { gateDecisionsOf } from "../../gate/store/decisions";
 import type { GitSession } from "../../git/office";
-import { type CodeHost, CodeHostError, type HostPr, repoOfRemoteUrl } from "../../platform/host";
+import {
+  type CodeHost,
+  CodeHostError,
+  type HostPr,
+  type PrListHost,
+  repoOfRemoteUrl,
+} from "../../platform/host";
 import { resolveStoryRef } from "../../stories/keys";
 import { hasLiveClaim } from "../../worktree/records";
-import { openEntries, recordPrRef } from "../lane/journal";
-import { type FlushReport, type OfficeLane } from "../lane/lane";
+import {
+  type AdoptedOp,
+  insertAdoptedEntry,
+  openEntries,
+  recordPrRef,
+  takenOpIds,
+} from "../lane/journal";
+import { type FlushReport, LANE_BRANCH_PREFIX, type OfficeLane } from "../lane/lane";
 import type { BacklogCli } from "../runner";
 
+import { placeBranch, readBranch } from "./adopt";
 import { checkBacklogPr, type CheckResult, type PrDiff, type PrFacts } from "./check";
 import { collectPrDiff } from "./diff";
 import {
@@ -53,7 +73,18 @@ export const PR_NOTICES = {
   checkError: "backlog.pr.checkError",
   waiting: "backlog.pr.waiting",
   closed: "backlog.pr.closed",
+  adopted: "backlog.pr.adopted",
+  notAdopted: "backlog.pr.notAdopted",
+  letGo: "backlog.pr.letGo",
 } as const;
+
+/** What `adopt` did with the open `dipo/backlog-*` PRs the office's database does not know. */
+export interface AdoptReport {
+  /** The PR adopted, or null. */
+  readonly adopted: number | null;
+  /** The PRs left as they are, each with why. */
+  readonly refused: readonly { readonly number: number; readonly reason: string }[];
+}
 
 export type PrWaitingReason =
   | "noRemote"
@@ -74,6 +105,11 @@ export interface PrWaiting {
 
 export interface BacklogPrsDeps {
   readonly host: CodeHost;
+  /**
+   * Lists open PRs by head-branch prefix (DIPO-80); without it `adopt` finds nothing. The daemon
+   * passes its `GhHost`.
+   */
+  readonly list?: PrListHost;
   /** The office's planning lane once the office loaded. */
   readonly lane: (office: OfficeId) => OfficeLane | undefined;
   readonly cli: BacklogCli;
@@ -92,6 +128,8 @@ const HOST_REASONS: Record<CodeHostError["code"], PrWaitingReason> = {
 interface OfficeState {
   busy: Promise<unknown>;
   waiting: PrWaiting | null;
+  /** The reason last noticed for each PR `adopt` left alone, so a rescan does not repeat it. */
+  readonly notAdopted: Map<number, string>;
 }
 
 export class BacklogPrs {
@@ -135,12 +173,28 @@ export class BacklogPrs {
     });
   }
 
+  /**
+   * Adopts the office's open backlog PR after a lost or replaced database (DIPO-80; 0007 section
+   * 6): lists the open PRs whose head starts with `dipo/backlog-` and takes over the one the
+   * database does not know, into `backlog_prs` and the lane's journal, then runs its structural
+   * check. It adopts nothing, with a notice per PR, while the office has an open backlog PR or
+   * lane branch of its own, when more than one such PR is open, or when the lane cannot take the
+   * branch over (`readBranch`). It never closes, edits or pushes a PR. Reconcile calls it at
+   * daemon start and on `office.rescan`; a host it cannot reach makes it do nothing.
+   */
+  adopt(office: OfficeId): Promise<AdoptReport> {
+    return this.#serial(office, () => this.#adopt(office));
+  }
+
   // ---- publish -------------------------------------------------------------------------------
 
   async #publish(office: OfficeId, report: FlushReport): Promise<void> {
     const handle = this.#handle(office);
     const lane = this.#lane(office);
     if (report.rebuiltFrom !== null) await this.#closeReplaced(office, report.rebuiltFrom, report);
+    if (report.abandoned !== undefined && report.abandoned !== null) {
+      this.#letGo(office, report.abandoned);
+    }
     const branch = report.branch;
     if (branch === null) {
       this.#setWaiting(office, null);
@@ -284,7 +338,17 @@ export class BacklogPrs {
         if (error instanceof CodeHostError) continue;
         throw error;
       }
-      if (pr.state === "open") continue;
+      if (pr.state === "open") {
+        // A Ready gate that passed again since a check failed for want of it (DIPO-80): check
+        // the PR again, so the merge slot can take it.
+        if (this.#gatePassedSince(handle, record)) {
+          const head = await lane.git.run((git) =>
+            this.#revParse(git, `refs/heads/${record.branch}`),
+          );
+          if (head !== null) await this.#check(office, lane, record, head).catch(() => undefined);
+        }
+        continue;
+      }
       const now = this.#deps.clock.now();
       if (pr.state === "closed") {
         this.#write(office, () => closePrRecord(handle, record.number, "closed", now));
@@ -308,6 +372,169 @@ export class BacklogPrs {
       // it open, so the next sync checks it again.
       await this.#check(office, lane, record, head, { mergeCommit: pr.mergeCommit });
     }
+  }
+
+  // ---- adopt ---------------------------------------------------------------------------------
+
+  async #adopt(office: OfficeId): Promise<AdoptReport> {
+    const none: AdoptReport = { adopted: null, refused: [] };
+    const handle = this.#deps.offices.get(office);
+    const lane = this.#deps.lane(office);
+    const list = this.#deps.list;
+    if (handle === undefined || lane === undefined || list === undefined) return none;
+    const url = await lane.git.run((git) => this.#remoteUrl(git, lane));
+    const repo = url === null ? null : repoOfRemoteUrl(url);
+    if (repo === null) return none;
+    let listed: HostPr[];
+    try {
+      listed = await list.listOpenPrs(repo, LANE_BRANCH_PREFIX);
+    } catch (error) {
+      // The host is unreachable or gh is unusable: the next reconcile asks again.
+      if (error instanceof CodeHostError) return none;
+      throw error;
+    }
+    const unknown = listed.filter((pr) => findPr(handle, pr.number) === null);
+    if (unknown.length === 0) return none;
+
+    const refused: { number: number; reason: string }[] = [];
+    const refuse = (pr: HostPr, reason: string) => {
+      refused.push({ number: pr.number, reason });
+      this.#noticeNotAdopted(office, pr, reason);
+    };
+    const mine = ownOpen(handle);
+    if (mine !== null) {
+      for (const pr of unknown) refuse(pr, mine);
+      return { adopted: null, refused };
+    }
+    if (unknown.length > 1) {
+      const all = unknown.map((pr) => `#${pr.number}`).join(", ");
+      for (const pr of unknown) {
+        refuse(
+          pr,
+          `${unknown.length} open backlog PRs (${all}) are unknown to dipo, and an office has at most one; close all but one by hand, then run \`dipo office rescan\``,
+        );
+      }
+      return { adopted: null, refused };
+    }
+
+    const pr = unknown[0] as HostPr;
+    // The remote has a URL (the repo came from it): fetch, so the PR's head is here. A failed
+    // fetch reads the local refs, as reconcile does offline.
+    await lane.git.fetch();
+    const outcome = await lane.git.run(async (git) => {
+      const base = await this.#baseName(git, lane).catch(() => null);
+      if (base === null) return { ok: false as const, reason: "the office has no base branch" };
+      const read = await readBranch(git, {
+        branch: pr.head,
+        hostHead: pr.headSha,
+        prBase: pr.base,
+        remote: lane.git.settings.remote,
+        base,
+      });
+      if (!read.ok) return read;
+      // Again inside the queue item: a flush queued since the look above may have cut a lane
+      // branch of the office's own, and the office keeps at most one.
+      const since = ownOpen(handle);
+      if (since !== null) return { ok: false as const, reason: since };
+      const taken = takenOpIds(
+        handle,
+        read.ops.map((op) => op.opId),
+      );
+      if (taken.length > 0) {
+        return {
+          ok: false as const,
+          reason: `the lane's journal already has the operations ${taken.join(", ")} its commits name`,
+        };
+      }
+      await placeBranch(git, pr.head, read.tip, read.local);
+      const ops: AdoptedOp[] = read.ops.map((op) => {
+        const resolved = resolveStoryRef(handle, op.subject);
+        return {
+          opId: op.opId,
+          kind: op.kind,
+          subject: op.subject,
+          key: resolved.ok ? resolved.key : null,
+          commit: op.commit,
+          state: op.pushed ? "pushed" : "committed",
+        };
+      });
+      this.#write(office, () => {
+        const now = this.#deps.clock.now();
+        for (const op of ops) insertAdoptedEntry(handle, op, pr.head, pr.url, now);
+        insertPr(handle, { number: pr.number, url: pr.url, branch: pr.head, title: pr.title }, now);
+        return [
+          notice(
+            "info",
+            PR_NOTICES.adopted,
+            `dipo adopted the open backlog PR #${pr.number} (${pr.head}) after its state database was lost or replaced: ${ops.length} ${ops.length === 1 ? "operation" : "operations"} (${ops.map((op) => `${op.kind} ${op.subject}`).join("; ")}). It merges once its structural check passes; a new Ready needs its Ready gate to pass again.`,
+          ),
+        ];
+      });
+      return { ok: true as const, tip: read.tip };
+    });
+    if (!outcome.ok) {
+      refuse(pr, outcome.reason);
+      return { adopted: null, refused };
+    }
+    this.#stateOf(office).notAdopted.delete(pr.number);
+    const record = findPr(handle, pr.number);
+    if (record !== null) {
+      // The check notices its own failures and errors; a check that could not run runs again
+      // when the merge slot or the next flush asks.
+      await this.#check(office, lane, record, outcome.tip).catch(() => undefined);
+    }
+    return { adopted: pr.number, refused };
+  }
+
+  /** One notice per PR and reason: a PR left alone is not noticed again on every rescan. */
+  #noticeNotAdopted(office: OfficeId, pr: HostPr, reason: string): void {
+    const noticed = this.#stateOf(office).notAdopted;
+    if (noticed.get(pr.number) === reason) return;
+    noticed.set(pr.number, reason);
+    this.#write(office, () => [
+      notice(
+        "warn",
+        PR_NOTICES.notAdopted,
+        `dipo did not adopt the open backlog PR #${pr.number} (${pr.head}): ${reason}. dipo leaves it as it is and merges nothing from it: ${pr.url}`,
+      ),
+    ]);
+  }
+
+  /**
+   * Lets go of the open PR of an adopted branch the lane could not rebuild (DIPO-80): the record
+   * is closed here only; the PR stays open on the host for the maintainer.
+   */
+  #letGo(office: OfficeId, branch: string): void {
+    const handle = this.#handle(office);
+    const stored = openPrs(handle).find((pr) => pr.branch === branch);
+    if (stored === undefined) return;
+    this.#write(office, () => {
+      closePrRecord(handle, stored.number, "closed", this.#deps.clock.now());
+      return [
+        notice(
+          "warn",
+          PR_NOTICES.letGo,
+          `dipo no longer manages the adopted backlog PR #${stored.number}: ${branch} no longer merges into the base and cannot be rebuilt. It stays open; merge or close it by hand: ${stored.url}`,
+        ),
+      ];
+    });
+  }
+
+  /**
+   * True when the open PR's last check failed on a missing Ready gate decision and a story it named
+   * has a passing decision stored since (DIPO-80: decisions lost with the database).
+   */
+  #gatePassedSince(handle: OfficeHandle, record: BacklogPrRecord): boolean {
+    if (record.check !== "failed") return false;
+    const since = record.checkedAt ?? 0;
+    return record.failures.some(
+      (failure) =>
+        failure.rule === "ready-decision" &&
+        failure.key !== undefined &&
+        gateDecisionsOf(handle, failure.key).some(
+          (decision) => decision.passed && decision.decidedAt > since,
+        ),
+    );
   }
 
   // ---- the check -----------------------------------------------------------------------------
@@ -479,7 +706,7 @@ export class BacklogPrs {
   #stateOf(office: OfficeId): OfficeState {
     let state = this.#state.get(office);
     if (state === undefined) {
-      state = { busy: Promise.resolve(), waiting: null };
+      state = { busy: Promise.resolve(), waiting: null, notAdopted: new Map() };
       this.#state.set(office, state);
     }
     return state;
@@ -574,4 +801,16 @@ function settleBlocks(
     result.touched.filter((key) => !blocked.has(key)),
     now,
   );
+}
+
+/**
+ * Why the office cannot adopt a backlog PR because it has one of its own: an open backlog PR or an
+ * open lane branch (DIPO-80); null when it has neither.
+ */
+function ownOpen(office: OfficeHandle): string | null {
+  const own = openPrs(office)[0];
+  const branch = openEntries(office).findLast((entry) => entry.branch !== null)?.branch;
+  if (own === undefined && branch === undefined) return null;
+  const mine = own !== undefined ? `backlog PR #${own.number}` : `backlog branch ${branch}`;
+  return `the office already has its own ${mine} open, and an office has at most one backlog PR`;
 }

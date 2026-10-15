@@ -30,6 +30,8 @@ import {
   type Logger,
   OfficeIngest,
   type OfficeManager,
+  PermissionAsks,
+  type Presence,
   PlanLimits,
   type RunBase,
   RunControl,
@@ -94,6 +96,8 @@ export interface DaemonRunsOptions {
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
   readonly work?: WorkTracker;
+  /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
+  readonly presence?: Presence;
   /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
   readonly notify?: (notice: HoldNotice) => void;
   /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
@@ -107,6 +111,8 @@ export interface DaemonRuns {
   readonly control: RunControl;
   /** Worker outcomes and the run's next session (DIPO-51); its feature decides exits at load. */
   readonly outcomes: RunOutcomes;
+  /** The permission wait and `work.answer` (DIPO-59). */
+  readonly permissions: PermissionAsks;
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
   /**
@@ -150,6 +156,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     platform,
     runStep,
     uid,
+    // The run settings file's hooks run this binary (DIPO-59).
+    dipoCommand: selfCommand(),
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null
@@ -201,9 +209,22 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
+  // The permission wait (DIPO-59): a worker's permission request asks the maintainer when present.
+  const permissions = new PermissionAsks({
+    clock,
+    ids: options.ids,
+    offices: options.offices,
+    steering: hostSocketSteering({ clock }),
+    encode: (op) => worker.encode(op),
+    presence: options.presence ?? { connected: () => false, lastRequestAt: () => null },
+    ending: (run) => control.isEnding(run),
+    onChanged: options.onChanged,
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
   ingest = new OfficeIngest({
     clock,
     hooks: control.hooks,
+    hookEvents: permissions,
     pricing: () => options.database()?.pricing ?? null,
     warn: (message, fields) => options.logger.warn(message, fields),
     watchdog,
@@ -353,5 +374,5 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control, outcomes, reattacher, planLimits };
+  return { launcher, ingest, control, outcomes, permissions, reattacher, planLimits };
 }

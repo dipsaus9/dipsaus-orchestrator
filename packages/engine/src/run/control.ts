@@ -106,7 +106,15 @@ export interface RunSteering {
     office: OfficeHandle,
     runId: RunId,
     ops: readonly HostOp[],
-  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
+  ): Promise<
+    | { readonly ok: true }
+    | {
+        readonly ok: false;
+        readonly reason: string;
+        /** The host's error code, when the host refused an op (for example `hook.unknown`). */
+        readonly code?: string;
+      }
+  >;
 }
 
 export interface RunControlDeps {

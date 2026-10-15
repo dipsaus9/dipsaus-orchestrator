@@ -88,11 +88,16 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
   /** Runs one engine step inside srt (the credential check). */
   readonly runStep: RunStep;
   readonly uid: number;
+  /**
+   * How to run this `dipo` (`selfCommand()`), for the run settings file's hooks (DIPO-59). Without
+   * it the hooks are not registered, so a spec that asks for the hook relay cannot be planned.
+   */
+  readonly dipoCommand?: readonly [string, ...string[]];
 }
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
 export function claudeLaunchContext(
-  deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env">,
+  deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env" | "dipoCommand">,
   paths: RunLaunchPaths,
   config: OfficeConfig,
 ): ClaudeLaunchContext {
@@ -111,6 +116,8 @@ export function claudeLaunchContext(
     hostSocket: paths.hostSocket,
     tmpDir: paths.tmpDir,
     sandbox: config.sandbox,
+    ...(deps.dipoCommand === undefined ? {} : { hookCommand: deps.dipoCommand }),
+    permissionWaitSeconds: config.timeouts.permissionWaitSeconds,
   };
 }
 

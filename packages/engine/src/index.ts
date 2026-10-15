@@ -90,6 +90,7 @@ export {
   compareVersions,
   GhHost,
   CodeHostError,
+  LIST_OPEN_LIMIT,
   MIN_GH_VERSION,
   repoOfRemoteUrl,
 } from "./platform/host";
@@ -100,11 +101,19 @@ export type {
   GhHostOptions,
   HostPr,
   NewPr,
+  PrListHost,
   PrState,
   RequiredCheck,
 } from "./platform/host";
 export { connectUnixSocket, removeSocketFile } from "./platform/socket";
 export type { ConnectOptions, RequestFrame, SocketClient, SocketReply } from "./platform/socket";
+export {
+  connectLineSocket,
+  listenLineSocket,
+  type LineConnection,
+  type LineServer,
+  type LineSession,
+} from "./platform/line-socket";
 export {
   BACKPRESSURE_LIMIT_BYTES,
   CLOSE_GOING_AWAY,
@@ -214,6 +223,7 @@ export * from "./backlog/pr";
 export * from "./merge-slot";
 export * from "./office/init";
 export * from "./run";
+export * from "./hooks";
 export * from "./worktree";
 export { formatGigabytes, systemDiskProbe } from "./platform/disk";
 export type { DiskProbe } from "./platform/disk";
@@ -515,9 +525,11 @@ export {
   EXIT_FILE,
   HOST_LOG_CAP_BYTES,
   HOST_LOG_FILE,
+  HOOK_PROTOCOL_VERSIONS,
   HOST_OPS,
   HOST_PROTOCOL_VERSION,
   HOST_PROTOCOL_VERSIONS,
+  MAX_HOOK_PAYLOAD,
   HostExitFileSchema,
   hostSocketPath,
   HOSTS_DIR,
@@ -532,6 +544,7 @@ export {
   type HostStatus,
 } from "./host/protocol";
 export { runWorkerHost, WorkerHost, type WorkerHostOptions } from "./host/main";
+export { HOOK_REPLY_GRACE_MS, relayHookPayload, type HookRelayRequest } from "./host/relay";
 export {
   connectHost,
   type ConnectHostOptions,

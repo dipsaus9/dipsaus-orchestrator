@@ -145,7 +145,7 @@ describe("worker host in-process", () => {
       expect(host.socketPath).toBe(socket);
 
       const client = await connect(socket);
-      expect(client.version).toBe(1);
+      expect(client.version).toBe(2);
       expect(client.hostPid).toBe(777);
       const advanced: number[] = [];
       expect(await client.watch((offset) => advanced.push(offset))).toBe(0);
@@ -298,7 +298,7 @@ describe("worker host in-process", () => {
         runId: RUN,
         clock: systemClock,
         timeoutMs: 2000,
-        versions: [1, 2],
+        versions: [1, 3],
       });
       expect(mixed.ok && mixed.client.version).toBe(1);
       if (mixed.ok) mixed.client.close();
@@ -314,7 +314,7 @@ describe("worker host in-process", () => {
       expect(JSON.parse(frames[0] ?? "{}")).toMatchObject({
         kind: "refused",
         error: { code: "frame.invalid" },
-        versions: [1],
+        versions: [1, 2],
       });
       open();
       await host.done;

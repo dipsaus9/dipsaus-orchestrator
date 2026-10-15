@@ -500,6 +500,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       spawn: systemSpawn,
       ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
       env: io.env,
+      logger: logger.child({ component: "gh" }),
     });
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),
@@ -515,6 +516,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
       host,
+      // Reconcile lists the open `dipo/backlog-*` PRs to adopt one after a lost database (DIPO-80).
+      list: host,
       lane: (office) => lane.forOffice(office),
       cli: backlogCli,
       offices,
@@ -633,6 +636,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
       work,
+      // The maintainer is present while a client is connected and sent a command or read lately
+      // (0008 section 5, DIPO-59); the server is made below.
+      presence: {
+        connected: () => server?.presence.connected() ?? false,
+        lastRequestAt: () => server?.presence.lastRequestAt() ?? null,
+      },
       // Plan limits (DIPO-61): a warning's notice goes to the software stream, and a held run
       // resumes only while the daemon schedules work.
       notify: (notice) => software.append("engine.notice", notice),
@@ -646,6 +655,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       runs: runs.control,
       releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+      adoptBacklogPr: (office) => backlogPrs.adopt(office),
       refuse: (office, text) => offices.refuse(office, text),
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "reconcile" }),
@@ -656,6 +666,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       close: () => {
         runs.planLimits.close();
         runs.control.close();
+        runs.permissions.close();
         runs.ingest.close();
         runs.reattacher.close();
       },
@@ -700,6 +711,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       runs.control.feature,
       runs.outcomes.feature,
+      runs.permissions.feature,
       runs.planLimits.feature,
       retention.feature,
       reconciler.feature,

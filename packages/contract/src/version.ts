@@ -23,6 +23,9 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-52 adds the read `office.switch`, the optional `view` (a `WorkView`) on the work events and
 // `usage.updated`, `work.observed.clearedAt`, and `Verdict.failures` with `Verdict.run` optional
 // to the same, still unreleased, minor.
+// DIPO-59 ships `work.answer` (with `decision` for permission questions), `question.asked` and
+// `question.closed`, adds the optional `questions` of `story.detail` and the office code
+// `question.closed` to the same, still unreleased, minor.
 // DIPO-61 ships the command `work.resume` (for runs held by a plan limit) in the same, still
 // unreleased, minor.
 // DIPO-76 ships the command `office.purge` in the same, still unreleased, minor.

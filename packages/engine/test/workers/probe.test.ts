@@ -53,7 +53,7 @@ describe("(unit) Claude Code probe", () => {
     const status = evaluateProbe(out("2.1.285", "claude.ai"));
     expect(status).toMatchObject({ ok: true, version: "2.1.285", login: "claude.ai" });
     expect(status.capabilities).toContain("resume");
-    expect(status.capabilities).not.toContain("hooks");
+    expect(status.capabilities).toContain("hooks");
   });
 
   it("refuses when either command fails or prints nothing usable", () => {

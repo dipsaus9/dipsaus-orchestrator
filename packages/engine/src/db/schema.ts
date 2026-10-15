@@ -22,6 +22,7 @@ import { runs } from "./migrations/0018-runs";
 import { viewFacts } from "./migrations/0019-view-facts";
 import { parksRunIntents } from "./migrations/0020-parks-run-intents";
 import { verifyOutcomes } from "./migrations/0021-verify-outcomes";
+import { questions } from "./migrations/0022-questions";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -79,4 +80,5 @@ create table offices (
   viewFacts,
   parksRunIntents,
   verifyOutcomes,
+  questions,
 ];
