@@ -136,7 +136,20 @@ export class MemoryFs implements SelfTestFs {
   }
 
   async exists(path: string): Promise<boolean> {
-    return this.files.has(path);
+    return this.files.has(path) || this.dirs.has(path);
+  }
+
+  /** Directories removed because they were empty (the npm-logs probe, DIPO-98). */
+  readonly removedDirs: string[] = [];
+
+  async removeEmptyDir(path: string): Promise<void> {
+    const prefix = `${path}/`;
+    const busy =
+      [...this.files.keys()].some((file) => file.startsWith(prefix)) ||
+      [...this.dirs].some((dir) => dir.startsWith(prefix));
+    if (busy || !this.dirs.has(path)) return;
+    this.dirs.delete(path);
+    this.removedDirs.push(path);
   }
 
   async remove(path: string): Promise<void> {
@@ -213,6 +226,7 @@ export const BLOCKED_RESULTS = [
   "refs blocked Operation not permitted",
   "objects blocked Operation not permitted",
   "pointer blocked Operation not permitted",
+  "npm-logs blocked Operation not permitted",
   "",
 ].join("\n");
 

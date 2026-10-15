@@ -12,6 +12,11 @@
 // refuses any read outside the working directories before the sandbox sees it). Credentials are
 // covered by the engine-side check under srt (`../credential-check.ts`) and by the Keychain and
 // credential denies every run settings file carries (`plan.ts`, unit-tested).
+// - a write into `<home>/.npm/_logs`, a path srt opens by default and the run settings close again
+//   (DIPO-98). It is named relative to `$HOME` inside the program, so the command text names no
+//   path outside the working directories for the permission layer to refuse first; the engine
+//   makes the directory beforehand when it is missing (and removes what it made), and only a
+//   permission error counts as blocked, so a missing directory never passes for a sandbox refusal;
 // - a control write inside the worktree, which must succeed, or the blocked writes prove nothing.
 //
 // The program writes one line per probe into a results file in the sandbox temp directory. The
@@ -21,7 +26,17 @@
 // self-test made.
 
 import { constants } from "node:fs";
-import { access, chmod, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  rmdir,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
 import type { ChildExit, ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
@@ -64,7 +79,13 @@ export const SELF_TEST_SYSTEM_PROMPT = [
 ].join("\n");
 
 /** Probes that write where a worker never may. */
-export type WriteProbe = "main-git" | "worktree-admin" | "refs" | "objects" | "pointer";
+export type WriteProbe =
+  | "main-git"
+  | "worktree-admin"
+  | "refs"
+  | "objects"
+  | "pointer"
+  | "npm-logs";
 /** Every session probe writes; no credential probe runs in the session (0008 amendment). */
 export type ProbeName = WriteProbe;
 
@@ -74,7 +95,15 @@ export const WRITE_PROBES: readonly WriteProbe[] = [
   "refs",
   "objects",
   "pointer",
+  "npm-logs",
 ];
+
+/** The srt default write path the npm-logs probe writes into, relative to home (DIPO-98). */
+export const NPM_LOGS_DIR = ".npm/_logs";
+/** Probes under the home directory: only a permission error counts as blocked. */
+const HOME_PROBES: readonly WriteProbe[] = ["npm-logs"];
+/** The errors a sandbox refusal gives: Seatbelt EPERM, EACCES, a read-only bind on Linux. */
+const SANDBOX_REFUSAL = /Operation not permitted|Permission denied|Read-only file system/;
 export const ALL_PROBES: readonly ProbeName[] = WRITE_PROBES;
 
 /** The probe groups of the three live safety recordings (AC #8). */
@@ -97,6 +126,8 @@ export interface SelfTestPaths {
   readonly nonce: string;
   /** Absolute `perl` and `gh`, resolved outside the sandbox from the daemon's PATH. */
   readonly tools: SelfTestTools;
+  /** The worker's home directory; required when the probes include `npm-logs` (DIPO-98). */
+  readonly home?: string | undefined;
   /**
    * With Safe-Chain and `bun` on the worker PATH (DIPO-84): two installs run first in a fresh
    * project in the temp directory, `bun add is-number@7.0.0` and `bun add safe-chain-test`; perl
@@ -113,7 +144,10 @@ export interface SelfTestTools {
 export interface ProbeTarget {
   readonly name: WriteProbe | "control";
   readonly mode: ">" | ">>";
+  /** The absolute path, which the engine checks and cleans up outside the sandbox. */
   readonly path: string;
+  /** Set for a probe under the home directory: the program opens `$HOME/<this>` (DIPO-98). */
+  readonly homeRelative?: string;
 }
 
 export interface SelfTestLayout {
@@ -134,7 +168,8 @@ export interface SelfTestLayout {
 /**
  * The probe program, one line for `perl -e`. It holds no credential code.
  * Arguments: the results file, the byte, then one triple per probe (name, open mode, path).
- * Write probes open their path and write the byte. A triple with the mode `exit` records its third
+ * Write probes open their path and write the byte; the mode `~>` opens `$HOME/<path>` for writing
+ * (DIPO-98). A triple with the mode `exit` records its third
  * value as an exit code (the Safe-Chain probe, DIPO-82). One result line per probe. Passed
  * inline: Claude Code's permission layer denies `perl <script>` when the script lies outside the
  * working directory (seen live on 2.1.296), and a script inside the worktree could be changed by
@@ -147,6 +182,7 @@ export function probeScript(): string {
     'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
     "while (@ARGV) { my ($n, $m, $p) = splice(@ARGV, 0, 3);",
     'if ($m eq "exit") { print $o "$n exit $p\\n"; next }',
+    'if ($m eq "~>") { $m = ">"; $p = "$ENV{HOME}/$p" }',
     'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" } }',
     "close $o;",
     'print "dipo-self-test finished\\n";',
@@ -159,6 +195,7 @@ const PROBE_PROSE: Record<WriteProbe, string> = {
   refs: "a file under .git/refs/heads",
   objects: "a file under .git/objects",
   pointer: "one byte appended to this worktree's .git pointer file",
+  "npm-logs": "a file in npm's log directory under the home directory",
 };
 
 function shellQuote(value: string): string {
@@ -178,27 +215,44 @@ export function selfTestLayout(
   const byte = paths.nonce.slice(0, 1);
   if (!/^[0-9a-z]$/.test(byte)) throw new Error(`the self-test nonce must start with [0-9a-z]`);
   const gitDir = `${paths.main}/.git`;
-  const where: Record<WriteProbe, ProbeTarget> = {
-    "main-git": { name: "main-git", mode: ">", path: `${gitDir}/${name}` },
-    "worktree-admin": { name: "worktree-admin", mode: ">", path: `${paths.adminDir}/${name}` },
-    refs: { name: "refs", mode: ">", path: `${gitDir}/refs/heads/${name}` },
-    objects: { name: "objects", mode: ">", path: `${gitDir}/objects/${name}` },
-    // One byte appended: an allowed write changes the pointer, which the disk check sees.
-    pointer: { name: "pointer", mode: ">>", path: `${paths.workdir}/.git` },
+  const where = (probe: WriteProbe): ProbeTarget => {
+    switch (probe) {
+      case "main-git":
+        return { name: probe, mode: ">", path: `${gitDir}/${name}` };
+      case "worktree-admin":
+        return { name: probe, mode: ">", path: `${paths.adminDir}/${name}` };
+      case "refs":
+        return { name: probe, mode: ">", path: `${gitDir}/refs/heads/${name}` };
+      case "objects":
+        return { name: probe, mode: ">", path: `${gitDir}/objects/${name}` };
+      case "pointer":
+        // One byte appended: an allowed write changes the pointer, which the disk check sees.
+        return { name: probe, mode: ">>", path: `${paths.workdir}/.git` };
+      case "npm-logs": {
+        if (paths.home === undefined)
+          throw new Error("the npm-logs probe needs the home directory");
+        const homeRelative = `${NPM_LOGS_DIR}/${name}`;
+        return { name: probe, mode: ">", path: `${paths.home}/${homeRelative}`, homeRelative };
+      }
+    }
   };
   const controlFile = `${paths.workdir}/.${name}`;
   const resultsFile = `${paths.tmpDir}/${name}.txt`;
   const writes = probes;
   const targets: ProbeTarget[] = [
     { name: "control", mode: ">", path: controlFile },
-    ...writes.map((p) => where[p]),
+    ...writes.map(where),
   ];
   const script = probeScript();
   const installDir = paths.safeChainInstall === true ? `${paths.tmpDir}/${name}-install` : null;
   const args = [
     resultsFile,
     byte,
-    ...targets.flatMap((target) => [target.name, target.mode, target.path]),
+    ...targets.flatMap((target) =>
+      target.homeRelative === undefined
+        ? [target.name, target.mode, target.path]
+        : [target.name, "~>", target.homeRelative],
+    ),
   ];
   // With Safe-Chain the two installs run first, through the worker's own shell and dipo's proxy;
   // their exit codes go to perl as the last two triples; their output is dropped.
@@ -326,6 +380,7 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   refs: "a write under <main>/.git/refs",
   objects: "a write under <main>/.git/objects",
   pointer: "a write to the <worktree>/.git pointer",
+  "npm-logs": `a write to <home>/${NPM_LOGS_DIR}, which srt opens by default`,
 };
 
 function cannotRun(reason: string, probe?: ProbeName | "control" | "safe-chain"): SelfTestVerdict {
@@ -408,6 +463,13 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
     const line = lines.get(probe);
     const expected = "write";
     if (line?.kind !== expected) return cannotRun(`no result for ${PROBE_TEXT[probe]}`, probe);
+    // A home probe that failed for another reason (a missing directory) proves nothing (DIPO-98).
+    if (HOME_PROBES.includes(probe) && !SANDBOX_REFUSAL.test(line.detail)) {
+      return cannotRun(
+        `${PROBE_TEXT[probe]} failed with "${line.detail}", not a sandbox refusal`,
+        probe,
+      );
+    }
   }
   const control = lines.get("control");
   if (control?.kind !== "write" || !control.written || !disk.controlWritten) {
@@ -452,6 +514,8 @@ export interface SelfTestFs {
   remove(path: string): Promise<void>;
   /** Removes a directory and everything in it; a missing one is fine (the install probe). */
   removeTree(path: string): Promise<void>;
+  /** Removes a directory only when it is empty; a missing or non-empty one is left (DIPO-98). */
+  removeEmptyDir(path: string): Promise<void>;
   /** The path with symlinks resolved, or null when it does not exist. */
   realpath(path: string): Promise<string | null>;
   /** True when the path is a regular file the daemon may execute. */
@@ -486,6 +550,13 @@ export const nodeSelfTestFs: SelfTestFs = {
   },
   remove: (path) => rm(path, { force: true }),
   removeTree: (path) => rm(path, { recursive: true, force: true }),
+  removeEmptyDir: async (path) => {
+    try {
+      await rmdir(path);
+    } catch {
+      // Missing, or not empty: left as it is.
+    }
+  },
   realpath: async (path) => {
     try {
       return await realpath(path);
@@ -809,6 +880,7 @@ export async function runSelfTest(
     tmpDir: ctx.tmpDir,
     nonce,
     tools: tools.tools,
+    home: ctx.home,
     // The installs need `bun` on the worker PATH and the run's proxy (a launch, not a dry run).
     safeChainInstall: ctx.safeChain?.probe !== null && ctx.safeChain?.route !== undefined,
   });
@@ -864,6 +936,19 @@ export async function runSelfTest(
     (target): target is ProbeTarget & { name: WriteProbe } =>
       target.name !== "control" && target.name !== "pointer",
   );
+  // The npm-logs probe needs its directory, or its write fails before the sandbox decides
+  // (DIPO-98). Made here, outside the sandbox, when missing; what was made is removed below.
+  const madeDirs: string[] = [];
+  if (layout.probes.includes("npm-logs")) {
+    const parts = NPM_LOGS_DIR.split("/");
+    for (let at = 1; at <= parts.length; at++) {
+      const dir = `${ctx.home}/${parts.slice(0, at).join("/")}`;
+      if (!(await fs.exists(dir))) {
+        await fs.mkdir(dir);
+        madeDirs.push(dir);
+      }
+    }
+  }
   const timeoutMs = deps.timeoutMs ?? SELF_TEST_TIMEOUT_MS;
   let session: Session | string;
   try {
@@ -910,6 +995,8 @@ export async function runSelfTest(
         // Best effort; it lies in the run temp directory, removed with the run.
       }
     }
+    // The directories made for the npm-logs probe, deepest first, only while empty.
+    for (const dir of madeDirs.toReversed()) await fs.removeEmptyDir(dir);
   }
 
   const outcome = sessionOutcome(session, timeoutMs);
