@@ -143,12 +143,12 @@ async function withRunOffice(
 }
 
 let count = 0;
-function workRunCommand(r: Running): Promise<CommandReply> {
+function workRunCommand(r: Running, stories?: string[]): Promise<CommandReply> {
   count += 1;
   return executeCommand(r.s.deps, {
     requestId: RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${(90_000 + count).toString().padStart(8, "0")}`),
     name: "work.run",
-    args: { from: r.repo.dir },
+    args: { from: r.repo.dir, ...(stories === undefined ? {} : { stories }) },
     origin: "cli",
     confirmed: false,
     office: r.officeId,
@@ -203,6 +203,38 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             ]);
             // The claim commit is read on the branch at once (DIPO-56): the story is In Progress.
             expect(entries.at(-1)?.delta).toMatchObject({ from: "Ready", to: "In Progress" });
+          },
+        ),
+      30_000,
+    );
+
+    // DIPO-104: the executor resolves `stories` before the handler fetches, so a story merged to
+    // the remote base since the last poll was `story.unknown` until `office rescan`.
+    it(
+      "runs a story named by id that was merged to the remote base after the office loaded",
+      () =>
+        withRunOffice(
+          async () => undefined,
+          async (r) => {
+            const tasks = join(r.repo.dir, "backlog", "tasks");
+            const text = readFileSync(join(tasks, "task-1 - Add-the-CSV-export-command.md"), "utf8")
+              .replace("id: TASK-1", "id: TASK-4")
+              .replace("title: Add the CSV export command", "title: Add the JSON import command")
+              .replace("TASK-1/add-the-csv-export-command", "TASK-4/add-the-json-import-command");
+            writeFileSync(join(tasks, "task-4 - Add-the-JSON-import-command.md"), text);
+            await publish(r.repo, "merge TASK-4");
+            expect(
+              r.office.get<{ n: number }>(
+                "select count(*) as n from stories where office_id = $office_id and story_id = 'TASK-4'",
+              )?.n,
+            ).toBe(0);
+
+            const result = resultOf<{
+              started: { story: string }[];
+              skipped: { story: string; reason: string }[];
+            }>(await workRunCommand(r, ["TASK-4"]));
+            expect(result.started.map((s) => s.story)).toEqual(["TASK-4"]);
+            expect(result.skipped).toEqual([]);
           },
         ),
       30_000,

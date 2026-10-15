@@ -2,7 +2,8 @@
 // git (DIPO-32 test plan), kept out of the local suite for its time budget (DIPO-77): an archived
 // or completed task closes as Removed with a notice, a hand-promoted draft is renumbered, an
 // ambiguous created date matches nothing, and a status pushed to the remote is indexed after
-// `polling.fetchSeconds` on the manual clock.
+// `polling.fetchSeconds` on the manual clock, as is a new story merged while the office is loaded,
+// which a story refresh also reads at once (DIPO-104).
 // Also keys that stay stable across a second pass and a retitle with the CLI (DIPO-79); the fast
 // local versions of that rule are in apply.test.ts.
 // A fast local check of the polling is part of the first test in index.test.ts.
@@ -229,6 +230,41 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         s.clock.advance(interval);
         await index.whenIdle(officeId);
         expect(s.clock.pendingTimers).toBe(0);
+      }));
+
+    // DIPO-104: a story merged to the remote base while the office is loaded.
+    it("indexes a story merged to the remote base at the next poll, and at once on a refresh", () =>
+      withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
+        const other = join(repo.root, "other");
+        await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
+        const merge = async (title: string): Promise<void> => {
+          await backlog(repo, ["task", "create", title, "-s", "Ready"], other);
+          await git(other, repo.home, "add", "--", "backlog");
+          await git(other, repo.home, "commit", "--quiet", "-m", title);
+          await git(other, repo.home, "push", "--quiet", "origin", "main");
+        };
+        await merge("Add the is-number dependency");
+        s.changed.length = 0;
+
+        const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
+        s.clock.advance(interval - 1);
+        await index.whenIdle(officeId);
+        expect(keyOf(office, "TASK-4")).toBeNull();
+
+        s.clock.advance(1);
+        await index.whenIdle(officeId);
+        expect(keyOf(office, "TASK-4")).not.toBeNull();
+        expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
+        expect(s.changed).toContain(officeId);
+
+        // A refresh (a command named an unknown story) fetches and indexes without the poll.
+        await merge("Add the is-odd dependency");
+        await index.refresh(officeId);
+        expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
+        // A refresh with nothing new writes nothing.
+        const after = lastSeq(office);
+        await index.refresh(officeId);
+        expect(lastSeq(office)).toBe(after);
       }));
   });
 }
