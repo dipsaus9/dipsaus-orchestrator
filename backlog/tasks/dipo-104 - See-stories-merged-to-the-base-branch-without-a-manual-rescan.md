@@ -4,6 +4,7 @@ title: See stories merged to the base branch without a manual rescan
 status: To Do
 assignee: []
 created_date: '2026-10-15 19:23'
+updated_date: '2026-10-15 20:52'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -11,6 +12,11 @@ dependencies: []
 references:
   - packages/engine/src/stories/feature.ts
   - packages/engine/src/stories/apply.ts
+  - packages/engine/src/commands/execute.ts
+  - packages/engine/src/commands/registry.ts
+  - packages/engine/test/commands/execute.test.ts
+  - packages/engine/test/stories/index.ci.test.ts
+  - packages/engine/test/run/work-run.ci.test.ts
 priority: medium
 type: feature
 ordinal: 94000
