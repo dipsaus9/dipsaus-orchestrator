@@ -334,12 +334,13 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
       // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
       // With Safe-Chain the shell snapshot stays closed too: its functions would replace the
-      // wrapper's environment (DIPO-82); and the proxy's directory with its CA key (DIPO-84).
+      // wrapper's environment (DIPO-82); and the parent of every Safe-Chain proxy directory, with
+      // their CA keys (DIPO-84).
       denyRead: [
         `${home}/Library/Keychains`,
         ...(ctx.safeChain === undefined
           ? []
-          : [`${home}/${SHELL_SNAPSHOTS_DIR}`, safeChainRoute(ctx).dir]),
+          : [`${home}/${SHELL_SNAPSHOTS_DIR}`, posix.dirname(safeChainRoute(ctx).dir)]),
       ],
       denyWrite: [
         `${main}/.git`,

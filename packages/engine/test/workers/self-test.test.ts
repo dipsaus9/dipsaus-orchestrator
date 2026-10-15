@@ -606,7 +606,7 @@ describe("(unit) Safe-Chain install check (DIPO-84)", () => {
       dropped: [],
       probe: "bun",
       shellDir: `${RUN_DIR}/safe-chain`,
-      route: { port: 50123, dir: "/private/tmp/dipo-p-abc123" },
+      route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" },
     };
     const ctx = context({ safeChain });
     const layout = selfTestLayout({ ...PATHS, nonce: NONCE, safeChainInstall: true });

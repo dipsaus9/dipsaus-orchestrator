@@ -60,8 +60,15 @@ export const SAFE_CHAIN_CA_FILE = "ca.pem";
 /** Variable the holder reads: the file it writes its report to. */
 export const HOLDER_REPORT_ENV = "DIPO_SAFE_CHAIN_REPORT";
 
-/** Prefix of a proxy directory: short, because macOS limits Unix socket paths to about 104 bytes. */
-export const SAFE_CHAIN_PROXY_PREFIX = "/tmp/dipo-p-";
+/**
+ * The private (0700) parent of every proxy directory, `<root>/<random>`. Short, because macOS
+ * limits Unix socket paths to about 104 bytes; one parent, so the worker sandbox denies reading
+ * every proxy at once, and leftovers of a killed daemon are swept from one place.
+ */
+export const SAFE_CHAIN_PROXY_ROOT = "/tmp/dipo-p";
+
+/** A proxy directory's name under the root: what `mkdtemp` makes, nothing else is swept. */
+export const PROXY_DIR_NAME = /^[A-Za-z0-9]{6}$/;
 
 /** The ecosystem whose Safe-Chain checks `host`, or null when no proxy may reach it. */
 export function ecosystemOf(host: string): SafeChainEcosystem | null {
@@ -91,6 +98,8 @@ export interface SafeChainProxyLayout {
   readonly socket: string;
   /** The proxy's sandbox settings, a sibling so the sandbox cannot rewrite it. */
   readonly policy: string;
+  /** The daemon that owns the proxy (its process id), for the sweep of leftovers. */
+  readonly owner: string;
 }
 
 export function safeChainProxyLayout(dir: string): SafeChainProxyLayout {
@@ -105,6 +114,7 @@ export function safeChainProxyLayout(dir: string): SafeChainProxyLayout {
     sockets: `${dir}/sock`,
     socket: `${dir}/sock/gate.sock`,
     policy: `${dir}.policy.json`,
+    owner: `${dir}/owner`,
   };
 }
 

@@ -1,8 +1,9 @@
 // The daemon side of dipo's Safe-Chain checking proxy (DIPO-84). One proxy per worker session of a
 // run, on a machine with the official Safe-Chain install:
 //
-// 1. A fresh `/tmp/dipo-p-<random>` directory (0700) gets a copy of `~/.safe-chain/bin/safe-chain`
-//    (so Safe-Chain makes its own CA there and never writes `~/.safe-chain`), the holder scripts and
+// 1. A fresh `/tmp/dipo-p/<random>` directory (0700, under the private parent `/tmp/dipo-p`) gets
+//    a copy of `~/.safe-chain/bin/safe-chain` (so Safe-Chain makes its own CA there and never
+//    writes `~/.safe-chain`), the holder scripts, an owner file with the daemon's process id and
 //    the proxy's sandbox settings (`safeChainProxyPolicy`).
 // 2. `dipo daemon sandbox-exec` runs `dipo daemon safe-chain-gate` in that sandbox; the gate starts
 //    Safe-Chain for npm and PyPI and prints one ready line.
@@ -21,8 +22,10 @@
 import {
   chmod,
   copyFile,
+  lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
@@ -30,7 +33,7 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
@@ -42,7 +45,8 @@ import {
   safeChainProxyPolicy,
   SAFE_CHAIN_HOLDER_COMMANDS,
   SAFE_CHAIN_ECOSYSTEMS,
-  SAFE_CHAIN_PROXY_PREFIX,
+  PROXY_DIR_NAME,
+  SAFE_CHAIN_PROXY_ROOT,
   type SafeChainProxyLayout,
 } from "../sandbox/safe-chain-proxy";
 import type { DipoPlatform } from "./paths";
@@ -101,8 +105,69 @@ export interface SafeChainProxyDeps {
   readonly clock: Clock;
   /** How to run `dipo` (`dipoCommand()`); tests run it from source. */
   readonly dipo?: readonly string[];
-  /** Prefix of the proxy directory; tests pass one under DIPO_TMP. */
-  readonly prefix?: string;
+  /** The proxies' private parent (`SAFE_CHAIN_PROXY_ROOT`); tests pass one under DIPO_TMP. */
+  readonly root?: string;
+}
+
+/**
+ * Makes the proxies' parent a private directory of this user, or refuses: a parent someone else
+ * owns or can enter, or a link, could hand a proxy files dipo did not make.
+ */
+export async function ensureProxyRoot(root: string): Promise<string> {
+  await mkdir(root, { mode: 0o700 }).catch((error: unknown) => {
+    if ((error as { code?: string }).code !== "EEXIST") throw error;
+  });
+  const info = await lstat(root);
+  const uid = process.getuid?.() ?? info.uid;
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error(`${root} is not a directory`);
+  }
+  if (info.uid !== uid || (info.mode & 0o077) !== 0) {
+    throw new Error(`${root} is not a private (0700) directory of this user`);
+  }
+  return realpath(root);
+}
+
+/** True when a process with this id runs (the owner of a proxy directory). */
+function processRuns(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: string }).code === "EPERM";
+  }
+}
+
+/**
+ * Removes proxy directories a daemon left behind when it was killed (DIPO-84): only under a
+ * private root, only names `mkdtemp` makes, only directories this user owns, and only when their
+ * owner process no longer runs. Their policy and refusal files go with them. Returns what it removed.
+ */
+export async function sweepSafeChainProxies(
+  root: string = SAFE_CHAIN_PROXY_ROOT,
+  running: (pid: number) => boolean = processRuns,
+): Promise<string[]> {
+  let real: string;
+  try {
+    const info = await lstat(root);
+    if (!info.isDirectory()) return [];
+    real = await ensureProxyRoot(root);
+  } catch {
+    return [];
+  }
+  const uid = process.getuid?.() ?? -1;
+  const removed: string[] = [];
+  for (const name of await readdir(real)) {
+    if (!PROXY_DIR_NAME.test(name)) continue;
+    const layout = safeChainProxyLayout(`${real}/${name}`);
+    const info = await lstat(layout.dir).catch(() => null);
+    if (info === null || !info.isDirectory() || info.uid !== uid) continue;
+    const owner = Number((await readFile(layout.owner, "utf8").catch(() => "")).trim());
+    if (Number.isInteger(owner) && owner > 0 && running(owner)) continue;
+    await removeLayout(layout);
+    removed.push(layout.dir);
+  }
+  return removed;
 }
 
 function messageOf(error: unknown): string {
@@ -131,8 +196,11 @@ async function prepare(
 ): Promise<SafeChainProxyLayout> {
   // mkdtemp makes the directory 0700 with an unpredictable name; the real path, because the
   // sandbox paths must name the directory itself (`/tmp` is a link on macOS).
-  const dir = await realpath(await mkdtemp(deps.prefix ?? SAFE_CHAIN_PROXY_PREFIX));
+  const root = await ensureProxyRoot(deps.root ?? SAFE_CHAIN_PROXY_ROOT);
+  const dir = await mkdtemp(`${root}/`);
   const layout = safeChainProxyLayout(dir);
+  // The sweep at the next daemon start leaves a proxy alone while this process runs.
+  await writeFile(layout.owner, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
   for (const path of [
     dirname(layout.binary),
     layout.holders,
@@ -176,6 +244,8 @@ async function prepare(
 }
 
 async function removeLayout(layout: SafeChainProxyLayout): Promise<void> {
+  // Only ever a directory `mkdtemp` made under a root, never anything a bug could name.
+  if (!PROXY_DIR_NAME.test(basename(layout.dir)) || dirname(layout.dir) === layout.dir) return;
   await rm(refusalPathFor(layout.policy), { force: true }).catch(() => {});
   await rm(layout.policy, { force: true }).catch(() => {});
   await rm(layout.dir, { recursive: true, force: true }).catch(() => {});

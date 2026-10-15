@@ -142,7 +142,7 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
     probe: SAFE_CHAIN_PROBE,
   };
   const TMP = "/tmp/dipo-run-0001";
-  const RUN = { tmpDir: TMP, route: { port: 50123, dir: "/private/tmp/dipo-p-abc123" } };
+  const RUN = { tmpDir: TMP, route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" } };
 
   it("writes a zsh wrapper with PATH, caches in the run temp dir, the proxy CA and ZDOTDIR", () => {
     const [wrapper, init, proxy] = safeChainShellFiles(launch, SHELL_DIR, RUN);
@@ -188,7 +188,7 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
     });
     expect(described.proxy.sandbox.network).toContain("malware-list.aikido.dev");
     expect(described.proxy.sandbox.allowLocalBinding).toBe(true);
-    expect(described.proxy.dir).toBe("/private/tmp/dipo-p-abc123");
+    expect(described.proxy.dir).toBe("/private/tmp/dipo-p/abc123");
   });
 
   it("writes a bash wrapper with BASH_ENV for bash", () => {

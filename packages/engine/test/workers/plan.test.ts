@@ -553,7 +553,7 @@ function sandboxOf(launch: LaunchPlan) {
 describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
   const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0001";
   const SHELL_DIR = `${RUN_DIR}/safe-chain`;
-  const PROXY_DIR = "/private/tmp/dipo-p-abc123";
+  const PROXY_DIR = "/private/tmp/dipo-p/abc123";
   const safeChain = {
     root: "/home/maintainer/.safe-chain",
     shell: "/bin/zsh",
@@ -577,7 +577,8 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
     expect(sandbox.filesystem.denyRead).toEqual([
       ...base.filesystem.denyRead,
       "/home/maintainer/.claude/shell-snapshots",
-      PROXY_DIR,
+      // The parent of every proxy directory, not only this run's (DIPO-84 review).
+      "/private/tmp/dipo-p",
     ]);
     // Writes as before: the worktree and the run temp directory, where the caches go.
     expect(sandbox.filesystem.allowWrite).toEqual(base.filesystem.allowWrite);
@@ -611,7 +612,7 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
     const launch = plan(spec("M"), context({ safeChain: detected }));
     const sandbox = sandboxOf(launch);
     expect(sandbox.network["httpProxyPort"]).toBe(0);
-    expect(sandbox.filesystem.denyRead).toContain("/tmp/dipo-p-<started-with-the-run>");
+    expect(sandbox.filesystem.denyRead).toContain("/tmp/dipo-p");
   });
 
   it("refuses an office that allows domains or local binding", () => {
@@ -644,7 +645,7 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
     expect(launch.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
     expect(launch.files.map((f) => f.name)).toEqual([SETTINGS_FILE, REPORT_SCHEMA_FILE]);
     const text = JSON.stringify(settingsOf(launch));
-    for (const word of ["safe-chain", "shell-snapshots", "httpProxyPort", "dipo-p-"]) {
+    for (const word of ["safe-chain", "shell-snapshots", "httpProxyPort", "dipo-p"]) {
       expect(text).not.toContain(word);
     }
   });

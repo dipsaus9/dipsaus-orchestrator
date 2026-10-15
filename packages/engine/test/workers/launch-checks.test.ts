@@ -320,7 +320,7 @@ function proxies(start: "ok" | "fail") {
       if (start === "fail") return { ok: false as const, reason: "the proxy check failed" };
       const proxy = {
         port: 50123,
-        dir: "/private/tmp/dipo-p-abc123",
+        dir: "/private/tmp/dipo-p/abc123",
         exited: new Promise<void>(() => {}),
         stop: async () => {},
       };
@@ -395,7 +395,8 @@ describe("(engine) Safe-Chain proxy at launch (DIPO-84)", () => {
       allowLocalBinding: false,
       httpProxyPort: 50123,
     });
-    expect(settings.sandbox.filesystem.denyRead).toContain("/private/tmp/dipo-p-abc123");
+    // The parent of every proxy directory.
+    expect(settings.sandbox.filesystem.denyRead).toContain("/private/tmp/dipo-p");
     expect(fake.calls).toEqual([
       `start run-0001 ${RUN_DIR}/safe-chain/ca.pem`,
       "awaitHost run-0001",

@@ -4,13 +4,27 @@
 
 import { describe, expect, it } from "bun:test";
 import { connect, createServer, type Server, type Socket } from "node:net";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { systemClock } from "../../src/platform/clock";
 import { handleGateConnection } from "../../src/platform/safe-chain-gate";
-import { proxyCheckProblem } from "../../src/platform/safe-chain-proxy";
+import {
+  ensureProxyRoot,
+  proxyCheckProblem,
+  sweepSafeChainProxies,
+} from "../../src/platform/safe-chain-proxy";
 import { SafeChainProxies, type SafeChainProxyHandle } from "../../src/sandbox/safe-chain-proxies";
 import {
   ecosystemOf,
@@ -25,7 +39,7 @@ import {
   workerCaEnv,
 } from "../../src/sandbox/safe-chain-proxy";
 
-const DIR = "/private/tmp/dipo-p-abc123";
+const DIR = "/private/tmp/dipo-p/abc123";
 const LAYOUT = safeChainProxyLayout(DIR);
 
 describe("(unit) the gate's rule", () => {
@@ -156,7 +170,7 @@ describe("(unit) the proxy's own sandbox", () => {
   });
 
   it("keeps the socket path short enough for macOS", () => {
-    expect(safeChainProxyLayout("/private/tmp/dipo-p-AbCdEf").socket.length).toBeLessThan(100);
+    expect(safeChainProxyLayout("/private/tmp/dipo-p/AbCdEf").socket.length).toBeLessThan(100);
   });
 });
 
@@ -217,7 +231,7 @@ describe("(unit) the proxy check's verdict", () => {
 
 function handle(
   port: number,
-  dir = "/private/tmp/dipo-p-1",
+  dir = "/private/tmp/dipo-p/AbCd12",
 ): SafeChainProxyHandle & {
   stops: number;
   exit(): void;
@@ -306,6 +320,8 @@ describe("(unit) the runs' proxies", () => {
     await made[0]?.exited;
     await Promise.resolve();
     expect(proxies.get("run_1")).toBeUndefined();
+    // Its port and directory go too.
+    expect(made[0]?.stops).toBe(1);
     expect(warnings).toEqual(["the Safe-Chain proxy of a run stopped; its installs now fail"]);
     await proxies.stopAll();
     expect(made[1]?.stops).toBe(1);
@@ -401,5 +417,50 @@ describe("(unit) the gate on local sockets", () => {
         gate.close();
         fakeSafeChain.close();
       }
+    }));
+});
+
+describe("(unit) leftover proxy directories", () => {
+  it("sweeps only dipo-made directories of this user whose daemon is gone", () =>
+    withTempDir(async (dir) => {
+      const root = join(dir, "p");
+      mkdirSync(root, { mode: 0o700 });
+      const make = (name: string, owner: string | null) => {
+        mkdirSync(join(root, name, "sc", "certs"), { recursive: true });
+        writeFileSync(join(root, name, "sc", "certs", "ca-key.pem"), "key");
+        if (owner !== null) writeFileSync(join(root, name, "owner"), owner);
+        writeFileSync(join(root, `${name}.policy.json`), "{}");
+      };
+      make("Dead01", "4241\n");
+      make("Live01", "4242\n");
+      make("NoOwnr", null);
+      make("not-dipo", "4241\n");
+      const removed = await sweepSafeChainProxies(root, (pid) => pid === 4242);
+      const real = realpathSync(root);
+      expect(removed.toSorted()).toEqual([`${real}/Dead01`, `${real}/NoOwnr`]);
+      expect(readdirSync(root).toSorted()).toEqual([
+        "Live01",
+        "Live01.policy.json",
+        "not-dipo",
+        "not-dipo.policy.json",
+      ]);
+    }));
+
+  it("touches nothing under a parent that is not private, and refuses to use it", () =>
+    withTempDir(async (dir) => {
+      const root = join(dir, "open");
+      mkdirSync(join(root, "Dead01"), { recursive: true });
+      chmodSync(root, 0o755);
+      expect(await sweepSafeChainProxies(root, () => false)).toEqual([]);
+      expect(existsSync(join(root, "Dead01"))).toBe(true);
+      await expect(ensureProxyRoot(root)).rejects.toThrow("private (0700)");
+      const link = join(dir, "link");
+      symlinkSync(join(dir, "elsewhere"), link);
+      mkdirSync(join(dir, "elsewhere"), { mode: 0o700 });
+      await expect(ensureProxyRoot(link)).rejects.toThrow("not a directory");
+      // A missing parent is made private.
+      const fresh = join(dir, "fresh");
+      expect(await ensureProxyRoot(fresh)).toBe(realpathSync(fresh));
+      expect(statSync(fresh).mode & 0o777).toBe(0o700);
     }));
 });
