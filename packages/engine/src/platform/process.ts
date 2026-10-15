@@ -50,6 +50,21 @@ export function isDaemonCommand(command: string): boolean {
   return at >= 0 && args.indexOf("--foreground", at + 1) > at;
 }
 
+/**
+ * True when the command line is `dipo daemon worker-host <runId>`, from the binary or from source
+ * (DIPO-93). The last three arguments are compared, so a binary path with spaces still matches,
+ * and the run id must be the last argument exactly.
+ */
+export function isWorkerHostCommand(command: string, runId: string): boolean {
+  const args = command.trim().split(/\s+/);
+  return (
+    args.length >= 4 &&
+    args.at(-1) === runId &&
+    args.at(-2) === "worker-host" &&
+    args.at(-3) === "daemon"
+  );
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Parses `ps -o lstart=` under `LC_ALL=C TZ=UTC`, for example `Mon Oct 12 09:52:03 2026`. */
@@ -299,6 +314,24 @@ export const BUN_FLAG_VARIABLES: readonly string[] = ["BUN_OPTIONS", "BUN_FEATUR
  * installed agent (DIPO-63).
  */
 export const SUPERVISOR_VARIABLES: readonly string[] = ["XPC_SERVICE_NAME"];
+
+/** Sends one signal to one process; injectable so tests record the call (DIPO-93). */
+export type SignalProcess = (pid: number, signal: NodeJS.Signals) => boolean;
+
+/**
+ * Signals the one process `pid` and nothing else: never a group, never PID 1 and never this
+ * process (DIPO-93). The caller verified the PID and its start time just before. False when the
+ * process is gone or the signal was refused.
+ */
+export const signalProcess: SignalProcess = (pid, signal) => {
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * The environment of a process the daemon starts detached: `BUN_OPTIONS` and the propagated

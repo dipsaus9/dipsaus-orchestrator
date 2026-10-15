@@ -5,6 +5,10 @@
 // `events.ndjson`. When the worker exits it cancels delayed signals, kills the worker's process
 // group so no child of the worker outlives the run, writes `exit.json` and returns.
 //
+// It claims `launch.json` by a rename and writes its PID marker before it starts the worker, and
+// SIGTERM to the host stops its worker (stdin closed, SIGTERM, SIGKILL 20 s later) instead of
+// ending the host at once (DIPO-93): the engine stops a follow-only host this way.
+//
 // Hook relay (0008 section 5, DIPO-59): `dipo hook <event>` sends the payload with the `hook` op;
 // the host appends it as a `hook` line. A call with `waitMs` is held under its line's end offset
 // until the engine answers it with `hookReply`, `waitMs` passes, the worker exits, or no engine
@@ -35,6 +39,7 @@ import { removeSocketFile } from "../platform/socket";
 import { EventLog, LineSplitter, type EventChannel } from "./events";
 import { openHostLog, type HostLog } from "./host-log";
 import {
+  claimedLaunchName,
   EVENTS_FILE,
   EXIT_FILE,
   HelloFrame,
@@ -43,6 +48,7 @@ import {
   HOST_OPS,
   HOST_PROTOCOL_VERSIONS,
   HostLaunchSchema,
+  hostMarkerName,
   LAUNCH_FILE,
   OP_SINCE,
   OpFrame,
@@ -51,6 +57,7 @@ import {
   type HostExitFile,
   type HostFrame,
   type HostLaunch,
+  type HostMarker,
   type HostState,
   type HostStatus,
 } from "./protocol";
@@ -58,6 +65,13 @@ import { hostOpOf, Steering } from "./steering";
 
 /** How long the host waits for the worker's output to end after it killed the group. */
 export const OUTPUT_GRACE_MS = 5000;
+
+/**
+ * When the host itself gets SIGTERM (DIPO-93), the SIGKILL to its worker follows the SIGTERM it
+ * sends after this long, unless the worker exited first: the gap between the two signals of the
+ * 0008 stop sequence (SIGTERM at 10 s, SIGKILL at 30 s).
+ */
+export const TERM_KILL_AFTER_MS = 20_000;
 
 export interface WorkerHostOptions {
   readonly runId: string;
@@ -74,6 +88,11 @@ export interface WorkerHostOptions {
   readonly logSinks?: readonly LogSink[];
   /** Replaces the 5 MB `host.log` cap; tests use a small one. */
   readonly logCapBytes?: number;
+  /**
+   * Subscribes `stop` to the host process's SIGTERM and returns the unsubscribe (DIPO-93): the
+   * daemon's `worker-host` form passes `process.on("SIGTERM")`. Without it SIGTERM is not handled.
+   */
+  readonly onTerminate?: (stop: () => void) => () => void;
 }
 
 /** The worker's exit as the host records it (`exit.json` and the exit line). */
@@ -99,20 +118,32 @@ export function exitCause(
   return { code: exit.code, signal: lastSignal, signalInferred: true };
 }
 
-/** Reads, validates and removes `launch.json`; it holds the task message, so it never stays. */
-export function readLaunch(runDir: string, runId: string): HostLaunch {
-  const path = join(runDir, LAUNCH_FILE);
-  let raw: unknown;
+/**
+ * Claims, reads, validates and removes `launch.json`; it holds the task message, so it never
+ * stays. The claim is a rename to `launch.json.claimed.<pid>` (DIPO-93): a launch the engine's
+ * recovery revoked first is gone, and this host starts nothing. Before the claimed file is
+ * removed the host writes its PID marker (`host-pid.<agent>.json`), so from the claim on one of
+ * the two files always names this host.
+ */
+export function readLaunch(runDir: string, runId: string, pid: number): HostLaunch {
+  const claimed = join(runDir, claimedLaunchName(pid));
+  renameSync(join(runDir, LAUNCH_FILE), claimed);
   try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
+    const launch = HostLaunchSchema.parse(JSON.parse(readFileSync(claimed, "utf8"))) as HostLaunch;
+    if (launch.run !== runId) {
+      throw new Error(`${LAUNCH_FILE} is for ${launch.run}, not ${runId}`);
+    }
+    writeMarker(runDir, { run: runId, agent: launch.agent, pid });
+    return launch;
   } finally {
-    rmSync(path, { force: true });
+    rmSync(claimed, { force: true });
   }
-  const launch = HostLaunchSchema.parse(raw) as HostLaunch;
-  if (launch.run !== runId) {
-    throw new Error(`${LAUNCH_FILE} is for ${launch.run}, not ${runId}`);
-  }
-  return launch;
+}
+
+function writeMarker(runDir: string, marker: HostMarker): void {
+  const path = join(runDir, hostMarkerName(marker.agent));
+  writeFileSync(`${path}.tmp`, JSON.stringify(marker), { mode: 0o600 });
+  renameSync(`${path}.tmp`, path);
 }
 
 function writeExitFile(runDir: string, exit: HostExitFile): void {
@@ -179,6 +210,9 @@ export class WorkerHost {
   #steering: Steering | null = null;
   #state: HostState = "running";
   #exit: HostExitFile | null = null;
+  /** Set once SIGTERM to the host started stopping the worker (DIPO-93). */
+  #terminating = false;
+  #offTerminate: (() => void) | null = null;
   #resolveDone!: (exit: HostExitFile) => void;
   #rejectDone!: (error: unknown) => void;
 
@@ -216,7 +250,7 @@ export class WorkerHost {
     );
     let launch: HostLaunch;
     try {
-      launch = readLaunch(options.runDir, options.runId);
+      launch = readLaunch(options.runDir, options.runId, options.pid);
     } catch (error) {
       createLogger({ clock: options.clock, sinks: [hostLog.sink], component: "worker-host" })
         .child({ run: options.runId })
@@ -226,7 +260,32 @@ export class WorkerHost {
     }
     const host = new WorkerHost(options, launch, hostLog);
     host.#begin(launch);
+    if (host.#state === "running") {
+      host.#offTerminate = options.onTerminate?.(() => host.terminate()) ?? null;
+    }
     return host;
+  }
+
+  /**
+   * The host process got SIGTERM (DIPO-93, 0006 decision 8 amendment): the engine stops a
+   * follow-only host, whose socket it cannot reach, this way. The host stops its own worker as the
+   * stop sequence does without its stop message: it closes the worker's stdin, sends it SIGTERM
+   * and arms SIGKILL `TERM_KILL_AFTER_MS` later, cancelled when the worker exits. Then it ends as
+   * always, with the exit line and `exit.json`. A second SIGTERM, or one after the worker exited,
+   * changes nothing. True when this call started the stop.
+   */
+  terminate(): boolean {
+    const steering = this.#steering;
+    if (this.#terminating || this.#state !== "running" || steering === null) return false;
+    this.#terminating = true;
+    this.#logger.warn("SIGTERM received; stopping the worker", {
+      workerPid: this.#child?.pid ?? null,
+      killAfterMs: TERM_KILL_AFTER_MS,
+    });
+    steering.apply({ closeStdin: true });
+    steering.apply({ signal: "SIGTERM" });
+    steering.apply({ signal: "SIGKILL", afterMs: TERM_KILL_AFTER_MS });
+    return true;
   }
 
   /**
@@ -379,6 +438,8 @@ export class WorkerHost {
 
   async #finish(exit: ExitCause, startError?: string): Promise<HostExitFile> {
     this.#state = "exiting";
+    this.#offTerminate?.();
+    this.#offTerminate = null;
     // A hook call still waiting gets no decision: the worker it asked for has gone.
     this.#answerAllHooks("");
     const inferred = exit.signalInferred === true ? { signalInferred: true } : {};

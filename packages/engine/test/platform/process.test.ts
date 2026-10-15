@@ -11,6 +11,8 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import {
   ChildProcesses,
   isDaemonCommand,
+  isWorkerHostCommand,
+  signalProcess,
   isSameProcess,
   parseBootTime,
   parseLstart,
@@ -173,5 +175,48 @@ describe("ChildProcesses (DIPO-68)", () => {
       for (let i = 0; i < 100 && pidExists(grandchild); i++) await Bun.sleep(20);
       expect(pidExists(grandchild)).toBe(false);
     });
+  });
+});
+
+describe("isWorkerHostCommand (DIPO-93)", () => {
+  const RUN = "run_01JZ0000000000000000000001";
+
+  it("matches `dipo daemon worker-host <run>` for exactly that run, from the binary or source", () => {
+    expect(isWorkerHostCommand(`/usr/local/bin/dipo daemon worker-host ${RUN}`, RUN)).toBe(true);
+    expect(isWorkerHostCommand(`/opt/bun /src/cli/main.ts daemon worker-host ${RUN}`, RUN)).toBe(
+      true,
+    );
+    // A binary path with spaces still ends in the same three arguments.
+    expect(isWorkerHostCommand(`/Users/m/My Tools/dipo daemon worker-host ${RUN}`, RUN)).toBe(true);
+  });
+
+  it("refuses another run, another form, extra arguments or another program", () => {
+    expect(isWorkerHostCommand("dipo daemon worker-host run_01JZ0000000000000000000002", RUN)).toBe(
+      false,
+    );
+    expect(isWorkerHostCommand(`dipo daemon worker-host ${RUN} --x`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`dipo hook worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`vim ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand("", RUN)).toBe(false);
+  });
+});
+
+describe("signalProcess (DIPO-93)", () => {
+  it("never signals PID 1, a non-PID or this process itself", () => {
+    expect(signalProcess(1, "SIGTERM")).toBe(false);
+    expect(signalProcess(0, "SIGTERM")).toBe(false);
+    expect(signalProcess(-5, "SIGTERM")).toBe(false);
+    expect(signalProcess(1.5, "SIGTERM")).toBe(false);
+    expect(signalProcess(process.pid, "SIGTERM")).toBe(false);
+  });
+
+  it("signals one child process", async () => {
+    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    expect(signalProcess(child.pid, "SIGTERM")).toBe(true);
+    await child.exited;
+    expect(child.signalCode).toBe("SIGTERM");
+    // Gone now: nothing to signal.
+    expect(signalProcess(child.pid, "SIGTERM")).toBe(false);
   });
 });

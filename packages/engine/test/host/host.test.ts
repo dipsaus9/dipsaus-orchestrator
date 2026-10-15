@@ -5,7 +5,16 @@
 // delayed signal.
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { ChildProcess, Signal, Spawn } from "@dipsaus-orchestrator/contract";
@@ -19,14 +28,16 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import { connectHost, type HostClient } from "../../src/host/client";
-import { WorkerHost } from "../../src/host/main";
+import { TERM_KILL_AFTER_MS, WorkerHost } from "../../src/host/main";
 import {
   EVENTS_FILE,
   EXIT_FILE,
   HOST_LOG_FILE,
+  hostMarkerName,
   hostSocketPath,
   LAUNCH_FILE,
   RESERVED_RUN_FILES,
+  REVOKED_LAUNCH_FILE,
   type HostExitFile,
   type HostLaunch,
   type HostStatus,
@@ -429,8 +440,26 @@ describe("worker host in-process", () => {
         "exit.json.tmp",
         "host.log",
         "launch.json",
+        "launch.json.revoked",
         "launch.json.tmp",
       ]);
+      // The claimed launch and the PID markers (DIPO-93) are reserved by prefix.
+      for (const name of [`${LAUNCH_FILE}.claimed.782`, "host-pid.agt_x.json"]) {
+        const bad = { ...launch, plan: { ...launch.plan, files: [{ name, content: "x" }] } };
+        writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(bad));
+        expect(() =>
+          WorkerHost.start({
+            runId: RUN,
+            runDir,
+            clock: new ManualClock(),
+            spawn: () => {
+              throw new Error("not reached");
+            },
+            killGroup: () => {},
+            pid: 782,
+          }),
+        ).toThrow("may not replace a file the host writes");
+      }
     }));
 
   it("makes the hosts directory 0700 even when it exists with a wider mode", () =>
@@ -496,5 +525,144 @@ describe("worker host in-process", () => {
       expect(readFileSync(join(runDir, HOST_LOG_FILE), "utf8")).toContain(
         "cannot read the launch file",
       );
+    }));
+});
+
+describe("worker host claim and SIGTERM (DIPO-93)", () => {
+  it("claims launch.json by rename and writes its PID marker before the worker starts", () =>
+    withTempDir(async (dir) => {
+      const { runDir, launch } = setup(dir);
+      const clock = new ManualClock();
+      const fake = fakeSpawn(loadRecording("success-single"), clock);
+      let filesAtSpawn: string[] = [];
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock,
+        spawn: (options) => {
+          filesAtSpawn = readdirSync(runDir).toSorted();
+          return fake.spawn(options);
+        },
+        killGroup: () => {},
+        pid: 790,
+      });
+      // The marker names this host before the worker runs; the claimed launch is gone.
+      expect(filesAtSpawn).toContain(hostMarkerName(launch.agent));
+      expect(filesAtSpawn.filter((name) => name.startsWith(LAUNCH_FILE))).toEqual([]);
+      expect(JSON.parse(readFileSync(join(runDir, hostMarkerName(launch.agent)), "utf8"))).toEqual({
+        run: RUN,
+        agent: launch.agent,
+        pid: 790,
+      });
+      expect(statSync(join(runDir, hostMarkerName(launch.agent))).mode & 0o777).toBe(0o600);
+      await host.done;
+    }));
+
+  it("starts nothing when its launch was revoked first", () =>
+    withTempDir((dir) => {
+      const { runDir, launch } = setup(dir);
+      renameSync(join(runDir, LAUNCH_FILE), join(runDir, REVOKED_LAUNCH_FILE));
+      let spawned = false;
+      expect(() =>
+        WorkerHost.start({
+          runId: RUN,
+          runDir,
+          clock: new ManualClock(),
+          spawn: () => {
+            spawned = true;
+            throw new Error("not reached");
+          },
+          killGroup: () => {},
+          pid: 791,
+        }),
+      ).toThrow();
+      expect(spawned).toBe(false);
+      expect(existsSync(join(runDir, hostMarkerName(launch.agent)))).toBe(false);
+      expect(existsSync(join(runDir, EVENTS_FILE))).toBe(false);
+    }));
+
+  it("on SIGTERM closes the worker's stdin, sends it SIGTERM, SIGKILL 20 s later, then ends as always", () =>
+    withTempDir(async (dir) => {
+      const { runDir } = setup(dir);
+      const clock = new ManualClock();
+      const fake = fakeSpawn(loadRecording("success-single"), clock);
+      const { spawn: gatedSpawn, open } = gated(fake.spawn);
+      // A worker that ignores SIGTERM, so the delayed SIGKILL has to end it.
+      const signals: Signal[] = [];
+      const spawn: Spawn = (options) => {
+        const child = gatedSpawn(options);
+        return {
+          get pid() {
+            return child.pid;
+          },
+          stdin: child.stdin,
+          stdout: child.stdout,
+          stderr: child.stderr,
+          exited: child.exited,
+          kill: (signal?: Signal) => {
+            signals.push(signal ?? "SIGTERM");
+            if (signal === "SIGKILL") child.kill("SIGKILL");
+          },
+        } satisfies ChildProcess;
+      };
+      let handler: (() => void) | null = null;
+      let unsubscribed = 0;
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock,
+        spawn,
+        killGroup: () => {},
+        pid: 792,
+        onTerminate: (stop) => {
+          handler = stop;
+          return () => {
+            unsubscribed += 1;
+          };
+        },
+      });
+      expect(handler).not.toBeNull();
+      expect(host.terminate()).toBe(true);
+      // Once only: a second SIGTERM changes nothing.
+      expect(host.terminate()).toBe(false);
+      const child = fake.processes[0] as FakeProcess;
+      expect(child.stdinClosed).toBe(true);
+      expect(signals).toEqual(["SIGTERM"]);
+      clock.advance(TERM_KILL_AFTER_MS - 1);
+      expect(signals).toEqual(["SIGTERM"]);
+      clock.advance(1);
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      open();
+      const exit = await host.done;
+      expect(exit).toMatchObject({ run: RUN, code: null, signal: "SIGKILL" });
+      expect(existsSync(join(runDir, EXIT_FILE))).toBe(true);
+      expect(unsubscribed).toBe(1);
+      expect(readFileSync(join(runDir, HOST_LOG_FILE), "utf8")).toContain(
+        "SIGTERM received; stopping the worker",
+      );
+    }));
+
+  it("records the SIGTERM it sent when the worker exits on it, and cancels the SIGKILL", () =>
+    withTempDir(async (dir) => {
+      const { runDir } = setup(dir);
+      const clock = new ManualClock();
+      const fake = fakeSpawn(loadRecording("success-single"), clock);
+      const { spawn, open } = gated(fake.spawn);
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock,
+        spawn,
+        killGroup: () => {},
+        pid: 793,
+      });
+      expect(host.terminate()).toBe(true);
+      open();
+      // The fake, like Claude, exits 143 on SIGTERM: the signal is inferred (DIPO-88).
+      expect(await host.done).toMatchObject({ code: 143, signal: "SIGTERM", signalInferred: true });
+      clock.advance(TERM_KILL_AFTER_MS * 2);
+      expect((fake.processes[0] as FakeProcess).signals).toEqual(["SIGTERM"]);
+      // After the exit SIGTERM does nothing.
+      expect(host.terminate()).toBe(false);
     }));
 });
