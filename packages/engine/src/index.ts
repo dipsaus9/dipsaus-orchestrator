@@ -382,6 +382,15 @@ export {
   systemSandboxHost,
 } from "./platform/sandbox";
 export { runSandboxExec } from "./platform/sandbox-exec";
+export { runSafeChainGate, type SafeChainGateOptions } from "./platform/safe-chain-gate";
+export {
+  startSafeChainProxy,
+  type RunningSafeChainProxy,
+  type SafeChainProxyDeps,
+  type SafeChainProxyRequest,
+  type SafeChainProxyStart,
+} from "./platform/safe-chain-proxy";
+export { SafeChainProxies, type SafeChainProxyStarter } from "./sandbox/safe-chain-proxies";
 export type { SandboxExecOptions } from "./platform/sandbox-exec";
 export {
   KNOWN_WORKER_KINDS,
