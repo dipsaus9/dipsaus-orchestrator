@@ -23,6 +23,7 @@ import {
   ADMIN_DIR,
   BLOCKED_RESULTS,
   context,
+  HOME,
   MAIN,
   MemoryFs,
   RUN_DIR,
@@ -56,6 +57,7 @@ const LAYOUT_PATHS = {
   tmpDir: TMP_DIR,
   nonce: NONCE,
   tools: TOOLS,
+  home: HOME,
 };
 const LAYOUT = selfTestLayout(LAYOUT_PATHS);
 

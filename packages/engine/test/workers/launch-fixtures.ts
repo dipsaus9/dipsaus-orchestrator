@@ -120,6 +120,7 @@ export class MemoryFs implements SelfTestFs {
   }
 
   async mkdir(path: string): Promise<void> {
+    if (path === this.failMkdir) throw new Error("EACCES: permission denied");
     this.dirs.add(path);
   }
 
@@ -136,7 +137,35 @@ export class MemoryFs implements SelfTestFs {
   }
 
   async exists(path: string): Promise<boolean> {
-    return this.files.has(path);
+    return this.files.has(path) || this.dirs.has(path);
+  }
+
+  /** Directories removed because they were empty (the npm-logs probe, DIPO-98). */
+  readonly removedDirs: string[] = [];
+
+  async removeEmptyDir(path: string): Promise<void> {
+    const prefix = `${path}/`;
+    const busy =
+      [...this.files.keys()].some((file) => file.startsWith(prefix)) ||
+      [...this.dirs].some((dir) => dir.startsWith(prefix));
+    if (busy || !this.dirs.has(path)) return;
+    this.dirs.delete(path);
+    this.removedDirs.push(path);
+  }
+
+  /** Paths present but not followed (dangling symlinks, DIPO-98). */
+  readonly dangling = new Set<string>();
+  /** Directories the daemon user cannot write (DIPO-98). */
+  readonly readOnlyDirs = new Set<string>();
+  /** A path whose mkdir fails (DIPO-98). */
+  failMkdir: string | null = null;
+
+  async present(path: string): Promise<boolean> {
+    return this.files.has(path) || this.dirs.has(path) || this.dangling.has(path);
+  }
+
+  async writableDir(path: string): Promise<boolean> {
+    return this.dirs.has(path) && !this.readOnlyDirs.has(path);
   }
 
   async remove(path: string): Promise<void> {
@@ -213,6 +242,7 @@ export const BLOCKED_RESULTS = [
   "refs blocked Operation not permitted",
   "objects blocked Operation not permitted",
   "pointer blocked Operation not permitted",
+  "npm-logs blocked Operation not permitted",
   "",
 ].join("\n");
 
