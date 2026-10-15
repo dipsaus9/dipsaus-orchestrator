@@ -4,7 +4,7 @@ title: Make the TUI overview clearer
 status: To Do
 assignee: []
 created_date: '2026-10-14 15:29'
-updated_date: '2026-10-15 11:49'
+updated_date: '2026-10-15 11:53'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -15,6 +15,12 @@ references:
   - packages/tui/src/
   - docs/decisions/0009-tui.md
   - docs/decisions/0005-command-and-event-model.md
+  - packages/contract/src/software.ts
+  - packages/contract/src/version.ts
+  - packages/contract/src/fixtures.ts
+  - packages/contract/schema/
+  - packages/engine/src/views/summary.ts
+  - packages/engine/test/stories/views.test.ts
 priority: medium
 type: feature
 ordinal: 72000
