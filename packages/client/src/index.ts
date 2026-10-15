@@ -25,7 +25,7 @@ export type {
   SubscribeOptions,
   Subscription,
 } from "./client";
-export { RECOVERY_NOTICE_MS, RECOVERY_POLL_MS, waitForRecovery } from "./recovery";
+export { RECOVERY_NOTICE_MS, RECOVERY_POLL_MS, STATUS_FAILURES, waitForRecovery } from "./recovery";
 export type { RecoveringSession, RecoveryOptions, RecoverySession } from "./recovery";
 export { ulidRequestIds } from "./request-id";
 export { cursorReached, OfficeStore, RELOADED_NOTICE } from "./store/index";

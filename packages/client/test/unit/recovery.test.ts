@@ -23,6 +23,7 @@ import {
   DipoClient,
   RECOVERY_NOTICE_MS,
   RECOVERY_POLL_MS,
+  STATUS_FAILURES,
   type Transport,
   waitForRecovery,
 } from "../../src/index";
@@ -39,7 +40,8 @@ type Request = Extract<ClientFrame, { kind: "command" | "read" }>;
  */
 class FakeDaemon implements Transport {
   readonly requests: Request[] = [];
-  states: DaemonState[] = ["running"];
+  /** `fail` answers `daemon.status` with an `internal` error. */
+  states: (DaemonState | "fail")[] = ["running"];
   reason: string | undefined;
   answer: (request: Request) => Answer = () => ({ ok: true, result: {}, changed: false });
 
@@ -74,6 +76,9 @@ class FakeDaemon implements Transport {
     this.requests.push(frame);
     if (frame.name === "daemon.status") {
       const state = this.states.length > 1 ? this.states.shift() : this.states[0];
+      if (state === "fail") {
+        return { ok: false, error: { code: "internal", message: "broken", retryable: false } };
+      }
       return { ok: true, result: status(state ?? "running", this.reason) };
     }
     return this.answer(frame);
@@ -229,6 +234,20 @@ describe("waitForRecovery", () => {
     daemon.answer = () => ({ ok: false, error });
     expect(await session.command(officeOpen, { path: "/x" })).toEqual({ ok: false, error });
     expect(daemon.named("daemon.status")).toHaveLength(0);
+  });
+
+  it("gives up with the engine.recovering reply after three failed daemon.status polls in a row", async () => {
+    const { daemon, session, polls } = await setup();
+    // A good poll in between starts the count again.
+    daemon.states = ["fail", "recovering", "fail", "fail", "fail"];
+    daemon.answer = () => ({ ok: false, error: RECOVERING });
+    const done = session.command(officeOpen, { path: "/work/app" });
+    await flush();
+    await polls(STATUS_FAILURES + 2);
+    expect(await done).toEqual({ ok: false, error: RECOVERING });
+    expect(daemon.named("daemon.status")).toHaveLength(STATUS_FAILURES + 2);
+    expect(daemon.named("office.open")).toHaveLength(1);
+    expect(session.waiting).toBe(false);
   });
 
   it("ends a wait at once on close and leaves no timer behind", async () => {

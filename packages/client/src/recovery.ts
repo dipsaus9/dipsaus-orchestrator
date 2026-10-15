@@ -3,7 +3,8 @@
 // which ends when `daemon.status` reports another state. A session wrapped here polls
 // `daemon.status` on the injected clock until then and sends the request again: a command with its
 // first `requestId`, so the engine runs it at most once (0005 section 9), a read with a fresh one.
-// It sets no deadline of its own: the caller's reply deadline bounds it, and `close` ends the wait.
+// It sets no deadline of its own: the caller's reply deadline bounds it, `close` ends the wait, and
+// `daemon.status` failing three times in a row ends it with the `engine.recovering` reply.
 
 import type { z } from "zod";
 
@@ -30,6 +31,11 @@ import { type RequestIds, ulidRequestIds } from "./request-id";
 export const RECOVERY_POLL_MS = 250;
 /** A wait longer than this calls `onWaiting`, once per session. */
 export const RECOVERY_NOTICE_MS = 1_000;
+/**
+ * This many failed `daemon.status` polls in a row end the wait: the request returns its
+ * `engine.recovering` reply instead of waiting forever when the caller has no deadline.
+ */
+export const STATUS_FAILURES = 3;
 
 /** What the wrapper needs from a connected client, and what it offers in turn. */
 export type RecoverySession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
@@ -92,8 +98,11 @@ export function waitForRecovery(
     if (closed) throw new ClientError("client.closed", "The client was closed.");
   };
 
-  /** Polls `daemon.status` until the daemon has left `starting` and `recovering`. */
-  const untilRecovered = async (): Promise<void> => {
+  /**
+   * Polls `daemon.status` until the daemon has left `starting` and `recovering`; false when
+   * `daemon.status` itself failed `STATUS_FAILURES` times in a row, so the caller gives up.
+   */
+  const untilRecovered = async (): Promise<boolean> => {
     waiters += 1;
     const notice = noticed
       ? null
@@ -102,18 +111,25 @@ export function waitForRecovery(
           noticed = true;
           options.onWaiting?.();
         }, noticeAfterMs);
+    let failures = 0;
     try {
       for (;;) {
         await sleep(pollMs);
         ensureOpen();
         const status = await session.read(daemonStatus, {});
         ensureOpen();
-        if (!status.ok || RECOVERING.has(status.result.state)) continue;
+        if (!status.ok) {
+          failures += 1;
+          if (failures >= STATUS_FAILURES) return false;
+          continue;
+        }
+        failures = 0;
+        if (RECOVERING.has(status.result.state)) continue;
         if (status.result.state === "safe" && !safeSaid) {
           safeSaid = true;
           options.onSafe?.(status.result.stateReason);
         }
-        return;
+        return true;
       }
     } finally {
       waiters -= 1;
@@ -138,7 +154,7 @@ export function waitForRecovery(
         ensureOpen();
         const outcome = await session.command(definition, args, sent);
         if (!isRecovering(outcome)) return outcome;
-        await untilRecovered();
+        if (!(await untilRecovered())) return outcome;
       }
     },
 
@@ -151,7 +167,7 @@ export function waitForRecovery(
         ensureOpen();
         const outcome = await session.read(definition, args, readOptions);
         if (!isRecovering(outcome)) return outcome;
-        await untilRecovered();
+        if (!(await untilRecovered())) return outcome;
       }
     },
 
