@@ -48,6 +48,9 @@ import {
   runWorkerSpec,
   SafeChainProxies,
   startSafeChainProxy,
+  launchedThroughSafeChain,
+  safeChainProxyGoneText,
+  sweepSafeChainProxies,
   type IngestAdapter,
   Nudges,
   type StoredRun,
@@ -109,6 +112,8 @@ export interface DaemonRunsOptions {
   readonly notify?: (notice: HoldNotice) => void;
   /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
   readonly scheduling?: () => boolean;
+  /** The Safe-Chain proxies' private parent; `/tmp/dipo-p` by default (DIPO-84). */
+  readonly safeChainRoot?: string;
 }
 
 export interface DaemonRuns {
@@ -161,12 +166,27 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     onAppended: options.onChanged,
   });
   // Worker installs go through a Safe-Chain checking proxy per run, sandboxed itself (DIPO-84).
+  // Proxy directories a killed daemon left behind go first; a running daemon's stay.
+  void sweepSafeChainProxies(options.safeChainRoot).then(
+    (removed) => {
+      if (removed.length > 0) {
+        options.logger.info("removed Safe-Chain proxy directories a stopped daemon left", {
+          removed,
+        });
+      }
+    },
+    () => {},
+  );
   const safeChainProxies = new SafeChainProxies({
     clock,
     start: ({ caFile }) =>
       startSafeChainProxy(
         { installRoot: `${home}/.safe-chain`, caFile, home, uid, env },
-        { platform, clock },
+        {
+          platform,
+          clock,
+          ...(options.safeChainRoot === undefined ? {} : { root: options.safeChainRoot }),
+        },
       ),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
@@ -376,6 +396,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     clock,
     offices: options.offices,
     probe,
+    // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
+    proxyGone: (_office, run, host) =>
+      launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined
+        ? safeChainProxyGoneText(run.story ?? run.runId)
+        : null,
     ingest,
     control,
     outcomes,

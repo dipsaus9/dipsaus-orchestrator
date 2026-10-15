@@ -33,7 +33,7 @@ import { isAtOrUnder } from "../../sandbox/policy";
 import {
   SAFE_CHAIN_CA_FILE,
   SAFE_CHAIN_PROXY_HOSTS,
-  SAFE_CHAIN_PROXY_PREFIX,
+  SAFE_CHAIN_PROXY_ROOT,
   SAFE_CHAIN_REGISTRY_HOSTS,
   safeChainProxyLayout,
   workerCacheEnv,
@@ -237,14 +237,14 @@ export function safeChainShellPath(shellDir: string, safeChain: SafeChainLaunch)
 export interface SafeChainRoute {
   /** dipo's local port that forwards to the gate: the worker sandbox's `httpProxyPort`. */
   readonly port: number;
-  /** The proxy directory (`/tmp/dipo-p-<random>`), read-denied for the worker. */
+  /** The proxy directory (`/tmp/dipo-p/<random>`); the worker reads none under its parent. */
   readonly dir: string;
 }
 
 /** What the dry run shows until a real run starts its proxy. */
 export const PREVIEW_SAFE_CHAIN_ROUTE: SafeChainRoute = {
   port: 0,
-  dir: `${SAFE_CHAIN_PROXY_PREFIX}<started-with-the-run>`,
+  dir: `${SAFE_CHAIN_PROXY_ROOT}/<started-with-the-run>`,
 };
 
 /** The CA bundle of the run's proxy, which the worker's package managers trust. */
@@ -346,4 +346,20 @@ function proxyDescription(
       copiedFromInstall: `${safeChain.root}/bin/safe-chain (read-only; Safe-Chain makes a fresh CA in ${layout.install}/certs)`,
     },
   };
+}
+
+/**
+ * True when a run directory holds a Safe-Chain proxy description: its worker was launched with
+ * `httpProxyPort` on a dipo Safe-Chain proxy (DIPO-84). Re-attach uses it after a daemon restart.
+ */
+export function launchedThroughSafeChain(
+  runDir: string,
+  isFile: (path: string) => boolean = nodeSafeChainFs.isFile,
+): boolean {
+  return isFile(`${runDir}/${SAFE_CHAIN_SHELL_DIR}/${SAFE_CHAIN_PROXY_FILE}`);
+}
+
+/** The park detail of a re-attached run whose Safe-Chain proxy ended with the previous daemon. */
+export function safeChainProxyGoneText(story: string): string {
+  return `${story} was stopped: its worker was launched through a Safe-Chain proxy that ended with the previous daemon, so its package downloads had no checking proxy any more. Start the run again; it gets a new proxy.`;
 }

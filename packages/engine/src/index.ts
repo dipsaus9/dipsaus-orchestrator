@@ -385,6 +385,7 @@ export { runSandboxExec } from "./platform/sandbox-exec";
 export { runSafeChainGate, type SafeChainGateOptions } from "./platform/safe-chain-gate";
 export {
   startSafeChainProxy,
+  sweepSafeChainProxies,
   type RunningSafeChainProxy,
   type SafeChainProxyDeps,
   type SafeChainProxyRequest,
@@ -525,7 +526,9 @@ export {
 } from "./workers/claude-cli/adapter";
 export {
   detectSafeChain,
+  launchedThroughSafeChain,
   SAFE_CHAIN_COMMANDS,
+  safeChainProxyGoneText,
   type SafeChainInput,
   type SafeChainLaunch,
 } from "./workers/claude-cli/safe-chain";

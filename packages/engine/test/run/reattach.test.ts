@@ -116,7 +116,11 @@ const fakeClient = (): HostClient => ({
 });
 
 /** A daemon (re)started on the shared database. */
-function daemon(options: { followCheckMs?: number } = {}): Daemon {
+function daemon(
+  options: Partial<
+    Pick<ConstructorParameters<typeof RunReattacher>[0], "followCheckMs" | "proxyGone">
+  > = {},
+): Daemon {
   const { f } = w;
   const offices = { get: () => f.office };
   const steering = {
@@ -641,6 +645,41 @@ describe("re-attach (0006 decision 8)", () => {
     await d.control.idle();
     expect(parks()).toEqual([["interrupted", EVENT_FILE_CHANGED]]);
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
+  });
+
+  it("a living worker whose Safe-Chain proxy is gone is stopped and parks interrupted (DIPO-84)", async () => {
+    beforeRestart("success-single", 6, 20);
+    const asked: string[] = [];
+    const d = daemon({
+      proxyGone: (_office, run, host) => {
+        asked.push(`${run.runId} ${host.agentId}`);
+        return "DIPO-1 was stopped: its Safe-Chain proxy ended with the previous daemon.";
+      },
+    });
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "proxyGone" },
+    ]);
+    await d.control.idle();
+    expect(asked).toEqual([`${w.f.run} ${w.f.agent}`]);
+    expect(parks()).toEqual([
+      ["interrupted", "DIPO-1 was stopped: its Safe-Chain proxy ended with the previous daemon."],
+    ]);
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    const notice = loggedEvents(w.f.office).find(
+      (event) =>
+        event.type === "engine.notice" &&
+        (event.data as { code?: string }).code === "run.safeChainProxyGone",
+    );
+    expect(notice?.data).toMatchObject({ level: "error" });
+  });
+
+  it("a living worker without a Safe-Chain proxy is followed as before (DIPO-84)", async () => {
+    beforeRestart("success-single", 6, 20);
+    const d = daemon({ proxyGone: () => null });
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+    ]);
+    expect(parks()).toEqual([]);
   });
 
   it("an ingest.fileChanged report a previous daemon left parks the run interrupted (AC #7)", async () => {
