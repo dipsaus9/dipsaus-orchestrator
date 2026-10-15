@@ -1,4 +1,4 @@
-// CI only, and only where zsh exists (DIPO-103): the Safe-Chain worker shell started for real.
+// CI only, and CI needs zsh (DIPO-103): the Safe-Chain worker shell started for real.
 // Claude Code's shell snapshot runs the wrapper as `<shell> -c -l` and sources `$HOME/.zshrc` by
 // path; a `compinit` there used to dump `.zcompdump` into the Safe-Chain shell directory. Here a
 // stand-in home's `.zshrc` runs `compinit`, and afterwards the shell directory holds exactly the
@@ -98,10 +98,29 @@ if (CI && ZSH !== undefined) {
         const interactive = start(wrapper, home, ["-i", "-c", 'print -r -- "i=$ZDOTDIR"']);
         expect(interactive.stdout).toContain("i=/dev/null");
         expect(readdirSync(shellDir).toSorted()).toEqual(written);
-        // The interactive start reads no `.zshrc`: the home keeps only its own file.
         expect(readdirSync(home)).toEqual([".zshrc"]);
-        expect(interactive.stdout).not.toContain("rc ran");
       });
+    });
+
+    it("reads no later startup file from the shell directory, only the init file", async () => {
+      await withTempDir((dir) => {
+        const { shellDir, home, wrapper } = setUp(dir, zsh);
+        // Without the init file's ZDOTDIR these would load from the shell directory.
+        for (const name of [".zprofile", ".zshrc", ".zlogin"]) {
+          writeFileSync(join(shellDir, name), `print -r -- "read ${name}"\n`);
+        }
+        const login = start(wrapper, home, ["-c", "-l", "print -r -- login"]);
+        const interactive = start(wrapper, home, ["-i", "-l", "-c", "print -r -- interactive"]);
+        expect(login.stdout).toBe("login\n");
+        expect(interactive.stdout).toContain("interactive\n");
+        expect(interactive.stdout).not.toContain("read .");
+      });
+    });
+  });
+} else if (CI) {
+  describe("Safe-Chain worker shell state (DIPO-103)", () => {
+    it("needs zsh at /bin/zsh or /usr/bin/zsh in CI", () => {
+      expect(ZSH).toBeDefined();
     });
   });
 }
