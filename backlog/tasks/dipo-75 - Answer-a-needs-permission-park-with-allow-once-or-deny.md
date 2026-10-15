@@ -4,7 +4,7 @@ title: Answer a needs-permission park with allow once or deny
 status: To Do
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 11:58'
+updated_date: '2026-10-15 09:53'
 labels:
   - 'tier:M'
   - after-cutover
@@ -19,6 +19,14 @@ references:
   - packages/engine/test/hooks/
   - packages/engine/test/run/
   - packages/engine/test/recordings/claude-cli/
+  - packages/engine/src/db/
+  - packages/engine/src/workers/claude-cli/
+  - packages/engine/test/workers/
+  - packages/contract/src/
+  - packages/contract/schema/
+  - packages/daemon/src/runs.ts
+  - tools/recordings/scenarios.ts
+  - packages/engine/src/index.ts
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0008-worker-adapter.md
