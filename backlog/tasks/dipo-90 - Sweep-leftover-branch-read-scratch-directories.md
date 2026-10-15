@@ -4,6 +4,7 @@ title: Sweep leftover branch-read scratch directories
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 19:24'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -11,6 +12,8 @@ dependencies: []
 references:
   - packages/engine/src/stories/branch-read.ts
   - packages/engine/src/worktree/
+  - packages/daemon/src/foreground.ts
+  - packages/engine/test/worktree/sweep.test.ts
 priority: medium
 type: feature
 ordinal: 80000

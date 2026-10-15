@@ -33,6 +33,7 @@ import { GitError } from "../../src/git/runner";
 import { createLogger } from "../../src/log/logger";
 import { OfficeManager } from "../../src/office/manager";
 import { systemSpawn } from "../../src/platform/process";
+import { runCriteriaMet } from "../../src/run/criteria";
 import {
   findRun,
   hasActiveRun,
@@ -350,6 +351,8 @@ describe("work.run picks and claims one Ready story", () => {
     ]);
     expect(countRows(world.office, "config_snapshots")).toBe(1);
     expect(countRows(world.office, "agents")).toBe(1);
+    // The story's criteria the worker reports are counted against (DIPO-85).
+    expect(runCriteriaMet(world.office, runId, null)).toEqual({ met: 1, known: 2 });
 
     const log = entries();
     expect(log.map((e) => e.type)).toEqual(["work.assigned", "work.output", "work.phase"]);

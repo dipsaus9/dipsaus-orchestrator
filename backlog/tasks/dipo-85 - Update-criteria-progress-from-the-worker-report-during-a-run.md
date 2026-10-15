@@ -4,6 +4,7 @@ title: Update criteria progress from the worker report during a run
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 20:35'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -12,6 +13,16 @@ references:
   - packages/engine/src/views/work.ts
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/src/run/work-run.ts
+  - packages/engine/src/run/records.ts
+  - packages/engine/src/run/criteria.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/db/migrations/0024-run-criteria.ts
+  - packages/engine/test/views/helpers.ts
+  - packages/engine/test/run/criteria-progress.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/engine/src/stories/read.ts
+  - packages/engine/src/stories/apply.ts
 priority: high
 type: feature
 ordinal: 75000
