@@ -96,6 +96,7 @@ export {
 export type { IntentKind, IntentState, StoredIntent } from "./intents";
 export {
   gitParkWriter,
+  gitUnparkWriter,
   openPark,
   PARK_NOTICES,
   parkActions,
@@ -109,6 +110,9 @@ export type {
   ParkOutcome,
   ParkRequest,
   ParkWriter,
+  BranchUnpark,
+  UnparkBranchRequest,
+  UnparkWriter,
 } from "./park";
 // Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
 export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
@@ -182,6 +186,8 @@ export type {
   RunEnder,
   RunOutcomesDeps,
   RunOutcomesPort,
+  ResumeParkOutcome,
+  ResumeParkRequest,
   PlanLimitHit,
   PlanLimitWaits,
   PlanLimitWarning,

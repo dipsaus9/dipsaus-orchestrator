@@ -42,6 +42,7 @@ import type {
   Clock,
   OfficeId,
   RunId,
+  StoryKey,
   WatchdogSignal,
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
@@ -70,7 +71,13 @@ import {
   type StoredIntent,
 } from "./intents";
 import { START_FAILED_END } from "./launch";
-import type { ParkOutcome } from "./park";
+import {
+  openPark,
+  PARK_NOTICES,
+  type ParkOutcome,
+  reopenParkedRun,
+  type UnparkWriter,
+} from "./park";
 import { activeRuns, findRun, type StoredRun } from "./records";
 import type { NextSession } from "./resume";
 import { activeSignals, raiseSignal } from "./signals";
@@ -322,9 +329,41 @@ export interface RunOutcomesDeps {
   readonly caps?: (office: OfficeId, run: StoredRun) => Caps | null;
   /** The plan-limit schedule (DIPO-61); read when needed, since it is built after this. */
   readonly waits?: () => PlanLimitWaits | undefined;
+  /** Lifts a park on the story branch (DIPO-75); without it no parked run resumes. */
+  readonly unpark?: UnparkWriter;
+  /** Reads the story again at its branch tip after the park was lifted there (DIPO-75). */
+  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
+
+/** What resuming a parked run asks for (DIPO-75, `RunOutcomes.resumePark`). */
+export interface ResumeParkRequest {
+  /** The open park the answer belongs to. */
+  readonly parkId: number;
+  /** Why the session resumes, for the notice. */
+  readonly why: string;
+  /** The first message of the resumed session. */
+  readonly message: string;
+  /**
+   * Called once the park was lifted and the run is active again, before the next session starts:
+   * the caller records the answer then, so an allow is in place before the session's first call.
+   */
+  readonly record: () => void;
+}
+
+/** What resuming a parked run did (DIPO-75). */
+export type ResumeParkOutcome =
+  /** The next session of the run started. */
+  | { readonly kind: "started" }
+  /** The park was lifted but the next session did not start; the story parked or released again. */
+  | { readonly kind: "notStarted" }
+  /** The run has no open park `parkId`, or it was not this run's. */
+  | { readonly kind: "notParked" }
+  /** The parked worker's exit is not ingested yet (retryable). */
+  | { readonly kind: "busy" }
+  /** Nothing changed: the park could not be lifted. */
+  | { readonly kind: "failed"; readonly reason: string };
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -1241,6 +1280,122 @@ export class RunOutcomes implements RunOutcomesPort {
         clear: ["plan-limit"],
       });
       return started ? "started" : "failed";
+    } finally {
+      this.#deciding.delete(key);
+    }
+  }
+
+  /**
+   * Resumes the run of a story parked `needs-permission` after the maintainer answered the park's
+   * question (DIPO-75; 0008 sections 5 and 8). The park is lifted on the story branch first (the
+   * F16 record removed, the status back to the park's `from`, committed and pushed), then, in one
+   * transaction, the park is resolved `resume`, the run is active again and `story.state` leaves
+   * Parked. The caller records its answer (`record`), and the run's next session starts on the
+   * same run: `--resume` of the native session when `canResume` holds, else a handoff, with
+   * `message` as its first message and what remains of the run's caps. The time the story was
+   * parked does not count toward the run's minutes. A session that does not start parks or
+   * releases the story as after a crash.
+   */
+  async resumePark(
+    officeId: OfficeId,
+    runId: RunId,
+    request: ResumeParkRequest,
+  ): Promise<ResumeParkOutcome> {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return { kind: "notParked" };
+    const run = findRun(office, runId);
+    if (run === null || run.kind !== "story" || run.key === null || run.endedAt === null) {
+      return { kind: "notParked" };
+    }
+    const park = openPark(office, run.key);
+    if (park === null || park.parkId !== request.parkId || park.runId !== runId) {
+      return { kind: "notParked" };
+    }
+    if ([...this.#deciding].some((deciding) => deciding.startsWith(`${runId} `))) {
+      return { kind: "busy" };
+    }
+    const latest = office.get<{ ended_at: number | null }>(
+      `select ended_at from agents where office_id = $office_id and run_id = $run
+        order by started_at desc, rowid desc limit 1`,
+      { run: runId },
+    );
+    if (latest !== null && latest.ended_at === null) return { kind: "busy" };
+    const caps = this.#deps.caps?.(officeId, run) ?? null;
+    const work = workRefOf(office, runId);
+    if (caps === null || work === null) {
+      return { kind: "failed", reason: `${runId} has no tier caps or no agent to resume` };
+    }
+    const unpark = this.#deps.unpark;
+    if (
+      unpark === undefined ||
+      run.story === null ||
+      run.branch === null ||
+      run.worktree === null
+    ) {
+      return { kind: "failed", reason: "dipo cannot lift a park in this office" };
+    }
+    const to = park.from === "In Review" ? "In Review" : "In Progress";
+    const key = `${runId} park-resume`;
+    this.#deciding.add(key);
+    try {
+      let lifted;
+      try {
+        lifted = await unpark.lift(officeId, {
+          story: run.story,
+          branch: run.branch,
+          worktree: run.worktree,
+          to,
+        });
+      } catch (error) {
+        return { kind: "failed", reason: `lifting the park failed: ${messageOf(error)}` };
+      }
+      const at = this.#deps.clock.now();
+      this.#write(office, () => [
+        ...reopenParkedRun(office, park, run, to, at),
+        ...(lifted.pushError === null
+          ? []
+          : [
+              {
+                type: "engine.notice" as const,
+                key: work.key,
+                run: runId,
+                delta: {
+                  level: "warn" as const,
+                  code: PARK_NOTICES.pushFailed,
+                  text: `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
+                },
+              },
+            ]),
+      ]);
+      request.record();
+      await this.#deps.refreshStory?.(officeId, work.key).catch((error: unknown) => {
+        this.#deps.warn?.("reading the resumed story again failed", {
+          run: runId,
+          reason: messageOf(error),
+        });
+      });
+      // The run's minutes count the time it worked, not the time it stood parked.
+      const host = office.get<{ started_at: number | null }>(
+        `select min(started_at) as started_at from worker_hosts
+          where office_id = $office_id and run_id = $run`,
+        { run: runId },
+      );
+      const worked = Math.max(0, park.at - (host?.started_at ?? run.startedAt));
+      const reopened = findRun(office, runId) ?? run;
+      const started = await this.#next(
+        office,
+        reopened,
+        {
+          office: officeId,
+          runId,
+          work,
+          caps,
+          startedAt: this.#deps.clock.now() - worked,
+          snapshot: null,
+        },
+        { mode: "resume", why: request.why, message: request.message },
+      );
+      return started ? { kind: "started" } : { kind: "notStarted" };
     } finally {
       this.#deciding.delete(key);
     }
