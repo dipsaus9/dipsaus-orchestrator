@@ -17,12 +17,13 @@ const HANG_UP_GRACE_MS = 300;
 const PARENT_POLL_MS = 200;
 
 const parent = process.ppid;
-let hungUp = false;
+// True until `runTui` returns; a hang-up after that is the normal end of the run.
+let watching = true;
+let exitTimer: ReturnType<typeof systemClock.setTimeout> | null = null;
 function hangUp() {
-  if (hungUp) return;
-  hungUp = true;
+  if (!watching || exitTimer !== null) return;
   // `runTui` handles SIGHUP itself, but unmounting can block on a terminal that is gone.
-  systemClock.setTimeout(() => process.exit(HANG_UP_CODE), HANG_UP_GRACE_MS);
+  exitTimer = systemClock.setTimeout(() => process.exit(HANG_UP_CODE), HANG_UP_GRACE_MS);
 }
 
 function parentGone(): boolean {
@@ -41,7 +42,6 @@ process.stdin.on("close", hangUp);
 process.stdin.on("error", hangUp);
 process.stdout.on("error", hangUp);
 // Re-armed until `runTui` returns, so it never keeps a finished run alive.
-let watching = true;
 function watchParent() {
   if (!watching) return;
   if (parentGone()) hangUp();
@@ -66,5 +66,10 @@ const code = await runTui(process.argv.slice(2), {
 });
 watching = false;
 systemClock.clearTimeout(parentTimer);
+if (exitTimer !== null) {
+  systemClock.clearTimeout(exitTimer);
+  // The terminal or parent is gone: end now with `runTui`'s code rather than wait on a dead terminal.
+  process.exit(code);
+}
 process.stdin.unref();
 process.exitCode = code;
