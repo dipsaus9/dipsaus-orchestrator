@@ -83,7 +83,12 @@ export const workAnswer = defineCommand({
     text: z.string(),
     decision: z.enum(["allow", "deny"]).optional(),
   }),
-  result: z.object({ question: QuestionId, delivered: z.enum(["now", "on-resume"]) }),
+  // `run` names the run an answer to a `needs-permission` park resumed (DIPO-75, minor 1).
+  result: z.object({
+    question: QuestionId,
+    delivered: z.enum(["now", "on-resume"]),
+    run: RunId.optional(),
+  }),
   confirm: false,
   irreversible: false,
   since: 0,

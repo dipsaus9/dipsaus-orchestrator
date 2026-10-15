@@ -36,6 +36,13 @@ import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp, WorkerEvent } from "../workers/types";
 
 import {
+  answerParkQuestion,
+  type ParkAnswerResult,
+  parkedElsewhere,
+  type ParkResumer,
+  staleParkQuestions,
+} from "./park-answers";
+import {
   closeQuestion,
   findQuestion,
   insertPermissionQuestion,
@@ -43,6 +50,7 @@ import {
   type QuestionClose,
   questionViewOf,
   type StoredQuestion,
+  takeAllowOnce,
 } from "./questions";
 import type { HookEvent, HookReply, PermissionDecision } from "./types";
 
@@ -80,6 +88,10 @@ export interface PermissionAsksDeps {
   readonly presence: Presence;
   /** True while a decision on the run (a cap, a park, a stop) is being carried out. */
   readonly ending?: (run: string) => boolean;
+  /** Resumes the run of a `needs-permission` park its question's answer lifts (DIPO-75). */
+  readonly parks?: ParkResumer;
+  /** False while the daemon schedules no work (`safe`, `draining`); true by default. */
+  readonly scheduling?: () => boolean;
   /** Called after change-log entries were appended outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -129,7 +141,8 @@ export class PermissionAsks {
 
   /** The worker of `run` exited: its open questions stop waiting. */
   onEnded(office: OfficeHandle, run: string): void {
-    const open = openQuestions(office, run);
+    // A park's question (DIPO-75) waits for the maintainer after its worker exited.
+    const open = openQuestions(office, run).filter((question) => question.parkId === null);
     if (open.length === 0) return;
     this.#close(office, open, "ended");
   }
@@ -152,6 +165,9 @@ export class PermissionAsks {
     const config = this.#deps.offices.config(officeId);
     const now = this.#deps.clock.now();
     const work = workRefOf(office, run);
+    if (work !== null && this.#deps.ending?.(run) !== true && this.#allowOnce(office, run, hook)) {
+      return;
+    }
     if (
       work === null ||
       this.#deps.ending?.(run) === true ||
@@ -205,13 +221,28 @@ export class PermissionAsks {
       readonly text: string;
       readonly decision?: "allow" | "deny" | undefined;
     },
-  ): Promise<CommandOutcome<{ question: string; delivered: "now" | "on-resume" }>> {
+  ): Promise<CommandOutcome<ParkAnswerResult>> {
     const office = ctx.office;
     const question = findQuestion(office, args.question);
     if (question === null || question.closedAt !== null) {
       throw new CommandError(QUESTION_CLOSED, `${args.question} is not waiting for an answer.`, {
         question: args.question,
       });
+    }
+    if (question.kind === "permission" && question.parkId !== null) {
+      // The question of a `needs-permission` park (DIPO-75): the answer resumes the run.
+      if (args.decision === undefined) throw decisionMissing();
+      return answerParkQuestion(
+        {
+          now: () => this.#deps.clock.now(),
+          ...(this.#deps.parks === undefined ? {} : { resumer: this.#deps.parks }),
+          ...(this.#deps.scheduling === undefined ? {} : { scheduling: this.#deps.scheduling }),
+          closing: (handle, closed, at, answer) => this.#closingEntries(handle, closed, at, answer),
+        },
+        ctx,
+        question,
+        { text: args.text, decision: args.decision },
+      );
     }
     if (question.kind !== "permission" || question.hook === null) {
       // Worker questions (`kind: question`) are asked by later stories; none is stored yet.
@@ -222,13 +253,10 @@ export class PermissionAsks {
       );
     }
     const decision = args.decision;
-    if (decision === undefined) {
-      throw new CommandError(
-        "args.invalid",
-        "A permission question needs decision allow or deny.",
-        { field: "decision" },
-      );
-    }
+    if (decision === undefined) throw decisionMissing();
+    // A story parked meanwhile resumes only through its park's question (DIPO-75, AC #4).
+    const parked = parkedElsewhere(office, question);
+    if (parked !== null) throw parked;
     let closed = false;
     const now = this.#deps.clock.now();
     ctx.commit(() => {
@@ -268,12 +296,32 @@ export class PermissionAsks {
         // Questions a previous daemon left open: their hook calls were answered by the host.
         registry.registerLoadStep("expire open permission questions", (ctx) => {
           const stale = openQuestions(ctx.office).filter(
-            (question) => question.kind === "permission" && !this.#timers.has(question.questionId),
+            (question) =>
+              question.kind === "permission" &&
+              question.parkId === null &&
+              !this.#timers.has(question.questionId),
           );
+          // A park's question whose park ended while no engine listened (DIPO-75).
+          stale.push(...staleParkQuestions(ctx.office));
           if (stale.length > 0) this.#close(ctx.office, stale, "expired");
         });
       },
     };
+  }
+
+  /**
+   * Allow once (DIPO-75, 0008 section 5): a request whose tool and exact command or path equal
+   * those of an answered `allow` of the run's park question, not used yet, is allowed at once and
+   * the allow is spent. True when it was.
+   */
+  #allowOnce(office: OfficeHandle, run: RunId, hook: PermissionRequest): boolean {
+    if (hook.id === null || hook.exact === undefined) return false;
+    const exact = hook.exact;
+    const now = this.#deps.clock.now();
+    const taken = office.immediate(() => takeAllowOnce(office, run, hook.tool, exact, now));
+    if (taken === null) return false;
+    this.#reply(office, run, { hook: hook.id, decision: "allow" });
+    return true;
   }
 
   #timeout(officeId: OfficeId, questionId: string, seconds: number): void {
@@ -331,7 +379,9 @@ export class PermissionAsks {
         delta: { question: question.questionId, ...(answer === undefined ? {} : { answer }) },
       },
     ];
-    const waiting = openQuestions(office, run).some((open) => open.kind === "permission");
+    const waiting = openQuestions(office, run).some(
+      (open) => open.kind === "permission" && open.hook !== null,
+    );
     if (waiting || !activeSignals(office, run).some((s) => s.signal === "input-wait")) {
       return entries;
     }
@@ -417,6 +467,13 @@ export class PermissionAsks {
     );
     this.#deps.onChanged?.(office.officeId);
   }
+}
+
+/** `args.invalid` for a permission answer without `decision` (DIPO-59, and DIPO-75 AC #7). */
+function decisionMissing(): CommandError {
+  return new CommandError("args.invalid", "A permission question needs decision allow or deny.", {
+    field: "decision",
+  });
 }
 
 function decisionWord(decision: PermissionDecision): string {

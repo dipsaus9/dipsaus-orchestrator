@@ -1,10 +1,10 @@
 ---
 id: DIPO-60
 title: Nudge workers through PostToolUse hooks
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-15 11:41'
 labels:
   - 'tier:S'
   - after-cutover
@@ -18,6 +18,20 @@ references:
   - packages/engine/test/hooks/
   - packages/engine/src/workers/types.ts
   - packages/engine/src/workers/claude-cli/encode.ts
+  - packages/engine/src/hooks/types.ts
+  - packages/engine/src/hooks/index.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/workers/claude-cli/hooks.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
+  - packages/engine/src/host/relay.ts
+  - packages/engine/src/run/prompts.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/test/workers/
+  - packages/engine/test/run/
+  - packages/daemon/src/hook.ts
+  - packages/daemon/src/hook.test.ts
+  - packages/daemon/src/runs.ts
+  - packages/engine/src/run/work-run.ts
 documentation:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0014-worker-prompt-assembly.md
@@ -51,15 +65,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of the four triggers in the 0014 section 8 table produces its nudge text and nothing else produces one.
-- [ ] #2 A nudge is at most 300 characters and sent once per fact signature per session.
-- [ ] #3 The hook answers within 2 s and prints nothing on any failure.
-- [ ] #4 Nudges are counted per run in `prompt_parts`.
-- [ ] #5 `SteerOp` gains the neutral op `{ kind: "nudge", text }`; the Claude CLI adapter's `encode` turns it into `additionalContext` on the pending `PostToolUse` or `SessionStart` hook reply, and `engine/src/hooks/nudges.ts` emits only the neutral op.
+- [x] #1 Each of the four triggers in the 0014 section 8 table produces its nudge text and nothing else produces one.
+- [x] #2 A nudge is at most 300 characters and sent once per fact signature per session.
+- [x] #3 The hook answers within 2 s and prints nothing on any failure.
+- [x] #4 Nudges are counted per run in `prompt_parts`.
+- [x] #5 `SteerOp` gains the neutral op `{ kind: "nudge", text }`; the Claude CLI adapter's `encode` turns it into `additionalContext` on the pending `PostToolUse` or `SessionStart` hook reply, and `engine/src/hooks/nudges.ts` emits only the neutral op.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 M0 breakdown draft number S44 (DIPO-15). After cutover: built by dipo itself, not by a hand-run agent.
+
+Live test 2026-10-15 (test agent, Haiku on the scratch repo, $0.0028): run reached In Review; SessionStart and PostToolUse hooks registered with --nudge behind the DIPO-59 cd hardening; no measurable hook latency vs the pre-DIPO-60 baseline (tool calls 77-140 ms, total 11.8 s vs 12.1 s); no nudge fired on this small task (expected). ADR 0008 amendments approved by the maintainer and recorded in a2df41c.
 <!-- SECTION:NOTES:END -->

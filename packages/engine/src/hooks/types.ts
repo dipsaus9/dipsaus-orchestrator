@@ -4,7 +4,8 @@
 // `workers/claude-cli` out of `engine/src/hooks`.
 
 /**
- * A hook call that waits for the engine's reply. `id` is the byte offset in `events.ndjson` after
+ * A hook call the engine may answer (a permission request waits for its decision; a tool use or a
+ * session start may get a nudge, DIPO-60). `id` is the byte offset in `events.ndjson` after
  * the hook line, which the worker host also holds the call under; null when the line came without
  * an offset (a replay outside ingestion), so no reply can reach it.
  */
@@ -14,15 +15,30 @@ export interface HookCall {
 
 /** One relayed hook, adapter-neutral. */
 export type HookEvent =
-  | { readonly kind: "sessionStarted"; readonly source?: string }
+  | ({
+      readonly kind: "sessionStarted";
+      readonly source?: string;
+      /** True when the session continues an earlier one (a resume). */
+      readonly resumed?: true;
+    } & HookCall)
   | ({
       readonly kind: "permissionRequest";
       /** The tool the worker asks to use. */
       readonly tool: string;
       /** A one-line summary of the call: a command, a path, or the input in short. */
       readonly input: string;
+      /**
+       * The call's exact command or path, untouched (not shortened, whitespace kept); absent when
+       * the call has neither. Allow once (DIPO-75) compares only this, never `input`.
+       */
+      readonly exact?: string;
     } & HookCall)
-  | { readonly kind: "toolUsed"; readonly tool: string }
+  | ({
+      readonly kind: "toolUsed";
+      readonly tool: string;
+      /** The file the tool wrote, as the worker named it (absolute, or relative to its worktree). */
+      readonly wrote?: string;
+    } & HookCall)
   | { readonly kind: "notification"; readonly type?: string }
   | { readonly kind: "subagentStarted"; readonly agentId?: string }
   | { readonly kind: "subagentStopped"; readonly agentId?: string }

@@ -612,6 +612,25 @@ describe("re-attach (0006 decision 8)", () => {
     expect(parks()[0]?.[0]).toBe("budget-exceeded");
   });
 
+  it("counts the caps of a run resumed after a long park from its work, not its park (DIPO-75)", async () => {
+    w.caps = { ...ROOMY, maxMinutes: 30 };
+    // The run stood parked a day before an answer reopened it, then worked 5 more minutes.
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set parked_ms = $parked where office_id = $office_id and run_id = $run",
+        { parked: 24 * 60 * 60_000, run: w.f.run },
+      ),
+    );
+    w.f.t.clock.advance(24 * 60 * 60_000 + 5 * 60_000);
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    await d.control.idle();
+    expect(d.control.isTracked(w.f.run)).toBe(true);
+    expect(w.sent).toEqual([]);
+    expect(parks()).toEqual([]);
+  });
+
   it("an event file that changed while the daemon was down parks the run interrupted (AC #7)", async () => {
     beforeRestart("success-single", 10, 10);
     truncateSync(w.f.eventFile, 10);

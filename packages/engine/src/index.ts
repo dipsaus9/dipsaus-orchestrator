@@ -396,6 +396,7 @@ export {
   type LaunchFile,
   type LaunchPlan,
   type ModelUsageTotals,
+  type NudgeOp,
   type ParseState,
   type ResumeCheck,
   type SessionRef,

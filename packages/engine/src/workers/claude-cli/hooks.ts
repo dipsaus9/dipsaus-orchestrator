@@ -5,6 +5,7 @@
 // neutral shapes.
 
 import type { HookEvent, HookReply } from "../../hooks/types";
+import type { NudgeOp } from "../types";
 
 /** The hooks the run settings file registers (0008 section 5), each `dipo hook <event>`. */
 export const REGISTERED_HOOKS = [
@@ -24,6 +25,15 @@ export type RegisteredHook = (typeof REGISTERED_HOOKS)[number];
 
 /** The hook whose call waits for the engine's decision. */
 export const WAITING_HOOK: RegisteredHook = "PermissionRequest";
+
+/**
+ * The hooks whose call may get a 0014 section 8 nudge (DIPO-60): `dipo hook <event> --nudge` waits
+ * a short while for the engine's answer and still ends within 2 s.
+ */
+export const NUDGE_HOOKS = ["PostToolUse", "SessionStart"] as const satisfies RegisteredHook[];
+
+/** The tools whose `PostToolUse` names a written file (0014 section 8, "Edit or Write"). */
+export const WRITE_TOOLS: readonly string[] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 
 /** `timeouts.permissionWaitSeconds` when the launch context names none (0008 section 9). */
 export const DEFAULT_PERMISSION_WAIT_SECONDS = 300;
@@ -69,7 +79,8 @@ export function hookCommandLine(command: readonly [string, ...string[]], runDir:
 /**
  * The run settings file's `hooks` block: one command hook per registered event, running
  * `<dipo> hook <event>` with the binary's own path from the run directory. `PermissionRequest`
- * asks the host to hold the call `waitSeconds` plus a margin (see `HOST_WAIT_MARGIN_SECONDS`).
+ * asks the host to hold the call `waitSeconds` plus a margin (see `HOST_WAIT_MARGIN_SECONDS`);
+ * the `NUDGE_HOOKS` pass `--nudge`.
  */
 export function hookSettings(
   command: readonly [string, ...string[]],
@@ -80,12 +91,17 @@ export function hookSettings(
   const hooks: Record<string, unknown> = {};
   for (const event of REGISTERED_HOOKS) {
     const waits = event === WAITING_HOOK;
+    const flag = waits
+      ? ` --wait ${waitSeconds + HOST_WAIT_MARGIN_SECONDS}`
+      : (NUDGE_HOOKS as readonly string[]).includes(event)
+        ? " --nudge"
+        : "";
     hooks[event] = [
       {
         hooks: [
           {
             type: "command",
-            command: `${prefix} hook ${event}${waits ? ` --wait ${waitSeconds + HOST_WAIT_MARGIN_SECONDS}` : ""}`,
+            command: `${prefix} hook ${event}${flag}`,
             timeout: waits ? waitSeconds + PERMISSION_HOOK_MARGIN_SECONDS : HOOK_TIMEOUT_SECONDS,
           },
         ],
@@ -121,9 +137,29 @@ export function inputSummary(input: unknown): string {
   return oneLine(JSON.stringify(input));
 }
 
+/** The file a write tool's input names (`file_path`, or `notebook_path` for `NotebookEdit`). */
+function writtenPath(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined;
+  return text(input["file_path"]) ?? text(input["notebook_path"]);
+}
+
+/**
+ * The exact command or path of a tool call, untouched (DIPO-75: allow once matches only this); null
+ * when the input has neither.
+ */
+export function exactAction(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  for (const key of ["command", "file_path", "path", "notebook_path"]) {
+    const value = text(input[key]);
+    if (value !== undefined) return value;
+  }
+  return null;
+}
+
 /**
  * Pure: the neutral hook event of one Claude hook payload, or null for an event the relay does not
- * register. `call` is the waiting call's id (the hook line's end offset), when known.
+ * register. `call` is the call's id (the hook line's end offset), when known: a permission request
+ * waits on it, and a tool use or session start may get a nudge under it.
  */
 export function hookEventOf(
   payload: Record<string, unknown>,
@@ -134,17 +170,28 @@ export function hookEventOf(
   switch (name) {
     case "SessionStart": {
       const source = text(payload["source"]);
-      return { kind: "sessionStarted", ...(source === undefined ? {} : { source }) };
+      return {
+        kind: "sessionStarted",
+        id: call,
+        ...(source === undefined ? {} : { source }),
+        ...(source === "resume" ? { resumed: true as const } : {}),
+      };
     }
-    case "PermissionRequest":
+    case "PermissionRequest": {
+      const exact = exactAction(payload["tool_input"]);
       return {
         kind: "permissionRequest",
         id: call,
         tool: text(payload["tool_name"]) ?? "unknown",
         input: inputSummary(payload["tool_input"]),
+        ...(exact === null ? {} : { exact }),
       };
-    case "PostToolUse":
-      return { kind: "toolUsed", tool: text(payload["tool_name"]) ?? "unknown" };
+    }
+    case "PostToolUse": {
+      const tool = text(payload["tool_name"]) ?? "unknown";
+      const wrote = WRITE_TOOLS.includes(tool) ? writtenPath(payload["tool_input"]) : undefined;
+      return { kind: "toolUsed", id: call, tool, ...(wrote === undefined ? {} : { wrote }) };
+    }
     case "Notification": {
       const type = text(payload["notification_type"]);
       return { kind: "notification", ...(type === undefined ? {} : { type }) };
@@ -199,5 +246,22 @@ export function permissionOutput(reply: HookReply): string {
         };
   return JSON.stringify({
     hookSpecificOutput: { hookEventName: "PermissionRequest", decision },
+  });
+}
+
+/** Claude's name of the hook a neutral nudge answers. */
+const NUDGE_EVENT: Record<NudgeOp["on"], (typeof NUDGE_HOOKS)[number]> = {
+  toolUsed: "PostToolUse",
+  sessionStarted: "SessionStart",
+};
+
+/**
+ * Pure: what `dipo hook PostToolUse --nudge` or `dipo hook SessionStart --nudge` prints for the
+ * engine's nudge (0014 section 8): the text as `additionalContext`. An empty text prints nothing.
+ */
+export function nudgeOutput(op: NudgeOp): string {
+  if (op.text === "") return "";
+  return JSON.stringify({
+    hookSpecificOutput: { hookEventName: NUDGE_EVENT[op.on], additionalContext: op.text },
   });
 }
