@@ -34,6 +34,12 @@ export interface StateDatabase {
   /** A handle for one office's engine instance. */
   office(officeId: OfficeId): OfficeHandle;
   close(): void;
+  /**
+   * The daemon's exit close (DIPO-87), run on every exit path that reaches the daemon's final
+   * cleanup, a clean stop or not: checkpoint (TRUNCATE), then close, leaving no `-wal` or `-shm`
+   * file. Never throws; a failure is logged at warn on the database logger.
+   */
+  shutdown(): void;
 }
 
 /**
@@ -68,6 +74,7 @@ export async function openStateDatabase(options: OpenStateDatabaseOptions): Prom
       pricing,
       office: (officeId) => new OfficeHandle(connection, officeId),
       close: () => connection.close(),
+      shutdown: () => connection.shutdown(options.logger),
     };
   } catch (error) {
     connection.close();
