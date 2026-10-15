@@ -24,7 +24,6 @@ import type { ResumeParkOutcome, ResumeParkRequest } from "../run/outcomes";
 import { openPark } from "../run/park";
 import { findRun } from "../run/records";
 
-import { parkAnswerMessage } from "./park-questions";
 import { closeQuestion, openQuestions, type StoredQuestion } from "./questions";
 
 /** The error of `work.answer` for a question that is not waiting (0005 section 4). */
@@ -61,12 +60,6 @@ export interface ParkAnswerResult {
   run?: string;
 }
 
-/** The answer `question.closed` carries: the decision, and the maintainer's text after it. */
-function answerText(decision: "allow" | "deny", text: string): string {
-  const reason = text.trim();
-  return reason === "" ? decision : `${decision}: ${reason}`;
-}
-
 function storyOf(office: OfficeHandle, question: StoredQuestion): string {
   return findRun(office, question.runId as RunId)?.story ?? question.runId;
 }
@@ -74,7 +67,13 @@ function storyOf(office: OfficeHandle, question: StoredQuestion): string {
 /**
  * The refusal of `work.answer` with a decision on a question of a parked story whose open park is
  * not the question's own `needs-permission` park (AC #4), naming that park's reason; null when the
- * question's story is not parked, or parked for this question.
+ * question's story is not parked, or parked for this question. 0005 has no closer code than
+ * `question.closed`; `details.questionOpen` says what became of the question:
+ *
+ * - a park's question whose park ended (`closeStale`): it can never resume the story, so the caller
+ *   closes it `expired` and `questionOpen` is false;
+ * - a question of a live hook call: it stays open until its worker exits (then `ended`), but no
+ *   answer to it resumes the parked story, and `questionOpen` is true.
  */
 export function parkedElsewhere(
   office: OfficeHandle,
@@ -92,12 +91,22 @@ export function parkedElsewhere(
       : undefined;
   const hint =
     own === undefined
-      ? "work.answer with a decision resumes only a story parked needs-permission, through its park's question"
+      ? "work.answer with a decision resumes only a story parked needs-permission, through that park's own question"
       : `answer its park's question ${own.questionId} instead`;
+  const questionOpen = question.parkId === null;
+  const fate = questionOpen
+    ? `${question.questionId} stays open until its worker exits, but no answer to it resumes the story`
+    : `${question.questionId} belonged to an earlier needs-permission park of the story and is now closed`;
   return new CommandError(
     QUESTION_CLOSED,
-    `${story} is parked ${park.reason} (${park.detail}); ${hint}. The story stays Parked.`,
-    { question: question.questionId, story, reason: park.reason },
+    `${story} is parked ${park.reason} (${park.detail}), so the story stays Parked; ${fate}; ${hint}.`,
+    {
+      question: question.questionId,
+      story,
+      reason: park.reason,
+      questionOpen,
+      ...(own === undefined ? {} : { parkQuestion: own.questionId }),
+    },
   );
 }
 
@@ -113,22 +122,24 @@ export async function answerParkQuestion(
   if (parkId === null || question.tool === null || question.input === null) {
     throw new Error(`${question.questionId} is not the question of a park`);
   }
-  const refused = parkedElsewhere(office, question);
-  if (refused !== null) throw refused;
   const run = findRun(office, question.runId as RunId);
   const park = run?.key == null ? null : openPark(office, run.key);
   if (park === null || park.parkId !== parkId) {
-    // The park ended another way (resumed, dropped, reconciled): the question waits no more.
+    // The park ended another way (resumed, dropped, reconciled, replaced): the question can never
+    // resume the story, so it waits no more.
     const at = deps.now();
     ctx.commit(() =>
       closeQuestion(office, question.questionId, "expired", at)
         ? deps.closing(office, question, at)
         : [],
     );
-    throw new CommandError(
-      QUESTION_CLOSED,
-      `${question.questionId} is not waiting: ${storyOf(office, question)} is no longer parked for it.`,
-      { question: question.questionId },
+    throw (
+      parkedElsewhere(office, question) ??
+      new CommandError(
+        QUESTION_CLOSED,
+        `${question.questionId} is not waiting: ${storyOf(office, question)} is no longer parked for it.`,
+        { question: question.questionId, questionOpen: false },
+      )
     );
   }
   if (deps.scheduling?.() === false) {
@@ -142,24 +153,13 @@ export async function answerParkQuestion(
   if (resumer === undefined) {
     throw new Error("this engine cannot resume a parked story");
   }
-  const { decision } = args;
-  const permission = { tool: question.tool, action: question.input };
-  let recorded = false;
+  // The resumer records the answer in the transaction that reopens the run, after storing an
+  // intent, so a restart in between finishes the resume (`RunOutcomes.resumePark`).
   const outcome = await resumer.resume(office.officeId, question.runId as RunId, {
     parkId,
-    why: `the maintainer's ${decision === "allow" ? "allow once" : "deny"} of ${question.tool}: ${question.input}`,
-    message: parkAnswerMessage(permission, decision, args.text),
-    record: () => {
-      const at = deps.now();
-      ctx.commit(() => {
-        recorded = closeQuestion(office, question.questionId, "answered", at, {
-          text: args.text,
-          decision,
-          delivered: "on-resume",
-        });
-        return recorded ? deps.closing(office, question, at, answerText(decision, args.text)) : [];
-      });
-    },
+    question: question.questionId,
+    decision: args.decision,
+    text: args.text,
   });
   const story = storyOf(office, question);
   switch (outcome.kind) {

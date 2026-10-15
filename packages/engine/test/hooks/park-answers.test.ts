@@ -23,9 +23,15 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { ParkResumer } from "../../src/hooks/park-answers";
-import { OFFICE_CONFIG_FILE } from "../../src/hooks/park-questions";
+import { OFFICE_CONFIG_FILE, parkAnswerMessage } from "../../src/hooks/park-questions";
 import { PermissionAsks } from "../../src/hooks/permissions";
-import { findQuestion, openQuestions, type StoredQuestion } from "../../src/hooks/questions";
+import {
+  answeredParkQuestion,
+  findQuestion,
+  openQuestions,
+  type StoredQuestion,
+} from "../../src/hooks/questions";
+import { appendEntries } from "../../src/changelog/log";
 import type { HookEvent } from "../../src/hooks/types";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
@@ -124,7 +130,17 @@ beforeEach(async () => {
     resume: async (_office, run, asked) => {
       resumes.push({ run, request: asked });
       const kind = world.resume;
-      if (kind === "started" || kind === "notStarted") asked.record();
+      if (kind === "started" || kind === "notStarted") {
+        // As the real resumer: the answer is recorded in the transaction that reopens the run.
+        const at = f.t.clock.now();
+        f.office.immediate(() =>
+          appendEntries(
+            f.office,
+            answeredParkQuestion(f.office, asked.question, asked.decision, asked.text, at),
+            { at },
+          ),
+        );
+      }
       return kind === "failed" ? { kind, reason: "the Backlog CLI exited 1" } : { kind };
     },
   };
@@ -352,8 +368,12 @@ describe(`the needs-permission replay${STAND_IN ? " (STAND-IN until the live cap
     const resumed = w.resumes[0];
     expect(resumed?.run).toBe(w.f.run);
     expect(resumed?.request.parkId).toBe(question.parkId ?? -1);
-    expect(resumed?.request.message).toContain(`allowed this ${PERMISSION.tool} call once`);
-    expect(resumed?.request.message).toContain(PERMISSION.action);
+    expect(resumed?.request).toEqual({
+      parkId: question.parkId ?? -1,
+      question: question.questionId,
+      decision: "allow",
+      text: "",
+    });
     expect(findQuestion(w.f.office, question.questionId)).toMatchObject({
       closedHow: "answered",
       decision: "allow",
@@ -391,7 +411,8 @@ describe(`the needs-permission replay${STAND_IN ? " (STAND-IN until the live cap
       decision: "deny",
     });
     expect(reply).toMatchObject({ ok: true, result: { delivered: "on-resume", run: w.f.run } });
-    const message = w.resumes[0]?.request.message ?? "";
+    const message = parkAnswerMessage(PERMISSION, "deny", w.resumes[0]?.request.text ?? "");
+    expect(w.resumes[0]?.request.decision).toBe("deny");
     expect(message).toContain(`Do it without ${PERMISSION.action}.`);
     expect(message).toContain("use the fixture instead");
     expect(findQuestion(w.f.office, question.questionId)?.decision).toBe("deny");
@@ -446,9 +467,12 @@ describe("a story parked for another reason (AC #4)", () => {
     const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({
       ok: false,
-      error: { code: "question.closed", details: { reason: "stopped" } },
+      error: { code: "question.closed", details: { reason: "stopped", questionOpen: false } },
     });
     expect((reply as { error: { message: string } }).error.message).toContain("parked stopped");
+    // The question of the replaced park can never resume the story: it is closed now.
+    expect(findQuestion(w.f.office, question.questionId)?.closedHow).toBe("expired");
+    expect((reply as { error: { message: string } }).error.message).toContain("is now closed");
     expect(w.resumes).toEqual([]);
     expect(parkReasons()).toEqual(["stopped"]);
   });
@@ -480,12 +504,20 @@ describe("a story parked for another reason (AC #4)", () => {
     const reply = await answer({ question: waiting?.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({
       ok: false,
-      error: { code: "question.closed", details: { reason: "budget-exceeded" } },
+      error: {
+        code: "question.closed",
+        details: { reason: "budget-exceeded", questionOpen: true },
+      },
     });
     expect((reply as { error: { message: string } }).error.message).toContain(
       "parked budget-exceeded",
     );
     expect(w.sent.length).toBe(before);
+    // The hook question stays open until its worker exits, and the refusal says so.
+    expect(findQuestion(w.f.office, waiting?.questionId ?? "")?.closedAt).toBeNull();
+    expect((reply as { error: { message: string } }).error.message).toContain(
+      "stays open until its worker exits",
+    );
     expect(parkReasons()).toEqual(["budget-exceeded"]);
   });
 
@@ -527,14 +559,16 @@ describe("a sandbox-bound action (AC #3)", () => {
     expect(question.text).toContain("sandbox.allowedDomains");
     const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({ ok: true });
-    // The resume carries only the park, the reason and the first message: no sandbox or config.
+    // The resume carries only the park, the question and the answer: no sandbox or config.
     expect(Object.keys(w.resumes[0]?.request ?? {}).toSorted()).toEqual([
-      "message",
+      "decision",
       "parkId",
-      "record",
-      "why",
+      "question",
+      "text",
     ]);
-    expect(w.resumes[0]?.request.message).toContain("nothing about the sandbox changed");
+    expect(parkAnswerMessage(PERMISSION, "allow", "")).toContain(
+      "nothing about the sandbox changed",
+    );
     expect(w.config.sandbox.allowedDomains).toEqual(OFFICE_DEFAULTS.sandbox.allowedDomains);
     // The only effect is one hook allow for the exact call.
     const allowed = request(PERMISSION.tool, PERMISSION.action) as HostOp[][];
