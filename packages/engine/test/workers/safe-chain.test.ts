@@ -1,4 +1,4 @@
-// Safe-Chain in the worker sandbox (DIPO-82): detection at launch, the worker's PATH, and the
+// Safe-Chain for the worker (DIPO-82, DIPO-84): detection at launch, the worker's PATH, and the
 // shell wrapper and init file. The file system is in memory; nothing here reads the machine.
 
 import { describe, expect, it } from "bun:test";
@@ -78,13 +78,13 @@ describe("(unit) Safe-Chain detection", () => {
     const found = detect(companyMachine(), path);
     expect(found).toMatchObject({ root: ROOT, shell: "/bin/zsh", probe: SAFE_CHAIN_PROBE });
     expect(found?.path).toBe(
-      [`${HOME}/.bun/bin-originals`, "/usr/bin", "/bin", `${ROOT}/bin`, `${HOME}/.bun/bin`].join(
-        ":",
-      ),
+      [`${HOME}/.bun/bin-originals`, "/usr/bin", "/bin", `${HOME}/.bun/bin`].join(":"),
     );
+    // The worker reads nothing of the install (DIPO-84), so its bin directory is left out too.
     expect(found?.dropped.map((item) => item.entry)).toEqual([
       `${COMPANY}/bin`,
       `${HOME}/.local/bin`,
+      `${ROOT}/bin`,
     ]);
     expect(found?.demoted).toEqual([
       {
@@ -106,7 +106,7 @@ describe("(unit) Safe-Chain detection", () => {
     expect(found?.probe).toBeNull();
   });
 
-  it("reads a home entry through the read paths and the Safe-Chain grants", () => {
+  it("reads a home entry through the read paths, never the Safe-Chain install (DIPO-84)", () => {
     const fs = companyMachine();
     const found = detectSafeChain(
       {
@@ -116,7 +116,8 @@ describe("(unit) Safe-Chain detection", () => {
       },
       fs,
     );
-    expect(found?.path).toBe(`${HOME}/tools/bin:${ROOT}/bin`);
+    expect(found?.path).toBe(`${HOME}/tools/bin`);
+    expect(found?.dropped.map((item) => item.entry)).toEqual([`${ROOT}/bin`]);
   });
 
   it("starts the daemon's zsh or bash, else a system one, and refuses without either", () => {
@@ -131,7 +132,7 @@ describe("(unit) Safe-Chain detection", () => {
   });
 });
 
-describe("(unit) Safe-Chain shell files", () => {
+describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
   const launch: SafeChainLaunch = {
     root: ROOT,
     shell: "/bin/zsh",
@@ -140,37 +141,73 @@ describe("(unit) Safe-Chain shell files", () => {
     dropped: [{ entry: `${HOME}/.local/bin`, reason: "the worker sandbox cannot read it" }],
     probe: SAFE_CHAIN_PROBE,
   };
+  const TMP = "/tmp/dipo-run-0001";
+  const RUN = { tmpDir: TMP, route: { port: 50123, dir: "/private/tmp/dipo-p-abc123" } };
 
-  it("writes a zsh wrapper that sets PATH and ZDOTDIR and a .zshenv with only the official init", () => {
-    const [wrapper, init] = safeChainShellFiles(launch, SHELL_DIR);
+  it("writes a zsh wrapper with PATH, caches in the run temp dir, the proxy CA and ZDOTDIR", () => {
+    const [wrapper, init, proxy] = safeChainShellFiles(launch, SHELL_DIR, RUN);
     expect(wrapper).toMatchObject({ name: "safe-chain/zsh", executable: true });
-    expect(wrapper?.content).toStartWith("#!/bin/sh\n");
-    expect(wrapper?.content).toContain(`export PATH='${launch.path}'\n`);
-    expect(wrapper?.content).toContain(`export ZDOTDIR='${SHELL_DIR}'\n`);
-    expect(wrapper?.content).toEndWith(`exec '/bin/zsh' "$@"\n`);
-    expect(wrapper?.content).toContain(`# PATH leaves out "${HOME}/.local/bin"`);
-    expect(wrapper?.content).toContain(`# PATH moves to its end "${HOME}/.bun/bin"`);
+    const text = wrapper?.content ?? "";
+    expect(text).toStartWith("#!/bin/sh\n");
+    expect(text).toContain(`export PATH='${launch.path}'\n`);
+    for (const [name, dir] of [
+      ["BUN_INSTALL_CACHE_DIR", "bun"],
+      ["npm_config_cache", "npm"],
+      ["YARN_CACHE_FOLDER", "yarn"],
+      ["PIP_CACHE_DIR", "pip"],
+      ["XDG_CACHE_HOME", "xdg-cache"],
+      ["XDG_DATA_HOME", "xdg-data"],
+    ]) {
+      expect(text).toContain(`export ${name}='${TMP}/caches/${dir}'\n`);
+    }
+    for (const name of ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "PIP_CERT"]) {
+      expect(text).toContain(`export ${name}='${SHELL_DIR}/ca.pem'\n`);
+    }
+    expect(text).toContain(`export ZDOTDIR='${SHELL_DIR}'\n`);
+    expect(text).toEndWith(`exec '/bin/zsh' "$@"\n`);
+    expect(text).toContain("# Reason: Safe-Chain installs.");
+    expect(text).toContain("127.0.0.1:50123 (httpProxyPort)");
+    expect(text).toContain(`# PATH leaves out "${HOME}/.local/bin"`);
+    expect(text).toContain(`# PATH moves to its end "${HOME}/.bun/bin"`);
+    // Nothing of the install or the maintainer's shell is loaded.
+    expect(text).not.toContain(ROOT);
     expect(init).toEqual({
       name: "safe-chain/.zshenv",
-      content: `# dipo (DIPO-82): only the official Safe-Chain shell functions.\n. '${ROOT}/scripts/init-posix.sh'\n`,
+      content: "# dipo (DIPO-84): nothing else loads; the wrapper set the environment.\n",
     });
     expect(safeChainShellPath(SHELL_DIR, launch)).toBe(`${SHELL_DIR}/zsh`);
+
+    expect(proxy?.name).toBe("safe-chain/proxy.json");
+    const described = JSON.parse(proxy?.content ?? "{}");
+    expect(described.reason).toStartWith("Safe-Chain installs (DIPO-84)");
+    expect(described.worker).toMatchObject({
+      httpProxyPort: 50123,
+      allowLocalBinding: false,
+      reaches: ["registry.npmjs.org", "registry.yarnpkg.com", "pypi.org", "files.pythonhosted.org"],
+      caBundle: `${SHELL_DIR}/ca.pem`,
+    });
+    expect(described.proxy.sandbox.network).toContain("malware-list.aikido.dev");
+    expect(described.proxy.sandbox.allowLocalBinding).toBe(true);
+    expect(described.proxy.dir).toBe("/private/tmp/dipo-p-abc123");
   });
 
   it("writes a bash wrapper with BASH_ENV for bash", () => {
     const bash = { ...launch, shell: "/bin/bash" };
-    const [wrapper, init] = safeChainShellFiles(bash, SHELL_DIR);
+    const [wrapper, init] = safeChainShellFiles(bash, SHELL_DIR, RUN);
     expect(wrapper?.name).toBe("safe-chain/bash");
     expect(wrapper?.content).toContain(`export BASH_ENV='${SHELL_DIR}/bash-env.sh'\n`);
     expect(init?.name).toBe("safe-chain/bash-env.sh");
-    expect(init?.content).toContain(`. '${ROOT}/scripts/init-posix.sh'`);
+    expect(init?.content).not.toContain("init-posix.sh");
     expect(safeChainShellPath(SHELL_DIR, bash)).toBe(`${SHELL_DIR}/bash`);
   });
 
   it("refuses a value it cannot quote", () => {
-    expect(() => safeChainShellFiles({ ...launch, path: "/usr/bin:/it's" }, SHELL_DIR)).toThrow(
+    expect(() =>
+      safeChainShellFiles({ ...launch, path: "/usr/bin:/it's" }, SHELL_DIR, RUN),
+    ).toThrow(PlanError);
+    expect(() => safeChainShellFiles(launch, "/tmp/a\nb", RUN)).toThrow(PlanError);
+    expect(() => safeChainShellFiles(launch, SHELL_DIR, { ...RUN, tmpDir: "/tmp/it's" })).toThrow(
       PlanError,
     );
-    expect(() => safeChainShellFiles(launch, "/tmp/a\nb")).toThrow(PlanError);
   });
 });

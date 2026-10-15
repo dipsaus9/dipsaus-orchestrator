@@ -546,65 +546,107 @@ describe("claude-cli plan", () => {
 function sandboxOf(launch: LaunchPlan) {
   return settingsOf(launch)["sandbox"] as {
     filesystem: { allowRead: string[]; denyRead: string[]; allowWrite: string[] };
-    network: { allowedDomains: string[]; allowLocalBinding: boolean };
+    network: Record<string, unknown> & { allowedDomains: string[]; allowLocalBinding: boolean };
   };
 }
 
-describe("claude-cli plan with Safe-Chain (DIPO-82)", () => {
+describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
   const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0001";
   const SHELL_DIR = `${RUN_DIR}/safe-chain`;
+  const PROXY_DIR = "/private/tmp/dipo-p-abc123";
   const safeChain = {
     root: "/home/maintainer/.safe-chain",
     shell: "/bin/zsh",
     path: "/home/maintainer/.bun/bin-originals:/usr/bin:/bin",
     demoted: [],
     dropped: [],
-    probe: "bun run --version",
+    probe: "bun",
     shellDir: SHELL_DIR,
+    route: { port: 50123, dir: PROXY_DIR },
   };
 
-  it("runs Claude Code's shell through the wrapper and reads only bin, scripts, certs and the wrapper", () => {
+  it("routes the sandbox network only through dipo's proxy and reads nothing of the install", () => {
     const launch = plan(spec("M"), context({ safeChain }));
     expect(launch.env["CLAUDE_CODE_SHELL"]).toBe(`${SHELL_DIR}/zsh`);
     // The worker's own environment keeps the daemon's PATH; the wrapper sets the shell's.
     expect(launch.env["PATH"]).toBe("/home/maintainer/.bun/bin:/usr/bin:/bin");
     const sandbox = sandboxOf(launch);
     const base = sandboxOf(plan(spec("M"), context()));
-    expect(sandbox.filesystem.allowRead).toEqual([
-      ...base.filesystem.allowRead,
-      "/home/maintainer/.safe-chain/bin",
-      "/home/maintainer/.safe-chain/scripts",
-      "/home/maintainer/.safe-chain/certs",
-      SHELL_DIR,
-    ]);
+    expect(sandbox.filesystem.allowRead).toEqual([...base.filesystem.allowRead, SHELL_DIR]);
+    expect(JSON.stringify(sandbox.filesystem.allowRead)).not.toContain(".safe-chain");
     expect(sandbox.filesystem.denyRead).toEqual([
       ...base.filesystem.denyRead,
       "/home/maintainer/.claude/shell-snapshots",
+      PROXY_DIR,
     ]);
-    // Nothing else opens: no writes, no network, no local binding.
+    // Writes as before: the worktree and the run temp directory, where the caches go.
     expect(sandbox.filesystem.allowWrite).toEqual(base.filesystem.allowWrite);
-    expect(sandbox.network).toEqual(base.network);
-    expect(sandbox.network.allowLocalBinding).toBe(false);
+    expect(sandbox.network).toEqual({
+      allowedDomains: [],
+      strictAllowlist: true,
+      allowLocalBinding: false,
+      httpProxyPort: 50123,
+    });
   });
 
-  it("writes the wrapper (executable) and its init file into the run directory", () => {
+  it("writes the wrapper (executable), its init file and the proxy description", () => {
     const files = plan(spec("M"), context({ safeChain })).files;
     expect(files.find((f) => f.name === "safe-chain/zsh")).toMatchObject({ executable: true });
-    expect(files.find((f) => f.name === "safe-chain/.zshenv")?.content).toContain(
-      "/home/maintainer/.safe-chain/scripts/init-posix.sh",
+    expect(files.find((f) => f.name === "safe-chain/zsh")?.content).toContain(
+      "export BUN_INSTALL_CACHE_DIR='/tmp/claude-501/caches/bun'",
     );
+    expect(files.find((f) => f.name === "safe-chain/.zshenv")?.content).not.toContain(
+      "init-posix.sh",
+    );
+    const proxy = JSON.parse(files.find((f) => f.name === "safe-chain/proxy.json")?.content ?? "");
+    expect(proxy.worker.httpProxyPort).toBe(50123);
     // A self-test plan, whose run directory differs, uses the run's wrapper and writes none.
     const self = plan(spec("M"), context({ safeChain, runDir: `${RUN_DIR}/self-test` }));
     expect(self.env["CLAUDE_CODE_SHELL"]).toBe(`${SHELL_DIR}/zsh`);
     expect(self.files.some((f) => f.name.startsWith("safe-chain/"))).toBe(false);
   });
 
+  it("shows placeholders in a dry run, before the run starts its proxy", () => {
+    const { route: _route, ...detected } = safeChain;
+    const launch = plan(spec("M"), context({ safeChain: detected }));
+    const sandbox = sandboxOf(launch);
+    expect(sandbox.network["httpProxyPort"]).toBe(0);
+    expect(sandbox.filesystem.denyRead).toContain("/tmp/dipo-p-<started-with-the-run>");
+  });
+
+  it("refuses an office that allows domains or local binding", () => {
+    const sandbox = OFFICE_DEFAULTS.sandbox;
+    expect(() =>
+      plan(
+        spec("M"),
+        context({ safeChain, sandbox: { ...sandbox, allowedDomains: ["example.com"] } }),
+      ),
+    ).toThrow("sandbox.allowedDomains");
+    expect(() =>
+      plan(spec("M"), context({ safeChain, sandbox: { ...sandbox, allowLocalBinding: true } })),
+    ).toThrow("sandbox.allowLocalBinding");
+    // Without Safe-Chain both stay the office's choice.
+    const open = plan(
+      spec("M"),
+      context({
+        sandbox: { ...sandbox, allowedDomains: ["example.com"], allowLocalBinding: true },
+      }),
+    );
+    expect(sandboxOf(open).network).toEqual({
+      allowedDomains: ["example.com"],
+      strictAllowlist: true,
+      allowLocalBinding: true,
+    });
+  });
+
   it("launches exactly as before without Safe-Chain", () => {
     const launch = plan(spec("M"), context());
     expect(launch.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
     expect(launch.files.map((f) => f.name)).toEqual([SETTINGS_FILE, REPORT_SCHEMA_FILE]);
-    expect(JSON.stringify(settingsOf(launch))).not.toContain("safe-chain");
-    expect(JSON.stringify(settingsOf(launch))).not.toContain("shell-snapshots");
+    const text = JSON.stringify(settingsOf(launch));
+    for (const word of ["safe-chain", "shell-snapshots", "httpProxyPort", "dipo-p-"]) {
+      expect(text).not.toContain(word);
+    }
   });
 
   it("refuses a wrapper directory inside the worktree", () => {

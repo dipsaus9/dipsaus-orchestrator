@@ -10,12 +10,13 @@ import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
 import { DEFAULT_PERMISSION_WAIT_SECONDS, HOOK_BUNFIG_FILE, hookSettings } from "./hooks";
 import {
+  PREVIEW_SAFE_CHAIN_ROUTE,
   SAFE_CHAIN_SHELL_DIR,
-  safeChainReadPaths,
   safeChainShellFiles,
   safeChainShellPath,
   SHELL_SNAPSHOTS_DIR,
   type SafeChainLaunch,
+  type SafeChainRoute,
 } from "./safe-chain";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
@@ -118,12 +119,16 @@ export interface ClaudeLaunchContext {
    */
   readonly permissionWaitSeconds?: number;
   /**
-   * The official Safe-Chain install found at launch (DIPO-82), absent when there is none. Then
-   * Claude Code's shell is the wrapper in `shellDir` (`<runDir>/safe-chain` for a run; its
-   * self-test reuses the run's), the sandbox may read the install's `bin`, `scripts` and `certs`
-   * and the wrapper, and the shell snapshot is read-denied.
+   * The official Safe-Chain install found at launch (DIPO-82, DIPO-84), absent when there is none.
+   * Then Claude Code's shell is the wrapper in `shellDir` (`<runDir>/safe-chain` for a run; its
+   * self-test reuses the run's), the sandbox may read the wrapper directory, the shell snapshot
+   * and the proxy directory are read-denied, and the sandbox network is only `route.port`, dipo's
+   * Safe-Chain proxy. Without `route` (the dry run) the plan shows placeholders.
    */
-  readonly safeChain?: SafeChainLaunch & { readonly shellDir: string };
+  readonly safeChain?: SafeChainLaunch & {
+    readonly shellDir: string;
+    readonly route?: SafeChainRoute;
+  };
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
@@ -269,6 +274,46 @@ function permissions(spec: WorkerSpec, paths: Paths) {
   };
 }
 
+/** The run's Safe-Chain proxy, or the dry run's placeholders. */
+function safeChainRoute(ctx: ClaudeLaunchContext): SafeChainRoute {
+  return ctx.safeChain?.route ?? PREVIEW_SAFE_CHAIN_ROUTE;
+}
+
+/** The office's network: closed unless it allows domains (0008 section 2). */
+function closedNetwork(ctx: ClaudeLaunchContext) {
+  return {
+    allowedDomains: unique(ctx.sandbox.allowedDomains),
+    strictAllowlist: true,
+    allowLocalBinding: ctx.sandbox.allowLocalBinding,
+  };
+}
+
+/**
+ * With Safe-Chain (DIPO-84): the sandbox's HTTP proxy is dipo's Safe-Chain proxy, so every request
+ * a command makes through it reaches only the registries Safe-Chain checks, and Claude Code's own
+ * SOCKS proxy allows no domain. Local binding stays off: it would let worker code reach every local
+ * port. An office that allows domains or local binding cannot run with it; dipo refuses rather
+ * than route that traffic around Safe-Chain or drop the setting.
+ */
+function safeChainNetwork(ctx: ClaudeLaunchContext) {
+  if (ctx.sandbox.allowedDomains.length > 0) {
+    throw new PlanError(
+      `sandbox.allowedDomains (${ctx.sandbox.allowedDomains.join(", ")}) cannot be used while Safe-Chain is installed: worker network goes only through dipo's Safe-Chain proxy to the package registries; remove the setting from .dipo/office.yaml`,
+    );
+  }
+  if (ctx.sandbox.allowLocalBinding) {
+    throw new PlanError(
+      "sandbox.allowLocalBinding cannot be true while Safe-Chain is installed: worker code would reach every local port, Safe-Chain's own proxy included; remove the setting from .dipo/office.yaml",
+    );
+  }
+  return {
+    allowedDomains: [],
+    strictAllowlist: true,
+    allowLocalBinding: false,
+    httpProxyPort: safeChainRoute(ctx).port,
+  };
+}
+
 function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
   const { home, workdir, main, tmp } = paths;
   // The toolchain read list, not the install caches: the worker must reach `~/.bun/bin` to run bun.
@@ -277,10 +322,8 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       expandHome("sandbox.toolchainReadPaths", path, home),
     ),
     ...ctx.sandbox.allowRead.map((path) => expandHome("sandbox.allowRead", path, home)),
-    // Read only, and only what `safe-chain` opens plus the shell wrapper (DIPO-82).
-    ...(ctx.safeChain === undefined
-      ? []
-      : [...safeChainReadPaths(ctx.safeChain.root), ctx.safeChain.shellDir]),
+    // The shell wrapper and the proxy's CA bundle (DIPO-84); nothing of `~/.safe-chain`.
+    ...(ctx.safeChain === undefined ? [] : [ctx.safeChain.shellDir]),
   ]);
   return {
     enabled: true,
@@ -291,10 +334,12 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
       // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
       // With Safe-Chain the shell snapshot stays closed too: its functions would replace the
-      // official Safe-Chain ones the wrapper loads (DIPO-82).
+      // wrapper's environment (DIPO-82); and the proxy's directory with its CA key (DIPO-84).
       denyRead: [
         `${home}/Library/Keychains`,
-        ...(ctx.safeChain === undefined ? [] : [`${home}/${SHELL_SNAPSHOTS_DIR}`]),
+        ...(ctx.safeChain === undefined
+          ? []
+          : [`${home}/${SHELL_SNAPSHOTS_DIR}`, safeChainRoute(ctx).dir]),
       ],
       denyWrite: [
         `${main}/.git`,
@@ -306,11 +351,7 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       ],
       allowRead,
     },
-    network: {
-      allowedDomains: unique(ctx.sandbox.allowedDomains),
-      strictAllowlist: true,
-      allowLocalBinding: ctx.sandbox.allowLocalBinding,
-    },
+    network: ctx.safeChain === undefined ? closedNetwork(ctx) : safeChainNetwork(ctx),
     credentials: {
       files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
       envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
@@ -458,7 +499,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
       // The Safe-Chain shell wrapper and its init file (DIPO-82); a self-test, whose run
       // directory differs, uses the run's.
       ...(ctx.safeChain !== undefined && shellDir === `${runDir}/${SAFE_CHAIN_SHELL_DIR}`
-        ? safeChainShellFiles(ctx.safeChain, shellDir)
+        ? safeChainShellFiles(ctx.safeChain, shellDir, { tmpDir: tmp, route: safeChainRoute(ctx) })
         : []),
     ],
     stdin: [userMessageLine(spec.taskMessage)],

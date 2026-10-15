@@ -486,47 +486,52 @@ describe("(unit) live safety recordings", () => {
   }
 });
 
-describe("(unit) Safe-Chain self-test check (DIPO-82)", () => {
-  const PROBE = "bun run --version";
-  const SAFE_CHAIN = { probe: PROBE, root: `${HOME}/.safe-chain` };
+describe("(unit) Safe-Chain install check (DIPO-84)", () => {
+  const SAFE_CHAIN = { root: `${HOME}/.safe-chain` };
+  const OK = `${BLOCKED_RESULTS}safe-chain-install exit 0\nsafe-chain-blocked exit 1\n`;
 
-  it("runs the probe through the worker shell first and hands its exit code to perl", () => {
-    const layout = selfTestLayout({ ...PATHS, safeChainProbe: PROBE });
+  it("runs both installs in a fresh project first and hands their exit codes to perl", () => {
+    const layout = selfTestLayout({ ...PATHS, safeChainInstall: true });
     const plain = selfTestLayout(PATHS);
+    const dir = `${PATHS.tmpDir}/dipo-self-test-${PATHS.nonce}-install`;
+    expect(layout.installDir).toBe(dir);
     expect(layout.command).toBe(
-      `${PROBE} >/dev/null 2>&1; ${plain.command} 'safe-chain' 'exit' "$?"`,
+      `bun add --cwd='${dir}' is-number@7.0.0 >/dev/null 2>&1; a=$?; ` +
+        `bun add --cwd='${dir}' safe-chain-test >/dev/null 2>&1; b=$?; ` +
+        `${plain.command} 'safe-chain-install' 'exit' "$a" 'safe-chain-blocked' 'exit' "$b"`,
     );
-    expect(layout.safeChainProbe).toBe(PROBE);
     expect(layout.prompt).toContain(layout.command);
+    expect(layout.prompt).toContain("expected to refuse");
     // Without Safe-Chain the command is the plain perl call.
-    expect(plain.safeChainProbe).toBeNull();
+    expect(plain.installDir).toBeNull();
     expect(plain.command.startsWith(`'${TOOLS.perl}'`)).toBe(true);
-    expect(() => selfTestLayout({ ...PATHS, safeChainProbe: "bun; rm -rf /" })).toThrow(
-      "Safe-Chain probe",
-    );
   });
 
-  it("parses the exit line next to the write lines", () => {
-    const lines = parseResults(`${BLOCKED_RESULTS}safe-chain exit 1\n`);
-    expect(lines.get("safe-chain")).toEqual({ kind: "exit", code: 1 });
+  it("parses both exit lines next to the write lines", () => {
+    const lines = parseResults(OK);
+    expect(lines.get("safe-chain-install")).toEqual({ kind: "exit", code: 0 });
+    expect(lines.get("safe-chain-blocked")).toEqual({ kind: "exit", code: 1 });
     expect(lines.get("control")).toMatchObject({ kind: "write", written: true });
   });
 
-  it("passes on exit 0 and refuses clearly on another exit or no result", () => {
-    const ok = evidence(
-      { results: `${BLOCKED_RESULTS}safe-chain exit 0\n` },
-      { safeChain: SAFE_CHAIN },
-    );
-    expect(judgeSelfTest(ok)).toEqual({ ok: true });
+  it("passes when the install works and the test malware is refused", () => {
+    expect(judgeSelfTest(evidence({ results: OK }, { safeChain: SAFE_CHAIN }))).toEqual({
+      ok: true,
+    });
+  });
 
+  it("refuses clearly when the install fails or a result is missing", () => {
     const failed = judgeSelfTest(
-      evidence({ results: `${BLOCKED_RESULTS}safe-chain exit 127\n` }, { safeChain: SAFE_CHAIN }),
+      evidence(
+        { results: `${BLOCKED_RESULTS}safe-chain-install exit 1\nsafe-chain-blocked exit 1\n` },
+        { safeChain: SAFE_CHAIN },
+      ),
     );
     expect(failed).toEqual({
       ok: false,
       unsafe: false,
       probe: "safe-chain",
-      reason: `Safe-Chain is installed at ${HOME}/.safe-chain, but \`${PROBE}\` through it exited 127 inside the worker sandbox, so the worker's package managers cannot run there`,
+      reason: `Safe-Chain is installed at ${HOME}/.safe-chain, but \`bun add is-number@7.0.0\` through dipo's Safe-Chain proxy exited 1 inside the worker sandbox, so worker installs cannot work`,
     });
     const failure = selfTestFailure({
       verdict: failed,
@@ -535,24 +540,35 @@ describe("(unit) Safe-Chain self-test check (DIPO-82)", () => {
       targets: [],
     });
     expect(failure).toMatchObject({ check: "self-test", key: "safe-chain" });
-    expect(failure?.fix).toContain("dipo run --dry-run");
+    expect(failure?.fix).toContain("safe-chain/proxy.json");
 
     expect(judgeSelfTest(evidence({}, { safeChain: SAFE_CHAIN }))).toMatchObject({
       ok: false,
       unsafe: false,
       probe: "safe-chain",
     });
-    // Without Safe-Chain an exit line is not asked for.
+    // Without Safe-Chain no exit line is asked for.
     expect(judgeSelfTest(evidence({}))).toEqual({ ok: true });
   });
 
-  it("records the exit code with the real perl program", async () => {
+  it("refuses as unsafe when Safe-Chain let its test malware install", () => {
+    const verdict = judgeSelfTest(
+      evidence(
+        { results: `${BLOCKED_RESULTS}safe-chain-install exit 0\nsafe-chain-blocked exit 0\n` },
+        { safeChain: SAFE_CHAIN },
+      ),
+    );
+    expect(verdict).toMatchObject({ ok: false, unsafe: true, probe: "safe-chain" });
+    expect((verdict as { reason: string }).reason).toContain("did not refuse its own test malware");
+  });
+
+  it("records both exit codes with the real perl program", async () => {
     const perl = "/usr/bin/perl";
     if (!existsSync(perl)) return;
     const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
     await withTempDir(async (dir) => {
       const results = join(dir, "results.txt");
-      const layout = selfTestLayout({ ...PATHS, safeChainProbe: PROBE });
+      const layout = selfTestLayout({ ...PATHS, safeChainInstall: true });
       const child = Bun.spawn(
         [
           perl,
@@ -563,18 +579,23 @@ describe("(unit) Safe-Chain self-test check (DIPO-82)", () => {
           "control",
           ">",
           join(dir, "c"),
-          "safe-chain",
+          "safe-chain-install",
           "exit",
-          "3",
+          "0",
+          "safe-chain-blocked",
+          "exit",
+          "1",
         ],
         { stdout: "ignore" },
       );
       expect(await child.exited).toBe(0);
-      expect(await Bun.file(results).text()).toBe("control written\nsafe-chain exit 3\n");
+      expect(await Bun.file(results).text()).toBe(
+        "control written\nsafe-chain-install exit 0\nsafe-chain-blocked exit 1\n",
+      );
     });
   });
 
-  it("runs the run's wrapper: writes the run's shell files into the run directory first", async () => {
+  it("runs the run's wrapper and a fresh install project, and removes the project", async () => {
     const clock = new ManualClock();
     const fs = new MemoryFs();
     const safeChain = {
@@ -583,15 +604,19 @@ describe("(unit) Safe-Chain self-test check (DIPO-82)", () => {
       path: "/usr/bin:/bin",
       demoted: [],
       dropped: [],
-      probe: PROBE,
+      probe: "bun",
       shellDir: `${RUN_DIR}/safe-chain`,
+      route: { port: 50123, dir: "/private/tmp/dipo-p-abc123" },
     };
     const ctx = context({ safeChain });
-    const layout = selfTestLayout({ ...PATHS, nonce: NONCE, safeChainProbe: PROBE });
+    const layout = selfTestLayout({ ...PATHS, nonce: NONCE, safeChainInstall: true });
+    let installProject: string | null = null;
     const fake = scriptedClaude(clock, {
       session: selfTestSession([layout.command]),
       onSession: () => {
-        fs.files.set(layout.resultsFile, `${BLOCKED_RESULTS}safe-chain exit 0\n`);
+        // The install project exists while the session runs.
+        installProject = fs.files.get(`${layout.installDir}/package.json`) ?? null;
+        fs.files.set(layout.resultsFile, OK);
         fs.files.set(layout.controlFile, "");
       },
     });
@@ -603,7 +628,10 @@ describe("(unit) Safe-Chain self-test check (DIPO-82)", () => {
     );
     expect(report.verdict).toEqual({ ok: true });
     expect(fs.executableWrites).toEqual(new Set([`${RUN_DIR}/safe-chain/zsh`]));
-    expect(fs.files.get(`${RUN_DIR}/safe-chain/.zshenv`)).toContain("init-posix.sh");
+    expect(fs.files.get(`${RUN_DIR}/safe-chain/.zshenv`)).not.toContain("init-posix.sh");
+    expect(fs.files.get(`${RUN_DIR}/safe-chain/zsh`)).toContain("BUN_INSTALL_CACHE_DIR");
+    expect(String(installProject)).toContain("dipo-self-test");
+    expect(fs.removedTrees).toEqual([layout.installDir ?? ""]);
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
     expect(session?.env?.["CLAUDE_CODE_SHELL"]).toBe(`${RUN_DIR}/safe-chain/zsh`);
     expect(fs.files.get(`${RUN_DIR}/self-test/${SETTINGS_FILE}`)).toBe(runSettings);

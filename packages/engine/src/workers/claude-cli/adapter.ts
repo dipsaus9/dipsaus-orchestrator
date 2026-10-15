@@ -24,7 +24,7 @@ import type {
 import { PlanError } from "../types";
 import { encode } from "./encode";
 import { initialState, interpret, nextSessionOptions, type ClaudeParseState } from "./interpret";
-import { prepareLaunch } from "./launch-checks";
+import { prepareLaunch, type ClaudeLaunchCheckDeps } from "./launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
 import { expandHome } from "../../sandbox/policy";
@@ -100,6 +100,11 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * returns null, the launch is as on a machine without Safe-Chain.
    */
   readonly detectSafeChain?: (input: SafeChainInput) => SafeChainLaunch | null;
+  /**
+   * The daemon's Safe-Chain checking proxies (DIPO-84): a launch on a machine with Safe-Chain
+   * starts its run's proxy through them; without them such a launch is refused.
+   */
+  readonly safeChainProxies?: ClaudeLaunchCheckDeps["safeChainProxies"];
 }
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
@@ -155,6 +160,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         platform: deps.platform,
         runStep: deps.runStep,
         uid: deps.uid,
+        ...(deps.safeChainProxies === undefined ? {} : { safeChainProxies: deps.safeChainProxies }),
       }),
     initialState: (spec, previous) =>
       initialState(

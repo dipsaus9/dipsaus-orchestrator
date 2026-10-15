@@ -144,6 +144,17 @@ export class MemoryFs implements SelfTestFs {
     this.files.delete(path);
   }
 
+  /** Directories removed with everything in them (the Safe-Chain install probe, DIPO-84). */
+  readonly removedTrees: string[] = [];
+
+  async removeTree(path: string): Promise<void> {
+    this.removedTrees.push(path);
+    this.dirs.delete(path);
+    for (const file of this.files.keys()) {
+      if (file.startsWith(`${path}/`)) this.files.delete(file);
+    }
+  }
+
   /** Symlink targets by path; any other path resolves to itself. */
   readonly links = new Map<string, string>();
   /** Executable files; `perl` and `gh` in /usr/bin by default. */
