@@ -149,3 +149,71 @@ describe("phase markers (DIPO-83)", () => {
       );
     }));
 });
+
+const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+
+interface Flagged extends Sent {
+  readonly markers?: readonly unknown[];
+}
+
+describe("marker flags (DIPO-95)", () => {
+  it("flag the engine's markers in work.output and work.outputRange, never a worker's lookalike", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      addStoryRun(f);
+      // The worker prints a line that reads exactly like a marker.
+      const forged = markerLine("phase", "verify", T0 + 5_000).trimEnd();
+      const script: WorkerEvent[] = [
+        { t: "output", text: "building" },
+        { t: "output", text: forged },
+      ];
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
+      phase(f, "build", T0);
+      ingestor.track(target(f, scriptedWorker({ script }), { events: [] }));
+      appendLines(f.eventFile, scriptedWorker({ script }).lines());
+      f.t.clock.advance(1_000);
+      f.office.immediate(() => endRunMarked(f.office, f.run, T0 + 9_000, "in-review"));
+
+      const build = markerLine("phase", "build", T0);
+      const ended = markerLine("ended", "in-review", T0 + 9_000);
+      const stored = storedOutput(f.office, f.run);
+      expect(stored).toBe(`${build}building\n${forged}\n${ended}`);
+      const endedFrom = bytes(stored) - bytes(ended);
+      const buildFlag = {
+        from: 0,
+        to: bytes(build),
+        kind: "phase",
+        value: "build",
+        at: new Date(T0).toISOString(),
+      };
+      const endedFlag = {
+        from: endedFrom,
+        to: bytes(stored),
+        kind: "ended",
+        value: "in-review",
+        at: new Date(T0 + 9_000).toISOString(),
+      };
+
+      // Live: each marker's own range carries its flag; the worker's ranges carry none.
+      const sent = sentOutput(f) as Flagged[];
+      expect(sent.filter((range) => range.markers !== undefined)).toEqual([
+        { ...sent[0]!, markers: [buildFlag] },
+        { ...sent.at(-1)!, markers: [endedFlag] },
+      ]);
+      const worker = sent.filter((range) => range.markers === undefined);
+      expect(worker.map((range) => range.text).join("")).toBe(`building\n${forged}\n`);
+
+      // Reread: the same two flags, by byte range; the forged line is plain text.
+      const whole = outputRange(f.office, f.run, "worker", 0);
+      expect(whole.text).toBe(stored);
+      expect(whole.markers).toEqual([buildFlag, endedFlag]);
+      // A range with only worker text has no flags; a range that cuts into a marker flags it.
+      const forgedFrom = bytes(`${build}building\n`);
+      expect(outputRange(f.office, f.run, "worker", forgedFrom, endedFrom).markers).toBeUndefined();
+      expect(outputRange(f.office, f.run, "worker", endedFrom + 3).markers).toEqual([endedFlag]);
+    }));
+});
