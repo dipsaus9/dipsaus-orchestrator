@@ -110,6 +110,43 @@ describe("catalog import at open", () => {
       }
     }));
 
+  it("imports catalog 2 into a database that holds only catalog 1 and keeps catalog 1 (DIPO-89)", () =>
+    withTempDir(async (dir) => {
+      const [catalog1] = CATALOGS;
+      if (catalog1 === undefined) throw new Error("no catalog shipped");
+      (await open(dir, [catalog1])).close();
+      const state = await open(dir);
+      try {
+        const db = state.connection;
+        const catalogs = db.all<{ version: number; checksum: string; effective_date: string }>(
+          "select version, checksum, effective_date from pricing_catalogs order by version",
+        );
+        expect(catalogs).toEqual([
+          { version: 1, checksum: catalog1.checksum, effective_date: "2026-10-13" },
+          { version: 2, checksum: CATALOGS[1]?.checksum ?? "", effective_date: "2026-10-15" },
+        ]);
+        expect(state.pricing?.version).toBe("2");
+        const count = (version: number) =>
+          db.get<{ n: number }>("select count(*) as n from pricing_rates where version = $v", {
+            v: version,
+          })?.n;
+        expect(count(2)).toBe(count(1));
+        // Catalog 2 carries the cache tiers and Haiku 5.5's long-prompt set.
+        expect(state.pricing?.models.get("claude-opus-5-5")).toEqual({
+          input: 4_000_000,
+          output: 20_000_000,
+          cacheWrite5m: 5_000_000,
+          cacheWrite1h: 8_000_000,
+          cacheRead: 200_000,
+        });
+        expect(state.pricing?.longPrompt.get("claude-haiku-5-5")?.map((set) => set.over)).toEqual([
+          100_000,
+        ]);
+      } finally {
+        state.close();
+      }
+    }));
+
   it("refuses to open with a shipped catalog that fails its checksum", () =>
     withTempDir(async (dir) => {
       const changed = variant(1, 600_000);
