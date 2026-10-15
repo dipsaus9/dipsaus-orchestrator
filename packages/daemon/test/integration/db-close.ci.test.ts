@@ -11,6 +11,12 @@ import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const TIMEOUT_MS = 30_000;
+/** The warn messages `closeCleanly` writes (packages/engine/src/platform/sqlite.ts). */
+const CLOSE_WARNINGS = [
+  "the closing checkpoint",
+  "could not turn persistent WAL off",
+  "could not close the state database",
+];
 
 type Line = { msg: string; level?: string; to?: string };
 
@@ -86,7 +92,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(messages.indexOf("socket closed")).toBeLessThan(
               messages.indexOf("closed state database"),
             );
-            expect(log.filter((line) => line.level === "warn")).toEqual([]);
+            // Other warns (a tool missing from PATH in CI) are not this story's; none of the close's.
+            const closeWarns = log.filter(
+              (line) => line.level === "warn" && CLOSE_WARNINGS.some((w) => line.msg.startsWith(w)),
+            );
+            expect(closeWarns).toEqual([]);
             expect(messages.at(-1)).toBe("daemon stopped");
           } finally {
             if (daemon.exitCode === null && daemon.signalCode === null) {

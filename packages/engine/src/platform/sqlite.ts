@@ -48,7 +48,8 @@ export interface SqliteConnection extends SqlRunner {
   /** Closes the connection and throws if a statement is still open (`close(true)`). */
   close(): void;
   /**
-   * The daemon's clean-stop close (DIPO-87): `wal_checkpoint(TRUNCATE)`, persistent WAL off, then
+   * The daemon's exit close (DIPO-87), run on every exit path that reaches the daemon's final
+   * cleanup, a clean stop or not: `wal_checkpoint(TRUNCATE)`, persistent WAL off, then
    * `close(true)`, so no `-wal` or `-shm` file stays next to the database. Never throws: a busy
    * or failed checkpoint and a failed close are logged at warn with the reason.
    */
