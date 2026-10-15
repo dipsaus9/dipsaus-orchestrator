@@ -1,10 +1,10 @@
 ---
 id: DIPO-83
 title: 'Show commands, thinking and open questions in the live agent detail'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 11:34'
-updated_date: '2026-10-15 13:47'
+updated_date: '2026-10-15 13:57'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -53,11 +53,11 @@ Context: maintainer feedback from the DIPO-55 hand test (2026-10-15): 'It says r
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With privacy.storeCommandBodies on in .dipo/office.local.yaml, a Bash tool line in output_chunks and the live agent detail reads `[tool] Bash <command>` (one line, long commands cut with a marker); with it off (the default) nothing changes. The overview shows when the opt-in is on (0007 section 8).
-- [ ] #2 The live agent detail lists the story's open questions (kind, text, age) and says how to answer them.
-- [ ] #3 Investigate without a live session first, from recordings and raw event files: what Claude sends for thinking in stream-json and whether a flag gives its text. If text is available, propose (do not build) how to show it and what privacy rule it needs, for the maintainer to decide.
-- [ ] #4 Tests cover the opt-in on and off, the question list, and secret-looking command text staying out when the opt-in is off.
-- [ ] #5 The live agent detail's output pane shows each phase change of the run (setup, build, verify, build again after a failed verify) and the run's end as a marker line with its time, such as `── 12:04:31 phase: verify ──` (ASCII fallback in ASCII mode), at its place in the worker output, live and when rereading a finished run.
+- [x] #1 With privacy.storeCommandBodies on in .dipo/office.local.yaml, a Bash tool line in output_chunks and the live agent detail reads `[tool] Bash <command>` (one line, long commands cut with a marker); with it off (the default) nothing changes. The overview shows when the opt-in is on (0007 section 8).
+- [x] #2 The live agent detail lists the story's open questions (kind, text, age) and says how to answer them.
+- [x] #3 Investigate without a live session first, from recordings and raw event files: what Claude sends for thinking in stream-json and whether a flag gives its text. If text is available, propose (do not build) how to show it and what privacy rule it needs, for the maintainer to decide.
+- [x] #4 Tests cover the opt-in on and off, the question list, and secret-looking command text staying out when the opt-in is off.
+- [x] #5 The live agent detail's output pane shows each phase change of the run (setup, build, verify, build again after a failed verify) and the run's end as a marker line with its time, such as `── 12:04:31 phase: verify ──` (ASCII fallback in ASCII mode), at its place in the worker output, live and when rereading a finished run.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -76,4 +76,6 @@ Proposal (not built, for the maintainer):
 AC1 decisions: the opt-in key privacy.storeCommandBodies already existed (default false, local only), so no config version bump. The Claude adapter reads the input beyond the path for Bash (command), Grep and Glob (pattern), WebFetch (url) and WebSearch (query); file contents and edit bodies stay out. Ingestion stores it only with the opt-in, read at every pass, as one line (whitespace and control characters collapsed, cut at 200 characters with [cut N more chars]). OfficeSummary gains the optional optIns (contract minor 1); the overview summary line and the worker pane title show opt-in storeCommandBodies.
 
 AC5 phase markers (engine side chosen): each phase change (setup, build, verify, build again after a failed verify) and the run end (endRun: in-review, parks, stop, reconcile, claim release) stores one engine-written line in the run's worker output, [dipo] <ISO time> phase <name> or [dipo] <ISO time> ended <kind>, as a chunk with no agent, and sends it as work.output in the same transaction. Before the marker, every agent's pending output is sent and the agents' emitted marks move past the marker, so the work.output ranges stay contiguous and each byte goes out once (tested with ingestion interleaved, and the CI re-attach test). Past runs read the same lines through work.outputRange. The TUI shows a marker as `── 12:04:31 phase: verify ──` (`--` in ASCII mode), local time, and skips markers for the now line; the view's lastOutputAt ignores them. No contract change.
+
+Maintainer hand test 2026-10-15 (live Haiku on the scratch repo with privacy.storeCommandBodies on in .dipo/office.local.yaml): Bash lines show the command, the opt-in label shows, phase markers and the run-ended marker appear live and when rereading the finished run. Approved amendments: 0005 OfficeSummary.optIns (06bc23c), 0007 section 8 marker lines (26c910f). The worker's own bun test still fails on this machine (Safe-Chain, DIPO-82).
 <!-- SECTION:NOTES:END -->
