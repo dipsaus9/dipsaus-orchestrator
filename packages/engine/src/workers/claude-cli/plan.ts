@@ -5,6 +5,7 @@
 import { posix } from "node:path";
 
 import type { OfficeConfig } from "../../config";
+import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../sandbox/policy";
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
@@ -24,6 +25,47 @@ export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
 export const SETTINGS_FILE = "claude-settings.json";
 /** Copy of the report schema passed on argv, in the run directory (0008 section 10). */
 export const REPORT_SCHEMA_FILE = "report-schema.json";
+/** The srt default write paths the run settings close, each with its reason (DIPO-98). */
+export const CLOSED_WRITES_FILE = "sandbox-closed-writes.json";
+
+// srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every
+// sandboxed command unless the settings deny them (DIPO-98). A worker writes only its worktree and
+// its run temp directory, so the run settings deny writes to each with `sandbox.filesystem.denyWrite`,
+// which srt honours over its defaults (measured with srt 0.0.79 on macOS; Claude Code 2.1.301
+// bundles the same defaults). Keyed by srt's own lists, so a new default needs a decision here.
+const CLOSED_HOME_WRITE_REASONS: Readonly<
+  Record<(typeof SRT_DEFAULT_HOME_WRITE_PATHS)[number], string>
+> = {
+  ".claude/debug":
+    "srt opens it for Claude Code's debug logs, but Claude Code writes them from its own process outside the sandbox, so no sandboxed command needs it; it lies in the maintainer's Claude Code configuration directory.",
+  ".npm/_logs":
+    "srt opens it for npm's debug logs. It is the maintainer's own npm log directory outside the sandbox, so worker code could leave files there that outlive the run; npm runs without it (it skips the log file), and with Safe-Chain npm's cache and logs are in the run temp directory.",
+};
+const CLOSED_WRITE_REASONS: Readonly<Record<(typeof SRT_DEFAULT_WRITE_PATHS)[number], string>> = {
+  "/tmp/claude":
+    "srt's fallback temp directory, shared by every srt sandbox on the machine. Claude Code points its sandboxed commands at its own per-session temp directory and the run has its own temp directory, so a worker never needs it; closed, worker code cannot leave files there for other sandboxes.",
+  "/private/tmp/claude": "The same directory as /tmp/claude, as macOS resolves it.",
+};
+
+const CLOSED_WRITES_REASON =
+  "srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every sandboxed command unless the settings deny them. A worker writes only its worktree and its run temp directory, so the run settings deny writes to each (claude-settings.json, sandbox.filesystem.denyWrite; DIPO-98).";
+
+/** A path srt makes writable by default that the worker sandbox closes again (DIPO-98). */
+export interface ClosedWritePath {
+  readonly path: string;
+  readonly reason: string;
+}
+
+/** Every srt default write path, made absolute against `home`, with why the worker may not write it. */
+export function closedWritePaths(home: string): ClosedWritePath[] {
+  return [
+    ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => ({
+      path: `${home}/${rel}`,
+      reason: CLOSED_HOME_WRITE_REASONS[rel],
+    })),
+    ...SRT_DEFAULT_WRITE_PATHS.map((path) => ({ path, reason: CLOSED_WRITE_REASONS[path] })),
+  ];
+}
 
 /** Kinds this adapter plans. M0 plans only `implement` (D12, DIPO-15). */
 export const PLANNED_KINDS: readonly WorkerKind[] = ["implement"];
@@ -349,6 +391,8 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
         `${workdir}/.dipo`,
         `${workdir}/.claude/settings.json`,
         `${workdir}/.claude/settings.local.json`,
+        // srt's default write paths (DIPO-98), with or without Safe-Chain.
+        ...closedWritePaths(home).map((closed) => closed.path),
       ],
       allowRead,
     },
@@ -420,6 +464,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
       path: workdir,
     });
   }
+  const closed = closedWritePaths(home);
   for (const [label, dir] of [
     ["workdir", workdir],
     ["tmpDir", tmp],
@@ -427,6 +472,14 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     if (dir === "/" || isInside(home, dir)) {
       throw new PlanError(
         `${label} ${dir} must not be the root or hold the home directory ${home}`,
+        { path: dir },
+      );
+    }
+    // The deny would win over the run's own write path (DIPO-98).
+    const under = closed.find((entry) => isInside(dir, entry.path));
+    if (under !== undefined) {
+      throw new PlanError(
+        `${label} ${dir} must lie outside ${under.path}, which the worker sandbox may not write`,
         { path: dir },
       );
     }
@@ -493,6 +546,11 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     files: [
       { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },
       { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
+      // For `dipo run --dry-run` and people: which default write paths the settings close, and why.
+      {
+        name: CLOSED_WRITES_FILE,
+        content: `${JSON.stringify({ reason: CLOSED_WRITES_REASON, denyWrite: closed }, null, 2)}\n`,
+      },
       // Run from source, the hooks start Bun with this empty config (`hookCommandLine`).
       ...(spec.hookRelay && (ctx.hookCommand?.length ?? 0) > 1
         ? [{ name: HOOK_BUNFIG_FILE, content: "" }]

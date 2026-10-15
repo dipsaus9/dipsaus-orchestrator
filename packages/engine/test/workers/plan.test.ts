@@ -3,7 +3,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
+import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../src/sandbox/policy";
 import {
+  CLOSED_WRITES_FILE,
+  closedWritePaths,
   GIT_WRITE_VERBS,
   plan,
   REPORT_SCHEMA_FILE,
@@ -543,6 +546,78 @@ describe("claude-cli plan", () => {
   });
 });
 
+describe("claude-cli plan closes srt's default write paths (DIPO-98)", () => {
+  const CLOSED = [
+    "/home/maintainer/.claude/debug",
+    "/home/maintainer/.npm/_logs",
+    "/tmp/claude",
+    "/private/tmp/claude",
+  ];
+
+  function denyWriteOf(launch: LaunchPlan): string[] {
+    const sandbox = settingsOf(launch)["sandbox"] as { filesystem: { denyWrite: string[] } };
+    return sandbox.filesystem.denyWrite;
+  }
+
+  it("denies writes to every srt default write path, for every tier, on launch and resume", () => {
+    for (const tier of ["S", "M", "L"] as const) {
+      for (const resume of [false, true]) {
+        const launch = plan(
+          spec(tier, {
+            session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume },
+          }),
+          context(),
+        );
+        expect(denyWriteOf(launch).slice(-CLOSED.length)).toEqual(CLOSED);
+      }
+    }
+  });
+
+  it("names every path srt opens by default, each with a reason", () => {
+    const closed = closedWritePaths("/h");
+    expect(closed.map((entry) => entry.path).toSorted()).toEqual(
+      [
+        ...SRT_DEFAULT_WRITE_PATHS,
+        ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => `/h/${rel}`),
+      ].toSorted(),
+    );
+    for (const entry of closed) expect(entry.reason.length).toBeGreaterThan(20);
+  });
+
+  it("writes the closed paths with their reasons into the run directory for the dry run", () => {
+    const launch = plan(spec("M"), context());
+    const file = launch.files.find((f) => f.name === CLOSED_WRITES_FILE);
+    const shown = JSON.parse(file?.content ?? "") as {
+      reason: string;
+      denyWrite: { path: string; reason: string }[];
+    };
+    expect(shown.denyWrite.map((entry) => entry.path)).toEqual(CLOSED);
+    expect(shown.denyWrite).toEqual(closedWritePaths("/home/maintainer"));
+    expect(shown.reason).toContain("sandbox.filesystem.denyWrite");
+  });
+
+  it("opens none of them again: not as a write path, and no read path re-opens a write", () => {
+    const launch = plan(spec("M"), context());
+    const sandbox = sandboxOf(launch);
+    for (const path of CLOSED) {
+      for (const write of sandbox.filesystem.allowWrite) {
+        expect(path === write || path.startsWith(`${write}/`)).toBe(false);
+      }
+    }
+    // The toolchain read path ~/.npm stays readable; a read path never makes anything writable.
+    expect(sandbox.filesystem.allowRead).toContain("/home/maintainer/.npm");
+  });
+
+  it("refuses a worktree or run temp directory under a closed path", () => {
+    for (const dir of ["/tmp/claude", "/tmp/claude/run-1", "/private/tmp/claude/x"]) {
+      expect(() => plan(spec("S"), context({ tmpDir: dir }))).toThrow(/may not write/);
+      expect(() => plan(spec("S", { workdir: `${dir}/wt` }), context())).toThrow(/may not write/);
+    }
+    // A sibling whose name only starts with a closed path's is fine.
+    expect(() => plan(spec("S"), context({ tmpDir: "/tmp/claude-501" }))).not.toThrow();
+  });
+});
+
 function sandboxOf(launch: LaunchPlan) {
   return settingsOf(launch)["sandbox"] as {
     filesystem: { allowRead: string[]; denyRead: string[]; allowWrite: string[] };
@@ -588,6 +663,26 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
       allowLocalBinding: false,
       httpProxyPort: 50123,
     });
+  });
+
+  it("keeps srt's default write paths closed: the same denyWrite as without Safe-Chain (DIPO-98)", () => {
+    const denyWrite = (launch: LaunchPlan) =>
+      (settingsOf(launch)["sandbox"] as { filesystem: { denyWrite: string[] } }).filesystem
+        .denyWrite;
+    const withSafeChain = plan(spec("M"), context({ safeChain }));
+    expect(denyWrite(withSafeChain)).toEqual(denyWrite(plan(spec("M"), context())));
+    for (const closed of closedWritePaths("/home/maintainer")) {
+      expect(denyWrite(withSafeChain)).toContain(closed.path);
+    }
+    // npm's cache, and so its logs, go to the run temp directory, not ~/.npm.
+    const wrapper = withSafeChain.files.find((f) => f.name === "safe-chain/zsh")?.content ?? "";
+    expect(wrapper).toContain("export npm_config_cache='/tmp/claude-501/caches/npm'");
+    expect(wrapper).not.toContain(".npm/_logs");
+    // A dry run shows the same closed paths.
+    const { route, ...withoutRoute } = safeChain;
+    expect(route.port).toBe(50123);
+    const preview = plan(spec("M"), context({ safeChain: withoutRoute }));
+    expect(denyWrite(preview)).toEqual(denyWrite(withSafeChain));
   });
 
   it("writes the wrapper (executable), its init file and the proxy description", () => {
@@ -643,7 +738,11 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
   it("launches exactly as before without Safe-Chain", () => {
     const launch = plan(spec("M"), context());
     expect(launch.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
-    expect(launch.files.map((f) => f.name)).toEqual([SETTINGS_FILE, REPORT_SCHEMA_FILE]);
+    expect(launch.files.map((f) => f.name)).toEqual([
+      SETTINGS_FILE,
+      REPORT_SCHEMA_FILE,
+      CLOSED_WRITES_FILE,
+    ]);
     const text = JSON.stringify(settingsOf(launch));
     for (const word of ["safe-chain", "shell-snapshots", "httpProxyPort", "dipo-p"]) {
       expect(text).not.toContain(word);

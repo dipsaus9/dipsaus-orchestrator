@@ -156,7 +156,11 @@
           "/home/maintainer/code/shop.worktrees/DIPO-999/backlog",
           "/home/maintainer/code/shop.worktrees/DIPO-999/.dipo",
           "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.json",
-          "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.local.json"
+          "/home/maintainer/code/shop.worktrees/DIPO-999/.claude/settings.local.json",
+          "/home/maintainer/.claude/debug",
+          "/home/maintainer/.npm/_logs",
+          "/tmp/claude",
+          "/private/tmp/claude"
         ],
         "allowRead": ["/home/maintainer/.bun", "/home/maintainer/.npm", "/home/maintainer/.cache"]
       },
