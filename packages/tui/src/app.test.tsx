@@ -38,9 +38,14 @@ describe("office switcher", () => {
     await ui.press("o");
     const frame = await ui.waitFor("slaydoku");
     expect(frame).toContain("Offices");
-    expect(frame).toContain("> dipsaus-orchestrator  3 running  desk 2  held 1  (open)");
-    expect(frame).toContain("   couchcade  0 running  desk 0  held 0");
-    expect(frame).toContain("   slaydoku  1 running  desk 1  held 0  day 84%  ALERT day usage");
+    expect(frame).toContain(
+      [
+        "   OFFICE                RUNNING  NEEDS YOU  READY  HELD  TODAY",
+        " > dipsaus-orchestrator  3        2          2      1            (open)",
+        "   couchcade             0        0          1      0",
+        "   slaydoku              1        1          0      0     84% !",
+      ].join("\n"),
+    );
     expect(frame).toContain("[Enter] open  [n] open new repo path");
 
     await ui.press("down");
@@ -56,7 +61,8 @@ describe("office switcher", () => {
 
     // Enter sent the read office.switch; the store left the old stream and follows the new one
     // after the cursor the read returned (0005 section 8).
-    expect(session.reads.at(-1)).toEqual({
+    // The overview reads the new office's output tails after it (DIPO-81).
+    expect(session.reads.filter((read) => read.name !== "work.outputRange").at(-1)).toEqual({
       name: "office.switch",
       args: { office: OFFICES.slaydoku },
     });
@@ -68,6 +74,46 @@ describe("office switcher", () => {
     });
     expect(store.state.office).toBe(OFFICES.slaydoku);
     expect(store.state.stories.map((view) => String(view.story))).toEqual(["SLAY-9"]);
+  });
+
+  it("lines the columns up at 120 and spells out a day usage alert (DIPO-81)", async () => {
+    const { ui } = await open({ columns: 120, rows: 30 });
+    await ui.waitFor("· live");
+    await ui.press("o");
+    const frame = await ui.waitFor("slaydoku");
+    expect(frame).toContain(
+      [
+        "   OFFICE                RUNNING  NEEDS YOU  READY  HELD  TODAY",
+        " > dipsaus-orchestrator  3        2          2      1                           (open)",
+        "   couchcade             0        0          1      0",
+        "   slaydoku              1        1          0      0     84%  ALERT day usage",
+      ].join("\n"),
+    );
+  });
+
+  it("shows READY as ? for a summary without it, and [q] quit at every width", async () => {
+    for (const columns of [120, 80, 70, 60]) {
+      const { ui, session } = await open({ columns, rows: 30 });
+      await ui.waitFor("· live");
+      session.active("software")?.options.onEvent({
+        cursor: { stream: "software", epoch: "e1", seq: 60 },
+        at: "2026-10-14T10:05:00.000Z",
+        type: "office.summary",
+        data: {
+          office: OFFICES.couchcade,
+          name: "couchcade",
+          path: "/work/couchcade",
+          running: 0,
+          parked: 0,
+          onHold: 0,
+          waitingOnMaintainer: 0,
+        },
+      } as Event);
+      await ui.press("o");
+      const frame = await ui.waitFor("   couchcade             0        0          ?      0");
+      expect(frame.split("\n").at(-1)).toContain("[q] quit");
+      for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(columns);
+    }
   });
 
   it("starts in the switcher when no office is open, and Esc does not leave it", async () => {
@@ -217,7 +263,7 @@ describe("terminal size and display", () => {
     const { ui } = await open({ columns: 100, rows: 15 });
     await ui.waitFor("widen for detail");
     ui.resize(100, 30);
-    const frame = await ui.waitFor("STORY");
+    const frame = await ui.waitFor("RUNNING (3)");
     expect(frame).not.toContain("widen for detail");
   });
 

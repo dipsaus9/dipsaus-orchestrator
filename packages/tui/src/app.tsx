@@ -32,6 +32,7 @@ import { useEffect, useState } from "react";
 import { useBatchedState } from "./batch";
 import { Detail, type DetailTarget, type ReadOutput, STOP_PROMPT } from "./detail";
 import { skipReason, widthOf } from "./format";
+import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
 import { EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
@@ -214,6 +215,15 @@ export function App(props: AppProps) {
   // The selected overview row by run, so it follows the run when rows come and go.
   const [overviewRun, setOverviewRun] = useState<string | null>(null);
   const [stop, setStop] = useState<StopAction | null>(null);
+  // The newest output line of each running run, for the overview's `now:` lines (DIPO-81).
+  const { latest } = useLatestLines({
+    store,
+    clock,
+    readOutput: actions.readOutput,
+    office: state.office,
+    runs: state.work.map((candidate) => candidate.work.run),
+    snapshots: state.snapshots,
+  });
   const offline = isOffline(state);
   const overviewIndex = Math.max(
     0,
@@ -627,7 +637,13 @@ export function App(props: AppProps) {
       <Header state={state} display={display} />
       <Banners state={state} display={display} />
       {inSwitcher ? (
-        <SwitcherBody state={state} display={display} index={switcherIndex} now={clock.now()} />
+        <SwitcherBody
+          state={state}
+          display={display}
+          index={switcherIndex}
+          now={clock.now()}
+          columns={columns}
+        />
       ) : detail !== null ? (
         <Detail
           // A new run starts with a fresh pane.
@@ -658,6 +674,9 @@ export function App(props: AppProps) {
           display={display}
           width={widthOf(columns)}
           columns={columns}
+          height={height}
+          clock={clock}
+          latest={latest}
           selected={overviewSelected}
         />
       )}
