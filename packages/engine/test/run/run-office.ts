@@ -47,6 +47,9 @@ import {
   RunResumer,
   storyHoldsWork,
   WorkRun,
+  afterRunExits,
+  RunTempDirs,
+  runTempDir,
 } from "../../src/run";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/runs/worker-hosts";
 import type { StepResult } from "../../src/sandbox/step";
@@ -115,10 +118,23 @@ export interface Running {
   readonly starts: { agent: string; processedOffset: number }[];
   /** The plan-limit schedule, when the office was set up with it (DIPO-61). */
   readonly planLimits: PlanLimits | null;
+  /** The run temp directories' root (`<root>/tmp`). */
+  readonly tmpRoot: string;
+  /**
+   * The run temp directory sweeps, when the office was set up with them (DIPO-102): `settled`
+   * waits for every sweep started so far; `atHostStart` says, per host start, whether the run's
+   * temp directory existed then.
+   */
+  readonly tempDirs: { settled(): Promise<void>; readonly atHostStart: boolean[] } | null;
 }
 
 export interface RunOfficeOptions {
   readonly host: HostMode;
+  /**
+   * Wires the run temp directory sweeps (DIPO-102) as the daemon does: after each worker exit is
+   * ingested and after each exit decision of worker outcomes (which `outcomes` must ask for).
+   */
+  readonly tempDirs?: boolean;
   readonly checks: LaunchCheckOutcome;
   /** The recording a replay host plays; `success-single` by default. */
   readonly recording?: string;
@@ -241,6 +257,17 @@ export async function withRunOffice(
         sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
       };
       const runtimeDir = join(repo.root, "rt");
+      const tmpRoot = join(repo.root, "tmp");
+      // The run temp directory sweeps (DIPO-102), as the daemon wires them.
+      const atHostStart: boolean[] = [];
+      const sweeps: Promise<unknown>[] = [];
+      const tempDirs =
+        options.tempDirs === true
+          ? new RunTempDirs({ tmpRoot, database: () => loaded().state, probe: async () => null })
+          : null;
+      const sweep = (): void => {
+        if (tempDirs !== null) sweeps.push(tempDirs.sweep("ended"));
+      };
       const hosts: Running["hosts"] = [];
       const hostStarter: HostStarter = {
         start: async (office, run) => {
@@ -248,6 +275,7 @@ export async function withRunOffice(
           const recording =
             options.recordings?.[hosts.length] ?? options.recording ?? "success-single";
           const eventFile = join(runDir, EVENTS_FILE);
+          atHostStart.push(existsSync(runTempDir(tmpRoot, run.runId)));
           hosts.push({
             runId: run.runId,
             agentId: run.agentId,
@@ -366,12 +394,20 @@ export async function withRunOffice(
               steering,
               encode,
               flushOutput: (office, run) => ingest?.flushOutput(office, run),
-              outcomes: () => outcomes ?? undefined,
+              outcomes: () =>
+                outcomes === null
+                  ? undefined
+                  : tempDirs === null
+                    ? outcomes
+                    : afterRunExits(outcomes, sweep),
             });
       ingest = new OfficeIngest({
         clock: new ManualClock(),
         pricing: () => null,
         ...(control === null ? {} : { hooks: control.hooks }),
+        ...(tempDirs === null
+          ? {}
+          : { hookEvents: { onWorkerEvents: () => undefined, onEnded: () => sweep() } }),
       });
       const capsOverride = options.control?.caps ?? {};
       // Worker outcomes and the run's next session (DIPO-51), on the same replay hosts.
@@ -390,7 +426,7 @@ export async function withRunOffice(
           git: (office) => engineGit.forOffice(office),
           story: baseStoryFacts(base),
           runtimeDir,
-          tmpRoot: join(repo.root, "tmp"),
+          tmpRoot,
           hosts: hostStarter,
           ingest: {
             start: (office, host, target) => {
@@ -469,7 +505,8 @@ export async function withRunOffice(
           }) as unknown as SetupOutcome,
         dependencies: async () => [],
         runtimeDir,
-        tmpRoot: join(repo.root, "tmp"),
+        tmpRoot,
+        ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
         hosts: hostStarter,
         ingest,
         ...(control === null
@@ -544,6 +581,16 @@ export async function withRunOffice(
           outcomes,
           starts,
           planLimits,
+          tmpRoot,
+          tempDirs:
+            tempDirs === null
+              ? null
+              : {
+                  settled: async () => {
+                    while (sweeps.length > 0) await Promise.all(sweeps.splice(0));
+                  },
+                  atHostStart,
+                },
         });
       } finally {
         planLimits?.close();
