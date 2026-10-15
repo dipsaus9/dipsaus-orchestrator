@@ -104,14 +104,23 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
       and kind in ('loop', 'review') order by step`,
     { run: run.runId },
   );
-  const criteria = office.get<{ met: number | null; total: number | null }>(
-    `select criteria_met as met, criteria_total as total from backlog_mirror
-      where office_id = $office_id and key = $key`,
+  const criteria = office.get<{
+    met: number | null;
+    total: number | null;
+    numbers: string | null;
+  }>(
+    `select criteria_met as met, criteria_total as total, criteria_numbers as numbers
+      from backlog_mirror where office_id = $office_id and key = $key`,
     { key: run.key },
   );
   // The index shows the base branch (or the branch tip right after a claim) and lags the run
-  // until the merge; the run's own facts count what its latest report marks met (DIPO-85).
-  const own = runCriteriaMet(office, run.runId);
+  // until the merge; the run's own facts count what its latest report marks met, among the
+  // story's current criterion numbers (DIPO-85).
+  const current =
+    criteria === null || criteria.numbers === null
+      ? null
+      : (JSON.parse(criteria.numbers) as number[]);
+  const own = runCriteriaMet(office, run.runId, current);
   const total = criteria?.total ?? own?.known ?? 0;
   const met = Math.max(criteria?.met ?? 0, own?.met ?? 0);
   return {

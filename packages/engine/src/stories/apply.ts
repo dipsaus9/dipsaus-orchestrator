@@ -334,9 +334,9 @@ export function writeMirror(
   office.run(
     `insert into backlog_mirror
        (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source,
-        waiting_on, park, park_since, criteria_met, criteria_total)
+        waiting_on, park, park_since, criteria_met, criteria_total, criteria_numbers)
      values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source,
-        $waiting_on, $park, $park_since, $criteria_met, $criteria_total)
+        $waiting_on, $park, $park_since, $criteria_met, $criteria_total, $criteria_numbers)
      on conflict (office_id, key) do update set
        content_hash = excluded.content_hash, kind = excluded.kind, status = excluded.status,
        title = excluded.title, tier = excluded.tier, role = excluded.role,
@@ -346,7 +346,8 @@ export function writeMirror(
          when backlog_mirror.park is excluded.park then backlog_mirror.park_since
          else excluded.park_since end,
        park = excluded.park,
-       criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total`,
+       criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total,
+       criteria_numbers = excluded.criteria_numbers`,
     {
       key,
       hash: story.contentHash,
@@ -366,6 +367,8 @@ export function writeMirror(
       park_since: story.park === undefined ? null : at,
       criteria_met: story.criteria?.met ?? null,
       criteria_total: story.criteria?.total ?? null,
+      criteria_numbers:
+        story.criteria?.numbers === undefined ? null : JSON.stringify(story.criteria.numbers),
     },
   );
 }
