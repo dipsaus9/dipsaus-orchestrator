@@ -3,7 +3,9 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { goldenSnapshots, OFFICES } from "./testing/fake-session";
+import type { Event } from "@dipsaus-orchestrator/contract";
+
+import { goldenHello, goldenSnapshots, OFFICES } from "./testing/fake-session";
 import { mount } from "./testing/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -93,5 +95,21 @@ describe("office overview", () => {
       data: { work: view.work, phase: "review", progress: view.progress, view },
     } as never);
     expect(await ui.waitFor("DIPO-24 developer S review busy >")).not.toContain("looping @");
+  });
+
+  it("says when a privacy opt-in is on, from the office summary (DIPO-83)", async () => {
+    const { ui, session } = await open(120);
+    expect(ui.frame()).not.toContain("opt-in");
+    const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
+    session.active("software")?.options.onEvent({
+      cursor: { stream: "software", epoch: "e1", seq: 90 },
+      at: "2026-10-14T10:04:00.000Z",
+      type: "office.summary",
+      data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
+    } as Event);
+    const frame = await ui.waitFor("opt-in");
+    expect(lines(frame)).toContain(
+      " Ready 2 · waiting 1 (on DIPO-21) · held 1 · desk 2 · opt-in storeCommandBodies",
+    );
   });
 });

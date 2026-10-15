@@ -22,7 +22,7 @@ import {
   type Width,
 } from "./format";
 import type { Display } from "./options";
-import { glyphs, healthLabel } from "./views";
+import { glyphs, healthLabel, officeOptIns, optInLabel } from "./views";
 
 /** The legend for evidence markers, shown in the footer with the `evidence` capability. */
 export const EVIDENCE_LEGEND = "* claimed ~ estimated ? none";
@@ -125,7 +125,10 @@ const Card = memo(function Card(props: { view: WorkView; evidence: boolean; sele
   );
 });
 
-/** `Ready 4 · waiting 2 (on DIPO-21) · held 1 · desk 2 · today 1.2M of 4M tokens`. */
+/**
+ * `Ready 4 · waiting 2 (on DIPO-21) · held 1 · desk 2 · today 1.2M of 4M tokens`, with
+ * `opt-in storeCommandBodies` after `desk` while a privacy opt-in is on (0007 section 8, DIPO-83).
+ */
 export function summaryLine(state: OfficeStoreState, dot: string): string {
   const count = (column: string) => state.stories.filter((s) => s.column === column).length;
   const waiting = state.stories.filter((story) => story.column === "waiting");
@@ -137,6 +140,8 @@ export function summaryLine(state: OfficeStoreState, dot: string): string {
     `held ${count("held")}`,
     `desk ${summary?.waitingOnMaintainer ?? "?"}`,
   ];
+  const optIns = optInLabel(officeOptIns(state));
+  if (optIns !== "") parts.push(optIns);
   const day = summary?.dayUsage;
   if (day !== undefined) {
     const limit = day.limit === undefined ? "" : ` of ${tokens(day.limit)}`;

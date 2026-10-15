@@ -1,9 +1,11 @@
 // The live agent detail (`Enter` on a running story, 0009 sections 4, 6 and 9). It answers "what is
 // the worker doing right now" first: under the story header a `now` line shows the health, the
 // phase and the newest output line (a tool call such as `[tool] Edit src/app.ts`, or the agent's
-// words) with its age. Facts sit on the left (phase, health, loop over cap, verify, criteria,
-// usage in, out, cache writes, cache reads and turns, budget bar, active signals with their start
-// time) and the output of the selected source on the right; below 100 columns they stack.
+// words) with its age. Under it the story's open questions show with their kind, age and text and
+// how to answer them (`dipo answer`, DIPO-83). Facts sit on the left (phase, health, loop over
+// cap, verify, criteria, usage in, out, cache writes, cache reads and turns, budget bar, active
+// signals with their start time) and the output of the selected source on the right; below 100
+// columns they stack.
 //
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
@@ -16,6 +18,7 @@ import type {
   Clock,
   OfficeId,
   OutputSource,
+  QuestionView,
   RunId,
   StoryKey,
   StoryView,
@@ -35,7 +38,7 @@ import {
   rowCount,
   visibleRows,
 } from "./output";
-import { clockTime, glyphs, healthLabel } from "./views";
+import { clockTime, glyphs, healthLabel, officeOptIns, optInLabel } from "./views";
 
 /** The run the detail shows; the key finds its story when the id changes. */
 export interface DetailTarget {
@@ -60,6 +63,10 @@ export const SIDE_BY_SIDE_COLUMNS = 100;
 export const FACTS_WIDTH = 36;
 /** The most criteria boxes drawn; more show as the count only. */
 const MAX_BOXES = 20;
+/** The most open questions the detail lists; more show as a count. */
+export const MAX_QUESTIONS = 3;
+/** The opt-in that puts tool inputs into the worker output (0007 section 8). */
+const COMMAND_BODIES = "privacy.storeCommandBodies";
 
 /** The confirmation `X` asks before `work.stop` (0009 section 5). */
 export const STOP_PROMPT = "worker ends, branch kept, story parks as stopped";
@@ -119,6 +126,38 @@ export function nowLine(options: {
     parts.push(`${shortAge(now - Date.parse(view.lastOutputAt))} ago`);
   }
   return parts.join(` ${dot} `);
+}
+
+/** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */
+export function answerHint(question: QuestionView): string {
+  const reply = question.kind === "permission" ? "allow|deny" : "<text>";
+  return `dipo answer ${question.question} ${reply}`;
+}
+
+/**
+ * The story's open questions, oldest first, two lines each: kind, age and text, then how to answer
+ * (DIPO-83). At most `MAX_QUESTIONS`; more show as a count. Empty when none waits.
+ */
+export function questionLines(
+  questions: readonly QuestionView[],
+  now: number,
+  dot: string,
+): string[] {
+  const open = questions.toSorted((a, b) => Date.parse(a.askedAt) - Date.parse(b.askedAt));
+  const lines: string[] = [];
+  for (const question of open.slice(0, MAX_QUESTIONS)) {
+    const age = shortAge(now - Date.parse(question.askedAt));
+    // One line: line breaks, tabs and control characters become single spaces.
+    // oxlint-disable-next-line no-control-regex
+    const text = question.text.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+    lines.push(`? ${question.kind} ${age} ago ${dot} ${text}`);
+    lines.push(`  answer: ${answerHint(question)}`);
+  }
+  const more = open.length - MAX_QUESTIONS;
+  if (more > 0) {
+    lines.push(`  ${more} more open question${more === 1 ? "" : "s"} ${dot} dipo watch lists all`);
+  }
+  return lines;
 }
 
 function criteriaBoxes(met: number, total: number): string {
@@ -289,8 +328,17 @@ export function Detail(props: DetailProps) {
   const evidence = evidenceEnabled(state);
   const factText =
     view === undefined ? [] : side ? factLines(view, evidence) : compactFactLines(view, evidence);
-  // Header and `now` line, then (stacked) the facts, then the pane's title and status lines.
-  const paneHeight = Math.max(1, height - 2 - (side ? 0 : factText.length) - 2);
+  // The story's open questions, under the `now` line (DIPO-83).
+  const questionText = questionLines(
+    state.questions.filter((question) => question.work.key === target.key),
+    clock.now(),
+    dot,
+  );
+  // Header, `now` line and questions, then (stacked) the facts, then the pane's title and status.
+  const paneHeight = Math.max(
+    1,
+    height - 2 - questionText.length - (side ? 0 : factText.length) - 2,
+  );
   const paneWidth = Math.max(10, side ? columns - FACTS_WIDTH - 3 : columns - 2);
 
   // Only the row count of all held text; the rows themselves are cut for the screen alone.
@@ -366,7 +414,9 @@ export function Detail(props: DetailProps) {
   const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled);
   const feed = shown.feed;
   const tabs = source === "worker" ? "[w]orker* [v]erify" : "[w]orker [v]erify*";
-  const title = `output (${source}) ${tabs}`;
+  // With the opt-in on, tool lines in the worker output carry their commands (0007 section 8).
+  const optIn = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
+  const title = `output (${source}) ${tabs}${optIn ? `  ${optInLabel([COMMAND_BODIES])}` : ""}`;
   let status: string;
   if (feed.error !== null) status = feed.error;
   else if (!feed.loaded) status = `reading output${ellipsis}`;
@@ -400,6 +450,11 @@ export function Detail(props: DetailProps) {
       ) : (
         <Text wrap="truncate-end">{` ${truncate(now, columns - 1, ellipsis)}`}</Text>
       )}
+      {questionText.map((line, i) => (
+        <Text key={`q${i}`} wrap="truncate-end" {...(display.color ? { color: "yellow" } : {})}>
+          {` ${truncate(line, columns - 1, ellipsis)}`}
+        </Text>
+      ))}
     </>
   );
   if (!side) {
