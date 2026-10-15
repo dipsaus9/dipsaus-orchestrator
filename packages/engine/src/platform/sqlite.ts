@@ -3,7 +3,7 @@
 // modes, refuses a `<state>` on a network filesystem, and runs `VACUUM INTO` in a Bun Worker so a
 // snapshot never blocks the daemon's one JS thread.
 
-import { Database } from "bun:sqlite";
+import { constants, Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -47,6 +47,12 @@ export interface SqliteConnection extends SqlRunner {
   deferred<T>(fn: () => T): T;
   /** Closes the connection and throws if a statement is still open (`close(true)`). */
   close(): void;
+  /**
+   * The daemon's clean-stop close (DIPO-87): `wal_checkpoint(TRUNCATE)`, persistent WAL off, then
+   * `close(true)`, so no `-wal` or `-shm` file stays next to the database. Never throws: a busy
+   * or failed checkpoint and a failed close are logged at warn with the reason.
+   */
+  shutdown(logger: DbLogger): void;
 }
 
 /** One line of the mount table: where a filesystem is mounted and its type. */
@@ -354,7 +360,73 @@ function createConnection(
     immediate: (fn) => db.transaction(synchronousOnly(fn)).immediate(),
     deferred: (fn) => db.transaction(synchronousOnly(fn)).deferred(),
     close: () => db.close(true),
+    shutdown: (logger) => closeCleanly(db, path, logger),
   };
+}
+
+/** The part of `Database` a clean close uses; tests pass a stand-in whose calls fail. */
+export type ClosableDatabase = Pick<Database, "query" | "fileControl" | "close">;
+
+interface CheckpointRow {
+  readonly busy: number;
+  readonly log: number;
+  readonly checkpointed: number;
+}
+
+/** SQLite result code for success. */
+const SQLITE_OK = 0;
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Checkpoints and closes `db` (DIPO-87). The TRUNCATE checkpoint moves every WAL frame into the
+ * database file; persistent WAL off makes the last close delete `-wal` and `-shm`, which the
+ * macOS system SQLite otherwise keeps. Each step that fails is logged at warn and the next one
+ * still runs; a failed `close(true)` falls back to `close(false)`, which releases the handle once
+ * the open statements finish. Never throws, so a clean stop stays a clean exit.
+ */
+export function closeCleanly(db: ClosableDatabase, path: string, logger: DbLogger): void {
+  let checkpoint: CheckpointRow | null = null;
+  try {
+    checkpoint = db.query("pragma wal_checkpoint(TRUNCATE)").get() as CheckpointRow | null;
+    if (checkpoint !== null && checkpoint.busy !== 0) {
+      logger.warn("the closing checkpoint was busy; the WAL file stays until the next open", {
+        path,
+        reason: "another connection holds a lock on the database",
+        ...checkpoint,
+      });
+    }
+  } catch (error) {
+    logger.warn("the closing checkpoint failed", { path, reason: reasonOf(error) });
+  }
+  try {
+    const code = db.fileControl(constants.SQLITE_FCNTL_PERSIST_WAL, 0);
+    if (code !== SQLITE_OK) {
+      logger.warn("could not turn persistent WAL off before closing", {
+        path,
+        reason: `sqlite file control returned ${code}`,
+      });
+    }
+  } catch (error) {
+    logger.warn("could not turn persistent WAL off before closing", {
+      path,
+      reason: reasonOf(error),
+    });
+  }
+  try {
+    db.close(true);
+  } catch (error) {
+    logger.warn("could not close the state database cleanly", { path, reason: reasonOf(error) });
+    try {
+      db.close(false);
+    } catch {
+      // Nothing more to release; the process exit closes the file.
+    }
+    return;
+  }
+  logger.info("closed state database", { path, checkpoint });
 }
 
 /**
