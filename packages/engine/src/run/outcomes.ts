@@ -354,7 +354,10 @@ export interface ResumeParkRequest {
 
 /** What resuming a parked run did (DIPO-75). */
 export type ResumeParkOutcome =
-  /** The next session of the run started. */
+  /**
+   * The run is active again and the answer recorded; from `resumePark` its next session is
+   * starting in the background (a failed start parks or releases the story with its notice).
+   */
   | { readonly kind: "started" }
   /** The park was lifted but the next session did not start; the story parked or released again. */
   | { readonly kind: "notStarted" }
@@ -385,6 +388,8 @@ export class RunOutcomes implements RunOutcomesPort {
   readonly #deps: RunOutcomesDeps;
   /** The exits being decided now, as run and agent; a restart step leaves their runs alone. */
   readonly #deciding = new Set<string>();
+  /** Sessions of resumed parks starting after their answer was replied to (DIPO-75). */
+  readonly #inflight = new Set<Promise<unknown>>();
 
   constructor(deps: RunOutcomesDeps) {
     this.#deps = deps;
@@ -592,6 +597,11 @@ export class RunOutcomes implements RunOutcomesPort {
     } finally {
       this.#deciding.delete(key);
     }
+  }
+
+  /** Resolves once every session start of a resumed park this started has finished (DIPO-75). */
+  async idle(): Promise<void> {
+    while (this.#inflight.size > 0) await Promise.allSettled(this.#inflight);
   }
 
   /** True while an exit or a lost host of the run is being decided here (DIPO-57). */
@@ -1347,7 +1357,7 @@ export class RunOutcomes implements RunOutcomesPort {
           this.#deps.clock.now(),
         ),
       );
-      return await this.#finishParkResume(office, run, request, intentId, false);
+      return await this.#finishParkResume(office, run, request, intentId, false, true);
     } finally {
       this.#deciding.delete(key);
     }
@@ -1365,6 +1375,8 @@ export class RunOutcomes implements RunOutcomesPort {
     request: ResumeParkRequest,
     intentId: number,
     reopened: boolean,
+    /** Start the next session after returning (the command); wait for it otherwise (recovery). */
+    background: boolean,
   ): Promise<ResumeParkOutcome> {
     const officeId = office.officeId as OfficeId;
     const runId = run.runId;
@@ -1454,25 +1466,47 @@ export class RunOutcomes implements RunOutcomesPort {
       { run: runId },
     );
     const permission = { tool: question.tool, action: question.input };
-    const started = await this.#next(
-      office,
-      fresh,
-      {
-        office: officeId,
-        runId,
-        work,
-        caps,
-        startedAt: capsStartedAt(fresh, host?.started_at),
-        snapshot: null,
-      },
-      {
-        mode: "resume",
-        why: `the maintainer's ${request.decision === "allow" ? "allow once" : "deny"} of ${permission.tool}: ${permission.action}`,
-        message: parkAnswerMessage(permission, request.decision, request.text),
-      },
-    );
-    resolve(started ? "resumed" : "notStarted");
-    return started ? { kind: "started" } : { kind: "notStarted" };
+    const startSession = async (): Promise<boolean> => {
+      const started = await this.#next(
+        office,
+        fresh,
+        {
+          office: officeId,
+          runId,
+          work,
+          caps,
+          startedAt: capsStartedAt(fresh, host?.started_at),
+          snapshot: null,
+        },
+        {
+          mode: "resume",
+          why: `the maintainer's ${request.decision === "allow" ? "allow once" : "deny"} of ${permission.tool}: ${permission.action}`,
+          message: parkAnswerMessage(permission, request.decision, request.text),
+        },
+      );
+      resolve(started ? "resumed" : "notStarted");
+      return started;
+    };
+    if (!background) {
+      return (await startSession()) ? { kind: "started" } : { kind: "notStarted" };
+    }
+    // The answer's reply does not wait for the worker host (it may take many seconds): the
+    // session starts after it. A start that fails parks or releases the story with its notice, as
+    // after a crash; a restart before it is done finishes it from the intent.
+    const key = `${runId} park-session`;
+    this.#deciding.add(key);
+    const job = startSession()
+      .catch((error: unknown) => {
+        this.#deps.warn?.("starting the session of a resumed park failed", {
+          run: runId,
+          reason: messageOf(error),
+        });
+        return false;
+      })
+      .finally(() => this.#deciding.delete(key));
+    this.#inflight.add(job);
+    void job.finally(() => this.#inflight.delete(job));
+    return { kind: "started" };
   }
 
   /**
@@ -1520,7 +1554,7 @@ export class RunOutcomes implements RunOutcomesPort {
             resolve("abandoned");
             continue;
           }
-          await this.#finishParkResume(office, run, request, row.intent_id, false);
+          await this.#finishParkResume(office, run, request, row.intent_id, false, false);
           count += 1;
           continue;
         }
@@ -1537,7 +1571,7 @@ export class RunOutcomes implements RunOutcomesPort {
           resolve("resumed");
           continue;
         }
-        await this.#finishParkResume(office, run, request, row.intent_id, true);
+        await this.#finishParkResume(office, run, request, row.intent_id, true, false);
         count += 1;
       } finally {
         this.#deciding.delete(key);

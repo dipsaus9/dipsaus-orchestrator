@@ -131,8 +131,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             );
             expect(reply).toMatchObject({
               ok: true,
+              changed: true,
               result: { question: question?.questionId, delivered: "on-resume", run },
             });
+            // The reply came once the run reopened; the session starts after it.
+            await r.outcomes?.idle();
             await r.control?.idle();
 
             // The park was lifted on the branch, pushed, and resolved; the same run went on.

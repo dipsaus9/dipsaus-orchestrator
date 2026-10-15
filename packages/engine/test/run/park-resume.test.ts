@@ -9,7 +9,20 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { type RunId, StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
+import {
+  type OfficeId,
+  RequestId,
+  type RunId,
+  StoryId,
+  type StoryKey,
+} from "@dipsaus-orchestrator/contract";
+
+import { executeCommand } from "../../src/commands/execute";
+import { stateOfficeDirectory } from "../../src/commands/offices";
+import { buildRegistry } from "../../src/commands/registry";
+import { MemoryRequestTable } from "../../src/commands/requests";
+import { OFFICE_DEFAULTS } from "../../src/config";
+import { PermissionAsks } from "../../src/hooks/permissions";
 
 import { findQuestion, insertParkQuestion } from "../../src/hooks/questions";
 import {
@@ -220,13 +233,15 @@ describe("parked time (runs.parked_ms)", () => {
     t.clock.advance(10 * MINUTE);
     const { parkId, question } = park();
     t.clock.advance(24 * 60 * MINUTE);
-    const result = await outcomes(lifting).resumePark(w.f.office.officeId as never, run, {
+    const resuming = outcomes(lifting);
+    const result = await resuming.resumePark(w.f.office.officeId as never, run, {
       parkId,
       question,
       decision: "allow",
       text: "",
     });
     expect(result).toEqual({ kind: "started" });
+    await resuming.idle();
     const session = w.sessions[0];
     expect(t.clock.now() - (session?.startedAt ?? 0)).toBe(10 * MINUTE);
     expect(session?.startedAt).toBe(started + 24 * 60 * MINUTE);
@@ -327,5 +342,69 @@ describe("a resume a restart interrupted", () => {
     expect(w.sessions).toEqual([]);
     expect(runIntents(office, run).find((i) => i.kind === "answer")?.outcome).toBe("abandoned");
     expect(findRun(office, run as RunId)?.endedAt).not.toBeNull();
+  });
+});
+
+describe("the reply of work.answer (live test of 2026-10-15)", () => {
+  it("returns once the run is reopened, before the next session's host has started", async () => {
+    const { office, run } = w.f;
+    const { question } = park();
+    // A worker host that never finishes starting.
+    let asked = 0;
+    const hanging = new RunOutcomes({
+      clock: w.f.t.clock,
+      offices: { get: () => office },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+      worker: { id: "claude-cli", result: () => ({}) as never },
+      ender: () => ({ isTracked: () => false }) as unknown as RunEnder,
+      resumer: {
+        next: () => {
+          asked += 1;
+          return new Promise(() => undefined);
+        },
+      },
+      caps: () => CAPS,
+      unpark: lifting,
+    });
+    const asks = new PermissionAsks({
+      clock: w.f.t.clock,
+      ids: w.f.t.ids,
+      offices: { get: () => office, config: () => OFFICE_DEFAULTS },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+      presence: { connected: () => false, lastRequestAt: () => null },
+      parks: { resume: (o, id, request) => hanging.resumePark(o, id, request) },
+    });
+    const reply = await executeCommand(
+      {
+        registry: buildRegistry([asks.feature]),
+        offices: stateOfficeDirectory(w.f.t.state),
+        clock: w.f.t.clock,
+        ids: w.f.t.ids,
+        softwareRequests: new MemoryRequestTable(w.f.t.clock),
+      },
+      {
+        requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z00095001"),
+        name: "work.answer",
+        args: { question, text: "", decision: "allow" },
+        origin: "cli",
+        confirmed: false,
+        office: office.officeId as OfficeId,
+      },
+    );
+    expect(reply).toMatchObject({
+      ok: true,
+      changed: true,
+      result: { question, delivered: "on-resume", run },
+    });
+    // The session is starting (its host never answers here), the run is active again and the
+    // answer is recorded; the intent is sent, so a restart would finish the start.
+    expect(asked).toBe(1);
+    expect(findRun(office, run)?.endedAt).toBeNull();
+    expect(findQuestion(office, question)?.closedHow).toBe("answered");
+    expect(runIntents(office, run).find((i) => i.kind === "answer")?.state).toBe("sent");
+    expect(hanging.busy(run)).toBe(true);
+    asks.close();
   });
 });

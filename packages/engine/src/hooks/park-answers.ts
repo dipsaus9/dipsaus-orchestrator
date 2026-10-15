@@ -177,12 +177,15 @@ export async function answerParkQuestion(
       );
     case "failed":
       throw new Error(`${story} could not be resumed: ${outcome.reason}`);
+    // The answer was recorded and the run reopened by the resumer, outside `ctx.commit`, so the
+    // reply says itself that the state changed.
     case "started":
       return {
         result: { question: question.questionId, delivered: "on-resume", run: question.runId },
+        changed: true,
       };
     case "notStarted":
-      return { result: { question: question.questionId, delivered: "on-resume" } };
+      return { result: { question: question.questionId, delivered: "on-resume" }, changed: true };
   }
 }
 
