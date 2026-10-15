@@ -3,6 +3,7 @@
 // events by subject (story `key`, `run`, `gate`, `question`, `test`, `office`), drops stored
 // events whose cursor it already has, and replaces the views the engine sends. It never computes
 // column, health, phase, evidence or cost: an event without a view changes nothing it shows.
+// `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55).
 //
 // Runtime-free like the rest of the client core: time comes from the injected clock.
 
@@ -25,12 +26,14 @@ import {
   officeSnapshot,
   type OfficeSnapshot,
   type OfficeSummary,
+  type OutputSource,
   officeSummary,
   officeSwitch,
   questionAsked,
   questionClosed,
   type QuestionView,
   type ReadDefinition,
+  type RunId,
   storyRenumbered,
   storyState,
   type StoryView,
@@ -115,6 +118,20 @@ export interface OfficeStoreState {
   readonly error: EngineError | null;
 }
 
+/**
+ * One `work.output` byte range of the selected office (0005 section 5). The store passes it on to
+ * `onOutput` listeners and keeps none of it: an output pane holds the text it shows and reads the
+ * rest with `work.outputRange` (0009 section 9).
+ */
+export interface OutputChunk {
+  readonly run: RunId;
+  readonly source: OutputSource;
+  /** Byte offsets in the run's stored output of `source`. */
+  readonly from: number;
+  readonly to: number;
+  readonly text: string;
+}
+
 export interface OfficeStoreOptions {
   readonly client: StoreClient;
   readonly clock: Clock;
@@ -155,6 +172,7 @@ export class OfficeStore {
   readonly #clock: Clock;
   readonly #clientInfo: { readonly name: string; readonly version: string };
   readonly #listeners = new Set<() => void>();
+  readonly #outputListeners = new Set<(chunk: OutputChunk) => void>();
   #state: OfficeStoreState;
 
   #software: Subscription | null = null;
@@ -200,6 +218,15 @@ export class OfficeStore {
   }
 
   /**
+   * Calls `listener` with the text of every `work.output` event of the selected office, once per
+   * stored cursor; returns a function that stops it. The state never holds output text.
+   */
+  onOutput(listener: (chunk: OutputChunk) => void): () => void {
+    this.#outputListeners.add(listener);
+    return () => this.#outputListeners.delete(listener);
+  }
+
+  /**
    * Takes the offices and daemon state from the client's `engine.hello` and subscribes to the
    * software stream after its cursor. Call once, after the client connected.
    */
@@ -238,6 +265,7 @@ export class OfficeStore {
     this.#software = null;
     this.#officeSub = null;
     this.#listeners.clear();
+    this.#outputListeners.clear();
   }
 
   /**
@@ -454,6 +482,7 @@ export class OfficeStore {
       const data = definition.data.safeParse(event.data);
       // Without a view the event changes nothing shown: the store never derives one.
       if (data.success && data.data.view !== undefined) this.#putWork(data.data.view);
+      if (event.type === workOutput.type) this.#emitOutput(event);
       return;
     }
     switch (event.type) {
@@ -530,6 +559,15 @@ export class OfficeStore {
       stories: index === -1 ? [...stories, view] : stories.with(index, view),
       work,
     });
+  }
+
+  #emitOutput(event: Event): void {
+    if (this.#closed) return;
+    const data = workOutput.data.safeParse(event.data);
+    if (!data.success) return;
+    const { work, source, from, to, text } = data.data;
+    const chunk: OutputChunk = { run: work.run, source, from, to, text };
+    for (const listener of this.#outputListeners) listener(chunk);
   }
 
   /** Replaces the run's view by `run`. */

@@ -61,7 +61,7 @@ describe("queue view", () => {
       "               DIPO-24 S  Add verify retry",
       "               DIPO-19 L  Review the merge slot",
       '   HELD (1)    DIPO-29 L  Web client shell                 "after M2" (held 3d)',
-      " r[u]n selected  [j/k] move  [.] show done  [1] overview  [o] offices  [q] quit",
+      " [Enter] detail  r[u]n selected  [j/k] move  [.] show done  [1] overview  [o] offices  [q] quit",
     ]);
   });
 

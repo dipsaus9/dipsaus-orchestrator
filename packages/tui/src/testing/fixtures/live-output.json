@@ -1,0 +1,105 @@
+{
+  "description": "Golden output log (DIPO-55): what the engine stored for run DIPO-24 (worker and verify, answered by work.outputRange) and the work.output events that follow on the office stream. ASCII, so characters are bytes.",
+  "stored": {
+    "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24:worker": [
+      "Reading the story and the verify code first.\n",
+      "[tool] Read src/verify.ts (step 01)\n",
+      "[tool] Edit test/retry.test.ts (step 02)\n",
+      "Step 03: retries now stop at the cap in src/log.ts.\n",
+      "[tool] Read src/notice.ts (step 04)\n",
+      "[tool] Edit src/retry.ts (step 05)\n",
+      "Step 06: retries now stop at the cap in src/verify.ts.\n",
+      "[tool] Read test/retry.test.ts (step 07)\n",
+      "[tool] Edit src/log.ts (step 08)\n",
+      "Step 09: retries now stop at the cap in src/notice.ts.\n",
+      "[tool] Read src/retry.ts (step 10)\n",
+      "[tool] Edit src/verify.ts (step 11)\n",
+      "Step 12: retries now stop at the cap in test/retry.test.ts.\n",
+      "[tool] Read src/log.ts (step 13)\n",
+      "[tool] Edit src/notice.ts (step 14)\n",
+      "Step 15: retries now stop at the cap in src/retry.ts.\n",
+      "[tool] Read src/verify.ts (step 16)\n",
+      "[tool] Edit test/retry.test.ts (step 17)\n",
+      "Step 18: retries now stop at the cap in src/log.ts.\n",
+      "[tool] Read src/notice.ts (step 19)\n",
+      "[tool] Edit src/retry.ts (step 20)\n",
+      "Step 21: retries now stop at the cap in src/verify.ts.\n",
+      "[tool] Read test/retry.test.ts (step 22)\n",
+      "[tool] Edit src/log.ts (step 23)\n",
+      "Step 24: retries now stop at the cap in src/notice.ts.\n",
+      "[tool] Read src/retry.ts (step 25)\n",
+      "[tool] Edit src/verify.ts (step 26)\n",
+      "Step 27: retries now stop at the cap in test/retry.test.ts.\n",
+      "[tool] Read src/log.ts (step 28)\n",
+      "[tool] Edit src/notice.ts (step 29)\n",
+      "Step 30: retries now stop at the cap in src/retry.ts.\n",
+      "[tool] Read src/verify.ts (step 31)\n",
+      "[tool] Edit test/retry.test.ts (step 32)\n",
+      "Step 33: retries now stop at the cap in src/log.ts.\n",
+      "[tool] Read src/notice.ts (step 34)\n",
+      "[tool] Edit src/retry.ts (step 35)\n",
+      "Step 36: retries now stop at the cap in src/verify.ts.\n",
+      "[tool] Read test/retry.test.ts (step 37)\n",
+      "[tool] Edit src/log.ts (step 38)\n",
+      "Step 39: retries now stop at the cap in src/notice.ts.\n"
+    ],
+    "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24:verify": [
+      "$ bun run verify\n",
+      "oxfmt --check: ok\n",
+      "oxlint: ok\n",
+      "tsc -b: ok\n",
+      "\u001b[31mFAIL\u001b[0m test/retry.test.ts > caps at 3 retries\n",
+      "  expected 3, received 4\n"
+    ]
+  },
+  "events": [
+    {
+      "cursor": {
+        "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
+        "epoch": "e2",
+        "seq": 8
+      },
+      "at": "2026-10-14T10:05:00.000Z",
+      "type": "work.output",
+      "data": {
+        "work": {
+          "story": "DIPO-24",
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "run": "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "agent": "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "role": "developer",
+          "tier": "S",
+          "model": "claude-sonnet"
+        },
+        "source": "worker",
+        "from": 1705,
+        "to": 1717,
+        "text": "[tool] Bash\n"
+      }
+    },
+    {
+      "cursor": {
+        "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
+        "epoch": "e2",
+        "seq": 9
+      },
+      "at": "2026-10-14T10:05:00.000Z",
+      "type": "work.output",
+      "data": {
+        "work": {
+          "story": "DIPO-24",
+          "key": "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "run": "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "agent": "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
+          "role": "developer",
+          "tier": "S",
+          "model": "claude-sonnet"
+        },
+        "source": "worker",
+        "from": 1717,
+        "to": 1749,
+        "text": "[tool] Edit src/retry.ts (live)\n"
+      }
+    }
+  ]
+}
