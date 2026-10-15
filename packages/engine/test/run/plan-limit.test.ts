@@ -561,7 +561,9 @@ describe("allowed_warning and api-retry-rate-limit (AC #1)", () => {
 
   it("a forgotten office's warning holds leave memory and come back from the row (DIPO-92)", async () => {
     track();
-    w.control.onWorkerEvents(w.f.run, [{ t: "limit", status: "allowed_warning", scope: "session" }]);
+    w.control.onWorkerEvents(w.f.run, [
+      { t: "limit", status: "allowed_warning", scope: "session" },
+    ]);
     await w.control.idle();
     expect(w.plans.held(ADAPTER, null)).not.toBeNull();
     w.officeGone = true;
@@ -590,14 +592,14 @@ describe("allowed_warning and api-retry-rate-limit (AC #1)", () => {
     w.plans = planLimits();
     const office = w.f.office;
     const broken = new Proxy(office, {
-      get(target, prop) {
+      get(handle, prop) {
         if (prop === "immediate") {
           return () => {
             throw new Error("disk I/O error");
           };
         }
-        const value: unknown = Reflect.get(target, prop);
-        return typeof value === "function" ? value.bind(target) : value;
+        const value: unknown = Reflect.get(handle, prop);
+        return typeof value === "function" ? value.bind(handle) : value;
       },
     });
     expect(w.plans.recover(office.officeId, broken)).toBe(1);
