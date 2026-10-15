@@ -770,11 +770,23 @@ describe("(unit) npm-logs probe program (DIPO-98)", () => {
       const layout = selfTestLayout({ ...PATHS, home: dir });
       const child = Bun.spawn(
         [perl, "-e", layout.script, results, "n", "npm-logs", "~>", ".npm/_logs/probe"],
-        { stdout: "ignore", env: { HOME: dir } },
+        { stdout: "pipe", stderr: "pipe", env: { HOME: dir } },
       );
       expect(await child.exited).toBe(0);
       expect(await Bun.file(results).text()).toBe("npm-logs written\n");
       expect(await Bun.file(join(dir, ".npm", "_logs", "probe")).text()).toBe("n");
+      // Every result is printed too, so the model has nothing to add (live finding on PR #120).
+      expect(await new Response(child.stdout).text()).toBe(
+        "npm-logs written\ndipo-self-test finished\n",
+      );
+      expect(await new Response(child.stderr).text()).toBe("");
     });
+  });
+
+  it("tells the model to add nothing to the command (live finding on PR #120)", () => {
+    const layout = selfTestLayout({ ...PATHS, safeChainInstall: true });
+    expect(layout.prompt).toContain("Add nothing before or after it");
+    expect(layout.prompt).toContain("no cat, no exit-code check");
+    expect(layout.prompt).toContain("prints every result itself");
   });
 });

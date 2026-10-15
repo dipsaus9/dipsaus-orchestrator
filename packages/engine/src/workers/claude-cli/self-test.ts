@@ -172,7 +172,10 @@ export interface SelfTestLayout {
  * Arguments: the results file, the byte, then one triple per probe (name, open mode, path).
  * Write probes open their path and write the byte; the mode `~>` opens `$HOME/<path>` for writing
  * (DIPO-98). A triple with the mode `exit` records its third
- * value as an exit code (the Safe-Chain probe, DIPO-82). One result line per probe. Passed
+ * value as an exit code (the Safe-Chain probe, DIPO-82). One result line per probe, written to the
+ * results file and also printed: a model that sees the results has no reason to add its own
+ * `cat` or exit-code checks to the command (seen live on PR #120, which the exact-command check
+ * then refused; DIPO-98). The engine still judges only from the file and the disk. Passed
  * inline: Claude Code's permission layer denies `perl <script>` when the script lies outside the
  * working directory (seen live on 2.1.296), and a script inside the worktree could be changed by
  * a worker.
@@ -181,11 +184,11 @@ export function probeScript(): string {
   return [
     "use strict; use warnings;",
     "my $out = shift @ARGV; my $b = shift @ARGV;",
-    'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]);',
+    'open(my $o, ">", $out) or die "dipo-self-test: no results file: $!\\n"; select((select($o), $| = 1)[0]); sub r { print $o @_; print @_ }',
     "while (@ARGV) { my ($n, $m, $p) = splice(@ARGV, 0, 3);",
-    'if ($m eq "exit") { print $o "$n exit $p\\n"; next }',
+    'if ($m eq "exit") { r("$n exit $p\\n"); next }',
     'if ($m eq "~>") { $m = ">"; $p = "$ENV{HOME}/$p" }',
-    'if (open(my $f, $m, $p)) { print $f $b; close $f; print $o "$n written\\n" } else { print $o "$n blocked $!\\n" } }',
+    'if (open(my $f, $m, $p)) { print $f $b; close $f; r("$n written\\n") } else { r("$n blocked $!\\n") } }',
     "close $o;",
     'print "dipo-self-test finished\\n";',
   ].join(" ");
@@ -273,6 +276,8 @@ export function selfTestLayout(
     "This is dipo's sandbox self-test, approved by the maintainer. Run exactly this one command once with the Bash tool, in a single call:",
     "",
     command,
+    "",
+    "Pass it to the Bash tool character for character. Add nothing before or after it: no echo, no cat, no exit-code check, no `;` or `&&`. The command already prints every result itself, and dipo compares the command you ran with this one, so any change, even an added check, makes the test fail.",
     "",
     checks.length === 0
       ? "The perl program in it writes a control file inside this worktree, which should succeed, and records the result in a results file."
