@@ -76,12 +76,13 @@ async function runWorker(dir: string, script: string, stop: boolean): Promise<En
     });
     if (!connected.ok) throw new Error(`cannot connect: ${connected.reason}`);
     const client = connected.client;
-    // The Claude stop sequence (encode.ts), with 100 ms and 600 ms for 10 s and 30 s.
+    // The Claude stop sequence (encode.ts), with 100 ms and 3 s for 10 s and 30 s; the wide gap
+    // keeps a loaded runner from sending SIGKILL before the worker handled SIGTERM.
     expect(await client.request({ op: "closeStdin" })).toEqual({ ok: true });
     expect(await client.request({ op: "signal", signal: "SIGTERM", afterMs: 100 })).toEqual({
       ok: true,
     });
-    expect(await client.request({ op: "signal", signal: "SIGKILL", afterMs: 600 })).toEqual({
+    expect(await client.request({ op: "signal", signal: "SIGKILL", afterMs: 3000 })).toEqual({
       ok: true,
     });
   }
