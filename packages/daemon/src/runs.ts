@@ -22,6 +22,7 @@ import {
   claudeWorkerPort,
   currentProfile,
   gitParkWriter,
+  gitUnparkWriter,
   gitStoryOps,
   readBackstop,
   hostSocketSteering,
@@ -192,6 +193,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     outcomes: () => outcomes ?? undefined,
     clock,
     offices: options.offices,
+    // A `needs-permission` park asks its permission question (DIPO-75).
+    ids: options.ids,
     writer: gitParkWriter({
       git: (office) => options.engineGit.forOffice(office),
       cli: options.cli,
@@ -218,6 +221,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     encode: (op) => worker.encode(op),
     presence: options.presence ?? { connected: () => false, lastRequestAt: () => null },
     ending: (run) => control.isEnding(run),
+    // An answer to a `needs-permission` park resumes its run (DIPO-75).
+    parks: {
+      resume: (office, run, request) =>
+        outcomes?.resumePark(office, run, request) ??
+        Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
+    },
+    ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
@@ -273,6 +283,17 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     holds: options.holds,
     release,
     holdsWork: storyHoldsWork(storyGit),
+    // Lifting a `needs-permission` park on the story branch before its run resumes (DIPO-75).
+    unpark: gitUnparkWriter({
+      git: (office) => options.engineGit.forOffice(office),
+      cli: options.cli,
+    }),
+    ...(options.stories === undefined
+      ? {}
+      : {
+          refreshStory: (office: OfficeId, key: StoryKey) =>
+            options.stories?.refreshStory(office, key, { quiet: true }) ?? Promise.resolve(),
+        }),
     caps: (office, run) => {
       const tier = tierOf(office, run);
       return tier === undefined ? null : capsOf(tier);

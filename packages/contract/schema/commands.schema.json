@@ -377,6 +377,10 @@
         "delivered": {
           "type": "string",
           "enum": ["now", "on-resume"]
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
         }
       },
       "required": ["question", "delivered"]

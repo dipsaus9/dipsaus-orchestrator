@@ -168,7 +168,7 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
   },
   "work.answer": {
     args: { question: ids.question, text: "", decision: "allow" },
-    result: { question: ids.question, delivered: "on-resume" },
+    result: { question: ids.question, delivered: "on-resume", run: ids.run },
   },
   "work.steer": {
     args: { story: "DIPO-21", text: "Keep the old flag." },
