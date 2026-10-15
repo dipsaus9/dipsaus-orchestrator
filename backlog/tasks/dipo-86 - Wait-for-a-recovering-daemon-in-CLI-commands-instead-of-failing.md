@@ -4,7 +4,7 @@ title: Wait for a recovering daemon in CLI commands instead of failing
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 19:24'
+updated_date: '2026-10-15 19:33'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -39,3 +39,9 @@ Context: seen in the M0 delivery sessions: dipo daemon start followed at once by
 - [ ] #3 The retry lives in the client package so the CLI and any other client share it; commands that are not idempotent are sent again only with the same request id.
 - [ ] #4 Tests cover a fake daemon that answers engine.recovering twice and then succeeds, and one that goes to safe.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The safe-mode line names `dipo daemon resume-scheduling`, not `dipo daemon resume` as AC #2 words it, because resume-scheduling is the real subcommand (packages/cli/src/daemon-commands.ts).
+<!-- SECTION:NOTES:END -->
