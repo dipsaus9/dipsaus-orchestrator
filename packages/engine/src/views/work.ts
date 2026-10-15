@@ -1,8 +1,9 @@
 // The work view (0005 sections 5 and 6, 0009 section 3): who works on a run, its phase, progress,
 // usage with its budget share, the watchdog signals in effect and the health derived from them.
 // Derived from facts (`runs`, `agents`, `run_steps`, `run_signals`, usage, stored output and the
-// mirror's acceptance criteria) whenever it is needed, and written as the `view` of each work
-// change-log entry; never stored as truth.
+// mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
+// whenever it is needed, and written as the `view` of each work change-log entry; never stored as
+// truth.
 
 import {
   AgentId,
@@ -21,6 +22,7 @@ import {
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { readUsage } from "../ingest/usage";
+import { runCriteriaMet } from "../run/criteria";
 import { activeRuns, findRun, type StoredRun } from "../run/records";
 import { activeSignals } from "../run/signals";
 
@@ -107,9 +109,14 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
       where office_id = $office_id and key = $key`,
     { key: run.key },
   );
+  // The index shows the base branch (or the branch tip right after a claim) and lags the run
+  // until the merge; the run's own facts count what its latest report marks met (DIPO-85).
+  const own = runCriteriaMet(office, run.runId);
+  const total = criteria?.total ?? own?.known ?? 0;
+  const met = Math.max(criteria?.met ?? 0, own?.met ?? 0);
   return {
-    criteriaMet: criteria?.met ?? 0,
-    criteriaTotal: criteria?.total ?? 0,
+    criteriaMet: total > 0 ? Math.min(met, total) : met,
+    criteriaTotal: total,
     loop: steps.filter((step) => step.kind === "loop").length,
     loopCap: run.loopCap,
     verify: verifyStateOf(office, run.runId),
