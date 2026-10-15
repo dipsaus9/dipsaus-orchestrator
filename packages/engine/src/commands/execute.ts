@@ -8,6 +8,9 @@
 // Shared office resolution (DIPO-48): a command whose args carry `from`, the main worktree the
 // client resolved the office from, fails with `office.unknown` when that is not the office's
 // registered path, so a copied repository never acts on the original office.
+//
+// A story reference the office does not know first runs the registered story refreshes once
+// (DIPO-104), so a story merged to the base since the last poll resolves.
 
 import {
   type Clock,
@@ -356,6 +359,28 @@ async function handleSoftwareCommand(
 }
 
 /**
+ * A story merged to the base since the last poll stays unknown to the office until an index pass
+ * reads it (DIPO-104). When the args name a story the office does not know, the registered story
+ * refreshes (a fetch, and an index pass when `_base` moved) run once first; the command then
+ * resolves as usual and fails with `story.unknown` only when the story is still missing.
+ */
+async function refreshUnknownStories(
+  deps: ExecutorDeps,
+  command: Extract<RegisteredCommand, { level: "office" }>,
+  officeId: OfficeId,
+  office: OfficeHandle,
+  args: unknown,
+): Promise<void> {
+  const refreshes = deps.registry.storyRefreshes();
+  if (refreshes.length === 0) return;
+  const fields = findStoryRefFields(command.definition.args);
+  if (fields.length === 0) return;
+  const resolved = resolveStoryRefs(office, fields, args);
+  if (resolved.ok || resolved.error.code !== "story.unknown") return;
+  for (const { refresh } of refreshes) await refresh(officeId).catch(() => undefined);
+}
+
+/**
  * Runs one command and returns its one reply. Unknown or unbuilt commands fail with
  * `capability.missing`; a conversation command without `confirmed` with `confirmation.required`;
  * bad args with `args.invalid` and the zod issues; an office-level command without `office` with
@@ -408,6 +433,7 @@ export async function executeCommand(
   // The office's engine instance loads on its first command (0006 decision 4, DIPO-27).
   const access = await deps.offices.load(officeId);
   if (!access.ok) return failure(requestId, access.error);
+  await refreshUnknownStories(deps, command, officeId, access.office, parsed.data);
   if (command.waits) {
     return runAsyncOfficeCommand(deps, command, access.office, request, parsed.data);
   }

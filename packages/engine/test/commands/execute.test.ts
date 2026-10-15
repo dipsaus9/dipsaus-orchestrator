@@ -16,7 +16,7 @@ import { replay } from "../../src/changelog/replay";
 import { CommandError } from "../../src/commands/errors";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
-import { buildRegistry } from "../../src/commands/registry";
+import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
 import { MemoryRequestTable, REQUEST_TTL_MS } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
 import { addStory, removeStory, renumberStory } from "../../src/stories/keys";
@@ -37,13 +37,13 @@ interface Setup extends TestState {
   readonly calls: FixtureCalls;
 }
 
-async function setup(dir: string): Promise<Setup> {
+async function setup(dir: string, features: readonly FeatureModule[] = []): Promise<Setup> {
   const t = await openTestState(dir);
   createFactTable(t);
   const office = addOffice(t);
   const calls: FixtureCalls = { touch: 0, peek: 0, level: 0 };
   const deps: ExecutorDeps = {
-    registry: buildRegistry([fixtureFeature(calls)]),
+    registry: buildRegistry([fixtureFeature(calls), ...features]),
     offices: stateOfficeDirectory(t.state),
     clock: t.clock,
     ids: t.ids,
@@ -337,6 +337,51 @@ describe("executeCommand", () => {
         expect(
           errorCode(await touch(s, R2, { story: "DIPO-7", text: "x" }, { name: "work.nope" })),
         ).toBe("capability.missing");
+      } finally {
+        s.state.close();
+      }
+    }));
+
+  it("refreshes the stories once before an unknown story reference fails (DIPO-104)", () =>
+    withTempDir(async (dir) => {
+      const refreshed: string[] = [];
+      let merged: string | null = null;
+      let failRefresh = false;
+      const refreshFeature: FeatureModule = {
+        name: "test/refresh",
+        register: (registry) =>
+          registry.registerStoryRefresh("test.refresh", async (office) => {
+            refreshed.push(office);
+            if (failRefresh) throw new Error("the remote does not answer");
+            // The refresh reads a story merged to the base since the last poll.
+            if (merged !== null) seedStory(s, merged);
+          }),
+      };
+      const s = await setup(dir, [refreshFeature]);
+      try {
+        seedStory(s);
+        // A known story resolves without a refresh.
+        expect((await touch(s, R1, { story: "DIPO-7", text: "x" })).ok).toBe(true);
+        expect(refreshed).toEqual([]);
+
+        // A story the office does not know yet resolves after the refresh read it.
+        merged = "DIPO-8";
+        const reply = await touch(s, R2, { story: "DIPO-8", text: "x" });
+        expect(reply.ok).toBe(true);
+        expect(refreshed).toEqual([s.office.officeId]);
+        expect(s.calls.touch).toBe(2);
+
+        // Still unknown after one refresh, or a refresh that fails: story.unknown.
+        merged = null;
+        expect(errorCode(await touch(s, R3, { story: "DIPO-404", text: "x" }))).toBe(
+          "story.unknown",
+        );
+        failRefresh = true;
+        expect(errorCode(await touch(s, R4, { story: "DIPO-405", text: "x" }))).toBe(
+          "story.unknown",
+        );
+        expect(refreshed).toHaveLength(3);
+        expect(s.calls.touch).toBe(2);
       } finally {
         s.state.close();
       }
