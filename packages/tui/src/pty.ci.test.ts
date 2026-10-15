@@ -85,7 +85,7 @@ async function inPty<T>(body: (pty: Pty) => Promise<T>, options: PtyOptions = {}
     return await body({ terminal, proc, text: () => text });
   } finally {
     if (proc !== null) await stop(proc);
-    terminal.close();
+    if (!terminal.closed) terminal.close();
   }
 }
 
