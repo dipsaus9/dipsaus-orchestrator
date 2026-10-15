@@ -546,7 +546,7 @@ describe("work.run refusals", () => {
     expect(resultOf(await run()).started).toHaveLength(1);
   });
 
-  it("refuses every run while a plan limit of every model holds, and skips a held model (DIPO-61)", async () => {
+  it("refuses every run while a plan limit of every model holds, and skips a held model as planLimit (DIPO-61, DIPO-92)", async () => {
     story("TASK-1", "Ready");
     const asked: (string | null)[] = [];
     world.planLimit = (_adapter, model) => {
@@ -563,12 +563,13 @@ describe("work.run refusals", () => {
     }
     expect(asked).toEqual([null, null]);
 
-    // A model-family limit: only stories whose tier runs that model are skipped.
+    // A model-family limit: only stories whose tier runs that model are skipped, with their own
+    // reason, not capacity (DIPO-92).
     const model = world.config.tiers.S.model;
     world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
     expect(resultOf(await run())).toMatchObject({
       started: [],
-      skipped: [{ story: "TASK-1", reason: "capacity" }],
+      skipped: [{ story: "TASK-1", reason: "planLimit" }],
     });
     world.planLimit = () => null;
     expect(world.claims).toEqual([]);

@@ -392,7 +392,7 @@ export class WorkRun {
       return "gate";
     }
     // A model-family plan limit holds only stories whose tier runs that family (DIPO-61).
-    if (this.#deps.planLimitHeld?.(c.config.worker.adapter, caps.model) != null) return "capacity";
+    if (this.#deps.planLimitHeld?.(c.config.worker.adapter, caps.model) != null) return "planLimit";
     const taskFile = relative(c.checkout.path, view.file);
     try {
       assembleContract(
