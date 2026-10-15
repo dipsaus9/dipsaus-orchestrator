@@ -2,8 +2,9 @@
 // `component`, and `office` and `run` when known, plus fields. Secret fields (`isSecretKey`) are
 // redacted at every level, at any depth. A field named `code` shows error and exit codes such as
 // `engine.recovering`, but stays redacted where the contract carries the web bootstrap code under
-// that name and whenever its value is not code-shaped (`showsCode`; 0006 decision 13, amendment of
-// 2026-10-15, DIPO-91). Fields that carry prompts, worker output or command bodies
+// that name and whenever its value is not code-shaped (`showsCode`; 0006 amendment of 2026-10-15
+// (DIPO-91)). Redaction works on field names and `code` values only: secret-bearing maps (env,
+// headers) and secrets inside messages or URLs must never be logged. Fields that carry prompts, worker output or command bodies
 // (`DEBUG_ONLY_KEYS`) appear only in `debug` and `trace` lines; in `error`, `warn` and `info`
 // lines their value is replaced, at any depth. Time comes from the
 // injected clock. Sinks receive finished lines; the daemon writes them to `<logs>/daemon.log` and, in
@@ -20,7 +21,7 @@ export const REDACTED = "[redacted]";
 export const DEBUG_ONLY = "[debug only]";
 
 /**
- * Endings of secret field names (0006 decision 13, amendment of 2026-10-15): `token`,
+ * Endings of secret field names (0006 amendment of 2026-10-15 (DIPO-91)): `token`,
  * `session.token`, `sessionToken`, `engineToken`, `engine_token`, `bootstrapCode`, ... Names are
  * compared lowercased with `_`, `-` and `.` removed.
  */
@@ -31,9 +32,14 @@ const SECRET_SUFFIXES: readonly string[] = [
   "passphrase",
   "apikey",
   "bootstrapcode",
+  "credential",
+  "credentials",
+  "privatekey",
+  "pat",
+  "signature",
 ];
 /** Secret field names compared whole, after the same normalisation. */
-const SECRET_NAMES: ReadonlySet<string> = new Set(["authorization", "cookie"]);
+const SECRET_NAMES: ReadonlySet<string> = new Set(["authorization", "cookie", "setcookie"]);
 
 /** Whether a field with this name never reaches a log line, at any level and depth. */
 export function isSecretKey(key: string): boolean {
@@ -43,8 +49,9 @@ export function isSecretKey(key: string): boolean {
 
 /**
  * A code-shaped string: letter-only words joined by `.` or `-`, such as `office.refused`,
- * `git.fetchFailed`, `tooOld` or `lockfile-conflict`. Random secrets carry digits or other
- * characters, so they do not match.
+ * `git.fetchFailed`, `tooOld` or `lockfile-conflict`. A letters-only secret would match, so the
+ * web bootstrap code must be generated as lowercase hex or with a prefix that holds a digit (0006
+ * amendment of 2026-10-15 (DIPO-91)); that encoding rule, not this pattern, keeps it out of a line.
  */
 const CODE_SHAPE = /^[a-z][A-Za-z]*(?:[.-][a-z][A-Za-z]*)*$/;
 const CODE_MAX_LENGTH = 64;
@@ -54,7 +61,7 @@ const CODE_MAX_LENGTH = 64;
  * bootstrap code as `code` in the `auth` frame (`kind: "auth"`) and in the `daemon.webBootstrap`
  * result (`{ url, code }`), so a `code` next to `kind: "auth"` or a `url` stays redacted. Anything
  * else shows only when it is a number, a boolean, null or code-shaped; every other value, objects
- * included, stays redacted.
+ * included, stays redacted (0006 amendment of 2026-10-15 (DIPO-91)).
  */
 function showsCode(holder: Readonly<Record<string, unknown>>, value: unknown): boolean {
   if (holder["kind"] === "auth" || "url" in holder) return false;

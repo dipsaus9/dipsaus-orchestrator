@@ -136,12 +136,38 @@ describe("redaction", () => {
   }
 
   it("names secrets by their ending, not token counts", () => {
-    for (const key of ["token", "session.token", "engineToken", "API_KEY", "bootstrap-code"]) {
+    const secrets = [
+      "token",
+      "session.token",
+      "engineToken",
+      "API_KEY",
+      "bootstrap-code",
+      "credential",
+      "awsCredentials",
+      "private_key",
+      "githubPat",
+      "PAT",
+      "requestSignature",
+      "Set-Cookie",
+      "set_cookie",
+    ];
+    for (const key of secrets) {
       expect(isSecretKey(key)).toBe(true);
     }
-    for (const key of ["code", "tokens", "preTokens", "inputTokens", "exitCode", "kept"]) {
+    for (const key of ["code", "tokens", "preTokens", "inputTokens", "exitCode", "path", "kept"]) {
       expect(isSecretKey(key)).toBe(false);
     }
+  });
+
+  it("hides credentials, private keys, PATs, signatures and Set-Cookie in a line", () => {
+    const { logger, lines } = memory("trace");
+    logger.error("request", {
+      credentials: { user: "u", pass: "cred-secret" },
+      privateKey: "key-secret",
+      nested: [{ githubPat: "pat-secret", signature: "sig-secret" }],
+      "set-cookie": "cookie-secret",
+    });
+    expect(lines.join("\n")).not.toContain("-secret");
   });
 
   it("shows an EngineError code in a warn line", () => {
@@ -190,6 +216,15 @@ describe("redaction", () => {
       logger.warn("odd code", { code });
     }
     expect(parsed().map((line) => line["code"])).toEqual(Array(6).fill(REDACTED));
+  });
+
+  it("shows a letters-only code outside the contract's bootstrap shapes (residual case)", () => {
+    // The logger cannot tell a letters-only secret from an error code here. What keeps the web
+    // bootstrap code out of this case is the encoding rule of the 0006 amendment of 2026-10-15
+    // (DIPO-91): it is lowercase hex or starts with a prefix holding a digit, so never code-shaped.
+    const { logger, parsed } = memory("trace");
+    logger.warn("reply", { requestId: "req_3", code: LETTERS });
+    expect(parsed()[0]).toMatchObject({ requestId: "req_3", code: LETTERS });
   });
 
   it("does not loop on cycles", () => {
