@@ -4,6 +4,7 @@ title: Wait for a recovering daemon in CLI commands instead of failing
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 19:24'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,6 +14,11 @@ references:
   - packages/cli/src/office-commands.ts
   - packages/client/src/node/lifecycle/lifecycle.ts
   - packages/daemon/src/lifecycle.ts
+  - packages/client/src/recovery.ts
+  - packages/client/src/index.ts
+  - packages/client/test/unit/recovery.test.ts
+  - packages/cli/src/office-commands.test.ts
+  - packages/cli/src/daemon-commands.test.ts
 priority: high
 type: feature
 ordinal: 76000
