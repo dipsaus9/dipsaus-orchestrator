@@ -11,6 +11,7 @@ import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
+import { CostDriftWarnings } from "../pricing/drift";
 import type { PriceBook } from "../pricing/estimate";
 import type { HostOp, WorkerEvent } from "../workers/types";
 import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../runs/worker-hosts";
@@ -99,6 +100,8 @@ export interface OfficeRunListener {
 export class OfficeIngest implements RunIngest {
   readonly #options: OfficeIngestOptions;
   readonly #ingestors = new Map<OfficeId, Ingestor>();
+  /** One per daemon, so a drifting model is warned about once per day across offices (DIPO-89). */
+  readonly #costDrift = new CostDriftWarnings();
 
   constructor(options: OfficeIngestOptions) {
     this.#options = options;
@@ -113,6 +116,7 @@ export class OfficeIngest implements RunIngest {
         clock: this.#options.clock,
         pricing: this.#options.pricing(),
         hooks: this.#hooksFor(office),
+        costDrift: this.#costDrift,
         ...(privacyOf === undefined ? {} : { privacy: () => privacyOf(office.officeId) }),
         ...(this.#options.warn === undefined ? {} : { warn: this.#options.warn }),
       });
