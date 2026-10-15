@@ -81,6 +81,11 @@ interface World {
   hold: AdapterHold | null;
   scheduling: boolean;
   ingestor: Ingestor | null;
+  /** The office was forgotten: `offices.get` answers undefined. */
+  officeGone: boolean;
+  /** The office has no configuration, so no adapter. */
+  unconfigured: boolean;
+  readonly logged: string[];
 }
 
 let w: World;
@@ -88,7 +93,11 @@ let w: World;
 function planLimits(): PlanLimits {
   return new PlanLimits({
     clock: w.f.t.clock,
-    offices: { get: () => w.f.office, config: () => CONFIG },
+    offices: {
+      get: () => (w.officeGone ? undefined : w.f.office),
+      config: () => (w.unconfigured ? undefined : CONFIG),
+    },
+    warn: (message) => w.logged.push(message),
     resume: (office, run, why) => w.outcomes.resumeWait(office, run, why),
     scheduling: () => w.scheduling,
     holds: {
@@ -115,6 +124,9 @@ beforeEach(async () => {
     hold: null,
     scheduling: true,
     ingestor: null,
+    officeGone: false,
+    unconfigured: false,
+    logged: [],
   } as unknown as World;
   const steering = { send: async () => ({ ok: true as const }) };
   let outcomes: RunOutcomes | null = null;
@@ -511,8 +523,8 @@ describe("allowed_warning and api-retry-rate-limit (AC #1)", () => {
     expect(w.plans.held(ADAPTER, null)).toBe(
       `New runs wait until ${iso(reset)}: the plan warned that the weekly limit is near.`,
     );
-    // The hold is on the warning run's adapter only.
-    expect(w.plans.held("other-cli", null)).toBeNull();
+    // Like a rejected wait, the hold holds every adapter.
+    expect(w.plans.held("other-cli", null)).toContain("the weekly limit is near");
     expect(w.notices.map((n) => n.code)).toEqual(["run.planLimitWarning"]);
     // It ends at its time, and its row goes with it.
     await advanceTo(reset);
@@ -545,6 +557,54 @@ describe("allowed_warning and api-retry-rate-limit (AC #1)", () => {
     expect(w.plans.recover(w.f.office.officeId, w.f.office)).toBe(0);
     expect(w.plans.held(ADAPTER, "sonnet")).toBeNull();
     expect(storedWarnings()).toEqual([]);
+  });
+
+  it("a forgotten office's warning holds leave memory and come back from the row (DIPO-92)", async () => {
+    track();
+    w.control.onWorkerEvents(w.f.run, [{ t: "limit", status: "allowed_warning", scope: "session" }]);
+    await w.control.idle();
+    expect(w.plans.held(ADAPTER, null)).not.toBeNull();
+    w.officeGone = true;
+    expect(w.plans.held(ADAPTER, null)).toBeNull();
+    expect(storedWarnings()).toHaveLength(1);
+    // Opened again: the load step arms the stored hold.
+    w.officeGone = false;
+    expect(w.plans.held(ADAPTER, null)).toBeNull();
+    expect(w.plans.recover(w.f.office.officeId, w.f.office)).toBe(1);
+    expect(w.plans.held(ADAPTER, null)).toContain("the session limit is near");
+  });
+
+  it("a warning of an office with no adapter holds in memory and logs that it was not stored (DIPO-92)", async () => {
+    w.unconfigured = true;
+    track();
+    w.control.onWorkerEvents(w.f.run, [{ t: "limit", status: "allowed_warning", scope: "weekly" }]);
+    await w.control.idle();
+    expect(w.plans.held(ADAPTER, null)).toContain("the weekly limit is near");
+    expect(storedWarnings()).toEqual([]);
+    expect(w.logged).toEqual(["a plan-limit warning was not stored: the office has no adapter"]);
+  });
+
+  it("a failure reading stored warnings still arms the reject waits (DIPO-92)", async () => {
+    await ingestRecording("plan-limit-rejected");
+    w.plans.close();
+    w.plans = planLimits();
+    const office = w.f.office;
+    const broken = new Proxy(office, {
+      get(target, prop) {
+        if (prop === "immediate") {
+          return () => {
+            throw new Error("disk I/O error");
+          };
+        }
+        const value: unknown = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    expect(w.plans.recover(office.officeId, broken)).toBe(1);
+    expect(w.plans.held(ADAPTER, null)).toContain("the session limit");
+    expect(w.logged).toEqual(["reading stored plan-limit warnings failed"]);
+    await advanceTo(RECORDED_RESET + PLAN_LIMIT_RESUME_AFTER_MS);
+    expect(w.next.map((r) => r.message)).toEqual(["continue"]);
   });
 
   it("api_retry rate_limit is a signal only: nothing waits and nothing is held", async () => {
