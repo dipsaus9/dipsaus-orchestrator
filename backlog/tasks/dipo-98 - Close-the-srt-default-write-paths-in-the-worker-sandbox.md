@@ -4,7 +4,7 @@ title: Close the srt default write paths in the worker sandbox
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 16:50'
+updated_date: '2026-10-15 19:33'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -14,6 +14,14 @@ references:
   - packages/engine/src/sandbox/policy.ts
   - packages/engine/src/workers/claude-cli/self-test.ts
   - docs/decisions/0008-worker-adapter.md
+  - packages/engine/test/workers/plan.test.ts
+  - packages/engine/test/workers/golden/plan-S.json
+  - packages/engine/test/workers/golden/plan-M.json
+  - packages/engine/test/workers/golden/plan-L.json
+  - packages/engine/test/workers/self-test.test.ts
+  - packages/engine/test/workers/launch-fixtures.ts
+  - packages/engine/test/workers/launch-checks.test.ts
+  - packages/engine/test/sandbox/srt-default-writes.ci.test.ts
 priority: high
 type: feature
 ordinal: 88000
