@@ -417,6 +417,51 @@ describe("(engine) self-test run", () => {
     expect(kept.dirs.has(`${HOME}/.npm`)).toBe(true);
   });
 
+  it("cannot run, before any session, when ~/.npm/_logs cannot be made or written by the daemon user", async () => {
+    const npm = `${HOME}/.npm`;
+    const logs = `${HOME}/.npm/_logs`;
+    const cases: [string, (fs: MemoryFs) => void, string, string[]][] = [
+      ["mkdir fails", (fs) => (fs.failMkdir = logs), "could not be made", [npm]],
+      [
+        "root-owned",
+        (fs) => {
+          fs.dirs.add(npm);
+          fs.dirs.add(logs);
+          fs.readOnlyDirs.add(logs);
+        },
+        "not a directory the daemon user can write",
+        [],
+      ],
+      // A dangling symlink counts as present: never replaced, and not writable.
+      [
+        "dangling symlink",
+        (fs) => {
+          fs.dirs.add(npm);
+          fs.dangling.add(logs);
+        },
+        "not a directory the daemon user can write",
+        [],
+      ],
+    ];
+    for (const [label, setup, text, removed] of cases) {
+      const clock = new ManualClock();
+      const fs = new MemoryFs();
+      setup(fs);
+      const fake = scriptedClaude(clock, {});
+      const runSpec = spec();
+      const report = await runSelfTest(
+        { spec: runSpec, ctx: context(), runSettings: "{}" },
+        { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      );
+      expect([label, report.verdict]).toMatchObject([label, { ok: false, unsafe: false }]);
+      expect(!report.verdict.ok && report.verdict.reason).toContain(text);
+      expect(selfTestFailure(report)?.key).toBe("npm-logs");
+      expect(fake.calls.filter((call) => call.cmd.includes("-p"))).toEqual([]);
+      expect(fs.removedDirs).toEqual(removed);
+      expect(fs.dirs.has(logs)).toBe(label !== "mkdir fails" && label !== "dangling symlink");
+    }
+  });
+
   it("refuses as unsafe and removes the file when a write into ~/.npm/_logs got through", async () => {
     const probe = `${HOME}/.npm/_logs/dipo-self-test-${NONCE}`;
     const { report, fs } = await runWith(BLOCKED_RESULTS, {

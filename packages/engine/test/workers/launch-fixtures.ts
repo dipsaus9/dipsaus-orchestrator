@@ -120,6 +120,7 @@ export class MemoryFs implements SelfTestFs {
   }
 
   async mkdir(path: string): Promise<void> {
+    if (path === this.failMkdir) throw new Error("EACCES: permission denied");
     this.dirs.add(path);
   }
 
@@ -150,6 +151,21 @@ export class MemoryFs implements SelfTestFs {
     if (busy || !this.dirs.has(path)) return;
     this.dirs.delete(path);
     this.removedDirs.push(path);
+  }
+
+  /** Paths present but not followed (dangling symlinks, DIPO-98). */
+  readonly dangling = new Set<string>();
+  /** Directories the daemon user cannot write (DIPO-98). */
+  readonly readOnlyDirs = new Set<string>();
+  /** A path whose mkdir fails (DIPO-98). */
+  failMkdir: string | null = null;
+
+  async present(path: string): Promise<boolean> {
+    return this.files.has(path) || this.dirs.has(path) || this.dangling.has(path);
+  }
+
+  async writableDir(path: string): Promise<boolean> {
+    return this.dirs.has(path) && !this.readOnlyDirs.has(path);
   }
 
   async remove(path: string): Promise<void> {

@@ -15,8 +15,9 @@
 // - a write into `<home>/.npm/_logs`, a path srt opens by default and the run settings close again
 //   (DIPO-98). It is named relative to `$HOME` inside the program, so the command text names no
 //   path outside the working directories for the permission layer to refuse first; the engine
-//   makes the directory beforehand when it is missing (and removes what it made), and only a
-//   permission error counts as blocked, so a missing directory never passes for a sandbox refusal;
+//   makes the directory beforehand when it is missing (and removes what it made) and refuses to
+//   run the probe when the daemon user cannot write it, and only a permission error counts as
+//   blocked, so neither a missing nor a foreign directory passes for a sandbox refusal;
 // - a control write inside the worktree, which must succeed, or the blocked writes prove nothing.
 //
 // The program writes one line per probe into a results file in the sandbox temp directory. The
@@ -29,6 +30,7 @@ import { constants } from "node:fs";
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   readFile,
   realpath,
@@ -516,6 +518,10 @@ export interface SelfTestFs {
   removeTree(path: string): Promise<void>;
   /** Removes a directory only when it is empty; a missing or non-empty one is left (DIPO-98). */
   removeEmptyDir(path: string): Promise<void>;
+  /** True when anything is at the path, a dangling symlink included (`lstat`, DIPO-98). */
+  present(path: string): Promise<boolean>;
+  /** True when the path is a directory the daemon user may write into (DIPO-98). */
+  writableDir(path: string): Promise<boolean>;
   /** The path with symlinks resolved, or null when it does not exist. */
   realpath(path: string): Promise<string | null>;
   /** True when the path is a regular file the daemon may execute. */
@@ -555,6 +561,22 @@ export const nodeSelfTestFs: SelfTestFs = {
       await rmdir(path);
     } catch {
       // Missing, or not empty: left as it is.
+    }
+  },
+  present: async (path) => {
+    try {
+      await lstat(path);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  writableDir: async (path) => {
+    try {
+      await access(path, constants.W_OK | constants.X_OK);
+      return (await stat(path)).isDirectory();
+    } catch {
+      return false;
     }
   },
   realpath: async (path) => {
@@ -824,6 +846,40 @@ function fail(verdict: SelfTestVerdict): SelfTestReport {
   return { verdict, evidence: null, plugins: null, targets: [] };
 }
 
+/**
+ * Makes `<home>/.npm/_logs` when missing, recording each directory it made in `made`, and checks
+ * that the daemon user may write into it. Returns why the probe cannot prove anything, or null.
+ *
+ * Fail-closed (DIPO-98): a directory the daemon user cannot write (for example owned by root)
+ * would refuse the probe with EACCES whatever the sandbox does, and that refusal would read as a
+ * sandbox block. So the self-test does not run and the run is held, naming the directory, rather
+ * than pass on a refusal that proves nothing. Something already at the path, a dangling symlink
+ * included, is never replaced (`lstat`).
+ */
+export async function prepareNpmLogsDir(
+  fs: SelfTestFs,
+  home: string,
+  made: string[],
+): Promise<string | null> {
+  const parts = NPM_LOGS_DIR.split("/");
+  const logs = `${home}/${NPM_LOGS_DIR}`;
+  try {
+    for (let at = 1; at <= parts.length; at++) {
+      const dir = `${home}/${parts.slice(0, at).join("/")}`;
+      if (await fs.present(dir)) continue;
+      await fs.mkdir(dir);
+      made.push(dir);
+    }
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    return `${logs} could not be made outside the sandbox for the npm-logs probe: ${why}`;
+  }
+  if (!(await fs.writableDir(logs))) {
+    return `${logs} is not a directory the daemon user can write, so a refused write there would not show that the sandbox refused it; make it a writable directory of your own (or remove it) and start the run again`;
+  }
+  return null;
+}
+
 /** Runs the self-test session under the run's settings and judges it from disk. */
 export async function runSelfTest(
   input: SelfTestInput,
@@ -940,13 +996,11 @@ export async function runSelfTest(
   // (DIPO-98). Made here, outside the sandbox, when missing; what was made is removed below.
   const madeDirs: string[] = [];
   if (layout.probes.includes("npm-logs")) {
-    const parts = NPM_LOGS_DIR.split("/");
-    for (let at = 1; at <= parts.length; at++) {
-      const dir = `${ctx.home}/${parts.slice(0, at).join("/")}`;
-      if (!(await fs.exists(dir))) {
-        await fs.mkdir(dir);
-        madeDirs.push(dir);
-      }
+    const problem = await prepareNpmLogsDir(fs, ctx.home, madeDirs);
+    if (problem !== null) {
+      for (const dir of madeDirs.toReversed()) await fs.removeEmptyDir(dir);
+      if (layout.installDir !== null) await fs.removeTree(layout.installDir).catch(() => {});
+      return { ...fail(cannotRun(problem, "npm-logs")), targets: layout.targets };
     }
   }
   const timeoutMs = deps.timeoutMs ?? SELF_TEST_TIMEOUT_MS;
