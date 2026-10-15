@@ -142,16 +142,26 @@ export function applyTurnTotals(
     const canonical = canonicalModel(row.model);
     oneHour.set(canonical, (oneHour.get(canonical) ?? 0) + row.cache_create_1h);
   }
-  // Models the totals list take their share first; a row they leave out is zeroed.
-  const listed = rows.filter((row) => totals[row.model] !== undefined);
-  const unlisted = rows.filter((row) => totals[row.model] === undefined);
-  for (const { model } of [...listed, ...unlisted]) {
+  // The cache writes the totals report per canonical model, still to be given a 1 hour part.
+  const createLeft = new Map<string, number>();
+  for (const [model, usage] of Object.entries(totals)) {
+    const canonical = canonicalModel(model);
+    createLeft.set(canonical, (createLeft.get(canonical) ?? 0) + usage.cacheCreate);
+  }
+  for (const { model } of rows) {
     const usage = totals[model] ?? { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
     const canonical = canonicalModel(model);
-    const left = oneHour.get(canonical) ?? 0;
+    const pool = oneHour.get(canonical) ?? 0;
+    const writes = createLeft.get(canonical) ?? 0;
     // The 1 hour part is what messages reported, capped at the new total; 5 minute is the rest.
-    const create1h = Math.min(left, usage.cacheCreate);
-    oneHour.set(canonical, left - create1h);
+    // Keys of one canonical model share the pool in proportion to their cache writes; a row the
+    // totals leave out has no writes and gets none.
+    const create1h =
+      writes === 0
+        ? 0
+        : Math.min(usage.cacheCreate, Math.round((pool * usage.cacheCreate) / writes));
+    oneHour.set(canonical, pool - create1h);
+    createLeft.set(canonical, writes - usage.cacheCreate);
     office.run(
       `update usage_totals set input = $input, output = $output, cache_create = $create,
          cache_create_1h = $create1h, cache_create_5m = $create - $create1h,

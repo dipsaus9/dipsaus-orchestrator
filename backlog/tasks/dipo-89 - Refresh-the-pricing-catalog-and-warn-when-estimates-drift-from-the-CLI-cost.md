@@ -4,7 +4,7 @@ title: Refresh the pricing catalog and warn when estimates drift from the CLI co
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:00'
+updated_date: '2026-10-15 21:05'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -49,4 +49,8 @@ Gap measurement (AC1), 2026-10-15. Source: the 23 committed recordings under pac
 Cause: token accounting of the cache tier, not a stale price and not a missing tier. Prices: every rate of catalog 1 equals the pricing page read on 2026-10-15 (https://platform.claude.com/docs/en/about-claude/pricing), cache tiers and the Haiku 5.5 long-prompt set included. Claude Code 2.1.296 writes almost everything to the 1 hour cache. applyTurnTotals kept a totals row 1 hour part only from messages with the exact same model id; when the turn totals key a model differently from its messages (the API answers claude-opus-5-5, the CLI may key modelUsage as claude-opus-5-5[1m] for a 1M-context session, which canonicalModel already strips), every write fell to the 5 minute rate. 5 minute writes are 1.25x input, 1 hour writes 2x, so the writes price 37.5% low; with writes the larger part of an agent run cost this gives the 25 to 28% low estimate seen in the M0 delivery sessions. That the delivery sessions keyed Opus with [1m] is inferred, not seen in a stored run.
 
 Changes: ingest/usage.ts applyTurnTotals matches the 1 hour split by canonical model; catalog-2.json ships the rates read again on 2026-10-15 (unchanged; Mythos 5/5.1 and Haiku 3.5 stay out per the DIPO-62 maintainer decision); pricing/drift.ts logs one warn line per model and UTC day for a finished agent with both numbers more than 10% apart.
+
+Review follow-up (PR #123): keys of one canonical model share the messages 1 hour writes in proportion to their cache writes (ingest/usage.ts); long-prompt bands match messages by canonical model when the row id has none (pricing/usage.ts); the drift warning keeps one line per canonical model and day and names the id as stored (pricing/drift.ts).
+
+Known remaining gap: when messages name a different model than the turn totals (the model-switch case, for example a classifier switch from claude-haiku-5-5 to claude-sonnet-4-5), the canonical ids differ, so the 1 hour split still cannot reach the totals row and those writes price as 5 minute writes, about 28% low (model-switch recording: 322 vs 447 micro-USD). This is not fixed here; the drift warning surfaces it as one warn line for that model and day.
 <!-- SECTION:NOTES:END -->

@@ -173,4 +173,17 @@ describe("CostDriftWarnings", () => {
       "estimated cost of a ($1.5000, pricing catalog 2) differs 50% from the CLI cost ($1.0000)",
     ]);
   });
+
+  it("counts ids of one canonical model as one, and names the id as stored", () => {
+    const warnings = new CostDriftWarnings();
+    const lines: string[] = [];
+    const warn = (message: string) => lines.push(message);
+    const day = Date.UTC(2026, 9, 15, 10);
+    warnings.report([drift("claude-opus-5-5[1m]")], day, warn);
+    warnings.report([drift("claude-opus-5-5"), drift("claude-opus-5-5-20261001")], day, warn);
+    expect(lines).toEqual([
+      "estimated cost of claude-opus-5-5[1m] ($1.5000, pricing catalog 2) differs 50% from the " +
+        "CLI cost ($1.0000)",
+    ]);
+  });
 });

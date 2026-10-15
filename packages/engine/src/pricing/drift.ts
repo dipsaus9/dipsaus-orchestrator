@@ -5,6 +5,7 @@
 
 import type { OfficeHandle } from "../db/office";
 import { utcDay } from "../ingest/usage";
+import { canonicalModel } from "./estimate";
 import { CATALOG_GAP_LIMIT, costGap } from "./usage";
 
 /** One model of a finished agent whose estimate drifts from the CLI cost. */
@@ -45,9 +46,11 @@ function usd(micros: number): string {
 }
 
 /**
- * Remembers which models were warned about today (UTC, on the injected clock's time), so each
- * model is warned about once per day across all offices. One instance is shared by every
- * office's ingestor; it lives as long as the daemon, so a restart may warn again the same day.
+ * Remembers which models were warned about today (UTC, on the injected clock's time), by
+ * canonical id so `claude-opus-5-5` and `claude-opus-5-5[1m]` count as one; the line keeps the
+ * id as stored. Each model is warned about once per day across all offices: one instance is
+ * shared by every office's ingestor. It lives as long as the daemon, so a restart may warn again
+ * the same day.
  */
 export class CostDriftWarnings {
   #day = "";
@@ -70,8 +73,9 @@ export class CostDriftWarnings {
     }
     const logged: CostDrift[] = [];
     for (const drift of drifts) {
-      if (this.#warned.has(drift.model)) continue;
-      this.#warned.add(drift.model);
+      const key = canonicalModel(drift.model);
+      if (this.#warned.has(key)) continue;
+      this.#warned.add(key);
       const percent = Math.round(costGap(drift.estimateMicros, drift.cliMicros) * 100);
       warn(
         `estimated cost of ${drift.model} (${usd(drift.estimateMicros)}, pricing catalog ` +

@@ -331,7 +331,85 @@ describe("cache tiers across model ids (DIPO-89)", () => {
         110_040,
       );
     }));
+
+  it("keys of one model share the 1 hour writes in proportion to their cache writes", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      const OPUS = "claude-opus-5-5";
+      turnWithMessage(
+        f,
+        { model: OPUS, input: 0, cacheCreate5m: 4000, cacheCreate1h: 4000, cacheRead: 0 },
+        {
+          [`${OPUS}[1m]`]: { input: 0, output: 0, cacheCreate: 6000, cacheRead: 0 },
+          [OPUS]: { input: 0, output: 0, cacheCreate: 2000, cacheRead: 0 },
+        },
+      );
+      // 4000 1 hour writes over 8000 writes: half of each key's writes, not 4000 to the first.
+      expect(splitOf(f)).toEqual([
+        { model: OPUS, w5m: 1000, w1h: 1000 },
+        { model: `${OPUS}[1m]`, w5m: 3000, w1h: 3000 },
+      ]);
+    }));
+
+  it("a long prompt keyed with a context marker is priced at the long-prompt rates", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      // Prompt 1000 + 1000 + 2000 + 96001 = 100001, over Haiku 5.5's 100,000 threshold.
+      turnWithMessage(
+        f,
+        { model: HAIKU, input: 1000, cacheCreate5m: 1000, cacheCreate1h: 2000, cacheRead: 96_001 },
+        {
+          [`${HAIKU}[1m]`]: { input: 1000, output: 0, cacheCreate: 3000, cacheRead: 96_001 },
+        },
+      );
+      // 500 + 625 + 2000 + 4800.05 = 7925.05, as for the plain id; at base rates it was 1585.
+      expect(pricedRows(f).find((row) => row.model === `${HAIKU}[1m]`)?.est_cost_micros).toBe(7925);
+    }));
 });
+
+/** One message under its plain id and a turn end with the given totals, then pricing. */
+function turnWithMessage(
+  f: IngestFixture,
+  message: {
+    readonly model: string;
+    readonly input: number;
+    readonly cacheCreate5m: number;
+    readonly cacheCreate1h: number;
+    readonly cacheRead: number;
+  },
+  totals: Parameters<typeof applyTurnTotals>[2],
+): void {
+  const scope = target(f, claude, initialState() as unknown as ParseState);
+  f.office.immediate(() => {
+    f.office.run(
+      `insert or ignore into agents (office_id, agent_id, run_id, role, model, started_at)
+       values ($office_id, $agent, $run, 'developer', $model, 0)`,
+      { agent: f.agent, run: f.run, model: message.model },
+    );
+    recordUsageMessage(
+      f.office,
+      scope,
+      {
+        messageId: "msg-1",
+        output: 0,
+        cacheCreate: message.cacheCreate5m + message.cacheCreate1h,
+        ...message,
+      },
+      0,
+    );
+    const [main = message.model] = Object.keys(totals);
+    applyTurnTotals(f.office, scope, totals, { model: main, count: 1 }, 0);
+    priceAgentUsage(f.office, f.t.state.pricing, f.run, f.agent);
+  });
+}
+
+function splitOf(f: IngestFixture): { model: string; w5m: number; w1h: number }[] {
+  return f.office.all<{ model: string; w5m: number; w1h: number }>(
+    `select model, cache_create_5m as w5m, cache_create_1h as w1h from usage_totals
+     where office_id = $office_id and run_id = $run order by model`,
+    { run: f.run },
+  );
+}
 
 describe("cross-check against the CLI's costUSD", () => {
   it("a gap above 10% raises one notice for the run, however many turns end", () =>
