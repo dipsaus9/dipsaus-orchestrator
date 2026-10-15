@@ -475,11 +475,19 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
         { path: dir },
       );
     }
-    // The deny would win over the run's own write path (DIPO-98).
+    // Under a closed path the deny would win over the run's own write path; holding one, the
+    // run's write path would reach around it, so neither is planned (DIPO-98).
     const under = closed.find((entry) => isInside(dir, entry.path));
     if (under !== undefined) {
       throw new PlanError(
         `${label} ${dir} must lie outside ${under.path}, which the worker sandbox may not write`,
+        { path: dir },
+      );
+    }
+    const holds = closed.find((entry) => isInside(entry.path, dir));
+    if (holds !== undefined) {
+      throw new PlanError(
+        `${label} ${dir} must not hold ${holds.path}, which the worker sandbox may not write`,
         { path: dir },
       );
     }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { getDefaultWritePaths } from "@anthropic-ai/sandbox-runtime";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../src/sandbox/policy";
@@ -573,6 +576,20 @@ describe("claude-cli plan closes srt's default write paths (DIPO-98)", () => {
     }
   });
 
+  it("knows every default write path of the installed srt but its /dev entries", () => {
+    // An srt upgrade that adds a default fails here until it is closed or accepted on purpose.
+    const home = homedir();
+    const installed = getDefaultWritePaths()
+      .filter((path) => !path.startsWith("/dev/"))
+      .map((path) => (path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path));
+    expect(installed.toSorted()).toEqual(
+      [
+        ...SRT_DEFAULT_WRITE_PATHS,
+        ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => `~/${rel}`),
+      ].toSorted(),
+    );
+  });
+
   it("names every path srt opens by default, each with a reason", () => {
     const closed = closedWritePaths("/h");
     expect(closed.map((entry) => entry.path).toSorted()).toEqual(
@@ -612,6 +629,11 @@ describe("claude-cli plan closes srt's default write paths (DIPO-98)", () => {
     for (const dir of ["/tmp/claude", "/tmp/claude/run-1", "/private/tmp/claude/x"]) {
       expect(() => plan(spec("S"), context({ tmpDir: dir }))).toThrow(/may not write/);
       expect(() => plan(spec("S", { workdir: `${dir}/wt` }), context())).toThrow(/may not write/);
+    }
+    // Nor one that holds a closed path.
+    for (const dir of ["/tmp", "/private/tmp", "/private"]) {
+      expect(() => plan(spec("S"), context({ tmpDir: dir }))).toThrow(/must not hold/);
+      expect(() => plan(spec("S", { workdir: dir }), context())).toThrow(/must not hold/);
     }
     // A sibling whose name only starts with a closed path's is fine.
     expect(() => plan(spec("S"), context({ tmpDir: "/tmp/claude-501" }))).not.toThrow();
