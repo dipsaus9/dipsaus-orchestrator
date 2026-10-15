@@ -4,7 +4,7 @@ title: 'Show commands, thinking and open questions in the live agent detail'
 status: To Do
 assignee: []
 created_date: '2026-10-15 11:34'
-updated_date: '2026-10-15 11:48'
+updated_date: '2026-10-15 12:04'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -46,3 +46,19 @@ Context: maintainer feedback from the DIPO-55 hand test (2026-10-15): 'It says r
 - [ ] #3 Investigate without a live session first, from recordings and raw event files: what Claude sends for thinking in stream-json and whether a flag gives its text. If text is available, propose (do not build) how to show it and what privacy rule it needs, for the maintainer to decide.
 - [ ] #4 Tests cover the opt-in on and off, the question list, and secret-looking command text staying out when the opt-in is off.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC3 thinking investigation (2026-10-15, no live session; raw run run_01M4ZFJ8S2HSV95CC56HGHJQWF read-only, committed recordings, claude --help of 2.1.300):
+- Every assistant message that thought carries a content block {type: thinking, thinking: "", signature: <opaque base64, 0.8 to 2.3 KB>}. The text is always empty, in the raw run and in every recording (budget-engine-cap, permission-denied and others: thinking len:0). The signature is an opaque blob for API round trips, not readable text.
+- The assistant line also carries thinking_duration_ms (400 in the raw run) and thinking_display: "updates" (159 recording lines, len:7). While the model thinks the CLI sends system/thinking_tokens lines with estimated_tokens and estimated_tokens_delta. The result has usage.output_tokens_details.thinking_tokens (235) and modelUsage.thinkingTokens.
+- claude --help has no flag that returns thinking text. --include-partial-messages adds stream_event deltas, --forward-subagent-text forwards subagent text and thinking blocks; with thinking_display "updates" both are expected to carry the same empty text (not verified). Whether a settings key changes thinking_display in -p mode is unknown; settling that needs one live check.
+
+Proposal (not built, for the maintainer):
+1. Now, no privacy change: show that the worker thinks, not what. The adapter maps system/thinking_tokens and thinking_duration_ms to a neutral activity (kind thinking, tokens, ms); ingestion stores one line like [thinking] 0.4s ~292 tokens, so the detail's now line shows thinking. Counts only, so 0007 section 8 needs no change.
+2. If a live check finds a setting that returns thinking text in stream-json: treat it like command bodies. A fourth machine-local opt-in privacy.storeThinking, off by default, only in .dipo/office.local.yaml, listed in the summary optIns and the overview's opt-in label, stored as one cut line [thinking] <text>. That needs a 0007 section 8 amendment (a fourth opt-in) and, per the 0017 M0 review rule, a version bump of office.local.yaml with an identity migration.
+3. Next step: one live Haiku run on the scratch repo with --include-partial-messages (and any candidate setting) to see whether thinking text ever arrives.
+
+AC1 decisions: the opt-in key privacy.storeCommandBodies already existed (default false, local only), so no config version bump. The Claude adapter reads the input beyond the path for Bash (command), Grep and Glob (pattern), WebFetch (url) and WebSearch (query); file contents and edit bodies stay out. Ingestion stores it only with the opt-in, read at every pass, as one line (whitespace and control characters collapsed, cut at 200 characters with [cut N more chars]). OfficeSummary gains the optional optIns (contract minor 1); the overview summary line and the worker pane title show opt-in storeCommandBodies.
+<!-- SECTION:NOTES:END -->
