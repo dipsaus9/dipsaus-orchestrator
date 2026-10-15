@@ -139,6 +139,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             // The second session ran in a fresh directory; the run ended at In Review, so it went.
             expect(r.hosts.map((host) => host.runId)).toEqual([run, run]);
             expect(r.tempDirs?.atHostStart).toEqual([true, true]);
+            // The launch and the resumed session both wrote this daemon's owner file, so a
+            // daemon-start sweep can tell the fresh directory is its own.
+            const owner = r.tempDirs?.owner() ?? null;
+            expect(owner).not.toBeNull();
+            expect(r.tempDirs?.ownerAtHostStart).toEqual([owner, owner]);
             expect(findRun(r.office, run)?.endKind).toBe("in-review");
             expect(existsSync(tmpDir)).toBe(false);
           },
@@ -167,6 +172,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(r.hosts.map((host) => host.runId)).toEqual([run, run]);
             expect(findRun(r.office, run)?.endedAt).toBeNull();
             expect(r.tempDirs?.atHostStart).toEqual([true, true]);
+            // The next session keeps the directory and writes the owner file again.
+            const owner = r.tempDirs?.owner() ?? null;
+            expect(r.tempDirs?.ownerAtHostStart).toEqual([owner, owner]);
             expect(existsSync(runTempDir(r.tmpRoot, run))).toBe(true);
           },
         ),

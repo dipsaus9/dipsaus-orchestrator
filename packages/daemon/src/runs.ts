@@ -376,6 +376,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     story: baseStoryFacts(options.base),
     runtimeDir: options.runtimeDir,
     tmpRoot: realDir(options.tmpRoot),
+    // A next session after the park removed the directory writes its owner again (DIPO-102).
+    tempOwner: () => tempDirs.owner(),
     hosts,
     ingest,
     control,

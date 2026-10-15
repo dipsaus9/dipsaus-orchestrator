@@ -50,6 +50,7 @@ import {
   afterRunExits,
   RunTempDirs,
   runTempDir,
+  readRunTempOwner,
 } from "../../src/run";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/runs/worker-hosts";
 import type { StepResult } from "../../src/sandbox/step";
@@ -125,7 +126,14 @@ export interface Running {
    * waits for every sweep started so far; `atHostStart` says, per host start, whether the run's
    * temp directory existed then.
    */
-  readonly tempDirs: { settled(): Promise<void>; readonly atHostStart: boolean[] } | null;
+  readonly tempDirs: {
+    settled(): Promise<void>;
+    readonly atHostStart: boolean[];
+    /** Per host start, the owner file in the run temp directory then (null when none). */
+    readonly ownerAtHostStart: (string | null)[];
+    /** The owner this office writes. */
+    owner(): string | undefined;
+  } | null;
 }
 
 export interface RunOfficeOptions {
@@ -260,6 +268,7 @@ export async function withRunOffice(
       const tmpRoot = join(repo.root, "tmp");
       // The run temp directory sweeps (DIPO-102), as the daemon wires them.
       const atHostStart: boolean[] = [];
+      const ownerAtHostStart: (string | null)[] = [];
       const sweeps: Promise<unknown>[] = [];
       const tempDirs =
         options.tempDirs === true
@@ -276,6 +285,7 @@ export async function withRunOffice(
             options.recordings?.[hosts.length] ?? options.recording ?? "success-single";
           const eventFile = join(runDir, EVENTS_FILE);
           atHostStart.push(existsSync(runTempDir(tmpRoot, run.runId)));
+          ownerAtHostStart.push(readRunTempOwner(runTempDir(tmpRoot, run.runId)));
           hosts.push({
             runId: run.runId,
             agentId: run.agentId,
@@ -427,6 +437,7 @@ export async function withRunOffice(
           story: baseStoryFacts(base),
           runtimeDir,
           tmpRoot,
+          ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
           hosts: hostStarter,
           ingest: {
             start: (office, host, target) => {
@@ -590,6 +601,8 @@ export async function withRunOffice(
                     while (sweeps.length > 0) await Promise.all(sweeps.splice(0));
                   },
                   atHostStart,
+                  ownerAtHostStart,
+                  owner: () => tempDirs.owner(),
                 },
         });
       } finally {
