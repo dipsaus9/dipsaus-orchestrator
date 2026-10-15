@@ -956,7 +956,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         logger.info("socket closed", { removed: ownsLock });
       }
     } finally {
-      held.database?.close();
+      // Last, after every office task, retention and maintenance stopped: checkpoint (TRUNCATE)
+      // and close, so no dipo.db-wal or dipo.db-shm stays (DIPO-87). A failure is a warn, never a
+      // crash.
+      held.database?.shutdown();
     }
     // Only a clean exit clears the crash marker; any other exit counts as a crash next start.
     if (clean) held.crashes?.cleanExit();
