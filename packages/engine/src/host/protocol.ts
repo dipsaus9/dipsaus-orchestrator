@@ -61,13 +61,19 @@ const LaunchFileSchema = z.object({
   name: z
     .string()
     .min(1)
-    .refine((name) => !name.includes("/") && name !== "." && name !== "..", {
-      message: "a launch file name is a plain file name",
-    })
+    // A plain file name, or one plain directory and a plain file name (`safe-chain/zsh`, DIPO-82).
+    .refine(
+      (name) => {
+        const parts = name.split("/");
+        return parts.length <= 2 && parts.every((p) => p !== "" && p !== "." && p !== "..");
+      },
+      { message: "a launch file name is a plain file name, at most one directory deep" },
+    )
     .refine((name) => !RESERVED_RUN_FILES.has(name), {
       message: "a launch file may not replace a file the host writes",
     }),
   content: z.string(),
+  executable: z.boolean().optional(),
 });
 
 const LaunchPlanSchema = z.object({

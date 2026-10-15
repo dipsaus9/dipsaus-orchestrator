@@ -20,6 +20,7 @@ import {
   baseStoryFacts,
   capsOf,
   claudeWorkerPort,
+  detectSafeChain,
   currentProfile,
   gitParkWriter,
   gitUnparkWriter,
@@ -164,6 +165,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     uid,
     // The run settings file's hooks run this binary (DIPO-59).
     dipoCommand: selfCommand(),
+    // Workers run package managers through the official Safe-Chain when it is installed (DIPO-82).
+    detectSafeChain: (input) => detectSafeChain(input),
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null

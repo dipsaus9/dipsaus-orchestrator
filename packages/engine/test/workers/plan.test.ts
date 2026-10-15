@@ -542,3 +542,79 @@ describe("claude-cli plan", () => {
     expect(plan(spec("L"), context())).toEqual(plan(spec("L"), context()));
   });
 });
+
+function sandboxOf(launch: LaunchPlan) {
+  return settingsOf(launch)["sandbox"] as {
+    filesystem: { allowRead: string[]; denyRead: string[]; allowWrite: string[] };
+    network: { allowedDomains: string[]; allowLocalBinding: boolean };
+  };
+}
+
+describe("claude-cli plan with Safe-Chain (DIPO-82)", () => {
+  const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0001";
+  const SHELL_DIR = `${RUN_DIR}/safe-chain`;
+  const safeChain = {
+    root: "/home/maintainer/.safe-chain",
+    shell: "/bin/zsh",
+    path: "/home/maintainer/.bun/bin-originals:/usr/bin:/bin",
+    demoted: [],
+    dropped: [],
+    probe: "bun run --version",
+    shellDir: SHELL_DIR,
+  };
+
+  it("runs Claude Code's shell through the wrapper and reads only bin, scripts, certs and the wrapper", () => {
+    const launch = plan(spec("M"), context({ safeChain }));
+    expect(launch.env["CLAUDE_CODE_SHELL"]).toBe(`${SHELL_DIR}/zsh`);
+    // The worker's own environment keeps the daemon's PATH; the wrapper sets the shell's.
+    expect(launch.env["PATH"]).toBe("/home/maintainer/.bun/bin:/usr/bin:/bin");
+    const sandbox = sandboxOf(launch);
+    const base = sandboxOf(plan(spec("M"), context()));
+    expect(sandbox.filesystem.allowRead).toEqual([
+      ...base.filesystem.allowRead,
+      "/home/maintainer/.safe-chain/bin",
+      "/home/maintainer/.safe-chain/scripts",
+      "/home/maintainer/.safe-chain/certs",
+      SHELL_DIR,
+    ]);
+    expect(sandbox.filesystem.denyRead).toEqual([
+      ...base.filesystem.denyRead,
+      "/home/maintainer/.claude/shell-snapshots",
+    ]);
+    // Nothing else opens: no writes, no network, no local binding.
+    expect(sandbox.filesystem.allowWrite).toEqual(base.filesystem.allowWrite);
+    expect(sandbox.network).toEqual(base.network);
+    expect(sandbox.network.allowLocalBinding).toBe(false);
+  });
+
+  it("writes the wrapper (executable) and its init file into the run directory", () => {
+    const files = plan(spec("M"), context({ safeChain })).files;
+    expect(files.find((f) => f.name === "safe-chain/zsh")).toMatchObject({ executable: true });
+    expect(files.find((f) => f.name === "safe-chain/.zshenv")?.content).toContain(
+      "/home/maintainer/.safe-chain/scripts/init-posix.sh",
+    );
+    // A self-test plan, whose run directory differs, uses the run's wrapper and writes none.
+    const self = plan(spec("M"), context({ safeChain, runDir: `${RUN_DIR}/self-test` }));
+    expect(self.env["CLAUDE_CODE_SHELL"]).toBe(`${SHELL_DIR}/zsh`);
+    expect(self.files.some((f) => f.name.startsWith("safe-chain/"))).toBe(false);
+  });
+
+  it("launches exactly as before without Safe-Chain", () => {
+    const launch = plan(spec("M"), context());
+    expect(launch.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
+    expect(launch.files.map((f) => f.name)).toEqual([SETTINGS_FILE, REPORT_SCHEMA_FILE]);
+    expect(JSON.stringify(settingsOf(launch))).not.toContain("safe-chain");
+    expect(JSON.stringify(settingsOf(launch))).not.toContain("shell-snapshots");
+  });
+
+  it("refuses a wrapper directory inside the worktree", () => {
+    expect(() =>
+      plan(
+        spec("M"),
+        context({
+          safeChain: { ...safeChain, shellDir: "/home/maintainer/code/shop.worktrees/DIPO-999/x" },
+        }),
+      ),
+    ).toThrow(PlanError);
+  });
+});

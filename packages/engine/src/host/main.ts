@@ -255,7 +255,13 @@ export class WorkerHost {
     };
     try {
       for (const file of plan.files) {
-        writeFileSync(join(this.runDir, file.name), file.content, { mode: 0o600 });
+        const path = join(this.runDir, file.name);
+        // A file in a subdirectory (the Safe-Chain shell, DIPO-82) gets a private directory, and
+        // the wrapper is executable; the mode is set again in case the file already existed.
+        if (dirname(path) !== this.runDir) ensurePrivateDir(dirname(path));
+        const mode = file.executable === true ? 0o700 : 0o600;
+        writeFileSync(path, file.content, { mode });
+        chmodSync(path, mode);
       }
       // The hosts directory carries the socket's access control (0006 decision 11).
       ensurePrivateDir(dirname(this.socketPath));

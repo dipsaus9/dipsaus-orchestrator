@@ -514,6 +514,12 @@ export {
   type ClaudeCliAdapterDeps,
   type ClaudeWorkerPortDeps,
 } from "./workers/claude-cli/adapter";
+export {
+  detectSafeChain,
+  SAFE_CHAIN_COMMANDS,
+  type SafeChainInput,
+  type SafeChainLaunch,
+} from "./workers/claude-cli/safe-chain";
 export type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "./workers/port";
 export {
   ScriptedWorker,

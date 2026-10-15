@@ -50,9 +50,11 @@ export interface WorkerSpec {
 
 /** A file the worker host writes into the run directory before it starts the worker. */
 export interface LaunchFile {
-  /** File name relative to the run directory. */
+  /** File name relative to the run directory; it may hold one subdirectory (`safe-chain/zsh`). */
   readonly name: string;
   readonly content: string;
+  /** Written with mode 0700 instead of 0600 (the Safe-Chain shell wrapper, DIPO-82). */
+  readonly executable?: boolean;
 }
 
 /** Everything the worker host needs to start one worker (0008 section 1, 0006 decision 8). */

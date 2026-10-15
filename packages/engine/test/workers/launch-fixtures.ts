@@ -123,8 +123,12 @@ export class MemoryFs implements SelfTestFs {
     this.dirs.add(path);
   }
 
-  async writeText(path: string, text: string): Promise<void> {
+  /** Paths written as executable (the Safe-Chain wrapper, DIPO-82). */
+  readonly executableWrites = new Set<string>();
+
+  async writeText(path: string, text: string, executable?: boolean): Promise<void> {
     this.files.set(path, text);
+    if (executable === true) this.executableWrites.add(path);
   }
 
   async readText(path: string): Promise<string | null> {

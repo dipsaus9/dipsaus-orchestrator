@@ -77,6 +77,50 @@ describe("the Claude CLI adapter of one run", () => {
     expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual(plan(spec(), ctx));
   });
 
+  it("detects Safe-Chain at launch and gives the plan its wrapper in the run directory (DIPO-82)", () => {
+    const seen: unknown[] = [];
+    const found = {
+      root: `${HOME}/.safe-chain`,
+      shell: "/bin/zsh",
+      path: "/usr/bin:/bin",
+      demoted: [],
+      dropped: [],
+      probe: "bun run --version",
+    };
+    const deps = {
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", HOME },
+      detectSafeChain: (input: unknown) => {
+        seen.push(input);
+        return found;
+      },
+    };
+    const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
+    expect(ctx.safeChain).toEqual({ ...found, shellDir: `${RUN_DIR}/safe-chain` });
+    // Detection reads the office's toolchain and allowRead paths, with ~ expanded.
+    expect(seen).toEqual([
+      {
+        home: HOME,
+        env: deps.env,
+        readPaths: [`${HOME}/.bun`, `${HOME}/.npm`, `${HOME}/.cache`],
+      },
+    ]);
+    // The dry run shows the wrapper and its init file among the run directory's files.
+    const names = claudeCliAdapter(ctx, { spawn: neverSpawn, clock })
+      .plan(spec())
+      .files.map((file) => file.name);
+    expect(names).toContain("safe-chain/zsh");
+    expect(names).toContain("safe-chain/.zshenv");
+    // A machine without Safe-Chain: no field at all.
+    const none = claudeLaunchContext(
+      { ...deps, detectSafeChain: () => null },
+      PATHS,
+      OFFICE_DEFAULTS,
+    );
+    expect("safeChain" in none).toBe(false);
+  });
+
   it("refuses to plan without a resolved claude", () => {
     expect(() =>
       claudeLaunchContext({ claudePath: undefined, home: HOME, env: {} }, PATHS, OFFICE_DEFAULTS),
