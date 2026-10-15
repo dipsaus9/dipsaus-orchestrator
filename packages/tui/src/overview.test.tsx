@@ -99,6 +99,15 @@ function idleSnapshot(): OfficeSnapshot {
   };
 }
 
+/** The idle snapshot with its one Refined story changed by `story`. */
+function withRefined(story: (view: StoryView) => StoryView): OfficeSnapshot {
+  const base = idleSnapshot();
+  return {
+    ...base,
+    stories: base.stories.map((view) => (view.column === "refined" ? story(view) : view)),
+  };
+}
+
 async function open(
   columns: number,
   rows = 30,
@@ -199,13 +208,6 @@ describe("office overview board", () => {
 
   it("names the Refined story's rule from the gateFailures field, not the message (DIPO-97)", async () => {
     const message = "ready DIPO-33 failed R15: 2 unknowns open";
-    const withRefined = (story: (view: StoryView) => StoryView): OfficeSnapshot => {
-      const base = idleSnapshot();
-      return {
-        ...base,
-        stories: base.stories.map((view) => (view.column === "refined" ? story(view) : view)),
-      };
-    };
     const field = await open(
       120,
       30,
@@ -220,7 +222,10 @@ describe("office overview board", () => {
     const messageOnly = await open(
       120,
       30,
-      withRefined(({ gateFailures: _, ...view }) => ({ ...view, gateMessages: [message] })),
+      withRefined((view) => {
+        const { gateFailures: _, ...rest } = view;
+        return { ...rest, gateMessages: [message] };
+      }),
     );
     expect(messageOnly.ui.frame()).toContain("DIPO-33 is Refined, DIPO-29");
   });
@@ -456,9 +461,9 @@ describe("opening any board row (DIPO-81)", () => {
   });
 
   it("uses the office's retention period from its summary for the removed-output line (DIPO-97)", async () => {
-    const golden = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
-    if (golden === undefined) throw new Error("no golden summary");
-    const { outputRetentionDays: _, ...summary } = golden;
+    const hello = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
+    if (hello === undefined) throw new Error("no golden summary");
+    const { outputRetentionDays: _, ...summary } = hello;
     const shows = async (days: number | undefined, endedAt: string, line: string) => {
       const { ui, session } = await open(120, 30, boardSnapshot());
       session.active("software")?.options.onEvent({

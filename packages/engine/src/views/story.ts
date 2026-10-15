@@ -99,7 +99,7 @@ export function deriveStoryView(facts: StoryFacts): StoryView {
   const column = deriveColumn(facts);
   const failures = facts.lifecycle === "Refined" ? (facts.gateFailures ?? []) : [];
   const gateMessages = failures.map((failure) => failure.message);
-  const gateFailures = failures.flatMap(({ rule, message }) =>
+  const ruleFailures = failures.flatMap(({ rule, message }) =>
     rule === undefined ? [] : [{ rule, message, text: gateText(rule, message) }],
   );
   return {
@@ -118,7 +118,7 @@ export function deriveStoryView(facts: StoryFacts): StoryView {
       ? { waitingOn: (facts.waitingOn ?? []).map((id) => StoryId.parse(id)) }
       : {}),
     ...(gateMessages.length === 0 ? {} : { gateMessages }),
-    ...(gateFailures.length === 0 ? {} : { gateFailures }),
+    ...(ruleFailures.length === 0 ? {} : { gateFailures: ruleFailures }),
   };
 }
 
