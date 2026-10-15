@@ -4,7 +4,7 @@
 // `logs` reads the log files directly and never talks to the daemon (DIPO-64).
 
 import type { DipoClient } from "@dipsaus-orchestrator/client";
-import { ClientError } from "@dipsaus-orchestrator/client";
+import { ClientError, type RecoveringSession, waitForRecovery } from "@dipsaus-orchestrator/client";
 import {
   AutostartOffError,
   DaemonNotRunningError,
@@ -76,6 +76,15 @@ export interface DaemonCommandDeps {
 export const REPLY_TIMEOUT_MS = 10_000;
 
 export const START_HINT = "Start it with `dipo daemon start`.";
+
+/** Printed once when a command has waited about a second for a recovering daemon (DIPO-86). */
+export const RECOVERY_WAIT = "waiting for the daemon to finish recovering";
+
+/** Printed once when the daemon a command waited for ended its recovery in `safe` (DIPO-86). */
+export function safeModeLine(reason: string | undefined): string {
+  const why = reason === undefined ? "" : ` (${reason})`;
+  return `the daemon finished recovering in safe mode${why}: scheduling is off until you run \`dipo daemon resume-scheduling\`.`;
+}
 
 /** Exit codes of `dipo daemon status` (0006 decision 5). */
 export const STATUS_EXIT = { running: 0, unresponsive: 1, notRunning: 3 } as const;
@@ -453,16 +462,22 @@ export function engineFailure(deps: DaemonCommandDeps, error: EngineError): numb
 /**
  * Connects, runs one exchange under the reply deadline (`timeoutMs`, `REPLY_TIMEOUT_MS` by
  * default; `Infinity` for none, as `dipo watch` runs until stopped), and always closes the
- * connection.
+ * connection. A daemon still starting or recovering is waited for inside that deadline (DIPO-86):
+ * the session sends a request refused with `engine.recovering` again once `daemon.status` leaves
+ * `starting` and `recovering`.
  */
 export async function withDaemon(
   deps: DaemonCommandDeps,
   run: (session: DaemonSession) => Promise<number>,
   timeoutMs: number = REPLY_TIMEOUT_MS,
 ): Promise<number> {
-  let session: DaemonSession;
+  let session: RecoveringSession;
   try {
-    session = await deps.connectDaemon();
+    session = waitForRecovery(await deps.connectDaemon(), {
+      clock: deps.clock,
+      onWaiting: () => deps.writeError(`dipo: ${RECOVERY_WAIT}`),
+      onSafe: (reason) => deps.writeError(`dipo: ${safeModeLine(reason)}`),
+    });
   } catch (error) {
     return failure(deps, error);
   }
@@ -470,7 +485,11 @@ export async function withDaemon(
   const deadline = new Promise<number>((resolve) => {
     if (!Number.isFinite(timeoutMs)) return;
     timer = deps.clock.setTimeout(() => {
-      deps.writeError(`dipo: the daemon did not answer within ${timeoutMs / 1000} s.`);
+      deps.writeError(
+        session.waiting
+          ? `dipo: the daemon was still recovering after ${timeoutMs / 1000} s; try again shortly, or see \`dipo daemon status\`.`
+          : `dipo: the daemon did not answer within ${timeoutMs / 1000} s.`,
+      );
       resolve(1);
     }, timeoutMs);
   });
