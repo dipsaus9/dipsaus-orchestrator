@@ -13,7 +13,8 @@ import type { OfficeConfig } from "../config";
 import { createDefaultProvider } from "../context/default-provider";
 import { gatherContext } from "../context/gather";
 import { sizeClassOfWorkspace } from "../context/size";
-import type { Workspace } from "../context/types";
+import type { ContextPack, Workspace } from "../context/types";
+import type { NudgeSources } from "../hooks/nudges";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
 import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
@@ -43,6 +44,28 @@ export interface RunPrompts {
   readonly systemFile: string;
   /** The task message (L4), the first user message. */
   readonly taskMessage: string;
+  /** The context pack and input paths the context and input nudges check (DIPO-60). */
+  readonly nudgeSources: NudgeSources;
+  /** The text the task message holds for each of those paths, by path. */
+  readonly sourceTexts: Readonly<Record<string, string>>;
+}
+
+/** The nudge sources of a context pack: its item paths and the story's input paths, with texts. */
+export function nudgeSourcesOf(
+  pack: ContextPack,
+  inputs: readonly string[],
+): Pick<RunPrompts, "nudgeSources" | "sourceTexts"> {
+  const texts: Record<string, string> = {};
+  for (const item of [...pack.items, ...pack.inputs.items]) {
+    texts[item.path] = `${texts[item.path] ?? ""}${item.text}`;
+  }
+  return {
+    nudgeSources: {
+      context: [...new Set(pack.items.map((item) => item.path))].toSorted(),
+      inputs: [...new Set(pack.inputs.paths.length > 0 ? pack.inputs.paths : inputs)].toSorted(),
+    },
+    sourceTexts: texts,
+  };
 }
 
 /**
@@ -82,7 +105,11 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     contractMax: config.prompt.contractMax,
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
   });
-  return { systemFile: renderSystemFile("implement", "developer"), taskMessage: task.text };
+  return {
+    systemFile: renderSystemFile("implement", "developer"),
+    taskMessage: task.text,
+    ...nudgeSourcesOf(pack, story.inputs),
+  };
 }
 
 /**

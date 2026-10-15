@@ -43,6 +43,11 @@ export interface StoredRun extends NewRun {
   readonly gateChanges: readonly string[] | null;
   readonly endedAt: number | null;
   readonly endKind: string | null;
+  /**
+   * Milliseconds the run stood parked before an answer reopened it (DIPO-75, migration 23); its
+   * caps and minutes count the time it worked, not these. 0 when absent.
+   */
+  readonly parkedMs?: number;
 }
 
 interface RunRow {
@@ -69,11 +74,12 @@ interface RunRow {
   gate_changes: string | null;
   ended_at: number | null;
   end_kind: string | null;
+  parked_ms: number;
 }
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, worktree, slot,
   budget_unit, budget_limit, loop_cap, review_round_cap, config_hash, override_keys,
-  run_profile_id, started_at, scope, gate_changes, ended_at, end_kind`;
+  run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms`;
 
 function jsonList(text: string | null): string[] | null {
   return text === null ? null : (JSON.parse(text) as string[]);
@@ -104,12 +110,13 @@ function toRecord(row: RunRow): StoredRun {
     gateChanges: jsonList(row.gate_changes),
     endedAt: row.ended_at,
     endKind: row.end_kind,
+    parkedMs: row.parked_ms,
   };
 }
 
 export function insertRun(office: OfficeHandle, run: NewRun): void {
   office.run(
-    `insert into runs (office_id, ${COLUMNS.replace(", gate_changes, ended_at, end_kind", "")})
+    `insert into runs (office_id, ${COLUMNS.replace(", gate_changes, ended_at, end_kind, parked_ms", "")})
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
        $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $review_round_cap,
        $config_hash, $override_keys, $run_profile_id, $started_at, $scope)`,
@@ -237,6 +244,18 @@ export function currentProfileId(office: OfficeHandle): string | null {
 /** The outcome of a run that ended at In Review (DIPO-49). */
 export const IN_REVIEW_END = "in-review";
 
+/**
+ * When the run's caps start counting (0008 sections 6 and 9): its first worker host's start, else
+ * the run's own, moved later by the time it stood parked (DIPO-75), so the time cap counts only
+ * the time it worked.
+ */
+export function capsStartedAt(
+  run: StoredRun,
+  firstHostStartedAt: number | null | undefined,
+): number {
+  return (firstHostStartedAt ?? run.startedAt) + (run.parkedMs ?? 0);
+}
+
 /** The `run_outcomes.outcome` of a run that parked its story. */
 export const PARKED_OUTCOME = "parked";
 
@@ -251,8 +270,13 @@ export const PARKED_OUTCOME = "parked";
  * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes from start
  * to end, the story's criteria count and the declared scope size. A park writes its `parks` row
  * before it ends the run, so its reason is counted. It also makes the usage of every agent whose
- * exit was not ingested final (`finalizeRunAgents`, DIPO-51). True when this call ended the run,
- * false when it had ended before.
+ * exit was not ingested final (`finalizeRunAgents`, DIPO-51). True when this call ended the run, false
+ * when it had ended before.
+ *
+ * One end is not always the last (DIPO-75): a run parked `needs-permission` is reopened when the
+ * maintainer answers the park's question (`reopenParkedRun`): `ended_at` is cleared, the
+ * `run_outcomes` row removed and the parked time added to `parked_ms`, so the next end writes the
+ * row again with every park of the run and the minutes it worked (0007 amendment of 2026-10-15).
  */
 export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): boolean {
   const ended = office.run(
@@ -321,7 +345,7 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: s
       reviews,
       failures,
       budget,
-      minutes: Math.round(((at - run.startedAt) / 60_000) * 100) / 100,
+      minutes: Math.round(((at - run.startedAt - (run.parkedMs ?? 0)) / 60_000) * 100) / 100,
       criteria,
       scope: run.scope === null ? null : run.scope.length,
       at,

@@ -30,6 +30,7 @@
 
 import {
   type Clock,
+  type IdSource,
   type CommandName,
   type OfficeId,
   type ParkReason,
@@ -43,6 +44,7 @@ import {
 import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
+import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { withWorkViews, workRefOf } from "../views/work";
@@ -65,7 +67,7 @@ import {
   recordIntent,
   resolveIntent,
 } from "./intents";
-import { type ParkOutcome, type ParkWriter, parkStory } from "./park";
+import { type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { endRunMarked } from "./markers";
 import { activeRuns, findRun, type StoredRun } from "./records";
 import {
@@ -120,7 +122,13 @@ export interface RunSteering {
 
 export interface RunControlDeps {
   readonly clock: Clock;
-  readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
+  readonly offices: {
+    get(office: OfficeId): OfficeHandle | undefined;
+    /** The office config; a `needs-permission` park's question reads its sandbox from it. */
+    config?(office: OfficeId): OfficeConfig | undefined;
+  };
+  /** Question ids for the permission question of a `needs-permission` park (DIPO-75). */
+  readonly ids?: IdSource;
   readonly writer: ParkWriter;
   readonly steering: RunSteering;
   /** The worker adapter's pure `encode` (`WorkerPort.encode`). */
@@ -875,6 +883,7 @@ export class RunControl implements RunEnder {
           now: () => this.#deps.clock.now(),
           write,
           implemented: this.#deps.implemented ?? (() => false),
+          ...this.#parkQuestion(office.officeId),
         },
         {
           run,
@@ -1054,6 +1063,19 @@ export class RunControl implements RunEnder {
         },
       ]);
     }
+  }
+
+  /** What a `needs-permission` park needs to ask its question (DIPO-75); nothing without ids. */
+  #parkQuestion(officeId: OfficeId): Pick<ParkDeps, "question"> {
+    const ids = this.#deps.ids;
+    if (ids === undefined) return {};
+    const config = this.#deps.offices.config?.(officeId);
+    return {
+      question: {
+        id: () => ids.next("qst"),
+        allowedDomains: config?.sandbox.allowedDomains ?? [],
+      },
+    };
   }
 
   /** Writes entries outside a command: one transaction, then subscribers are told. */

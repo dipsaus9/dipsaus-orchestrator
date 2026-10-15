@@ -3,11 +3,13 @@
 // with the keys that work now. Global keys: `1` overview, `2` queue, `o` offices, `q` twice within
 // 2 s quits, Ctrl+C quits. In the queue: `j`/`k` or arrows move, `u` runs the selected story (or
 // lets the engine pick the next Ready one) with `work.run`, `.` shows Done stories. In the
-// overview `j`/`k` or arrows move; Enter on a running story, there or in the queue, opens the live
-// agent detail (`detail.tsx`), where `X` asks "worker ends, branch kept, story parks as stopped"
-// and sends `work.stop` on yes, and Esc returns to the view it came from. In the switcher: `j`/`k`
-// or arrows move, Enter opens the office through `office.switch`, `n` opens a new repository path
-// through `office.open`, Esc goes back. Action keys are off while offline.
+// overview `j`/`k` or arrows move over every board row; Enter on a running story, there or in the
+// queue, opens the live agent detail (`detail.tsx`), and on a story that ran before its latest run
+// read-only through `story.detail` (a story that never ran says so in the footer). There `X` asks
+// "worker ends, branch kept, story parks as stopped" and sends `work.stop` on yes, and Esc returns
+// to the view it came from. In the switcher: `j`/`k` or arrows move, Enter opens the office through
+// `office.switch`, `n` opens a new repository path through `office.open`, Esc goes back. Action
+// keys are off while offline.
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
@@ -24,7 +26,10 @@ import type {
   EngineError,
   OfficeId,
   RequestId,
+  RunRecord,
+  StoryKey,
   StoryRefValue,
+  StoryView,
 } from "@dipsaus-orchestrator/contract";
 import { Box, type Key, Text, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
@@ -32,9 +37,10 @@ import { useEffect, useState } from "react";
 import { useBatchedState } from "./batch";
 import { Detail, type DetailTarget, type ReadOutput, STOP_PROMPT } from "./detail";
 import { skipReason, widthOf } from "./format";
+import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
-import { EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
+import { boardEntries, EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
 import { Queue, queueRows } from "./queue";
 import {
   Banners,
@@ -77,6 +83,14 @@ export interface RunRequest {
   readonly requestId: RequestId;
 }
 
+/** A story's view and runs, as `story.detail` answers (DIPO-81). */
+export type StoryOutcome =
+  | {
+      readonly ok: true;
+      readonly result: { readonly view: StoryView; readonly runs: readonly RunRecord[] };
+    }
+  | { readonly ok: false; readonly error: EngineError };
+
 export interface StopRequest {
   readonly office: OfficeId;
   readonly story: StoryRefValue;
@@ -92,6 +106,11 @@ export type StopOutcome =
 export interface TuiActions {
   /** `work.outputRange` for the live agent detail (0005 section 7). */
   readOutput: ReadOutput;
+  /** `story.detail`: the runs of a story that is not running, to open its latest (DIPO-81). */
+  readStory(request: {
+    readonly office: OfficeId;
+    readonly story: StoryKey;
+  }): Promise<StoryOutcome>;
   /** `work.stop`, confirmed by the maintainer (0009 section 5). */
   stopStory(request: StopRequest): Promise<StopOutcome>;
   /** `office.open` for a path the maintainer typed. */
@@ -211,15 +230,26 @@ export function App(props: AppProps) {
   const [pending, setPending] = useState("");
   const [quitArmedAt, setQuitArmedAt] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
-  // The selected overview row by run, so it follows the run when rows come and go.
-  const [overviewRun, setOverviewRun] = useState<string | null>(null);
+  // The selected overview row by story key, so it follows the story when rows come and go.
+  const [overviewKey, setOverviewKey] = useState<string | null>(null);
   const [stop, setStop] = useState<StopAction | null>(null);
+  // The newest output line of each running run, for the overview's `now:` lines (DIPO-81).
+  const { latest } = useLatestLines({
+    store,
+    clock,
+    readOutput: actions.readOutput,
+    office: state.office,
+    runs: state.work.map((candidate) => candidate.work.run),
+    snapshots: state.snapshots,
+  });
   const offline = isOffline(state);
+  // Every board row is selectable: running stories first, then needs you, in review and Ready.
+  const board = boardEntries(state);
   const overviewIndex = Math.max(
     0,
-    state.work.findIndex((candidate) => candidate.work.run === overviewRun),
+    board.findIndex((entry) => String(entry.key) === overviewKey),
   );
-  const overviewSelected = state.work[overviewIndex]?.work.run ?? null;
+  const overviewEntry = board[overviewIndex] ?? null;
   const { ellipsis } = glyphs(display.ascii);
   const queue = queueRows(state.stories, showDone);
   const queueSelected = Math.max(
@@ -283,6 +313,35 @@ export function App(props: AppProps) {
     setDetail({ target: { run: found.work.run, key: found.work.key }, back });
   };
 
+  // A story that is not running: its latest run read-only, or "not run yet" (DIPO-81).
+  const openStory = (key: StoryKey, label: string, back: View) => {
+    const running = state.work.find((candidate) => candidate.work.key === key);
+    if (running !== undefined) {
+      openDetail(running.work.run, back);
+      return;
+    }
+    if (state.office === null) return;
+    const office = state.office;
+    setMessage(`opening ${label}${ellipsis}`);
+    void actions.readStory({ office, story: key }).then((outcome) => {
+      if (store.state.office !== office) return;
+      if (!outcome.ok) {
+        setMessage(`${label}: ${outcome.error.code}: ${outcome.error.message}`);
+        return;
+      }
+      const last = outcome.result.runs.at(-1);
+      if (last === undefined) {
+        const { view: story } = outcome.result;
+        setMessage(
+          `${story.story} ${story.title} ${glyphs(display.ascii).dot} ${story.lifecycle}, not run yet`,
+        );
+        return;
+      }
+      setMessage(null);
+      setDetail({ target: { run: last.run, key, record: last }, back });
+    });
+  };
+
   const quit = () => props.onQuit();
 
   const switchTo = (office: OfficeId, name: string) => {
@@ -292,7 +351,7 @@ export function App(props: AppProps) {
         setMessage(null);
         setMode({ kind: "home" });
         setQueueKey(null);
-        setOverviewRun(null);
+        setOverviewKey(null);
         setDetail(null);
       } else {
         setMessage(`${outcome.error.code}: ${outcome.error.message}`);
@@ -513,13 +572,19 @@ export function App(props: AppProps) {
       }
       setMode({ kind: "confirm-resume" });
     } else if (view === "overview") {
-      const count = state.work.length;
+      const count = board.length;
+      const select = (index: number) => {
+        const entry = board[Math.max(0, Math.min(count - 1, index))];
+        setOverviewKey(entry === undefined ? null : String(entry.key));
+      };
       if (key.downArrow || input === "j") {
-        setOverviewRun(state.work[Math.min(count - 1, overviewIndex + 1)]?.work.run ?? null);
+        select(overviewIndex + 1);
       } else if (key.upArrow || input === "k") {
-        setOverviewRun(state.work[Math.max(0, overviewIndex - 1)]?.work.run ?? null);
-      } else if (key.return && overviewSelected !== null) {
-        openDetail(overviewSelected, "overview");
+        select(overviewIndex - 1);
+      } else if (key.return && overviewEntry !== null) {
+        setOverviewKey(String(overviewEntry.key));
+        if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
+        else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
       }
     } else if (view === "queue") {
       if (key.downArrow || input === "j") {
@@ -529,12 +594,7 @@ export function App(props: AppProps) {
       } else if (key.return) {
         const row = queue[queueSelected];
         if (row?.kind !== "story") return;
-        const running = state.work.find((candidate) => candidate.work.key === row.view.key);
-        if (running === undefined) {
-          setMessage(`${row.view.story} is not running; Enter opens the detail of a running story`);
-          return;
-        }
-        openDetail(running.work.run, "queue");
+        openStory(row.view.key, String(row.view.story), "queue");
       } else if (input === ".") {
         setShowDone(!showDone);
       } else if (input === "u") {
@@ -595,7 +655,17 @@ export function App(props: AppProps) {
   const footerMessage = message ?? activeRefusal ?? failure ?? stopLine ?? notice;
   const inDetail = detail !== null && !(mode.kind === "switcher" || mode.kind === "path");
   // The footer line starts with a space.
-  const keys = footerKeys(mode, inDetail ? "detail" : view, state, offline, run, columns - 1);
+  // An ended run has no worker to stop: its detail drops `[X] stop`.
+  const detailLive =
+    detail !== null && state.work.some((candidate) => candidate.work.run === detail.target.run);
+  const keys = footerKeys(
+    mode,
+    inDetail ? (detailLive ? "detail" : "ended") : view,
+    state,
+    offline,
+    run,
+    columns - 1,
+  );
 
   if (narrow) {
     return (
@@ -627,7 +697,13 @@ export function App(props: AppProps) {
       <Header state={state} display={display} />
       <Banners state={state} display={display} />
       {inSwitcher ? (
-        <SwitcherBody state={state} display={display} index={switcherIndex} now={clock.now()} />
+        <SwitcherBody
+          state={state}
+          display={display}
+          index={switcherIndex}
+          now={clock.now()}
+          columns={columns}
+        />
       ) : detail !== null ? (
         <Detail
           // A new run starts with a fresh pane.
@@ -658,7 +734,10 @@ export function App(props: AppProps) {
           display={display}
           width={widthOf(columns)}
           columns={columns}
-          selected={overviewSelected}
+          height={height}
+          clock={clock}
+          latest={latest}
+          selected={overviewEntry === null ? null : String(overviewEntry.key)}
         />
       )}
       {panel.map((line, i) => (
@@ -695,7 +774,7 @@ const QUIT = 100;
 
 function footerKeys(
   mode: Mode,
-  view: View | "detail",
+  view: View | "detail" | "ended",
   state: OfficeStoreState,
   offline: boolean,
   run: RunAction | null,
@@ -737,14 +816,14 @@ function footerKeys(
       if (run?.status === "failed" && run.error?.retryable === true) {
         hints.push(["[Ctrl-R] retry", 80]);
       }
-      if (view === "detail") {
+      if (view === "detail" || view === "ended") {
         hints.push(
           ["[w]orker [v]erify", 75],
           ["[k/j PgUp/PgDn] scroll", 35],
           ["[End] follow tail", 45],
-          ["[X] stop", 70],
-          ["[Esc] back", 90],
         );
+        if (view === "detail") hints.push(["[X] stop", 70]);
+        hints.push(["[Esc] back", 90]);
         hints.push(quit);
         if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
@@ -758,7 +837,9 @@ function footerKeys(
           ["[1] overview", 50],
         );
       } else {
-        if (state.work.length > 0) hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
+        if (boardEntries(state).length > 0) {
+          hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
+        }
         hints.push(["[2] queue", 50]);
       }
       hints.push(["[o] offices", 40]);

@@ -82,7 +82,8 @@ export type OptInsOf = (office: OfficeId) => readonly string[];
  * The summary of one office: `running` counts active runs, `parked` the stories in the `desk` and
  * `held` columns, `onHold` those in `held`, and `waitingOnMaintainer` the parked stories other than
  * on-hold, the open gates waiting on the maintainer and the open questions (DIPO-59; tests count
- * from M1). `optIns` lists the privacy opt-ins that are on (0007 section 8, DIPO-83).
+ * from M1), `ready` the stories in the `ready` column (DIPO-81) and `optIns` the privacy opt-ins
+ * that are on (0007 section 8, DIPO-83).
  */
 export function deriveOfficeSummary(
   identity: OfficeIdentity,
@@ -101,6 +102,7 @@ export function deriveOfficeSummary(
     parked: desk + held,
     onHold: held,
     waitingOnMaintainer: desk + gates + openQuestions(office).length,
+    ready: counts.ready ?? 0,
     ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),
   };
 }

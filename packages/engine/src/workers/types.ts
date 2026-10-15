@@ -73,7 +73,22 @@ export type SteerOp =
   | { readonly kind: "steer" | "answer"; readonly text: string }
   | { readonly kind: "pause" | "stop" | "kill" }
   /** The engine's reply to a waiting hook call (0008 section 5), adapter-neutral. */
-  | { readonly kind: "hookReply"; readonly reply: HookReply };
+  | { readonly kind: "hookReply"; readonly reply: HookReply }
+  | NudgeOp;
+
+/**
+ * A 0014 section 8 nudge (0008 amendment of 2026-10-12, DIPO-60): `text` for the worker, added to
+ * the reply of the pending hook call `hook`, a tool use or a session start. The adapter decides how
+ * its CLI shows it (Claude: `additionalContext`).
+ */
+export interface NudgeOp {
+  readonly kind: "nudge";
+  readonly text: string;
+  /** The waiting hook call (`HookCall.id`). */
+  readonly hook: number;
+  /** The neutral hook event the call relayed. */
+  readonly on: Extract<HookEvent["kind"], "toolUsed" | "sessionStarted">;
+}
 
 export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 

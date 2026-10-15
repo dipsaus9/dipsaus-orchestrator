@@ -147,16 +147,60 @@ export function Banners(props: { state: OfficeStoreState; display: Display }) {
   );
 }
 
-function switcherRow(entry: OfficeEntry): string {
+/** The switcher's column titles (0009 section 4 as amended by DIPO-81). */
+const SWITCHER_TITLES = ["OFFICE", "RUNNING", "NEEDS YOU", "READY", "HELD", "TODAY"];
+
+/**
+ * One office's cells under the switcher titles, from its `OfficeSummary`; `?` before the first
+ * summary arrives, or for READY from an engine that does not send it. At 120 columns and wider an
+ * alert reads `84%  ALERT day usage`, narrower `84% !`.
+ */
+export function switcherCells(entry: OfficeEntry, full: boolean): string[] {
   const summary = entry.summary;
-  if (summary === undefined) return `${entry.name}  ? running  desk ?  held ?`;
-  const day =
-    summary.dayUsage?.share === undefined
-      ? ""
-      : `  day ${Math.round(summary.dayUsage.share * 100)}%`;
-  const alert = summary.dayUsage?.alert === true ? `  ALERT day usage` : "";
-  return `${summary.name}  ${summary.running} running  desk ${summary.waitingOnMaintainer}  held ${summary.onHold}${day}${alert}`;
+  if (summary === undefined) return [entry.name, "?", "?", "?", "?", ""];
+  const day = summary.dayUsage;
+  const share = day?.share === undefined ? "" : `${Math.round(day.share * 100)}%`;
+  const alert = day?.alert === true ? (full ? "  ALERT day usage" : " !") : "";
+  return [
+    summary.name,
+    String(summary.running),
+    String(summary.waitingOnMaintainer),
+    summary.ready === undefined ? "?" : String(summary.ready),
+    String(summary.onHold),
+    `${share}${alert}`.trim(),
+  ];
 }
+
+/** The switcher's title line and one line per office, aligned under the titles. */
+export function switcherLines(
+  offices: readonly OfficeEntry[],
+  current: string | null,
+  index: number,
+  columns: number,
+): string[] {
+  const rows = offices.map((entry) => switcherCells(entry, columns >= FULL_SWITCHER_COLUMNS));
+  const widths = SWITCHER_TITLES.map((title, i) =>
+    Math.max(title.length, ...rows.map((row) => row[i]?.length ?? 0)),
+  );
+  const line = (cells: readonly string[]) =>
+    cells
+      .map((cell, i) => (i === cells.length - 1 ? cell : cell.padEnd(widths[i] ?? 0)))
+      .join("  ")
+      .trimEnd();
+  const texts = rows.map((row, i) => ` ${i === index ? ">" : " "} ${line(row)}`);
+  // `(open)` lines up after the longest row when the line has room for it.
+  const longest = Math.max(0, ...texts.map((text) => text.length));
+  const openAt = longest + 8 <= columns ? longest : 0;
+  return [
+    `   ${line(SWITCHER_TITLES)}`,
+    ...texts.map((text, i) =>
+      offices[i]?.office === current ? `${text.padEnd(openAt)}  (open)` : text,
+    ),
+  ];
+}
+
+/** At this width and wider the switcher spells out a day usage alert. */
+const FULL_SWITCHER_COLUMNS = 120;
 
 /** The office switcher (0009 section 4), built from `engine.hello` and `office.summary`. */
 export function SwitcherBody(props: {
@@ -164,42 +208,32 @@ export function SwitcherBody(props: {
   display: Display;
   index: number;
   now: number;
+  columns: number;
 }) {
   const { state, display, index } = props;
+  const [title, ...rows] = switcherLines(state.offices, state.office, index, props.columns);
   return (
     <Box flexDirection="column">
       <Text>{` Offices ${glyphs(display.ascii).dot} ${isOffline(state) ? "offline" : `daemon ${state.daemon ?? "?"}`}  ${clockTime(props.now)}`}</Text>
       {state.offices.length === 0 ? (
         <Text>{" No office is registered yet. Press n to open a repository."}</Text>
       ) : (
-        state.offices.map((entry, i) => (
-          <SwitcherRow
-            key={entry.office}
-            entry={entry}
-            selected={i === index}
-            current={entry.office === state.office}
-            display={display}
-          />
-        ))
+        <>
+          <Text wrap="truncate-end">{title}</Text>
+          {rows.map((text, i) =>
+            i === index && display.color ? (
+              <Text key={state.offices[i]?.office ?? i} color="cyan" wrap="truncate-end">
+                {text}
+              </Text>
+            ) : (
+              <Text key={state.offices[i]?.office ?? i} wrap="truncate-end">
+                {text}
+              </Text>
+            ),
+          )}
+        </>
       )}
     </Box>
-  );
-}
-
-function SwitcherRow(props: {
-  entry: OfficeEntry;
-  selected: boolean;
-  current: boolean;
-  display: Display;
-}) {
-  const marker = props.selected ? ">" : " ";
-  const text = ` ${marker} ${switcherRow(props.entry)}${props.current ? "  (open)" : ""}`;
-  return props.selected && props.display.color ? (
-    <Text color="cyan" wrap="truncate-end">
-      {text}
-    </Text>
-  ) : (
-    <Text wrap="truncate-end">{text}</Text>
   );
 }
 

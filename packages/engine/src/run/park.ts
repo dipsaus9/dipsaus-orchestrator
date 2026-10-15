@@ -32,7 +32,10 @@ import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG, type GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
+import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/park-questions";
+import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { deriveStoryView, storyView } from "../views/story";
+import { workRefOf } from "../views/work";
 import { repoPath } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
@@ -183,6 +186,174 @@ export function gitParkWriter(deps: {
   };
 }
 
+/** What lifting a park on the story branch needs (DIPO-75). */
+export interface UnparkBranchRequest {
+  readonly story: string;
+  readonly branch: string;
+  readonly worktree: string;
+  /** The lifecycle the story returns to (the park's `from`). */
+  readonly to: Lifecycle;
+}
+
+/** What lifting the park on the branch did. */
+export interface BranchUnpark {
+  /** The commit, or null when the task file already held no park and the status. */
+  readonly commit: string | null;
+  readonly pushed: boolean;
+  readonly pushError: string | null;
+}
+
+/** Lifts a park on the story branch (the real one is `gitUnparkWriter`). */
+export interface UnparkWriter {
+  lift(office: OfficeId, request: UnparkBranchRequest): Promise<BranchUnpark>;
+}
+
+/**
+ * The park lifted on the story branch with the Backlog CLI and the office git (DIPO-75): in the
+ * story worktree the F16 `park` block is removed through the single field write path and the
+ * status set back to the park's `from`; only the task file is committed, as `<ID>: status <to>`,
+ * and the branch is pushed without force. A tampered worktree throws `git.worktreeTampered`.
+ */
+export function gitUnparkWriter(deps: {
+  readonly git: (office: OfficeId) => OfficeGit | undefined;
+  readonly cli: BacklogCli;
+}): UnparkWriter {
+  return {
+    async lift(office, request) {
+      const git = deps.git(office);
+      if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+      return git.run(async (session) => {
+        const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
+        const target = { cli: deps.cli, cwd: location.workTree, id: request.story };
+        const before = await viewStory(target);
+        await writeFields(target, (fields) => {
+          const { park: _park, ...rest } = fields;
+          return rest;
+        });
+        if (before.status !== request.to) {
+          await runBacklog(deps.cli, location.workTree, [
+            "task",
+            "edit",
+            request.story,
+            "--status",
+            request.to,
+          ]);
+        }
+        const back = await viewStory(target);
+        if (back.status !== request.to) {
+          throw new GitError(
+            "park.statusNotWritten",
+            `The Backlog CLI left ${request.story} at ${back.status}, not ${request.to}.`,
+          );
+        }
+        const taskFile = repoPath(location.workTree, before.file);
+        const changed = statusPaths(
+          await session.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+        );
+        let commit: string | null = null;
+        if (changed.includes(taskFile)) {
+          await session.ok(location, ["add", "--", taskFile]);
+          const committed = await session.step(
+            location,
+            ["commit", "--quiet", "--no-verify", "-m", `${request.story}: status ${request.to}`],
+            { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
+          );
+          if (committed.code !== 0) {
+            throw new GitError(
+              "git.failed",
+              `git commit failed: ${committed.stderr.trim() || `exit ${committed.code}`}`,
+            );
+          }
+          commit = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+        }
+        const { remote } = git.settings;
+        const url = await session.step(session.repository, [
+          "config",
+          "--get",
+          `remote.${remote}.url`,
+        ]);
+        if (url.code !== 0 || url.stdout.trim() === "") {
+          return { commit, pushed: false, pushError: null };
+        }
+        const ref = `refs/heads/${request.branch}`;
+        const pushed = await session
+          .step(session.repository, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`], {
+            config: FETCH_CONFIG,
+            timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
+          })
+          .catch((error: unknown): GitResult => {
+            if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
+            throw error;
+          });
+        return {
+          commit,
+          pushed: pushed.code === 0,
+          pushError:
+            pushed.code === 0
+              ? null
+              : `pushing ${request.branch} to ${remote} failed (${pushed.stderr.trim() || `exit ${pushed.code}`})`,
+        };
+      });
+    },
+  };
+}
+
+/**
+ * Inside the caller's transaction (DIPO-75): the park `parkId` is resolved `resume` and its run is
+ * active again, so the resumed session continues the same run with what remains of its budget
+ * (0008 section 8). The run's outcome row goes, since the run has not ended; its next end writes
+ * it again with every park of the run. The time since the run ended at the park is added to
+ * `runs.parked_ms`, so its caps and minutes count only the time it worked. Returns the
+ * `story.state` entry back to `to`.
+ */
+export function reopenParkedRun(
+  office: OfficeHandle,
+  park: { readonly parkId: number; readonly reason: string; readonly detail: string },
+  run: StoredRun,
+  to: Lifecycle,
+  at: number,
+): NewEntry[] {
+  office.run(
+    `update parks set resolved_at = $at, resolved_how = 'resume'
+     where office_id = $office_id and park_id = $park and resolved_at is null`,
+    { at, park: park.parkId },
+  );
+  office.run(
+    `update runs set parked_ms = parked_ms + max(0, $at - coalesce(ended_at, $at)),
+       ended_at = null, end_kind = null
+     where office_id = $office_id and run_id = $run and ended_at is not null`,
+    { run: run.runId, at },
+  );
+  office.run(`delete from run_outcomes where office_id = $office_id and run_id = $run`, {
+    run: run.runId,
+  });
+  const key = run.key;
+  const story = run.story;
+  if (key === null || story === null) return [];
+  const current = storyView(office, key);
+  const view = deriveStoryView({
+    key,
+    story: current?.story ?? StoryId.parse(story),
+    title: current?.title ?? "",
+    lifecycle: to,
+    ...(current?.tier === undefined ? {} : { tier: current.tier }),
+  });
+  return [
+    {
+      type: "story.state",
+      key,
+      delta: {
+        story,
+        key,
+        from: "Parked",
+        to,
+        detail: [`resumed from ${park.reason}: ${park.detail}`],
+      },
+      view,
+    },
+  ];
+}
+
 export interface ParkDeps {
   readonly office: OfficeHandle;
   readonly writer: ParkWriter;
@@ -191,6 +362,57 @@ export interface ParkDeps {
   readonly write: (fn: () => readonly NewEntry[]) => void;
   /** True when the engine implements the command; `actions` lists only those. */
   readonly implemented: (name: CommandName) => boolean;
+  /**
+   * The permission question of a `needs-permission` park (DIPO-75): a new question id and the
+   * office's `sandbox.allowedDomains`. Without it no question is asked.
+   */
+  readonly question?: {
+    readonly id: () => string;
+    readonly allowedDomains: readonly string[];
+  };
+}
+
+/**
+ * Inside the park's transaction, after the park row: a `needs-permission` park stores its
+ * permission question (the recorded tool and action, no hook call) and emits `question.asked`.
+ */
+function askParkQuestion(
+  deps: ParkDeps,
+  request: ParkRequest,
+  reason: ParkReason,
+  detail: string,
+  at: number,
+): NewEntry[] {
+  const { run } = request;
+  if (reason !== "needs-permission" || deps.question === undefined || run.key === null) return [];
+  const permission = recordedPermission(detail);
+  const work = request.work ?? workRefOf(deps.office, run.runId);
+  if (permission === null || work === null) return [];
+  const office = deps.office;
+  const park = office.get<{ park_id: number }>(
+    `select park_id from parks where office_id = $office_id and run_id = $run
+      order by park_id desc limit 1`,
+    { run: run.runId },
+  );
+  if (park === null) return [];
+  const binding = sandboxBinding(permission, {
+    worktree: run.worktree,
+    allowedDomains: deps.question.allowedDomains,
+  });
+  const question = insertParkQuestion(office, {
+    questionId: deps.question.id(),
+    runId: run.runId,
+    agentId: work.agent,
+    parkId: park.park_id,
+    tool: permission.tool,
+    action: permission.action,
+    text: parkQuestionText(permission, binding),
+    at,
+  });
+  const view = questionViewOf(office, question);
+  return view === null
+    ? []
+    : [{ type: "question.asked", key: run.key, run: run.runId, delta: view }];
 }
 
 export interface ParkRequest {
@@ -334,6 +556,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
           actions: parkActions(reason, deps.implemented),
         },
       },
+      ...askParkQuestion(deps, request, reason, detail, at),
     ];
   });
   return {

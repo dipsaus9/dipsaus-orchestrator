@@ -57,7 +57,7 @@ import { withWorkViews } from "../views/work";
 
 import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
-import { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
+import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
@@ -181,6 +181,8 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly officeDir: string;
   /** sha256 of the system file (L1+L2), stored on the agent for `canResume` (DIPO-51). */
   readonly systemHash: string;
+  /** The context pack and input paths of the first session, stored for the nudges (DIPO-60). */
+  readonly promptSources: Pick<RunPrompts, "nudgeSources" | "sourceTexts">;
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -318,6 +320,7 @@ export class RunLauncher {
     };
     let spec: WorkerSpec;
     let systemHash: string;
+    let promptSources: PreparedRun["promptSources"];
     try {
       const dependencies = await this.#deps.dependencies(
         facts.office,
@@ -337,6 +340,7 @@ export class RunLauncher {
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
+      promptSources = { nudgeSources: prompts.nudgeSources, sourceTexts: prompts.sourceTexts };
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
@@ -371,6 +375,7 @@ export class RunLauncher {
       paths,
       officeDir: paths.officeDir,
       systemHash,
+      promptSources,
       release: () => {
         setup.release();
         cleanup();

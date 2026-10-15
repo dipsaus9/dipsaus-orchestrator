@@ -1,10 +1,10 @@
 ---
 id: DIPO-75
 title: Answer a needs-permission park with allow once or deny
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-12 09:22'
-updated_date: '2026-10-12 11:58'
+updated_date: '2026-10-15 12:20'
 labels:
   - 'tier:M'
   - after-cutover
@@ -19,6 +19,15 @@ references:
   - packages/engine/test/hooks/
   - packages/engine/test/run/
   - packages/engine/test/recordings/claude-cli/
+  - packages/engine/src/db/
+  - packages/engine/src/workers/claude-cli/
+  - packages/engine/test/workers/
+  - packages/contract/src/
+  - packages/contract/schema/
+  - packages/daemon/src/runs.ts
+  - tools/recordings/scenarios.ts
+  - packages/engine/src/index.ts
+  - docs/decisions/0007-state-database.md
 documentation:
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0008-worker-adapter.md
@@ -58,17 +67,19 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A `needs-permission` park (DIPO-50) stores a permission question with the recorded tool and action, answerable with `work.answer { question, decision }`.
-- [ ] #2 `work.answer { decision: "allow" }` resumes the same session and allows only the first request whose tool and exact command or exact path match, never a prefix or glob; `deny` resumes with "do it without <action>"; no allow is saved as a rule or for later runs.
-- [ ] #3 Allow once never lifts a sandbox block; for a sandbox-bound action the question says so and points to office config.
-- [ ] #4 For a parked story, `work.answer` with a `decision` resumes only a story parked `needs-permission`; for any other park reason it fails and the story stays Parked.
-- [ ] #5 `dipo answer <question> allow|deny` (DIPO-59) on a park's permission question resumes the story as above and prints the resumed run.
-- [ ] #6 The `needs-permission` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
-- [ ] #7 The DIPO-59 rule that a permission `work.answer` needs `decision` also holds for a park's permission question; a test shows a parked permission answer without `decision` fails with `args.invalid`.
+- [x] #1 A `needs-permission` park (DIPO-50) stores a permission question with the recorded tool and action, answerable with `work.answer { question, decision }`.
+- [x] #2 `work.answer { decision: "allow" }` resumes the same session and allows only the first request whose tool and exact command or exact path match, never a prefix or glob; `deny` resumes with "do it without <action>"; no allow is saved as a rule or for later runs.
+- [x] #3 Allow once never lifts a sandbox block; for a sandbox-bound action the question says so and points to office config.
+- [x] #4 For a parked story, `work.answer` with a `decision` resumes only a story parked `needs-permission`; for any other park reason it fails and the story stays Parked.
+- [x] #5 `dipo answer <question> allow|deny` (DIPO-59) on a park's permission question resumes the story as above and prints the resumed run.
+- [x] #6 The `needs-permission` recording is captured live by the maintainer with the DIPO-41 tool, committed, and replayed in the tests.
+- [x] #7 The DIPO-59 rule that a permission `work.answer` needs `decision` also holds for a park's permission question; a test shows a parked permission answer without `decision` fails with `args.invalid`.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Split from DIPO-59 in the M0 review (DIPO-15); flagged test-before-merge because the live capture is a maintainer step. After cutover: built by dipo itself, not by a hand-run agent.
+
+Live tests 2026-10-15 (test agents, Haiku on the scratch repo, TASK-4 'Show the running containers' added via scratch PR #10 with the maintainer's approval; ~$0.0065 total): park needs-permission with a sandbox-bound question; answer without decision refused (args.invalid); allow and deny both resume the same run with a new agent in the same session; parked_ms counted; one run_outcomes row; no allow saved. First test found dipo answer timing out at 10 s (reply waited for the worker host); fixed in 61bd7c4, re-test: allow 2.9 s and deny 3.1 s, exit 0, 'resumed run <id>' printed, stored reply changed:true. Known: Haiku re-asks docker ps after deny (model behaviour); allow_used_at stays empty when the sandbox, not a permission check, blocks the call.
 <!-- SECTION:NOTES:END -->

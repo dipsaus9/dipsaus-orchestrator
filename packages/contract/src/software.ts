@@ -43,6 +43,9 @@ export const OfficeSummary = z.object({
   parked: Count, // includes on-hold
   onHold: Count, // subset of parked
   waitingOnMaintainer: Count, // open gates, questions, tests, parked other than on-hold
+  // Since minor 1 (DIPO-81): the stories in the `ready` column, engine-derived, so the office
+  // switcher shows Ready for offices that are not open. A minor-1 engine always sends it.
+  ready: Count.optional(),
   dayUsage: DayUsage.optional(), // [`usage.alerts`]
   evidence: EvidenceMap.optional(), // [`evidence`]
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`

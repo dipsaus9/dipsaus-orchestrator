@@ -19,6 +19,7 @@ import {
   findEvent,
   type OfficeId,
   OfficeSnapshot,
+  type RunRecord,
   type StreamName,
 } from "@dipsaus-orchestrator/contract";
 
@@ -108,15 +109,41 @@ export class FakeSession implements TuiSession {
   readonly output = new Map<string, string>(
     Object.entries(outputLog.stored).map(([key, lines]) => [key, lines.join("")]),
   );
+  /** `story.detail` runs by story key (oldest first); a story not listed has run never (DIPO-81). */
+  readonly runs = new Map<string, RunRecord[]>();
+
   /** The most bytes one `work.outputRange` returns, as the engine's cap. */
   rangeMax = 1024 * 1024;
 
   read = (async (
     definition: { name: string },
-    args: { office?: string; run?: string; source?: string; from?: number; to?: number },
+    args: {
+      office?: string;
+      run?: string;
+      source?: string;
+      from?: number;
+      to?: number;
+      story?: string;
+    },
   ) => {
     this.reads.push({ name: definition.name, args });
     if (definition.name === "engine.hello") return { ok: true, result: goldenHello };
+    if (definition.name === "story.detail") {
+      const stories =
+        (this.nextSnapshots.get(args.office ?? "") ?? goldenSnapshots.get(args.office ?? ""))
+          ?.stories ?? [];
+      const view = stories.find((story) => story.key === args.story);
+      if (view === undefined) {
+        return {
+          ok: false,
+          error: { code: "story.unknown", message: "no such story", retryable: false },
+        };
+      }
+      return {
+        ok: true,
+        result: { view, runs: this.runs.get(args.story ?? "") ?? [], verdicts: [] },
+      };
+    }
     if (definition.name === "work.outputRange") {
       const text = this.output.get(`${args.run}:${args.source}`) ?? "";
       const from = Math.min(args.from ?? 0, text.length);

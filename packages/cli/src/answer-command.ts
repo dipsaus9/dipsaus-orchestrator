@@ -2,7 +2,8 @@
 // question the engine asked, in the office of `--office` or of the current directory. `allow` and
 // `deny` answer a permission question (0008 section 5): `deny` may be followed by a reason, which
 // the worker is told. Any other text is sent as the answer with no decision; the engine refuses it
-// for a permission question with `args.invalid`.
+// for a permission question with `args.invalid`. On the question of a `needs-permission` park
+// (DIPO-75) the answer resumes the story, and the resumed run is printed.
 
 import { QuestionId, workAnswer } from "@dipsaus-orchestrator/contract";
 
@@ -71,9 +72,15 @@ export async function answerCommand(
         : engineFailure(deps, outcome.error);
     }
     const what = parsed.decision ?? "answered";
+    const { question, delivered, run } = outcome.result;
     deps.writeLine(
-      `${what === "answered" ? "answered" : what === "allow" ? "allowed" : "denied"} ${outcome.result.question} (delivered ${outcome.result.delivered})`,
+      `${what === "answered" ? "answered" : what === "allow" ? "allowed" : "denied"} ${question} (delivered ${delivered})`,
     );
+    // The question of a `needs-permission` park (DIPO-75): the answer resumes the story's run.
+    if (run !== undefined) deps.writeLine(`resumed run ${run}`);
+    else if (delivered === "on-resume") {
+      deps.writeLine("the story did not resume; dipo watch shows where it is now");
+    }
     return 0;
   });
 }

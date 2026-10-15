@@ -16,7 +16,8 @@
         "running": 3,
         "parked": 1,
         "onHold": 1,
-        "waitingOnMaintainer": 2
+        "waitingOnMaintainer": 2,
+        "ready": 2
       }
     ],
     "cursor": {
@@ -69,7 +70,8 @@
         "running": 0,
         "parked": 0,
         "onHold": 0,
-        "waitingOnMaintainer": 0
+        "waitingOnMaintainer": 0,
+        "ready": 1
       }
     },
     {
@@ -88,6 +90,7 @@
         "parked": 1,
         "onHold": 0,
         "waitingOnMaintainer": 1,
+        "ready": 0,
         "dayUsage": {
           "tokens": 3360000,
           "limit": 4000000,

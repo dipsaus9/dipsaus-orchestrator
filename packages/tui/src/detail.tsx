@@ -11,7 +11,8 @@
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
 // `work.outputRange`, and End returns to following. The text lives in an `OutputFeed` outside
 // React; the render keeps only the rows on screen. When the run ends the detail keeps its last
-// view and output, and says where the story went.
+// view and output, and says where the story went. A story that is not running opens its latest
+// stored run the same way, read-only, with facts from the stored run (`past.ts`, DIPO-81).
 
 import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type {
@@ -20,6 +21,7 @@ import type {
   OutputSource,
   QuestionView,
   RunId,
+  RunRecord,
   StoryKey,
   StoryView,
   WorkView,
@@ -29,7 +31,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { budgetBar, evidenceOf, marked, percent, tokens, truncate } from "./format";
 import type { Display } from "./options";
+import { endedLine, nowLine, shortAge } from "./now";
 import { evidenceEnabled } from "./overview";
+import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
 import {
   type FeedChange,
   lastLine,
@@ -40,10 +44,15 @@ import {
 } from "./output";
 import { clockTime, glyphs, healthLabel, officeOptIns, optInLabel } from "./views";
 
+// The `now` line is shared with the overview (DIPO-81).
+export { nowLine, shortAge } from "./now";
+
 /** The run the detail shows; the key finds its story when the id changes. */
 export interface DetailTarget {
   readonly run: RunId;
   readonly key: StoryKey;
+  /** The stored run, when the detail opens a story that is not running (DIPO-81). */
+  readonly record?: RunRecord;
 }
 
 export interface OutputRequest {
@@ -87,45 +96,6 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
     String(work.run),
   ];
   return `${parts.join(` ${dot} `)}${signalFollowOnly(view) ? "  [follow]" : ""}`;
-}
-
-/** An age as `12s`, `4m` or `2h`. */
-export function shortAge(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h`;
-}
-
-/**
- * What the worker is doing right now: health, phase, the newest output line and its age. While the
- * phase is verify the newest verify line leads. Null `view` means the run ended.
- */
-export function nowLine(options: {
-  view: WorkView;
-  ended: StoryView | null | undefined;
-  worker: string | null;
-  verify: string | null;
-  now: number;
-  dot: string;
-}): string {
-  const { view, ended, worker, verify, now, dot } = options;
-  if (ended !== undefined) {
-    if (ended === null) return `run ended ${dot} the story is no longer in this office`;
-    const parked = ended.parked === undefined ? "" : ` (${ended.parked.reason})`;
-    return `run ended ${dot} ${ended.story} is ${ended.lifecycle}${parked}`;
-  }
-  const parts = [`now  ${healthLabel(view.health)}`, view.phase];
-  const line =
-    view.phase === "verify" && verify !== null
-      ? `verify: ${verify}`
-      : (worker ?? (view.phase === "verify" ? null : "no output yet"));
-  if (line !== null) parts.push(line);
-  if (view.lastOutputAt !== undefined) {
-    parts.push(`${shortAge(now - Date.parse(view.lastOutputAt))} ago`);
-  }
-  return parts.join(` ${dot} `);
 }
 
 /** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */
@@ -326,8 +296,17 @@ export function Detail(props: DetailProps) {
 
   const side = columns >= SIDE_BY_SIDE_COLUMNS;
   const evidence = evidenceEnabled(state);
+  const record = view === undefined ? target.record : undefined;
   const factText =
-    view === undefined ? [] : side ? factLines(view, evidence) : compactFactLines(view, evidence);
+    view !== undefined
+      ? side
+        ? factLines(view, evidence)
+        : compactFactLines(view, evidence)
+      : record === undefined
+        ? []
+        : side
+          ? recordFactLines(record, clock.now())
+          : compactRecordFactLines(record, clock.now());
   // The story's open questions, under the `now` line (DIPO-83).
   const questionText = questionLines(
     state.questions.filter((question) => question.work.key === target.key),
@@ -394,21 +373,24 @@ export function Detail(props: DetailProps) {
     { isActive: props.keysActive },
   );
 
-  if (view === undefined || office === null) {
+  if ((view === undefined && record === undefined) || office === null) {
     return <Text>{" This run is not in the office view."}</Text>;
   }
 
   const current = state.work.some((candidate) => candidate.work.run === target.run);
   const story = state.stories.find((candidate) => candidate.key === target.key);
   const ended = current ? undefined : (story ?? null);
-  const now = nowLine({
-    view,
-    ended,
-    worker: lastLine(worker.feed.lines),
-    verify: lastLine(verify.feed.lines),
-    now: clock.now(),
-    dot,
-  });
+  const now =
+    view === undefined
+      ? endedLine(ended ?? null, dot)
+      : nowLine({
+          view,
+          ended,
+          worker: lastLine(worker.feed.lines),
+          verify: lastLine(verify.feed.lines),
+          now: clock.now(),
+          dot,
+        });
 
   const start = Math.max(0, total - paneHeight - scrolled);
   const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled);
@@ -425,7 +407,14 @@ export function Detail(props: DetailProps) {
     const top = start === 0 && feed.atStart ? "start of output  " : "";
     status = `${top}${scrolled} rows below ${dot} [End] follow tail`;
   } else status = "following the tail";
-  const empty = feed.loaded && total === 0 ? [`no ${source} output yet`] : [];
+  const empty =
+    feed.loaded && total === 0
+      ? [
+          ended === undefined
+            ? `no ${source} output yet`
+            : noOutputLine(record?.endedAt, clock.now()),
+        ]
+      : [];
   const pane = (
     <Box flexDirection="column" width={side ? paneWidth + 1 : columns}>
       <Text wrap="truncate-end">{` ${truncate(title, paneWidth, ellipsis)}`}</Text>
@@ -441,7 +430,13 @@ export function Detail(props: DetailProps) {
   const header = (
     <>
       <Text wrap="truncate-end" bold={display.color}>
-        {` ${truncate(headerLine(view, story, dot), columns - 1, ellipsis)}`}
+        {` ${truncate(
+          view === undefined && record !== undefined
+            ? recordHeaderLine(record, story, dot)
+            : headerLine(view!, story, dot),
+          columns - 1,
+          ellipsis,
+        )}`}
       </Text>
       {display.color ? (
         <Text wrap="truncate-end" color={ended === undefined ? "cyan" : "yellow"}>

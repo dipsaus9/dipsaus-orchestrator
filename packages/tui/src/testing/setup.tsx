@@ -2,9 +2,15 @@
 
 import { OfficeStore } from "@dipsaus-orchestrator/client";
 import { systemClock } from "@dipsaus-orchestrator/client/node";
-import type { Clock, OfficeId, RequestId, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type {
+  Clock,
+  OfficeId,
+  OfficeSnapshot,
+  RequestId,
+  TimerHandle,
+} from "@dipsaus-orchestrator/contract";
 
-import { App, type RunOutcome, type StopOutcome, type TuiActions } from "../app";
+import { App, type RunOutcome, type StopOutcome, type StoryOutcome, type TuiActions } from "../app";
 import type { Display } from "../options";
 import type { RangeOutcome } from "../output";
 import { FakeSession } from "./fake-session";
@@ -44,10 +50,14 @@ export interface MountOptions extends RenderSize {
   readonly capabilities?: readonly string[];
   /** Bytes an output pane keeps while following; small values make scroll-back read sooner. */
   readonly outputTailBytes?: number;
+  /** Snapshots answered instead of the golden ones, by office (DIPO-81 board scenarios). */
+  readonly snapshots?: ReadonlyMap<OfficeId, OfficeSnapshot>;
 }
 
 export async function mount(options: MountOptions = {}) {
   const session = new FakeSession();
+  for (const [office, snapshot] of options.snapshots ?? [])
+    session.nextSnapshots.set(office, snapshot);
   if (options.capabilities !== undefined && session.hello !== null) {
     session.hello = { ...session.hello, capabilities: [...options.capabilities] };
   }
@@ -91,6 +101,11 @@ export async function mount(options: MountOptions = {}) {
           ...(request.to === undefined ? {} : { to: request.to }),
         } as never,
       )) as RangeOutcome,
+    readStory: async (request) =>
+      (await session.read(
+        { name: "story.detail" } as never,
+        { office: request.office, story: request.story } as never,
+      )) as StoryOutcome,
     stopStory: async (request) =>
       (await session.command({ name: "work.stop" } as never, { story: request.story } as never, {
         office: request.office,

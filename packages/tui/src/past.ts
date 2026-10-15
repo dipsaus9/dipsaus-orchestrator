@@ -1,0 +1,76 @@
+// The live agent detail of a run that already ended, opened from a story that is not running
+// (DIPO-81): its header and facts come from the stored run (`story.detail` runs: role, tier,
+// model, start, end, outcome and usage), since the engine sends no `WorkView` for an ended run.
+// When the stored output is gone the pane says why rather than looking empty.
+
+import type { RunRecord, StoryView } from "@dipsaus-orchestrator/contract";
+
+import { age, elapsed, tokens } from "./format";
+
+/** The default short retention period of stored output (0007 section 7, tier R). */
+export const OUTPUT_RETENTION_DAYS = 7;
+
+/** `DIPO-28 Show the merge queue · developer · L · claude-haiku · run_01J…`. */
+export function recordHeaderLine(
+  record: RunRecord,
+  story: StoryView | undefined,
+  dot: string,
+): string {
+  const title = story === undefined ? "" : `${story.story} ${story.title}`;
+  return [title, record.role, record.tier, record.model, String(record.run)]
+    .filter((part) => part !== "")
+    .join(` ${dot} `);
+}
+
+function ended(record: RunRecord, now: number): string {
+  if (record.endedAt === undefined) return "ended";
+  const outcome = record.outcome === undefined ? "" : ` (${record.outcome})`;
+  return `ended ${age(now - Date.parse(record.endedAt))} ago${outcome}`;
+}
+
+function usageParts(record: RunRecord) {
+  const { usage } = record;
+  return {
+    io: `in ${tokens(usage.inputTokens)} out ${tokens(usage.outputTokens)}`,
+    cache: `cw ${tokens(usage.cacheCreateTokens)} cr ${tokens(usage.cacheReadTokens)}`,
+    turns: `turns ${usage.turns}`,
+    cost: usage.estimatedCost === undefined ? "" : `~$${usage.estimatedCost.toFixed(2)}`,
+    time: elapsed(usage.elapsedMs),
+  };
+}
+
+/** The stored run's facts as labelled lines, for the side-by-side layout. */
+export function recordFactLines(record: RunRecord, now: number): string[] {
+  const u = usageParts(record);
+  return [
+    `run      ${ended(record, now)}`,
+    `role     ${record.role}`,
+    `model    ${record.model}`,
+    `time     ${u.time}`,
+    `usage    ${u.io}`,
+    `         ${u.cache}`,
+    `         ${u.turns}${u.cost === "" ? "" : `  ${u.cost}`}`,
+  ];
+}
+
+/** The stored run's facts in two lines, for the stacked layout below 100 columns. */
+export function compactRecordFactLines(record: RunRecord, now: number): string[] {
+  const u = usageParts(record);
+  const cost = u.cost === "" ? "" : ` ${u.cost}`;
+  return [
+    `run ${ended(record, now)}  role ${record.role}  model ${record.model}  time ${u.time}`,
+    `usage ${u.io} ${u.cache} ${u.turns}${cost}`,
+  ];
+}
+
+/**
+ * What an empty pane of an ended run says: output older than the retention period was removed
+ * (the engine's default period; the office may set another, which the contract does not send),
+ * otherwise nothing was stored for this source.
+ */
+export function noOutputLine(endedAt: string | undefined, now: number): string {
+  const days = endedAt === undefined ? 0 : (now - Date.parse(endedAt)) / 86_400_000;
+  return days > OUTPUT_RETENTION_DAYS
+    ? "output removed after the retention period"
+    : "no output stored";
+}

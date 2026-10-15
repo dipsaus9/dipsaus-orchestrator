@@ -28,6 +28,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "init-rejected-model": ["initRejected", "worker-failed"],
   interrupt: ["crashed", "worker-failed"],
   "max-turns": ["capped", "budget-exceeded"],
+  // DIPO-75: the blocked report carries needsPermission {Bash, docker ps}.
+  "needs-permission": ["blocked", "needs-permission"],
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
   "permission-denied": ["blocked", "needs-permission"],

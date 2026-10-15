@@ -62,6 +62,11 @@
           "minimum": 0,
           "maximum": 9007199254740991
         },
+        "ready": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
         "dayUsage": {
           "type": "object",
           "properties": {

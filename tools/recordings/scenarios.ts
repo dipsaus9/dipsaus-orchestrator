@@ -273,6 +273,29 @@ const SCENARIOS_BASE: readonly Scenario[] = [
     timeoutMs: 180_000,
   },
   {
+    // DIPO-75: the park the maintainer answers with `dipo answer <q> allow|deny`.
+    name: "needs-permission",
+    fixture: "greeter",
+    model: "haiku",
+    effort: "low",
+    maxTurns: 5,
+    tools: ["Bash"],
+    turns: [
+      "Run the command docker ps with the Bash tool, exactly once and exactly as written. " +
+        "If the call is denied or fails, do not retry it and do not work around it. " +
+        report(
+          "blocked",
+          "docker ps could not run.",
+          "chore: record needs permission",
+          ' and needsPermission {"tool": "Bash", "action": "docker ps"}',
+        ),
+    ],
+    hookRelay: { waitSeconds: 10 },
+    expected:
+      'The worker cannot run docker ps (denied by the permission layer, or blocked by the sandbox: no daemon socket, no network) and ends with a blocked report carrying needsPermission {"tool": "Bash", "action": "docker ps"}: the engine parks the story needs-permission with "Bash: docker ps" as detail and stores the park\'s permission question, which dipo answer allows once or denies.',
+    timeoutMs: 240_000,
+  },
+  {
     name: "permission-wait",
     fixture: "greeter",
     model: "haiku",
