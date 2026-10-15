@@ -4,7 +4,7 @@ title: Let workers install packages through Safe-Chain
 status: To Do
 assignee: []
 created_date: '2026-10-15 14:10'
-updated_date: '2026-10-15 17:14'
+updated_date: '2026-10-15 17:15'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -27,6 +27,7 @@ references:
   - packages/engine/src/run/reattach.ts
   - packages/engine/src/run/outcomes.ts
   - packages/engine/test/platform
+  - docs/decisions/0008-worker-adapter.md
 priority: high
 ordinal: 74000
 ---
@@ -43,7 +44,7 @@ Context: the maintainer decided on 2026-10-15: workers always use Safe-Chain fro
 <!-- AC:BEGIN -->
 - [ ] #1 Inside the sandbox replay (no Claude session) and in a live Haiku run on the scratch repo, a worker's bun add of a small pinned package succeeds through Safe-Chain, and an install of Safe-Chain's own test malware package (or another documented blocked case) is refused by Safe-Chain.
 - [x] #2 dipo run --dry-run shows the opened hosts, local binding and write paths with the reason (Safe-Chain installs), and the self-test or launch check reports clearly when Safe-Chain is present but installs cannot work.
-- [ ] #3 The approved ADR 0008 amendment for installs through Safe-Chain is recorded, and tests cover the plan with and without Safe-Chain.
+- [x] #3 The approved ADR 0008 amendment for installs through Safe-Chain is recorded, and tests cover the plan with and without Safe-Chain.
 - [x] #4 With Safe-Chain detected, workers install through a Safe-Chain checking proxy that dipo runs outside the worker sandbox (maintainer decision 2026-10-15, option B): the worker sandbox keeps allowLocalBinding false and localhost closed, its network reaches only that proxy route to the package registries (npm, yarn, pypi as measured) and Aikido's malware list, install caches go to the run temp dir, and ~/.safe-chain stays read-only. A machine without Safe-Chain launches exactly as before.
 - [x] #5 When a run's committed changes include dependency files (package.json, bun.lock, bun.lockb, package-lock.json, pnpm-lock.yaml, yarn.lock, requirements*.txt, pyproject.toml, poetry.lock, uv.lock), dipo raises an engine notice on the run and story naming the changed files, detected by code from the run's diff at commit time with no model involved, so the maintainer sees new packages at review.
 <!-- AC:END -->
