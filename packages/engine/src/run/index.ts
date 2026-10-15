@@ -37,6 +37,7 @@ export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
 export {
   activeRuns,
+  backstopSnapshotOf,
   capsStartedAt,
   appendRunStep,
   currentProfileId,
@@ -49,6 +50,7 @@ export {
   hasActiveRun,
   insertRun,
   recordConfigSnapshot,
+  storeBackstopSnapshot,
   runSteps,
 } from "./records";
 export type { NewRun, RunKind, RunOutcome, StoredRun, StoredRunStep, RunStepKind } from "./records";
@@ -72,6 +74,7 @@ export {
   HOST_CONNECT_TIMEOUT_MS,
   hostRequestOf,
   hostSocketSteering,
+  isStopSequence,
   OfficeIngest,
   STEER_TIMEOUT_MS,
   systemHostStarter,
@@ -243,5 +246,11 @@ export type {
   RunStoryFacts,
 } from "./resume";
 // Re-attach after a daemon restart (DIPO-57).
-export { FOLLOW_CHECK_MS, REATTACH_NOTICES, REATTACH_STEP, RunReattacher } from "./reattach";
+export {
+  FOLLOW_CHECK_MS,
+  HOST_NEVER_STARTED,
+  REATTACH_NOTICES,
+  REATTACH_STEP,
+  RunReattacher,
+} from "./reattach";
 export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";

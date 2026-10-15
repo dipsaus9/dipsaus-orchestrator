@@ -80,7 +80,7 @@ import {
   reopenParkedRun,
   type UnparkWriter,
 } from "./park";
-import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
+import { activeRuns, backstopSnapshotOf, capsStartedAt, findRun, type StoredRun } from "./records";
 import type { NextSession } from "./resume";
 import { activeSignals, raiseSignal } from "./signals";
 import type { StoryGit } from "./story-git";
@@ -1208,7 +1208,8 @@ export class RunOutcomes implements RunOutcomesPort {
         work,
         caps,
         startedAt: capsStartedAt(run, host?.started_at),
-        snapshot: null,
+        // The run-start snapshot, stored with the run, keeps the backstop on (DIPO-93).
+        snapshot: backstopSnapshotOf(office, run.runId),
       };
       if (decided !== null) {
         const key = `${run.runId} ${agent.agent_id}`;
@@ -1596,7 +1597,7 @@ export class RunOutcomes implements RunOutcomesPort {
       work,
       caps,
       startedAt: capsStartedAt(run, host?.started_at),
-      snapshot: null,
+      snapshot: backstopSnapshotOf(office, run.runId),
     };
   }
 
