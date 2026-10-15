@@ -1,4 +1,4 @@
-// The `questions` table (0007 section 4, migration 22) and its views (0005 `QuestionView`): what the
+// The `questions` table (0007 section 4, migrations 22 and 23) and its views (0005 `QuestionView`): what the
 // engine asks the maintainer for a run's agent, and how each question stopped waiting. The writers
 // run inside the caller's immediate transaction; nothing here sends anything.
 
@@ -10,6 +10,7 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
+import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
@@ -33,6 +34,10 @@ export interface StoredQuestion {
   readonly decision: Exclude<PermissionDecision, null> | null;
   readonly closedAt: number | null;
   readonly closedHow: QuestionClose | null;
+  /** The park the question belongs to, for the question of a `needs-permission` park (DIPO-75). */
+  readonly parkId: number | null;
+  /** When an allow of a park question let its one matching request through (DIPO-75). */
+  readonly allowUsedAt: number | null;
 }
 
 interface QuestionRow {
@@ -49,10 +54,12 @@ interface QuestionRow {
   decision: "allow" | "deny" | null;
   closed_at: number | null;
   closed_how: QuestionClose | null;
+  park_id: number | null;
+  allow_used_at: number | null;
 }
 
 const COLUMNS = `question_id, run_id, agent_id, kind, text, tool, input, hook, asked_at, answer,
-  decision, closed_at, closed_how`;
+  decision, closed_at, closed_how, park_id, allow_used_at`;
 
 function stored(row: QuestionRow): StoredQuestion {
   return {
@@ -69,6 +76,8 @@ function stored(row: QuestionRow): StoredQuestion {
     decision: row.decision,
     closedAt: row.closed_at,
     closedHow: row.closed_how,
+    parkId: row.park_id,
+    allowUsedAt: row.allow_used_at,
   };
 }
 
@@ -111,6 +120,121 @@ export function insertPermissionQuestion(
   const row = findQuestion(office, question.questionId);
   if (row === null) throw new Error(`question ${question.questionId} was not stored`);
   return row;
+}
+
+export interface NewParkQuestion {
+  readonly questionId: string;
+  readonly runId: string;
+  readonly agentId: string;
+  readonly parkId: number;
+  /** The recorded tool and action of the `needs-permission` park. */
+  readonly tool: string;
+  readonly action: string;
+  /** What the maintainer sees (`parkQuestionText`). */
+  readonly text: string;
+  readonly at: number;
+}
+
+/**
+ * Stores the open permission question of a `needs-permission` park (DIPO-75, migration 23): the
+ * recorded tool, the action as `input`, no hook call; returns it.
+ */
+export function insertParkQuestion(
+  office: OfficeHandle,
+  question: NewParkQuestion,
+): StoredQuestion {
+  office.run(
+    `insert into questions (office_id, question_id, run_id, agent_id, kind, text, tool, input, hook,
+       asked_at, park_id)
+     values ($office_id, $question, $run, $agent, 'permission', $text, $tool, $input, null, $at,
+       $park)`,
+    {
+      question: question.questionId,
+      run: question.runId,
+      agent: question.agentId,
+      text: question.text,
+      tool: question.tool,
+      input: question.action,
+      at: question.at,
+      park: question.parkId,
+    },
+  );
+  const row = findQuestion(office, question.questionId);
+  if (row === null) throw new Error(`question ${question.questionId} was not stored`);
+  return row;
+}
+
+/** The open questions of the park `parkId`, oldest first. */
+export function openParkQuestions(office: OfficeHandle, parkId: number): StoredQuestion[] {
+  return office
+    .all<QuestionRow>(
+      `select ${COLUMNS} from questions
+        where office_id = $office_id and park_id = $park and closed_at is null
+        order by asked_at, question_id`,
+      { park: parkId },
+    )
+    .map(stored);
+}
+
+/**
+ * Allow once (0008 section 5, DIPO-75): the first answered `allow` of a park question of `runId`
+ * whose tool equals `tool` and whose recorded action equals `exact`, compared byte for byte (no
+ * prefix, no glob, no trimming), and not used yet. It is marked used at `at` and returned; null
+ * when none matches. Runs inside the caller's transaction.
+ */
+export function takeAllowOnce(
+  office: OfficeHandle,
+  runId: string,
+  tool: string,
+  exact: string,
+  at: number,
+): StoredQuestion | null {
+  const row = office.get<QuestionRow>(
+    `select ${COLUMNS} from questions
+      where office_id = $office_id and run_id = $run and park_id is not null
+        and decision = 'allow' and closed_how = 'answered' and allow_used_at is null
+        and tool = $tool and input = $exact
+      order by asked_at, question_id limit 1`,
+    { run: runId, tool, exact },
+  );
+  if (row === null) return null;
+  office.run(
+    `update questions set allow_used_at = $at
+      where office_id = $office_id and question_id = $question and allow_used_at is null`,
+    { at, question: row.question_id },
+  );
+  return stored({ ...row, allow_used_at: at });
+}
+
+/**
+ * Inside the caller's transaction (DIPO-75): records the maintainer's answer to a park's question
+ * (`answered`, delivered `on-resume`) and returns its `question.closed`; nothing when the question
+ * was not open.
+ */
+export function answeredParkQuestion(
+  office: OfficeHandle,
+  questionId: string,
+  decision: "allow" | "deny",
+  text: string,
+  at: number,
+): NewEntry[] {
+  const question = findQuestion(office, questionId);
+  if (question === null) return [];
+  if (
+    !closeQuestion(office, questionId, "answered", at, { text, decision, delivered: "on-resume" })
+  ) {
+    return [];
+  }
+  const reason = text.trim();
+  const work = workRefOf(office, question.runId as RunId);
+  return [
+    {
+      type: "question.closed",
+      ...(work === null ? {} : { key: work.key }),
+      run: question.runId as RunId,
+      delta: { question: questionId, answer: reason === "" ? decision : `${decision}: ${reason}` },
+    },
+  ];
 }
 
 export function findQuestion(office: OfficeHandle, questionId: string): StoredQuestion | null {

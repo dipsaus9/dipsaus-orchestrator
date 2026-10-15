@@ -99,6 +99,30 @@ describe("dipo answer", () => {
     expect(text.sent[0]?.args).toEqual({ question: QUESTION, text: "Yes, a 404 is fine." });
   });
 
+  it("prints the resumed run of a park's question (DIPO-75 AC #5)", async () => {
+    const RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5J";
+    const resumed = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { question: QUESTION, delivered: "on-resume", run: RUN },
+    }));
+    expect(await main(["answer", QUESTION, "allow"], resumed.deps)).toBe(0);
+    expect(resumed.out).toEqual([
+      `allowed ${QUESTION} (delivered on-resume)`,
+      `resumed run ${RUN}`,
+    ]);
+    const denied = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { question: QUESTION, delivered: "on-resume" },
+    }));
+    expect(await main(["answer", QUESTION, "deny"], denied.deps)).toBe(0);
+    expect(denied.out).toEqual([
+      `denied ${QUESTION} (delivered on-resume)`,
+      "the story did not resume; dipo watch shows where it is now",
+    ]);
+  });
+
   it("prints the engine's error and exits 1", async () => {
     const ctx = fake(() => ({
       ok: false,

@@ -27,6 +27,11 @@ export type HookEvent =
       readonly tool: string;
       /** A one-line summary of the call: a command, a path, or the input in short. */
       readonly input: string;
+      /**
+       * The call's exact command or path, untouched (not shortened, whitespace kept); absent when
+       * the call has neither. Allow once (DIPO-75) compares only this, never `input`.
+       */
+      readonly exact?: string;
     } & HookCall)
   | ({
       readonly kind: "toolUsed";

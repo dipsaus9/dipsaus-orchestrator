@@ -1,0 +1,68 @@
+{
+  "scenario": "needs-permission",
+  "source": "live",
+  "claude_code_version": "2.1.300",
+  "captured_at": "2026-10-15",
+  "expected": "The worker cannot run docker ps (denied by the permission layer, or blocked by the sandbox: no daemon socket, no network) and ends with a blocked report carrying needsPermission {\"tool\": \"Bash\", \"action\": \"docker ps\"}: the engine parks the story needs-permission with \"Bash: docker ps\" as detail and stores the park's permission question, which dipo answer allows once or denies.",
+  "usage_checksum": "a6e3f3f27449d2997da9f04f0e5e94641b28f64586141787848579ecbef170d1",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "5",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Bash",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 624,
+  "prompt_sha256": "e84aa5ca9d05f5fcbebb717ba3817d602c6e28b8572d82fc684d4f7e4b524a85",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 506
+    },
+    {
+      "t": 8181,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "testConfig": {
+    "permissionWaitSeconds": 10
+  }
+}
