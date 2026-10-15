@@ -11,6 +11,7 @@
 import type { Usage, UsageTotals } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
+import { canonicalModel } from "../pricing/estimate";
 import type { ModelUsageTotals, UsageTotalsByModel } from "../workers/types";
 
 /** The run and agent usage is counted for, with what `runs` holds for it. */
@@ -127,24 +128,40 @@ export function applyTurnTotals(
 ): void {
   for (const model of Object.keys(totals)) ensureRow(office, scope, model, at);
   ensureRow(office, scope, turns.model, at);
-  const models = office.all<{ model: string }>(
-    `select model from usage_totals
+  const rows = office.all<{ model: string; cache_create_1h: number }>(
+    `select model, cache_create_1h from usage_totals
      where office_id = $office_id and run_id = $run and agent_id = $agent`,
     { run: scope.run, agent: scope.agent },
   );
-  for (const { model } of models) {
+  // The 1 hour writes the messages reported, per canonical model (DIPO-89). A message names the
+  // model as the API answered it (`claude-opus-5-5`), while the turn totals may key it with a
+  // context marker (`claude-opus-5-5[1m]`); matched by exact id only, the split was lost and every
+  // write was priced as a 5 minute write.
+  const oneHour = new Map<string, number>();
+  for (const row of rows) {
+    const canonical = canonicalModel(row.model);
+    oneHour.set(canonical, (oneHour.get(canonical) ?? 0) + row.cache_create_1h);
+  }
+  // Models the totals list take their share first; a row they leave out is zeroed.
+  const listed = rows.filter((row) => totals[row.model] !== undefined);
+  const unlisted = rows.filter((row) => totals[row.model] === undefined);
+  for (const { model } of [...listed, ...unlisted]) {
     const usage = totals[model] ?? { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
+    const canonical = canonicalModel(model);
+    const left = oneHour.get(canonical) ?? 0;
+    // The 1 hour part is what messages reported, capped at the new total; 5 minute is the rest.
+    const create1h = Math.min(left, usage.cacheCreate);
+    oneHour.set(canonical, left - create1h);
     office.run(
-      // The 1 hour part is what messages reported, capped at the new total; 5 minute is the rest.
       `update usage_totals set input = $input, output = $output, cache_create = $create,
-         cache_create_1h = min(cache_create_1h, $create),
-         cache_create_5m = $create - min(cache_create_1h, $create),
+         cache_create_1h = $create1h, cache_create_5m = $create - $create1h,
          cache_read = $read, turns = turns + $turns, updated_at = $at
        where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
       {
         input: usage.input,
         output: usage.output,
         create: usage.cacheCreate,
+        create1h,
         read: usage.cacheRead,
         turns: model === turns.model ? turns.count : 0,
         at,

@@ -276,6 +276,63 @@ describe("long-prompt rates per message (DIPO-78)", () => {
     }));
 });
 
+describe("cache tiers across model ids (DIPO-89)", () => {
+  it("totals keyed with a context marker keep the 1 hour writes their messages reported", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      const scope = target(f, claude, initialState() as unknown as ParseState);
+      const OPUS = "claude-opus-5-5";
+      f.office.immediate(() => {
+        f.office.run(
+          `insert or ignore into agents (office_id, agent_id, run_id, role, model, started_at)
+           values ($office_id, $agent, $run, 'developer', $model, 0)`,
+          { agent: f.agent, run: f.run, model: OPUS },
+        );
+        // The API answers with the plain id; every write goes to the 1 hour cache.
+        recordUsageMessage(
+          f.office,
+          scope,
+          {
+            messageId: "msg-opus-1",
+            model: OPUS,
+            input: 10,
+            output: 0,
+            cacheCreate: 10_000,
+            cacheCreate5m: 0,
+            cacheCreate1h: 10_000,
+            cacheRead: 50_000,
+          },
+          0,
+        );
+        // The turn end keys the same model with its context marker.
+        applyTurnTotals(
+          f.office,
+          scope,
+          {
+            [`${OPUS}[1m]`]: { input: 10, output: 1000, cacheCreate: 10_000, cacheRead: 50_000 },
+          },
+          { model: `${OPUS}[1m]`, count: 1 },
+          0,
+        );
+        priceAgentUsage(f.office, f.t.state.pricing, f.run, f.agent);
+      });
+      const split = f.office.all<{ model: string; w5m: number; w1h: number }>(
+        `select model, cache_create_5m as w5m, cache_create_1h as w1h from usage_totals
+         where office_id = $office_id and run_id = $run order by model`,
+        { run: f.run },
+      );
+      expect(split).toEqual([
+        { model: OPUS, w5m: 0, w1h: 0 },
+        { model: `${OPUS}[1m]`, w5m: 0, w1h: 10_000 },
+      ]);
+      // Claude Opus 5.5 per million: $4 input, $20 output, $8 1 hour writes, $0.20 reads.
+      // 40 + 20000 + 80000 + 10000 = 110040; priced as 5 minute writes it was 80040, 27% low.
+      expect(pricedRows(f).find((row) => row.model === `${OPUS}[1m]`)?.est_cost_micros).toBe(
+        110_040,
+      );
+    }));
+});
+
 describe("cross-check against the CLI's costUSD", () => {
   it("a gap above 10% raises one notice for the run, however many turns end", () =>
     withTempDir(async (dir) => {
