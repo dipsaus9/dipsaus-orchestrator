@@ -19,7 +19,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { StoryIndex } from "../../src/stories/feature";
+import { REFRESH_FETCH_FRESH_MS, StoryIndex } from "../../src/stories/feature";
 import { BACKLOG_CLI } from "../backlog/helpers";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { entriesAfter, keyOf, lastSeq, storyRows } from "./helpers";
@@ -259,7 +259,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
         // A refresh (a command named an unknown story) fetches and indexes without the poll.
         await merge("Add the is-odd dependency");
+        // Right after the poll's fetch it does not fetch again.
         await index.refresh(officeId);
+        expect(keyOf(office, "TASK-5")).toBeNull();
+        s.clock.advance(REFRESH_FETCH_FRESH_MS);
+        // Two refreshes at once share one run.
+        const first = index.refresh(officeId);
+        expect(index.refresh(officeId)).toBe(first);
+        await first;
         expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
         // A refresh with nothing new writes nothing.
         const after = lastSeq(office);

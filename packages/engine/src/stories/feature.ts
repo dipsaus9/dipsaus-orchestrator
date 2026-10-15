@@ -30,6 +30,9 @@ import { type IndexResult, indexStories, refreshStory, type RefreshOptions } fro
 /** The load step's name in the registry. */
 export const INDEX_STEP = "stories.index";
 
+/** A refresh does not fetch again when a fetch succeeded less than this long ago (DIPO-104). */
+export const REFRESH_FETCH_FRESH_MS = 5_000;
+
 export interface StoryIndexDeps {
   /** The office's git once the git load step attached it. */
   readonly git: { forOffice(office: OfficeId): OfficeGit | undefined };
@@ -59,6 +62,8 @@ interface Indexed {
   sha: string | null;
   /** The last pass that succeeded, for reconcile right after the load pass (DIPO-56). */
   last: IndexResult | null;
+  /** The refresh queued or running now, shared by every caller (DIPO-104). */
+  refreshing: Promise<void> | null;
   /** The pass or poll running now; the next one starts after it. */
   busy: Promise<unknown>;
 }
@@ -157,7 +162,10 @@ export class StoryIndex {
     for (const state of this.#offices.values()) this.#cancel(state);
   }
 
-  #track(office: OfficeId, values: Omit<Indexed, "timer" | "sha" | "last" | "busy">): Indexed {
+  #track(
+    office: OfficeId,
+    values: Omit<Indexed, "timer" | "sha" | "last" | "refreshing" | "busy">,
+  ): Indexed {
     const existing = this.#offices.get(office);
     if (existing !== undefined && existing.office === values.office) {
       existing.fetchSeconds = values.fetchSeconds;
@@ -169,6 +177,7 @@ export class StoryIndex {
       timer: null,
       sha: null,
       last: null,
+      refreshing: null,
       busy: Promise.resolve(),
     };
     this.#offices.set(office, state);
@@ -271,14 +280,38 @@ export class StoryIndex {
   /**
    * The story refresh (DIPO-104): an office command named a story the office does not know, so
    * fetch and index now, after any pass already running, instead of waiting for the next poll.
-   * Never throws; an office that has not loaded is left alone.
+   * A refresh already queued or running is shared. A fetch that succeeded less than
+   * `REFRESH_FETCH_FRESH_MS` ago is not repeated; `_base` is still read when no pass has read its
+   * commit. Never throws; an office that has not loaded is left alone.
    */
-  async refresh(office: OfficeId): Promise<void> {
+  refresh(office: OfficeId): Promise<void> {
     const state = this.#offices.get(office);
-    if (state === undefined) return;
-    await this.#serial(state, () =>
-      this.#fetchAndIndex(office, state, "refreshing the office's stories failed"),
-    );
+    if (state === undefined) return Promise.resolve();
+    if (state.refreshing !== null) return state.refreshing;
+    const run = this.#serial(state, () => this.#refresh(office, state)).finally(() => {
+      state.refreshing = null;
+    });
+    state.refreshing = run;
+    return run;
+  }
+
+  async #refresh(office: OfficeId, state: Indexed): Promise<void> {
+    const failed = "refreshing the office's stories failed";
+    try {
+      const git = this.#git(office);
+      const last = git.lastFetch;
+      if (last === null || !last.ok || state.clock.now() - last.at >= REFRESH_FETCH_FRESH_MS) {
+        await this.#fetchAndIndex(office, state, failed);
+        return;
+      }
+      const base = await git.ensureBaseWorktree();
+      if (base.sha !== state.sha) await this.#pass(office, state);
+    } catch (error) {
+      this.#deps.logger?.warn(failed, {
+        office,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
