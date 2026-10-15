@@ -110,7 +110,14 @@ export interface HostExitFile {
   readonly run: string;
   /** Exit code, or null when the worker ended by a signal or never started. */
   readonly code: number | null;
+  /** The signal that ended the worker, read from the process or inferred (`signalInferred`). */
   readonly signal: string | null;
+  /**
+   * True when the process reported no signal but the host had sent one and the worker then
+   * exited non-zero (DIPO-88): `signal` is the one the host sent last. A worker that handles
+   * SIGTERM and exits 143, as Claude Code does, ends this way. Absent otherwise.
+   */
+  readonly signalInferred?: boolean;
   /** Size of `events.ndjson` after the last line the host wrote. */
   readonly finalOffset: number;
   /** Milliseconds since the Unix epoch. */
@@ -123,6 +130,7 @@ export const HostExitFileSchema = z.object({
   run: z.string(),
   code: z.number().int().nullable(),
   signal: z.string().nullable(),
+  signalInferred: z.boolean().optional(),
   finalOffset: z.number().int().nonnegative(),
   at: z.number().int(),
   startError: z.string().optional(),

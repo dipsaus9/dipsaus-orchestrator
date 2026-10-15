@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import type { ChildExit, ChildProcess, Signal } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
+import { exitCause } from "../../src/host/main";
 import type { OpFrame } from "../../src/host/protocol";
 import { hostOpOf, Steering } from "../../src/host/steering";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -86,11 +87,14 @@ describe("Steering", () => {
     expect(writes).toHaveLength(1);
     expect(ended()).toBe(true);
     expect(signals).toEqual([]);
+    expect(steering.lastSignal).toBeNull();
     expect(steering.pendingSignals).toBe(2);
     clock.advance(10_000);
     expect(signals).toEqual(["SIGTERM"]);
+    expect(steering.lastSignal).toBe("SIGTERM");
     clock.advance(20_000);
     expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(steering.lastSignal).toBe("SIGKILL");
     expect(steering.pendingSignals).toBe(0);
   });
 
@@ -102,6 +106,8 @@ describe("Steering", () => {
     steering.apply({ signal: "SIGKILL", afterMs: 30_000 });
     clock.advance(5_000);
     expect(steering.workerExited()).toBe(2);
+    // An armed signal that never fired was never sent (DIPO-88).
+    expect(steering.lastSignal).toBeNull();
     clock.advance(60_000);
     expect(signals).toEqual([]);
     expect(steering.pendingSignals).toBe(0);
@@ -133,5 +139,37 @@ describe("Steering", () => {
       ok: false,
       error: { code: "stdin.failed", message: "EPIPE" },
     });
+  });
+});
+
+describe("exitCause (DIPO-88)", () => {
+  it("keeps a signal the process reports, whatever the host sent", () => {
+    expect(exitCause({ code: null, signal: "SIGTERM" }, "SIGTERM")).toEqual({
+      code: null,
+      signal: "SIGTERM",
+    });
+    expect(exitCause({ code: null, signal: "SIGKILL" }, "SIGTERM")).toEqual({
+      code: null,
+      signal: "SIGKILL",
+    });
+  });
+
+  it("infers the signal the host sent last when the worker handled it and exited non-zero", () => {
+    expect(exitCause({ code: 143, signal: null }, "SIGTERM")).toEqual({
+      code: 143,
+      signal: "SIGTERM",
+      signalInferred: true,
+    });
+    expect(exitCause({ code: 1, signal: null }, "SIGKILL")).toEqual({
+      code: 1,
+      signal: "SIGKILL",
+      signalInferred: true,
+    });
+  });
+
+  it("infers nothing for a worker that exits on its own or exits 0", () => {
+    expect(exitCause({ code: 0, signal: null }, null)).toEqual({ code: 0, signal: null });
+    expect(exitCause({ code: 143, signal: null }, null)).toEqual({ code: 143, signal: null });
+    expect(exitCause({ code: 0, signal: null }, "SIGTERM")).toEqual({ code: 0, signal: null });
   });
 });
