@@ -129,9 +129,12 @@ export interface IngestedExit {
 export function exitRecordOf(data: string): ExitRecord {
   try {
     const value = JSON.parse(data) as Record<string, unknown> | null;
+    const signal = typeof value?.["signal"] === "string" ? value["signal"] : null;
     return {
       code: typeof value?.["code"] === "number" ? value["code"] : null,
-      signal: typeof value?.["signal"] === "string" ? value["signal"] : null,
+      signal,
+      // The host inferred the signal from the one it sent last (DIPO-88).
+      ...(signal !== null && value?.["signalInferred"] === true ? { signalInferred: true } : {}),
     };
   } catch {
     return { code: null, signal: null };
@@ -608,9 +611,17 @@ export class Ingestor {
         // The exit as the host wrote it, for a decision after a restart (DIPO-51).
         this.#office.run(
           `update worker_hosts set exit_code = coalesce(exit_code, $code),
-             exit_signal = coalesce(exit_signal, $signal)
+             exit_signal = coalesce(exit_signal, $signal),
+             exit_signal_inferred = case when exit_signal is null then $inferred
+               else exit_signal_inferred end
            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-          { code: exit.code, signal: exit.signal, run, agent },
+          {
+            code: exit.code,
+            signal: exit.signal,
+            inferred: exit.signalInferred === true ? 1 : 0,
+            run,
+            agent,
+          },
         );
       }
       this.#append(entries, now);
