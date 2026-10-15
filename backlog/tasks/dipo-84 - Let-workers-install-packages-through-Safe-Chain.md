@@ -1,10 +1,10 @@
 ---
 id: DIPO-84
 title: Let workers install packages through Safe-Chain
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 14:10'
-updated_date: '2026-10-15 17:15'
+updated_date: '2026-10-15 17:50'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -42,7 +42,7 @@ Context: the maintainer decided on 2026-10-15: workers always use Safe-Chain fro
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Inside the sandbox replay (no Claude session) and in a live Haiku run on the scratch repo, a worker's bun add of a small pinned package succeeds through Safe-Chain, and an install of Safe-Chain's own test malware package (or another documented blocked case) is refused by Safe-Chain.
+- [x] #1 Inside the sandbox replay (no Claude session) and in a live Haiku run on the scratch repo, a worker's bun add of a small pinned package succeeds through Safe-Chain, and an install of Safe-Chain's own test malware package (or another documented blocked case) is refused by Safe-Chain.
 - [x] #2 dipo run --dry-run shows the opened hosts, local binding and write paths with the reason (Safe-Chain installs), and the self-test or launch check reports clearly when Safe-Chain is present but installs cannot work.
 - [x] #3 The approved ADR 0008 amendment for installs through Safe-Chain is recorded, and tests cover the plan with and without Safe-Chain.
 - [x] #4 With Safe-Chain detected, workers install through a Safe-Chain checking proxy that dipo runs outside the worker sandbox (maintainer decision 2026-10-15, option B): the worker sandbox keeps allowLocalBinding false and localhost closed, its network reaches only that proxy route to the package registries (npm, yarn, pypi as measured) and Aikido's malware list, install caches go to the run temp dir, and ~/.safe-chain stays read-only. A machine without Safe-Chain launches exactly as before.
@@ -80,4 +80,6 @@ Maintainer decision 2026-10-15: option B. The DIPO-84 investigation found that S
 - A gate that exits on its own now closes dipo's port and removes the proxy dir and its policy (measured by killing the gate).
 - Re-attach after a daemon restart: a living worker whose run directory holds safe-chain/proxy.json and whose proxy this daemon does not run is stopped and parks interrupted (notice run.safeChainProxyGone). A same-port restart was not chosen: the port may be taken, and the worker's CA would not match a new proxy's.
 - Daemon start sweeps leftover /tmp/dipo-p/<6 chars> dirs of this user whose owner process (owner file) no longer runs.
+
+Live test 2026-10-15 (test agent, Haiku on the scratch repo, TASK-5 'Add the is-number dependency' added via scratch PR #11 with the maintainer's approval, $0.0042): dry run shows the closed worker network with httpProxyPort, /tmp/dipo-p read-denied, nothing of ~/.safe-chain readable; proxy check and self-test passed; the worker's bun add is-number@7.0.0 succeeded and bun add safe-chain-test got 403 from Safe-Chain; verify.dependenciesChanged named bun.lock and package.json; afterwards /tmp/dipo-p was empty, proxy processes gone, ~/.safe-chain and ~/.bun/install/cache unchanged. Seen: /tmp/dipo-run-<run> dirs stay after runs; zsh writes .zcompdump into <run>/safe-chain; a running daemon does not see a story merged to the base after office open until a rescan.
 <!-- SECTION:NOTES:END -->
