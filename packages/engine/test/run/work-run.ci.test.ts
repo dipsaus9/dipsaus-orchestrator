@@ -194,8 +194,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const run = findRun(r.office, result.started[0]?.run as never);
             expect(run).toMatchObject({ kind: "story", story: "TASK-1", branch, tier: "S" });
             const entries = types(r);
-            expect(entries.slice(-3).map((entry) => entry.type)).toEqual([
+            expect(entries.slice(-4).map((entry) => entry.type)).toEqual([
               "work.assigned",
+              // The setup phase marker (DIPO-83).
+              "work.output",
               "work.phase",
               "story.state",
             ]);

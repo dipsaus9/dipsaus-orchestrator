@@ -345,7 +345,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           group by message_id having n > 1`,
       );
       expect(counts).toEqual([]);
-      expect(outputs.length).toBe(2);
+      // Before and after the restart, then the run's end marker (DIPO-83).
+      expect(outputs.length).toBe(3);
+      expect(outputs.at(-1)?.text).toMatch(/^\[dipo\] \S+ ended /);
     }, 30_000);
   });
 }
