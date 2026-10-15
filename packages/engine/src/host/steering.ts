@@ -3,7 +3,7 @@
 // and cancelled when the worker exits, so a delayed SIGTERM or SIGKILL can never reach a process
 // that later reuses the worker's PID (DIPO-44 AC #9).
 
-import type { ChildProcess, Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { ChildProcess, Clock, Signal, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { HostOp } from "../workers/types";
 import type { HostError, OpFrame } from "./protocol";
@@ -44,6 +44,7 @@ export class Steering {
   readonly #timers = new Set<TimerHandle>();
   #stdinOpen: boolean;
   #exited = false;
+  #lastSignal: Signal | null = null;
 
   constructor(child: ChildProcess, clock: Clock) {
     this.#child = child;
@@ -53,6 +54,14 @@ export class Steering {
 
   get stdinOpen(): boolean {
     return this.#stdinOpen && !this.#exited;
+  }
+
+  /**
+   * The signal last sent to the worker, null when none was (DIPO-88). A delayed signal counts
+   * once its timer fired, never while it is only armed.
+   */
+  get lastSignal(): Signal | null {
+    return this.#lastSignal;
   }
 
   /** Delayed signals still armed. */
@@ -67,13 +76,13 @@ export class Steering {
     // A hook reply goes to the waiting hook call, never to the worker; the host routes it.
     if ("hookReply" in op) return failed("op.unknown", "A hook reply is not a steering op.");
     if (op.afterMs === undefined || op.afterMs <= 0) {
-      this.#child.kill(op.signal);
+      this.#kill(op.signal);
       return OK;
     }
     const signal = op.signal;
     const timer = this.#clock.setTimeout(() => {
       this.#timers.delete(timer);
-      if (!this.#exited) this.#child.kill(signal);
+      if (!this.#exited) this.#kill(signal);
     }, op.afterMs);
     this.#timers.add(timer);
     return OK;
@@ -86,6 +95,11 @@ export class Steering {
     for (const timer of this.#timers) this.#clock.clearTimeout(timer);
     this.#timers.clear();
     return cancelled;
+  }
+
+  #kill(signal: Signal): void {
+    this.#lastSignal = signal;
+    this.#child.kill(signal);
   }
 
   #write(data: string): SteerResult {

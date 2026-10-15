@@ -250,14 +250,19 @@ describe("worker host in-process", () => {
       expect(await client.request({ op: "signal", signal: "SIGTERM" })).toEqual({ ok: true });
       open();
       const exit = await host.done;
-      expect(exit).toMatchObject({ code: 143, signal: null });
+      // The fake, like Claude, handles SIGTERM and exits 143: the host infers the signal it sent
+      // (DIPO-88).
+      expect(exit).toMatchObject({ code: 143, signal: "SIGTERM", signalInferred: true });
       // The delayed SIGKILL was cancelled when the worker exited.
       clock.advance(60_000);
       expect(child.signals).toEqual(["SIGTERM"]);
 
       const { lines } = readLines(runDir);
       expect(lines[0]).toEqual({ t: 0, ch: "hook", data: '{"hook_event_name":"Stop"}' });
-      expect(lines.at(-1)?.ch).toBe("exit");
+      expect(lines.at(-1)).toMatchObject({
+        ch: "exit",
+        data: '{"code":143,"signal":"SIGTERM","signalInferred":true}',
+      });
     }));
 
   it("accepts only a hello for its own run in a protocol it speaks", () =>
