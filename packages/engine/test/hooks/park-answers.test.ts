@@ -1,5 +1,5 @@
 // Answering a `needs-permission` park (DIPO-75; 0008 sections 5 and 8): the `needs-permission`
-// recording (a STAND-IN until the live capture, see `needs-permission.ts`) replayed through the
+// recording (captured live, see `needs-permission.ts`) replayed through the
 // real ingestion and the Claude CLI parser into run control, which parks the story and stores the
 // park's permission question; `work.answer` through the executor with a fake park resumer; allow
 // once against the permission wait with exact, prefix, glob and other-tool requests.
@@ -55,7 +55,7 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
-import { needsPermissionRecording, reportedPermission, STAND_IN } from "./needs-permission";
+import { needsPermissionRecording, reportedPermission } from "./needs-permission";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -314,7 +314,7 @@ function parkReasons(): string[] {
     .map((row) => row.reason);
 }
 
-describe(`the needs-permission replay${STAND_IN ? " (STAND-IN until the live capture)" : ""}`, () => {
+describe("the live needs-permission replay", () => {
   it("parks needs-permission with a permission question naming the recorded tool and action (AC #1)", async () => {
     const question = await replayPark();
     expect(parkReasons()).toEqual(["needs-permission"]);

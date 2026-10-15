@@ -1,8 +1,7 @@
 // CI only (0017 section 1): a `needs-permission` park answered with `work.answer` on real git with
 // the pinned Backlog CLI and DIPO-44's worker host in this process (DIPO-75). `work.run` claims
-// TASK-1 and its first host replays the `needs-permission` recording (a STAND-IN until the live
-// capture, see `../hooks/needs-permission.ts`): the story parks with the park's permission
-// question. The maintainer's allow goes through the permission wait to the real
+// TASK-1 and its first host replays the live `needs-permission` recording (see
+// `../hooks/needs-permission.ts`): the story parks with the park's permission question. The maintainer's allow goes through the permission wait to the real
 // `RunOutcomes.resumePark`: the park is lifted on the story branch, the same run is active again
 // and its next session starts in a second host (replaying `success-single`) with the allow
 // message. Its done report goes through verify and commit (a fake verify step) to In Review, so
@@ -23,7 +22,7 @@ import { findQuestion, openQuestions } from "../../src/hooks/questions";
 import { createSystemIds } from "../../src/platform/ids";
 import { findRun, openPark } from "../../src/run";
 import { encode } from "../../src/workers/claude-cli/encode";
-import { needsPermissionRecording, reportedPermission, STAND_IN } from "../hooks/needs-permission";
+import { needsPermissionRecording, reportedPermission } from "../hooks/needs-permission";
 import { detect } from "../../src/scan/detect";
 import { resultOf } from "../office/helpers";
 import { BRANCH, type Running, withRunOffice } from "./run-office";
@@ -48,7 +47,7 @@ function requestId(): RequestId {
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe(`a needs-permission park answered with allow once${STAND_IN ? " (STAND-IN recording)" : ""}`, () => {
+  describe("a needs-permission park answered with allow once (live recording)", () => {
     it(
       "parks with the question, lifts the park on the branch and resumes the same run",
       () =>

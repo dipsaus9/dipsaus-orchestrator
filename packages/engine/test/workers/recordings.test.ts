@@ -68,8 +68,6 @@ const RETRY: Readonly<Record<string, string>> = {
  * table names them already, and the coverage check accepts them as missing until committed.
  */
 const AWAITING_CAPTURE = new Set([
-  // DIPO-75 AC #6: captured live by the maintainer (`bun run recordings:capture needs-permission`).
-  "needs-permission",
   "safety-gh-token",
   "safety-gitdir-write",
   "safety-pointer-write",
