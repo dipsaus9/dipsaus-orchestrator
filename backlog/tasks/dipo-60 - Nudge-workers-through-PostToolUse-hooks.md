@@ -4,7 +4,7 @@ title: Nudge workers through PostToolUse hooks
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-15 09:50'
+updated_date: '2026-10-15 09:53'
 labels:
   - 'tier:S'
   - after-cutover
@@ -31,6 +31,7 @@ references:
   - packages/daemon/src/hook.ts
   - packages/daemon/src/hook.test.ts
   - packages/daemon/src/runs.ts
+  - packages/engine/src/run/work-run.ts
 documentation:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0014-worker-prompt-assembly.md
