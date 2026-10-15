@@ -35,7 +35,12 @@ import type { LaunchCheckFailure } from "../hold";
 import type { LaunchFile, WorkerOutcome, WorkerSpec } from "../types";
 import { initialState, interpret, type ClaudeParseState } from "./interpret";
 import { plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
-import { SAFE_CHAIN_SHELL_DIR } from "./safe-chain";
+import {
+  SAFE_CHAIN_BLOCKED_PACKAGE,
+  SAFE_CHAIN_PROBE,
+  SAFE_CHAIN_PROBE_PACKAGE,
+  SAFE_CHAIN_SHELL_DIR,
+} from "./safe-chain";
 import { WORKER_REPORT_JSON_SCHEMA } from "./report-schema";
 import { result } from "./result";
 
@@ -93,10 +98,11 @@ export interface SelfTestPaths {
   /** Absolute `perl` and `gh`, resolved outside the sandbox from the daemon's PATH. */
   readonly tools: SelfTestTools;
   /**
-   * With Safe-Chain (DIPO-82): a command such as `bun run --version` that runs first, through the
-   * worker's shell functions; perl records its exit code as `safe-chain exit <n>`.
+   * With Safe-Chain and `bun` on the worker PATH (DIPO-84): two installs run first in a fresh
+   * project in the temp directory, `bun add is-number@7.0.0` and `bun add safe-chain-test`; perl
+   * records their exit codes as `safe-chain-install exit <n>` and `safe-chain-blocked exit <n>`.
    */
-  readonly safeChainProbe?: string | undefined;
+  readonly safeChainInstall?: boolean | undefined;
 }
 
 export interface SelfTestTools {
@@ -121,8 +127,8 @@ export interface SelfTestLayout {
   readonly byte: string;
   readonly command: string;
   readonly prompt: string;
-  /** The command the Safe-Chain probe runs, or null without Safe-Chain. */
-  readonly safeChainProbe: string | null;
+  /** The project the Safe-Chain installs run in, or null without them (DIPO-84). */
+  readonly installDir: string | null;
 }
 
 /**
@@ -188,20 +194,21 @@ export function selfTestLayout(
     ...writes.map((p) => where[p]),
   ];
   const script = probeScript();
-  const wrapped = paths.safeChainProbe;
-  if (wrapped !== undefined && !/^[a-z][a-z0-9]*( [a-z-]+)*$/.test(wrapped)) {
-    throw new Error(`the self-test cannot run the Safe-Chain probe ${JSON.stringify(wrapped)}`);
-  }
+  const installDir = paths.safeChainInstall === true ? `${paths.tmpDir}/${name}-install` : null;
   const args = [
     resultsFile,
     byte,
     ...targets.flatMap((target) => [target.name, target.mode, target.path]),
   ];
-  // With Safe-Chain the wrapped command runs first, through the worker's own shell functions, and
-  // its exit code goes to perl as the last triple; its output is dropped.
+  // With Safe-Chain the two installs run first, through the worker's own shell and dipo's proxy;
+  // their exit codes go to perl as the last two triples; their output is dropped.
   const perl = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
+  const add = (spec: string) =>
+    `${SAFE_CHAIN_PROBE} add --cwd=${shellQuote(installDir ?? "")} ${spec} >/dev/null 2>&1`;
   const command =
-    wrapped === undefined ? perl : `${wrapped} >/dev/null 2>&1; ${perl} 'safe-chain' 'exit' "$?"`;
+    installDir === null
+      ? perl
+      : `${add(SAFE_CHAIN_PROBE_PACKAGE)}; a=$?; ${add(SAFE_CHAIN_BLOCKED_PACKAGE)}; b=$?; ${perl} 'safe-chain-install' 'exit' "$a" 'safe-chain-blocked' 'exit' "$b"`;
   const checks =
     writes.length === 0
       ? []
@@ -214,10 +221,10 @@ export function selfTestLayout(
     checks.length === 0
       ? "The perl program in it writes a control file inside this worktree, which should succeed, and records the result in a results file."
       : `The perl program in it writes a control file inside this worktree, which should succeed. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
-    ...(wrapped === undefined
+    ...(installDir === null
       ? []
       : [
-          `Before that, \`${wrapped}\` checks that the package managers run through Safe-Chain in this sandbox.`,
+          "Before that, the two `bun add` commands check that installs go through Safe-Chain in this sandbox: the first installs a small package and should succeed; the second asks for Safe-Chain's own harmless test package for its malware check, which Safe-Chain is expected to refuse. A refused install is the expected result.",
         ]),
     "",
     'After the command has run, whatever it printed, return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
@@ -231,7 +238,7 @@ export function selfTestLayout(
     byte,
     command,
     prompt,
-    safeChainProbe: wrapped ?? null,
+    installDir,
   };
 }
 
@@ -288,8 +295,8 @@ export interface SelfTestEvidence {
   /** Bash calls the session made, and whether the one call was the planned one. */
   readonly bash: SelfTestBashCalls;
   readonly disk: SelfTestDisk;
-  /** With Safe-Chain (DIPO-82): the probed command and the install it should run through. */
-  readonly safeChain?: { readonly probe: string; readonly root: string };
+  /** With Safe-Chain installs probed (DIPO-84): the install they should go through. */
+  readonly safeChain?: { readonly root: string };
 }
 
 export interface SelfTestBashCalls {
@@ -365,6 +372,15 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
         };
       }
     }
+    const blocked = lines.get("safe-chain-blocked");
+    if (evidence.safeChain !== undefined && blocked?.kind === "exit" && blocked.code === 0) {
+      return {
+        ok: false,
+        unsafe: true,
+        probe: "safe-chain",
+        reason: `\`${SAFE_CHAIN_PROBE} add ${SAFE_CHAIN_BLOCKED_PACKAGE}\` succeeded inside the worker sandbox: Safe-Chain did not refuse its own test malware, so worker installs are not checked`,
+      };
+    }
   }
   if (evidence.outcome === "startFailed" || evidence.outcome === "initRejected") {
     const why = evidence.outcomeDetail === undefined ? "" : `: ${evidence.outcomeDetail}`;
@@ -403,19 +419,21 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
   }
-  // Safe-Chain (DIPO-82): the wrapped command must have run through it inside the sandbox.
+  // Safe-Chain (DIPO-84): an install works through dipo's proxy, and Safe-Chain refuses its test
+  // malware (an install of it that succeeded was judged above).
   const safeChain = evidence.safeChain;
   if (safeChain !== undefined) {
-    const line = lines.get("safe-chain");
-    if (line?.kind !== "exit") {
-      return cannotRun("no result for the Safe-Chain check", "safe-chain");
+    const install = lines.get("safe-chain-install");
+    const blocked = lines.get("safe-chain-blocked");
+    if (install?.kind !== "exit" || blocked?.kind !== "exit") {
+      return cannotRun("no result for the Safe-Chain install check", "safe-chain");
     }
-    if (line.code !== 0) {
+    if (install.code !== 0) {
       return {
         ok: false,
         unsafe: false,
         probe: "safe-chain",
-        reason: `Safe-Chain is installed at ${safeChain.root}, but \`${safeChain.probe}\` through it exited ${line.code} inside the worker sandbox, so the worker's package managers cannot run there`,
+        reason: `Safe-Chain is installed at ${safeChain.root}, but \`${SAFE_CHAIN_PROBE} add ${SAFE_CHAIN_PROBE_PACKAGE}\` through dipo's Safe-Chain proxy exited ${install.code} inside the worker sandbox, so worker installs cannot work`,
       };
     }
   }
@@ -432,6 +450,8 @@ export interface SelfTestFs {
   exists(path: string): Promise<boolean>;
   /** Removes a file; a missing file is fine. */
   remove(path: string): Promise<void>;
+  /** Removes a directory and everything in it; a missing one is fine (the install probe). */
+  removeTree(path: string): Promise<void>;
   /** The path with symlinks resolved, or null when it does not exist. */
   realpath(path: string): Promise<string | null>;
   /** True when the path is a regular file the daemon may execute. */
@@ -465,6 +485,7 @@ export const nodeSelfTestFs: SelfTestFs = {
     }
   },
   remove: (path) => rm(path, { force: true }),
+  removeTree: (path) => rm(path, { recursive: true, force: true }),
   realpath: async (path) => {
     try {
       return await realpath(path);
@@ -771,11 +792,8 @@ export async function runSelfTest(
     {
       daemonPath: ctx.env["PATH"] ?? "",
       // The plan passes the daemon's PATH through to the worker unchanged (ENV_ALLOWLIST); with
-      // Safe-Chain the wrapper sets its own, and the init script appends `<install>/bin`.
-      workerPath:
-        ctx.safeChain === undefined
-          ? (ctx.env["PATH"] ?? "")
-          : `${ctx.safeChain.path}:${ctx.safeChain.root}/bin`,
+      // Safe-Chain the wrapper sets its own (DIPO-82).
+      workerPath: ctx.safeChain === undefined ? (ctx.env["PATH"] ?? "") : ctx.safeChain.path,
       writable: workerWritableRoots(workdir, ctx.tmpDir, ctx.home),
     },
     fs,
@@ -791,7 +809,8 @@ export async function runSelfTest(
     tmpDir: ctx.tmpDir,
     nonce,
     tools: tools.tools,
-    safeChainProbe: ctx.safeChain?.probe ?? undefined,
+    // The installs need `bun` on the worker PATH and the run's proxy (a launch, not a dry run).
+    safeChainInstall: ctx.safeChain?.probe !== null && ctx.safeChain?.route !== undefined,
   });
   const selfDir = `${ctx.runDir}/${SELF_TEST_DIR}`;
   const systemFile = `${selfDir}/system.md`;
@@ -831,6 +850,14 @@ export async function runSelfTest(
     for (const file of shellFiles) {
       await fs.writeText(`${ctx.runDir}/${file.name}`, file.content, file.executable === true);
     }
+  }
+  if (layout.installDir !== null) {
+    // A fresh project for the two installs; removed with everything else below.
+    await fs.mkdir(layout.installDir);
+    await fs.writeText(
+      `${layout.installDir}/package.json`,
+      '{"name":"dipo-self-test","version":"0.0.0","private":true}\n',
+    );
   }
 
   const forbidden = layout.targets.filter(
@@ -876,6 +903,13 @@ export async function runSelfTest(
         // Best effort; a forbidden file left behind was already counted as written.
       }
     }
+    if (layout.installDir !== null) {
+      try {
+        await fs.removeTree(layout.installDir);
+      } catch {
+        // Best effort; it lies in the run temp directory, removed with the run.
+      }
+    }
   }
 
   const outcome = sessionOutcome(session, timeoutMs);
@@ -889,9 +923,9 @@ export async function runSelfTest(
         ? { calls: 0, exact: false, shape: false }
         : bashCalls(session.stdout, layout.command),
     disk,
-    ...(layout.safeChainProbe === null || ctx.safeChain === undefined
+    ...(layout.installDir === null || ctx.safeChain === undefined
       ? {}
-      : { safeChain: { probe: layout.safeChainProbe, root: ctx.safeChain.root } }),
+      : { safeChain: { root: ctx.safeChain.root } }),
   };
   return {
     verdict: judgeSelfTest(evidence),
@@ -929,7 +963,7 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
     fix: verdict.unsafe
       ? "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings."
       : verdict.probe === "safe-chain"
-        ? "Check the official Safe-Chain install (~/.safe-chain: bin/safe-chain, scripts/init-posix.sh, certs) and that a real package manager binary is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and read paths. Then start a run again."
+        ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
         : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
   };
 }

@@ -671,6 +671,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.permissions.close();
         runs.ingest.close();
         runs.reattacher.close();
+        // The runs' Safe-Chain proxies stop with the daemon (DIPO-84).
+        void runs.safeChainProxies.stopAll();
       },
     };
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the

@@ -46,6 +46,11 @@ import {
   runLaunchPaths,
   runSandboxedStep,
   runWorkerSpec,
+  SafeChainProxies,
+  startSafeChainProxy,
+  launchedThroughSafeChain,
+  safeChainProxyGoneText,
+  sweepSafeChainProxies,
   type IngestAdapter,
   Nudges,
   type StoredRun,
@@ -107,6 +112,8 @@ export interface DaemonRunsOptions {
   readonly notify?: (notice: HoldNotice) => void;
   /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
   readonly scheduling?: () => boolean;
+  /** The Safe-Chain proxies' private parent; `/tmp/dipo-p` by default (DIPO-84). */
+  readonly safeChainRoot?: string;
 }
 
 export interface DaemonRuns {
@@ -127,6 +134,11 @@ export interface DaemonRuns {
    * runs after the reset, recovers waits at load and implements `work.resume` for held runs.
    */
   readonly planLimits: PlanLimits;
+  /**
+   * The Safe-Chain checking proxies of the runs (DIPO-84): one per run while its worker session
+   * runs, on a machine with Safe-Chain. `stopAll` at shutdown.
+   */
+  readonly safeChainProxies: SafeChainProxies;
 }
 
 /**
@@ -153,6 +165,31 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     timeouts: (office) => options.offices.config(office)?.timeouts,
     onAppended: options.onChanged,
   });
+  // Worker installs go through a Safe-Chain checking proxy per run, sandboxed itself (DIPO-84).
+  // Proxy directories a killed daemon left behind go first; a running daemon's stay.
+  void sweepSafeChainProxies(options.safeChainRoot).then(
+    (removed) => {
+      if (removed.length > 0) {
+        options.logger.info("removed Safe-Chain proxy directories a stopped daemon left", {
+          removed,
+        });
+      }
+    },
+    () => {},
+  );
+  const safeChainProxies = new SafeChainProxies({
+    clock,
+    start: ({ caFile }) =>
+      startSafeChainProxy(
+        { installRoot: `${home}/.safe-chain`, caFile, home, uid, env },
+        {
+          platform,
+          clock,
+          ...(options.safeChainRoot === undefined ? {} : { root: options.safeChainRoot }),
+        },
+      ),
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
   const worker = claudeWorkerPort({
     spawn: systemSpawn,
     clock,
@@ -167,6 +204,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     dipoCommand: selfCommand(),
     // Workers run package managers through the official Safe-Chain when it is installed (DIPO-82).
     detectSafeChain: (input) => detectSafeChain(input),
+    safeChainProxies,
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null
@@ -257,6 +295,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     onEnded: (office, run) => {
       permissions.onEnded(office, run);
       nudges.onEnded(office, run);
+      // The session's worker ended: its Safe-Chain proxy stops (DIPO-84).
+      void safeChainProxies.stop(run);
     },
   };
   ingest = new OfficeIngest({
@@ -273,13 +313,21 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     }),
   });
   const probe = systemProcessProbe(platform);
-  const hosts = systemHostStarter({
+  const started = systemHostStarter({
     clock,
     runtimeDir: options.runtimeDir,
     dipoCommand: selfCommand(),
     env,
     probe,
   });
+  // A started worker host keeps its run's Safe-Chain proxy until the session ends (DIPO-84).
+  const hosts: typeof started = {
+    start: async (office, launch) => {
+      const host = await started.start(office, launch);
+      safeChainProxies.hostStarted(launch.runId);
+      return host;
+    },
+  };
   const release = (
     office: OfficeId,
     claim: Parameters<StoryClaims["releaseUnstarted"]>[1],
@@ -348,6 +396,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     clock,
     offices: options.offices,
     probe,
+    // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
+    proxyGone: (_office, run, host) =>
+      launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined
+        ? safeChainProxyGoneText(run.story ?? run.runId)
+        : null,
     ingest,
     control,
     outcomes,
@@ -427,5 +480,15 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  return { launcher, ingest, control, outcomes, permissions, nudges, reattacher, planLimits };
+  return {
+    launcher,
+    ingest,
+    control,
+    outcomes,
+    permissions,
+    nudges,
+    reattacher,
+    planLimits,
+    safeChainProxies,
+  };
 }

@@ -77,7 +77,7 @@ describe("the Claude CLI adapter of one run", () => {
     expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual(plan(spec(), ctx));
   });
 
-  it("detects Safe-Chain at launch and gives the plan its wrapper in the run directory (DIPO-82)", () => {
+  it("detects Safe-Chain at launch and gives the plan its wrapper in the run directory (DIPO-82, DIPO-84)", () => {
     const seen: unknown[] = [];
     const found = {
       root: `${HOME}/.safe-chain`,
@@ -85,7 +85,7 @@ describe("the Claude CLI adapter of one run", () => {
       path: "/usr/bin:/bin",
       demoted: [],
       dropped: [],
-      probe: "bun run --version",
+      probe: "bun",
     };
     const deps = {
       claudePath: `${HOME}/.local/bin/claude`,
@@ -106,12 +106,15 @@ describe("the Claude CLI adapter of one run", () => {
         readPaths: [`${HOME}/.bun`, `${HOME}/.npm`, `${HOME}/.cache`],
       },
     ]);
-    // The dry run shows the wrapper and its init file among the run directory's files.
-    const names = claudeCliAdapter(ctx, { spawn: neverSpawn, clock })
-      .plan(spec())
-      .files.map((file) => file.name);
+    // The dry run shows the wrapper, its init file and the proxy description among the run
+    // directory's files, with placeholders for the proxy a real run starts (DIPO-84).
+    const files = claudeCliAdapter(ctx, { spawn: neverSpawn, clock }).plan(spec()).files;
+    const names = files.map((file) => file.name);
     expect(names).toContain("safe-chain/zsh");
     expect(names).toContain("safe-chain/.zshenv");
+    expect(names).toContain("safe-chain/proxy.json");
+    const settings = files.find((file) => file.name === "claude-settings.json")?.content ?? "{}";
+    expect(JSON.parse(settings).sandbox.network.httpProxyPort).toBe(0);
     // A machine without Safe-Chain: no field at all.
     const none = claudeLaunchContext(
       { ...deps, detectSafeChain: () => null },

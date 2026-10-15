@@ -17,6 +17,8 @@
 // - No new host ever starts here: a living host is followed until its exit line, and the run's
 //   next session (`RunResumer`) waits for every earlier host of the run to end.
 // - After the catch-up the run's caps are checked once, so a run over its caps is stopped at once.
+// - A living host whose run went through a Safe-Chain proxy this daemon does not run (DIPO-84) is
+//   stopped and its story parks `interrupted` naming the missing proxy.
 // - A run whose host event file changed (DIPO-45's `ingest.fileChanged`, also one reported before
 //   the stop) parks `interrupted` with the detail "event file changed".
 //
@@ -66,6 +68,7 @@ export const REATTACH_STEP = "reattach";
 /** `engine.notice` codes of re-attach. */
 export const REATTACH_NOTICES = {
   followOnly: "run.followOnly",
+  proxyGone: "run.safeChainProxyGone",
 } as const;
 
 /** What re-attach did with one run. */
@@ -79,7 +82,9 @@ export type ReattachOutcome =
   /** The host died without an exit file; handed to worker outcomes. */
   | "hostLost"
   /** The event file changed; the story parks `interrupted`. */
-  | "fileChanged";
+  | "fileChanged"
+  /** Its Safe-Chain proxy is gone (DIPO-84); the worker is stopped and the story parks. */
+  | "proxyGone";
 
 export interface ReattachedRun {
   readonly run: RunId;
@@ -146,6 +151,13 @@ export interface RunReattacherDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** How often a followed host's liveness is checked; `FOLLOW_CHECK_MS` by default. */
   readonly followCheckMs?: number;
+  /**
+   * Why a living host cannot go on (DIPO-84): its run was launched through a Safe-Chain proxy
+   * that this daemon does not run (it stopped with the previous daemon), so the worker's
+   * `httpProxyPort` names a port nobody owns. Null when it can go on. Such a run is stopped and
+   * parks `interrupted` with the reason.
+   */
+  readonly proxyGone?: (office: OfficeId, run: StoredRun, host: WorkerHostRow) => string | null;
 }
 
 /** How often a follow-only host's liveness is checked by PID and start time: the cap tick. */
@@ -226,6 +238,18 @@ export class RunReattacher {
       const ending = deps.control.interruptedEnding();
       await deps.control.park(office, run, work, alive ? ending : { ...ending, ops: [] });
       return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };
+    }
+
+    // A living worker whose Safe-Chain proxy is gone: stopped, never left on a port nobody owns.
+    const gone = alive ? (deps.proxyGone?.(office.officeId, run, host) ?? null) : null;
+    if (gone !== null) {
+      const ending = deps.control.interruptedEnding();
+      await deps.control.park(office, run, work, {
+        ...ending,
+        detail: gone,
+        notice: { level: "error", code: REATTACH_NOTICES.proxyGone, text: gone },
+      });
+      return { run: run.runId, agent: host.agentId, outcome: "proxyGone" };
     }
 
     const adapter = deps.adapter(office.officeId, run);

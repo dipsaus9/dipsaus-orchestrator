@@ -382,6 +382,16 @@ export {
   systemSandboxHost,
 } from "./platform/sandbox";
 export { runSandboxExec } from "./platform/sandbox-exec";
+export { runSafeChainGate, type SafeChainGateOptions } from "./platform/safe-chain-gate";
+export {
+  startSafeChainProxy,
+  sweepSafeChainProxies,
+  type RunningSafeChainProxy,
+  type SafeChainProxyDeps,
+  type SafeChainProxyRequest,
+  type SafeChainProxyStart,
+} from "./platform/safe-chain-proxy";
+export { SafeChainProxies, type SafeChainProxyStarter } from "./sandbox/safe-chain-proxies";
 export type { SandboxExecOptions } from "./platform/sandbox-exec";
 export {
   KNOWN_WORKER_KINDS,
@@ -516,7 +526,9 @@ export {
 } from "./workers/claude-cli/adapter";
 export {
   detectSafeChain,
+  launchedThroughSafeChain,
   SAFE_CHAIN_COMMANDS,
+  safeChainProxyGoneText,
   type SafeChainInput,
   type SafeChainLaunch,
 } from "./workers/claude-cli/safe-chain";

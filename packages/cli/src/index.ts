@@ -175,6 +175,8 @@ export const DAEMON_FORMS: ReadonlySet<string> = new Set([
   "worker-host",
   "wait-pid",
   "sandbox-exec",
+  // The Safe-Chain proxy's gate, inside its own sandbox (DIPO-84).
+  "safe-chain-gate",
 ]);
 
 export function defaultDeps(): CliDeps {

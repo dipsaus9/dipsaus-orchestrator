@@ -7,11 +7,19 @@
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { gateLaunch, type AdapterHold, type AdapterHolds, type LaunchCheckOutcome } from "../hold";
+import {
+  gateLaunch,
+  type AdapterHold,
+  type AdapterHolds,
+  type LaunchCheckFailure,
+  type LaunchCheckOutcome,
+} from "../hold";
+import type { SafeChainProxies } from "../../sandbox/safe-chain-proxies";
 import type { DipoPlatform } from "../../platform/paths";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { CLAUDE_CLI_ADAPTER_ID, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
+import { safeChainCaFile } from "./safe-chain";
 import { checkProjectSettings, type ReadOptionalText } from "./settings-check";
 import { engineCredentialCheck, type RunStep } from "../credential-check";
 import {
@@ -40,6 +48,11 @@ export interface ClaudeLaunchCheckDeps {
   readonly runStep: RunStep;
   /** The user id, for the step policy. */
   readonly uid: number;
+  /**
+   * The daemon's Safe-Chain proxies (DIPO-84). With Safe-Chain detected, a launch starts its run's
+   * proxy here; without it such a launch is refused.
+   */
+  readonly safeChainProxies?: Pick<SafeChainProxies, "start" | "stop" | "awaitHost">;
 }
 
 /**
@@ -151,8 +164,46 @@ export async function prepareLaunch(
   deps: ClaudeLaunchCheckDeps,
 ): Promise<PreparedLaunch> {
   const launch = plan(spec, ctx);
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
-    claudeLaunchChecks(spec, ctx, launch, deps),
-  );
-  return gate.ok ? { ok: true, plan: launch } : gate;
+  const safeChain = ctx.safeChain;
+  if (safeChain === undefined) {
+    const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
+      claudeLaunchChecks(spec, ctx, launch, deps),
+    );
+    return gate.ok ? { ok: true, plan: launch } : gate;
+  }
+  // Safe-Chain (DIPO-84): the run's proxy runs and passes its check before the plan names its
+  // port; without it the run is refused, never started with unchecked or no installs.
+  let routed: LaunchPlan = launch;
+  const proxies = deps.safeChainProxies;
+  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, async () => {
+    const started =
+      proxies === undefined
+        ? { ok: false as const, reason: "this dipo has no Safe-Chain proxy" }
+        : await proxies.start(spec.run, safeChainCaFile(safeChain.shellDir));
+    if (!started.ok) {
+      return { ok: false, failures: [safeChainProxyFailure(safeChain.root, started.reason)] };
+    }
+    const withRoute: ClaudeLaunchContext = {
+      ...ctx,
+      safeChain: { ...safeChain, route: { port: started.proxy.port, dir: started.proxy.dir } },
+    };
+    routed = plan(spec, withRoute);
+    return claudeLaunchChecks(spec, withRoute, routed, deps);
+  });
+  if (!gate.ok) {
+    await proxies?.stop(spec.run);
+    return gate;
+  }
+  proxies?.awaitHost(spec.run);
+  return { ok: true, plan: routed };
+}
+
+/** The launch check failure of a Safe-Chain proxy that did not start or failed its check. */
+export function safeChainProxyFailure(root: string, reason: string): LaunchCheckFailure {
+  return {
+    check: "safe-chain",
+    key: "proxy",
+    detail: `Safe-Chain is installed at ${root}, but dipo's Safe-Chain proxy for worker installs cannot run: ${reason}. Installs would not be checked, so the run is refused.`,
+    fix: "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to registry.npmjs.org, pypi.org and malware-list.aikido.dev, and that the sandbox runs (`dipo self-check`); `dipo run --dry-run` shows the proxy plan in safe-chain/proxy.json. Then start a run again.",
+  };
 }
