@@ -22,7 +22,7 @@ import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { officeStatusesReady } from "../../src/office/init";
 import { cliRunBase, findRun, WorkRun } from "../../src/run";
-import { REFRESH_FETCH_FRESH_MS, StoryIndex } from "../../src/stories/feature";
+import { StoryIndex } from "../../src/stories/feature";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, publish } from "../gate/gated-office";
@@ -223,8 +223,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               .replace("TASK-1/add-the-csv-export-command", "TASK-4/add-the-json-import-command");
             writeFileSync(join(tasks, "task-4 - Add-the-JSON-import-command.md"), text);
             await publish(r.repo, "merge TASK-4");
-            // Past the window in which a refresh reuses the load's fetch.
-            r.s.clock.advance(REFRESH_FETCH_FRESH_MS);
             expect(
               r.office.get<{ n: number }>(
                 "select count(*) as n from stories where office_id = $office_id and story_id = 'TASK-4'",

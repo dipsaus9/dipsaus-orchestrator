@@ -30,8 +30,11 @@ import { type IndexResult, indexStories, refreshStory, type RefreshOptions } fro
 /** The load step's name in the registry. */
 export const INDEX_STEP = "stories.index";
 
-/** A refresh does not fetch again when a fetch succeeded less than this long ago (DIPO-104). */
-export const REFRESH_FETCH_FRESH_MS = 5_000;
+/**
+ * A refresh does not fetch again when an earlier refresh fetched less than this long ago (DIPO-104),
+ * so a client looping on an unknown id fetches at most this often.
+ */
+export const REFRESH_FETCH_FRESH_MS = 2_000;
 
 export interface StoryIndexDeps {
   /** The office's git once the git load step attached it. */
@@ -64,6 +67,8 @@ interface Indexed {
   last: IndexResult | null;
   /** The refresh queued or running now, shared by every caller (DIPO-104). */
   refreshing: Promise<void> | null;
+  /** When the last refresh that fetched successfully started, or null (DIPO-104). */
+  refreshFetchedAt: number | null;
   /** The pass or poll running now; the next one starts after it. */
   busy: Promise<unknown>;
 }
@@ -164,7 +169,7 @@ export class StoryIndex {
 
   #track(
     office: OfficeId,
-    values: Omit<Indexed, "timer" | "sha" | "last" | "refreshing" | "busy">,
+    values: Omit<Indexed, "timer" | "sha" | "last" | "refreshing" | "refreshFetchedAt" | "busy">,
   ): Indexed {
     const existing = this.#offices.get(office);
     if (existing !== undefined && existing.office === values.office) {
@@ -178,6 +183,7 @@ export class StoryIndex {
       sha: null,
       last: null,
       refreshing: null,
+      refreshFetchedAt: null,
       busy: Promise.resolve(),
     };
     this.#offices.set(office, state);
@@ -280,8 +286,9 @@ export class StoryIndex {
   /**
    * The story refresh (DIPO-104): an office command named a story the office does not know, so
    * fetch and index now, after any pass already running, instead of waiting for the next poll.
-   * A refresh already queued or running is shared. A fetch that succeeded less than
-   * `REFRESH_FETCH_FRESH_MS` ago is not repeated; `_base` is still read when no pass has read its
+   * A refresh already queued or running is shared. A fetch that an earlier refresh started less
+   * than `REFRESH_FETCH_FRESH_MS` ago is not repeated (polls and the load fetch do not count, so a
+   * merge right after a poll is seen); `_base` is still read when no pass has read its
    * commit. Never throws; an office that has not loaded is left alone.
    */
   refresh(office: OfficeId): Promise<void> {
@@ -298,13 +305,15 @@ export class StoryIndex {
   async #refresh(office: OfficeId, state: Indexed): Promise<void> {
     const failed = "refreshing the office's stories failed";
     try {
-      const git = this.#git(office);
-      const last = git.lastFetch;
-      if (last === null || !last.ok || state.clock.now() - last.at >= REFRESH_FETCH_FRESH_MS) {
-        await this.#fetchAndIndex(office, state, failed);
+      const startedAt = state.clock.now();
+      const recent = state.refreshFetchedAt;
+      if (recent === null || startedAt - recent >= REFRESH_FETCH_FRESH_MS) {
+        await this.#fetchAndIndex(office, state, failed, () => {
+          state.refreshFetchedAt = startedAt;
+        });
         return;
       }
-      const base = await git.ensureBaseWorktree();
+      const base = await this.#git(office).ensureBaseWorktree();
       if (base.sha !== state.sha) await this.#pass(office, state);
     } catch (error) {
       this.#deps.logger?.warn(failed, {

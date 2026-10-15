@@ -257,17 +257,21 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
         expect(s.changed).toContain(officeId);
 
-        // A refresh (a command named an unknown story) fetches and indexes without the poll.
+        // A refresh (a command named an unknown story) fetches and indexes without the poll, also
+        // right after the poll's fetch: a merge just after a poll is seen.
         await merge("Add the is-odd dependency");
-        // Right after the poll's fetch it does not fetch again.
         await index.refresh(officeId);
-        expect(keyOf(office, "TASK-5")).toBeNull();
+        expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
+        // Within REFRESH_FETCH_FRESH_MS of a refresh's own fetch, a refresh does not fetch again.
+        await merge("Add the is-even dependency");
+        await index.refresh(officeId);
+        expect(keyOf(office, "TASK-6")).toBeNull();
         s.clock.advance(REFRESH_FETCH_FRESH_MS);
         // Two refreshes at once share one run.
         const first = index.refresh(officeId);
         expect(index.refresh(officeId)).toBe(first);
         await first;
-        expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
+        expect(mirrorStatus(office, "TASK-6")).toBe("Ready");
         // A refresh with nothing new writes nothing.
         const after = lastSeq(office);
         await index.refresh(officeId);
