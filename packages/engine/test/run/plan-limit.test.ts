@@ -307,6 +307,14 @@ function parks(): number {
   );
 }
 
+/** The office's stored warning holds (migration 26). */
+function storedWarnings(): { adapter: string; scope: string; until_at: number }[] {
+  return w.f.office.all(
+    `select adapter, scope, until_at from plan_limit_warnings where office_id = $office_id
+     order by adapter, scope`,
+  );
+}
+
 function expectActive(): void {
   expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
   expect(parks()).toBe(0);
@@ -484,6 +492,59 @@ describe("allowed_warning and api-retry-rate-limit (AC #1)", () => {
     expect(w.plans.held(ADAPTER, "sonnet")).not.toBeNull();
     await advance(PLAN_LIMIT_PROBE_MS);
     expect(w.plans.held(ADAPTER, "sonnet")).toBeNull();
+  });
+
+  it("a warning hold is stored and still holds after a restart, without a second notice (DIPO-92)", async () => {
+    const reset = w.f.t.clock.now() + 30 * 60_000;
+    track();
+    w.control.onWorkerEvents(w.f.run, [
+      { t: "limit", status: "allowed_warning", resetsAt: iso(reset), scope: "weekly" },
+    ]);
+    await w.control.idle();
+    expect(storedWarnings()).toEqual([{ adapter: ADAPTER, scope: "weekly", until_at: reset }]);
+    // The daemon stops: its memory is gone; the hold is in the database.
+    w.plans.close();
+    w.plans = planLimits();
+    expect(w.plans.held(ADAPTER, null)).toBeNull();
+    w.f.t.clock.advance(10 * 60_000);
+    expect(w.plans.recover(w.f.office.officeId, w.f.office)).toBe(1);
+    expect(w.plans.held(ADAPTER, null)).toBe(
+      `New runs wait until ${iso(reset)}: the plan warned that the weekly limit is near.`,
+    );
+    // The hold is on the warning run's adapter only.
+    expect(w.plans.held("other-cli", null)).toBeNull();
+    expect(w.notices.map((n) => n.code)).toEqual(["run.planLimitWarning"]);
+    // It ends at its time, and its row goes with it.
+    await advanceTo(reset);
+    expect(w.plans.held(ADAPTER, null)).toBeNull();
+    expect(storedWarnings()).toEqual([]);
+  });
+
+  it("a stored warning moves forward, never back, with a later warning (DIPO-92)", async () => {
+    const reset = w.f.t.clock.now() + 30 * 60_000;
+    track();
+    w.control.onWorkerEvents(w.f.run, [
+      { t: "limit", status: "allowed_warning", resetsAt: iso(reset), scope: "session" },
+      { t: "limit", status: "allowed_warning", resetsAt: iso(reset - 60_000), scope: "session" },
+    ]);
+    await w.control.idle();
+    expect(storedWarnings()).toEqual([{ adapter: ADAPTER, scope: "session", until_at: reset }]);
+  });
+
+  it("a warning hold whose time passed while the daemon was down is dropped (DIPO-92)", async () => {
+    track();
+    // Without resetsAt the hold lasts an hour.
+    w.control.onWorkerEvents(w.f.run, [
+      { t: "limit", status: "allowed_warning", scope: "model:sonnet" },
+    ]);
+    await w.control.idle();
+    expect(storedWarnings()).toHaveLength(1);
+    w.plans.close();
+    w.f.t.clock.advance(PLAN_LIMIT_PROBE_MS);
+    w.plans = planLimits();
+    expect(w.plans.recover(w.f.office.officeId, w.f.office)).toBe(0);
+    expect(w.plans.held(ADAPTER, "sonnet")).toBeNull();
+    expect(storedWarnings()).toEqual([]);
   });
 
   it("api_retry rate_limit is a signal only: nothing waits and nothing is held", async () => {
