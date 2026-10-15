@@ -4,6 +4,7 @@ title: Refresh the pricing catalog and warn when estimates drift from the CLI co
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 20:50'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -12,6 +13,10 @@ references:
   - packages/engine/src/pricing/
   - packages/engine/src/ingest/ingestor.ts
   - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/ingest/usage.ts
+  - packages/engine/src/run/hosts.ts
+  - packages/engine/test/pricing/
+  - packages/engine/test/ingest/
 priority: medium
 type: feature
 ordinal: 79000
