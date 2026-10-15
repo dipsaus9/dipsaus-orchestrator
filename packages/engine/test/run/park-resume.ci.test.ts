@@ -5,10 +5,14 @@
 // question. The maintainer's allow goes through the permission wait to the real
 // `RunOutcomes.resumePark`: the park is lifted on the story branch, the same run is active again
 // and its next session starts in a second host (replaying `success-single`) with the allow
-// message. Each case needs a claim, an office load and several CLI calls, well over the local
-// per-test budget.
+// message. Its done report goes through verify and commit (a fake verify step) to In Review, so
+// the run ends once: one `run_outcomes` row whose minutes leave out the two parked hours, and one
+// run in `usage_daily` with each agent fed once. Each case needs a claim, an office load and
+// several CLI calls, well over the local per-test budget.
 
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { type CommandReply, RequestId, type RunId } from "@dipsaus-orchestrator/contract";
 
@@ -20,8 +24,19 @@ import { createSystemIds } from "../../src/platform/ids";
 import { findRun, openPark } from "../../src/run";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { needsPermissionRecording, reportedPermission, STAND_IN } from "../hooks/needs-permission";
+import { detect } from "../../src/scan/detect";
 import { resultOf } from "../office/helpers";
-import { type Running, withRunOffice } from "./run-office";
+import { BRANCH, type Running, withRunOffice } from "./run-office";
+
+const PARKED_MS = 2 * 60 * 60_000;
+
+const PROFILE = detect({
+  texts: { "package.json": JSON.stringify({ name: "fixture", scripts: { verify: "bun test" } }) },
+  lockfiles: ["bun.lock"],
+  workspaceDirs: [],
+  configImports: {},
+  envFiles: [],
+});
 
 const RECORDING = needsPermissionRecording();
 const PERMISSION = reportedPermission(RECORDING);
@@ -45,6 +60,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             control: {},
             outcomes: true,
             resumeParks: true,
+            finisher: {
+              profile: PROFILE,
+              beforeWorker: (worktree) => {
+                mkdirSync(join(worktree, "packages", "export"), { recursive: true });
+                writeFileSync(
+                  join(worktree, "packages", "export", "csv.ts"),
+                  "export const csv = 1;\n",
+                );
+              },
+            },
           },
           async (r: Running) => {
             const ids = createSystemIds(r.s.clock);
@@ -75,10 +100,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               input: PERMISSION.action,
               parkId: parked?.parkId,
             });
-            const worktree = findRun(r.office, run)?.worktree ?? "";
-            const subject = async () =>
-              (await r.repo.git("-C", worktree, "log", "-1", "--format=%s")).trim();
-            expect(await subject()).toBe("TASK-1: status Parked");
 
             const asks = new PermissionAsks({
               clock: r.s.clock,
@@ -96,6 +117,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                   Promise.resolve({ kind: "failed", reason: "no outcomes" }),
               },
             });
+            // The story stood parked two hours before the answer.
+            r.s.clock.advance(PARKED_MS);
             const reply: CommandReply = await executeCommand(
               { ...r.s.deps, ids, registry: buildRegistry([asks.feature]) },
               {
@@ -113,8 +136,21 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             });
             await r.control?.idle();
 
-            // The park was lifted on the branch and resolved; the same run went on.
-            expect(await subject()).toBe("TASK-1: status In Progress");
+            // The park was lifted on the branch, pushed, and resolved; the same run went on.
+            const remoteTip = (await r.repo.git("ls-remote", "--heads", "origin", BRANCH)).split(
+              "\t",
+            )[0];
+            const remoteLog = (
+              await r.repo.git("log", "--format=%s", "-n", "4", remoteTip ?? BRANCH)
+            )
+              .trim()
+              .split("\n");
+            // The second session's done report then went through verify and commit at In Review.
+            expect(remoteLog[0]).toBe("TASK-1: status In Review");
+            expect(remoteLog.slice(2)).toEqual([
+              "TASK-1: status In Progress",
+              "TASK-1: status Parked",
+            ]);
             const resolved = r.office.get<{ resolved_how: string | null }>(
               "select resolved_how from parks where office_id = $office_id and park_id = $park",
               { park: parked?.parkId ?? -1 },
@@ -127,6 +163,38 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               closedHow: "answered",
               allowUsedAt: null,
             });
+
+            // One run end: one run_outcomes row with the park and the minutes it worked (the two
+            // parked hours do not count), and the run counted once in usage_daily with each
+            // agent's usage fed once.
+            const ended = findRun(r.office, run);
+            expect(ended?.endedAt).not.toBeNull();
+            expect(ended?.parkedMs).toBe(PARKED_MS);
+            const outcomes = r.office.all<{
+              outcome: string;
+              park_reasons: string;
+              minutes: number;
+            }>(
+              "select outcome, park_reasons, minutes from run_outcomes where office_id = $office_id and run_id = $run",
+              { run },
+            );
+            expect(outcomes).toEqual([
+              { outcome: "parked", park_reasons: '["needs-permission"]', minutes: 0 },
+            ]);
+            const totals = r.office.get<{ input: number; output: number; turns: number }>(
+              `select sum(input) as input, sum(output) as output, sum(turns) as turns
+                from usage_totals where office_id = $office_id and run_id = $run`,
+              { run },
+            );
+            const daily = r.office.all<{
+              runs: number;
+              input: number;
+              output: number;
+              turns: number;
+            }>("select runs, input, output, turns from usage_daily where office_id = $office_id");
+            expect(daily).toEqual([
+              { runs: 1, ...(totals ?? { input: -1, output: -1, turns: -1 }) },
+            ]);
           },
         ),
       90_000,
