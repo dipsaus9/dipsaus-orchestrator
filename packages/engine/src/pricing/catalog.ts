@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import catalog1 from "./catalog-1.json";
+import catalog2 from "./catalog-2.json";
 
 const Micros = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
@@ -69,6 +70,12 @@ export const CATALOGS: readonly ShippedCatalog[] = [
   {
     catalog: catalog1,
     checksum: "57ad5daa9d1ec6298bedafcc40f043d902b63925de3cbfb17135415104bcb643",
+  },
+  // Read again from the pricing page on 2026-10-15 (DIPO-89): every rate of catalog 1 was still
+  // current; the new version records that check.
+  {
+    catalog: catalog2,
+    checksum: "bad1d98644fc7d232a36826ac0bcdf5a655b435b73fe0caeaef970665b661440",
   },
 ];
 

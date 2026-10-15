@@ -145,7 +145,7 @@ describe("estimated cost of a recording", () => {
         {
           model: "claude-haiku-5-5",
           est_cost_micros: 3468,
-          pricing_version: "1",
+          pricing_version: "2",
           // The CLI's costUSD 0.0034681100000000004.
           cli_cost_micros: 3468,
         },
