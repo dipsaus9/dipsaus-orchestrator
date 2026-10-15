@@ -1,10 +1,10 @@
 ---
 id: DIPO-55
 title: Follow a running agent's live output in the TUI
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-14 15:38'
+updated_date: '2026-10-15 11:34'
 labels:
   - 'tier:M'
   - test-before-merge
@@ -53,12 +53,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The detail header shows story, title, role, tier, model and run id, plus `[follow]` when the host is follow-only.
-- [ ] #2 The facts panel shows phase, health, loop over cap, verify, criteria with checkboxes, usage in, out, cache writes, cache reads and turns, budget bar, and active signals with their start time.
-- [ ] #3 The output pane shows `work.output` for the selected source, `w` for worker and `v` for verify, follows the tail, and End returns to following.
-- [ ] #4 Scrolling up fetches earlier text with `work.outputRange`; React state holds only the visible lines.
-- [ ] #5 `X` asks "worker ends, branch kept, story parks as stopped" and sends `work.stop` on yes.
-- [ ] #6 Esc returns to the previous view.
+- [x] #1 The detail header shows story, title, role, tier, model and run id, plus `[follow]` when the host is follow-only.
+- [x] #2 The facts panel shows phase, health, loop over cap, verify, criteria with checkboxes, usage in, out, cache writes, cache reads and turns, budget bar, and active signals with their start time.
+- [x] #3 The output pane shows `work.output` for the selected source, `w` for worker and `v` for verify, follows the tail, and End returns to following.
+- [x] #4 Scrolling up fetches earlier text with `work.outputRange`; React state holds only the visible lines.
+- [x] #5 `X` asks "worker ends, branch kept, story parks as stopped" and sends `work.stop` on yes.
+- [x] #6 Esc returns to the previous view.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -67,4 +67,6 @@ test_plan:
 M0 breakdown draft number S39 (DIPO-15). Before cutover: built by hand-run agents.
 
 Maintainer feedback from the DIPO-54 hand test (2026-10-14): 'I find it a bit confusing on what is happening ... If a process is running I want to be able to view what is happening.' Design the detail view so it answers 'what is the worker doing right now' at a glance; overview and switcher clarity is DIPO-81.
+
+Maintainer hand test 2026-10-15 (live Haiku run on the scratch repo): header, now line, facts panel, streaming output, scroll-back, End, w/v and Esc looked good. Not in time to stop the ~15 s worker with X; the stop flow is covered by automated tests (X then y sends work.stop, X then n sends nothing). Feedback: wants to see what [tool] Bash runs, plus thinking and open questions -> DIPO-83 (build the approved privacy.storeCommandBodies opt-in; the default stays).
 <!-- SECTION:NOTES:END -->
