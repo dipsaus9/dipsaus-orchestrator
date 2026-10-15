@@ -406,7 +406,8 @@ export class Ingestor {
       let model = this.#agentModel(target);
       let usageChanged = false;
       let turnEnded = false;
-      let criteriaChanged = false;
+      // The criteria count shown before the pass's first report; undefined when none came.
+      let criteriaBefore: number | null | undefined;
       let text = "";
       for (const line of lines) {
         const hostLine = parseHostLine(line.text);
@@ -459,8 +460,8 @@ export class Ingestor {
               turnEnded = true;
               // The criteria the report marks met are the run's progress now (DIPO-85).
               if (event.report !== null && target.work !== undefined) {
-                criteriaChanged =
-                  recordReportedCriteria(this.#office, run, event.report) || criteriaChanged;
+                criteriaBefore ??= runProgress(this.#office, run as RunId)?.criteriaMet ?? null;
+                recordReportedCriteria(this.#office, run, event.report);
               }
               this.#hooks.onEventApplied?.(run, agent, event);
               break;
@@ -548,8 +549,14 @@ export class Ingestor {
         entries.push(...this.#outputEntries(target));
       }
       if (stale !== null) entries.push(stale);
-      const progress = criteriaChanged ? runProgress(this.#office, target.run as RunId) : null;
-      if (progress !== null && target.work !== undefined) {
+      // A `work.progress` only when the count the view shows changed (DIPO-85).
+      const progress =
+        criteriaBefore === undefined ? null : runProgress(this.#office, target.run as RunId);
+      if (
+        progress !== null &&
+        progress.criteriaMet !== criteriaBefore &&
+        target.work !== undefined
+      ) {
         entries.push({
           type: "work.progress",
           key: target.work.key,

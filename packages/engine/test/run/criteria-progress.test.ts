@@ -117,13 +117,9 @@ describe("criteria progress from the worker report", () => {
         const view = workView(office, started.run);
         expect(view?.progress).toMatchObject({ criteriaMet: 1, criteriaTotal: 3 });
         // The count is what the worker said: the engine never labels it `checked` (0009).
-        expect(view?.evidence?.["progress.criteriaMet"] ?? "claimed").toBe("claimed");
-        const stored = office.get<{ reported: string }>(
-          `select criteria_reported as reported from runs where office_id = $office_id
-            and run_id = $run`,
-          { run: started.run },
-        );
-        expect(stored?.reported).toBe("[2]");
+        expect(view?.evidence?.["progress.criteriaMet"]).not.toBe("checked");
+        const events = progressEvents(office);
+        expect(events.map((event) => event.delta.criteriaMet)).toEqual([1]);
       } finally {
         t.state.close();
       }
@@ -162,9 +158,54 @@ describe("criteria progress from the worker report", () => {
           criteria: { known: [1, 2, 3], checked: [1] },
         });
         const ingestor = new Ingestor({ office, clock: t.clock, pricing: null });
-        writeReport(started, t, report([3]));
+        // A report naming only the criterion checked already changes nothing shown: no event.
+        writeReport(started, t, report([1]));
         track(ingestor, started);
+        expect(workView(office, started.run)?.progress.criteriaMet).toBe(1);
+        expect(progressEvents(office)).toEqual([]);
+        writeReport(started, t, report([3]));
+        ingestor.pass(started.run, started.agent);
         expect(workView(office, started.run)?.progress.criteriaMet).toBe(2);
+        expect(progressEvents(office).map((event) => event.delta.criteriaMet)).toEqual([2]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("counts only criteria the story still has after a criterion is removed or renumbered", () =>
+    withTempDir(async (dir) => {
+      const { t, office, started, ingestor } = await setup(dir);
+      try {
+        writeReport(started, t, report([1, 2, 3]));
+        track(ingestor, started);
+        expect(workView(office, started.run)?.progress.criteriaMet).toBe(3);
+        // The story loses a criterion: the index now holds #1 and #2 only.
+        pass(t, office, [
+          task("TASK-1", {
+            status: "In Progress",
+            contentHash: "hash-TASK-1-amended",
+            criteria: { met: 0, total: 2, numbers: [1, 2] },
+          }),
+        ]);
+        expect(workView(office, started.run)?.progress).toMatchObject({
+          criteriaMet: 2,
+          criteriaTotal: 2,
+        });
+        // A report for the old #3 still counts nothing; a new #3 counts once the story has it.
+        writeReport(started, t, report([3]));
+        ingestor.pass(started.run, started.agent);
+        expect(workView(office, started.run)?.progress.criteriaMet).toBe(0);
+        pass(t, office, [
+          task("TASK-1", {
+            status: "In Progress",
+            contentHash: "hash-TASK-1-again",
+            criteria: { met: 0, total: 3, numbers: [1, 2, 3] },
+          }),
+        ]);
+        expect(workView(office, started.run)?.progress).toMatchObject({
+          criteriaMet: 1,
+          criteriaTotal: 3,
+        });
       } finally {
         t.state.close();
       }
