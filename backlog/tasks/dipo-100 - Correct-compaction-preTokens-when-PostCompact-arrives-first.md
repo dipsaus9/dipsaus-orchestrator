@@ -4,6 +4,7 @@ title: Correct compaction preTokens when PostCompact arrives first
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 20:49'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -12,6 +13,8 @@ dependencies:
 references:
   - packages/engine/src/workers/claude-cli/interpret.ts
   - packages/engine/src/workers/types.ts
+  - packages/engine/test/workers/hooks.test.ts
+  - packages/engine/test/workers/compaction.test.ts
 priority: low
 type: feature
 ordinal: 90000

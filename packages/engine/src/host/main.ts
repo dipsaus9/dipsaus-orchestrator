@@ -76,6 +76,29 @@ export interface WorkerHostOptions {
   readonly logCapBytes?: number;
 }
 
+/** The worker's exit as the host records it (`exit.json` and the exit line). */
+export interface ExitCause {
+  readonly code: number | null;
+  readonly signal: string | null;
+  readonly signalInferred?: boolean;
+}
+
+/**
+ * The exit to record from the process's report and the signal the host sent last (DIPO-88). A
+ * process that handles the signal and exits with a code reports no signal: Claude Code catches
+ * SIGTERM in print mode and exits 143. When the host had sent a signal and the worker then exited
+ * non-zero, that signal is recorded as the cause and marked inferred. A signal the process
+ * reports always wins; an exit 0 stays a clean exit, and with no signal sent nothing is inferred.
+ */
+export function exitCause(
+  exit: { readonly code: number | null; readonly signal: string | null },
+  lastSignal: Signal | null,
+): ExitCause {
+  if (exit.signal !== null || lastSignal === null) return { code: exit.code, signal: exit.signal };
+  if (exit.code === null || exit.code === 0) return { code: exit.code, signal: null };
+  return { code: exit.code, signal: lastSignal, signalInferred: true };
+}
+
 /** Reads, validates and removes `launch.json`; it holds the task message, so it never stays. */
 export function readLaunch(runDir: string, runId: string): HostLaunch {
   const path = join(runDir, LAUNCH_FILE);
@@ -320,7 +343,7 @@ export class WorkerHost {
       });
       await Promise.allSettled([child.stdout.cancel(), child.stderr.cancel()]);
     }
-    return this.#finish(exit);
+    return this.#finish(exitCause(exit, this.#steering?.lastSignal ?? null));
   }
 
   async #pump(stream: ReadableStream<Uint8Array>, ch: "stdout" | "stderr"): Promise<void> {
@@ -354,18 +377,17 @@ export class WorkerHost {
     return offset;
   }
 
-  async #finish(
-    exit: { code: number | null; signal: string | null },
-    startError?: string,
-  ): Promise<HostExitFile> {
+  async #finish(exit: ExitCause, startError?: string): Promise<HostExitFile> {
     this.#state = "exiting";
     // A hook call still waiting gets no decision: the worker it asked for has gone.
     this.#answerAllHooks("");
-    this.#append("exit", JSON.stringify({ code: exit.code, signal: exit.signal }));
+    const inferred = exit.signalInferred === true ? { signalInferred: true } : {};
+    this.#append("exit", JSON.stringify({ code: exit.code, signal: exit.signal, ...inferred }));
     const record: HostExitFile = {
       run: this.runId,
       code: exit.code,
       signal: exit.signal,
+      ...inferred,
       finalOffset: this.#events.offset,
       at: this.#options.clock.now(),
       ...(startError === undefined ? {} : { startError }),

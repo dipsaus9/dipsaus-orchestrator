@@ -174,11 +174,44 @@ describe("PostCompact and PostModelSwitch, deduplicated (DIPO-59 AC #10)", () =>
     expect(compacted(run([boundary, post]).events)).toEqual([
       { t: "compacted", preTokens: 150_000 },
     ]);
-    expect(compacted(run([post, boundary]).events)).toEqual([{ t: "compacted", preTokens: 0 }]);
+    // The hook first waits for the boundary's token count (DIPO-100).
+    expect(compacted(run([post]).events)).toEqual([]);
+    expect(compacted(run([post, boundary]).events)).toEqual([
+      { t: "compacted", preTokens: 150_000 },
+    ]);
     // Two compactions give two events, and a new process counts again.
-    expect(compacted(run([boundary, post, post, boundary]).events)).toHaveLength(2);
+    expect(compacted(run([boundary, post, post, boundary]).events)).toEqual([
+      { t: "compacted", preTokens: 150_000 },
+      { t: "compacted", preTokens: 150_000 },
+    ]);
+    expect(compacted(run([post, post, boundary, boundary]).events)).toHaveLength(2);
     const exit: HostLine = { t: 0, ch: "exit", data: '{"code":0,"signal":null}' };
-    expect(compacted(run([boundary, exit, post]).events)).toHaveLength(2);
+    // A hook whose boundary never comes is reported at the exit, with no token count.
+    expect(compacted(run([boundary, exit, post, exit]).events)).toEqual([
+      { t: "compacted", preTokens: 150_000 },
+      { t: "compacted", preTokens: 0 },
+    ]);
+  });
+
+  it("reports a hook-only compaction at the exit; the next process counts afresh (DIPO-100)", () => {
+    const post = hook("PostCompact", { trigger: "auto" });
+    const exit: HostLine = { t: 0, ch: "exit", data: '{"code":0,"signal":null}' };
+    const { state } = run([post]);
+    expect(state.compactReported).toBe(0);
+    // Counts are per process: after the exit the next process starts from zero.
+    const after = run([exit, boundary], state);
+    expect(compacted(after.events)).toEqual([
+      { t: "compacted", preTokens: 0 },
+      { t: "compacted", preTokens: 150_000 },
+    ]);
+  });
+
+  it("reads a state stored before DIPO-100 as having emitted every counted compaction", () => {
+    // The old adapter emitted `preTokens` 0 at once for a hook ahead of the boundary.
+    const stored = { ...initialState({ plannedModel: "haiku" }), compactHooks: 1 };
+    expect(compacted(run([boundary], stored).events)).toEqual([]);
+    const next = run([boundary, boundary], stored);
+    expect(compacted(next.events)).toEqual([{ t: "compacted", preTokens: 150_000 }]);
   });
 
   it("gives one modelSwitched for a switch seen as PostModelSwitch and in the stream", () => {

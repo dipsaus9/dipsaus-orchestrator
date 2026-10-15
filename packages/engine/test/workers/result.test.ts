@@ -133,6 +133,23 @@ describe("result rows without a recording (0008 section 7)", () => {
     expect(res.retry).toBe("handoff");
   });
 
+  it("an inferred signal decides only with exit 143; exit 1 after a sent signal reads as exit 1 (DIPO-88)", () => {
+    const state = feed([
+      resultLine({
+        subtype: "error_max_structured_output_retries",
+        is_error: true,
+        terminal_reason: "error",
+        structured_output: undefined,
+      }),
+    ]);
+    const after = result(state, { code: 1, signal: "SIGTERM", signalInferred: true });
+    expect(after).toEqual(result(state, { code: 1, signal: null }));
+    expect(after.outcome).toBe("blocked");
+    const stopped = result(state, { code: 143, signal: "SIGTERM", signalInferred: true });
+    expect(stopped.outcome).toBe("crashed");
+    expect(stopped.park?.detail).toBe("signal SIGTERM with no intent recorded");
+  });
+
   it("a done report with a nonzero exit is a crash that keeps the report", () => {
     const res = result(feed([resultLine()]), { code: 1, signal: null });
     expect(res.outcome).toBe("crashed");

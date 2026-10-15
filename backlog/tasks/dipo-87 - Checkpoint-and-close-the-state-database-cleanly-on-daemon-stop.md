@@ -4,6 +4,7 @@ title: Checkpoint and close the state database cleanly on daemon stop
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 19:24'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -12,6 +13,8 @@ references:
   - packages/daemon/src/foreground.ts
   - packages/engine/src/platform/sqlite.ts
   - packages/engine/src/db/database.ts
+  - packages/engine/test/db/sqlite.test.ts
+  - packages/daemon/test/integration/db-close.ci.test.ts
 priority: medium
 type: feature
 ordinal: 77000

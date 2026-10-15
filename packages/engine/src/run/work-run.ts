@@ -85,6 +85,7 @@ import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 
+import { recordRunCriteria } from "./criteria";
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
 import { markPhase } from "./markers";
 
@@ -523,6 +524,13 @@ export class WorkRun {
         runProfileId: currentProfileId(handle),
         startedAt: at,
         scope: view.references,
+      });
+      // The criteria the worker's reports are counted against (DIPO-85).
+      recordRunCriteria(handle, runId, {
+        known: view.acceptanceCriteria.map((criterion) => criterion.index),
+        checked: view.acceptanceCriteria
+          .filter((criterion) => criterion.checked)
+          .map((criterion) => criterion.index),
       });
       // The engine-made session id is stored on the run's agent (0007 section 4, `agents`).
       handle.run(

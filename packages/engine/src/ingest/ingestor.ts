@@ -2,8 +2,10 @@
 // tracked run and agent the engine reads the complete lines of the host's `events.ndjson` from the
 // stored `processed_offset`, runs the adapter's pure `interpret` over them, and in one
 // transaction writes the derived facts (agent details, usage rows, output chunks), any change-log
-// entries that are due, the parser state and the new offset. A crash before the commit leaves
-// offset and facts as they were, so the next pass neither skips nor repeats an event.
+// entries that are due, the parser state and the new offset. A turn report's met criteria are
+// stored on the run there too, with a `work.progress` when the count changed (DIPO-85). A crash
+// before the commit leaves offset and facts as they were, so the next pass neither skips nor
+// repeats an event.
 //
 // Debounce before the log (0005 section 6): stored output becomes a `work.output` entry per run
 // every 250 ms or at 16 KiB, and `usage.updated` at most once per second, on the injected clock.
@@ -18,10 +20,12 @@ import type { Clock, Cursor, RunId, TimerHandle, WorkRef } from "@dipsaus-orches
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { agentCostDrifts, type CostDrift, CostDriftWarnings } from "../pricing/drift";
 import type { PriceBook } from "../pricing/estimate";
 import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
+import { recordReportedCriteria } from "../run/criteria";
 import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
-import { withWorkViews } from "../views/work";
+import { runProgress, withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
@@ -125,9 +129,12 @@ export interface IngestedExit {
 export function exitRecordOf(data: string): ExitRecord {
   try {
     const value = JSON.parse(data) as Record<string, unknown> | null;
+    const signal = typeof value?.["signal"] === "string" ? value["signal"] : null;
     return {
       code: typeof value?.["code"] === "number" ? value["code"] : null,
-      signal: typeof value?.["signal"] === "string" ? value["signal"] : null,
+      signal,
+      // The host inferred the signal from the one it sent last (DIPO-88).
+      ...(signal !== null && value?.["signalInferred"] === true ? { signalInferred: true } : {}),
     };
   } catch {
     return { code: null, signal: null };
@@ -153,6 +160,11 @@ export interface IngestorOptions {
    * stored.
    */
   readonly privacy?: () => OutputPrivacy;
+  /**
+   * Remembers the cost drift warnings already logged today (DIPO-89); shared by every office's
+   * ingestor so a model is warned about once per day. Without it the ingestor keeps its own.
+   */
+  readonly costDrift?: CostDriftWarnings;
 }
 
 export type PassStatus = "ingested" | "idle" | "stopped" | "ended" | "fileChanged";
@@ -237,6 +249,7 @@ export class Ingestor {
   readonly #timings: IngestTimings;
   readonly #warn: NonNullable<IngestorOptions["warn"]>;
   readonly #privacy: () => OutputPrivacy;
+  readonly #costDrift: CostDriftWarnings;
   readonly #tracked = new Map<string, Tracked>();
 
   constructor(options: IngestorOptions) {
@@ -247,6 +260,7 @@ export class Ingestor {
     this.#timings = { ...INGEST_DEFAULTS, ...options.timings };
     this.#warn = options.warn ?? (() => {});
     this.#privacy = options.privacy ?? (() => DEFAULT_OUTPUT_PRIVACY);
+    this.#costDrift = options.costDrift ?? new CostDriftWarnings();
   }
 
   /**
@@ -391,6 +405,7 @@ export class Ingestor {
     let endState: ParseState = {};
     let usageDirty = false;
     let usageSent = false;
+    let drifts: CostDrift[] = [];
     const end = lines[lines.length - 1]?.end ?? offset;
 
     this.#office.immediate(() => {
@@ -403,6 +418,8 @@ export class Ingestor {
       let model = this.#agentModel(target);
       let usageChanged = false;
       let turnEnded = false;
+      // The criteria count shown before the pass's first report; undefined when none came.
+      let criteriaBefore: number | null | undefined;
       let text = "";
       for (const line of lines) {
         const hostLine = parseHostLine(line.text);
@@ -453,6 +470,11 @@ export class Ingestor {
               }
               usageChanged = true;
               turnEnded = true;
+              // The criteria the report marks met are the run's progress now (DIPO-85).
+              if (event.report !== null && target.work !== undefined) {
+                criteriaBefore ??= runProgress(this.#office, run as RunId)?.criteriaMet ?? null;
+                recordReportedCriteria(this.#office, run, event.report);
+              }
               this.#hooks.onEventApplied?.(run, agent, event);
               break;
             case "started":
@@ -539,6 +561,21 @@ export class Ingestor {
         entries.push(...this.#outputEntries(target));
       }
       if (stale !== null) entries.push(stale);
+      // A `work.progress` only when the count the view shows changed (DIPO-85).
+      const progress =
+        criteriaBefore === undefined ? null : runProgress(this.#office, target.run as RunId);
+      if (
+        progress !== null &&
+        progress.criteriaMet !== criteriaBefore &&
+        target.work !== undefined
+      ) {
+        entries.push({
+          type: "work.progress",
+          key: target.work.key,
+          run: target.work.run,
+          delta: { work: target.work, progress },
+        });
+      }
       usageDirty = tracked.usageDirty || usageChanged;
       const dueAt = (tracked.lastUsageAt ?? -Infinity) + this.#timings.usageIntervalMs;
       if (usageDirty && (exited || now >= dueAt)) {
@@ -563,6 +600,8 @@ export class Ingestor {
       feedFinalChanges(this.#office, run, agent, finalBefore, now);
       if (exited) {
         endState = state;
+        // The finished agent's models whose estimate drifts from the CLI cost (DIPO-89).
+        if (this.#pricing !== null) drifts = agentCostDrifts(this.#office, run, agent);
         finalizeAgentUsage(this.#office, run, agent, now);
         this.#office.run(
           `update agents set ended_at = $now, end_reason = coalesce(end_reason, 'exited')
@@ -572,9 +611,17 @@ export class Ingestor {
         // The exit as the host wrote it, for a decision after a restart (DIPO-51).
         this.#office.run(
           `update worker_hosts set exit_code = coalesce(exit_code, $code),
-             exit_signal = coalesce(exit_signal, $signal)
+             exit_signal = coalesce(exit_signal, $signal),
+             exit_signal_inferred = case when exit_signal is null then $inferred
+               else exit_signal_inferred end
            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-          { code: exit.code, signal: exit.signal, run, agent },
+          {
+            code: exit.code,
+            signal: exit.signal,
+            inferred: exit.signalInferred === true ? 1 : 0,
+            run,
+            agent,
+          },
         );
       }
       this.#append(entries, now);
@@ -594,6 +641,8 @@ export class Ingestor {
     this.#hooks.onLines?.(run, agent);
     if (events.length > 0) this.#hooks.onWorkerEvents?.(run, agent, events);
     for (const reason of rejected) this.#hooks.onInitRejected?.(run, agent, reason);
+    // Logged only once the pass committed, so a rolled-back pass warns again when it is redone.
+    this.#costDrift.report(drifts, now, this.#warn, { run, agent });
     if (exited) this.#hooks.onEnded?.(run, agent, { exit, state: endState });
     return { status: exited ? "ended" : "ingested", lines: lines.length, offset: end };
   }

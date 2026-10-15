@@ -210,6 +210,8 @@ export interface WorkerHostRow extends ProcessIdentity {
   readonly processedOffset: number;
   readonly exitCode: number | null;
   readonly exitSignal: string | null;
+  /** True when the host inferred `exitSignal` from the signal it sent last (DIPO-88). */
+  readonly exitSignalInferred: boolean;
   readonly finalOffset: number | null;
   readonly endedAt: number | null;
   readonly mode: "steer" | "follow";
@@ -230,6 +232,7 @@ interface RawRow {
   processed_offset: number;
   exit_code: number | null;
   exit_signal: string | null;
+  exit_signal_inferred: number;
   final_offset: number | null;
   ended_at: number | null;
   mode: "steer" | "follow";
@@ -256,6 +259,7 @@ export function workerHostsOf(office: OfficeHandle, runId: string): WorkerHostRo
       processedOffset: row.processed_offset,
       exitCode: row.exit_code,
       exitSignal: row.exit_signal,
+      exitSignalInferred: row.exit_signal_inferred === 1,
       finalOffset: row.final_offset,
       endedAt: row.ended_at,
       mode: row.mode,
@@ -268,11 +272,13 @@ export function workerHostsOf(office: OfficeHandle, runId: string): WorkerHostRo
 export function recordHostExit(office: OfficeHandle, agentId: string, exit: HostExitFile): void {
   office.immediate(() =>
     office.run(
-      `update worker_hosts set exit_code = $code, exit_signal = $signal, final_offset = $final,
+      `update worker_hosts set exit_code = $code, exit_signal = $signal,
+         exit_signal_inferred = $inferred, final_offset = $final,
          ended_at = $at where office_id = $office_id and run_id = $run and agent_id = $agent`,
       {
         code: exit.code,
         signal: exit.signal,
+        inferred: exit.signalInferred === true && exit.signal !== null ? 1 : 0,
         final: exit.finalOffset,
         at: exit.at,
         run: exit.run,
