@@ -8,6 +8,9 @@
 // command or path equal the recorded ones: `allow_used_at` is when that request came, so the
 // allow is spent and never matches again. Nothing is kept as a rule or for later runs; the row
 // leaves with its run (tier S retention, as migration 22).
+//
+// `runs.parked_ms` is the time a run stood parked before such an answer reopened it, summed over
+// its parks: the run's caps and its `run_outcomes.minutes` count the time it worked, not these.
 
 import type { SqlMigration } from "../migrations";
 
@@ -17,6 +20,7 @@ export const parkQuestions: SqlMigration = {
   sql: `
 alter table questions add column park_id integer;
 alter table questions add column allow_used_at integer;
+alter table runs add column parked_ms integer not null default 0;
 
 create index questions_allow_once on questions (office_id, run_id)
   where park_id is not null and decision = 'allow' and allow_used_at is null;

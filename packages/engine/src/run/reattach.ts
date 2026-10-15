@@ -57,7 +57,7 @@ import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
-import { activeRuns, findRun, type StoredRun } from "./records";
+import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
 import { clearSignals, raiseSignal } from "./signals";
 
 /** The daemon's recovery step that re-attaches worker hosts (0006 decision 7). */
@@ -254,7 +254,7 @@ export class RunReattacher {
         maxMinutes: Number.POSITIVE_INFINITY,
       },
       // The run's caps count from its first host, as worker outcomes count them.
-      startedAt: hosts[0]?.startedAt ?? run.startedAt,
+      startedAt: capsStartedAt(run, hosts[0]?.startedAt),
       snapshot: null,
     });
 

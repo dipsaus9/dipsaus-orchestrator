@@ -37,6 +37,7 @@ export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
 export {
   activeRuns,
+  capsStartedAt,
   appendRunStep,
   currentProfileId,
   endRun,
