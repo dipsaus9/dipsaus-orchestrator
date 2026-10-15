@@ -356,12 +356,14 @@ const officeEventFixtures: Record<string, unknown> = {
   "work.assigned": { work: workRef },
   "work.phase": { work: workRef, phase: "verify", progress },
   "work.progress": { work: workRef, progress },
+  // An engine marker (DIPO-95): the range holds exactly the flagged marker line.
   "work.output": {
     work: workRef,
     source: "worker",
     from: 1024,
-    to: 1040,
-    text: "Running tests…\n",
+    to: 1069,
+    text: "[dipo] 2026-10-12T09:00:00.000Z phase verify\n",
+    markers: [{ from: 1024, to: 1069, kind: "phase", value: "verify", at: "2026-10-12T09:00:00Z" }],
   },
   "work.observed": {
     work: workRef,
