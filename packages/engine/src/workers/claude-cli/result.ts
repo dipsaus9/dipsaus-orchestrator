@@ -123,9 +123,19 @@ function noReport(why: string): Decision {
   };
 }
 
+/**
+ * The exit the decision reads (DIPO-88): a signal the host inferred counts only with exit 143,
+ * the code Claude ends with on SIGTERM; with any other code the exit reads as that code alone,
+ * so the outcome is the one it was before the host inferred signals.
+ */
+function decidingExit(exit: ExitRecord): ExitRecord {
+  if (exit.signalInferred !== true || exit.code === SIGTERM_EXIT_CODE) return exit;
+  return { code: exit.code, signal: null };
+}
+
 /** Pure: the Worker result from the parse state and the exit record. */
 export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult {
-  const decision = decide(state, exit);
+  const decision = decide(state, decidingExit(exit));
   const sessionId = state.sessionId ?? "";
   return {
     outcome: decision.outcome,
