@@ -12,6 +12,7 @@ import {
   type FileChangedReport,
   type IngestAdapter,
   Ingestor,
+  type IngestedExit,
 } from "../../src/ingest/ingestor";
 import { toolLine } from "../../src/ingest/output";
 import {
@@ -663,5 +664,60 @@ describe("init rejection", () => {
         )?.init_rejected,
       ).toBe(rejected[0] ?? "");
       expect(hostLines(loadRecording(NAME)).length).toBeGreaterThan(0);
+    }));
+});
+
+/** The exit columns of the fixture host's row (DIPO-88). */
+function hostExit(f: Awaited<ReturnType<typeof ingestFixture>>) {
+  return f.office.get<{
+    exit_code: number | null;
+    exit_signal: string | null;
+    exit_signal_inferred: number;
+  }>(
+    `select exit_code, exit_signal, exit_signal_inferred from worker_hosts
+      where office_id = $office_id and run_id = $run`,
+    { run: f.run },
+  );
+}
+
+describe("exit signal (DIPO-88)", () => {
+  it("copies an inferred SIGTERM from the exit line to worker_hosts with its mark", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      const ended: IngestedExit[] = [];
+      const worker = scriptedWorker({
+        script: SCRIPTS["done"] ?? [],
+        exit: { code: 143, signal: "SIGTERM", signalInferred: true },
+      });
+      appendLines(f.eventFile, worker.lines());
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+        hooks: { onEnded: (_run, _agent, end) => ended.push(end) },
+      });
+      expect(ingestor.track(target(f, worker, { events: [] })).status).toBe("ended");
+      expect(hostExit(f)).toEqual({
+        exit_code: 143,
+        exit_signal: "SIGTERM",
+        exit_signal_inferred: 1,
+      });
+      expect(ended.map((end) => end.exit)).toEqual([
+        { code: 143, signal: "SIGTERM", signalInferred: true },
+      ]);
+    }));
+
+  it("keeps exit_signal null for a worker that exits on its own", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      const worker = scriptedWorker({ script: SCRIPTS["done"] ?? [] });
+      appendLines(f.eventFile, worker.lines());
+      const ingestor = new Ingestor({
+        office: f.office,
+        clock: f.t.clock,
+        pricing: f.t.state.pricing,
+      });
+      expect(ingestor.track(target(f, worker, { events: [] })).status).toBe("ended");
+      expect(hostExit(f)).toEqual({ exit_code: 0, exit_signal: null, exit_signal_inferred: 0 });
     }));
 });

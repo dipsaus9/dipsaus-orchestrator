@@ -173,6 +173,7 @@ describe("worker_hosts", () => {
             processedOffset: 0,
             exitCode: null,
             exitSignal: null,
+            exitSignalInferred: false,
             finalOffset: null,
             endedAt: null,
             mode: "steer",
@@ -192,8 +193,23 @@ describe("worker_hosts", () => {
         expect(workerHostsOf(office, RUN)[0]).toMatchObject({
           exitCode: 143,
           exitSignal: null,
+          exitSignalInferred: false,
           finalOffset: 900,
           endedAt: clock.now() + 5,
+        });
+        // A signal the host inferred keeps its mark on the row (DIPO-88).
+        recordHostExit(office, AGENT, {
+          run: RUN,
+          code: 143,
+          signal: "SIGTERM",
+          signalInferred: true,
+          finalOffset: 900,
+          at: clock.now() + 5,
+        });
+        expect(workerHostsOf(office, RUN)[0]).toMatchObject({
+          exitCode: 143,
+          exitSignal: "SIGTERM",
+          exitSignalInferred: true,
         });
         expect(
           workerHostsOf(state.office("off_01JZ0000000000000000000002" as OfficeId), RUN),
