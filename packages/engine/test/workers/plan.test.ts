@@ -80,6 +80,11 @@ function settingsOf(launch: LaunchPlan): Record<string, unknown> {
   return JSON.parse(file.content) as Record<string, unknown>;
 }
 
+function denyWriteOf(launch: LaunchPlan): string[] {
+  const sandbox = settingsOf(launch)["sandbox"] as { filesystem: { denyWrite: string[] } };
+  return sandbox.filesystem.denyWrite;
+}
+
 function flag(launch: LaunchPlan, name: string): string | undefined {
   const index = launch.argv.indexOf(name);
   return index === -1 ? undefined : launch.argv[index + 1];
@@ -554,11 +559,6 @@ describe("claude-cli plan closes srt's default write paths (DIPO-98)", () => {
     "/private/tmp/claude",
   ];
 
-  function denyWriteOf(launch: LaunchPlan): string[] {
-    const sandbox = settingsOf(launch)["sandbox"] as { filesystem: { denyWrite: string[] } };
-    return sandbox.filesystem.denyWrite;
-  }
-
   it("denies writes to every srt default write path, for every tier, on launch and resume", () => {
     for (const tier of ["S", "M", "L"] as const) {
       for (const resume of [false, true]) {
@@ -666,13 +666,10 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
   });
 
   it("keeps srt's default write paths closed: the same denyWrite as without Safe-Chain (DIPO-98)", () => {
-    const denyWrite = (launch: LaunchPlan) =>
-      (settingsOf(launch)["sandbox"] as { filesystem: { denyWrite: string[] } }).filesystem
-        .denyWrite;
     const withSafeChain = plan(spec("M"), context({ safeChain }));
-    expect(denyWrite(withSafeChain)).toEqual(denyWrite(plan(spec("M"), context())));
+    expect(denyWriteOf(withSafeChain)).toEqual(denyWriteOf(plan(spec("M"), context())));
     for (const closed of closedWritePaths("/home/maintainer")) {
-      expect(denyWrite(withSafeChain)).toContain(closed.path);
+      expect(denyWriteOf(withSafeChain)).toContain(closed.path);
     }
     // npm's cache, and so its logs, go to the run temp directory, not ~/.npm.
     const wrapper = withSafeChain.files.find((f) => f.name === "safe-chain/zsh")?.content ?? "";
@@ -682,7 +679,7 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
     const { route, ...withoutRoute } = safeChain;
     expect(route.port).toBe(50123);
     const preview = plan(spec("M"), context({ safeChain: withoutRoute }));
-    expect(denyWrite(preview)).toEqual(denyWrite(withSafeChain));
+    expect(denyWriteOf(preview)).toEqual(denyWriteOf(withSafeChain));
   });
 
   it("writes the wrapper (executable), its init file and the proxy description", () => {
