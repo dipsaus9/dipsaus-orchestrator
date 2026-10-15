@@ -32,7 +32,8 @@
 //    its outcome row (`endRun`) and summary, and `story.state` moves the story to In Review. A
 //    non-fast-forward push rejection parks `conflict` (0010); any other push failure is a notice and
 //    the story stays In Review with the branch local. A failure in the commit steps parks
-//    `interrupted` with the error.
+//    `interrupted` with the error. A commit that holds dependency files (manifests, lockfiles,
+//    `requirements*.txt`) raises `verify.dependenciesChanged` naming them (DIPO-84).
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -86,7 +87,42 @@ import {
 /** `engine.notice` codes of verify and commit. */
 export const VERIFY_NOTICES = {
   pushFailed: "verify.pushFailed",
+  dependenciesChanged: "verify.dependenciesChanged",
 } as const;
+
+/**
+ * Dependency files (DIPO-84): manifests and lockfiles of the package managers workers may install
+ * with. A commit that changes one raises `verify.dependenciesChanged`, so the maintainer sees new
+ * packages at review.
+ */
+export const DEPENDENCY_FILES: readonly string[] = [
+  "package.json",
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "pyproject.toml",
+  "poetry.lock",
+  "uv.lock",
+];
+
+/** Pure: the dependency files among repo-relative paths, sorted; `requirements*.txt` included. */
+export function dependencyFiles(paths: readonly string[]): string[] {
+  return [
+    ...new Set(
+      paths.filter((path) => {
+        const name = path.slice(path.lastIndexOf("/") + 1);
+        return DEPENDENCY_FILES.includes(name) || /^requirements.*\.txt$/.test(name);
+      }),
+    ),
+  ].toSorted();
+}
+
+/** Pure: the notice text of a commit that changed dependency files. */
+export function dependenciesChangedText(story: string, files: readonly string[]): string {
+  return `${story} changed dependency files: ${files.join(", ")}. Review the added or changed packages before you merge.`;
+}
 
 /** Gate capabilities whose change makes the base verify run too (0013 section 5). */
 export const GATE_CAPABILITIES: readonly CapabilityName[] = ["test", "lint", "typecheck", "verify"];
@@ -665,6 +701,20 @@ export class VerifyCommit implements RunFinisher {
           delta: { story, key, from: "In Progress", to: "In Review", view },
         },
       ];
+      // Dependency files the run committed (DIPO-84), from the committed paths; no model involved.
+      const dependencies = dependencyFiles(input.code);
+      if (dependencies.length > 0) {
+        entries.push({
+          type: "engine.notice",
+          key,
+          run: run.runId,
+          delta: {
+            level: "warn",
+            code: VERIFY_NOTICES.dependenciesChanged,
+            text: dependenciesChangedText(story, dependencies),
+          },
+        });
+      }
       if (push.error !== null) {
         entries.push({
           type: "engine.notice",

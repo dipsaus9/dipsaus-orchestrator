@@ -15,6 +15,7 @@ import {
   backstopEvidence,
   type BackstopSnapshot,
   checkScope,
+  dependencyFiles,
   feedbackItemMax,
   workspaceDirsOf,
   commitMessage,
@@ -586,5 +587,76 @@ describe("verify and commit", () => {
       parkReasons: ["budget-exceeded"],
       minutes: 2,
     });
+  });
+});
+
+describe("dependency files (DIPO-84)", () => {
+  it("finds manifests, lockfiles and requirements files anywhere in the tree", () => {
+    expect(
+      dependencyFiles([
+        "src/greet.ts",
+        "package.json",
+        "packages/a/package.json",
+        "bun.lock",
+        "bun.lockb",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "requirements.txt",
+        "py/requirements-dev.txt",
+        "pyproject.toml",
+        "poetry.lock",
+        "uv.lock",
+        "docs/package.json.md",
+        "requirements.md",
+        "src/requirements.txt.bak",
+      ]),
+    ).toEqual([
+      "bun.lock",
+      "bun.lockb",
+      "package-lock.json",
+      "package.json",
+      "packages/a/package.json",
+      "pnpm-lock.yaml",
+      "poetry.lock",
+      "py/requirements-dev.txt",
+      "pyproject.toml",
+      "requirements.txt",
+      "uv.lock",
+      "yarn.lock",
+    ]);
+    expect(dependencyFiles(["src/greet.ts", "README.md"])).toEqual([]);
+  });
+
+  it("raises a notice on the run and story naming the committed dependency files", async () => {
+    w.changed = ["src/greet.ts", "src/package.json", "src/bun.lock", "test/greet.test.ts"];
+    await play();
+    expect(w.calls[0]).toBe(
+      "commit DIPO-1: print a greeting [src/bun.lock, src/greet.ts, src/package.json, test/greet.test.ts]",
+    );
+    const notices = loggedEvents(w.f.office).filter(
+      (event) =>
+        event.type === "engine.notice" &&
+        (event.data as { code?: string }).code === "verify.dependenciesChanged",
+    );
+    expect(notices).toHaveLength(1);
+    // On the run and the story.
+    const rows = w.f.office.all<{ run_id: string | null; key: string | null }>(
+      "select run_id, key from change_log where office_id = $office_id and type = 'engine.notice'",
+    );
+    expect(rows).toEqual([{ run_id: w.f.run, key: w.work.key }]);
+    expect(notices[0]?.data).toEqual({
+      level: "warn",
+      code: "verify.dependenciesChanged",
+      text: "DIPO-1 changed dependency files: src/bun.lock, src/package.json. Review the added or changed packages before you merge.",
+    });
+  });
+
+  it("raises no notice when no dependency file changed", async () => {
+    w.changed = ["src/greet.ts"];
+    await play();
+    expect(
+      events("engine.notice").filter((n) => n["code"] === "verify.dependenciesChanged"),
+    ).toEqual([]);
   });
 });
