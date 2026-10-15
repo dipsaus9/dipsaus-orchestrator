@@ -24,7 +24,7 @@ import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
 import { withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
-import { byteLength, outputText } from "./output";
+import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
 import {
   applyTurnTotals,
   feedFinalChanges,
@@ -146,6 +146,12 @@ export interface IngestorOptions {
   readonly timings?: Partial<IngestTimings>;
   /** Called for a host line that is not a `{ t, ch, data }` object; the line is skipped. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /**
+   * The office's privacy opt-ins in force (0007 section 8, DIPO-83), read at every pass so a
+   * reloaded configuration applies to the next output. Without it nothing beyond the default is
+   * stored.
+   */
+  readonly privacy?: () => OutputPrivacy;
 }
 
 export type PassStatus = "ingested" | "idle" | "stopped" | "ended" | "fileChanged";
@@ -229,6 +235,7 @@ export class Ingestor {
   readonly #hooks: IngestHooks;
   readonly #timings: IngestTimings;
   readonly #warn: NonNullable<IngestorOptions["warn"]>;
+  readonly #privacy: () => OutputPrivacy;
   readonly #tracked = new Map<string, Tracked>();
 
   constructor(options: IngestorOptions) {
@@ -238,6 +245,7 @@ export class Ingestor {
     this.#hooks = options.hooks ?? {};
     this.#timings = { ...INGEST_DEFAULTS, ...options.timings };
     this.#warn = options.warn ?? (() => {});
+    this.#privacy = options.privacy ?? (() => DEFAULT_OUTPUT_PRIVACY);
   }
 
   /**
@@ -374,6 +382,7 @@ export class Ingestor {
     }
 
     const now = this.#clock.now();
+    const privacy = this.#privacy();
     const events: WorkerEvent[] = [];
     const rejected: string[] = [];
     let exited = false;
@@ -415,7 +424,7 @@ export class Ingestor {
         state = step.state;
         for (const event of step.events) {
           events.push(event);
-          text += outputText(event);
+          text += outputText(event, privacy);
           switch (event.t) {
             case "usage":
               usageChanged = recordUsageMessage(this.#office, target, event, now) || usageChanged;

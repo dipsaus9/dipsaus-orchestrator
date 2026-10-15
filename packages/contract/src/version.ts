@@ -29,4 +29,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-61 ships the command `work.resume` (for runs held by a plan limit) in the same, still
 // unreleased, minor.
 // DIPO-76 ships the command `office.purge` in the same, still unreleased, minor.
+// DIPO-83 adds the optional `optIns` of `OfficeSummary` (the privacy opt-ins that are on) to the
+// same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

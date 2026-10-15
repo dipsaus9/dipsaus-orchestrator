@@ -45,6 +45,9 @@ export const OfficeSummary = z.object({
   waitingOnMaintainer: Count, // open gates, questions, tests, parked other than on-hold
   dayUsage: DayUsage.optional(), // [`usage.alerts`]
   evidence: EvidenceMap.optional(), // [`evidence`]
+  // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
+  // (0007 section 8: the overview shows when one is on). Absent when none is on. Minor 1, DIPO-83.
+  optIns: z.array(z.string().min(1)).optional(),
 });
 export type OfficeSummary = z.infer<typeof OfficeSummary>;
 

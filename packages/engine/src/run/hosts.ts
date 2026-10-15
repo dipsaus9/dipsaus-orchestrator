@@ -8,6 +8,7 @@ import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import { connectHost, type HostClient, type HostRequest } from "../host/client";
 import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
+import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { PriceBook } from "../pricing/estimate";
@@ -76,6 +77,11 @@ export interface OfficeIngestOptions {
    * worker exit with the run's office.
    */
   readonly hookEvents?: OfficeRunListener;
+  /**
+   * The privacy opt-ins in force for `office` (0007 section 8, DIPO-83), read at every ingest pass.
+   * Without it, or for an office without a configuration, nothing beyond the default is stored.
+   */
+  readonly privacy?: (office: OfficeId) => OutputPrivacy;
 }
 
 /** Hears a run's worker events and its exit together with the run's office (DIPO-59). */
@@ -101,11 +107,13 @@ export class OfficeIngest implements RunIngest {
   #ingestor(office: OfficeHandle): Ingestor {
     let ingestor = this.#ingestors.get(office.officeId);
     if (ingestor === undefined) {
+      const privacyOf = this.#options.privacy;
       ingestor = new Ingestor({
         office,
         clock: this.#options.clock,
         pricing: this.#options.pricing(),
         hooks: this.#hooksFor(office),
+        ...(privacyOf === undefined ? {} : { privacy: () => privacyOf(office.officeId) }),
         ...(this.#options.warn === undefined ? {} : { warn: this.#options.warn }),
       });
       this.#ingestors.set(office.officeId, ingestor);

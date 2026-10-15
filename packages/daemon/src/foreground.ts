@@ -10,6 +10,7 @@ import { parseArgs } from "node:util";
 import {
   EXIT_CONFIG,
   type LogLevel,
+  type OfficeId,
   type SoftwareConfig,
   type Spawn,
   type TimerHandle,
@@ -51,6 +52,7 @@ import {
   officeSummaryOfSource,
   officeSummarySource,
   OfficeManager,
+  privacyOptIns,
   openLogFile,
   openStateDatabase,
   passwdHome,
@@ -696,7 +698,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     held.retention = retention;
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
-    const summaries = officeSummarySource(() => held.database);
+    // `optIns` names the privacy opt-ins that are on (0007 section 8, DIPO-83).
+    const optInsOf = (office: OfficeId) => privacyOptIns(offices.config(office));
+    const summaries = officeSummarySource(() => held.database, optInsOf);
     const registry: Registry = engineRegistry([
       ...engineFeatures({ backlog: backlogCli }),
       engineGit.feature,
@@ -716,6 +720,19 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       retention.feature,
       reconciler.feature,
       officeFeature(offices),
+      // The summary names the privacy opt-ins that are on (DIPO-83): an office load or a reloaded
+      // configuration may change them, so the summary is sent again (debounced, only when changed).
+      {
+        name: "privacy.summary",
+        register: (features) => {
+          features.registerLoadStep("privacy.summary", (ctx) => {
+            server?.notifyOffice(ctx.officeId);
+          });
+          features.registerConfigReload("privacy.summary", (ctx) => {
+            server?.notifyOffice(ctx.officeId);
+          });
+        },
+      },
       helloFeature({
         engineVersion: io.version,
         daemonState: () => lifecycle.state,
@@ -747,7 +764,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lifecycle,
       software,
       officeSummaries: summaries,
-      officeSummary: officeSummaryOfSource(() => held.database),
+      officeSummary: officeSummaryOfSource(() => held.database, optInsOf),
       engineVersion: io.version,
       logger: logger.child({ component: "server" }),
     });

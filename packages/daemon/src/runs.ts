@@ -229,6 +229,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     warn: (message, fields) => options.logger.warn(message, fields),
     watchdog,
     onAppended: options.onChanged,
+    // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
+    privacy: (office) => ({
+      storeCommandBodies: options.offices.config(office)?.privacy.storeCommandBodies ?? false,
+    }),
   });
   const probe = systemProcessProbe(platform);
   const hosts = systemHostStarter({

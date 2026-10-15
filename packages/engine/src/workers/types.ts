@@ -135,6 +135,12 @@ export type WorkerEvent =
       readonly kind: "text" | "tool" | "subagent";
       readonly tool?: string;
       readonly path?: string;
+      /**
+       * The tool call's input beyond its path, as the adapter reads it (a shell command, a search
+       * pattern, a URL). It may hold secrets: ingestion stores it only with the machine-local
+       * opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83).
+       */
+      readonly input?: string;
       readonly agentId?: string;
     }
   | { readonly t: "output"; readonly text: string }

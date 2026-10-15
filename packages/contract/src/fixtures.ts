@@ -27,6 +27,7 @@ export const officeSummary = {
   parked: 2,
   onHold: 1,
   waitingOnMaintainer: 1,
+  optIns: ["privacy.storeCommandBodies"],
 };
 
 // The story and work model.
