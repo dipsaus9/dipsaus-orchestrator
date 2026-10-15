@@ -4,7 +4,7 @@ title: 'Show commands, thinking and open questions in the live agent detail'
 status: To Do
 assignee: []
 created_date: '2026-10-15 11:34'
-updated_date: '2026-10-15 12:05'
+updated_date: '2026-10-15 12:57'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -31,6 +31,7 @@ references:
   - packages/engine/src/index.ts
   - packages/contract/schema
   - packages/tui/src/views.tsx
+  - docs/decisions/0005-command-and-event-model.md
 priority: medium
 ordinal: 73000
 ---
