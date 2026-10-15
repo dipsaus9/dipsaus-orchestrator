@@ -4,7 +4,7 @@ title: Nudge workers through PostToolUse hooks
 status: To Do
 assignee: []
 created_date: '2026-10-11 18:48'
-updated_date: '2026-10-12 09:52'
+updated_date: '2026-10-15 09:50'
 labels:
   - 'tier:S'
   - after-cutover
@@ -18,6 +18,19 @@ references:
   - packages/engine/test/hooks/
   - packages/engine/src/workers/types.ts
   - packages/engine/src/workers/claude-cli/encode.ts
+  - packages/engine/src/hooks/types.ts
+  - packages/engine/src/hooks/index.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/workers/claude-cli/hooks.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
+  - packages/engine/src/host/relay.ts
+  - packages/engine/src/run/prompts.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/test/workers/
+  - packages/engine/test/run/
+  - packages/daemon/src/hook.ts
+  - packages/daemon/src/hook.test.ts
+  - packages/daemon/src/runs.ts
 documentation:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0014-worker-prompt-assembly.md
