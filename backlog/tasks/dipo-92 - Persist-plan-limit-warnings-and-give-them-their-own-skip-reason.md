@@ -25,6 +25,9 @@ references:
   - packages/tui/src/format.test.ts
   - packages/cli/src/run-command.ts
   - packages/cli/src/run-command.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
 priority: medium
 type: feature
 ordinal: 82000
