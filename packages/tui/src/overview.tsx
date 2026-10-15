@@ -121,11 +121,6 @@ export function countLine(state: OfficeStoreState, dot: string, width: Width): s
   return ` ${parts.join(` ${dot} `)}`;
 }
 
-/** The rule id of a Ready gate message (`ready DIPO-33 failed R15: …` gives `R15`), or null. */
-function gateRule(message: string): string | null {
-  return /\b(R\d+[a-z]?):/.exec(message)?.[1] ?? null;
-}
-
 /** A park reason in words: `needs-permission` reads `needs permission`. */
 function words(reason: string): string {
   return reason.replaceAll("-", " ");
@@ -149,7 +144,7 @@ export function idleLine(state: OfficeStoreState, dot: string): string {
   }
   for (const story of state.stories) {
     if (story.column !== "refined") continue;
-    const rule = (story.gateMessages ?? []).map(gateRule).find((found) => found !== null);
+    const rule = story.gateFailures?.[0]?.rule;
     reasons.push(`${story.story} is Refined${rule === undefined ? "" : ` (${rule})`}`);
   }
   for (const story of state.stories) {
