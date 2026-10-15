@@ -142,6 +142,7 @@ const HookEventSchema = z.discriminatedUnion("kind", [
     id: z.int().nonnegative().nullable(),
     tool: z.string().min(1),
     input: z.string(),
+    exact: z.string().exactOptional(),
   }),
   z.strictObject({ kind: z.literal("toolUsed"), tool: z.string().min(1) }),
   z.strictObject({ kind: z.literal("notification"), type: z.string().exactOptional() }),

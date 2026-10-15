@@ -9,6 +9,7 @@ import type { HookEvent } from "../../src/hooks/types";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   DEFAULT_DENY_MESSAGE,
+  exactAction,
   hookEventOf,
   inputSummary,
   REGISTERED_HOOKS,
@@ -33,7 +34,13 @@ const FIXTURES: Record<(typeof REGISTERED_HOOKS)[number], [Record<string, unknow
   SessionStart: [{ source: "startup" }, { kind: "sessionStarted", source: "startup" }],
   PermissionRequest: [
     { tool_name: "Bash", tool_input: { command: "docker compose up", description: "start" } },
-    { kind: "permissionRequest", id: 640, tool: "Bash", input: "docker compose up" },
+    {
+      kind: "permissionRequest",
+      id: 640,
+      tool: "Bash",
+      input: "docker compose up",
+      exact: "docker compose up",
+    },
   ],
   PostToolUse: [
     { tool_name: "Edit", tool_input: { file_path: "a.ts" }, tool_response: {} },
@@ -142,6 +149,19 @@ describe("hook payloads to neutral hook events (DIPO-59)", () => {
     expect(inputSummary({ command: "echo  a\n  b" })).toBe("echo a b");
     expect(inputSummary({ query: "q" })).toBe('{"query":"q"}');
     expect(inputSummary({ command: "x".repeat(500) })).toHaveLength(200);
+  });
+
+  it("keeps the exact command or path untouched for allow once (DIPO-75)", () => {
+    expect(exactAction({ command: "echo  a\n  b" })).toBe("echo  a\n  b");
+    expect(exactAction({ command: "x".repeat(500) })).toHaveLength(500);
+    expect(exactAction({ file_path: "/a/b.ts", content: "x" })).toBe("/a/b.ts");
+    expect(exactAction({ url: "https://example.com" })).toBeNull();
+    expect(exactAction("docker ps")).toBeNull();
+    const event = hookEventOf(
+      { hook_event_name: "PermissionRequest", tool_name: "WebFetch", tool_input: { url: "u" } },
+      7,
+    );
+    expect(event).toEqual({ kind: "permissionRequest", id: 7, tool: "WebFetch", input: "u" });
   });
 });
 

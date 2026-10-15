@@ -122,6 +122,19 @@ export function inputSummary(input: unknown): string {
 }
 
 /**
+ * The exact command or path of a tool call, untouched (DIPO-75: allow once matches only this); null
+ * when the input has neither.
+ */
+export function exactAction(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  for (const key of ["command", "file_path", "path", "notebook_path"]) {
+    const value = text(input[key]);
+    if (value !== undefined) return value;
+  }
+  return null;
+}
+
+/**
  * Pure: the neutral hook event of one Claude hook payload, or null for an event the relay does not
  * register. `call` is the waiting call's id (the hook line's end offset), when known.
  */
@@ -136,13 +149,16 @@ export function hookEventOf(
       const source = text(payload["source"]);
       return { kind: "sessionStarted", ...(source === undefined ? {} : { source }) };
     }
-    case "PermissionRequest":
+    case "PermissionRequest": {
+      const exact = exactAction(payload["tool_input"]);
       return {
         kind: "permissionRequest",
         id: call,
         tool: text(payload["tool_name"]) ?? "unknown",
         input: inputSummary(payload["tool_input"]),
+        ...(exact === null ? {} : { exact }),
       };
+    }
     case "PostToolUse":
       return { kind: "toolUsed", tool: text(payload["tool_name"]) ?? "unknown" };
     case "Notification": {
