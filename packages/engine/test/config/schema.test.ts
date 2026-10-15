@@ -5,6 +5,7 @@ import {
   OfficeConfigV1,
   OfficeFileV1,
   OfficeLocalFileV1,
+  privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
 
@@ -142,5 +143,17 @@ describe("defaults", () => {
       keepRawEvents: false,
     });
     expect(OFFICE_DEFAULTS.retention).toEqual({ shortDays: 7, stateDays: 365 });
+  });
+});
+
+describe("privacyOptIns (DIPO-83)", () => {
+  it("lists the privacy opt-ins that are on as full keys, in schema order", () => {
+    expect(privacyOptIns(undefined)).toEqual([]);
+    expect(privacyOptIns(OFFICE_DEFAULTS)).toEqual([]);
+    expect(
+      privacyOptIns({
+        privacy: { storePrompts: false, storeCommandBodies: true, keepRawEvents: true },
+      }),
+    ).toEqual(["privacy.storeCommandBodies", "privacy.keepRawEvents"]);
   });
 });
