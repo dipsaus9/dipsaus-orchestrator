@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { workRef } from "./fixtures";
+import { workerOutputFixture, workRef } from "./fixtures";
 import { OutputMarker, workOutput, workOutputRange } from "./index";
 
 const marker = {
@@ -42,5 +42,13 @@ describe("OutputMarker (DIPO-95)", () => {
     expect(
       workOutputRange.result.parse({ run, source: "worker", ...range, markers: [marker] }).markers,
     ).toEqual([marker]);
+  });
+});
+
+describe("work.output fixtures (DIPO-95)", () => {
+  it("keep a plain worker-output range without markers next to the flagged marker", () => {
+    const plain = workOutput.data.parse(workerOutputFixture);
+    expect(plain.markers).toBeUndefined();
+    expect(plain.to - plain.from).toBe(new TextEncoder().encode(plain.text).byteLength);
   });
 });

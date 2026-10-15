@@ -4,11 +4,13 @@
 
 import { describe, expect, it } from "bun:test";
 
+import { KNOWN_OUTPUT_MARKER_KINDS, KNOWN_PHASES } from "@dipsaus-orchestrator/contract";
+
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
 import { Ingestor } from "../../src/ingest/ingestor";
-import { endRunMarked, markerLine, markPhase } from "../../src/run/markers";
+import { endRunMarked, markerLine, markPhase, storedMarker } from "../../src/run/markers";
 import { runSteps } from "../../src/run/records";
 import { outputRange, workView } from "../../src/views";
 import type { WorkerEvent } from "../../src/workers/types";
@@ -216,4 +218,36 @@ describe("marker flags (DIPO-95)", () => {
       expect(outputRange(f.office, f.run, "worker", forgedFrom, endedFrom).markers).toBeUndefined();
       expect(outputRange(f.office, f.run, "worker", endedFrom + 3).markers).toEqual([endedFlag]);
     }));
+});
+
+describe("storedMarker (DIPO-95)", () => {
+  const times = [T0, T0 + 123, Date.parse("2026-01-02T03:04:05.000Z")];
+  const values: Record<(typeof KNOWN_OUTPUT_MARKER_KINDS)[number], string[]> = {
+    phase: [...KNOWN_PHASES],
+    ended: ["in-review", "stopped", "start-failed", "plan-limit", "by you"],
+  };
+
+  it("reads back every marker line markerLine writes, for every kind and value shape", () => {
+    for (const kind of KNOWN_OUTPUT_MARKER_KINDS) {
+      for (const value of values[kind]) {
+        for (const at of times) {
+          const line = markerLine(kind, value, at);
+          const to = 7 + bytes(line);
+          expect(storedMarker(line, 7, to)).toEqual({
+            from: 7,
+            to,
+            kind,
+            value,
+            at: new Date(at).toISOString(),
+          });
+        }
+      }
+    }
+  });
+
+  it("reads nothing from text that is not a marker line", () => {
+    expect(storedMarker("building\n", 0, 9)).toBeNull();
+    expect(storedMarker("[dipo] soon phase verify\n", 0, 25)).toBeNull();
+    expect(storedMarker("[dipo] 2026-10-15T12:04:31.000Z paused now\n", 0, 43)).toBeNull();
+  });
 });

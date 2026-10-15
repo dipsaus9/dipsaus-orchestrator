@@ -343,6 +343,15 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
   },
 };
 
+/** A plain worker-output `work.output`: worker text, no `markers` (next to the marker below). */
+export const workerOutputFixture = {
+  work: workRef,
+  source: "worker",
+  from: 1007,
+  to: 1024,
+  text: "Running tests…\n",
+};
+
 const officeEventFixtures: Record<string, unknown> = {
   "story.state": {
     story: "DIPO-33",
