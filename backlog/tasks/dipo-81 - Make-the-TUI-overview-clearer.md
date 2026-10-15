@@ -1,10 +1,10 @@
 ---
 id: DIPO-81
 title: Make the TUI overview clearer
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-14 15:29'
-updated_date: '2026-10-15 11:53'
+updated_date: '2026-10-15 13:24'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -53,9 +53,9 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 A layout proposal (text mock of the overview and the office switcher at 120 and 80 columns) is approved by the maintainer before code changes
-- [ ] #2 The office switcher shows the Ready count next to running, desk and held, matching the overview
-- [ ] #3 Each running story's overview row says in words what it is doing now (for example the phase and the worker's last tool or step), not only codes and glyphs
-- [ ] #4 The overview layout follows the approved proposal at every width tier, with [q] quit always visible
+- [x] #2 The office switcher shows the Ready count next to running, desk and held, matching the overview
+- [x] #3 Each running story's overview row says in words what it is doing now (for example the phase and the worker's last tool or step), not only codes and glyphs
+- [x] #4 The overview layout follows the approved proposal at every width tier, with [q] quit always visible
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -195,4 +195,6 @@ B. How the `now` line shows the worker's newest line.
    2. Turn tool lines into words (`building · editing src/retry.ts`).
    Recommendation: option 1. Option 2 makes the TUI parse adapter output formats, which goes against
    "Claude specifics stay out" (CLAUDE.md). Plain verbs can come later from the engine as data.
+
+Maintainer hand test 2026-10-15 (live Haiku on the scratch repo): the board, now lines, switcher with READY, opening a finished story to reread its run, and [q] quit at every width are OK. Follow-ups from the test: show what Bash runs (DIPO-83 opt-in) and phase-change marker lines in the output pane (added to DIPO-83); criteria boxes stay 0/N because criteria from the worker report are not recorded yet (follow-up).
 <!-- SECTION:NOTES:END -->
