@@ -4,7 +4,7 @@ title: Keep zsh from writing .zcompdump into the Safe-Chain shell directory
 status: To Do
 assignee: []
 created_date: '2026-10-15 19:23'
-updated_date: '2026-10-15 20:54'
+updated_date: '2026-10-15 21:08'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,6 +13,7 @@ references:
   - packages/engine/src/workers/claude-cli/safe-chain.ts
   - packages/engine/test/workers/safe-chain.test.ts
   - packages/engine/test/workers/safe-chain-shell.ci.test.ts
+  - .github/workflows/ci.yml
 priority: low
 type: feature
 ordinal: 93000
