@@ -491,6 +491,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: (office) => engineGit.forOffice(office),
       slots,
       warn: (message, fields) => logger.warn(message, { component: "claims", ...fields }),
+      info: (message, fields) => logger.info(message, { component: "claims", ...fields }),
+      // Leftover `_branch-read-*` scratch directories older than this start are swept (DIPO-90).
+      startedAt,
       onChanged: (office) => server?.notifyOffice(office),
     });
     // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each
@@ -956,7 +959,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         logger.info("socket closed", { removed: ownsLock });
       }
     } finally {
-      held.database?.close();
+      // Last, after every office task, retention and maintenance stopped: checkpoint (TRUNCATE)
+      // and close, so no dipo.db-wal or dipo.db-shm stays (DIPO-87). A failure is a warn, never a
+      // crash.
+      held.database?.shutdown();
     }
     // Only a clean exit clears the crash marker; any other exit counts as a crash next start.
     if (clean) held.crashes?.cleanExit();

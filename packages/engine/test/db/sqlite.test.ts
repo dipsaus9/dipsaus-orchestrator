@@ -19,6 +19,8 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   AsyncTransactionError,
+  type ClosableDatabase,
+  closeCleanly,
   COMPILED_SQLITE_WORKER_PATH,
   sqliteWorkerUrl,
   IntegrityCheckError,
@@ -215,6 +217,95 @@ describe("transactions", () => {
         db.close();
       }
     }));
+});
+
+describe("shutdown (DIPO-87)", () => {
+  it("checkpoints and closes, leaving only dipo.db with every write in it", () =>
+    withTempDir(async (dir) => {
+      const stateDir = join(dir, "state");
+      const logger = memoryLogger();
+      const db = await openSqlite({ stateDir, logger, readMounts: localMounts });
+      db.immediate(() => db.exec("create table t (x integer) strict; insert into t values (7);"));
+      expect(existsSync(`${db.path}-wal`)).toBe(true);
+
+      db.shutdown(logger);
+
+      expect(existsSync(db.path)).toBe(true);
+      expect(existsSync(`${db.path}-wal`)).toBe(false);
+      expect(existsSync(`${db.path}-shm`)).toBe(false);
+      expect(logger.lines.filter((line) => line.level === "warn")).toEqual([]);
+      const closed = logger.lines.find((line) => line.message === "closed state database");
+      expect(closed?.fields).toMatchObject({ path: db.path, checkpoint: { busy: 0 } });
+      // Read-write: a WAL file without -shm cannot be opened read-only.
+      const copy = new Database(db.path);
+      try {
+        expect(copy.query("select x from t").all()).toEqual([{ x: 7 }]);
+      } finally {
+        copy.close();
+      }
+    }));
+
+  it("logs a busy checkpoint at warn and still closes without throwing", () =>
+    withTempDir(async (dir) => {
+      const logger = memoryLogger();
+      const db = await openSqlite({
+        stateDir: join(dir, "state"),
+        logger,
+        readMounts: localMounts,
+      });
+      db.immediate(() => db.exec("create table t (x integer) strict; insert into t values (1);"));
+      // A reader holds an old snapshot, so TRUNCATE cannot reset the WAL.
+      const reader = new Database(db.path, { readonly: true });
+      try {
+        reader.run("begin");
+        reader.query("select count(*) from t").get();
+        db.immediate(() => db.run("insert into t (x) values (2)"));
+        db.exec("pragma busy_timeout = 20");
+
+        expect(() => db.shutdown(logger)).not.toThrow();
+
+        const warn = logger.lines.find((line) => line.level === "warn");
+        expect(warn?.message).toContain("closing checkpoint was busy");
+        expect(warn?.fields).toMatchObject({ busy: 1 });
+        expect(typeof warn?.fields?.["reason"]).toBe("string");
+        expect(logger.lines.at(-1)?.message).toBe("closed state database");
+        reader.run("commit");
+      } finally {
+        reader.close();
+      }
+    }));
+
+  it("logs a failed checkpoint and a failed close at warn with the reason, and never throws", () => {
+    const logger = memoryLogger();
+    const closes: (boolean | undefined)[] = [];
+    const db: ClosableDatabase = {
+      query: (() => {
+        throw new Error("database is locked");
+      }) as unknown as ClosableDatabase["query"],
+      fileControl: () => 0,
+      close: (throwOnError?: boolean) => {
+        closes.push(throwOnError);
+        if (throwOnError === true) throw new Error("unable to close due to unfinalized statements");
+      },
+    };
+
+    expect(() => closeCleanly(db, "/state/dipo.db", logger)).not.toThrow();
+
+    expect(logger.lines).toEqual([
+      {
+        level: "warn",
+        message: "the closing checkpoint failed",
+        fields: { path: "/state/dipo.db", reason: "database is locked" },
+      },
+      {
+        level: "warn",
+        message: "could not close the state database cleanly",
+        fields: { path: "/state/dipo.db", reason: "unable to close due to unfinalized statements" },
+      },
+    ]);
+    // The fallback close releases the handle once the open statements finish.
+    expect(closes).toEqual([true, false]);
+  });
 });
 
 describe("sqliteWorkerUrl", () => {
