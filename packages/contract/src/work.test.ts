@@ -79,7 +79,7 @@ describe("open enums", () => {
   const cases = [
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 11 },
-    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
+    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 8 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
     { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 7 },
     { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 8 },
@@ -299,6 +299,16 @@ describe("office commands and reads", () => {
     expect(
       record?.args.safeParse({ test: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D", result: "pass" }).success,
     ).toBe(true);
+  });
+
+  it("work.run reports a plan-limit hold with its own skip reason (DIPO-92)", () => {
+    expect(KNOWN_SKIP_REASONS).toContain("planLimit");
+    const run = officeCommands.find((d) => d.name === "work.run");
+    const result = {
+      started: [],
+      skipped: [{ story: "DIPO-31", key: workRef.key, reason: "planLimit" }],
+    };
+    expect(run?.result.parse(result)).toEqual(result as never);
   });
 
   it("work.run reports an unknown skip reason without failing", () => {
