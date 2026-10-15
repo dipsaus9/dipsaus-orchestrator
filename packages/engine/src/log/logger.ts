@@ -1,8 +1,11 @@
 // The daemon logger (0006 decision 13): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
-// `component`, and `office` and `run` when known, plus fields. Fields named `code` or `token` (so
-// also `session.token`) are redacted at every level, at any depth. Fields that carry prompts, worker
-// output or command bodies (`DEBUG_ONLY_KEYS`) appear only in `debug` and `trace` lines; in
-// `error`, `warn` and `info` lines their value is replaced, at any depth. Time comes from the
+// `component`, and `office` and `run` when known, plus fields. Secret fields (`isSecretKey`) are
+// redacted at every level, at any depth. A field named `code` shows error and exit codes such as
+// `engine.recovering`, but stays redacted where the contract carries the web bootstrap code under
+// that name and whenever its value is not code-shaped (`showsCode`; 0006 decision 13, amendment of
+// 2026-10-15, DIPO-91). Fields that carry prompts, worker output or command bodies
+// (`DEBUG_ONLY_KEYS`) appear only in `debug` and `trace` lines; in `error`, `warn` and `info`
+// lines their value is replaced, at any depth. Time comes from the
 // injected clock. Sinks receive finished lines; the daemon writes them to `<logs>/daemon.log` and, in
 // foreground, to stderr.
 
@@ -16,8 +19,48 @@ export const REDACTED = "[redacted]";
 /** What a debug-only field shows in an `error`, `warn` or `info` line. */
 export const DEBUG_ONLY = "[debug only]";
 
-/** Field names whose values never reach a log line (0006 decision 13). */
-const REDACTED_KEYS = new Set(["code", "token", "session.token"]);
+/**
+ * Endings of secret field names (0006 decision 13, amendment of 2026-10-15): `token`,
+ * `session.token`, `sessionToken`, `engineToken`, `engine_token`, `bootstrapCode`, ... Names are
+ * compared lowercased with `_`, `-` and `.` removed.
+ */
+const SECRET_SUFFIXES: readonly string[] = [
+  "token",
+  "secret",
+  "password",
+  "passphrase",
+  "apikey",
+  "bootstrapcode",
+];
+/** Secret field names compared whole, after the same normalisation. */
+const SECRET_NAMES: ReadonlySet<string> = new Set(["authorization", "cookie"]);
+
+/** Whether a field with this name never reaches a log line, at any level and depth. */
+export function isSecretKey(key: string): boolean {
+  const name = key.toLowerCase().replace(/[-_.]/g, "");
+  return SECRET_NAMES.has(name) || SECRET_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+/**
+ * A code-shaped string: letter-only words joined by `.` or `-`, such as `office.refused`,
+ * `git.fetchFailed`, `tooOld` or `lockfile-conflict`. Random secrets carry digits or other
+ * characters, so they do not match.
+ */
+const CODE_SHAPE = /^[a-z][A-Za-z]*(?:[.-][a-z][A-Za-z]*)*$/;
+const CODE_MAX_LENGTH = 64;
+
+/**
+ * Whether the `code` field of `holder` may show `value`. The contract carries the single-use web
+ * bootstrap code as `code` in the `auth` frame (`kind: "auth"`) and in the `daemon.webBootstrap`
+ * result (`{ url, code }`), so a `code` next to `kind: "auth"` or a `url` stays redacted. Anything
+ * else shows only when it is a number, a boolean, null or code-shaped; every other value, objects
+ * included, stays redacted.
+ */
+function showsCode(holder: Readonly<Record<string, unknown>>, value: unknown): boolean {
+  if (holder["kind"] === "auth" || "url" in holder) return false;
+  if (value === null || typeof value === "number" || typeof value === "boolean") return true;
+  return typeof value === "string" && value.length <= CODE_MAX_LENGTH && CODE_SHAPE.test(value);
+}
 
 /**
  * Field names for prompts, worker output and command bodies, which appear only in `debug` and
@@ -89,8 +132,10 @@ export function redact(
   seen.add(value);
   if (Array.isArray(value)) return value.map((item) => redact(item, seen, debugFields));
   const out: Record<string, unknown> = {};
-  for (const [key, inner] of Object.entries(value)) {
-    if (REDACTED_KEYS.has(key)) out[key] = REDACTED;
+  const holder = value as Readonly<Record<string, unknown>>;
+  for (const [key, inner] of Object.entries(holder)) {
+    if (isSecretKey(key)) out[key] = REDACTED;
+    else if (key === "code") out[key] = showsCode(holder, inner) ? inner : REDACTED;
     else if (!debugFields && DEBUG_ONLY_KEYS.has(key)) out[key] = DEBUG_ONLY;
     else out[key] = redact(inner, seen, debugFields);
   }

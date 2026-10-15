@@ -4,6 +4,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { engineError } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { openLogFile } from "../../src/log/file";
@@ -11,6 +12,7 @@ import {
   createLogger,
   DEBUG_ONLY,
   DEBUG_ONLY_KEYS,
+  isSecretKey,
   LOG_LEVELS,
   REDACTED,
   type Logger,
@@ -94,33 +96,101 @@ describe("log lines", () => {
   });
 });
 
+/** A web bootstrap code as the daemon would make one: 128 random bits. */
+const BOOTSTRAP = "9f3c1ab07e5d42c8b6a1f0e2d3c4b5a6";
+/** A worst case: a code-shaped bootstrap value, letters only. */
+const LETTERS = "qwertyuiopasdfghjklzxcvbnm";
+
 describe("redaction", () => {
   for (const level of LOG_LEVELS) {
-    it(`hides code, token and session.token at ${level}`, () => {
+    it(`hides secret fields at ${level}, at any depth`, () => {
       const { logger, lines, parsed } = memory("trace");
       at(logger, level)("auth", {
-        code: "c0de-secret",
         token: "t0ken-secret",
         session: { token: "s3ssion-secret", expires: 5 },
         "session.token": "flat-secret",
-        nested: [{ token: "deep-secret" }],
+        sessionToken: "camel-secret",
+        engine_token: "snake-secret",
+        bootstrapCode: `${BOOTSTRAP}-top`,
+        nested: [{ token: "deep-secret", web: { bootstrapCode: `${BOOTSTRAP}-deep` } }],
+        Authorization: "Bearer header-secret",
         kept: "visible",
       });
       const text = lines.join("\n");
-      for (const secret of ["c0de", "t0ken", "s3ssion", "flat-secret", "deep-secret"]) {
+      for (const secret of ["t0ken", "s3ssion", "-secret", BOOTSTRAP]) {
         expect(text).not.toContain(secret);
       }
       expect(parsed()[0]).toMatchObject({
         level,
-        code: REDACTED,
         token: REDACTED,
         session: { token: REDACTED, expires: 5 },
         "session.token": REDACTED,
-        nested: [{ token: REDACTED }],
+        sessionToken: REDACTED,
+        engine_token: REDACTED,
+        bootstrapCode: REDACTED,
+        nested: [{ token: REDACTED, web: { bootstrapCode: REDACTED } }],
+        Authorization: REDACTED,
         kept: "visible",
       });
     });
   }
+
+  it("names secrets by their ending, not token counts", () => {
+    for (const key of ["token", "session.token", "engineToken", "API_KEY", "bootstrap-code"]) {
+      expect(isSecretKey(key)).toBe(true);
+    }
+    for (const key of ["code", "tokens", "preTokens", "inputTokens", "exitCode", "kept"]) {
+      expect(isSecretKey(key)).toBe(false);
+    }
+  });
+
+  it("shows an EngineError code in a warn line", () => {
+    const { logger, parsed } = memory("trace");
+    const recovering = engineError("engine.recovering", "the daemon is recovering");
+    logger.warn("command refused", { ...recovering });
+    logger.warn("office refused", { code: "office.notFound", step: "marker" });
+    logger.warn("office not loaded", { error: engineError("office.refused", "not loaded") });
+    logger.info("worker exited", { code: 1, signal: null });
+    expect(parsed()).toMatchObject([
+      { level: "warn", code: "engine.recovering", retryable: true },
+      { level: "warn", code: "office.notFound", step: "marker" },
+      { level: "warn", error: { code: "office.refused" } },
+      { level: "info", code: 1, signal: null },
+    ]);
+  });
+
+  for (const level of LOG_LEVELS) {
+    it(`keeps a web bootstrap code under code redacted at ${level}, at any depth`, () => {
+      const { logger, lines, parsed } = memory("trace");
+      at(logger, level)("web", {
+        frame: { kind: "auth", requestId: "req_1", code: LETTERS },
+        reply: {
+          ok: true,
+          requestId: "req_2",
+          result: { url: "http://127.0.0.1:1/", code: LETTERS },
+        },
+        deep: [{ frames: [{ kind: "auth", code: `${LETTERS}.x` }] }],
+        code: BOOTSTRAP,
+      });
+      const text = lines.join("\n");
+      expect(text).not.toContain(LETTERS);
+      expect(text).not.toContain(BOOTSTRAP);
+      expect(parsed()[0]).toMatchObject({
+        frame: { kind: "auth", code: REDACTED },
+        reply: { result: { url: "http://127.0.0.1:1/", code: REDACTED } },
+        deep: [{ frames: [{ kind: "auth", code: REDACTED }] }],
+        code: REDACTED,
+      });
+    });
+  }
+
+  it("keeps a code that is not code-shaped redacted", () => {
+    const { logger, parsed } = memory("trace");
+    for (const code of [BOOTSTRAP, "c0de-secret", "a_b", "x".repeat(65), { nested: "x" }, ["x"]]) {
+      logger.warn("odd code", { code });
+    }
+    expect(parsed().map((line) => line["code"])).toEqual(Array(6).fill(REDACTED));
+  });
 
   it("does not loop on cycles", () => {
     const { logger, parsed } = memory();
