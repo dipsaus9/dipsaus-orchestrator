@@ -488,3 +488,39 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     expect(frame).not.toContain("opt-in storeCommandBodies");
   });
 });
+
+describe("worker thinking in the detail (DIPO-96)", () => {
+  it("shows a finished thinking block on the now line and in the output pane", async () => {
+    const { ui, session } = await openDetail();
+    const build: WorkView = {
+      ...golden24(),
+      phase: "build",
+      health: "busy",
+      lastOutputAt: "2026-10-14T10:03:58.000Z",
+    };
+    session.active(STREAM)?.options.onEvent(
+      event(8, "work.phase", {
+        work: build.work,
+        phase: "build",
+        progress: build.progress,
+        view: build,
+      }),
+    );
+    for (const output of goldenOutputEvents) session.storeOutput(output);
+    await ui.waitFor("[tool] Edit src/retry.ts (live)");
+    const last = goldenOutputEvents[goldenOutputEvents.length - 1];
+    if (last === undefined) throw new Error("no golden work.output event");
+    const data = last.data as { from: number; to: number; text: string };
+    // What ingestion stores for one thinking block: counts only, no thinking text.
+    const text = "[thinking] 0.9s ~265 tokens\n";
+    session.storeOutput({
+      ...last,
+      cursor: { ...last.cursor, seq: last.cursor.seq + 1 },
+      data: { ...data, from: data.to, to: data.to + text.length, text },
+    } as Event);
+    const frame = await ui.waitFor("now  busy > · build · [thinking] 0.9s ~265 tokens · 2s ago");
+    expect(
+      lines(frame).filter((line) => line.includes("[thinking] 0.9s ~265 tokens")),
+    ).toHaveLength(2);
+  });
+});
