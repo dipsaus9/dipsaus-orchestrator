@@ -2,8 +2,10 @@
 // default, and the `denyWrite` entries the worker run settings carry close them again. The policy
 // below has the shape Claude Code gives the worker sandbox: the home directory read-denied (the
 // read block), the toolchain path `<home>/.npm` re-opened for reading, writes to the worktree and a
-// temp directory. Without the denies the convenience paths are writable (so the probe is real);
-// with them every write fails. The home is a temp directory, so nothing real is touched; the shared
+// temp directory; and, as a control, the same policy without the read block. Without the denies
+// both convenience paths are writable when nothing read-denies them (so the probe is real); under
+// the read block `<home>/.npm/_logs` stays writable on macOS but not on Linux (see the test). With
+// the denies every write fails on both. The home is a temp directory, so nothing real is touched; the shared
 // `/tmp/claude` is probed on macOS only, because a deny on a missing path makes bubblewrap create a
 // mount point there on Linux.
 
@@ -20,7 +22,7 @@ import { CI } from "./helpers";
 const TIMEOUT_MS = 60_000;
 const PROBES = [".npm/_logs", ".claude/debug"] as const;
 
-async function tryWrites(dir: string, closed: boolean): Promise<string[]> {
+async function tryWrites(dir: string, closed: boolean, readBlock = true): Promise<string[]> {
   const home = join(dir, "home");
   const worktree = join(dir, "wt");
   const tmp = join(dir, "tmp");
@@ -33,14 +35,14 @@ async function tryWrites(dir: string, closed: boolean): Promise<string[]> {
         .filter((path) => path.startsWith(`${home}/`))
     : [];
   expect(denyWrite.length).toBe(closed ? PROBES.length : 0);
-  const policy = join(dir, closed ? "closed.json" : "open.json");
+  const policy = join(dir, `${closed ? "closed" : "open"}-${readBlock ? "block" : "plain"}.json`);
   writeFileSync(
     policy,
     JSON.stringify({
       network: { allowedDomains: [], deniedDomains: [], strictAllowlist: true },
       filesystem: {
-        denyRead: [home],
-        allowRead: [join(home, ".npm")],
+        denyRead: readBlock ? [home] : [],
+        allowRead: readBlock ? [join(home, ".npm")] : [],
         allowWrite: [worktree, tmp],
         denyWrite,
       },
@@ -132,11 +134,24 @@ if (CI && process.platform === "darwin") {
 if (CI) {
   describe("srt default write paths (DIPO-98)", () => {
     it(
-      "leaves ~/.npm/_logs writable under the read block when ~/.npm is re-opened, without the deny",
+      "opens both by default when nothing read-denies them",
       () =>
         withTempDir(async (dir) => {
-          // ~/.claude/debug stays closed by the read block itself; ~/.npm/_logs does not.
-          expect(await tryWrites(dir, false)).toEqual(["written", "blocked", "written"]);
+          expect(await tryWrites(dir, false, false)).toEqual(["written", "written", "written"]);
+        }),
+      TIMEOUT_MS,
+    );
+
+    it(
+      "under the read block with ~/.npm re-opened, leaves ~/.npm/_logs writable on macOS only",
+      () =>
+        withTempDir(async (dir) => {
+          // ~/.claude/debug stays closed by the read block itself on both platforms. On macOS
+          // ~/.npm/_logs stays writable. On Linux srt binds the write path back over the home
+          // tmpfs and then binds the re-opened ~/.npm read-only on top of it, which hides that
+          // write bind, so it is closed there even without the deny.
+          const npmLogs = process.platform === "darwin" ? "written" : "blocked";
+          expect(await tryWrites(dir, false)).toEqual([npmLogs, "blocked", "written"]);
         }),
       TIMEOUT_MS,
     );
@@ -146,6 +161,8 @@ if (CI) {
       () =>
         withTempDir(async (dir) => {
           expect(await tryWrites(dir, true)).toEqual(["blocked", "blocked", "written"]);
+          // The deny alone closes them, without any read block.
+          expect(await tryWrites(dir, true, false)).toEqual(["blocked", "blocked", "written"]);
         }),
       TIMEOUT_MS,
     );
