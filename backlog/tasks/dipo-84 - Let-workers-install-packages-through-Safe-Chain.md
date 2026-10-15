@@ -4,7 +4,7 @@ title: Let workers install packages through Safe-Chain
 status: To Do
 assignee: []
 created_date: '2026-10-15 14:10'
-updated_date: '2026-10-15 17:02'
+updated_date: '2026-10-15 17:14'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -71,4 +71,12 @@ Maintainer decision 2026-10-15: option B. The DIPO-84 investigation found that S
 - prepareLaunch starts the proxy inside the launch gate; a proxy that cannot start or fails its check refuses the run with a safe-chain/proxy hold. Self-test: bun add is-number@7.0.0 must exit 0 and bun add safe-chain-test must not (exit 0 there is unsafe).
 - verify.dependenciesChanged (warn) on the run and story at the In Review commit, naming committed manifests, lockfiles and requirements*.txt.
 - Known limit: after a daemon restart a re-attached worker has no proxy (its installs fail, never unchecked); a killed daemon can leave /tmp/dipo-p-* directories.
+
+## Review fixes (2026-10-15)
+
+- Measured inside a passed tunnel (CONNECT registry.npmjs.org:443, trusting the run CA): Host: 127.0.0.1:<port>, GET http://127.0.0.1:<port>/, GET https://127.0.0.1:<port>/, Host: example.com and GET http://example.com/ all go to registry.npmjs.org (Safe-Chain takes the upstream host from the CONNECT and drops the Host header); a local listener was never hit and no example.com content came back. In the sandbox replay test now.
+- Proxy dirs live under one private parent /tmp/dipo-p (0700, this user, not a link; else refused); the worker sandbox read-denies the parent (measured with srt: parent, proxy dir and ca-key.pem unreadable).
+- A gate that exits on its own now closes dipo's port and removes the proxy dir and its policy (measured by killing the gate).
+- Re-attach after a daemon restart: a living worker whose run directory holds safe-chain/proxy.json and whose proxy this daemon does not run is stopped and parks interrupted (notice run.safeChainProxyGone). A same-port restart was not chosen: the port may be taken, and the worker's CA would not match a new proxy's.
+- Daemon start sweeps leftover /tmp/dipo-p/<6 chars> dirs of this user whose owner process (owner file) no longer runs.
 <!-- SECTION:NOTES:END -->
