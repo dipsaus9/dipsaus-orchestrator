@@ -14,6 +14,7 @@ import {
   RunId,
   StoryId,
   type StoryKey,
+  type StoryView,
 } from "@dipsaus-orchestrator/contract";
 
 import type { JournalEntry, LaneOp } from "../../src/backlog/lane/journal";
@@ -456,6 +457,15 @@ describe("work.run picks and claims one Ready story", () => {
       ],
     });
     expect(log[0]?.view).toMatchObject({ lifecycle: "Refined", column: "refined" });
+    // The view carries the rule id as data next to the message (DIPO-97).
+    expect((log[0]?.view as StoryView | undefined)?.gateFailures).toEqual([
+      {
+        rule: "R15",
+        message:
+          'ready TASK-1 failed R15: unknown "Which format?" is open; resolve it with an answer',
+        text: 'unknown "Which format?" is open; resolve it with an answer',
+      },
+    ]);
   });
 
   it("returns a story over prompt.contractMax to Refined with the assembly error, before any claim", async () => {
@@ -471,6 +481,10 @@ describe("work.run picks and claims one Ready story", () => {
       "TASK-1 cannot start: prompt.contractTooLarge: story contract is ",
     );
     expect(detail[0]).toEndWith("characters; the limit is 10");
+    // No rule gave it, so the view has the message but no rule entry (DIPO-97).
+    const view = entries()[0]?.view as StoryView | undefined;
+    expect(view?.gateMessages).toEqual(detail);
+    expect(view).not.toHaveProperty("gateFailures");
   });
 
   it("sends a story with no frozen branch through the pickup gate on its own", async () => {

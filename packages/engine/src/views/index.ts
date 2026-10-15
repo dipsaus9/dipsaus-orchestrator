@@ -14,7 +14,7 @@ export {
   storyView,
   workByKey,
 } from "./story";
-export type { ParkFacts, StoryFacts } from "./story";
+export type { GateFailureFact, ParkFacts, StoryFacts } from "./story";
 export {
   activeRunCount,
   columnCounts,
@@ -24,8 +24,9 @@ export {
   officeSummaryOfSource,
   officeSummarySource,
   openGateViews,
+  summarySettings,
 } from "./summary";
-export type { OfficeIdentity } from "./summary";
+export type { OfficeIdentity, SummarySettings, SummarySettingsOf } from "./summary";
 export {
   activeWorkViews,
   deriveHealth,

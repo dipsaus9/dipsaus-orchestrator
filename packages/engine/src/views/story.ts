@@ -22,6 +22,8 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
+import { gateText } from "../gate/rules";
+import type { RuleResult } from "../gate/store";
 import { activeRuns } from "../run/records";
 import { isProvisionalId } from "../stories/keys";
 
@@ -49,6 +51,15 @@ export interface ParkFacts extends FieldBlockPark {
   readonly since: number;
 }
 
+/**
+ * One failure that sent a story back to Refined: a failed Ready gate rule with its `rule`, or a
+ * pickup check message no rule gave (a story that could not be sized), without one.
+ */
+export interface GateFailureFact {
+  readonly rule?: string;
+  readonly message: string;
+}
+
 /** The facts a story view is derived from. */
 export interface StoryFacts {
   readonly key: StoryKey;
@@ -61,7 +72,7 @@ export interface StoryFacts {
   /** The field block's park record while Parked. */
   readonly park?: ParkFacts;
   /** The failures of the latest Ready gate decision, when it failed. */
-  readonly gateFailures?: readonly string[];
+  readonly gateFailures?: readonly GateFailureFact[];
   /** Who works on the story's active run. */
   readonly work?: WorkRef;
 }
@@ -86,7 +97,11 @@ function parkedOf(park: ParkFacts): ParkRecord {
 
 export function deriveStoryView(facts: StoryFacts): StoryView {
   const column = deriveColumn(facts);
-  const gateMessages = facts.lifecycle === "Refined" ? (facts.gateFailures ?? []) : [];
+  const failures = facts.lifecycle === "Refined" ? (facts.gateFailures ?? []) : [];
+  const gateMessages = failures.map((failure) => failure.message);
+  const gateFailures = failures.flatMap(({ rule, message }) =>
+    rule === undefined ? [] : [{ rule, message, text: gateText(rule, message) }],
+  );
   return {
     key: facts.key,
     story: facts.story,
@@ -102,7 +117,8 @@ export function deriveStoryView(facts: StoryFacts): StoryView {
     ...(column === "waiting"
       ? { waitingOn: (facts.waitingOn ?? []).map((id) => StoryId.parse(id)) }
       : {}),
-    ...(gateMessages.length === 0 ? {} : { gateMessages: [...gateMessages] }),
+    ...(gateMessages.length === 0 ? {} : { gateMessages }),
+    ...(gateFailures.length === 0 ? {} : { gateFailures }),
   };
 }
 
@@ -165,8 +181,8 @@ function parkOf(json: string | null, since: number | null): ParkFacts | undefine
   return parsed.success ? { ...parsed.data, since } : undefined;
 }
 
-/** The failure messages of the story's latest Ready gate decision, when it failed. */
-export function gateFailures(office: OfficeHandle, key: string): string[] {
+/** The failed rules of the story's latest Ready gate decision, when it failed. */
+export function gateFailures(office: OfficeHandle, key: string): GateFailureFact[] {
   const row = office.get<{ decision: string; rule_results: string }>(
     `select d.decision, d.rule_results from gate_decisions d
        join gates g on g.office_id = d.office_id and g.gate_id = d.gate_id
@@ -175,8 +191,10 @@ export function gateFailures(office: OfficeHandle, key: string): string[] {
     { key },
   );
   if (row === null || row.decision !== "rejected") return [];
-  const results = JSON.parse(row.rule_results) as { passed: boolean; messages: string[] }[];
-  return results.filter((result) => !result.passed).flatMap((result) => result.messages);
+  const results = JSON.parse(row.rule_results) as RuleResult[];
+  return results
+    .filter((result) => !result.passed)
+    .flatMap(({ rule, messages }) => messages.map((message) => ({ rule, message })));
 }
 
 /** Who works on each story with an active run, by key; pass it to `storyView` for many stories. */

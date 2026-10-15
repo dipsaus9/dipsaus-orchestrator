@@ -83,12 +83,23 @@ describe("story view", () => {
         since: new Date(0).toISOString(),
       },
     });
-    const refined = deriveStoryView({ ...base, lifecycle: "Refined", gateFailures: ["R07 x"] });
-    expect(refined.gateMessages).toEqual(["R07 x"]);
+    const line = "ready TASK-1 failed R07: milestone is missing";
+    const sizing = "TASK-1 cannot start: story.tooLarge: too large";
+    const failures = [{ rule: "R07", message: line }, { message: sizing }];
+    const refined = deriveStoryView({ ...base, lifecycle: "Refined", gateFailures: failures });
+    expect(refined.gateMessages).toEqual([line, sizing]);
+    // The rule id is data next to the message (DIPO-97); a message no rule gave has no entry.
+    expect(refined.gateFailures).toEqual([
+      { rule: "R07", message: line, text: "milestone is missing" },
+    ]);
+    expect(StoryView.parse(refined)).toEqual(refined);
+    const sized = deriveStoryView({ ...base, lifecycle: "Refined", gateFailures: [failures[1]!] });
+    expect(sized.gateMessages).toEqual([sizing]);
+    expect(sized).not.toHaveProperty("gateFailures");
     // Gate messages are for Refined stories only.
-    expect(
-      deriveStoryView({ ...base, lifecycle: "Ready", gateFailures: ["R07 x"] }),
-    ).not.toHaveProperty("gateMessages");
+    const ready = deriveStoryView({ ...base, lifecycle: "Ready", gateFailures: failures });
+    expect(ready).not.toHaveProperty("gateMessages");
+    expect(ready).not.toHaveProperty("gateFailures");
   });
 
   it("derives waiting-on, parks and gate messages from the index and the gate decisions", () =>
@@ -128,6 +139,13 @@ describe("story view", () => {
         });
         expect(views.get(StoryId.parse("TASK-3"))?.gateMessages).toEqual([
           "ready TASK-3 failed R07: milestone is missing",
+        ]);
+        expect(views.get(StoryId.parse("TASK-3"))?.gateFailures).toEqual([
+          {
+            rule: "R07",
+            message: "ready TASK-3 failed R07: milestone is missing",
+            text: "milestone is missing",
+          },
         ]);
 
         // The park keeps the time it was first seen; the dependency becoming Done makes it ready.

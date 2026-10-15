@@ -78,7 +78,7 @@ import { assembleContract, ContractTooLargeError } from "../prompts/contract";
 import { promptStoryOf } from "../prompts/story";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
-import { deriveStoryView, storyView } from "../views/story";
+import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { type AdapterHold, holdMessage } from "../workers/hold";
 import { PlanError } from "../workers/types";
@@ -428,7 +428,7 @@ export class WorkRun {
     if (checked === "gate") return this.#gateOutsideClaim(ctx, c.candidate);
     if (typeof checked === "string") return checked;
     if ("tooLarge" in checked) {
-      await this.#toRefined(ctx, c.candidate, [checked.tooLarge]);
+      await this.#toRefined(ctx, c.candidate, [{ message: checked.tooLarge }]);
       return "pickupCheckFailed";
     }
     const { view, fields, branch, tier, caps } = checked;
@@ -446,7 +446,7 @@ export class WorkRun {
       config: c.config,
       taskFile: checked.taskFile,
     };
-    let failures: string[] | null = null;
+    let failures: GateFailureFact[] | null = null;
     let outcome: ClaimOutcome;
     try {
       outcome = await this.#deps.claims.claim(office, {
@@ -462,7 +462,7 @@ export class WorkRun {
             c.checkout,
           );
           if (decision.passed) return null;
-          failures = decision.result.failures.map((failure) => failure.message);
+          failures = [...decision.result.failures];
           return { ok: false, reason: "pickupCheckFailed", notice: null, code: null };
         },
         // Setup, the prompts and the launch checks, before the claim commit (DIPO-74).
@@ -590,24 +590,22 @@ export class WorkRun {
       "pickup",
     );
     if (decision.passed) return "notRunnable";
-    await this.#toRefined(
-      ctx,
-      candidate,
-      decision.result.failures.map((failure) => failure.message),
-    );
+    await this.#toRefined(ctx, candidate, decision.result.failures);
     return "pickupCheckFailed";
   }
 
   /**
    * Moves a story back to Refined through the backlog lane (journaled, then flushed into the
-   * office's backlog PR) and emits `story.state` with `detail`. A lane that refuses the move puts
-   * a notice on the office instead.
+   * office's backlog PR) and emits `story.state` with the failure messages in `detail` and the
+   * failures, with their rules, in the view. A lane that refuses the move puts a notice on the
+   * office instead.
    */
   async #toRefined(
     ctx: AsyncCommandContext,
     candidate: Candidate,
-    detail: readonly string[],
+    failures: readonly GateFailureFact[],
   ): Promise<void> {
+    const detail = failures.map((failure) => failure.message);
     const office = ctx.office.officeId;
     const lane = this.#deps.lane(office);
     let why: string | null = lane === undefined ? "the office has no backlog lane" : null;
@@ -651,7 +649,7 @@ export class WorkRun {
         title: current?.title ?? "",
         lifecycle: "Refined",
         ...(current?.tier === undefined ? {} : { tier: current.tier }),
-        gateFailures: detail,
+        gateFailures: failures,
       });
       return [
         {
