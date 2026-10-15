@@ -491,6 +491,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: (office) => engineGit.forOffice(office),
       slots,
       warn: (message, fields) => logger.warn(message, { component: "claims", ...fields }),
+      info: (message, fields) => logger.info(message, { component: "claims", ...fields }),
+      // Leftover `_branch-read-*` scratch directories older than this start are swept (DIPO-90).
+      startedAt,
       onChanged: (office) => server?.notifyOffice(office),
     });
     // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each
