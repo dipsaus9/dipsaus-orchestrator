@@ -8,6 +8,7 @@
 // columns they stack.
 //
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
+// The engine's phase markers in the worker output read `── 12:04:31 phase: verify ──` (DIPO-83).
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
 // `work.outputRange`, and End returns to following. The text lives in an `OutputFeed` outside
 // React; the render keeps only the rows on screen. When the run ends the detail keeps its last
@@ -322,8 +323,8 @@ export function Detail(props: DetailProps) {
 
   // Only the row count of all held text; the rows themselves are cut for the screen alone.
   const total = useMemo(
-    () => rowCount(shown.feed.lines, paneWidth),
-    [shown.feed, shown.version, paneWidth],
+    () => rowCount(shown.feed.lines, paneWidth, display.ascii),
+    [shown.feed, shown.version, paneWidth, display.ascii],
   );
   const maxOffset = Math.max(0, total - paneHeight);
   const scrolled = Math.min(offset, maxOffset);
@@ -393,7 +394,7 @@ export function Detail(props: DetailProps) {
         });
 
   const start = Math.max(0, total - paneHeight - scrolled);
-  const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled);
+  const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled, display.ascii);
   const feed = shown.feed;
   const tabs = source === "worker" ? "[w]orker* [v]erify" : "[w]orker [v]erify*";
   // With the opt-in on, tool lines in the worker output carry their commands (0007 section 8).

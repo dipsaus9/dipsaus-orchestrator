@@ -376,6 +376,28 @@ function question(
 }
 
 describe("open questions and the command opt-in in the detail (DIPO-83)", () => {
+  it("shows a phase marker in the output pane as a rule with its time", async () => {
+    const { ui, session } = await openDetail();
+    for (const output of goldenOutputEvents) session.storeOutput(output);
+    await ui.waitFor("(live)");
+    const text = "[dipo] 2026-10-14T10:03:59.000Z phase verify\n";
+    session.storeOutput(
+      event(10, "work.output", {
+        work: golden24().work,
+        source: "worker",
+        from: 1749,
+        to: 1749 + text.length,
+        text,
+      }),
+    );
+    const local = new Date(Date.parse("2026-10-14T10:03:59.000Z"));
+    const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
+      .map((n) => String(n).padStart(2, "0"))
+      .join(":");
+    const frame = await ui.waitFor(`── ${hms} phase: verify ──`);
+    expect(frame).not.toContain("[dipo]");
+  });
+
   it("lists the story's open questions with kind, age, text and how to answer them", async () => {
     const { ui, session } = await openDetail();
     const height = lines(ui.frame()).length;
