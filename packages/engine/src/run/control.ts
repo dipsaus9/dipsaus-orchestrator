@@ -68,7 +68,8 @@ import {
   resolveIntent,
 } from "./intents";
 import { type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
-import { activeRuns, endRun, findRun, type StoredRun } from "./records";
+import { endRunMarked } from "./markers";
+import { activeRuns, findRun, type StoredRun } from "./records";
 import {
   initRejectedEnding,
   type RunAct,
@@ -661,7 +662,7 @@ export class RunControl implements RunEnder {
     const at = this.#deps.clock.now();
     const appended = office.immediate(() => {
       markIntentSent(office, run.runId, intentId, at, error);
-      endRun(office, run.runId, at, endKind);
+      endRunMarked(office, run.runId, at, endKind);
       office.run(
         `update agents set end_reason = coalesce(end_reason, $kind)
          where office_id = $office_id and run_id = $run and ended_at is null`,

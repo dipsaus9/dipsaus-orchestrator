@@ -269,6 +269,7 @@ export const ClaudeWorkerEventSchema = z.union([
     kind: z.literal("tool"),
     tool: Name,
     path: z.string().exactOptional(),
+    input: z.string().exactOptional(),
     agentId: Name.exactOptional(),
   }),
   z.strictObject({

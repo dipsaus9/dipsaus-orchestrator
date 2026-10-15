@@ -324,3 +324,14 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   privacy: { storePrompts: false, storeCommandBodies: false, keepRawEvents: false },
   retention: { shortDays: 7, stateDays: 365 },
 };
+
+/**
+ * The privacy opt-ins that are on, as their full keys (`privacy.storeCommandBodies`), in schema
+ * order: what the overview shows (0007 section 8, DIPO-83). Empty without a configuration.
+ */
+export function privacyOptIns(config: Pick<OfficeConfig, "privacy"> | undefined): string[] {
+  if (config === undefined) return [];
+  return Object.keys(privacyShape)
+    .filter((key) => config.privacy[key as keyof typeof privacyShape])
+    .map((key) => `privacy.${key}`);
+}

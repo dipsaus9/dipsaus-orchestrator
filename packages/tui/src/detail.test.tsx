@@ -6,9 +6,10 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import type { Event, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
+import type { Event, QuestionView, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
 
-import { goldenOutputEvents, goldenSnapshots, OFFICES } from "./testing/fake-session";
+import { MAX_QUESTIONS, questionLines } from "./detail";
+import { goldenHello, goldenOutputEvents, goldenSnapshots, OFFICES } from "./testing/fake-session";
 import { mount } from "./testing/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -357,5 +358,133 @@ describe("live agent detail", () => {
     await view.ui.press("j");
     await view.ui.press("enter");
     await view.ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
+  });
+});
+
+const Q1 = "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q01";
+const Q2 = "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q02";
+const Q3 = "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q03";
+
+function question(
+  id: string,
+  kind: string,
+  text: string,
+  askedAt: string,
+  work = golden24().work,
+): QuestionView {
+  return { question: id, work, kind, text, askedAt } as QuestionView;
+}
+
+describe("open questions and the command opt-in in the detail (DIPO-83)", () => {
+  it("shows a phase marker in the output pane as a rule with its time", async () => {
+    const { ui, session } = await openDetail();
+    for (const output of goldenOutputEvents) session.storeOutput(output);
+    await ui.waitFor("(live)");
+    const text = "[dipo] 2026-10-14T10:03:59.000Z phase verify\n";
+    session.storeOutput(
+      event(10, "work.output", {
+        work: golden24().work,
+        source: "worker",
+        from: 1749,
+        to: 1749 + text.length,
+        text,
+      }),
+    );
+    const local = new Date(Date.parse("2026-10-14T10:03:59.000Z"));
+    const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
+      .map((n) => String(n).padStart(2, "0"))
+      .join(":");
+    const frame = await ui.waitFor(`── ${hms} phase: verify ──`);
+    expect(frame).not.toContain("[dipo]");
+  });
+
+  it("lists the story's open questions with kind, age, text and how to answer them", async () => {
+    const { ui, session } = await openDetail();
+    const height = lines(ui.frame()).length;
+    const other = goldenSnapshots
+      .get(OFFICES.dipsaus)
+      ?.work.find((w) => w.work.story === "DIPO-21");
+    const office = session.active(STREAM)?.options;
+    // The test clock stands at 10:04:00.
+    office?.onEvent(
+      event(
+        8,
+        "question.asked",
+        question(
+          Q1,
+          "question",
+          "Which greeting\nshould the CLI print?",
+          "2026-10-14T10:00:00.000Z",
+        ),
+      ),
+    );
+    office?.onEvent(
+      event(
+        9,
+        "question.asked",
+        question(Q2, "permission", "Bash: rm -rf build", "2026-10-14T10:03:30.000Z"),
+      ),
+    );
+    if (other !== undefined) {
+      office?.onEvent(
+        event(
+          10,
+          "question.asked",
+          question(Q3, "question", "Not this story", "2026-10-14T10:03:00.000Z", other.work),
+        ),
+      );
+    }
+    const frame = await ui.waitFor("allow|deny");
+    expect(lines(frame).slice(2, 7)).toEqual([
+      " now  looping @ · verify · verify: expected 3, received 4",
+      " ? question 4m ago · Which greeting should the CLI print?",
+      `   answer: dipo answer ${Q1} <text>`,
+      " ? permission 30s ago · Bash: rm -rf build",
+      `   answer: dipo answer ${Q2} allow|deny`,
+    ]);
+    expect(frame).not.toContain("Not this story");
+    // The questions take rows from the output pane; the frame keeps its height.
+    expect(lines(frame).length).toBe(height);
+
+    office?.onEvent(event(11, "question.closed", { question: Q1, work: golden24().work }));
+    for (let i = 0; i < 50 && ui.frame().includes(Q1); i++) await Bun.sleep(20);
+    const closed = ui.frame();
+    expect(closed).not.toContain(Q1);
+    expect(closed).toContain(`dipo answer ${Q2} allow|deny`);
+  });
+
+  it("shows at most three questions and counts the rest", () => {
+    const work = golden24().work;
+    const many = [0, 1, 2, 3, 4].map((n) =>
+      question(
+        `qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q1${n}`,
+        "question",
+        `q${n}`,
+        `2026-10-14T10:0${n}:00.000Z`,
+        work,
+      ),
+    );
+    const out = questionLines(many.toReversed(), Date.parse("2026-10-14T10:05:00.000Z"), "·");
+    expect(out.length).toBe(MAX_QUESTIONS * 2 + 1);
+    expect(out[0]).toBe("? question 5m ago · q0");
+    expect(out.at(-1)).toBe("  2 more open questions · dipo watch lists all");
+    expect(questionLines([], 0, "·")).toEqual([]);
+  });
+
+  it("tags the worker output while privacy.storeCommandBodies is on", async () => {
+    const { ui, session } = await openDetail();
+    expect(ui.frame()).not.toContain("opt-in");
+    const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
+    session.active("software")?.options.onEvent({
+      cursor: { stream: "software", epoch: "e1", seq: 90 },
+      at: "2026-10-14T10:04:00.000Z",
+      type: "office.summary",
+      data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
+    } as Event);
+    let frame = await ui.waitFor("opt-in storeCommandBodies");
+    expect(frame).toContain("output (worker) [w]orker* [v]erify  opt-in storeCommandBodies");
+    await ui.press("v");
+    frame = await ui.waitFor("[v]erify*");
+    expect(frame).not.toContain("opt-in storeCommandBodies");
   });
 });

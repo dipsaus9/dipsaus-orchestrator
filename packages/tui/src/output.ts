@@ -55,6 +55,32 @@ export function splitLines(text: string): string[] {
   return lines.map(cleanLine);
 }
 
+// A phase marker the engine writes into the worker output (DIPO-83):
+// `[dipo] 2026-10-15T12:04:31.000Z phase verify` or `[dipo] <time> ended in-review`.
+const MARKER = /^\[dipo\] (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) (phase|ended) (\S.*)$/;
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** True for a phase marker line. */
+export function isMarker(line: string): boolean {
+  return MARKER.test(line);
+}
+
+/**
+ * A line as the pane shows it: a phase marker reads `── 12:04:31 phase: verify ──` or
+ * `── 12:09:02 run ended: in-review ──` (local time; `--` in ASCII mode); any other line as is.
+ */
+export function displayLine(line: string, ascii = false): string {
+  const match = MARKER.exec(line);
+  if (match === null) return line;
+  const [, iso, kind, value] = match;
+  const at = new Date(iso ?? "");
+  const time = `${pad2(at.getHours())}:${pad2(at.getMinutes())}:${pad2(at.getSeconds())}`;
+  const rule = ascii ? "--" : "──";
+  const label = kind === "phase" ? `phase: ${value}` : `run ended: ${value}`;
+  return `${rule} ${time} ${label} ${rule}`;
+}
+
 /** The lines cut to `width` columns each, so the pane never scrolls sideways (0009 section 9). */
 export function wrapLines(lines: readonly string[], width: number): string[] {
   const rows: string[] = [];
@@ -70,10 +96,12 @@ export function wrapLines(lines: readonly string[], width: number): string[] {
 }
 
 /** How many rows `lines` take at `width` columns. */
-export function rowCount(lines: readonly string[], width: number): number {
+export function rowCount(lines: readonly string[], width: number, ascii = false): number {
   const size = Math.max(1, width);
   let rows = 0;
-  for (const line of lines) rows += Math.max(1, Math.ceil(line.length / size));
+  for (const line of lines) {
+    rows += Math.max(1, Math.ceil(displayLine(line, ascii).length / size));
+  }
   return rows;
 }
 
@@ -86,21 +114,22 @@ export function visibleRows(
   width: number,
   height: number,
   offset: number,
+  ascii = false,
 ): string[] {
   const rows: string[] = [];
   const wanted = height + offset;
   for (let i = lines.length - 1; i >= 0 && rows.length < wanted; i--) {
-    rows.unshift(...wrapLines([lines[i] ?? ""], width));
+    rows.unshift(...wrapLines([displayLine(lines[i] ?? "", ascii)], width));
   }
   const end = Math.max(0, rows.length - offset);
   return rows.slice(Math.max(0, end - height), end);
 }
 
-/** The last non-empty line of `lines`, trimmed, or null. */
+/** The last non-empty line of `lines` that is not a phase marker, trimmed, or null. */
 export function lastLine(lines: readonly string[]): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]?.trim() ?? "";
-    if (line !== "") return line;
+    if (line !== "" && !isMarker(line)) return line;
   }
   return null;
 }

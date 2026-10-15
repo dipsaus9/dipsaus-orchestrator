@@ -7,7 +7,9 @@ import { describe, expect, it } from "bun:test";
 import {
   byteLength,
   cleanLine,
+  displayLine,
   type FeedChange,
+  isMarker,
   lastLine,
   OutputFeed,
   type RangeOutcome,
@@ -180,5 +182,38 @@ describe("output lines", () => {
   it("finds the newest non-empty line", () => {
     expect(lastLine(["[tool] Read a.ts", "  ", ""])).toBe("[tool] Read a.ts");
     expect(lastLine([])).toBeNull();
+  });
+});
+
+describe("phase markers (DIPO-83)", () => {
+  const at = Date.parse("2026-10-15T12:04:31.000Z");
+  const local = new Date(at);
+  const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+  const phase = "[dipo] 2026-10-15T12:04:31.000Z phase verify";
+  const ended = "[dipo] 2026-10-15T12:04:31.000Z ended in-review";
+
+  it("read as a rule with the local time, `--` in ASCII mode", () => {
+    expect(displayLine(phase)).toBe(`── ${hms} phase: verify ──`);
+    expect(displayLine(phase, true)).toBe(`-- ${hms} phase: verify --`);
+    expect(displayLine(ended)).toBe(`── ${hms} run ended: in-review ──`);
+    expect(displayLine("[dipo] soon phase verify")).toBe("[dipo] soon phase verify");
+    expect(displayLine("[tool] Bash")).toBe("[tool] Bash");
+    expect(isMarker(phase)).toBe(true);
+    expect(isMarker("[tool] Bash")).toBe(false);
+  });
+
+  it("take their shown width in rows and on screen, and never become the newest line", () => {
+    const held = ["[tool] Read a.ts", phase, "done"];
+    expect(visibleRows(held, 80, 3, 0, true)).toEqual([
+      "[tool] Read a.ts",
+      `-- ${hms} phase: verify --`,
+      "done",
+    ]);
+    // The raw marker is 44 characters; shown it is 28, one row at 30 columns.
+    expect(rowCount([phase], 30)).toBe(1);
+    expect(lastLine(["working", phase])).toBe("working");
+    expect(lastLine([phase])).toBeNull();
   });
 });

@@ -1,23 +1,65 @@
 // What worker output is stored (0007 section 8): the main agent's text, plus one line per tool
 // call with the tool name and its target path. Shell command text, tool inputs and tool results
-// never reach `output_chunks`; the neutral worker events carry none of them except the path.
+// never reach `output_chunks` by default.
+//
+// With the machine-local opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83) the tool
+// line also holds the call's input as one line: `[tool] Bash bun test`. Line breaks and other
+// control characters become spaces, and an input longer than `INPUT_MAX_CHARS` is cut with a marker
+// that says how much was left out.
 
 import type { WorkerEvent } from "../workers/types";
 
-/** The line stored for one tool call: `[tool] Read src/greet.ts`, or `[tool] Bash`. */
-export function toolLine(tool: string, path?: string): string {
-  return path === undefined ? `[tool] ${tool}\n` : `[tool] ${tool} ${path}\n`;
+/** The most characters of a tool input one stored tool line holds. */
+export const INPUT_MAX_CHARS = 200;
+
+/** What ingestion may store beyond the default (0007 section 8). */
+export interface OutputPrivacy {
+  /** `privacy.storeCommandBodies`: tool inputs in `output_chunks`. */
+  readonly storeCommandBodies: boolean;
+}
+
+export const DEFAULT_OUTPUT_PRIVACY: OutputPrivacy = { storeCommandBodies: false };
+
+/** `input` as one line of at most `INPUT_MAX_CHARS` characters, cut with a marker. */
+export function oneLineInput(input: string): string {
+  // Every run of whitespace or control characters (line breaks, tabs, escapes) is one space.
+  // oxlint-disable-next-line no-control-regex
+  const line = input.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+  const chars = Array.from(line);
+  if (chars.length <= INPUT_MAX_CHARS) return line;
+  const cut = chars.length - INPUT_MAX_CHARS;
+  return `${chars.slice(0, INPUT_MAX_CHARS).join("").trimEnd()} [cut ${cut} more chars]`;
+}
+
+/**
+ * The line stored for one tool call: `[tool] Read src/greet.ts`, `[tool] Bash`, or with the opt-in
+ * `[tool] Bash bun test`.
+ */
+export function toolLine(tool: string, path?: string, input?: string): string {
+  const parts = [`[tool] ${tool}`];
+  if (path !== undefined) parts.push(path);
+  if (input !== undefined) {
+    const line = oneLineInput(input);
+    if (line !== "") parts.push(line);
+  }
+  return `${parts.join(" ")}\n`;
 }
 
 /** Stored text for one worker event, or "" when the event adds no output. */
-export function outputText(event: WorkerEvent): string {
+export function outputText(
+  event: WorkerEvent,
+  privacy: OutputPrivacy = DEFAULT_OUTPUT_PRIVACY,
+): string {
   if (event.t === "output") {
     return event.text.endsWith("\n") || event.text === "" ? event.text : `${event.text}\n`;
   }
   if (event.t !== "activity" || event.kind === "text") return "";
   // Only the main agent's own calls: a subagent's work shows as the one call that started it.
   if (event.kind === "tool" && event.agentId !== undefined) return "";
-  return toolLine(event.tool ?? event.kind, event.kind === "tool" ? event.path : undefined);
+  if (event.kind !== "tool") return toolLine(event.tool ?? event.kind);
+  // The input only with the opt-in; without it the line is exactly what it always was.
+  const input = privacy.storeCommandBodies ? event.input : undefined;
+  return toolLine(event.tool ?? event.kind, event.path, input);
 }
 
 const encoder = new TextEncoder();

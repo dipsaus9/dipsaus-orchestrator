@@ -48,7 +48,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
 import { changedLinks, readWorktreeSnapshot, worktreeTampered } from "../git/snapshot";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
-import { endRun } from "../run/records";
+import { endRunMarked } from "../run/markers";
 
 import {
   type ClaimRecord,
@@ -665,7 +665,7 @@ async function rollback(
       { at, run: request.runId, reason },
     );
     // A run recorded for this claim ends with it (DIPO-74).
-    if (ended.changes > 0) endRun(deps.office, request.runId, at, reason);
+    if (ended.changes > 0) endRunMarked(deps.office, request.runId, at, reason);
     if (ended.changes > 0 && released !== null) markReclaimed(deps.office, released, null, null);
   });
 }

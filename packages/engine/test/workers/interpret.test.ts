@@ -163,6 +163,45 @@ describe("interpret (0008 section 3)", () => {
     ]);
   });
 
+  it("a tool call carries its input beyond the path for Bash, Grep, Glob and the web tools (DIPO-83)", () => {
+    const { events } = run([
+      assistant("msg-1", [
+        {
+          type: "tool_use",
+          id: "toolu-1",
+          name: "Bash",
+          input: { command: "bun test", timeout: 1 },
+        },
+        {
+          type: "tool_use",
+          id: "toolu-2",
+          name: "Grep",
+          input: { pattern: "TODO", path: "${WORKDIR}/src" },
+        },
+        { type: "tool_use", id: "toolu-3", name: "Glob", input: { pattern: "**/*.ts" } },
+        { type: "tool_use", id: "toolu-4", name: "WebFetch", input: { url: "https://x.test" } },
+        { type: "tool_use", id: "toolu-5", name: "WebSearch", input: { query: "bun" } },
+        {
+          type: "tool_use",
+          id: "toolu-6",
+          name: "Write",
+          input: { file_path: "${WORKDIR}/a.ts", content: "secret body" },
+        },
+        { type: "tool_use", id: "toolu-7", name: "Bash", input: { command: "  " } },
+      ]),
+    ]);
+    expect(events.filter((event) => event.t === "activity")).toEqual([
+      { t: "activity", kind: "tool", tool: "Bash", input: "bun test" },
+      { t: "activity", kind: "tool", tool: "Grep", path: "${WORKDIR}/src", input: "TODO" },
+      { t: "activity", kind: "tool", tool: "Glob", input: "**/*.ts" },
+      { t: "activity", kind: "tool", tool: "WebFetch", input: "https://x.test" },
+      { t: "activity", kind: "tool", tool: "WebSearch", input: "bun" },
+      // File contents and edits never travel as input; the path says what was touched.
+      { t: "activity", kind: "tool", tool: "Write", path: "${WORKDIR}/a.ts" },
+      { t: "activity", kind: "tool", tool: "Bash" },
+    ]);
+  });
+
   it("counts usage once per message id; a subagent message carries its parent tool use", () => {
     const { events, state } = run([
       assistant("msg-1", [{ type: "text", text: "a" }]),

@@ -7,7 +7,7 @@ import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import type { WorktreeSnapshot } from "../git/snapshot";
-import { endRun } from "../run/records";
+import { endRunMarked } from "../run/markers";
 
 export interface ClaimRecord {
   readonly runId: RunId;
@@ -246,7 +246,7 @@ export function releaseClaim(
      where office_id = $office_id and run_id = $run`,
     { run: runId, at: release.at, reason: release.reason },
   );
-  endRun(office, runId, release.at, release.reason);
+  endRunMarked(office, runId, release.at, release.reason);
   if (release.keepBranch) {
     office.run(
       `insert into released_branches (office_id, branch, released_at, key, reason)

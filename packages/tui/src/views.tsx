@@ -32,6 +32,20 @@ export function healthLabel(health: string): string {
   return HEALTH_LABEL[health] ?? health;
 }
 
+/** The privacy opt-ins on for the selected office, from its `office.summary` (DIPO-83). */
+export function officeOptIns(state: OfficeStoreState): readonly string[] {
+  return state.offices.find((entry) => entry.office === state.office)?.summary?.optIns ?? [];
+}
+
+/**
+ * `opt-in storeCommandBodies` while privacy opt-ins are on, so the maintainer sees that more is
+ * stored than the default (0007 section 8); "" when none is.
+ */
+export function optInLabel(optIns: readonly string[]): string {
+  if (optIns.length === 0) return "";
+  return `opt-in ${optIns.map((key) => key.replace(/^privacy\./, "")).join(", ")}`;
+}
+
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** `HH:MM` in the local time zone. */

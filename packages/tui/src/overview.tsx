@@ -40,7 +40,7 @@ import {
 import type { LatestLines } from "./latest";
 import { boardNow } from "./now";
 import type { Display } from "./options";
-import { glyphs, healthLabel } from "./views";
+import { glyphs, healthLabel, officeOptIns, optInLabel } from "./views";
 
 /** The legend for evidence markers, shown in the footer with the `evidence` capability. */
 export const EVIDENCE_LEGEND = "* claimed ~ estimated ? none";
@@ -96,7 +96,10 @@ function columnCount(state: OfficeStoreState, column: string): number {
   return state.stories.filter((story) => story.column === column).length;
 }
 
-/** `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · held 0 · today 1.2M of 4M tokens`. */
+/**
+ * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · held 0 · today 1.2M of 4M tokens`,
+ * with `opt-in storeCommandBodies` before `today` while a privacy opt-in is on (0007 section 8).
+ */
 export function countLine(state: OfficeStoreState, dot: string, width: Width): string {
   const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
   const parts = [
@@ -107,6 +110,8 @@ export function countLine(state: OfficeStoreState, dot: string, width: Width): s
     `waiting ${columnCount(state, "waiting")}`,
     `held ${columnCount(state, "held")}`,
   ];
+  const optIns = optInLabel(officeOptIns(state));
+  if (optIns !== "") parts.push(optIns);
   const day = summary?.dayUsage;
   if (day !== undefined && width === "full") {
     const limit = day.limit === undefined ? "" : ` of ${tokens(day.limit)}`;

@@ -86,10 +86,10 @@ import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
+import { markPhase } from "./markers";
 
 import {
   activeRuns,
-  appendRunStep,
   currentProfileId,
   hasActiveRun,
   insertRun,
@@ -546,9 +546,10 @@ export class WorkRun {
         const { nudgeSources, sourceTexts } = prepared.promptSources;
         writeNudgeSources(handle, runId, agent, nudgeSources, sourceTexts, at);
       }
-      appendRunStep(handle, runId, "phase", "setup", at);
+      const marker = markPhase(handle, runId, "setup", at);
       return withWorkViews(handle, [
         { type: "work.assigned", key, run: runId, delta: { work } },
+        ...marker,
         { type: "work.phase", key, run: runId, delta: { work, phase: "setup", progress } },
       ]);
     });

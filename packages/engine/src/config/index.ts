@@ -24,6 +24,7 @@ export {
   OfficeFileV1,
   OfficeLocalFileV1,
   OfficeOverridesV1,
+  privacyOptIns,
 } from "./schema";
 export type { OfficeConfig, OfficeFile, OfficeLocalFile, OfficeOverrides } from "./schema";
 

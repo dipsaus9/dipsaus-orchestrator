@@ -71,7 +71,8 @@ import { findClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
-import { appendRunStep, endRun, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
+import { endRunMarked, markPhase } from "./markers";
+import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import type { StoryGit } from "./story-git";
 import {
   appendVerifyOutput,
@@ -381,8 +382,8 @@ export class VerifyCommit implements RunFinisher {
     const loop = loopsOf(ctx.office, run.runId);
     ctx.flushOutput();
     ctx.write(() => {
-      appendRunStep(ctx.office, run.runId, "phase", "verify", this.#deps.clock.now());
-      return [phaseEntry(ctx, "verify")];
+      const marker = markPhase(ctx.office, run.runId, "verify", this.#deps.clock.now());
+      return [...marker, phaseEntry(ctx, "verify")];
     });
     const done = this.#deps.work?.beginVerify();
     let pass: PassResult;
@@ -424,8 +425,8 @@ export class VerifyCommit implements RunFinisher {
       ctx.write(() => {
         const at = this.#deps.clock.now();
         appendRunStep(ctx.office, run.runId, "loop", String(loop + 1), at);
-        appendRunStep(ctx.office, run.runId, "phase", "build", at);
-        return [phaseEntry(ctx, "build")];
+        const marker = markPhase(ctx.office, run.runId, "build", at);
+        return [...marker, phaseEntry(ctx, "build")];
       });
       return { kind: "feedback", text: item.text };
     }
@@ -646,7 +647,7 @@ export class VerifyCommit implements RunFinisher {
       const office = ctx.office;
       const at = this.#deps.clock.now();
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
-      endRun(office, run.runId, at, IN_REVIEW_END);
+      endRunMarked(office, run.runId, at, IN_REVIEW_END);
       const key = run.key as StoryKey;
       const current = storyView(office, key);
       const view = deriveStoryView({

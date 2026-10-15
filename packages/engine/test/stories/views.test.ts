@@ -26,6 +26,7 @@ import {
   deriveStoryView,
   lifecycleOf,
   officeSummaries,
+  officeSummaryOfSource,
   officeSummarySource,
 } from "../../src/views";
 import { addOffice } from "../commands/helpers";
@@ -155,6 +156,17 @@ describe("office summary", () => {
         waitingOnMaintainer: 1,
         ready: 0,
       });
+    }));
+
+  it("names the privacy opt-ins that are on, and leaves the field out when none is (DIPO-83)", () =>
+    withOffice(async (t, office) => {
+      const on = ["privacy.storeCommandBodies"];
+      const optInsOf = (id: string) => (id === office.officeId ? on : []);
+      const summary = officeSummaryOfSource(() => t.state, optInsOf)(office.officeId);
+      expect(summary?.optIns).toEqual(on);
+      expect(OfficeSummary.parse(summary)).toEqual(summary as OfficeSummary);
+      expect(officeSummarySource(() => t.state, optInsOf)()[0]?.optIns).toEqual(on);
+      expect(officeSummaryOfSource(() => t.state)(office.officeId)).not.toHaveProperty("optIns");
     }));
 
   it("counts the Ready column as ready (DIPO-81)", () =>

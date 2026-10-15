@@ -618,6 +618,26 @@ function toolPath(input: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * The input field of a tool call that says what it does beyond its path (DIPO-83): Bash's command,
+ * the search pattern of Grep and Glob, WebFetch's URL and WebSearch's query. File contents and
+ * edits are left out; their path already shows. The engine stores it only with the opt-in.
+ */
+const INPUT_FIELDS: Readonly<Record<string, string>> = {
+  Bash: "command",
+  Grep: "pattern",
+  Glob: "pattern",
+  WebFetch: "url",
+  WebSearch: "query",
+};
+
+function toolInput(tool: string, input: unknown): string | undefined {
+  const field = INPUT_FIELDS[tool];
+  if (field === undefined || !isRecord(input)) return undefined;
+  const value = input[field];
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
 function assistant(value: unknown, state: ClaudeParseState): Step {
   const parsed = parseWith(AssistantMessage, value, state);
   if (!parsed.ok) return { events: [], state: parsed.state };
@@ -641,11 +661,13 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       events.push({ t: "activity", kind: "subagent", tool: tool.data.name, agentId: tool.data.id });
     } else {
       const path = toolPath(tool.data.input);
+      const input = toolInput(tool.data.name, tool.data.input);
       events.push({
         t: "activity",
         kind: "tool",
         tool: tool.data.name,
         ...(path === undefined ? {} : { path }),
+        ...(input === undefined ? {} : { input }),
         ...scope,
       });
     }

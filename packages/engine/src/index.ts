@@ -324,6 +324,7 @@ export {
   OfficeLocalFileV1,
   OfficeOverridesV1,
   officeJsonSchema,
+  privacyOptIns,
   resolveOfficeConfig,
   schemaKeyPaths,
   softwareConfigPath,
@@ -586,7 +587,14 @@ export {
   type PassResult,
   type PassStatus,
 } from "./ingest/ingestor";
-export { outputText, toolLine } from "./ingest/output";
+export {
+  DEFAULT_OUTPUT_PRIVACY,
+  INPUT_MAX_CHARS,
+  oneLineInput,
+  outputText,
+  toolLine,
+  type OutputPrivacy,
+} from "./ingest/output";
 export { budgetOf, finalizeAgentUsage, readUsage, type UsageScope } from "./ingest/usage";
 export * from "./keepawake/index";
 export {

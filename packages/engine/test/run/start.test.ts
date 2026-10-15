@@ -468,7 +468,10 @@ describe("work.run starts the worker of a claimed run", () => {
     const events = entries();
     expect(events.map((e) => [e.type, e.delta["phase"] ?? null])).toEqual([
       ["work.assigned", null],
+      // Each phase's marker line goes out right before its `work.phase` (DIPO-83).
+      ["work.output", null],
       ["work.phase", "setup"],
+      ["work.output", null],
       ["work.phase", "build"],
     ]);
   });

@@ -24,7 +24,8 @@ import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
 import { withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
-import { byteLength, outputText } from "./output";
+import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
+import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
 import {
   applyTurnTotals,
   feedFinalChanges,
@@ -146,6 +147,12 @@ export interface IngestorOptions {
   readonly timings?: Partial<IngestTimings>;
   /** Called for a host line that is not a `{ t, ch, data }` object; the line is skipped. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /**
+   * The office's privacy opt-ins in force (0007 section 8, DIPO-83), read at every pass so a
+   * reloaded configuration applies to the next output. Without it nothing beyond the default is
+   * stored.
+   */
+  readonly privacy?: () => OutputPrivacy;
 }
 
 export type PassStatus = "ingested" | "idle" | "stopped" | "ended" | "fileChanged";
@@ -186,7 +193,7 @@ interface Tracked {
   done: boolean;
 }
 
-const SOURCE = "host-events";
+const SOURCE = HOST_EVENTS_SOURCE;
 const decoder = new TextDecoder();
 
 function keyOf(run: string, agent: string): string {
@@ -229,6 +236,7 @@ export class Ingestor {
   readonly #hooks: IngestHooks;
   readonly #timings: IngestTimings;
   readonly #warn: NonNullable<IngestorOptions["warn"]>;
+  readonly #privacy: () => OutputPrivacy;
   readonly #tracked = new Map<string, Tracked>();
 
   constructor(options: IngestorOptions) {
@@ -238,6 +246,7 @@ export class Ingestor {
     this.#hooks = options.hooks ?? {};
     this.#timings = { ...INGEST_DEFAULTS, ...options.timings };
     this.#warn = options.warn ?? (() => {});
+    this.#privacy = options.privacy ?? (() => DEFAULT_OUTPUT_PRIVACY);
   }
 
   /**
@@ -374,6 +383,7 @@ export class Ingestor {
     }
 
     const now = this.#clock.now();
+    const privacy = this.#privacy();
     const events: WorkerEvent[] = [];
     const rejected: string[] = [];
     let exited = false;
@@ -415,7 +425,7 @@ export class Ingestor {
         state = step.state;
         for (const event of step.events) {
           events.push(event);
-          text += outputText(event);
+          text += outputText(event, privacy);
           switch (event.t) {
             case "usage":
               usageChanged = recordUsageMessage(this.#office, target, event, now) || usageChanged;
@@ -660,38 +670,7 @@ export class Ingestor {
 
   /** `work.output` for the agent's output not yet sent; advances the emitted mark. */
   #outputEntries(target: IngestTarget): NewEntry[] {
-    const from = this.#emittedTo(target);
-    const chunks = this.#office.all<{ from_offset: number; to_offset: number; text: string }>(
-      `select from_offset, to_offset, text from output_chunks
-       where office_id = $office_id and run_id = $run and source = 'worker'
-         and agent_id = $agent and from_offset >= $from
-       order by from_offset`,
-      { run: target.run, agent: target.agent, from },
-    );
-    const first = chunks[0];
-    const last = chunks[chunks.length - 1];
-    if (first === undefined || last === undefined) return [];
-    this.#office.run(
-      `update ingest_cursors set output_emitted_to = $to
-       where office_id = $office_id and run_id = $run and agent_id = $agent
-         and source_kind = $kind`,
-      { to: last.to_offset, run: target.run, agent: target.agent, kind: SOURCE },
-    );
-    if (target.work === undefined) return [];
-    return [
-      {
-        type: "work.output",
-        key: target.work.key,
-        run: target.work.run,
-        delta: {
-          work: target.work,
-          source: "worker",
-          from: first.from_offset,
-          to: last.to_offset,
-          text: chunks.map((chunk) => chunk.text).join(""),
-        },
-      },
-    ];
+    return pendingWorkerOutput(this.#office, target.run, target.agent, target.work);
   }
 
   /** `usage.updated` with the agent's and run's usage now; the caller marks it sent on commit. */

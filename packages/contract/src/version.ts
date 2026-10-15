@@ -32,4 +32,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-75 adds the optional `run` of the `work.answer` result (the run an answer to a
 // `needs-permission` park resumed) to the same, still unreleased, minor.
 // DIPO-81 adds `OfficeSummary.ready` to the same, still unreleased, minor.
+// DIPO-83 adds the optional `optIns` of `OfficeSummary` (the privacy opt-ins that are on) to the
+// same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

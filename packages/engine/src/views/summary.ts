@@ -75,13 +75,21 @@ export interface OfficeIdentity {
   readonly path: string;
 }
 
+/** The privacy opt-ins on for an office (`privacyOptIns` of its configuration), for the summary. */
+export type OptInsOf = (office: OfficeId) => readonly string[];
+
 /**
  * The summary of one office: `running` counts active runs, `parked` the stories in the `desk` and
  * `held` columns, `onHold` those in `held`, and `waitingOnMaintainer` the parked stories other than
  * on-hold, the open gates waiting on the maintainer and the open questions (DIPO-59; tests count
- * from M1), and `ready` the stories in the `ready` column (DIPO-81).
+ * from M1), `ready` the stories in the `ready` column (DIPO-81) and `optIns` the privacy opt-ins
+ * that are on (0007 section 8, DIPO-83).
  */
-export function deriveOfficeSummary(identity: OfficeIdentity, office: OfficeHandle): OfficeSummary {
+export function deriveOfficeSummary(
+  identity: OfficeIdentity,
+  office: OfficeHandle,
+  optIns: readonly string[] = [],
+): OfficeSummary {
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
   const held = counts.held ?? 0;
@@ -95,6 +103,7 @@ export function deriveOfficeSummary(identity: OfficeIdentity, office: OfficeHand
     onHold: held,
     waitingOnMaintainer: desk + gates + openQuestions(office).length,
     ready: counts.ready ?? 0,
+    ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),
   };
 }
 
@@ -111,12 +120,16 @@ function officeRows(database: StateDatabase): OfficeListRow[] {
 }
 
 /** The summary of every office in the office list, in the order offices were added. */
-export function officeSummaries(database: StateDatabase): OfficeSummary[] {
+export function officeSummaries(
+  database: StateDatabase,
+  optInsOf: OptInsOf = () => [],
+): OfficeSummary[] {
   return officeRows(database).map((row) => {
     const office = OfficeId.parse(row.office_id);
     return deriveOfficeSummary(
       { office, name: row.display_name, path: row.path },
       database.office(office),
+      optInsOf(office),
     );
   });
 }
@@ -125,6 +138,7 @@ export function officeSummaries(database: StateDatabase): OfficeSummary[] {
 export function officeSummaryOf(
   database: StateDatabase,
   office: OfficeId,
+  optInsOf: OptInsOf = () => [],
 ): OfficeSummary | undefined {
   const row = database.connection.get<OfficeListRow>(
     "select office_id, path, display_name from offices where office_id = $office and forgotten_at is null",
@@ -135,6 +149,7 @@ export function officeSummaryOf(
     deriveOfficeSummary(
       { office, name: row.display_name, path: row.path },
       database.office(office),
+      optInsOf(office),
     ),
   );
 }
@@ -145,10 +160,11 @@ export function officeSummaryOf(
  */
 export function officeSummaryOfSource(
   database: () => StateDatabase | null,
+  optInsOf: OptInsOf = () => [],
 ): (office: OfficeId) => OfficeSummary | undefined {
   return (office) => {
     const db = database();
-    return db === null ? undefined : officeSummaryOf(db, office);
+    return db === null ? undefined : officeSummaryOf(db, office, optInsOf);
   };
 }
 
@@ -156,9 +172,12 @@ export function officeSummaryOfSource(
  * The office summary source `engine.hello` and the software stream use (`OfficeSummarySource` in
  * `reads/hello.ts`): every listed office's summary, or none before the state database is open.
  */
-export function officeSummarySource(database: () => StateDatabase | null): () => OfficeSummary[] {
+export function officeSummarySource(
+  database: () => StateDatabase | null,
+  optInsOf: OptInsOf = () => [],
+): () => OfficeSummary[] {
   return () => {
     const db = database();
-    return db === null ? [] : db.connection.deferred(() => officeSummaries(db));
+    return db === null ? [] : db.connection.deferred(() => officeSummaries(db, optInsOf));
   };
 }
