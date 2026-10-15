@@ -4,6 +4,7 @@ title: Send the output retention period and gate rule ids as data
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 21:19'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -14,6 +15,21 @@ references:
   - packages/tui/src/format.ts
   - packages/contract/src/
   - packages/engine/src/gate/rules.ts
+  - packages/contract/schema/
+  - packages/engine/src/views/story.ts
+  - packages/engine/src/views/summary.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/test/views/derive.test.ts
+  - packages/engine/test/stories/views.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/daemon/src/foreground.ts
+  - packages/tui/src/detail.tsx
+  - packages/tui/src/queue.tsx
+  - packages/tui/src/format.test.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/testing/fixtures/three-offices.json
 priority: medium
 type: feature
 ordinal: 87000
