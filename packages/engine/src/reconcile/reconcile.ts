@@ -36,7 +36,8 @@ import type { OfficeGit } from "../git/office";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { openPark } from "../run/park";
-import { activeRuns, endRun, findRun, type StoredRun } from "../run/records";
+import { endRunMarked } from "../run/markers";
+import { activeRuns, findRun, type StoredRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
 import type { IndexResult } from "../stories/index-stories";
 import { readsOnBranch } from "../stories/index-stories";
@@ -375,7 +376,7 @@ function endWithNotice(
 ): void {
   const at = deps.clock.now();
   deps.office.immediate(() => {
-    endRun(deps.office, run.runId, at, "reconciled");
+    endRunMarked(deps.office, run.runId, at, "reconciled");
     appendEntries(
       deps.office,
       [

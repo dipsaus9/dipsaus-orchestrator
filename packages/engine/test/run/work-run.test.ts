@@ -319,7 +319,8 @@ describe("work.run picks and claims one Ready story", () => {
       { story: "TASK-1", key: world.keys.get("TASK-1") as string, reason: "capacity" },
     ]);
     expect(reply.ok && reply.changed).toBe(true);
-    expect(reply.ok && reply.cursor?.seq).toBe(2);
+    // work.assigned, the setup marker's work.output (DIPO-83) and work.phase setup.
+    expect(reply.ok && reply.cursor?.seq).toBe(3);
 
     // The claim got the frozen branch and ran the pickup re-check inside its queue item.
     expect(world.claims.map((c) => [c.story, c.branch])).toEqual([["TASK-3", "TASK-3/a-story"]]);
@@ -351,7 +352,7 @@ describe("work.run picks and claims one Ready story", () => {
     expect(countRows(world.office, "agents")).toBe(1);
 
     const log = entries();
-    expect(log.map((e) => e.type)).toEqual(["work.assigned", "work.phase"]);
+    expect(log.map((e) => e.type)).toEqual(["work.assigned", "work.output", "work.phase"]);
     const work = (log[0]?.delta as { work: Record<string, unknown> } | undefined)?.work;
     expect(work).toMatchObject({
       story: "TASK-3",
@@ -361,7 +362,11 @@ describe("work.run picks and claims one Ready story", () => {
       tier: "S",
       model: OFFICE_DEFAULTS.tiers.S.model,
     });
-    expect(log[1]?.delta).toEqual({
+    // The setup marker opens the worker output at byte 0 (DIPO-83).
+    const marker = log[1]?.delta as { from: number; text: string } | undefined;
+    expect(marker?.from).toBe(0);
+    expect(marker?.text).toMatch(/^\[dipo\] \S+ phase setup\n$/);
+    expect(log[2]?.delta).toEqual({
       work,
       phase: "setup",
       progress: {

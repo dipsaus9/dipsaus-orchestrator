@@ -25,6 +25,7 @@ import { withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
+import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
 import {
   applyTurnTotals,
   feedFinalChanges,
@@ -192,7 +193,7 @@ interface Tracked {
   done: boolean;
 }
 
-const SOURCE = "host-events";
+const SOURCE = HOST_EVENTS_SOURCE;
 const decoder = new TextDecoder();
 
 function keyOf(run: string, agent: string): string {
@@ -669,38 +670,7 @@ export class Ingestor {
 
   /** `work.output` for the agent's output not yet sent; advances the emitted mark. */
   #outputEntries(target: IngestTarget): NewEntry[] {
-    const from = this.#emittedTo(target);
-    const chunks = this.#office.all<{ from_offset: number; to_offset: number; text: string }>(
-      `select from_offset, to_offset, text from output_chunks
-       where office_id = $office_id and run_id = $run and source = 'worker'
-         and agent_id = $agent and from_offset >= $from
-       order by from_offset`,
-      { run: target.run, agent: target.agent, from },
-    );
-    const first = chunks[0];
-    const last = chunks[chunks.length - 1];
-    if (first === undefined || last === undefined) return [];
-    this.#office.run(
-      `update ingest_cursors set output_emitted_to = $to
-       where office_id = $office_id and run_id = $run and agent_id = $agent
-         and source_kind = $kind`,
-      { to: last.to_offset, run: target.run, agent: target.agent, kind: SOURCE },
-    );
-    if (target.work === undefined) return [];
-    return [
-      {
-        type: "work.output",
-        key: target.work.key,
-        run: target.work.run,
-        delta: {
-          work: target.work,
-          source: "worker",
-          from: first.from_offset,
-          to: last.to_offset,
-          text: chunks.map((chunk) => chunk.text).join(""),
-        },
-      },
-    ];
+    return pendingWorkerOutput(this.#office, target.run, target.agent, target.work);
   }
 
   /** `usage.updated` with the agent's and run's usage now; the caller marks it sent on commit. */

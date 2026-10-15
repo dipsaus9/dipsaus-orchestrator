@@ -251,9 +251,10 @@ export const PARKED_OUTCOME = "parked";
  * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes from start
  * to end, the story's criteria count and the declared scope size. A park writes its `parks` row
  * before it ends the run, so its reason is counted. It also makes the usage of every agent whose
- * exit was not ingested final (`finalizeRunAgents`, DIPO-51).
+ * exit was not ingested final (`finalizeRunAgents`, DIPO-51). True when this call ended the run,
+ * false when it had ended before.
  */
-export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
+export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): boolean {
   const ended = office.run(
     `update runs set ended_at = $at, end_kind = $kind
      where office_id = $office_id and run_id = $run and ended_at is null`,
@@ -265,6 +266,7 @@ export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: str
     finalizeRunAgents(office, runId, at);
     writeRunOutcome(office, runId, at, kind);
   }
+  return ended.changes > 0;
 }
 
 function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: string): void {

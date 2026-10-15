@@ -36,7 +36,8 @@ import { deriveStoryView, storyView } from "../views/story";
 import { repoPath } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
-import { endRun, type StoredRun } from "./records";
+import { endRunMarked } from "./markers";
+import type { StoredRun } from "./records";
 
 /** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
 export const WORKTREE_TAMPERED = "git.worktreeTampered";
@@ -292,7 +293,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
          where office_id = $office_id), $key, $story, $run, $reason, $from, $detail, $commit, $at)`,
       { key, story, run: run.runId, reason, from, detail, commit: lastGoodCommit, at },
     );
-    endRun(office, run.runId, at, request.endKind);
+    endRunMarked(office, run.runId, at, request.endKind);
     // The agent ends when its exit is ingested; the reason it ended is known now.
     office.run(
       `update agents set end_reason = coalesce(end_reason, $kind)

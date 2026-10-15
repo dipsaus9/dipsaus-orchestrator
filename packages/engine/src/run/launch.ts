@@ -56,7 +56,7 @@ import type { SetupOutcome } from "../worktree/setup";
 import { withWorkViews } from "../views/work";
 
 import type { BackstopSnapshot } from "./backstop";
-import { appendRunStep } from "./records";
+import { markPhase } from "./markers";
 import { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
@@ -465,8 +465,9 @@ export class RunLauncher {
     });
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
-      appendRunStep(handle, facts.runId, "phase", "build", at);
+      const marker = markPhase(handle, facts.runId, "build", at);
       return withWorkViews(handle, [
+        ...marker,
         {
           type: "work.phase",
           key: work.key,

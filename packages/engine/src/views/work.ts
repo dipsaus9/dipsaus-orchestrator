@@ -147,7 +147,7 @@ function lastOutputAt(office: OfficeHandle, runId: string): number | null {
   return (
     office.get<{ at: number | null }>(
       `select max(at) as at from output_chunks where office_id = $office_id and run_id = $run
-        and source = 'worker'`,
+        and source = 'worker' and agent_id is not null`,
       { run: runId },
     )?.at ?? null
   );

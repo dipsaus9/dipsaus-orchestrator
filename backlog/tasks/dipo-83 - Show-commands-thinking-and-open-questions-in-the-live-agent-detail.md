@@ -4,7 +4,7 @@ title: 'Show commands, thinking and open questions in the live agent detail'
 status: To Do
 assignee: []
 created_date: '2026-10-15 11:34'
-updated_date: '2026-10-15 12:57'
+updated_date: '2026-10-15 13:32'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -32,6 +32,13 @@ references:
   - packages/contract/schema
   - packages/tui/src/views.tsx
   - docs/decisions/0005-command-and-event-model.md
+  - packages/engine/src/run/markers.ts
+  - packages/engine/src/ingest/pending.ts
+  - packages/engine/src/run
+  - packages/engine/src/reconcile/reconcile.ts
+  - packages/engine/src/worktree
+  - packages/engine/src/views/work.ts
+  - packages/tui/src
 priority: medium
 ordinal: 73000
 ---
@@ -50,6 +57,7 @@ Context: maintainer feedback from the DIPO-55 hand test (2026-10-15): 'It says r
 - [ ] #2 The live agent detail lists the story's open questions (kind, text, age) and says how to answer them.
 - [ ] #3 Investigate without a live session first, from recordings and raw event files: what Claude sends for thinking in stream-json and whether a flag gives its text. If text is available, propose (do not build) how to show it and what privacy rule it needs, for the maintainer to decide.
 - [ ] #4 Tests cover the opt-in on and off, the question list, and secret-looking command text staying out when the opt-in is off.
+- [ ] #5 The live agent detail's output pane shows each phase change of the run (setup, build, verify, build again after a failed verify) and the run's end as a marker line with its time, such as `── 12:04:31 phase: verify ──` (ASCII fallback in ASCII mode), at its place in the worker output, live and when rereading a finished run.
 <!-- AC:END -->
 
 ## Implementation Notes
