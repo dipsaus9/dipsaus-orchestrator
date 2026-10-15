@@ -7,6 +7,10 @@
 // The same step rolls back every live claim whose setup never finished (no recorded claim commit),
 // for example because the daemon stopped during setup (DIPO-39): its worktree is removed, its
 // branch restored, its row ended as `setup-failed` and its port slot freed.
+//
+// Before the rollback, the step sweeps the `_branch-read-*` scratch directories a killed or
+// crashed daemon left under the worktree root (DIPO-90, see `sweep.ts`). The story index's load
+// step, which runs branch reads, follows this one.
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
@@ -27,6 +31,7 @@ import {
 } from "./claim";
 import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
+import { sweepBranchReads } from "./sweep";
 
 /** The load step's name in the registry. */
 export const CLAIMS_STEP = "worktree.claims";
@@ -43,6 +48,13 @@ export interface StoryClaimsDeps {
   readonly onChanged?: (office: OfficeId) => void;
   /** Logs a release step that failed (the daemon's logger); nothing by default. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** Logs the branch-read sweep at office load (the daemon's logger); nothing by default. */
+  readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /**
+   * The daemon start (epoch ms, from its clock): scratch directories older than this are swept.
+   * Defaults to the clock time of the first office load.
+   */
+  readonly startedAt?: number;
 }
 
 interface Loaded {
@@ -53,9 +65,43 @@ interface Loaded {
 export class StoryClaims {
   readonly #deps: StoryClaimsDeps;
   readonly #offices = new Map<OfficeId, Loaded>();
+  #startedAt: number | undefined;
 
   constructor(deps: StoryClaimsDeps) {
     this.#deps = deps;
+    this.#startedAt = deps.startedAt;
+  }
+
+  /**
+   * Removes the office's leftover branch-read scratch directories, older than the daemon start,
+   * and logs how many. Never refuses the office: a failure is logged and the load goes on.
+   */
+  sweepScratch(ctx: OfficeLoadContext): void {
+    const git = this.#deps.git(ctx.officeId);
+    if (git === undefined) return;
+    this.#startedAt ??= ctx.clock.now();
+    let root: string;
+    try {
+      root = git.worktreeRoot();
+    } catch (error) {
+      this.#deps.warn?.("branch-read sweep skipped", {
+        office: ctx.officeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    const swept = sweepBranchReads(root, this.#startedAt);
+    for (const failure of swept.failed) {
+      this.#deps.warn?.("branch-read scratch directory not removed", {
+        office: ctx.officeId,
+        ...failure,
+      });
+    }
+    this.#deps.info?.("branch-read scratch swept", {
+      office: ctx.officeId,
+      root,
+      removed: swept.removed.length,
+    });
   }
 
   /**
@@ -150,6 +196,7 @@ export class StoryClaims {
         registry.registerLoadStep(CLAIMS_STEP, async (ctx) => {
           const reason = this.attach(ctx);
           if (reason !== null) return { ok: false, reason };
+          this.sweepScratch(ctx);
           await this.recover(ctx.officeId);
           return { ok: true };
         });
