@@ -45,6 +45,8 @@ const REASONS: Readonly<Record<string, string>> = {
   capacity: "the office already runs a story",
   pickupCheckFailed:
     "it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
+  planLimit:
+    "a plan limit, or a plan-limit warning, holds new runs on its model until the reset (it stays Ready)",
 };
 
 /** Skips whose reason the engine explains on the office stream (a notice or the gate output). */
