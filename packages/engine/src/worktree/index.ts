@@ -34,7 +34,7 @@ export { ENV_FILES_RULE, SETUP_NOTICES, setupWorktree, STEP_OUTPUT_TAIL } from "
 export type { SetupDeps, SetupDone, SetupHost, SetupOutcome, SetupRequest } from "./setup";
 export { MAIN_CHECKOUT_SLOT, SLOTS_FILE, SlotTable, SlotTableError } from "./slots";
 export type { SlotEntry, SlotTableOptions } from "./slots";
-export { sweepBranchReads } from "./sweep";
+export { SWEEP_MARGIN_MS, sweepBranchReads } from "./sweep";
 export type { BranchReadSweep } from "./sweep";
 export { PARKED_STATUS, StoryTeardown, TEARDOWN_STEP } from "./done";
 export type { PollReport, StoryTeardownDeps } from "./done";

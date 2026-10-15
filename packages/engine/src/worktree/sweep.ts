@@ -22,14 +22,33 @@ export interface BranchReadSweep {
 }
 
 /**
- * Removes every `<root>/_branch-read-*` directory last modified before `before` (epoch ms).
- * A missing root sweeps nothing.
+ * The margin before the daemon start: a scratch directory must be at least this much older than
+ * the start to be swept, for coarse filesystem timestamps and clock skew.
  */
-export function sweepBranchReads(root: string, before: number): BranchReadSweep {
+export const SWEEP_MARGIN_MS = 5_000;
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Removes every `<root>/_branch-read-*` directory last modified more than `SWEEP_MARGIN_MS`
+ * before `startedAt` (wall-clock epoch ms, compared with file mtimes). A missing root sweeps
+ * nothing; a root that cannot be listed (not a directory, no permission) is reported in `failed`.
+ */
+export function sweepBranchReads(root: string, startedAt: number): BranchReadSweep {
   const removed: string[] = [];
   const failed: { path: string; error: string }[] = [];
   if (!existsSync(root)) return { removed, failed };
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
+  const before = startedAt - SWEEP_MARGIN_MS;
+  let entries;
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch (error) {
+    failed.push({ path: root, error: message(error) });
+    return { removed, failed };
+  }
+  for (const entry of entries) {
     if (!entry.name.startsWith(BRANCH_READ_PREFIX) || !entry.isDirectory()) continue;
     const path = join(root, entry.name);
     try {
@@ -39,7 +58,7 @@ export function sweepBranchReads(root: string, before: number): BranchReadSweep 
       rmSync(path, { recursive: true, force: true });
       removed.push(path);
     } catch (error) {
-      failed.push({ path, error: error instanceof Error ? error.message : String(error) });
+      failed.push({ path, error: message(error) });
     }
   }
   return { removed, failed };

@@ -51,8 +51,9 @@ export interface StoryClaimsDeps {
   /** Logs the branch-read sweep at office load (the daemon's logger); nothing by default. */
   readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /**
-   * The daemon start (epoch ms, from its clock): scratch directories older than this are swept.
-   * Defaults to the clock time of the first office load.
+   * The daemon start as wall-clock time (epoch ms, from its clock), compared with file mtimes:
+   * scratch directories older than this, less `SWEEP_MARGIN_MS`, are swept. Defaults to the
+   * clock time of the first office load.
    */
   readonly startedAt?: number;
 }
@@ -92,7 +93,8 @@ export class StoryClaims {
     }
     const swept = sweepBranchReads(root, this.#startedAt);
     for (const failure of swept.failed) {
-      this.#deps.warn?.("branch-read scratch directory not removed", {
+      // The root itself when it could not be listed, else one scratch directory.
+      this.#deps.warn?.("branch-read sweep failed", {
         office: ctx.officeId,
         ...failure,
       });

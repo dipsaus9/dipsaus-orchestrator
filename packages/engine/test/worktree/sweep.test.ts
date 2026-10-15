@@ -25,7 +25,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { BRANCH_READ_PREFIX } from "../../src/stories/branch-read";
 import { StoryIndex } from "../../src/stories/feature";
 import { StoryClaims } from "../../src/worktree/feature";
-import { sweepBranchReads } from "../../src/worktree/sweep";
+import { SWEEP_MARGIN_MS, sweepBranchReads } from "../../src/worktree/sweep";
 import { BACKLOG_FIXTURE, officeSetup, resultOf, send } from "../office/helpers";
 import { BASE, fakeBacklog, tableOf, type Tables } from "../reconcile/helpers";
 
@@ -126,6 +126,28 @@ describe("sweepBranchReads", () => {
     withTempDir((dir) => {
       expect(sweepBranchReads(join(dir, "missing"), STARTED)).toEqual({ removed: [], failed: [] });
     }));
+
+  it("keeps a scratch directory within the margin before the start", () =>
+    withTempDir((dir) => {
+      const root = join(dir, "repo.worktrees");
+      const near = leaveScratch(root, new Date(STARTED - SWEEP_MARGIN_MS + 1_000));
+      const past = leaveScratch(root, new Date(STARTED - SWEEP_MARGIN_MS - 1_000));
+
+      expect(sweepBranchReads(root, STARTED).removed).toEqual([past]);
+      expect(existsSync(near)).toBe(true);
+    }));
+
+  it("reports a root that is a file instead of throwing", () =>
+    withTempDir((dir) => {
+      const root = join(dir, "repo.worktrees");
+      writeFileSync(root, "not a directory\n");
+
+      const swept = sweepBranchReads(root, STARTED);
+
+      expect(swept.removed).toEqual([]);
+      expect(swept.failed.map((f) => f.path)).toEqual([root]);
+      expect(existsSync(root)).toBe(true);
+    }));
 });
 
 describe("the claims load step sweeps leftover scratch directories", () => {
@@ -189,6 +211,43 @@ describe("the claims load step sweeps leftover scratch directories", () => {
           ]);
         } finally {
           index?.stop();
+          s.state.close();
+        }
+      },
+      { fixture: BACKLOG_FIXTURE },
+    ));
+
+  it("still loads the office when the worktree root cannot be listed, and warns", () =>
+    withBareRemote(
+      async (repo) => {
+        const engineGit = new EngineGit({ spawn: systemSpawn, env: repo.env });
+        const logged: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
+        const claims = new StoryClaims({
+          git: (office) => engineGit.forOffice(office),
+          cli: { spawn: fakeBacklog(new Map()).spawn },
+          startedAt: STARTED,
+          info: (message, fields) => logged.push({ message, fields }),
+          warn: (message, fields) => logged.push({ message, fields }),
+        });
+        // Only git and the claims: the sweep is what this checks, not the story index.
+        const s = await officeSetup(repo.root, { features: [engineGit.feature, claims.feature] });
+        try {
+          const { office: officeId } = resultOf<{ office: OfficeId }>(
+            await send(s, "office.open", { path: repo.dir }),
+          );
+          const root = resolveWorktreeRoot(realpathSync(repo.dir));
+          writeFileSync(root, "not a directory\n");
+
+          const access = await s.manager.load(officeId);
+
+          expect(access.ok).toBe(true);
+          expect(logged.map((l) => l.message)).toEqual([
+            "branch-read sweep failed",
+            "branch-read scratch swept",
+          ]);
+          expect(logged[0]?.fields).toMatchObject({ office: officeId, path: root });
+          expect(logged[1]?.fields).toEqual({ office: officeId, root, removed: 0 });
+        } finally {
           s.state.close();
         }
       },
