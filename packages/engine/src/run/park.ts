@@ -301,7 +301,9 @@ export function gitUnparkWriter(deps: {
  * Inside the caller's transaction (DIPO-75): the park `parkId` is resolved `resume` and its run is
  * active again, so the resumed session continues the same run with what remains of its budget
  * (0008 section 8). The run's outcome row goes, since the run has not ended; its next end writes
- * it again with every park of the run. Returns the `story.state` entry back to `to`.
+ * it again with every park of the run. The time since the run ended at the park is added to
+ * `runs.parked_ms`, so its caps and minutes count only the time it worked. Returns the
+ * `story.state` entry back to `to`.
  */
 export function reopenParkedRun(
   office: OfficeHandle,
@@ -316,9 +318,10 @@ export function reopenParkedRun(
     { at, park: park.parkId },
   );
   office.run(
-    `update runs set ended_at = null, end_kind = null
-     where office_id = $office_id and run_id = $run`,
-    { run: run.runId },
+    `update runs set parked_ms = parked_ms + max(0, $at - coalesce(ended_at, $at)),
+       ended_at = null, end_kind = null
+     where office_id = $office_id and run_id = $run and ended_at is not null`,
+    { run: run.runId, at },
   );
   office.run(`delete from run_outcomes where office_id = $office_id and run_id = $run`, {
     run: run.runId,

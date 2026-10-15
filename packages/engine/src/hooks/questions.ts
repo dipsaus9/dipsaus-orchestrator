@@ -10,6 +10,7 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
+import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
@@ -203,6 +204,37 @@ export function takeAllowOnce(
     { at, question: row.question_id },
   );
   return stored({ ...row, allow_used_at: at });
+}
+
+/**
+ * Inside the caller's transaction (DIPO-75): records the maintainer's answer to a park's question
+ * (`answered`, delivered `on-resume`) and returns its `question.closed`; nothing when the question
+ * was not open.
+ */
+export function answeredParkQuestion(
+  office: OfficeHandle,
+  questionId: string,
+  decision: "allow" | "deny",
+  text: string,
+  at: number,
+): NewEntry[] {
+  const question = findQuestion(office, questionId);
+  if (question === null) return [];
+  if (
+    !closeQuestion(office, questionId, "answered", at, { text, decision, delivered: "on-resume" })
+  ) {
+    return [];
+  }
+  const reason = text.trim();
+  const work = workRefOf(office, question.runId as RunId);
+  return [
+    {
+      type: "question.closed",
+      ...(work === null ? {} : { key: work.key }),
+      run: question.runId as RunId,
+      delta: { question: questionId, answer: reason === "" ? decision : `${decision}: ${reason}` },
+    },
+  ];
 }
 
 export function findQuestion(office: OfficeHandle, questionId: string): StoredQuestion | null {
