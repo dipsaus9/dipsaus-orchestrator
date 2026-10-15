@@ -2,8 +2,10 @@
 // tracked run and agent the engine reads the complete lines of the host's `events.ndjson` from the
 // stored `processed_offset`, runs the adapter's pure `interpret` over them, and in one
 // transaction writes the derived facts (agent details, usage rows, output chunks), any change-log
-// entries that are due, the parser state and the new offset. A crash before the commit leaves
-// offset and facts as they were, so the next pass neither skips nor repeats an event.
+// entries that are due, the parser state and the new offset. A turn report's met criteria are
+// stored on the run there too, with a `work.progress` when the count changed (DIPO-85). A crash
+// before the commit leaves offset and facts as they were, so the next pass neither skips nor
+// repeats an event.
 //
 // Debounce before the log (0005 section 6): stored output becomes a `work.output` entry per run
 // every 250 ms or at 16 KiB, and `usage.updated` at most once per second, on the injected clock.
@@ -20,8 +22,9 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { PriceBook } from "../pricing/estimate";
 import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
+import { recordReportedCriteria } from "../run/criteria";
 import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
-import { withWorkViews } from "../views/work";
+import { runProgress, withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
@@ -406,6 +409,8 @@ export class Ingestor {
       let model = this.#agentModel(target);
       let usageChanged = false;
       let turnEnded = false;
+      // The criteria count shown before the pass's first report; undefined when none came.
+      let criteriaBefore: number | null | undefined;
       let text = "";
       for (const line of lines) {
         const hostLine = parseHostLine(line.text);
@@ -456,6 +461,11 @@ export class Ingestor {
               }
               usageChanged = true;
               turnEnded = true;
+              // The criteria the report marks met are the run's progress now (DIPO-85).
+              if (event.report !== null && target.work !== undefined) {
+                criteriaBefore ??= runProgress(this.#office, run as RunId)?.criteriaMet ?? null;
+                recordReportedCriteria(this.#office, run, event.report);
+              }
               this.#hooks.onEventApplied?.(run, agent, event);
               break;
             case "started":
@@ -542,6 +552,21 @@ export class Ingestor {
         entries.push(...this.#outputEntries(target));
       }
       if (stale !== null) entries.push(stale);
+      // A `work.progress` only when the count the view shows changed (DIPO-85).
+      const progress =
+        criteriaBefore === undefined ? null : runProgress(this.#office, target.run as RunId);
+      if (
+        progress !== null &&
+        progress.criteriaMet !== criteriaBefore &&
+        target.work !== undefined
+      ) {
+        entries.push({
+          type: "work.progress",
+          key: target.work.key,
+          run: target.work.run,
+          delta: { work: target.work, progress },
+        });
+      }
       usageDirty = tracked.usageDirty || usageChanged;
       const dueAt = (tracked.lastUsageAt ?? -Infinity) + this.#timings.usageIntervalMs;
       if (usageDirty && (exited || now >= dueAt)) {
