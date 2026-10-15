@@ -433,6 +433,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     clock,
     offices: options.offices,
     probe,
+    // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
+    steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
     // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
     proxyGone: (_office, run, host) =>
       launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined

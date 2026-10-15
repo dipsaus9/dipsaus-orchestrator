@@ -63,8 +63,9 @@ import {
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
-import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
+import { CAP_TICK_MS, type RunEnding, type RunSteering, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
+import { markIntentSent, recordIntent, runIntents } from "./intents";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
 import { activeRuns, backstopSnapshotOf, capsStartedAt, findRun, type StoredRun } from "./records";
@@ -97,8 +98,17 @@ export type ReattachOutcome =
   | "neverStarted"
   /** A living host of a run that has ended: followed until it exits (DIPO-93). */
   | "followEnded"
+  /** A living host of an ended run whose stop had failed: stopped again, then followed (DIPO-93). */
+  | "stopAgain"
   /** A dead host of a run that has ended: closed out (DIPO-93). */
   | "closedOut";
+
+/** The intent kinds that end a run and send ops to its host. */
+const ENDING_INTENTS: ReadonlySet<string> = new Set(["stop", "cap", "park"]);
+
+/** The detail of the `stop` intent sent again to the host of an ended run (DIPO-93). */
+export const STOP_AGAIN_DETAIL =
+  "stop again after a restart: the stop that ended the run did not reach its worker host";
 
 /** The park detail of a run whose worker host never started before the daemon stopped. */
 export const HOST_NEVER_STARTED =
@@ -176,6 +186,13 @@ export interface RunReattacherDeps {
    * parks `interrupted` with the reason.
    */
   readonly proxyGone?: (office: OfficeId, run: StoredRun, host: WorkerHostRow) => string | null;
+  /**
+   * Sends host ops (`hostSocketSteering`): a living host of an ended run whose ending could not
+   * reach it (its last stop, cap or park intent failed, as when reconcile ran before re-attach) is
+   * sent the stop sequence again, by socket or by verified signal (DIPO-93). Without it such a host
+   * is only followed.
+   */
+  readonly steering?: RunSteering;
 }
 
 /** How often a follow-only host's liveness is checked by PID and start time: the cap tick. */
@@ -326,11 +343,50 @@ export class RunReattacher {
       initialState: this.#initialState(office, run, hosts, host, agent, model),
     };
     if (await hostAlive(host, deps.probe)) {
+      const stopped = await this.#stopUnreached(office, run);
       this.#watchFollowed(office, run, host, target);
-      return { run: run.runId, agent: agentId, outcome: "followEnded" };
+      return { run: run.runId, agent: agentId, outcome: stopped ? "stopAgain" : "followEnded" };
     }
     this.#closeFollowed(office, run, host, target);
     return { run: run.runId, agent: agentId, outcome: "closedOut" };
+  }
+
+  /**
+   * Sends the stop sequence again to the living host of an ended run when the ending that ended
+   * the run could not reach it (DIPO-93): its newest stop, cap or park intent failed, for example
+   * because reconcile stopped the run before re-attach had settled its pending host. The stop goes
+   * as a new `stop` intent through steering, so a follow-only host gets the verified SIGTERM and
+   * nothing unverified is signalled. True when it was sent.
+   */
+  async #stopUnreached(office: OfficeHandle, run: StoredRun): Promise<boolean> {
+    const deps = this.#deps;
+    if (deps.steering === undefined) return false;
+    const ending = runIntents(office, run.runId)
+      .filter((intent) => ENDING_INTENTS.has(intent.kind))
+      .at(-1);
+    if (ending?.state !== "failed") return false;
+    const intentId = office.immediate(() =>
+      recordIntent(office, run.runId, "stop", STOP_AGAIN_DETAIL, deps.clock.now()),
+    );
+    let error: string | null = null;
+    try {
+      const sent = await deps.steering.send(
+        office,
+        run.runId,
+        deps.control.interruptedEnding().ops,
+      );
+      if (!sent.ok) error = sent.reason;
+    } catch (thrown) {
+      error = messageOf(thrown);
+    }
+    office.immediate(() => markIntentSent(office, run.runId, intentId, deps.clock.now(), error));
+    if (error !== null) {
+      deps.warn?.("stopping the worker host of an ended run again failed", {
+        run: run.runId,
+        reason: error,
+      });
+    }
+    return error === null;
   }
 
   /**

@@ -252,5 +252,6 @@ export {
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,
+  STOP_AGAIN_DETAIL,
 } from "./reattach";
 export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";
