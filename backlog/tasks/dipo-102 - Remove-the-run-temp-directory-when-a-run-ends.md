@@ -4,6 +4,7 @@ title: Remove the run temp directory when a run ends
 status: To Do
 assignee: []
 created_date: '2026-10-15 19:23'
+updated_date: '2026-10-15 20:52'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -11,6 +12,13 @@ dependencies: []
 references:
   - packages/engine/src/run/launch.ts
   - packages/engine/src/run/records.ts
+  - packages/engine/src/run/temp-dirs.ts
+  - packages/engine/test/run/temp-dirs.test.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/index.ts
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
+  - packages/daemon/src/run-temp-dirs.test.ts
 priority: medium
 type: feature
 ordinal: 92000
