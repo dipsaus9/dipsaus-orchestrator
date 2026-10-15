@@ -35,10 +35,11 @@ jobs:
       - run: bun install --frozen-lockfile
       # The CI-only sandbox tests (DIPO-37) run steps inside `srt`, which needs bubblewrap, socat and
       # ripgrep, and a user namespace that Ubuntu 24.04's AppArmor restriction leaves usable (0008).
+      # The Safe-Chain worker shell test (DIPO-103) needs zsh, which the runner image lacks.
       - name: Install the sandbox runtime's Linux dependencies (0008)
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep
+          sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep zsh
       - name: Allow unprivileged user namespaces for bubblewrap
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: bun run verify
