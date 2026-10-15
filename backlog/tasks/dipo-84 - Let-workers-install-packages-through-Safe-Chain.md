@@ -4,7 +4,7 @@ title: Let workers install packages through Safe-Chain
 status: To Do
 assignee: []
 created_date: '2026-10-15 14:10'
-updated_date: '2026-10-15 16:55'
+updated_date: '2026-10-15 17:02'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -22,6 +22,11 @@ references:
   - packages/engine/test/run
   - packages/daemon/src
   - packages/cli/src
+  - packages/engine/src/platform/safe-chain-gate.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/reattach.ts
+  - packages/engine/src/run/outcomes.ts
+  - packages/engine/test/platform
 priority: high
 ordinal: 74000
 ---
