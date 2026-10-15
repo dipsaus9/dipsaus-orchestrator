@@ -11,7 +11,9 @@
 //   with `git ls-tree` on the branch ref (the file name follows the title, so it may differ).
 //
 // The scratch directory is `<worktree root>/_branch-read-*`, outside any git repository, and is
-// removed after the read. Runs inside a queue item of the office git.
+// removed after the read. Runs inside a queue item of the office git. A daemon killed mid-read
+// leaves the directory behind; the claims load step sweeps it at the next office load (DIPO-90,
+// `worktree/sweep.ts`).
 
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdirSync, readdirSync } from "node:fs";
