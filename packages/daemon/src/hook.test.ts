@@ -8,7 +8,13 @@ import { join } from "node:path";
 import { listenLineSocket, systemClock } from "@dipsaus-orchestrator/engine";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { parseHookArgs, runHookForm, trimPayload } from "./hook";
+import {
+  HOOK_DEADLINE_MS,
+  NUDGE_REPLY_MARGIN_MS,
+  parseHookArgs,
+  runHookForm,
+  trimPayload,
+} from "./hook";
 import { defaultIo, type DaemonIo } from "./io";
 
 const RUN = "run_01JZ0000000000000000000009";
@@ -110,6 +116,7 @@ describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
     expect(JSON.parse(trimPayload(payload, false))).toEqual({
       hook_event_name: "PostToolUse",
       tool_name: "Read",
+      tool_input: { file_path: "a.ts" },
       last_assistant_message: "y".repeat(1024),
       stop_hook_active: false,
     });
@@ -126,4 +133,92 @@ describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
     expect(trimPayload(payload, true)).toBe(payload);
     expect(trimPayload("not json", false)).toBe("not json");
   });
+});
+
+/** A host that answers the handshake and holds every hook op, answering after `afterMs` or never. */
+function slowHost(path: string, output: string, frames: unknown[], afterMs: number | null) {
+  return listenLineSocket(path, (connection) => ({
+    line: (text) => {
+      const frame = JSON.parse(text) as Record<string, unknown>;
+      frames.push(frame);
+      if (frame["kind"] === "hello") {
+        connection.send(JSON.stringify({ kind: "hello", version: 2, run: RUN, pid: 1 }));
+      } else if (afterMs !== null) {
+        systemClock.setTimeout(() => {
+          connection.send(
+            JSON.stringify({ kind: "reply", id: frame["id"], ok: true, result: { output } }),
+          );
+        }, afterMs);
+      }
+    },
+    closed: () => undefined,
+  }));
+}
+
+describe("dipo hook --nudge (DIPO-60 AC #3)", () => {
+  it("parses --nudge without a value", () => {
+    expect(parseHookArgs(["PostToolUse", "--nudge"])).toEqual({
+      event: "PostToolUse",
+      nudge: true,
+    });
+    expect(parseHookArgs(["PostToolUse", "--nudge", "5"])).toBeNull();
+  });
+
+  it("keeps only the written file's path of a tool input", () => {
+    const payload = JSON.stringify({
+      hook_event_name: "PostToolUse",
+      tool_name: "Edit",
+      tool_input: { file_path: "/w/a.ts", old_string: "a", new_string: "b".repeat(5000) },
+    });
+    expect(JSON.parse(trimPayload(payload, false))).toEqual({
+      hook_event_name: "PostToolUse",
+      tool_name: "Edit",
+      tool_input: { file_path: "/w/a.ts" },
+    });
+    const bash = JSON.stringify({ hook_event_name: "PostToolUse", tool_input: { command: "ls" } });
+    expect(JSON.parse(trimPayload(bash, false))).toEqual({ hook_event_name: "PostToolUse" });
+  });
+
+  it("asks the host to hold the call within the deadline and prints the nudge it answers", () =>
+    withTempDir(async (dir) => {
+      const socket = join(dir, "n.sock");
+      const frames: Record<string, unknown>[] = [];
+      const nudge =
+        '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"x"}}';
+      const server = slowHost(socket, nudge, frames, 50);
+      try {
+        const out: string[] = [];
+        const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+        await runHookForm(
+          ["PostToolUse", "--nudge"],
+          io(env, '{"hook_event_name":"PostToolUse"}', out),
+        );
+        expect(out).toEqual([nudge]);
+        const op = frames.find((frame) => frame["op"] === "hook");
+        expect(op?.["waitMs"]).toBeGreaterThan(0);
+        expect(op?.["waitMs"]).toBeLessThanOrEqual(HOOK_DEADLINE_MS - NUDGE_REPLY_MARGIN_MS);
+      } finally {
+        await server.stop();
+      }
+    }));
+
+  it("ends within 2 s and prints nothing when the host never answers", () =>
+    withTempDir(async (dir) => {
+      const socket = join(dir, "s.sock");
+      const server = slowHost(socket, "late", [], null);
+      try {
+        const out: string[] = [];
+        const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+        const started = systemClock.now();
+        const code = await runHookForm(
+          ["SessionStart", "--nudge"],
+          io(env, '{"hook_event_name":"SessionStart"}', out),
+        );
+        expect(code).toBe(0);
+        expect(systemClock.now() - started).toBeLessThan(2_000);
+        expect(out).toEqual([]);
+      } finally {
+        await server.stop();
+      }
+    }));
 });
