@@ -14,6 +14,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../src/db/office";
+import { type RunCriteria, recordRunCriteria } from "../../src/run/criteria";
 import { appendRunStep, insertRun } from "../../src/run/records";
 import { recordWorkerHost } from "../../src/runs/worker-hosts";
 import type { TestState } from "../commands/helpers";
@@ -42,7 +43,12 @@ export function startRun(
   office: OfficeHandle,
   story: string,
   dir: string,
-  options: { readonly loopCap?: number; readonly budget?: number } = {},
+  options: {
+    readonly loopCap?: number;
+    readonly budget?: number;
+    /** The story criteria the run starts with (DIPO-85). */
+    readonly criteria?: RunCriteria;
+  } = {},
 ): StartedRun {
   const key = keyOf(office, story);
   const run = RunId.parse(t.ids.next("run"));
@@ -82,6 +88,7 @@ export function startRun(
        values ($office_id, $agent, $run, 'developer', 'haiku', $at)`,
       { agent, run, at },
     );
+    if (options.criteria !== undefined) recordRunCriteria(office, run, options.criteria);
     appendRunStep(office, run, "phase", "setup", at);
   });
   const eventFile = join(dir, `${run}.ndjson`);

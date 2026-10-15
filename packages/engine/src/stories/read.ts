@@ -43,8 +43,15 @@ export interface BacklogStory {
   readonly waitingOn?: readonly string[];
   /** The field block's park record (0010 section 3), when the block parses and holds one. */
   readonly park?: FieldBlockPark;
-  /** Acceptance criteria checked and in all; absent when the view did not parse. */
-  readonly criteria?: { readonly met: number; readonly total: number };
+  /**
+   * Acceptance criteria checked and in all, and their `#n` numbers (DIPO-85); absent when the view
+   * did not parse.
+   */
+  readonly criteria?: {
+    readonly met: number;
+    readonly total: number;
+    readonly numbers?: readonly number[];
+  };
   /**
    * The content hash a Ready gate decision applies to (`gateContentHash`), so reconcile can tell a
    * Ready story without a decision for its content (0007 section 6); absent when the view did not
@@ -122,6 +129,7 @@ export function storyFromView(
     criteria: {
       met: view.acceptanceCriteria.filter((criterion) => criterion.checked).length,
       total: view.acceptanceCriteria.length,
+      numbers: view.acceptanceCriteria.map((criterion) => criterion.index),
     },
     gateHash: gateContentHash(
       gateStoryFromView(
