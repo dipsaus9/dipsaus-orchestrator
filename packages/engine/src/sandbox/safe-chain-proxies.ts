@@ -66,6 +66,8 @@ export class SafeChainProxies {
       if (this.#entries.get(runId) !== entry) return;
       this.#forget(runId, entry);
       this.#warn?.("the Safe-Chain proxy of a run stopped; its installs now fail", { run: runId });
+      // Its gate is gone: close dipo's port and remove the proxy directory too.
+      void entry.proxy.stop();
     });
     return started;
   }
