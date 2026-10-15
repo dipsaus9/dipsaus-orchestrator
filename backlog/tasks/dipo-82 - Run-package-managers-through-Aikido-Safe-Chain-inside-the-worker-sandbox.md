@@ -1,10 +1,10 @@
 ---
 id: DIPO-82
 title: Run package managers through Aikido Safe-Chain inside the worker sandbox
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 11:00'
-updated_date: '2026-10-15 14:10'
+updated_date: '2026-10-15 14:16'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -43,11 +43,11 @@ Context: found in the DIPO-55 hand test (2026-10-15). The worker's `bun test` fa
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Investigation first, without a live Claude session: reproduce the failure with dipo's own sandbox runtime and the run's settings, and record in the notes exactly which reads, environment, PATH entries, network domains and local binding Safe-Chain needs for a plain command (bun test) and for an install (bun add).
-- [ ] #2 When Safe-Chain is present, the worker's commands resolve bun and the other wrapped package managers through the official ~/.safe-chain install, not through ~/.bun/bin symlinks into other directories, and a plain `bun test` in the worktree runs inside the sandbox with exit 0.
-- [ ] #3 Any extra sandbox access Safe-Chain needs is the smallest that works, read-only where possible, machine-local (office.local.yaml or detected at launch), shown in dipo run --dry-run, and never includes the maintainer's other project directories or credentials.
-- [ ] #4 A machine without Safe-Chain launches exactly as before.
-- [ ] #5 Automated tests cover the launch plan with and without Safe-Chain, and the sandbox self-test (DIPO-43) or a new check reports clearly when Safe-Chain is present but unusable in the sandbox.
+- [x] #1 Investigation first, without a live Claude session: reproduce the failure with dipo's own sandbox runtime and the run's settings, and record in the notes exactly which reads, environment, PATH entries, network domains and local binding Safe-Chain needs for a plain command (bun test) and for an install (bun add).
+- [x] #2 When Safe-Chain is present, the worker's commands resolve bun and the other wrapped package managers through the official ~/.safe-chain install, not through ~/.bun/bin symlinks into other directories, and a plain `bun test` in the worktree runs inside the sandbox with exit 0.
+- [x] #3 Any extra sandbox access Safe-Chain needs is the smallest that works, read-only where possible, machine-local (office.local.yaml or detected at launch), shown in dipo run --dry-run, and never includes the maintainer's other project directories or credentials.
+- [x] #4 A machine without Safe-Chain launches exactly as before.
+- [x] #5 Automated tests cover the launch plan with and without Safe-Chain, and the sandbox self-test (DIPO-43) or a new check reports clearly when Safe-Chain is present but unusable in the sandbox.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -82,4 +82,6 @@ Fix verified in the same harness: a run-directory shell wrapper sets PATH and `Z
 - Plan, only with Safe-Chain: `CLAUDE_CODE_SHELL=<runDir>/safe-chain/zsh` (wrapper: exports PATH and `ZDOTDIR`, execs zsh; `.zshenv` sources only the official init; bash uses `BASH_ENV`), `allowRead` + `~/.safe-chain/{bin,scripts,certs}` and the wrapper directory, `denyRead` + `~/.claude/shell-snapshots`. No network, no local binding, no writes. Both files are run-directory files, so `dipo run --dry-run` prints them (with the PATH decisions as comments) next to the settings file.
 - Self-test: with Safe-Chain and `bun` on PATH, the one Bash command first runs `bun run --version` through the worker shell; perl records `safe-chain exit <n>`; non-zero refuses with "Safe-Chain is installed at ..., but `bun run --version` through it exited N inside the worker sandbox". `bun --version` was not usable: Safe-Chain starts its proxy for it (needs local binding).
 - Measured in the srt harness: with the grants `safe-chain exit 0` and `bun test` passes; without `certs` `safe-chain exit 1`.
+
+Live test 2026-10-15 (test agent, Haiku on the scratch repo, $0.0025): dry run shows the wrapper, .zshenv sourcing only the official init, read-only ~/.safe-chain/{bin,scripts,certs}, snapshot read-denied, network closed; the run reached In Review with the worker's own bun test passing (2 pass, 0 fail) and no safe-chain-wrapper.sh error. Open for DIPO-84: Safe-Chain's local CA is valid 24 h and the sandbox cannot write a renewed one; a stray .zcompdump appears in <runDir>/safe-chain (harmless).
 <!-- SECTION:NOTES:END -->
