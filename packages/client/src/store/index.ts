@@ -4,6 +4,7 @@ export { cursorReached, OfficeStore, RELOADED_NOTICE } from "./office-store";
 export type {
   OfficeEntry,
   OfficeStoreOptions,
+  OutputChunk,
   OfficeStoreState,
   StoreClient,
 } from "./office-store";

@@ -449,4 +449,30 @@ describe("OfficeStore", () => {
     await store.open(A);
     expect(store.state.snapshots).toBe(3);
   });
+
+  it("passes work.output text to output listeners once per cursor and keeps none (DIPO-55)", async () => {
+    const { client, store } = await setup();
+    const stream = `office:${A}`;
+    const chunks: unknown[] = [];
+    const stop = store.onOutput((chunk) => chunks.push(chunk));
+    const output = (seq: number, from: number, text: string, source = "worker") =>
+      event(stream, seq, "work.output", {
+        work: work("busy").work,
+        source,
+        from,
+        to: from + text.length,
+        text,
+      });
+    client.emit(stream, output(6, 0, "[tool] Read a.ts\n"));
+    client.emit(stream, output(6, 0, "[tool] Read a.ts\n"));
+    client.emit(stream, output(7, 0, "PASS\n", "verify"));
+    expect(chunks).toEqual([
+      { run: RUN1, source: "worker", from: 0, to: 17, text: "[tool] Read a.ts\n" },
+      { run: RUN1, source: "verify", from: 0, to: 5, text: "PASS\n" },
+    ]);
+    expect(JSON.stringify(store.state)).not.toContain("[tool] Read");
+    stop();
+    client.emit(stream, output(8, 17, "more\n"));
+    expect(chunks).toHaveLength(2);
+  });
 });

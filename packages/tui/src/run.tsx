@@ -16,7 +16,9 @@ import {
   type EngineError,
   type OfficeId,
   officeOpen,
+  workOutputRange,
   workRun,
+  workStop,
 } from "@dipsaus-orchestrator/contract";
 import { Box, render, Text, useInput } from "ink";
 import { useState } from "react";
@@ -162,6 +164,40 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
             request.stories === undefined ? {} : { stories: [...request.stories] },
             { office: request.office, requestId: request.requestId },
           );
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readOutput: async (request) => {
+        try {
+          const outcome = await connected.read(workOutputRange, {
+            office: request.office,
+            run: request.run,
+            source: request.source,
+            from: request.from,
+            ...(request.to === undefined ? {} : { to: request.to }),
+          });
+          return outcome.ok ? { ok: true, result: outcome.result } : outcome;
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      stopStory: async (request) => {
+        try {
+          // `work.stop` has `confirm: true`; the maintainer answered yes before this is sent.
+          const outcome = await connected.command(
+            workStop,
+            { story: request.story },
+            { office: request.office, requestId: request.requestId, confirmed: true },
+          );
+          if (!outcome.ok) return outcome;
+          return outcome.cursor === undefined ? { ok: true } : { ok: true, cursor: outcome.cursor };
         } catch (error) {
           return {
             ok: false,

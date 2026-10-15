@@ -4,8 +4,9 @@ import { OfficeStore } from "@dipsaus-orchestrator/client";
 import { systemClock } from "@dipsaus-orchestrator/client/node";
 import type { Clock, OfficeId, RequestId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import { App, type RunOutcome, type TuiActions } from "../app";
+import { App, type RunOutcome, type StopOutcome, type TuiActions } from "../app";
 import type { Display } from "../options";
+import type { RangeOutcome } from "../output";
 import { FakeSession } from "./fake-session";
 import { render, type RenderSize } from "./harness";
 
@@ -41,6 +42,8 @@ export interface MountOptions extends RenderSize {
   readonly office?: OfficeId | null;
   /** Capability flags `engine.hello` reports; none by default, as in the golden log. */
   readonly capabilities?: readonly string[];
+  /** Bytes an output pane keeps while following; small values make scroll-back read sooner. */
+  readonly outputTailBytes?: number;
 }
 
 export async function mount(options: MountOptions = {}) {
@@ -77,6 +80,23 @@ export async function mount(options: MountOptions = {}) {
         (request.stories === undefined ? {} : { stories: [...request.stories] }) as never,
         { office: request.office, requestId: request.requestId },
       )) as RunOutcome,
+    readOutput: async (request) =>
+      (await session.read(
+        { name: "work.outputRange" } as never,
+        {
+          office: request.office,
+          run: request.run,
+          source: request.source,
+          from: request.from,
+          ...(request.to === undefined ? {} : { to: request.to }),
+        } as never,
+      )) as RangeOutcome,
+    stopStory: async (request) =>
+      (await session.command({ name: "work.stop" } as never, { story: request.story } as never, {
+        office: request.office,
+        requestId: request.requestId,
+        confirmed: true,
+      })) as StopOutcome,
     newRequestId: () => {
       requests += 1;
       return `01J9ZK5Q8W3V4X6Y7Z8A9B0R${String(requests).padStart(2, "0")}` as RequestId;
@@ -92,6 +112,9 @@ export async function mount(options: MountOptions = {}) {
         quits += 1;
       }}
       startInSwitcher={office === null}
+      {...(options.outputTailBytes === undefined
+        ? {}
+        : { outputTailBytes: options.outputTailBytes })}
     />,
     options,
   );

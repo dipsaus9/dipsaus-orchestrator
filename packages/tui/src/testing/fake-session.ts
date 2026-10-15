@@ -2,6 +2,7 @@
 // `engine.hello` knows one office, the software stream registers two more and sends summaries,
 // and each office answers `office.snapshot` and `office.switch` with its snapshot. Every event and
 // snapshot is parsed with its contract schema first, so the log stays a valid contract recording.
+// `fixtures/live-output.json` holds the stored output `work.outputRange` answers from (DIPO-55).
 
 import type {
   ConnectionState,
@@ -22,6 +23,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import type { TuiSession } from "../run";
+import outputLog from "./fixtures/live-output.json";
 import log from "./fixtures/three-offices.json";
 
 export const OFFICES = {
@@ -46,6 +48,9 @@ export const goldenSnapshots: ReadonlyMap<string, OfficeSnapshot> = new Map(
     OfficeSnapshot.parse(snapshot),
   ]),
 );
+
+/** The `work.output` events of `fixtures/live-output.json`, after the stored output they extend. */
+export const goldenOutputEvents: readonly Event[] = outputLog.events.map(parseEvent);
 
 export interface RecordedSubscription {
   readonly stream: StreamName;
@@ -72,6 +77,12 @@ export class FakeSession implements TuiSession {
     },
     changed: true,
   });
+  /** Answers `work.stop`; by default the run stops with no reply cursor. */
+  stopReply: (args: { story?: string }) => unknown = () => ({
+    ok: true,
+    result: { run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24" },
+    changed: true,
+  });
   readonly subscriptions: RecordedSubscription[] = [];
   /** Replies to `office.open` by path; a missing path answers `office.notFound`. */
   readonly opened = new Map<string, OfficeId>();
@@ -90,9 +101,31 @@ export class FakeSession implements TuiSession {
     for (const listener of this.#listeners) listener(state);
   }
 
-  read = (async (definition: { name: string }, args: { office?: string }) => {
+  /**
+   * Stored output by `<run>:<source>` for `work.outputRange`, ASCII so characters are bytes. The
+   * golden output log fills it; tests append to it as the engine stores more.
+   */
+  readonly output = new Map<string, string>(
+    Object.entries(outputLog.stored).map(([key, lines]) => [key, lines.join("")]),
+  );
+  /** The most bytes one `work.outputRange` returns, as the engine's cap. */
+  rangeMax = 1024 * 1024;
+
+  read = (async (
+    definition: { name: string },
+    args: { office?: string; run?: string; source?: string; from?: number; to?: number },
+  ) => {
     this.reads.push({ name: definition.name, args });
     if (definition.name === "engine.hello") return { ok: true, result: goldenHello };
+    if (definition.name === "work.outputRange") {
+      const text = this.output.get(`${args.run}:${args.source}`) ?? "";
+      const from = Math.min(args.from ?? 0, text.length);
+      const to = Math.min(args.to ?? text.length, text.length, from + this.rangeMax);
+      return {
+        ok: true,
+        result: { run: args.run, source: args.source, from, to, text: text.slice(from, to) },
+      };
+    }
     const snapshot =
       this.nextSnapshots.get(args.office ?? "") ?? goldenSnapshots.get(args.office ?? "");
     if (snapshot === undefined) {
@@ -106,7 +139,7 @@ export class FakeSession implements TuiSession {
 
   command = (async (
     definition: { name: string },
-    args: { path?: string; stories?: string[] },
+    args: { path?: string; stories?: string[]; story?: string },
     options?: unknown,
   ) => {
     this.commands.push(
@@ -115,6 +148,7 @@ export class FakeSession implements TuiSession {
         : { name: definition.name, args, options },
     );
     if (definition.name === "work.run") return this.runReply(args);
+    if (definition.name === "work.stop") return this.stopReply(args);
     if (definition.name === "office.open") {
       const office = this.opened.get(args.path ?? "");
       if (office === undefined) {
@@ -157,5 +191,16 @@ export class FakeSession implements TuiSession {
   /** The newest active subscription to `stream`, or undefined. */
   active(stream: string): RecordedSubscription | undefined {
     return this.subscriptions.findLast((entry) => entry.stream === stream && entry.active);
+  }
+
+  /**
+   * As the engine does for a `work.output` event: stores its text first, then sends it on the
+   * office stream it names. `deliver: false` stores it without sending, a missed event.
+   */
+  storeOutput(event: Event, deliver = true): void {
+    const data = event.data as { work: { run: string }; source: string; text: string };
+    const key = `${data.work.run}:${data.source}`;
+    this.output.set(key, (this.output.get(key) ?? "") + data.text);
+    if (deliver) this.active(event.cursor.stream)?.options.onEvent(event);
   }
 }
