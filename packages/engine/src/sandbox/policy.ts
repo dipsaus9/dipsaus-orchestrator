@@ -66,9 +66,13 @@ export interface SrtSettings {
     readonly strictAllowlist: boolean;
     readonly allowUnixSockets?: readonly string[];
     readonly allowAllUnixSockets?: boolean;
+    /** Only the Safe-Chain proxy's own sandbox (DIPO-84); never a step on worker code. */
+    readonly allowLocalBinding?: boolean;
   };
   readonly filesystem: {
     readonly denyRead: readonly string[];
+    /** Paths re-allowed inside `denyRead` (the Safe-Chain proxy's sandbox, DIPO-84). */
+    readonly allowRead?: readonly string[];
     readonly allowWrite: readonly string[];
     readonly denyWrite: readonly string[];
   };
