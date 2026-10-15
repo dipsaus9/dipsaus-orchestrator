@@ -63,6 +63,7 @@ import {
   resolveTools,
   RunProfiles,
   REATTACH_STEP,
+  RUN_TEMP_SWEEP_STEP,
   RECONCILE_STEP,
   Reconciler,
   Retention,
@@ -859,6 +860,18 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
           for (const done of await runs.reattacher.reattach(office)) {
             context.logger.info("worker host re-attached", { office, ...done });
           }
+        }
+      },
+    });
+    // Run temp directories (DIPO-102): after re-attach, every `dipo-run-*` directory of a run that
+    // ended (its hosts exited), or that no database row names when this daemon made it, goes.
+    // Directories of live and re-attachable runs stay.
+    steps.register({
+      name: RUN_TEMP_SWEEP_STEP,
+      run: async (context) => {
+        const removed = await runs.tempDirs.sweep("recovery");
+        if (removed.length > 0) {
+          context.logger.info("removed run temp directories of ended runs", { removed });
         }
       },
     });
