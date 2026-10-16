@@ -45,6 +45,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "safety-gh-token": ["done", null],
   "safety-gitdir-write": ["done", null],
   "safety-main-git": ["done", null],
+  // DIPO-108: every installed plugin switched off; only builtin plugins in system/init.
+  "safety-plugin-off": ["done", null],
   "safety-pointer-write": ["done", null],
   stall: ["done", null],
   "start-failed": ["startFailed", null],
