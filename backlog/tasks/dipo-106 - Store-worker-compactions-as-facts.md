@@ -1,10 +1,10 @@
 ---
 id: DIPO-106
 title: Store worker compactions as facts
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 14:44'
+updated_date: '2026-10-16 19:20'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -16,6 +16,7 @@ references:
   - packages/engine/test/
   - packages/engine/src/ingest/
   - packages/engine/src/retention/
+  - packages/engine/src/workers/claude-cli/schema.ts
 priority: low
 type: feature
 ordinal: 96000
@@ -44,13 +45,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Ingestion stores each compacted event for the run and agent with preTokens and the time, once per compaction (a PostCompact and compact_boundary pair is one compaction).
-- [ ] #2 The per-run and per-agent usage stats give the compaction count and the latest preTokens.
-- [ ] #3 Tests cover a replayed recording with a compaction and the dedupe of the pair.
+- [x] #1 Ingestion stores each compacted event for the run and agent with preTokens and the time, once per compaction (a PostCompact and compact_boundary pair is one compaction).
+- [x] #2 The per-run and per-agent usage stats give the compaction count and the latest preTokens.
+- [x] #3 Tests cover a replayed recording with a compaction and the dedupe of the pair.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+
+Review fixes (DIPO-106/compactions-review-fixes, on top of dipo's delivery): the neutral compacted event's preTokens is optional and absent when the adapter had no count (a hook-only compaction no longer reports 0); compactions.pre_tokens is nullable and stores null then, and readCompactions gives latestPreTokens null. The 0030 comment names no adapter lines and says at is the ingest time. New tests: a hook-only compaction stores one row with pre_tokens null; a second agent in the same run gives different agent and run counts; a second pass, re-track or restarted ingestor on a fully ingested file stores no new row. bun run verify green (3122 pass, 2 skip).
 <!-- SECTION:NOTES:END -->

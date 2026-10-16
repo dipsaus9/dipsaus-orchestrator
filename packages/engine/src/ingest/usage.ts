@@ -350,6 +350,57 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
   };
 }
 
+/**
+ * One context compaction of the worker session (0008 section 4, DIPO-106). `preTokens` is null when
+ * the adapter had no count for it.
+ */
+export function recordCompaction(
+  office: OfficeHandle,
+  scope: UsageScope,
+  preTokens: number | null,
+  at: number,
+): void {
+  office.run(
+    `insert into compactions (office_id, seq, run_id, agent_id, pre_tokens, at)
+     values ($office_id, (select coalesce(max(seq), 0) + 1 from compactions
+       where office_id = $office_id), $run, $agent, $preTokens, $at)`,
+    { run: scope.run, agent: scope.agent, preTokens, at },
+  );
+}
+
+/** The compaction count and the latest compaction's pre-compaction tokens (DIPO-106). */
+export interface CompactionStat {
+  readonly count: number;
+  /** Null when no compaction was stored, or when the latest one had no count. */
+  readonly latestPreTokens: number | null;
+}
+
+interface CompactionRow {
+  count: number;
+  pre_tokens: number | null;
+}
+
+/** The compactions of the agent, and of the run, as stored (DIPO-106). */
+export function readCompactions(
+  office: OfficeHandle,
+  scope: UsageScope,
+): { readonly agent: CompactionStat; readonly run: CompactionStat } {
+  const stat = (where: string, params: Record<string, string>): CompactionStat => {
+    const count = office.get<CompactionRow>(
+      `select count(*) as count, (select pre_tokens from compactions
+          where office_id = $office_id and ${where}
+          order by seq desc limit 1) as pre_tokens
+        from compactions where office_id = $office_id and ${where}`,
+      params,
+    );
+    return { count: count?.count ?? 0, latestPreTokens: count?.pre_tokens ?? null };
+  };
+  return {
+    agent: stat("run_id = $run and agent_id = $agent", { run: scope.run, agent: scope.agent }),
+    run: stat("run_id = $run", { run: scope.run }),
+  };
+}
+
 /** An agent's `usage_totals` rows that are final, by model (DIPO-51). */
 export type FinalRows = ReadonlyMap<string, TotalsRow>;
 

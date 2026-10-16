@@ -170,8 +170,8 @@ export interface ClaudeParseState {
   /**
    * Compactions this process already emitted as `compacted` (DIPO-100). A hook that comes first
    * carries no token count, so it waits for its `compact_boundary` and the real `pre_tokens`;
-   * only a turn end or the exit reports it with `preTokens` 0. Absent in states stored before it
-   * existed, where every counted compaction was already emitted.
+   * only a turn end or the exit reports it, with no `preTokens` (DIPO-106). Absent in states
+   * stored before it existed, where every counted compaction was already emitted.
    */
   readonly compactReported?: number;
   /**
@@ -422,15 +422,15 @@ function reportedCompactions(state: ClaudeParseState): number {
 }
 
 /**
- * Emits the compactions only the `PostCompact` hook reported, with `preTokens` 0: their
- * `compact_boundary` did not come by the turn end or the exit (DIPO-100).
+ * Emits the compactions only the `PostCompact` hook reported, with no `preTokens` (DIPO-106):
+ * their `compact_boundary` did not come by the turn end or the exit (DIPO-100).
  */
 function flushCompactions(state: ClaudeParseState): Step {
   const reported = reportedCompactions(state);
   const hooks = state.compactHooks ?? 0;
   if (hooks <= reported) return { events: [], state };
   const events: WorkerEvent[] = [];
-  for (let index = reported; index < hooks; index++) events.push({ t: "compacted", preTokens: 0 });
+  for (let index = reported; index < hooks; index++) events.push({ t: "compacted" });
   return { events, state: { ...state, compactReported: hooks } };
 }
 

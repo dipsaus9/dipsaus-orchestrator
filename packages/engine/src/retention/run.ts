@@ -149,6 +149,7 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows("usage_messages", ENDED_AGENT, { cutoff: stateCutoff });
   await rows("ingest_cursors", ENDED_AGENT, { cutoff: stateCutoff });
   await rows("usage_totals", ENDED_AGENT, { cutoff: stateCutoff });
+  await rows("compactions", ENDED_AGENT, { cutoff: stateCutoff });
   // Prompt part hashes of a run with no agent still running.
   await rows(
     "prompt_parts",
