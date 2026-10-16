@@ -52,6 +52,7 @@ import type { LaunchCheckFailure } from "../hold";
 import type { LaunchFile, WorkerOutcome, WorkerSpec } from "../types";
 import { initialState, interpret, type ClaudeParseState } from "./interpret";
 import { plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
+import { pluginRefusal, refusedPlugins } from "./plugins";
 import {
   SAFE_CHAIN_BLOCKED_PACKAGE,
   SAFE_CHAIN_PROBE,
@@ -358,6 +359,8 @@ export interface SelfTestEvidence {
   readonly disk: SelfTestDisk;
   /** With Safe-Chain installs probed (DIPO-84): the install they should go through. */
   readonly safeChain?: { readonly root: string };
+  /** Plugins the session's `system/init` listed that `worker.plugins` does not (DIPO-108). */
+  readonly refusedPlugins?: readonly string[];
 }
 
 export interface SelfTestBashCalls {
@@ -377,7 +380,7 @@ export type SelfTestVerdict =
       readonly ok: false;
       /** True when the sandbox let something through; false when the self-test could not run. */
       readonly unsafe: boolean;
-      readonly probe?: ProbeName | "control" | "safe-chain";
+      readonly probe?: ProbeName | "control" | "safe-chain" | "plugins";
       readonly reason: string;
     };
 
@@ -390,7 +393,10 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   "npm-logs": `a write to <home>/${NPM_LOGS_DIR}, which srt opens by default`,
 };
 
-function cannotRun(reason: string, probe?: ProbeName | "control" | "safe-chain"): SelfTestVerdict {
+function cannotRun(
+  reason: string,
+  probe?: ProbeName | "control" | "safe-chain" | "plugins",
+): SelfTestVerdict {
   return {
     ok: false,
     unsafe: false,
@@ -444,6 +450,9 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
       };
     }
   }
+  // A plugin the run settings did not switch off (DIPO-108): the session was stopped at init.
+  const plugins = evidence.refusedPlugins ?? [];
+  if (plugins.length > 0) return cannotRun(pluginRefusal(plugins), "plugins");
   if (evidence.outcome === "startFailed" || evidence.outcome === "initRejected") {
     const why = evidence.outcomeDetail === undefined ? "" : `: ${evidence.outcomeDetail}`;
     return cannotRun(`the Claude Code session ended ${evidence.outcome}${why}`);
@@ -758,7 +767,10 @@ export interface SelfTestInput {
 export interface SelfTestReport {
   readonly verdict: SelfTestVerdict;
   readonly evidence: SelfTestEvidence | null;
-  /** Plugins listed in the session's `system/init`; recorded, not judged (see DIPO-43 notes). */
+  /**
+   * Plugins listed in the session's `system/init`. Judged by the parser since DIPO-108: one the
+   * office does not allow ends the session `startFailed`.
+   */
   readonly plugins: number | null;
   /** The probe files, so a refusal can name the file. */
   readonly targets: readonly ProbeTarget[];
@@ -802,6 +814,7 @@ async function runSession(
   stdin: readonly string[],
   clock: Clock,
   timeoutMs: number,
+  allowedPlugins: readonly string[] | undefined,
 ): Promise<Session> {
   let timedOut = false;
   const timer = clock.setTimeout(() => {
@@ -811,7 +824,11 @@ async function runSession(
   try {
     for (const line of stdin) child.stdin?.write(line);
     const start = clock.now();
-    let state = initialState({ plannedModel: SELF_TEST_MODEL });
+    let state = initialState({
+      plannedModel: SELF_TEST_MODEL,
+      ...(allowedPlugins === undefined ? {} : { allowedPlugins }),
+    });
+    let refused = false;
     const denied: string[] = [];
     let stdinOpen = true;
     let text = "";
@@ -824,6 +841,16 @@ async function runSession(
       text += chunk;
       const step = interpret({ t: clock.now() - start, ch: "stdout", data: chunk }, state);
       state = step.state as ClaudeParseState;
+      // A plugin the office does not allow (DIPO-108): stop the session at its `system/init`,
+      // before its one Bash call; the outcome is `startFailed` naming the plugin.
+      if (!refused && state.startFailure !== null) {
+        refused = true;
+        if (stdinOpen) {
+          stdinOpen = false;
+          child.stdin?.end();
+        }
+        child.kill("SIGTERM");
+      }
       for (const event of step.events) {
         if (event.t === "denied") denied.push(event.tool);
         // One turn is all the self-test asks for; closing stdin lets the process exit.
@@ -1012,7 +1039,7 @@ export async function runSelfTest(
   let session: Session | string;
   try {
     const child = deps.spawn({ cmd: launch.argv, cwd: launch.cwd, env: launch.env, stdin: "pipe" });
-    session = await runSession(child, launch.stdin, deps.clock, timeoutMs);
+    session = await runSession(child, launch.stdin, deps.clock, timeoutMs, ctx.plugins?.allowed);
   } catch (error) {
     session = error instanceof Error ? error.message : String(error);
   }
@@ -1072,6 +1099,9 @@ export async function runSelfTest(
     ...(layout.installDir === null || ctx.safeChain === undefined
       ? {}
       : { safeChain: { root: ctx.safeChain.root } }),
+    ...(typeof session === "string" || ctx.plugins === undefined
+      ? {}
+      : { refusedPlugins: refusedPlugins(session.state.plugins ?? [], ctx.plugins.allowed) }),
   };
   return {
     verdict: judgeSelfTest(evidence),
@@ -1108,8 +1138,10 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
     ...(verdict.probe === undefined ? {} : { key: verdict.probe }),
     fix: verdict.unsafe
       ? "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings."
-      : verdict.probe === "safe-chain"
-        ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
-        : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
+      : verdict.probe === "plugins"
+        ? "Claude Code loaded a plugin the run settings did not switch off. Remove or disable the plugin for this machine, or, when its hooks are safe to run outside the sandbox for an unattended worker, add it to worker.plugins in .dipo/office.yaml (reviewed like code); then start a run again."
+        : verdict.probe === "safe-chain"
+          ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
+          : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
   };
 }

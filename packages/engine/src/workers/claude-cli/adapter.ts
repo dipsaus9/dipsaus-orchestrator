@@ -26,6 +26,7 @@ import { encode } from "./encode";
 import { initialState, interpret, nextSessionOptions, type ClaudeParseState } from "./interpret";
 import { prepareLaunch, type ClaudeLaunchCheckDeps } from "./launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
+import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
 import { expandHome } from "../../sandbox/policy";
 import { SAFE_CHAIN_SHELL_DIR, type SafeChainInput, type SafeChainLaunch } from "./safe-chain";
@@ -49,6 +50,16 @@ function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
   return env;
 }
 
+/**
+ * The parser state with the office's `worker.plugins` in it (DIPO-108), so the `system/init`
+ * check runs. The engine's `initialState` has no configuration; the adapter of the run has, so
+ * the list is set on the first line and then travels in the stored state.
+ */
+function withPluginCheck(state: ClaudeParseState, ctx: ClaudeLaunchContext): ClaudeParseState {
+  if (ctx.plugins === undefined || state.allowedPlugins !== undefined) return state;
+  return { ...state, allowedPlugins: ctx.plugins.allowed };
+}
+
 /** The Claude CLI adapter for one run. */
 export function claudeCliAdapter(
   ctx: ClaudeLaunchContext,
@@ -67,7 +78,7 @@ export function claudeCliAdapter(
     plan: (spec: WorkerSpec) => plan(spec, ctx),
     encode,
     interpret: (line: HostLine, state: ParseState) =>
-      interpret(line, state as unknown as ClaudeParseState) as unknown as {
+      interpret(line, withPluginCheck(state as unknown as ClaudeParseState, ctx)) as unknown as {
         readonly events: ReturnType<typeof interpret>["events"];
         readonly state: ParseState;
       },
@@ -105,13 +116,18 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * starts its run's proxy through them; without them such a launch is refused.
    */
   readonly safeChainProxies?: ClaudeLaunchCheckDeps["safeChainProxies"];
+  /**
+   * Reads Claude Code's plugin lists (DIPO-108); a test seam. Defaults to the files under
+   * `home`.
+   */
+  readonly pluginFiles?: PluginFiles;
 }
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
 export function claudeLaunchContext(
   deps: Pick<
     ClaudeWorkerPortDeps,
-    "claudePath" | "home" | "env" | "dipoCommand" | "detectSafeChain"
+    "claudePath" | "home" | "env" | "dipoCommand" | "detectSafeChain" | "pluginFiles"
   >,
   paths: RunLaunchPaths,
   config: OfficeConfig,
@@ -138,6 +154,11 @@ export function claudeLaunchContext(
     hostSocket: paths.hostSocket,
     tmpDir: paths.tmpDir,
     sandbox: config.sandbox,
+    // Read per launch, so a plugin installed since the last run is switched off too (DIPO-108).
+    plugins: {
+      installed: readInstalledPlugins(deps.home, deps.pluginFiles),
+      allowed: config.worker.plugins,
+    },
     ...(deps.dipoCommand === undefined ? {} : { hookCommand: deps.dipoCommand }),
     permissionWaitSeconds: config.timeouts.permissionWaitSeconds,
     ...(safeChain === null || safeChain === undefined

@@ -10,6 +10,7 @@ import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
 import { DEFAULT_PERMISSION_WAIT_SECONDS, HOOK_BUNFIG_FILE, hookSettings } from "./hooks";
+import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
 import {
   PREVIEW_SAFE_CHAIN_ROUTE,
   SAFE_CHAIN_SHELL_DIR,
@@ -175,6 +176,13 @@ export interface ClaudeLaunchContext {
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
   >;
+  /**
+   * The installed Claude Code plugins and `worker.plugins` (DIPO-108, 0008 amendment of
+   * 2026-10-12): the run settings switch off every installed plugin the office does not name.
+   * `claudeLaunchContext` always sets it; without it (the recordings capture) the run settings
+   * carry no `enabledPlugins`.
+   */
+  readonly plugins?: WorkerPlugins;
 }
 
 function absolute(label: string, path: string): string {
@@ -449,15 +457,34 @@ function hooks(
 /** The largest `timeouts.permissionWaitSeconds` the relay accepts (`dipo hook --wait`): one hour. */
 export const MAX_PERMISSION_WAIT_SECONDS = 3_600;
 
+/**
+ * `enabledPlugins` false for every installed plugin the office does not name (DIPO-108). A plugin
+ * hook runs outside the sandbox with the maintainer's credentials, and a SessionStart hook runs
+ * before `system/init` could be checked, so the switch-off is in the settings, not only the parser.
+ * A plugin list that could not be read refuses the plan: what cannot be named cannot be switched off.
+ */
+function plugins(ctx: ClaudeLaunchContext): Record<string, false> | undefined {
+  if (ctx.plugins === undefined) return undefined;
+  const { installed, allowed } = ctx.plugins;
+  if (!Array.isArray(installed)) {
+    throw new PlanError(
+      `${(installed as { error: string }).error}; the run settings cannot switch Claude Code plugins off without it, so the run is refused (0008 amendment of 2026-10-12)`,
+    );
+  }
+  return enabledPluginsSetting(installed, allowed);
+}
+
 /** The run settings file: rules, sandbox, hooks and git instruction switches (0008 section 2). */
 function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   const hookBlock = hooks(spec, ctx, paths.workdir, paths.runDir);
+  const enabledPlugins = plugins(ctx);
   return {
     includeGitInstructions: false,
     attribution: { commit: "", pr: "" },
     permissions: permissions(spec, paths),
     sandbox: sandbox(ctx, paths),
     ...(hookBlock === undefined ? {} : { hooks: hookBlock }),
+    ...(enabledPlugins === undefined ? {} : { enabledPlugins }),
   };
 }
 

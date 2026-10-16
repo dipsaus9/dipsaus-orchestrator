@@ -48,6 +48,7 @@ describe("the Claude CLI adapter of one run", () => {
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
       dipoCommand: ["/opt/dipo/bin/dipo"] as [string],
+      pluginFiles: { read: () => undefined, dirs: () => [] },
     };
     const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
     expect(ctx).toEqual({
@@ -60,6 +61,7 @@ describe("the Claude CLI adapter of one run", () => {
       hostSocket: `${RUN_DIR}/host.sock`,
       tmpDir: TMP_DIR,
       sandbox: OFFICE_DEFAULTS.sandbox,
+      plugins: { installed: [], allowed: [] },
       hookCommand: ["/opt/dipo/bin/dipo"],
       permissionWaitSeconds: 300,
     });
@@ -122,6 +124,106 @@ describe("the Claude CLI adapter of one run", () => {
       OFFICE_DEFAULTS,
     );
     expect("safeChain" in none).toBe(false);
+  });
+
+  it("switches off every installed plugin but worker.plugins, reading the list per launch (DIPO-108)", () => {
+    const read: string[] = [];
+    let installed = ["warp@claude-code-warp"];
+    const deps = {
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", HOME },
+      pluginFiles: {
+        read: (path: string) => {
+          read.push(path);
+          return JSON.stringify({
+            version: 2,
+            plugins: Object.fromEntries(installed.map((id) => [id, []])),
+          });
+        },
+        dirs: () => [],
+      },
+    };
+    const config = {
+      ...OFFICE_DEFAULTS,
+      worker: { ...OFFICE_DEFAULTS.worker, plugins: ["dipsaus-ai@dipsaus-ai"] },
+    };
+    const settingsOf = () => {
+      const files = claudeCliAdapter(claudeLaunchContext(deps, PATHS, config), {
+        spawn: neverSpawn,
+        clock,
+      }).plan(spec()).files;
+      return JSON.parse(
+        files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
+      );
+    };
+    expect(settingsOf().enabledPlugins).toEqual({ "warp@claude-code-warp": false });
+    installed = ["dipsaus-ai@dipsaus-ai", "warp@claude-code-warp", "zeta@market"];
+    expect(settingsOf().enabledPlugins).toEqual({
+      "warp@claude-code-warp": false,
+      "zeta@market": false,
+    });
+    expect(read).toEqual([
+      `${HOME}/.claude/plugins/installed_plugins.json`,
+      `${HOME}/.claude/plugins/installed_plugins.json`,
+    ]);
+  });
+
+  it("refuses to plan when the plugin list cannot be read, but still interprets (DIPO-108)", () => {
+    const ctx = claudeLaunchContext(
+      {
+        claudePath: `${HOME}/.local/bin/claude`,
+        home: HOME,
+        env: {},
+        pluginFiles: { read: () => "{ not json", dirs: () => [] },
+      },
+      PATHS,
+      OFFICE_DEFAULTS,
+    );
+    const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
+    expect(() => adapter.plan(spec())).toThrow(/installed_plugins\.json/);
+    expect(() => adapter.plan(spec())).toThrow(PlanError);
+    const step = adapter.interpret(
+      { t: 1, ch: "stdout", data: "" },
+      initialState() as unknown as ParseState,
+    );
+    expect(step.events).toEqual([]);
+  });
+
+  it("checks system/init against worker.plugins in the adapter's parser (DIPO-108)", () => {
+    const ctx = claudeLaunchContext(
+      {
+        claudePath: `${HOME}/.local/bin/claude`,
+        home: HOME,
+        env: {},
+        pluginFiles: { read: () => undefined, dirs: () => [] },
+      },
+      PATHS,
+      OFFICE_DEFAULTS,
+    );
+    const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
+    const init = {
+      type: "system",
+      subtype: "init",
+      session_id: "s",
+      model: "claude-haiku-5-5",
+      claude_code_version: "2.1.301",
+      permissionMode: "default",
+      tools: ["Read"],
+      apiKeySource: "none",
+      plugins: [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }],
+    };
+    const step = adapter.interpret(
+      { t: 1, ch: "stdout", data: `${JSON.stringify(init)}\n` },
+      initialState({ plannedModel: "haiku" }) as unknown as ParseState,
+    );
+    const state = step.state as unknown as { startFailure: string | null; plugins: string[] };
+    expect(state.plugins).toEqual(["warp@claude-code-warp"]);
+    expect(state.startFailure).toContain("warp@claude-code-warp");
+    const result = adapter.result(step.state, { code: 143, signal: null });
+    expect(result.outcome).toBe("startFailed");
+    expect(result.detail).toContain("plugin warp@claude-code-warp, not in worker.plugins");
+    expect(result.park).toBeUndefined();
   });
 
   it("refuses to plan without a resolved claude", () => {

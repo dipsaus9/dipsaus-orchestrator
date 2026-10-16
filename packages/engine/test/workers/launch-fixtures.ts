@@ -275,3 +275,29 @@ export function credentialSteps(
   };
   return { runStep, commands };
 }
+
+/** A Claude plugin as `system/init` lists it (DIPO-108). */
+export interface InitPlugin {
+  readonly name: string;
+  readonly source: string;
+  readonly path: string;
+}
+
+/** A `system/init` plugin entry for `<name>@<marketplace>`. */
+export function initPlugin(id: string): InitPlugin {
+  const name = id.split("@")[0] ?? id;
+  return { name, source: id, path: `${HOME}/.claude/plugins/cache/${name}` };
+}
+
+/**
+ * `recording` with the `plugins` of every `system/init` replaced (DIPO-108): committed recordings
+ * redact plugin names, so a test names the plugins a session listed.
+ */
+export function withInitPlugins(recording: Recording, ids: readonly string[]): Recording {
+  const lines = recording.lines.map((line) => {
+    const data = line.data as { type?: string; subtype?: string };
+    if (line.ch !== "stdout" || data.type !== "system" || data.subtype !== "init") return line;
+    return { ...line, data: { ...data, plugins: ids.map(initPlugin) } };
+  });
+  return { ...recording, lines };
+}

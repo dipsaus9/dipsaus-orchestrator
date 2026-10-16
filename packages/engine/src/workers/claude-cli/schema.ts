@@ -22,6 +22,15 @@ export const InitMessage = z.object({
   permissionMode: z.string(),
   tools: z.array(z.string()),
   apiKeySource: z.string(),
+  /**
+   * The plugins the session loaded (DIPO-108). `source` is `<plugin>@<marketplace>`, the form
+   * `enabledPlugins` and `worker.plugins` use (live run, Claude Code 2.1.301); `name` is the
+   * plugin alone. Recordings redact both.
+   */
+  plugins: z
+    .array(z.looseObject({ name: z.string(), source: z.string().optional() }))
+    .optional()
+    .default([]),
 });
 
 const ContentBlock = z.looseObject({ type: z.string() });
