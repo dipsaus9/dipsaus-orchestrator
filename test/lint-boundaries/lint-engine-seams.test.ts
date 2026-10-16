@@ -1,8 +1,10 @@
 // Asserts that lint enforces the two engine seams (0004, 0008 section 1; DIPO-113 AC #2):
 // - in `packages/engine/src`, only `workers/claude-cli/**` and the engine entry import
-//   `workers/claude-cli`, type-only imports included;
+//   `workers/claude-cli`, type-only imports included, and no other file imports the entry, which
+//   re-exports the adapter (its own test excepted);
 // - in `packages/engine/src` and `packages/daemon/src`, only `engine/src/platform/**` imports `bun`
-//   or a `bun:*` module other than `bun:test`, or uses the global `Bun` (tests may use the global).
+//   or a `bun:*` module other than `bun:test`, or uses the global `Bun`, also through
+//   `globalThis` (tests may use the global).
 // Every import form counts: static, re-export, `import()`, `require`, `import x = require(...)`,
 // `typeof import(...)` and template literals without expressions.
 
@@ -13,9 +15,12 @@ import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 const CLAUDE_CLI = "dipo(no-claude-cli-import)";
 const BUN = "dipo(no-bun-import)";
 const BUN_GLOBAL = "dipo(no-bun-global)";
+/** `export * from "bun"` also re-exports the banned `spawnSync` (0007 section 1). */
+const SYNC_IMPORTS = "eslint(no-restricted-imports)";
 const ENGINE = "packages/engine/src";
 const DAEMON = "packages/daemon/src";
 
+/** `rules` lists one entry per expected diagnostic; a rule may repeat. */
 type Case = { fixture: string; target: string; rules: string[] };
 
 const violations: Case[] = [
@@ -39,6 +44,21 @@ const violations: Case[] = [
   { fixture: "import-equals.ts", target: `${ENGINE}/run/equals.ts`, rules: [BUN, CLAUDE_CLI] },
   { fixture: "import-type-query.ts", target: `${ENGINE}/run/types.ts`, rules: [BUN, CLAUDE_CLI] },
   { fixture: "import-template.ts", target: `${ENGINE}/run/template.ts`, rules: [BUN, CLAUDE_CLI] },
+  {
+    fixture: "reexports-and-require.ts",
+    target: `${ENGINE}/run/reexports.ts`,
+    rules: [CLAUDE_CLI, BUN, BUN, SYNC_IMPORTS],
+  },
+  {
+    fixture: "bun-global-this.ts",
+    target: `${ENGINE}/run/global-this.ts`,
+    rules: [BUN_GLOBAL, BUN_GLOBAL],
+  },
+  {
+    fixture: "imports-engine-entry.ts",
+    target: `${ENGINE}/run/entry.ts`,
+    rules: [CLAUDE_CLI, CLAUDE_CLI, CLAUDE_CLI],
+  },
 ];
 
 const allowed: Omit<Case, "rules">[] = [
@@ -49,6 +69,7 @@ const allowed: Omit<Case, "rules">[] = [
   { fixture: "engine-imports-sqlite.ts", target: `${ENGINE}/platform/sqlite.ts` },
   { fixture: "engine-loads-bun.ts", target: `${ENGINE}/platform/load.ts` },
   { fixture: "bun-global.ts", target: `${ENGINE}/platform/bun-global.ts` },
+  { fixture: "bun-global-this.ts", target: `${ENGINE}/platform/global-this.ts` },
   { fixture: "bun-global-shadowed.ts", target: `${ENGINE}/run/shadowed.ts` },
   { fixture: "bun-global.ts", target: `${DAEMON}/spawn.test.ts` },
   { fixture: "engine-imports-bun-test.ts", target: `${ENGINE}/run/run.test.ts` },
@@ -62,16 +83,17 @@ function lintViolations() {
 
 describe("oxlint engine seams", () => {
   for (const c of violations) {
-    for (const rule of c.rules) {
+    for (const rule of new Set(c.rules)) {
+      const count = c.rules.filter((r) => r === rule).length;
       it(
-        `reports ${c.fixture} at ${c.target} with ${rule}`,
+        `reports ${c.fixture} at ${c.target} with ${rule} (${count}x)`,
         () => {
           const { exitCode, diagnostics } = lintViolations();
           expect(exitCode).not.toBe(0);
           const hits = diagnostics.filter(
             (d) => d.code === rule && d.severity === "error" && d.filename === c.target,
           );
-          expect(hits.length).toBe(1);
+          expect(hits.length).toBe(count);
         },
         LINT_TIMEOUT_MS,
       );

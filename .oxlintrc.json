@@ -656,7 +656,11 @@
       }
     },
     {
-      "files": ["packages/engine/src/workers/claude-cli/**", "packages/engine/src/index.ts"],
+      "files": [
+        "packages/engine/src/workers/claude-cli/**",
+        "packages/engine/src/index.ts",
+        "packages/engine/src/index.test.ts"
+      ],
       "rules": {
         "dipo/no-claude-cli-import": "off"
       }
