@@ -145,7 +145,7 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
   const RUN = { tmpDir: TMP, route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" } };
 
   it("writes a zsh wrapper with PATH, caches in the run temp dir, the proxy CA and ZDOTDIR", () => {
-    const [wrapper, init, proxy] = safeChainShellFiles(launch, SHELL_DIR, RUN);
+    const [wrapper, init, login, proxy] = safeChainShellFiles(launch, SHELL_DIR, RUN);
     expect(wrapper).toMatchObject({ name: "safe-chain/zsh", executable: true });
     const text = wrapper?.content ?? "";
     expect(text).toStartWith("#!/bin/sh\n");
@@ -176,6 +176,18 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
       content: [
         "# dipo (DIPO-84): nothing else loads; the wrapper set the environment.",
         "# dipo (DIPO-103): later startup files and zsh state (.zcompdump) go nowhere.",
+        "# dipo (DIPO-107): a login shell reads .zprofile from here, after /etc/zprofile.",
+        "if [[ ! -o login ]]; then export ZDOTDIR=/dev/null; fi",
+        "",
+      ].join("\n"),
+    });
+    // The login hook runs after /etc/zprofile's path_helper and restores the planned PATH (DIPO-107).
+    expect(login).toEqual({
+      name: "safe-chain/.zprofile",
+      content: [
+        "# dipo (DIPO-107): /etc/zprofile (path_helper) has run; the planned PATH comes back, so a",
+        "# demoted entry stays last. Then zsh state goes nowhere (DIPO-103).",
+        `export PATH='${launch.path}'`,
         "export ZDOTDIR=/dev/null",
         "",
       ].join("\n"),
@@ -198,12 +210,23 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
 
   it("writes a bash wrapper with BASH_ENV for bash", () => {
     const bash = { ...launch, shell: "/bin/bash" };
-    const [wrapper, init] = safeChainShellFiles(bash, SHELL_DIR, RUN);
+    const files = safeChainShellFiles(bash, SHELL_DIR, RUN);
+    const [wrapper, init] = files;
     expect(wrapper?.name).toBe("safe-chain/bash");
     expect(wrapper?.content).toContain(`export BASH_ENV='${SHELL_DIR}/bash-env.sh'\n`);
     expect(init?.name).toBe("safe-chain/bash-env.sh");
     expect(init?.content).not.toContain("init-posix.sh");
     expect(init?.content).not.toContain("ZDOTDIR");
+    // The login hook (DIPO-107): BASH_ENV restores the planned PATH for login shells only.
+    expect(init?.content).toContain(
+      `if shopt -q login_shell; then\n  export PATH='${bash.path}'\nfi\n`,
+    );
+    // No zsh login file for bash.
+    expect(files.map((file) => file.name)).toEqual([
+      "safe-chain/bash",
+      "safe-chain/bash-env.sh",
+      "safe-chain/proxy.json",
+    ]);
     expect(safeChainShellPath(SHELL_DIR, bash)).toBe(`${SHELL_DIR}/bash`);
   });
 
