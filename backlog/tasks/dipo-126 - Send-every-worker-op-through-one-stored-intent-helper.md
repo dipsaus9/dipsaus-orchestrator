@@ -4,6 +4,7 @@ title: Send every worker op through one stored-intent helper
 status: To Do
 assignee: []
 created_date: '2026-10-16 13:06'
+updated_date: '2026-10-16 13:11'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -16,6 +17,8 @@ references:
   - packages/engine/test/run
   - packages/engine/test/hooks
   - docs/decisions/0008-worker-adapter.md
+  - packages/engine/src/db/migrations
+  - packages/engine/src/db/schema.ts
 priority: medium
 type: task
 ordinal: 116000
@@ -31,7 +34,7 @@ Context: packages/engine/src/run/intents.ts says every op the engine sends to a 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One function in run/intents.ts (for example sendAsIntent(office, runId, kind, detail, op)) stores the intent, sends, and marks it sent or failed; every current hand-coded copy uses it with unchanged behaviour
-- [ ] #2 closeStdin, nudges and hook replies each either go through it or are listed as exceptions with their reason in the intents.ts header; if an exception changes what 0008 says, a dated 0008 note is proposed in the PR for the maintainer's approval
+- [ ] #1 One function in run/intents.ts (for example sendAsIntent(office, runId, kind, detail, op)) stores the intent, sends, and marks it sent or failed; every site that stores, sends and marks today uses it with unchanged behaviour, and record-only sites (stored and marked in one transaction with no send, as in run/outcomes.ts) stay as they are, listed in the PR
+- [ ] #2 closeStdin, nudges and hook replies each either go through it or are listed as exceptions with their reason in the intents.ts header; a new intent kind comes with a migration (run_intents.kind has a CHECK constraint) and an outcomeOfIntent test; if an exception changes what 0008 says, a dated 0008 note is proposed in the PR for the maintainer's approval
 - [ ] #3 Tests cover a failed store (no op sent), a failed send (intent marked failed) and each exception
 <!-- AC:END -->

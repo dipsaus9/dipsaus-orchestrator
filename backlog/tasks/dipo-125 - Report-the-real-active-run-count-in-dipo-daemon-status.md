@@ -4,7 +4,7 @@ title: Report the real active run count in dipo daemon status
 status: To Do
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-16 13:06'
+updated_date: '2026-10-16 13:10'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/views/summary.ts
   - packages/cli/src/daemon-commands.ts
   - packages/cli/src/daemon-commands.test.ts
+  - packages/daemon/src/foreground.ts
 priority: medium
 type: feature
 ordinal: 115000
@@ -33,3 +34,9 @@ Context: packages/daemon/src/control.ts sets activeRuns: 0 with the comment "Run
 - [ ] #1 daemon.status activeRuns is the sum of activeRunCount over the loaded offices, and the stale comment is gone
 - [ ] #2 A test with two offices and active runs checks the count and the CLI line
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Review note: ControlDeps has only loadedOffices() (ids); the count needs a new dep wired where controlFeature is built in packages/daemon/src/foreground.ts. activeRunCount is not exported from the engine entry; activeRuns(handle).length is.
+<!-- SECTION:NOTES:END -->
