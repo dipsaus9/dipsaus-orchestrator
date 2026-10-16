@@ -4,6 +4,7 @@ title: Store the prompts dipo sends to workers
 status: Refined
 assignee: []
 created_date: '2026-10-16 19:43'
+updated_date: '2026-10-16 19:48'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -45,7 +46,7 @@ What is stored per session: the system file text and the first message text, key
 
 Storage: a new office-scoped table (for example `prompt_texts`: office, run, agent, part `system` or `message`, text, recorded time) in a migration appended to packages/engine/src/db/schema.ts after the newest step when this story starts, with a line in TABLE_RETENTION (packages/engine/src/retention/policy.ts) at tier R; the schema test fails for an office-scoped table without one. The retention pass in packages/engine/src/retention/run.ts deletes rows recorded more than shortDays ago.
 
-Read and TUI: a new contract read (for example `work.prompt { run, agent }`) in packages/contract/src/office.ts, handled in packages/engine/src/views/feature.ts next to work.outputRange, returns the stored texts or says none is stored; packages/contract/schema/ is regenerated and packages/contract/src/version.ts notes the minor addition. The live agent detail (0009 section 4) gets a key that shows the stored prompt of the selected agent's session. When DIPO-136 has landed first, its settings view lists storePrompts with the new default.
+Read and TUI: a new contract read (for example `work.prompt { run, agent }`) in packages/contract/src/office.ts, handled in packages/engine/src/views/feature.ts next to work.outputRange, returns the stored texts or says none is stored; packages/contract/schema/ is regenerated and packages/contract/src/version.ts notes the minor addition. The live agent detail (0009 section 4) gets a key that shows the stored prompt of the selected agent's session. DIPO-136, which follows this story, lists storePrompts with the new default in its settings view.
 
 Slice: M1b. The M1a review-and-park loop needs no stored prompt text, and the TUI part sits with the M1b TUI desk next to DIPO-136. If the M1a reviewer session exists when this story starts, its prompts are stored the same way.
 
