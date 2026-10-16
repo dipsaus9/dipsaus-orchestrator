@@ -173,7 +173,12 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
     expect(text).not.toContain(ROOT);
     expect(init).toEqual({
       name: "safe-chain/.zshenv",
-      content: "# dipo (DIPO-84): nothing else loads; the wrapper set the environment.\n",
+      content: [
+        "# dipo (DIPO-84): nothing else loads; the wrapper set the environment.",
+        "# dipo (DIPO-103): later startup files and zsh state (.zcompdump) go nowhere.",
+        "export ZDOTDIR=/dev/null",
+        "",
+      ].join("\n"),
     });
     expect(safeChainShellPath(SHELL_DIR, launch)).toBe(`${SHELL_DIR}/zsh`);
 
@@ -198,6 +203,7 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
     expect(wrapper?.content).toContain(`export BASH_ENV='${SHELL_DIR}/bash-env.sh'\n`);
     expect(init?.name).toBe("safe-chain/bash-env.sh");
     expect(init?.content).not.toContain("init-posix.sh");
+    expect(init?.content).not.toContain("ZDOTDIR");
     expect(safeChainShellPath(SHELL_DIR, bash)).toBe(`${SHELL_DIR}/bash`);
   });
 

@@ -14,6 +14,7 @@ import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { Rates } from "./catalog";
 import {
+  canonicalModel,
   costMicros,
   longPromptRates,
   messagesCostMicros,
@@ -63,6 +64,24 @@ function tokensOf(row: TokenRow): PricedTokens {
 const PROMPT = "input + cache_create_5m + cache_create_1h + cache_read";
 
 /**
+ * The message model ids a totals row is priced from (DIPO-89): its own id when messages carry
+ * it, else every id of the same canonical model. Turn totals may key a model with a `[1m]` marker
+ * while its messages carry the plain id the API answered with.
+ */
+function messageModels(office: OfficeHandle, run: string, agent: string, model: string): string[] {
+  const ids = office
+    .all<{ model: string }>(
+      `select distinct model from usage_messages
+       where office_id = $office_id and agent_id = $agent and run_id = $run`,
+      { agent, run },
+    )
+    .map((message) => message.model);
+  if (ids.includes(model)) return [model];
+  const canonical = canonicalModel(model);
+  return ids.filter((id) => canonicalModel(id) === canonical);
+}
+
+/**
  * The estimate of one totals row (DIPO-78): the sum of its messages' estimates, each message at
  * the rates its prompt size selects, plus the totals' tokens beyond the messages at base rates.
  * A model with only base rates prices its totals directly, which equals that sum exactly.
@@ -84,6 +103,7 @@ function rowCost(
     { over: -1, rates: base },
     ...sets.map((set) => ({ over: set.over, rates: set })),
   ];
+  const models = JSON.stringify(messageModels(office, run, agent, row.model));
   const priced: PricedBand[] = bands.map((band, index) => {
     const sums = office.get<TokenRow>(
       `select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output,
@@ -91,12 +111,13 @@ function rowCost(
          coalesce(sum(cache_create_1h), 0) as cache_create_1h,
          coalesce(sum(cache_read), 0) as cache_read
        from usage_messages
-       where office_id = $office_id and agent_id = $agent and run_id = $run and model = $model
+       where office_id = $office_id and agent_id = $agent and run_id = $run
+         and model in (select value from json_each($models))
          and ${PROMPT} > $over and ${PROMPT} <= $upTo`,
       {
         agent,
         run,
-        model: row.model,
+        models,
         over: band.over,
         upTo: bands[index + 1]?.over ?? Number.MAX_SAFE_INTEGER,
       },

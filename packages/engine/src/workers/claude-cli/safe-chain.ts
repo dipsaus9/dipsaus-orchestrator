@@ -13,7 +13,8 @@
 // What dipo does, only when `~/.safe-chain/bin/safe-chain` and its POSIX init script exist:
 // - Claude Code's shell (`CLAUDE_CODE_SHELL`) is a wrapper in the run directory. It sets PATH,
 //   the install caches (all in the run temp directory) and the CA bundle of the run's proxy, and
-//   starts zsh with `ZDOTDIR` (or bash with `BASH_ENV`) on a file that loads nothing else.
+//   starts zsh with `ZDOTDIR` (or bash with `BASH_ENV`) on a file that loads nothing else. The
+//   zsh file then points `ZDOTDIR` at `/dev/null`, so zsh keeps no state there (DIPO-103).
 // - The snapshot directory is read-denied, so its functions never load in the sandbox.
 // - The package managers run as they are, not through Safe-Chain's shell functions: Safe-Chain
 //   in the sandbox would have to listen on 127.0.0.1, which needs local binding (DIPO-84). Their
@@ -300,6 +301,7 @@ export function safeChainShellFiles(
   ].join("\n");
   const initText = [
     "# dipo (DIPO-84): nothing else loads; the wrapper set the environment.",
+    ...(family === "zsh" ? ZSH_STATE_NOWHERE : []),
     "",
   ].join("\n");
   return [
@@ -311,6 +313,19 @@ export function safeChainShellFiles(
     },
   ];
 }
+
+/**
+ * The end of the zsh init file (DIPO-103). Claude Code's shell snapshot runs the wrapper outside
+ * the sandbox and sources `$HOME/.zshrc` by path, whatever `ZDOTDIR` says; a `compinit` there
+ * dumps to `${ZDOTDIR:-$HOME}/.zcompdump`, which was the shell directory. Once zsh has read this
+ * file, `ZDOTDIR` points under `/dev/null`, which is no directory: zsh reads no further startup
+ * file and nothing writes zsh state anywhere. Not the run temp directory: the worker can write
+ * there, and `compinit` sources an existing dump outside the sandbox at the next snapshot.
+ */
+export const ZSH_STATE_NOWHERE = [
+  "# dipo (DIPO-103): later startup files and zsh state (.zcompdump) go nowhere.",
+  "export ZDOTDIR=/dev/null",
+];
 
 /** The proxy description file of the run directory, for `dipo run --dry-run` and people. */
 export const SAFE_CHAIN_PROXY_FILE = "proxy.json";

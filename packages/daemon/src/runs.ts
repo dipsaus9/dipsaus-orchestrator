@@ -41,7 +41,10 @@ import {
   RunControl,
   RunLauncher,
   RunOutcomes,
+  type RunOutcomesPort,
+  RunTempDirs,
   RunReattacher,
+  afterRunExits,
   RunResumer,
   runLaunchPaths,
   runSandboxedStep,
@@ -139,6 +142,11 @@ export interface DaemonRuns {
    * runs, on a machine with Safe-Chain. `stopAll` at shutdown.
    */
   readonly safeChainProxies: SafeChainProxies;
+  /**
+   * The run temp directories (DIPO-102): swept after each worker exit here, and at daemon start
+   * by a recovery step after re-attach (`sweep("recovery")`).
+   */
+  readonly tempDirs: RunTempDirs;
 }
 
 /**
@@ -165,6 +173,28 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     timeouts: (office) => options.offices.config(office)?.timeouts,
     onAppended: options.onChanged,
   });
+  const probe = systemProcessProbe(platform);
+  // Run temp directories (DIPO-102): removed once their run ended and its worker hosts exited,
+  // swept after each exit and its decision, and at daemon start (`sweepTempDirs`).
+  const tempDirs = new RunTempDirs({
+    tmpRoot: realDir(options.tmpRoot),
+    database: options.database,
+    probe,
+    ...(uid >= 0 ? { uid } : {}),
+    warn: (message, fields) => options.logger.warn(message, fields),
+  });
+  const sweepTempDirs = (): void => {
+    void tempDirs.sweep("ended").then(
+      (removed) => {
+        if (removed.length > 0)
+          options.logger.info("removed ended runs' temp directories", { removed });
+      },
+      (error: unknown) =>
+        options.logger.warn("sweeping run temp directories failed", {
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+    );
+  };
   // Worker installs go through a Safe-Chain checking proxy per run, sandboxed itself (DIPO-84).
   // Proxy directories a killed daemon left behind go first; a running daemon's stay.
   void sweepSafeChainProxies(options.safeChainRoot).then(
@@ -234,9 +264,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   // The ingestion hooks call the control, and the control flushes ingestion's output first.
   let ingest: OfficeIngest | null = null;
   let outcomes: RunOutcomes | null = null;
+  let exitPort: RunOutcomesPort | null = null;
   const control = new RunControl({
     finisher,
-    outcomes: () => outcomes ?? undefined,
+    // Each exit decision may end the run after its worker exited: its temp directory goes then.
+    outcomes: () => exitPort ?? undefined,
     clock,
     offices: options.offices,
     // A `needs-permission` park asks its permission question (DIPO-75).
@@ -297,6 +329,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       nudges.onEnded(office, run);
       // The session's worker ended: its Safe-Chain proxy stops (DIPO-84).
       void safeChainProxies.stop(run);
+      // A run that ended before its worker exited loses its temp directory now (DIPO-102).
+      sweepTempDirs();
     },
   };
   ingest = new OfficeIngest({
@@ -312,7 +346,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       storeCommandBodies: options.offices.config(office)?.privacy.storeCommandBodies ?? false,
     }),
   });
-  const probe = systemProcessProbe(platform);
   const started = systemHostStarter({
     clock,
     runtimeDir: options.runtimeDir,
@@ -343,6 +376,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     story: baseStoryFacts(options.base),
     runtimeDir: options.runtimeDir,
     tmpRoot: realDir(options.tmpRoot),
+    // A next session after the park removed the directory writes its owner again (DIPO-102).
+    tempOwner: () => tempDirs.owner(),
     hosts,
     ingest,
     control,
@@ -381,6 +416,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
+  exitPort = afterRunExits(outcomes, sweepTempDirs);
   // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
   const runPaths = (office: OfficeId, run: StoredRun) => {
     const git = options.engineGit.forOffice(office);
@@ -473,6 +509,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       ids.length === 0 ? [] : (await options.base.read(office, ids)).views,
     runtimeDir: options.runtimeDir,
     tmpRoot: realDir(options.tmpRoot),
+    // The daemon-start sweep removes a run it does not know only when this daemon made it.
+    tempOwner: () => tempDirs.owner(),
     hosts,
     ingest,
     control,
@@ -490,5 +528,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     reattacher,
     planLimits,
     safeChainProxies,
+    tempDirs,
   };
 }

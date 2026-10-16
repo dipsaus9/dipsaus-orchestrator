@@ -1,7 +1,9 @@
 // The story index as a feature (DIPO-32): an office load step (DIPO-27 seam) that fetches when the
 // remote answers and indexes the office's stories, and a poll that fetches every
 // `polling.fetchSeconds` and indexes again when `_base` moved. `office.rescan` (DIPO-72) and
-// `work.run` (DIPO-48) call `indexStories(office)`. Passes of one office run one at a time.
+// `work.run` (DIPO-48) call `indexStories(office)`. An office command that names a story the office
+// does not know fetches and indexes at once through the registered story refresh (DIPO-104), so a
+// story merged to the base since the last poll resolves. Passes of one office run one at a time.
 //
 // The load step must run after the git load step (`git.version`), which attaches the office's
 // git; the daemon lists this module after `EngineGit.feature`.
@@ -27,6 +29,12 @@ import { type IndexResult, indexStories, refreshStory, type RefreshOptions } fro
 
 /** The load step's name in the registry. */
 export const INDEX_STEP = "stories.index";
+
+/**
+ * A refresh does not fetch again when an earlier refresh fetched less than this long ago (DIPO-104),
+ * so a client looping on an unknown id fetches at most this often.
+ */
+export const REFRESH_FETCH_FRESH_MS = 2_000;
 
 export interface StoryIndexDeps {
   /** The office's git once the git load step attached it. */
@@ -57,6 +65,10 @@ interface Indexed {
   sha: string | null;
   /** The last pass that succeeded, for reconcile right after the load pass (DIPO-56). */
   last: IndexResult | null;
+  /** The refresh queued or running now, shared by every caller (DIPO-104). */
+  refreshing: Promise<void> | null;
+  /** When the last refresh that fetched successfully started, or null (DIPO-104). */
+  refreshFetchedAt: number | null;
   /** The pass or poll running now; the next one starts after it. */
   busy: Promise<unknown>;
 }
@@ -70,7 +82,7 @@ export class StoryIndex {
     this.#deps = deps;
   }
 
-  /** The feature module that adds the `stories.index` load step. */
+  /** The feature module that adds the `stories.index` load step and story refresh. */
   get feature(): FeatureModule {
     return {
       name: "stories",
@@ -86,6 +98,7 @@ export class StoryIndex {
           this.#schedule(ctx.officeId, state);
           return { ok: true };
         });
+        registry.registerStoryRefresh(INDEX_STEP, (office) => this.refresh(office));
       },
     };
   }
@@ -154,7 +167,10 @@ export class StoryIndex {
     for (const state of this.#offices.values()) this.#cancel(state);
   }
 
-  #track(office: OfficeId, values: Omit<Indexed, "timer" | "sha" | "last" | "busy">): Indexed {
+  #track(
+    office: OfficeId,
+    values: Omit<Indexed, "timer" | "sha" | "last" | "refreshing" | "refreshFetchedAt" | "busy">,
+  ): Indexed {
     const existing = this.#offices.get(office);
     if (existing !== undefined && existing.office === values.office) {
       existing.fetchSeconds = values.fetchSeconds;
@@ -166,6 +182,8 @@ export class StoryIndex {
       timer: null,
       sha: null,
       last: null,
+      refreshing: null,
+      refreshFetchedAt: null,
       busy: Promise.resolve(),
     };
     this.#offices.set(office, state);
@@ -260,14 +278,69 @@ export class StoryIndex {
       }
       state.fetchSeconds = fetchSecondsOf(offices.config(office));
     }
+    await this.#fetchAndIndex(office, state, "polling the office failed", () =>
+      this.#deps.onPolled?.(office),
+    );
+  }
+
+  /**
+   * The story refresh (DIPO-104): an office command named a story the office does not know, so
+   * fetch and index now, after any pass already running, instead of waiting for the next poll.
+   * A refresh already queued or running is shared. A fetch that an earlier refresh started less
+   * than `REFRESH_FETCH_FRESH_MS` ago is not repeated (polls and the load fetch do not count, so a
+   * merge right after a poll is seen); `_base` is still read when no pass has read its
+   * commit. Never throws; an office that has not loaded is left alone.
+   */
+  refresh(office: OfficeId): Promise<void> {
+    const state = this.#offices.get(office);
+    if (state === undefined) return Promise.resolve();
+    if (state.refreshing !== null) return state.refreshing;
+    const run = this.#serial(state, () => this.#refresh(office, state)).finally(() => {
+      state.refreshing = null;
+    });
+    state.refreshing = run;
+    return run;
+  }
+
+  async #refresh(office: OfficeId, state: Indexed): Promise<void> {
+    const failed = "refreshing the office's stories failed";
     try {
-      const fetched = await this.#git(office).fetch();
-      if (fetched.ok) this.#deps.onPolled?.(office);
-      if (!fetched.ok || fetched.baseWorktree === null) return;
-      if (!fetched.moved && fetched.baseWorktree.sha === state.sha) return;
+      const startedAt = state.clock.now();
+      const recent = state.refreshFetchedAt;
+      if (recent === null || startedAt - recent >= REFRESH_FETCH_FRESH_MS) {
+        await this.#fetchAndIndex(office, state, failed, () => {
+          state.refreshFetchedAt = startedAt;
+        });
+        return;
+      }
+      const base = await this.#git(office).ensureBaseWorktree();
+      if (base.sha !== state.sha) await this.#pass(office, state);
+    } catch (error) {
+      this.#deps.logger?.warn(failed, {
+        office,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Fetch, then index when `_base` is at a commit no pass has read yet. `fetched` runs after a
+   * fetch that succeeded. A failure is logged, never thrown.
+   */
+  async #fetchAndIndex(
+    office: OfficeId,
+    state: Indexed,
+    failed: string,
+    fetched?: () => void,
+  ): Promise<void> {
+    try {
+      const outcome = await this.#git(office).fetch();
+      if (outcome.ok) fetched?.();
+      if (!outcome.ok || outcome.baseWorktree === null) return;
+      if (!outcome.moved && outcome.baseWorktree.sha === state.sha) return;
       await this.#pass(office, state);
     } catch (error) {
-      this.#deps.logger?.warn("polling the office failed", {
+      this.#deps.logger?.warn(failed, {
         office,
         reason: error instanceof Error ? error.message : String(error),
       });
