@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { SubscribeOptions } from "@dipsaus-orchestrator/client";
+import { RECOVERY_POLL_MS, type SubscribeOptions } from "@dipsaus-orchestrator/client";
 import type { EngineError, Event, OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
@@ -360,5 +360,50 @@ describe("dipo watch", () => {
     const ctx = fake({ running: false });
     expect(await main(["watch", "TASK-1", "TASK-2"], ctx.deps)).toBe(2);
     expect(ctx.err.join("\n")).toContain("watch takes at most one story id");
+  });
+});
+
+// DIPO-111: `dipo watch` has no reply deadline. A snapshot read refused with `engine.recovering`
+// before the daemon found its state database unusable goes again after every `daemon.status` poll,
+// so the held daemon's `database.unavailable` ends the watch instead of a wait without end.
+describe("dipo watch against a daemon held without its state database", () => {
+  it("ends with database.unavailable instead of waiting forever", async () => {
+    const ctx = fake({ running: true });
+    const clock = ctx.deps.clock as ManualClock;
+    const unavailable = {
+      code: "database.unavailable",
+      message: "The state database is damaged. No office is loaded. Run `dipo daemon stop`.",
+      retryable: false,
+      details: { reason: "damaged" },
+    };
+    let refusals = 2;
+    const snapshots: string[] = [];
+    const inner = await ctx.deps.connectDaemon();
+    const session: DaemonSession = {
+      ...inner,
+      read: (async (definition: { name: string }) => {
+        if (definition.name === "daemon.status") {
+          return { ok: true, result: { state: "recovering", stateReason: unavailable.message } };
+        }
+        snapshots.push(definition.name);
+        return refusals-- > 0
+          ? { ok: false, error: { code: "engine.recovering", message: "wait", retryable: true } }
+          : { ok: false, error: unavailable };
+      }) as DaemonSession["read"],
+    };
+    const done = main(["watch"], { ...ctx.deps, connectDaemon: async () => session });
+    const ended = { code: null as number | null };
+    void done.then((value) => {
+      ended.code = value;
+    });
+    // Poll by poll, letting the replies through after each step; never more than a few polls.
+    for (let poll = 0; poll < 10 && ended.code === null; poll++) {
+      for (let i = 0; i < 50; i++) await tick();
+      clock.advance(RECOVERY_POLL_MS);
+    }
+    expect(await done).toBe(1);
+    expect(snapshots).toEqual(["office.snapshot", "office.snapshot", "office.snapshot"]);
+    expect(ctx.err).toEqual([`dipo: database.unavailable: ${unavailable.message}`]);
+    expect(ctx.subscriptions).toEqual([]);
   });
 });

@@ -1,10 +1,14 @@
 // Waiting out a recovering daemon (0006 decision 7, DIPO-86). In `starting` and `recovering` the
 // daemon answers office commands and reads with the retryable `engine.recovering` (0005 section 10),
 // which ends when `daemon.status` reports another state. A session wrapped here polls
-// `daemon.status` on the injected clock until then and sends the request again: a command with its
-// first `requestId`, so the engine runs it at most once (0005 section 9), a read with a fresh one.
-// It sets no deadline of its own: the caller's reply deadline bounds it, `close` ends the wait, and
-// `daemon.status` failing three times in a row ends it with the `engine.recovering` reply.
+// `daemon.status` on the injected clock and sends the request again after every answered poll: a
+// command with its first `requestId`, so the engine runs it at most once (0005 section 9), a read
+// with a fresh one. It sends again also while the daemon is still `starting` or `recovering`,
+// because a daemon whose state database turned out unusable stays in `recovering` for good and
+// answers the non-retryable `database.unavailable` instead (DIPO-111): the wait ends with that
+// answer. It sets no deadline of its own: the caller's reply deadline bounds it, `close` ends the
+// wait, and `daemon.status` failing three times in a row ends it with the `engine.recovering`
+// reply.
 
 import type { z } from "zod";
 
@@ -12,7 +16,6 @@ import {
   type Clock,
   type CommandDefinition,
   daemonStatus,
-  type DaemonState,
   type ReadDefinition,
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
@@ -60,8 +63,6 @@ export interface RecoveringSession extends RecoverySession {
   readonly waiting: boolean;
 }
 
-const RECOVERING: ReadonlySet<DaemonState> = new Set(["starting", "recovering"]);
-
 function isRecovering(outcome: { readonly ok: boolean; readonly error?: { code: string } }) {
   return !outcome.ok && outcome.error?.code === "engine.recovering";
 }
@@ -99,10 +100,18 @@ export function waitForRecovery(
   };
 
   /**
-   * Polls `daemon.status` until the daemon has left `starting` and `recovering`; false when
-   * `daemon.status` itself failed `STATUS_FAILURES` times in a row, so the caller gives up.
+   * Polls `daemon.status` and sends the request again (`attempt`) after every answered poll, until
+   * an answer is no longer `engine.recovering`; returns that answer. Returns `first`, the last
+   * `engine.recovering` answer, when `daemon.status` itself failed `STATUS_FAILURES` times in a
+   * row, so the caller gives up.
    */
-  const untilRecovered = async (): Promise<boolean> => {
+  const untilAnswered = async <
+    O extends { readonly ok: boolean; readonly error?: { code: string } },
+  >(
+    first: O,
+    attempt: () => Promise<O>,
+  ): Promise<O> => {
+    let last = first;
     waiters += 1;
     const notice = noticed
       ? null
@@ -120,16 +129,19 @@ export function waitForRecovery(
         ensureOpen();
         if (!status.ok) {
           failures += 1;
-          if (failures >= STATUS_FAILURES) return false;
+          if (failures >= STATUS_FAILURES) return last;
           continue;
         }
         failures = 0;
-        if (RECOVERING.has(status.result.state)) continue;
         if (status.result.state === "safe" && !safeSaid) {
           safeSaid = true;
           options.onSafe?.(status.result.stateReason);
         }
-        return true;
+        // Sent again also while still recovering: a daemon held without its database answers
+        // `database.unavailable` and never leaves `recovering` (DIPO-111).
+        last = await attempt();
+        ensureOpen();
+        if (!isRecovering(last)) return last;
       }
     } finally {
       waiters -= 1;
@@ -150,12 +162,10 @@ export function waitForRecovery(
       // One id for every attempt: a command the engine refused never ran, and one that did run is
       // answered from the engine's idempotency record instead of running twice.
       const sent = { ...commandOptions, requestId: commandOptions.requestId ?? newId() };
-      for (;;) {
-        ensureOpen();
-        const outcome = await session.command(definition, args, sent);
-        if (!isRecovering(outcome)) return outcome;
-        if (!(await untilRecovered())) return outcome;
-      }
+      ensureOpen();
+      const send = () => session.command(definition, args, sent);
+      const outcome = await send();
+      return isRecovering(outcome) ? untilAnswered(outcome, send) : outcome;
     },
 
     async read<A extends z.ZodType, R extends z.ZodType>(
@@ -163,12 +173,10 @@ export function waitForRecovery(
       args: z.input<A>,
       readOptions: RequestOptions = {},
     ): Promise<ReadOutcome<z.output<R>>> {
-      for (;;) {
-        ensureOpen();
-        const outcome = await session.read(definition, args, readOptions);
-        if (!isRecovering(outcome)) return outcome;
-        if (!(await untilRecovered())) return outcome;
-      }
+      ensureOpen();
+      const send = () => session.read(definition, args, readOptions);
+      const outcome = await send();
+      return isRecovering(outcome) ? untilAnswered(outcome, send) : outcome;
     },
 
     subscribe: (stream, subscribeOptions) => session.subscribe(stream, subscribeOptions),

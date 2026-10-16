@@ -42,6 +42,7 @@ import {
   testRecorded,
   testStarted,
   type TestView,
+  type TimerHandle,
   usageUpdated,
   workAssigned,
   workObserved,
@@ -61,6 +62,7 @@ import {
   type ReadOutcome,
   type Subscription,
 } from "../client";
+import { RECOVERY_POLL_MS } from "../recovery";
 
 /** What the store needs from a connected client; `DipoClient` is one. */
 export type StoreClient = Pick<DipoClient, "state" | "hello" | "onState" | "read" | "subscribe">;
@@ -184,8 +186,13 @@ export class OfficeStore {
   readonly #last = new Map<StreamName, Cursor>();
   /** Bumped on every office change; replies for an older one are dropped. */
   #generation = 0;
-  /** An office read refused with `engine.recovering`, retried when the daemon is `running`. */
+  /**
+   * An office read refused with `engine.recovering`, sent again every `RECOVERY_POLL_MS` and at
+   * once when the daemon reaches `running`. A daemon held in `recovering` without its state
+   * database answers it with `database.unavailable`, which ends the retry (DIPO-111).
+   */
   #retry: { readonly office: OfficeId; readonly read: "snapshot" | "switch" } | null = null;
+  #retryTimer: TimerHandle | null = null;
   #stopState: (() => void) | null = null;
   #closed = false;
 
@@ -262,6 +269,7 @@ export class OfficeStore {
   /** Stops following; the client stays open for its owner to close. */
   close(): void {
     this.#closed = true;
+    this.#clearRetryTimer();
     this.#stopState?.();
     this.#software?.unsubscribe();
     this.#officeSub?.unsubscribe();
@@ -308,17 +316,31 @@ export class OfficeStore {
   async #load(office: OfficeId, read: "snapshot" | "switch"): Promise<ReadOutcome<OfficeSnapshot>> {
     const generation = ++this.#generation;
     this.#retry = null;
+    this.#clearRetryTimer();
     this.#update({ loading: true });
     const definition = read === "switch" ? officeSwitch : officeSnapshot;
     const outcome = await this.#read(definition, { office });
     if (this.#closed || generation !== this.#generation) return outcome;
     if (!outcome.ok) {
-      if (outcome.error.code === "engine.recovering") this.#retry = { office, read };
+      if (outcome.error.code === "engine.recovering") {
+        const retry = { office, read };
+        this.#retry = retry;
+        this.#retryTimer = this.#clock.setTimeout(() => {
+          this.#retryTimer = null;
+          if (!this.#closed && this.#retry === retry) void this.#load(office, read);
+        }, RECOVERY_POLL_MS);
+      }
       this.#update({ loading: false, error: outcome.error });
       return outcome;
     }
     this.#replace(office, outcome.result);
     return outcome;
+  }
+
+  #clearRetryTimer(): void {
+    if (this.#retryTimer === null) return;
+    this.#clock.clearTimeout(this.#retryTimer);
+    this.#retryTimer = null;
   }
 
   /** Replaces the office state with `snapshot` and follows `office:<id>` after its cursor. */
