@@ -4,6 +4,7 @@ title: Close the gaps DIPO-119 left in run decisions and permission timeouts
 status: To Do
 assignee: []
 created_date: '2026-10-16 11:53'
+updated_date: '2026-10-16 11:56'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -13,6 +14,7 @@ references:
   - packages/engine/src/hooks/permissions.ts
   - packages/engine/test/run
   - packages/engine/test/hooks
+  - packages/engine/src/run/outcomes.ts
 priority: low
 type: task
 ordinal: 113000
@@ -28,7 +30,7 @@ Context: advisory findings from the DIPO-119 review (PR #145). RunControl.act re
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A turn problem whose act failed is retried at the next cap tick or surfaced as a problem, with a test
-- [ ] #2 A question whose timeout close failed is closed again on the next timer pass, with a test
+- [ ] #1 A turn problem whose act failed (act returns false; packages/engine/src/run/outcomes.ts ignores it today) is retried at the next cap tick, or parks the run with a worker-failed reason, with a test
+- [ ] #2 A question whose timeout close failed re-arms its own timer and closes on that retry, with a test
 - [ ] #3 A test covers a findQuestion failure in the timeout
 <!-- AC:END -->
