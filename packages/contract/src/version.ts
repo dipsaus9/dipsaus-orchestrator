@@ -37,4 +37,7 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-95 adds `OutputMarker` and the optional `markers` of `work.output` and of the
 // `work.outputRange` result (engine phase markers flagged in the worker output) to the same, still
 // unreleased, minor.
+// DIPO-97 adds the optional `outputRetentionDays` of `OfficeSummary` (the stored-output retention
+// period) and `StoryView.gateFailures` (the failed Ready gate rules with their rule ids) to the
+// same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

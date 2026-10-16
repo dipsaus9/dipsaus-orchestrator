@@ -17,7 +17,8 @@
         "parked": 1,
         "onHold": 1,
         "waitingOnMaintainer": 2,
-        "ready": 2
+        "ready": 2,
+        "outputRetentionDays": 7
       }
     ],
     "cursor": {
@@ -213,6 +214,18 @@
           "gateMessages": [
             "ready DIPO-33 failed R15: 2 unknowns open or resolved without an answer: \"Keep the branch?\"",
             "ready DIPO-33 failed R7: no test plan"
+          ],
+          "gateFailures": [
+            {
+              "rule": "R15",
+              "message": "ready DIPO-33 failed R15: 2 unknowns open or resolved without an answer: \"Keep the branch?\"",
+              "text": "2 unknowns open or resolved without an answer: \"Keep the branch?\""
+            },
+            {
+              "rule": "R7",
+              "message": "ready DIPO-33 failed R7: no test plan",
+              "text": "no test plan"
+            }
           ]
         },
         {
