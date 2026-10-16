@@ -205,8 +205,24 @@ export const TOOLS = { perl: "/usr/bin/perl", gh: "/usr/bin/gh" } as const;
 const TOOLS_ON_PATH = [TOOLS.perl, TOOLS.gh];
 
 /**
+ * `recording` with `skills: []` in every `system/init` (DIPO-130). Recordings captured before the
+ * plan passed `--disable-slash-commands` list Claude Code's bundled skills (redacted); under the
+ * flag a session lists none (recording `safety-slash-skill`, Claude Code 2.1.301), and the
+ * adapter refuses one that does. Other lines pass through as they are.
+ */
+export function withoutSkills(recording: Recording): Recording {
+  const lines = recording.lines.map((line) => {
+    const data = line.data as { type?: string; subtype?: string };
+    if (line.ch !== "stdout" || data.type !== "system" || data.subtype !== "init") return line;
+    return { ...line, data: { ...data, skills: [] } };
+  });
+  return { ...recording, lines };
+}
+
+/**
  * The `safety-main-git` session rewritten so its Bash calls run `commands`, in order; Bash calls
  * past the list are dropped. Recordings redact tool inputs, so the exact-command check needs this.
+ * Its `system/init` lists no skill, as under the plan's `--disable-slash-commands` (DIPO-130).
  */
 export function selfTestSession(commands: readonly string[]): Recording {
   const base = readRecording(
@@ -234,7 +250,7 @@ export function selfTestSession(commands: readonly string[]): Recording {
     if (kept.length === 0) continue;
     lines.push({ ...line, data: { ...data, message: { ...data.message, content: kept } } });
   }
-  return { ...base, lines };
+  return withoutSkills({ ...base, lines });
 }
 
 /** What the self-test command writes when the sandbox blocks every forbidden write. */

@@ -53,16 +53,19 @@ function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
 }
 
 /**
- * The parser state with the office's `worker.plugins` and the plugin ids of this launch in it
- * (DIPO-108), so the `system/init` check runs. The engine's `initialState` has no configuration;
- * the adapter of the launch (or resume) has, so it sets both on every line, whatever the stored
- * state held, a null included.
+ * The parser state with the `system/init` checks of this launch switched on. The engine's
+ * `initialState` has no configuration; the adapter of the launch (or resume) has, so it sets them
+ * on every line, whatever the stored state held, a null included:
+ *
+ * - the office's `worker.plugins` and the plugin ids of this launch (DIPO-108);
+ * - the skills check (DIPO-130), always: `plan` passes `--disable-slash-commands` to every session.
  */
-function withPluginCheck(state: ClaudeParseState, ctx: ClaudeLaunchContext): ClaudeParseState {
-  if (ctx.plugins === undefined) return state;
+function withInitChecks(state: ClaudeParseState, ctx: ClaudeLaunchContext): ClaudeParseState {
+  const checked = { ...state, refuseSkills: true };
+  if (ctx.plugins === undefined) return checked;
   const installed = ctx.plugins.installed;
   return {
-    ...state,
+    ...checked,
     allowedPlugins: ctx.plugins.allowed,
     knownPlugins: Array.isArray(installed) ? installed : [],
   };
@@ -86,7 +89,7 @@ export function claudeCliAdapter(
     plan: (spec: WorkerSpec) => plan(spec, ctx),
     encode,
     interpret: (line: HostLine, state: ParseState) =>
-      interpret(line, withPluginCheck(state as unknown as ClaudeParseState, ctx)) as unknown as {
+      interpret(line, withInitChecks(state as unknown as ClaudeParseState, ctx)) as unknown as {
         readonly events: ReturnType<typeof interpret>["events"];
         readonly state: ParseState;
       },

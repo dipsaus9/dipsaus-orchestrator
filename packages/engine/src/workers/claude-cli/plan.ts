@@ -20,6 +20,7 @@ import {
   type SafeChainLaunch,
   type SafeChainRoute,
 } from "./safe-chain";
+import { DISABLE_SLASH_COMMANDS } from "./skills";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
 /** Run settings file, in the run directory (0008 section 10). */
@@ -604,6 +605,9 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     "--append-system-prompt-file",
     systemFile,
     "--exclude-dynamic-system-prompt-sections",
+    // No session has skill grants yet (DIPO-116), so none loads a skill and no `/` message expands
+    // one (DIPO-130).
+    DISABLE_SLASH_COMMANDS,
     "--json-schema",
     reportSchema,
   ];

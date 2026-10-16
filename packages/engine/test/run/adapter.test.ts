@@ -28,6 +28,7 @@ import {
   SHORT_TMP_DIR,
   spec,
   TMP_DIR,
+  withoutSkills,
   WORKDIR,
 } from "../workers/launch-fixtures";
 import { hostLines } from "../ingest/helpers";
@@ -288,7 +289,8 @@ describe("the Claude CLI adapter of one run", () => {
     const adapter = claudeCliAdapter(context(), { spawn: neverSpawn, clock });
     let state = initialState({ plannedModel: "haiku" }) as unknown as ParseState;
     const kinds: string[] = [];
-    for (const line of hostLines(loadRecording("success-single"))) {
+    // Recorded before the plan passed --disable-slash-commands: its bundled skills would refuse.
+    for (const line of hostLines(withoutSkills(loadRecording("success-single")))) {
       const step = adapter.interpret(line, state);
       state = step.state;
       kinds.push(...step.events.map((event) => event.t));

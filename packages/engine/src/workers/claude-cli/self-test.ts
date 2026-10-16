@@ -61,6 +61,7 @@ import {
 } from "./safe-chain";
 import { WORKER_REPORT_JSON_SCHEMA } from "./report-schema";
 import { result } from "./result";
+import { DISABLE_SLASH_COMMANDS, skillRefusal } from "./skills";
 
 /** The cheapest model and effort: the self-test only needs one exact Bash call. */
 export const SELF_TEST_MODEL = "haiku";
@@ -361,6 +362,8 @@ export interface SelfTestEvidence {
   readonly safeChain?: { readonly root: string };
   /** Plugins the session's `system/init` listed that `worker.plugins` does not (DIPO-108). */
   readonly refusedPlugins?: readonly string[];
+  /** Skills the session's `system/init` listed, although the plan disabled them (DIPO-130). */
+  readonly refusedSkills?: readonly string[];
 }
 
 export interface SelfTestBashCalls {
@@ -380,7 +383,7 @@ export type SelfTestVerdict =
       readonly ok: false;
       /** True when the sandbox let something through; false when the self-test could not run. */
       readonly unsafe: boolean;
-      readonly probe?: ProbeName | "control" | "safe-chain" | "plugins";
+      readonly probe?: ProbeName | "control" | "safe-chain" | "plugins" | "skills";
       readonly reason: string;
     };
 
@@ -395,7 +398,7 @@ const PROBE_TEXT: Record<ProbeName, string> = {
 
 function cannotRun(
   reason: string,
-  probe?: ProbeName | "control" | "safe-chain" | "plugins",
+  probe?: ProbeName | "control" | "safe-chain" | "plugins" | "skills",
 ): SelfTestVerdict {
   return {
     ok: false,
@@ -453,6 +456,9 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   // A plugin the run settings did not switch off (DIPO-108): the session was stopped at init.
   const plugins = evidence.refusedPlugins ?? [];
   if (plugins.length > 0) return cannotRun(pluginRefusal(plugins), "plugins");
+  // A skill although the plan passed `--disable-slash-commands` (DIPO-130): stopped at init too.
+  const skills = evidence.refusedSkills ?? [];
+  if (skills.length > 0) return cannotRun(skillRefusal(skills), "skills");
   if (evidence.outcome === "startFailed" || evidence.outcome === "initRejected") {
     const why = evidence.outcomeDetail === undefined ? "" : `: ${evidence.outcomeDetail}`;
     return cannotRun(`the Claude Code session ended ${evidence.outcome}${why}`);
@@ -835,6 +841,8 @@ async function runSession(
     const start = clock.now();
     let state = initialState({
       plannedModel: SELF_TEST_MODEL,
+      // The self-test session is planned with `--disable-slash-commands` too (DIPO-130).
+      refuseSkills: true,
       ...(plugins === undefined
         ? {}
         : { allowedPlugins: plugins.allowed, knownPlugins: known(plugins) }),
@@ -852,8 +860,8 @@ async function runSession(
       text += chunk;
       const step = interpret({ t: clock.now() - start, ch: "stdout", data: chunk }, state);
       state = step.state as ClaudeParseState;
-      // A plugin the office does not allow (DIPO-108): stop the session at its `system/init`,
-      // before its one Bash call; the outcome is `startFailed` naming the plugin.
+      // A plugin the office does not allow (DIPO-108) or a skill (DIPO-130): stop the session at
+      // its `system/init`, before its one Bash call; the outcome is `startFailed` naming them.
       if (!refused && state.startFailure !== null) {
         refused = true;
         if (stdinOpen) {
@@ -879,6 +887,29 @@ async function runSession(
   } finally {
     clock.clearTimeout(timer);
   }
+}
+
+/**
+ * The plugins (DIPO-108) or skills (DIPO-130) the parser refused at `system/init`, as evidence:
+ * only when the session's start failure is that refusal. A session that also failed the key
+ * source or model check was never checked for them and stays a rejected init.
+ */
+function initRefusals(
+  state: ClaudeParseState,
+  plugins: ClaudeLaunchContext["plugins"],
+): Pick<SelfTestEvidence, "refusedPlugins" | "refusedSkills"> {
+  if (state.startFailure === null) return {};
+  if (plugins !== undefined) {
+    const refused = refusedPlugins(state.plugins ?? [], plugins.allowed, known(plugins));
+    if (refused.length > 0 && state.startFailure === pluginRefusal(refused)) {
+      return { refusedPlugins: refused };
+    }
+  }
+  const skills = state.skills ?? [];
+  if (skills.length > 0 && state.startFailure === skillRefusal(skills)) {
+    return { refusedSkills: skills };
+  }
+  return {};
 }
 
 /** The installed and synced ids of the launch; none when the list could not be read. */
@@ -1115,15 +1146,7 @@ export async function runSelfTest(
     ...(layout.installDir === null || ctx.safeChain === undefined
       ? {}
       : { safeChain: { root: ctx.safeChain.root } }),
-    ...(typeof session === "string" || ctx.plugins === undefined
-      ? {}
-      : {
-          refusedPlugins: refusedPlugins(
-            session.state.plugins ?? [],
-            ctx.plugins.allowed,
-            known(ctx.plugins),
-          ),
-        }),
+    ...(typeof session === "string" ? {} : initRefusals(session.state, ctx.plugins)),
   };
   return {
     verdict: judgeSelfTest(evidence),
@@ -1162,8 +1185,10 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
       ? "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings."
       : verdict.probe === "plugins"
         ? "Claude Code loaded a plugin the run settings did not switch off. Remove or disable the plugin for this machine, or, when its hooks are safe to run outside the sandbox for an unattended worker, add it to worker.plugins in .dipo/office.yaml (reviewed like code); then start a run again."
-        : verdict.probe === "safe-chain"
-          ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
-          : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
+        : verdict.probe === "skills"
+          ? `Claude Code loaded skills although the plan passed ${DISABLE_SLASH_COMMANDS}. Check that this Claude Code version still honours the flag (\`claude --version\`; its system/init should list skills: []), then start a run again.`
+          : verdict.probe === "safe-chain"
+            ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
+            : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
   };
 }

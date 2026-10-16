@@ -22,6 +22,7 @@ import type {
 import { hookEventOf } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { WorkerReportSchema } from "./report-schema";
+import { skillRefusal } from "./skills";
 import {
   ApiRetryMessage,
   AssistantMessage,
@@ -100,6 +101,14 @@ export interface ClaudeParseState {
    * stored before it existed.
    */
   readonly plugins?: readonly string[];
+  /**
+   * True when the plan passed `--disable-slash-commands` (DIPO-130): a `system/init` that lists
+   * any skill is a start failure. Absent or false skips the check (states stored before it existed,
+   * recordings captured without the flag). The run's adapter sets it on every line.
+   */
+  readonly refuseSkills?: boolean;
+  /** The skills of the last `system/init` (DIPO-130). Absent in states stored before it existed. */
+  readonly skills?: readonly string[];
   /** Message ids already counted. */
   readonly seen: readonly string[];
   /** Live numbers since the last turn end, per model. */
@@ -180,6 +189,8 @@ export interface InitialStateOptions {
   readonly allowedPlugins?: readonly string[];
   /** The installed and synced plugin ids of the launch (DIPO-108). */
   readonly knownPlugins?: readonly string[];
+  /** True when `system/init` may list no skill (DIPO-130). */
+  readonly refuseSkills?: boolean;
   /** Classifier switches already recorded on the run (0008 open question 7). */
   readonly acceptedModels?: readonly string[];
   /** Totals the run starts from, for a resumed run. */
@@ -227,6 +238,7 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
     ...(options.restoredFloor === undefined ? {} : { restoredFloor: options.restoredFloor }),
     ...(options.allowedPlugins === undefined ? {} : { allowedPlugins: options.allowedPlugins }),
     ...(options.knownPlugins === undefined ? {} : { knownPlugins: options.knownPlugins }),
+    ...(options.refuseSkills === undefined ? {} : { refuseSkills: options.refuseSkills }),
     ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     pending: "",
     truncated: false,
@@ -649,6 +661,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
     sessionId: msg.session_id,
     version: msg.claude_code_version,
     plugins,
+    skills: msg.skills,
   };
 
   // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
@@ -688,6 +701,21 @@ function init(value: unknown, state: ClaudeParseState): Step {
       // A neutral event, so the engine stops the worker before its first tool call.
       events.push({ t: "startRefused", reason });
     }
+  }
+
+  // DIPO-130: the plan passed `--disable-slash-commands`, so a skill in `system/init` means the
+  // flag did not hold, and a `/` message could expand it and register its hooks. Stopped here,
+  // before any tool call, as a start failure; checked under the same conditions as the plugins,
+  // and not when a plugin already refused (one `startRefused` per init).
+  if (
+    next.refuseSkills === true &&
+    msg.skills.length > 0 &&
+    next.initRejected === null &&
+    next.startFailure === null
+  ) {
+    const reason = skillRefusal(msg.skills);
+    next = { ...next, startFailure: reason };
+    events.push({ t: "startRefused", reason });
   }
 
   if (!next.started) {
@@ -980,9 +1008,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
   if (window !== undefined) next = { ...next, contextWindow: window };
 
   const read = readReport(msg.structured_output);
-  // A session that failed its start (an unlisted plugin, DIPO-108) reports nothing the engine may
-  // act on: its turn carries no report, so verify and commit never run on it, and the start
-  // failure decides.
+  // A session that failed its start (an unlisted plugin, DIPO-108, or a skill, DIPO-130) reports
+  // nothing the engine may act on: its turn carries no report, so verify and commit never run on
+  // it, and the start failure decides.
   const report = next.startFailure === null ? read.report : null;
   const reportProblem = next.startFailure === null ? read.problem : next.startFailure;
   const terminal = msg.terminal_reason ?? msg.subtype;
