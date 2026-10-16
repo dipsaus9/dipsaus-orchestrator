@@ -69,7 +69,7 @@ if (CI && ZSH !== undefined) {
     it("the snapshot's compinit writes nothing into the shell directory or the home", async () => {
       await withTempDir((dir) => {
         const { shellDir, home, wrapper, written } = setUp(dir, zsh);
-        expect(written).toEqual([".zshenv", "proxy.json", "zsh"]);
+        expect(written).toEqual([".zprofile", ".zshenv", "proxy.json", "zsh"]);
         const snapshot = start(wrapper, home, [
           "-c",
           "-l",
@@ -102,11 +102,12 @@ if (CI && ZSH !== undefined) {
       });
     });
 
-    it("reads no later startup file from the shell directory, only the init file", async () => {
+    it("reads no later startup file from the shell directory but the login hook (DIPO-107)", async () => {
       await withTempDir((dir) => {
         const { shellDir, home, wrapper } = setUp(dir, zsh);
-        // Without the init file's ZDOTDIR these would load from the shell directory.
-        for (const name of [".zprofile", ".zshrc", ".zlogin"]) {
+        // Without the init file's ZDOTDIR these would load from the shell directory. The login
+        // shell reads its own .zprofile (the hook), which ends ZDOTDIR before .zlogin is due.
+        for (const name of [".zshrc", ".zlogin"]) {
           writeFileSync(join(shellDir, name), `print -r -- "read ${name}"\n`);
         }
         const login = start(wrapper, home, ["-c", "-l", "print -r -- login"]);

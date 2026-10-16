@@ -14,7 +14,10 @@
 // - Claude Code's shell (`CLAUDE_CODE_SHELL`) is a wrapper in the run directory. It sets PATH,
 //   the install caches (all in the run temp directory) and the CA bundle of the run's proxy, and
 //   starts zsh with `ZDOTDIR` (or bash with `BASH_ENV`) on a file that loads nothing else. The
-//   zsh file then points `ZDOTDIR` at `/dev/null`, so zsh keeps no state there (DIPO-103).
+//   zsh file then points `ZDOTDIR` at `/dev/null`, so zsh keeps no state there (DIPO-103). A
+//   login shell is the exception: its `.zprofile` runs after `/etc/zprofile` (path_helper), and
+//   restores the planned PATH there, so the demoted entries stay last (DIPO-107). bash's
+//   `BASH_ENV` file runs after a login shell's system and user profiles, and does the same.
 // - The snapshot directory is read-denied, so its functions never load in the sandbox.
 // - The package managers run as they are, not through Safe-Chain's shell functions: Safe-Chain
 //   in the sandbox would have to listen on 127.0.0.1, which needs local binding (DIPO-84). Their
@@ -271,8 +274,9 @@ export function safeChainShellFiles(
       : `export BASH_ENV=${quote("the Safe-Chain init file", init)}`;
   const caFile = safeChainCaFile(shellDir);
   const caches = workerCacheEnv(run.tmpDir);
+  const pathExport = `export PATH=${quote("the worker PATH", safeChain.path)}`;
   const exports = [
-    `export PATH=${quote("the worker PATH", safeChain.path)}`,
+    pathExport,
     ...Object.entries(caches).map(([name, value]) => `export ${name}=${quote(name, value)}`),
     ...Object.entries(workerCaEnv(caFile)).map(
       ([name, value]) => `export ${name}=${quote(name, value)}`,
@@ -301,12 +305,15 @@ export function safeChainShellFiles(
   ].join("\n");
   const initText = [
     "# dipo (DIPO-84): nothing else loads; the wrapper set the environment.",
-    ...(family === "zsh" ? ZSH_STATE_NOWHERE : []),
+    ...(family === "zsh" ? ZSH_STATE_NOWHERE : bashLoginLines(pathExport)),
     "",
   ].join("\n");
   return [
     { name: `${SAFE_CHAIN_SHELL_DIR}/${family}`, content: wrapper, executable: true },
     { name: `${SAFE_CHAIN_SHELL_DIR}/${initName}`, content: initText },
+    ...(family === "zsh"
+      ? [{ name: `${SAFE_CHAIN_SHELL_DIR}/.zprofile`, content: zshLoginText(pathExport) }]
+      : []),
     {
       name: `${SAFE_CHAIN_SHELL_DIR}/${SAFE_CHAIN_PROXY_FILE}`,
       content: `${JSON.stringify(proxyDescription(safeChain, caFile, caches, run.route), null, 2)}\n`,
@@ -321,11 +328,43 @@ export function safeChainShellFiles(
  * file, `ZDOTDIR` points under `/dev/null`, which is no directory: zsh reads no further startup
  * file and nothing writes zsh state anywhere. Not the run temp directory: the worker can write
  * there, and `compinit` sources an existing dump outside the sandbox at the next snapshot.
+ *
+ * A login shell keeps `ZDOTDIR` on the shell directory (DIPO-107): zsh reads its `.zprofile`
+ * from there after `/etc/zprofile`, which ends `ZDOTDIR` itself (see `zshLoginText`).
  */
 export const ZSH_STATE_NOWHERE = [
   "# dipo (DIPO-103): later startup files and zsh state (.zcompdump) go nowhere.",
-  "export ZDOTDIR=/dev/null",
+  "# dipo (DIPO-107): a login shell reads .zprofile from here, after /etc/zprofile.",
+  "if [[ ! -o login ]]; then export ZDOTDIR=/dev/null; fi",
 ];
+
+/**
+ * The zsh login hook (DIPO-107). `/etc/zprofile` runs `path_helper`, which puts the system
+ * directories back in front of PATH; this file runs after it and restores the planned PATH, then
+ * ends `ZDOTDIR` as the init file does for the other shells (DIPO-103).
+ */
+export function zshLoginText(pathExport: string): string {
+  return [
+    "# dipo (DIPO-107): /etc/zprofile (path_helper) has run; the planned PATH comes back, so a",
+    "# demoted entry stays last. Then zsh state goes nowhere (DIPO-103).",
+    pathExport,
+    "export ZDOTDIR=/dev/null",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The bash login hook (DIPO-107): bash runs `BASH_ENV` after a login shell's `/etc/profile` and
+ * `~/.profile`-style files, so the planned PATH is restored here for login shells only.
+ */
+export function bashLoginLines(pathExport: string): string[] {
+  return [
+    "# dipo (DIPO-107): after the login files (path_helper), the planned PATH goes back.",
+    "if shopt -q login_shell; then",
+    `  ${pathExport}`,
+    "fi",
+  ];
+}
 
 /** The proxy description file of the run directory, for `dipo run --dry-run` and people. */
 export const SAFE_CHAIN_PROXY_FILE = "proxy.json";
