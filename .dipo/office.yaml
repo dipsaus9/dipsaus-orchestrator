@@ -1,6 +1,7 @@
 version: 2
 sandbox:
-  # The defaults plus ~/.nvm: oxfmt and oxlint run on node, which lives under ~/.nvm on the
-  # maintainer's machine, so without it `bun run verify` cannot pass inside a worker (DIPO-115).
-  # A list replaces the default, so the defaults are repeated.
-  toolchainReadPaths: ["~/.bun", "~/.npm", "~/.cache", "~/.nvm"]
+  # The defaults plus the nvm node installs: oxfmt and oxlint run on node, which lives under
+  # ~/.nvm/versions/node on the maintainer's machine, so without it `bun run verify` cannot pass
+  # inside a worker (DIPO-115). Only the node versions, not nvm's own checkout. A list replaces
+  # the default, so the defaults are repeated.
+  toolchainReadPaths: ["~/.bun", "~/.npm", "~/.cache", "~/.nvm/versions/node"]
