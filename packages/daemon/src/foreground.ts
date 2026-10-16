@@ -139,6 +139,48 @@ export interface ForegroundOptions {
   readonly parentPid?: number;
 }
 
+/**
+ * Error codes such as `SQLITE_IOERR` or `ENOSPC`, logged as `errorCode`: a `code` field shows dipo
+ * codes only (0006 amendment of 2026-10-15 (DIPO-91)).
+ */
+const ERROR_CODE = /^[A-Za-z][\w.-]{0,63}$/;
+
+/** Where the daemon hears of unhandled rejections; tests pass a fake. */
+export interface RejectionSource {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+}
+
+/**
+ * Logs an unhandled rejection with its error code (DIPO-110), then throws the reason again, so Bun
+ * handles it exactly as without a listener: it reports it as uncaught and the process exits
+ * non-zero (0006 decision 7 unchanged; under the binary's top-level await that exit comes when the
+ * daemon stops). Known engine jobs never get here: `background` catches and logs their failures.
+ * Returns the remover.
+ */
+export function logUnhandledRejections(
+  logger: Logger,
+  source: RejectionSource = process,
+): () => void {
+  const listener = (reason: unknown): void => {
+    const code =
+      typeof reason === "object" && reason !== null && "code" in reason
+        ? (reason as { code: unknown }).code
+        : undefined;
+    logger.error("an unhandled rejection reached the daemon", {
+      error: reason,
+      ...(typeof code === "number" || (typeof code === "string" && ERROR_CODE.test(code))
+        ? { errorCode: code }
+        : {}),
+    });
+    throw reason;
+  };
+  source.on("unhandledRejection", listener);
+  return () => {
+    source.off("unhandledRejection", listener);
+  };
+}
+
 /** The first stop request wins: a signal, a lost lock, or later `daemon.stop` (DIPO-24). */
 class StopRequests {
   #requested: DrainRequest | null = null;
@@ -214,6 +256,7 @@ export async function runForeground(
     level: parsed.level,
     component: "daemon",
   });
+  const removeRejections = logUnhandledRejections(logger);
   try {
     // Software-level settings (0006 amendment of 2026-10-12), read once at start. An invalid or
     // newer file stops the start: the daemon never guesses its own settings (0017 section 5). It
@@ -267,6 +310,7 @@ export async function runForeground(
     return 1;
   } finally {
     removeSignal();
+    removeRejections();
     logFile.close();
   }
 }
@@ -676,7 +720,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.ingest.close();
         runs.reattacher.close();
         // The runs' Safe-Chain proxies stop with the daemon (DIPO-84).
-        void runs.safeChainProxies.stopAll();
+        void runs.safeChainProxies.stopAll().catch((error: unknown) => {
+          logger.warn("stopping the Safe-Chain proxies failed", { error });
+        });
       },
     };
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
@@ -931,7 +977,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         logger: logger.child({ component: "maintenance" }),
       });
       held.maintenance = maintenance;
-      void stops.promise.then(() => maintenance.stop());
+      void stops.promise
+        .then(() => maintenance.stop())
+        .catch((error: unknown) => {
+          logger.warn("stopping maintenance failed", { error });
+        });
       maintenance.start();
       keepAwake.start();
     }
