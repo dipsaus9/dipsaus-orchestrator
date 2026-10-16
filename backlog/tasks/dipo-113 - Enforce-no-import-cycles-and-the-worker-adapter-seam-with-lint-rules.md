@@ -4,7 +4,7 @@ title: Enforce no import cycles and the worker adapter seam with lint rules
 status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 12:26'
+updated_date: '2026-10-16 12:27'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -18,6 +18,8 @@ references:
   - packages/engine/src/workers/
   - packages/daemon/src/runs.ts
   - packages/engine/test/
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/worktree/setup.ts
 priority: medium
 type: chore
 ordinal: 103000
