@@ -1,10 +1,10 @@
 ---
 id: DIPO-107
 title: Keep the worker PATH order when the shell runs as a login shell
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 13:20'
+updated_date: '2026-10-16 14:17'
 labels:
   - 'tier:S'
 milestone: m-1

@@ -1,10 +1,10 @@
 ---
 id: DIPO-120
 title: Show why the daemon is held in recovering in the TUI banner
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-16 11:57'
+updated_date: '2026-10-16 14:16'
 labels:
   - 'tier:S'
 milestone: m-1

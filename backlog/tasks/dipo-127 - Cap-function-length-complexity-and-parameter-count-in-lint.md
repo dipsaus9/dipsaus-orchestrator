@@ -1,10 +1,10 @@
 ---
 id: DIPO-127
 title: 'Cap function length, complexity and parameter count in lint'
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-16 13:11'
+updated_date: '2026-10-16 14:17'
 labels:
   - 'tier:S'
 milestone: m-1

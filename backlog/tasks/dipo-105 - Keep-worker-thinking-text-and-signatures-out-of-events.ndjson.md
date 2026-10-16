@@ -1,10 +1,10 @@
 ---
 id: DIPO-105
 title: Keep worker thinking text and signatures out of events.ndjson
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 13:19'
+updated_date: '2026-10-16 14:16'
 labels:
   - 'tier:S'
 milestone: m-1

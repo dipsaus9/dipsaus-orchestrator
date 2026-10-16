@@ -1,10 +1,10 @@
 ---
 id: DIPO-123
 title: Close the gaps DIPO-119 left in run decisions and permission timeouts
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 11:53'
-updated_date: '2026-10-16 11:57'
+updated_date: '2026-10-16 14:17'
 labels:
   - 'tier:S'
 milestone: m-1

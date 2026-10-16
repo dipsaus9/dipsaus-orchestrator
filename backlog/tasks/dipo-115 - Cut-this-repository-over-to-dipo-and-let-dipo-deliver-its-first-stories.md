@@ -1,10 +1,10 @@
 ---
 id: DIPO-115
 title: Cut this repository over to dipo and let dipo deliver its first stories
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 13:25'
+updated_date: '2026-10-16 14:16'
 labels:
   - 'tier:M'
 milestone: m-1

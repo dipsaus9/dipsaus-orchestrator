@@ -1,10 +1,10 @@
 ---
 id: DIPO-125
 title: Report the real active run count in dipo daemon status
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-16 13:12'
+updated_date: '2026-10-16 14:16'
 labels:
   - 'tier:S'
 milestone: m-1

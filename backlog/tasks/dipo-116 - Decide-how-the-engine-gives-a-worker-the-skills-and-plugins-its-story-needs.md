@@ -1,10 +1,10 @@
 ---
 id: DIPO-116
 title: Decide how the engine gives a worker the skills and plugins its story needs
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 09:47'
+updated_date: '2026-10-16 14:16'
 labels:
   - architecture
   - 'tier:M'
