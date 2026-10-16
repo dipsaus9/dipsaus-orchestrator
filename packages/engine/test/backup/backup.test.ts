@@ -1,6 +1,7 @@
 // Daily backups and maintenance (DIPO-65; 0007 sections 1, 7 and 10): a `VACUUM INTO` copy written
 // from a Bun Worker and checked with `quick_check`, 3 daily and 2 pre-migration copies kept, and
-// maintenance only while no office has active work.
+// maintenance only while no office has active work. A failed timer check is logged and the next one
+// still comes (DIPO-119).
 
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
@@ -13,8 +14,10 @@ import { writeDailyBackup } from "../../src/backup/daily";
 import { backupsDirectory, dailyBackupName, pruneBackups } from "../../src/backup/files";
 import { runMaintenance } from "../../src/backup/maintenance";
 import { MaintenanceScheduler } from "../../src/backup/scheduler";
+import { yieldToEventLoop } from "../../src/platform/clock";
 import { DAY_MS } from "../../src/retention/run";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { watchRejections } from "../platform/rejections";
 import { insertRequests } from "../retention/helpers";
 
 const noPause = async () => {};
@@ -269,4 +272,60 @@ describe("maintenance scheduler", () => {
       expect(written).toHaveLength(1);
       expect(t.clock.pendingTimers).toBe(0);
     }));
+
+  it("logs a failed timer check once and arms the next one (DIPO-119)", () =>
+    withState(async (t) => {
+      const written: string[] = [];
+      const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
+      let broken = true;
+      const s = new MaintenanceScheduler({
+        // The first check finds the database failing, outside the backup and the maintenance.
+        database: () => {
+          if (broken) {
+            broken = false;
+            throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR" });
+          }
+          return t.state;
+        },
+        clock: t.clock,
+        idle: () => true,
+        logger: {
+          info: () => {},
+          warn: (message, fields) => warnings.push({ message, fields: fields ?? {} }),
+          error: (message, fields) => warnings.push({ message, fields: fields ?? {} }),
+        },
+        pause: noPause,
+        vacuum: async (_source, target) => {
+          writeFileSync(target, "copy");
+          written.push(target);
+        },
+      });
+      const watch = watchRejections();
+      s.start();
+      t.clock.advance(60 * 1000);
+      await settledUntil(() => t.clock.pendingTimers === 1);
+      expect(await watch.stop()).toEqual([]);
+      expect(warnings).toEqual([
+        {
+          message: "the backup and maintenance check failed",
+          fields: { reason: "disk I/O error", errorCode: "SQLITE_IOERR" },
+        },
+      ]);
+      expect(written).toEqual([]);
+      // The next check comes on the hourly timer and backs up as usual.
+      t.clock.advance(60 * 60 * 1000);
+      await settledUntil(() => written.length === 1 && t.clock.pendingTimers === 1);
+      await s.stop();
+      expect(warnings).toHaveLength(1);
+      expect(t.clock.pendingTimers).toBe(0);
+    }));
 });
+
+/** Yields to the event loop until `done` holds; fails after 500 turns. */
+async function settledUntil(done: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 500; turn++) {
+    if (done()) return;
+    await yieldToEventLoop();
+  }
+  throw new Error("the scheduler did not settle");
+}
