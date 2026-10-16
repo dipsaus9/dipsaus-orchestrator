@@ -50,6 +50,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   // DIPO-108 diagnostic: the same switch-off with user settings loaded; synced plugin off too.
   "safety-plugin-off-user-settings": ["done", null],
   "safety-pointer-write": ["done", null],
+  // DIPO-130: --disable-slash-commands; a steer "/x" expands no project skill, no hook runs.
+  "safety-slash-skill": ["done", null],
   stall: ["done", null],
   "start-failed": ["startFailed", null],
   "start-failed-auth": ["startFailed", null],

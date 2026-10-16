@@ -1,0 +1,98 @@
+{
+  "scenario": "safety-slash-skill",
+  "source": "live",
+  "claude_code_version": "2.1.301",
+  "captured_at": "2026-10-16",
+  "expected": "DIPO-130: the plan passes --disable-slash-commands. The worktree holds a project skill x (.claude/skills/x) whose frontmatter hooks (PreToolUse and Stop) touch a marker outside the sandbox. After a first turn, a steer \"/x\" is sent as the adapter sends steers. system/init lists skills: [] and no Skill tool; the steer does not expand the skill (its body never reaches the model), no hook runs (no marker, no hook event), and the session completes with a done report. A control run of the same setup without the flag (not recorded; findings under checks.control) expanded the skill and ran its hooks.",
+  "usage_checksum": "006c6d1fc700077792f788705c1c67160f3bb0ff81d770ba8a5b27565395c7d5",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "6",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,Edit,Write,Glob,Grep,Bash",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--disable-slash-commands",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 405,
+  "prompt_sha256": "ecbd7ae81e4cd8a64b59710b64aa6b06f79253a39274ec8bf986b9733ebe134f",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 0,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 1,
+      "op": "user",
+      "bytes": 286
+    },
+    {
+      "t": 5829,
+      "op": "user",
+      "bytes": 101,
+      "priority": "next"
+    },
+    {
+      "t": 11494,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "checks": {
+    "slashCommandsDisabled": true,
+    "initSkills": [0, 0],
+    "initSlashCommands": [0, 0],
+    "initToolsHaveSkill": false,
+    "projectSkillInWorktree": true,
+    "steer": "/x",
+    "skillBodyReachedModel": false,
+    "hookMarkerWritten": false,
+    "stopMarkerWritten": false,
+    "hookStartedLines": 0,
+    "toolUses": ["StructuredOutput", "StructuredOutput"],
+    "resultSubtypes": ["success", "success"],
+    "numTurns": [2, 2],
+    "parserStartRefused": false,
+    "parserOutcome": "done",
+    "control": {
+      "slashCommandsDisabled": false,
+      "initSkills": [20, 20],
+      "skillBodyReachedModel": true,
+      "hookMarkerWritten": true,
+      "stopMarkerWritten": true,
+      "hookStartedLines": 3,
+      "toolUses": ["StructuredOutput", "Bash", "StructuredOutput"],
+      "resultSubtypes": ["success", "success"],
+      "parserOutcome": "startFailed"
+    }
+  }
+}
