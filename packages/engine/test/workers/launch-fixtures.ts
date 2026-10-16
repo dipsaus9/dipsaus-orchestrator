@@ -283,6 +283,22 @@ export interface InitPlugin {
   readonly path: string;
 }
 
+/**
+ * The plugins every live recording's `system/init` lists (redacted there): Claude Code's builtin
+ * ones (DIPO-108 live runs, Claude Code 2.1.301; the redacted name lengths of the 2.1.296
+ * recordings match).
+ */
+export const BUILTIN_PLUGINS = [
+  "cc-plugin-agents-md@builtin",
+  "cc-plugin-telemetry@builtin",
+  "cc-plugin-plugin-authoring@builtin",
+] as const;
+
+/** `recording` with its redacted `system/init` plugins named as the builtin ones they are. */
+export function withBuiltinPlugins(recording: Recording): Recording {
+  return withInitPlugins(recording, BUILTIN_PLUGINS);
+}
+
 /** A `system/init` plugin entry for `<name>@<marketplace>`. */
 export function initPlugin(id: string): InitPlugin {
   const name = id.split("@")[0] ?? id;

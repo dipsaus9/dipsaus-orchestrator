@@ -370,4 +370,5 @@ export const ClaudeWorkerEventSchema = z.union([
   z.strictObject({ t: z.literal("compacted"), preTokens: Count }),
   z.strictObject({ t: z.literal("modelSwitched"), from: Name, to: Name }),
   z.strictObject({ t: z.literal("initRejected"), reason: Name }),
+  z.strictObject({ t: z.literal("startRefused"), reason: Name }),
 ]);

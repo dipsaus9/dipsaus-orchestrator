@@ -51,13 +51,19 @@ function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
 }
 
 /**
- * The parser state with the office's `worker.plugins` in it (DIPO-108), so the `system/init`
- * check runs. The engine's `initialState` has no configuration; the adapter of the run has, so
- * the list is set on the first line and then travels in the stored state.
+ * The parser state with the office's `worker.plugins` and the plugin ids of this launch in it
+ * (DIPO-108), so the `system/init` check runs. The engine's `initialState` has no configuration;
+ * the adapter of the launch (or resume) has, so it sets both on every line, whatever the stored
+ * state held, a null included.
  */
 function withPluginCheck(state: ClaudeParseState, ctx: ClaudeLaunchContext): ClaudeParseState {
-  if (ctx.plugins === undefined || state.allowedPlugins !== undefined) return state;
-  return { ...state, allowedPlugins: ctx.plugins.allowed };
+  if (ctx.plugins === undefined) return state;
+  const installed = ctx.plugins.installed;
+  return {
+    ...state,
+    allowedPlugins: ctx.plugins.allowed,
+    knownPlugins: Array.isArray(installed) ? installed : [],
+  };
 }
 
 /** The Claude CLI adapter for one run. */

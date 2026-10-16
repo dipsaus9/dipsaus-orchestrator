@@ -136,6 +136,7 @@ describe("the Claude CLI adapter of one run", () => {
       pluginFiles: {
         read: (path: string) => {
           read.push(path);
+          if (!path.endsWith("installed_plugins.json")) return undefined;
           return JSON.stringify({
             version: 2,
             plugins: Object.fromEntries(installed.map((id) => [id, []])),
@@ -163,10 +164,11 @@ describe("the Claude CLI adapter of one run", () => {
       "warp@claude-code-warp": false,
       "zeta@market": false,
     });
-    expect(read).toEqual([
+    const once = [
       `${HOME}/.claude/plugins/installed_plugins.json`,
-      `${HOME}/.claude/plugins/installed_plugins.json`,
-    ]);
+      `${HOME}/.claude/plugins/known_marketplaces.json`,
+    ];
+    expect(read).toEqual([...once, ...once]);
   });
 
   it("refuses to plan when the plugin list cannot be read, but still interprets (DIPO-108)", () => {
@@ -213,10 +215,13 @@ describe("the Claude CLI adapter of one run", () => {
       apiKeySource: "none",
       plugins: [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }],
     };
+    // The launch's configuration decides, whatever the stored state held (a null included).
+    const stored = { ...initialState({ plannedModel: "haiku" }), allowedPlugins: null };
     const step = adapter.interpret(
       { t: 1, ch: "stdout", data: `${JSON.stringify(init)}\n` },
-      initialState({ plannedModel: "haiku" }) as unknown as ParseState,
+      stored as unknown as ParseState,
     );
+    expect(step.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
     const state = step.state as unknown as { startFailure: string | null; plugins: string[] };
     expect(state.plugins).toEqual(["warp@claude-code-warp"]);
     expect(state.startFailure).toContain("warp@claude-code-warp");

@@ -814,7 +814,7 @@ async function runSession(
   stdin: readonly string[],
   clock: Clock,
   timeoutMs: number,
-  allowedPlugins: readonly string[] | undefined,
+  plugins: ClaudeLaunchContext["plugins"],
 ): Promise<Session> {
   let timedOut = false;
   const timer = clock.setTimeout(() => {
@@ -826,7 +826,9 @@ async function runSession(
     const start = clock.now();
     let state = initialState({
       plannedModel: SELF_TEST_MODEL,
-      ...(allowedPlugins === undefined ? {} : { allowedPlugins }),
+      ...(plugins === undefined
+        ? {}
+        : { allowedPlugins: plugins.allowed, knownPlugins: known(plugins) }),
     });
     let refused = false;
     const denied: string[] = [];
@@ -868,6 +870,11 @@ async function runSession(
   } finally {
     clock.clearTimeout(timer);
   }
+}
+
+/** The installed and synced ids of the launch; none when the list could not be read. */
+function known(plugins: NonNullable<ClaudeLaunchContext["plugins"]>): readonly string[] {
+  return Array.isArray(plugins.installed) ? plugins.installed : [];
 }
 
 function inside(path: string, root: string): boolean {
@@ -1039,7 +1046,7 @@ export async function runSelfTest(
   let session: Session | string;
   try {
     const child = deps.spawn({ cmd: launch.argv, cwd: launch.cwd, env: launch.env, stdin: "pipe" });
-    session = await runSession(child, launch.stdin, deps.clock, timeoutMs, ctx.plugins?.allowed);
+    session = await runSession(child, launch.stdin, deps.clock, timeoutMs, ctx.plugins);
   } catch (error) {
     session = error instanceof Error ? error.message : String(error);
   }
@@ -1101,7 +1108,13 @@ export async function runSelfTest(
       : { safeChain: { root: ctx.safeChain.root } }),
     ...(typeof session === "string" || ctx.plugins === undefined
       ? {}
-      : { refusedPlugins: refusedPlugins(session.state.plugins ?? [], ctx.plugins.allowed) }),
+      : {
+          refusedPlugins: refusedPlugins(
+            session.state.plugins ?? [],
+            ctx.plugins.allowed,
+            known(ctx.plugins),
+          ),
+        }),
   };
   return {
     verdict: judgeSelfTest(evidence),

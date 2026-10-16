@@ -86,9 +86,15 @@ export interface ClaudeParseState {
   readonly initRejected: string | null;
   /**
    * `worker.plugins` of the office (DIPO-108): a `system/init` that lists another plugin is a
-   * start failure. Absent or null skips the check (states stored before it existed, tests).
+   * start failure. Absent or null skips the check (states stored before it existed, tests). The
+   * run's adapter sets it from the configuration of its launch on every line.
    */
   readonly allowedPlugins?: readonly string[] | null;
+  /**
+   * The installed and synced plugin ids the launch read (DIPO-108): an `@builtin` id among them is
+   * compared like any other plugin, not exempted.
+   */
+  readonly knownPlugins?: readonly string[];
   /**
    * The plugins of the last `system/init`, as `<plugin>@<marketplace>` (DIPO-108). Absent in states
    * stored before it existed.
@@ -172,6 +178,8 @@ export interface InitialStateOptions {
   readonly plannedModel?: string;
   /** `worker.plugins`; when set, `system/init` may list no other plugin (DIPO-108). */
   readonly allowedPlugins?: readonly string[];
+  /** The installed and synced plugin ids of the launch (DIPO-108). */
+  readonly knownPlugins?: readonly string[];
   /** Classifier switches already recorded on the run (0008 open question 7). */
   readonly acceptedModels?: readonly string[];
   /** Totals the run starts from, for a resumed run. */
@@ -200,11 +208,7 @@ export function nextSessionOptions(
   resume: boolean,
   plannedModel: string,
 ): InitialStateOptions {
-  const accepted = {
-    plannedModel,
-    acceptedModels: [...(previous.acceptedModels ?? [])],
-    ...(previous.allowedPlugins == null ? {} : { allowedPlugins: previous.allowedPlugins }),
-  };
+  const accepted = { plannedModel, acceptedModels: [...(previous.acceptedModels ?? [])] };
   if (!resume) return accepted;
   return {
     ...accepted,
@@ -222,6 +226,7 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
   return {
     ...(options.restoredFloor === undefined ? {} : { restoredFloor: options.restoredFloor }),
     ...(options.allowedPlugins === undefined ? {} : { allowedPlugins: options.allowedPlugins }),
+    ...(options.knownPlugins === undefined ? {} : { knownPlugins: options.knownPlugins }),
     ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     pending: "",
     truncated: false,
@@ -651,8 +656,13 @@ function init(value: unknown, state: ClaudeParseState): Step {
   // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
   const allowed = next.allowedPlugins;
   if (allowed !== undefined && allowed !== null && next.startFailure === null) {
-    const refused = refusedPlugins(plugins, allowed);
-    if (refused.length > 0) next = { ...next, startFailure: pluginRefusal(refused) };
+    const refused = refusedPlugins(plugins, allowed, next.knownPlugins ?? []);
+    if (refused.length > 0) {
+      const reason = pluginRefusal(refused);
+      next = { ...next, startFailure: reason };
+      // A neutral event, so the engine stops the worker before its first tool call.
+      events.push({ t: "startRefused", reason });
+    }
   }
 
   // 0008 section 2: no API key, and the planned model or a recorded classifier switch.

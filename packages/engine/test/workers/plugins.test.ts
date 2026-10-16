@@ -8,8 +8,10 @@ import { describe, expect, it } from "bun:test";
 import { initialState } from "../../src/workers/claude-cli/interpret";
 import { plan, SETTINGS_FILE } from "../../src/workers/claude-cli/plan";
 import {
+  checkKnownMarketplaces,
   enabledPluginsSetting,
   INSTALLED_PLUGINS_FILE,
+  KNOWN_MARKETPLACES_FILE,
   parseInstalledPlugins,
   parseSyncedPlugins,
   pluginRefusal,
@@ -52,8 +54,47 @@ describe("(unit) Claude Code's plugin lists", () => {
     expect(parseInstalledPlugins(installedJson([WARP, LEARNING, "dipsaus-ai@dipsaus-ai"]))).toEqual(
       ["dipsaus-ai@dipsaus-ai", LEARNING, WARP],
     );
-    expect(() => parseInstalledPlugins("[]")).toThrow('"plugins" object');
-    expect(() => parseInstalledPlugins('{"plugins":[]}')).toThrow('"plugins" object');
+    expect(() => parseInstalledPlugins("[]")).toThrow("expected an object");
+    expect(() => parseInstalledPlugins('{"version":2,"plugins":[]}')).toThrow('"plugins" object');
+  });
+
+  it("refuses another file version, a key that is no id and a value that is no list", () => {
+    expect(() => parseInstalledPlugins(JSON.stringify({ version: 3, plugins: {} }))).toThrow(
+      "expected version 2, got 3",
+    );
+    expect(() => parseInstalledPlugins(JSON.stringify({ plugins: {} }))).toThrow(
+      "expected version 2",
+    );
+    for (const key of ["warp", "warp@", "a@b@c", "warp @x"]) {
+      expect(() =>
+        parseInstalledPlugins(JSON.stringify({ version: 2, plugins: { [key]: [] } })),
+      ).toThrow("is not a <plugin>@<marketplace> id");
+    }
+    expect(() =>
+      parseInstalledPlugins(JSON.stringify({ version: 2, plugins: { [WARP]: { scope: "user" } } })),
+    ).toThrow("expected a list of installs");
+  });
+
+  it("refuses a plugin, synced plugin or marketplace that calls itself builtin", () => {
+    expect(() => parseInstalledPlugins(installedJson(["fake@builtin"]))).toThrow(
+      'names the marketplace "builtin"',
+    );
+    expect(() =>
+      parseSyncedPlugins(JSON.stringify({ plugins: [{ name: "x", marketplaceName: "builtin" }] })),
+    ).toThrow('names the marketplace "builtin"');
+    expect(() => checkKnownMarketplaces(JSON.stringify({ builtin: {}, other: {} }))).toThrow(
+      "marketplace builtin",
+    );
+    expect(() => checkKnownMarketplaces("[]")).toThrow("keyed by marketplace");
+    expect(() => checkKnownMarketplaces(JSON.stringify({ "claude-code-warp": {} }))).not.toThrow();
+    const read = readInstalledPlugins(
+      HOME,
+      files({
+        [`${HOME}/${INSTALLED_PLUGINS_FILE}`]: installedJson([WARP]),
+        [`${HOME}/${KNOWN_MARKETPLACES_FILE}`]: JSON.stringify({ builtin: {} }),
+      }),
+    );
+    expect(read).toEqual({ error: expect.stringContaining(KNOWN_MARKETPLACES_FILE) as string });
   });
 
   it("names synced plugins <name>@synced, as system/init does", () => {
@@ -61,7 +102,10 @@ describe("(unit) Claude Code's plugin lists", () => {
       parseSyncedPlugins(JSON.stringify({ plugins: [{ name: "engineering", pluginId: "p_1" }] })),
     ).toEqual(["engineering@synced"]);
     expect(() => parseSyncedPlugins("{}")).toThrow('"plugins" list');
-    expect(() => parseSyncedPlugins('{"plugins":[{}]}')).toThrow("without a name");
+    expect(() => parseSyncedPlugins('{"plugins":[{}]}')).toThrow("without a plain name");
+    expect(() => parseSyncedPlugins('{"plugins":[{"name":"a@b"}]}')).toThrow(
+      "without a plain name",
+    );
   });
 
   it("joins the installed list and every synced bucket under home, without doubles", () => {
@@ -151,6 +195,9 @@ describe("(unit) the system/init plugin check", () => {
     expect(refusedPlugins(["engineering@synced"], [])).toEqual(["engineering@synced"]);
     // A plugin without a <plugin>@<marketplace> id is refused, never guessed.
     expect(refusedPlugins(["builtin"], [])).toEqual(["builtin"]);
+    // An @builtin id that is also installed or synced is compared like any other.
+    const telemetry = "cc-plugin-telemetry@builtin";
+    expect(refusedPlugins(BUILTINS, [], [telemetry])).toEqual([telemetry]);
     expect(pluginRefusal([WARP])).toContain(`plugin ${WARP}, not in worker.plugins`);
     expect(pluginRefusal([WARP, LEARNING])).toContain(`plugins ${WARP}, ${LEARNING}`);
   });
@@ -178,6 +225,14 @@ describe("(engine) a session that loaded an unlisted plugin, through a fake stre
       problem: { kind: "startFailed", detail: pluginRefusal([WARP]) },
     });
     expect(run.events.some((event) => event.t === "initRejected")).toBe(false);
+    // Stopped at system/init: the refusal comes before `started`, so the engine acts on it first.
+    const kinds = run.events.map((event) => event.t);
+    expect(kinds.filter((kind) => kind === "startRefused")).toHaveLength(1);
+    expect(kinds.indexOf("startRefused")).toBeLessThan(kinds.indexOf("started"));
+    expect(run.events.find((event) => event.t === "startRefused")).toEqual({
+      t: "startRefused",
+      reason: pluginRefusal([WARP]),
+    });
   });
 
   it("runs as recorded when worker.plugins names the plugin, or only builtin ones load", async () => {
