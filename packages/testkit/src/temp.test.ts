@@ -24,6 +24,13 @@ async function withEnv<T>(name: string, value: string | undefined, fn: () => Pro
   }
 }
 
+/**
+ * Whether a temp directory under this suite's temp root can itself be `DIPO_TMP` (DIPO-109). The
+ * tests that nest one are skipped, visibly, under a `DIPO_TMP` longer than about 25 bytes.
+ */
+const NESTED_ROOT_FITS =
+  Buffer.byteLength(realpathSync(tempRoot())) + "/dipo-XXXXXX".length <= MAX_TEMP_ROOT_BYTES;
+
 describe("withTempDir", () => {
   it("creates dipo-XXXXXX under the temp root and removes it afterwards", async () => {
     let seen = "";
@@ -52,7 +59,7 @@ describe("withTempDir", () => {
     expect(existsSync(seen)).toBe(false);
   });
 
-  it("uses $DIPO_TMP when set and /tmp otherwise", async () => {
+  it.skipIf(!NESTED_ROOT_FITS)("uses $DIPO_TMP when set and /tmp otherwise", async () => {
     await withTempDir(async (outer) => {
       await withEnv("DIPO_TMP", outer, async () => {
         expect(tempRoot()).toBe(outer);
@@ -62,7 +69,7 @@ describe("withTempDir", () => {
     });
   });
 
-  it("keeps the directory when DIPO_TEST_KEEP=1", async () => {
+  it.skipIf(!NESTED_ROOT_FITS)("keeps the directory when DIPO_TEST_KEEP=1", async () => {
     await withTempDir(async (outer) => {
       let kept = "";
       await withEnv("DIPO_TMP", outer, () =>
@@ -78,11 +85,20 @@ describe("withTempDir", () => {
   });
 });
 
-/** A directory under `outer` whose path is `bytes` long, or null when `outer` is too long. */
-function rootOfLength(outer: string, bytes: number): string | null {
+/** A directory under `outer` whose path is `bytes` long. */
+function rootOfLength(outer: string, bytes: number): string {
   const pad = bytes - Buffer.byteLength(outer) - 1;
-  return pad >= 1 ? join(outer, "r".repeat(pad)) : null;
+  if (pad < 1) throw new Error(`no room for a ${bytes}-byte root under ${outer}`);
+  return join(outer, "r".repeat(pad));
 }
+
+/**
+ * Whether a root of exactly `MAX_TEMP_ROOT_BYTES` fits under this suite's temp root: its
+ * `dipo-XXXXXX` directory, a slash and at least one byte of padding. The test that needs it is
+ * skipped, visibly, under a longer `DIPO_TMP`.
+ */
+const LONGEST_ROOT_FITS =
+  Buffer.byteLength(realpathSync(tempRoot())) + "/dipo-XXXXXX/r".length <= MAX_TEMP_ROOT_BYTES;
 
 describe("the temp root limit (DIPO-109)", () => {
   it("refuses a DIPO_TMP too long for a test daemon's socket paths, naming the limit", async () => {
@@ -98,20 +114,21 @@ describe("the temp root limit (DIPO-109)", () => {
     });
   });
 
-  it("accepts a temp root of exactly the longest length, and refuses one byte more", async () => {
-    await withTempDir(async (outer) => {
-      const atLimit = rootOfLength(outer, MAX_TEMP_ROOT_BYTES);
-      const over = rootOfLength(outer, MAX_TEMP_ROOT_BYTES + 1);
-      // Only when this suite's own temp root leaves room for the padding.
-      if (atLimit === null || over === null) return;
-      await withEnv("DIPO_TMP", atLimit, async () => {
-        expect(longestTestSocketBytes(makeTempDir())).toBe(RUNTIME_PATH_LIMIT);
+  it.skipIf(!LONGEST_ROOT_FITS)(
+    "accepts a temp root of exactly the longest length, and refuses one byte more",
+    async () => {
+      await withTempDir(async (outer) => {
+        const atLimit = rootOfLength(outer, MAX_TEMP_ROOT_BYTES);
+        const over = rootOfLength(outer, MAX_TEMP_ROOT_BYTES + 1);
+        await withEnv("DIPO_TMP", atLimit, async () => {
+          expect(longestTestSocketBytes(makeTempDir())).toBe(RUNTIME_PATH_LIMIT);
+        });
+        await withEnv("DIPO_TMP", over, async () => {
+          expect(() => makeTempDir()).toThrow(`${RUNTIME_PATH_LIMIT + 1} bytes`);
+        });
       });
-      await withEnv("DIPO_TMP", over, async () => {
-        expect(() => makeTempDir()).toThrow(`${RUNTIME_PATH_LIMIT + 1} bytes`);
-      });
-    });
-  });
+    },
+  );
 
   it("measures the temp root after symlinks", async () => {
     await withTempDir(async (outer) => {
