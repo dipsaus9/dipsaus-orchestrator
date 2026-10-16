@@ -454,7 +454,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       const paths = runPaths(office, run);
       const tier = tierOf(office, run);
       if (paths === null || tier === undefined) return {};
-      const spec = runWorkerSpec({ runId: run.runId, agent, caps: tier }, paths, "", {
+      const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
         id: "",
         resume,
       });
@@ -498,6 +498,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           disk: systemDiskProbe,
           slots: options.slots,
           runStep,
+          localSettings: worker.localSettings,
           warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
         },
         {

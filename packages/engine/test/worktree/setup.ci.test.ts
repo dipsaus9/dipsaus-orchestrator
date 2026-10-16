@@ -25,6 +25,7 @@ import {
   setupWorktree,
   SlotTable,
 } from "../../src/worktree";
+import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { CI, stepDeps } from "../sandbox/helpers";
 import {
   BACKLOG_FIXTURE,
@@ -107,6 +108,7 @@ async function claimWithSetup(
           ...s.deps(),
           slots: SlotTable.inState(state),
           runStep: (request) => runSandboxedStep(deps, request),
+          localSettings: CLAUDE_LOCAL_SETTINGS,
         },
         {
           claim,

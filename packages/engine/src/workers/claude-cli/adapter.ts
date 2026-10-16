@@ -28,6 +28,8 @@ import { prepareLaunch, type ClaudeLaunchCheckDeps } from "./launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
 import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
+import { WORKER_REPORT_JSON_SCHEMA } from "./report-schema";
+import { CLAUDE_LOCAL_SETTINGS } from "./settings-check";
 import { expandHome } from "../../sandbox/policy";
 import { SAFE_CHAIN_SHELL_DIR, type SafeChainInput, type SafeChainLaunch } from "./safe-chain";
 import { checkResume } from "./resume-check";
@@ -178,6 +180,8 @@ export function claudeLaunchContext(
 export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
   return {
     id: CLAUDE_CLI_ADAPTER_ID,
+    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths, config) => claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps),
     prepare: (spec, paths, config, checkSession) =>
       prepareLaunch(spec, claudeLaunchContext(deps, paths, config), deps.holds, {

@@ -29,6 +29,7 @@ import type { GitLocation } from "../git/hardened";
 import type { GitSession } from "../git/office";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
 import type { CommandSpec, RunProfile } from "../scan/detect";
+import type { LocalSettingsCopy } from "../workers/port";
 import type { CapturedOutput, StepRequest, StepResult } from "../sandbox/step";
 import type { StepPolicyKind } from "../sandbox/policy";
 
@@ -70,6 +71,8 @@ export interface SetupDeps extends Pick<
   readonly disk: DiskProbe;
   /** The machine-wide slot table in `<state>`. */
   readonly slots: SlotTable;
+  /** The worker port's local settings copy for step 2 (DIPO-113). */
+  readonly localSettings: LocalSettingsCopy;
   /** Runs one sandboxed step: `runSandboxedStep` with the daemon's step dependencies. */
   readonly runStep: (request: StepRequest) => Promise<StepResult>;
   /**
@@ -159,6 +162,7 @@ export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Pro
       files: config.worktree.files,
       ignored: (paths) => ignoredIn(deps, claim.worktree, paths),
       envFiles: new Set(profile?.envFiles.map((file) => file.path) ?? []),
+      localSettings: deps.localSettings,
     });
     log.push(...files.log);
     fileNotices(deps, claim, files);

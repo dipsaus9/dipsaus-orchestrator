@@ -23,6 +23,7 @@ import {
   setupWorktree,
   SlotTable,
 } from "../../src/worktree";
+import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { BACKLOG_FIXTURE, claimSetup, type ClaimSetup, publish, ROOMY } from "./helpers";
 
 export const SECRET = "DEV-SECRET-77b2e0";
@@ -131,6 +132,7 @@ export async function harness(repo: TempRepo): Promise<Harness> {
         ...s.deps({ disk: options.disk ?? ROOMY }),
         slots,
         runStep: (options.steps ?? fakeSteps()).runStep,
+        localSettings: CLAUDE_LOCAL_SETTINGS,
         ...(options.warn === undefined ? {} : { warn: options.warn }),
       },
       {
