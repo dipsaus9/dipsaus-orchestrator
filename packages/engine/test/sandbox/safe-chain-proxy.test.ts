@@ -362,22 +362,26 @@ function exchange(path: string, text: string, after?: string): Promise<string> {
 }
 
 /**
- * False inside dipo's verify sandbox on macOS (DIPO-114): its closed network refuses a TCP listen
- * even on loopback, where Linux gives the step a loopback of its own.
+ * True only in the known case (DIPO-114): the sandboxed self-verify on macOS
+ * (`DIPO_SANDBOX_SELF_VERIFY=1`, set by self-verify.ci.test.ts for its inner run), whose closed
+ * network refuses a TCP listen even on loopback; Linux gives the step a loopback of its own.
+ * Anywhere else a refused loopback listen still fails the test.
  */
-function loopbackListens(): Promise<boolean> {
+async function sandboxRefusesLoopback(): Promise<boolean> {
+  if (process.platform !== "darwin" || process.env["DIPO_SANDBOX_SELF_VERIFY"] !== "1")
+    return false;
   return new Promise((resolve) => {
     const probe = createServer();
-    probe.once("error", () => resolve(false));
-    probe.listen(0, "127.0.0.1", () => probe.close(() => resolve(true)));
+    probe.once("error", () => resolve(true));
+    probe.listen(0, "127.0.0.1", () => probe.close(() => resolve(false)));
   });
 }
 
-const LOOPBACK_LISTENS = await loopbackListens();
+const SANDBOX_REFUSES_LOOPBACK = await sandboxRefusesLoopback();
 
 describe("(unit) the gate on local sockets", () => {
   // The fake Safe-Chain listens on loopback TCP, as the real one does.
-  it.skipIf(!LOOPBACK_LISTENS)(
+  it.skipIf(SANDBOX_REFUSES_LOOPBACK)(
     "forwards a registry CONNECT to that ecosystem's Safe-Chain and refuses the rest",
     () =>
       withTempDir(async (dir) => {
