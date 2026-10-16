@@ -2,7 +2,8 @@
 // real DIPO-45 ingestion of committed Claude recordings with run control as its hooks, scripted
 // worker events, a fake park writer for the story branch (the real one runs in park.ci.test.ts on
 // real git) and a steering fake. `work.stop` runs through the executor; its stop sequence goes to a
-// FakeProcess through the worker host's own `Steering`.
+// FakeProcess through the worker host's own `Steering`. An intent the database refuses sends nothing
+// (DIPO-119).
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -875,5 +876,53 @@ describe("an intent's sent mark that fails (DIPO-110)", () => {
     expect(w.control.isTracked(w.f.run)).toBe(true);
     expect(w.control.live(w.f.run)).toBe(false);
     expect(w.control.act(w.f.run, { intent: "stop", detail: "again", ops: [] })).toBe(false);
+  });
+});
+
+describe("an intent that cannot be stored (DIPO-119)", () => {
+  it("sends no op, logs one error and returns false; run control keeps the run", async () => {
+    track();
+    const timers = w.f.t.clock.pendingTimers;
+    expect(timers).toBeGreaterThan(0);
+    // The database refuses the intent (0008: an op is stored as an intent before it is sent).
+    w.f.t.state.connection.exec(
+      `create trigger intent_fails before insert on run_intents
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    const watch = watchRejections();
+    const acted = w.control.act(w.f.run, {
+      intent: "stop",
+      detail: "a plan-limit hold",
+      ops: encode({ kind: "stop" }),
+    });
+    expect(acted).toBe(false);
+    await w.control.idle();
+    expect(await watch.stop()).toEqual([]);
+    expect(w.sent).toEqual([]);
+    expect(w.warnings).toEqual([
+      {
+        message: "storing a run's decision failed",
+        fields: {
+          run: w.f.run,
+          intent: "stop",
+          reason: "disk I/O error",
+          errorCode: expect.stringMatching(/^SQLITE_CONSTRAINT/),
+        },
+      },
+    ]);
+    expect(runIntents(w.f.office, w.f.run)).toEqual([]);
+    // Nothing was decided: the run is live, its cap tick still runs, and a later decision works.
+    expect(w.control.live(w.f.run)).toBe(true);
+    expect(w.f.t.clock.pendingTimers).toBe(timers);
+    w.f.t.state.connection.exec("drop trigger intent_fails");
+    expect(
+      w.control.act(w.f.run, { intent: "stop", detail: "again", ops: encode({ kind: "stop" }) }),
+    ).toBe(true);
+    await w.control.idle();
+    expect(w.sent).toHaveLength(1);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "sent"],
+    ]);
+    expect(w.warnings).toHaveLength(1);
   });
 });
