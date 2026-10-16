@@ -3,9 +3,10 @@ id: DIPO-112
 title: >-
   Commit story status changes and resolve the base branch through one helper
   each
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
+updated_date: '2026-10-16 10:06'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -34,7 +35,13 @@ Context: the status commit has four copies (packages/engine/src/worktree/claim.t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One commitTaskFile helper (literal pathspecs, commit limited to the task file) plus one push helper are used by claim, In Review, park and unpark.
-- [ ] #2 A session-level resolveBase in packages/engine/src/git/office.ts is the only base-branch rule; the three other copies are gone and their callers keep their current error codes.
-- [ ] #3 A local (not CI-only) test stages another file before a park and shows it stays out of the park commit.
+- [x] #1 One commitTaskFile helper (literal pathspecs, commit limited to the task file) plus one push helper are used by claim, In Review, park and unpark.
+- [x] #2 A session-level resolveBase in packages/engine/src/git/office.ts is the only base-branch rule; the three other copies are gone and their callers keep their current error codes.
+- [x] #3 A local (not CI-only) test stages another file before a park and shows it stays out of the park commit.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+commitTaskFile and pushBranch live in packages/engine/src/git/task-commit.ts (statusPaths moved there, re-exported from lane.ts); claim, In Review, park and unpark use them, so park and unpark now commit with a literal pathspec limited to the task file. OfficeGit.resolveBaseIn(session) is the one base rule; lane (git.baseUnknown), PR feature (its plain Error text) and init (its reason) map to their old failures. New local test test/run/park-commit.test.ts stages work.txt before a park and unpark and shows both commits hold only the task file (fails on the old code). bun run verify green; affected CI-only tests pass with DIPO_TEST_CI=1. No live runs.
+<!-- SECTION:NOTES:END -->

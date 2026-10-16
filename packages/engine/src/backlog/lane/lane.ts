@@ -57,6 +57,7 @@ import {
   type GitStepOptions,
   isTimedOut,
 } from "../../git/runner";
+import { statusPaths } from "../../git/task-commit";
 import { findStoryByKey } from "../../stories/keys";
 import type { BacklogCli } from "../runner";
 
@@ -218,22 +219,8 @@ function messageOf(entry: Pick<JournalEntry, "kind" | "subject">): string {
   return `backlog: ${entry.kind} ${entry.subject}`;
 }
 
-/** Paths in `git status --porcelain=v1 -z` output, both sides of a rename or copy. */
-export function statusPaths(output: string): string[] {
-  const records = output.split("\0").filter((record) => record !== "");
-  const paths: string[] = [];
-  for (let i = 0; i < records.length; i++) {
-    const record = records[i] ?? "";
-    paths.push(record.slice(3));
-    const x = record[0];
-    if (x === "R" || x === "C") {
-      i += 1;
-      const from = records[i];
-      if (from !== undefined) paths.push(from);
-    }
-  }
-  return paths;
-}
+/** `git status --porcelain=v1 -z` paths; it lives with the status commit (`git/task-commit.ts`). */
+export { statusPaths };
 
 /** True when `path` lies under `backlog/` or is one of `extra`. */
 function inLane(path: string, extra: readonly string[]): boolean {
@@ -811,30 +798,11 @@ export class OfficeLane {
    * `<base>` without one (0010 section 7, start point).
    */
   async #base(git: GitSession, hasRemote: boolean): Promise<BaseRef> {
-    const { remote, base: configured } = this.#git.settings;
-    let name = configured;
-    // Without a remote `#assertBase` refused the lane unless `base` is set; the main checkout's
-    // HEAD is never taken as the base.
-    if (name === undefined && hasRemote) {
-      const head = await git.step(git.repository, [
-        "symbolic-ref",
-        "--quiet",
-        `refs/remotes/${remote}/HEAD`,
-      ]);
-      const target = head.stdout.trim();
-      const prefix = `refs/remotes/${remote}/`;
-      if (head.code === 0 && target.startsWith(prefix) && target.length > prefix.length) {
-        name = target.slice(prefix.length);
-      }
-    }
-    if (name === undefined) {
-      throw new GitError(
-        "git.baseUnknown",
-        `The office has no base branch for the backlog lane: .dipo/office.yaml sets no \`base\` and refs/remotes/${remote}/HEAD does not exist. Set \`base\`, or run \`git remote set-head ${remote} --auto\`.`,
-        false,
-        { remote },
-      );
-    }
+    const { remote } = this.#git.settings;
+    // The office's base rule (`git.baseUnknown` when it names none). Without a remote
+    // `#assertBase` refused the lane unless `base` is set; the main checkout's HEAD is never taken
+    // as the base.
+    const name = await this.#git.resolveBaseIn(git);
     const ref = hasRemote ? `refs/remotes/${remote}/${name}` : `refs/heads/${name}`;
     const sha = await this.#revParse(git, ref);
     if (sha === null) {

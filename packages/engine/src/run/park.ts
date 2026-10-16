@@ -25,13 +25,13 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { viewStory, writeFields } from "../backlog/fields/write";
-import { statusPaths } from "../backlog/lane/lane";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { FETCH_CONFIG, type GitLocation } from "../git/hardened";
+import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
+import { GitError } from "../git/runner";
+import { commitTaskFile, pushBranch } from "../git/task-commit";
 import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/park-questions";
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { deriveStoryView, storyView } from "../views/story";
@@ -132,55 +132,15 @@ export function gitParkWriter(deps: {
             `The Backlog CLI left ${request.story} at ${back.status}, not ${PARKED_STATUS}.`,
           );
         }
-        const taskFile = repoPath(location.workTree, before.file);
-        const changed = statusPaths(
-          await session.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+        // Only the task file: anything else staged stays out of the park commit.
+        const commit = await commitTaskFile(
+          session,
+          location,
+          repoPath(location.workTree, before.file),
+          `${request.story}: status ${PARKED_STATUS}`,
         );
-        let commit: string | null = null;
-        if (changed.includes(taskFile)) {
-          await session.ok(location, ["add", "--", taskFile]);
-          const committed = await session.step(
-            location,
-            ["commit", "--quiet", "--no-verify", "-m", `${request.story}: status ${PARKED_STATUS}`],
-            { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-          );
-          if (committed.code !== 0) {
-            throw new GitError(
-              "git.failed",
-              `git commit failed: ${committed.stderr.trim() || `exit ${committed.code}`}`,
-            );
-          }
-          commit = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-        }
-        const { remote } = git.settings;
-        const url = await session.step(session.repository, [
-          "config",
-          "--get",
-          `remote.${remote}.url`,
-        ]);
-        if (url.code !== 0 || url.stdout.trim() === "") {
-          return { commit, lastGoodCommit, from, pushed: false, pushError: null };
-        }
-        const ref = `refs/heads/${request.branch}`;
-        const pushed = await session
-          .step(session.repository, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`], {
-            config: FETCH_CONFIG,
-            timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-          })
-          .catch((error: unknown): GitResult => {
-            if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-            throw error;
-          });
-        return {
-          commit,
-          lastGoodCommit,
-          from,
-          pushed: pushed.code === 0,
-          pushError:
-            pushed.code === 0
-              ? null
-              : `pushing ${request.branch} to ${remote} failed (${pushed.stderr.trim() || `exit ${pushed.code}`})`,
-        };
+        const pushed = await pushBranch(session, git.settings.remote, request.branch);
+        return { commit, lastGoodCommit, from, pushed: pushed.pushed, pushError: pushed.error };
       });
     },
   };
@@ -246,53 +206,15 @@ export function gitUnparkWriter(deps: {
             `The Backlog CLI left ${request.story} at ${back.status}, not ${request.to}.`,
           );
         }
-        const taskFile = repoPath(location.workTree, before.file);
-        const changed = statusPaths(
-          await session.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+        // Only the task file: anything else staged stays out of the commit.
+        const commit = await commitTaskFile(
+          session,
+          location,
+          repoPath(location.workTree, before.file),
+          `${request.story}: status ${request.to}`,
         );
-        let commit: string | null = null;
-        if (changed.includes(taskFile)) {
-          await session.ok(location, ["add", "--", taskFile]);
-          const committed = await session.step(
-            location,
-            ["commit", "--quiet", "--no-verify", "-m", `${request.story}: status ${request.to}`],
-            { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-          );
-          if (committed.code !== 0) {
-            throw new GitError(
-              "git.failed",
-              `git commit failed: ${committed.stderr.trim() || `exit ${committed.code}`}`,
-            );
-          }
-          commit = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-        }
-        const { remote } = git.settings;
-        const url = await session.step(session.repository, [
-          "config",
-          "--get",
-          `remote.${remote}.url`,
-        ]);
-        if (url.code !== 0 || url.stdout.trim() === "") {
-          return { commit, pushed: false, pushError: null };
-        }
-        const ref = `refs/heads/${request.branch}`;
-        const pushed = await session
-          .step(session.repository, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`], {
-            config: FETCH_CONFIG,
-            timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-          })
-          .catch((error: unknown): GitResult => {
-            if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-            throw error;
-          });
-        return {
-          commit,
-          pushed: pushed.code === 0,
-          pushError:
-            pushed.code === 0
-              ? null
-              : `pushing ${request.branch} to ${remote} failed (${pushed.stderr.trim() || `exit ${pushed.code}`})`,
-        };
+        const pushed = await pushBranch(session, git.settings.remote, request.branch);
+        return { commit, pushed: pushed.pushed, pushError: pushed.error };
       });
     },
   };
