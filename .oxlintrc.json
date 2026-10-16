@@ -652,14 +652,26 @@
     {
       "files": ["packages/engine/src/**"],
       "rules": {
-        "dipo/no-claude-cli-import": "error",
-        "dipo/no-bun-import": "error"
+        "dipo/no-claude-cli-import": "error"
       }
     },
     {
-      "files": ["packages/engine/src/workers/**", "packages/engine/src/index.ts"],
+      "files": ["packages/engine/src/workers/claude-cli/**", "packages/engine/src/index.ts"],
       "rules": {
         "dipo/no-claude-cli-import": "off"
+      }
+    },
+    {
+      "files": ["packages/engine/src/**", "packages/daemon/src/**"],
+      "rules": {
+        "dipo/no-bun-import": "error",
+        "dipo/no-bun-global": "error"
+      }
+    },
+    {
+      "files": ["packages/engine/src/**/*.test.ts", "packages/daemon/src/**/*.test.ts"],
+      "rules": {
+        "dipo/no-bun-global": "off"
       }
     },
     {
@@ -792,7 +804,8 @@
           }
         ],
         "dipo/no-argless-date": "off",
-        "dipo/no-bun-import": "off"
+        "dipo/no-bun-import": "off",
+        "dipo/no-bun-global": "off"
       }
     }
   ]
