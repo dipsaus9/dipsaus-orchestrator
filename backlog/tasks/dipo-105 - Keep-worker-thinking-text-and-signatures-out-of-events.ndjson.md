@@ -4,6 +4,7 @@ title: Keep worker thinking text and signatures out of events.ndjson
 status: To Do
 assignee: []
 created_date: '2026-10-16 07:55'
+updated_date: '2026-10-16 07:56'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -12,6 +13,10 @@ references:
   - packages/engine/src/host/events.ts
   - packages/engine/src/host/main.ts
   - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/ingest/
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/
 priority: medium
 type: feature
 ordinal: 95000
@@ -27,7 +32,7 @@ Context: the worker host appends every worker stdout line to events.ndjson as is
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Thinking text and signature fields are removed from a stdout line before the host appends it (adapter-owned scrub, so the host and engine stay free of Claude specifics), and the rest of the line, including thinking duration and token fields, is unchanged.
+- [ ] #1 Thinking text and signature fields are removed from a stdout line before the host appends it (an adapter-owned scrub, so the host and engine stay free of Claude specifics); the line stays valid JSON and the rest of it, including the thinking duration and token fields, is unchanged.
 - [ ] #2 Ingestion still derives the DIPO-96 thinking activity from the scrubbed line.
-- [ ] #3 Tests cover a line with a thinking block, a redacted thinking block and a line without thinking; a recording replay shows no thinking text in events.ndjson.
+- [ ] #3 Tests cover a line with a thinking block, a redacted thinking block and a line without thinking; a replay of a recorded stream through the testkit fake process (packages/testkit/src/fake-process.ts) shows no thinking text in events.ndjson.
 <!-- AC:END -->

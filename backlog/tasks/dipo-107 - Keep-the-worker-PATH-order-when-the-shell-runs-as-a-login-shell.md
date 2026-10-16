@@ -4,12 +4,14 @@ title: Keep the worker PATH order when the shell runs as a login shell
 status: To Do
 assignee: []
 created_date: '2026-10-16 07:55'
+updated_date: '2026-10-16 07:56'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies: []
 references:
   - packages/engine/src/workers/claude-cli/safe-chain.ts
+  - packages/engine/test/
 priority: low
 type: feature
 ordinal: 97000
