@@ -1,6 +1,6 @@
 project_name: "dipsaus-orchestrator"
 default_status: "To Do"
-statuses: ["To Do", "In Progress", "Done"]
+statuses: ["To Do", "Refined", "Ready", "In Progress", "In Review", "Parked", "Done"]
 labels: []
 date_format: yyyy-mm-dd
 max_column_width: 20
