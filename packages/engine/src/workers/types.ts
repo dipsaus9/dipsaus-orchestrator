@@ -68,6 +68,18 @@ export interface LaunchPlan {
   readonly files: readonly LaunchFile[];
   /** Lines written to the worker's stdin right after the spawn, each ending in a newline. */
   readonly stdin: readonly string[];
+  /** What the host removes from each stdout line before it appends it (DIPO-105). */
+  readonly lineScrub?: LineScrub;
+}
+
+/**
+ * Fields the host removes from the objects of a stdout line (DIPO-105). Any object at any depth
+ * whose `type` is in `blockTypes` loses the fields in `fields`; the rest of the line stays. The
+ * rule is data, so the host applies it without knowing what the types mean.
+ */
+export interface LineScrub {
+  readonly blockTypes: readonly string[];
+  readonly fields: readonly string[];
 }
 
 /** What the engine asks of a running worker (0008 section 6). */

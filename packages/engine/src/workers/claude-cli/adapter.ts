@@ -14,6 +14,8 @@ import type {
   AdapterStatus,
   ExitRecord,
   HostLine,
+  LaunchPlan,
+  LineScrub,
   ParseState,
   ResumeCheck,
   ResumeFacts,
@@ -39,6 +41,21 @@ export interface ClaudeCliAdapterDeps {
   readonly spawn: Spawn;
   readonly clock: Clock;
   readonly probeTimeoutMs?: number;
+}
+
+/**
+ * What the host removes from each stdout line (DIPO-105): the text, signature and redacted data of
+ * every thinking block, in assistant lines and in stream events. The block's `type` and the
+ * duration and token fields stay, so ingestion still counts the thinking.
+ */
+export const CLAUDE_LINE_SCRUB: LineScrub = {
+  blockTypes: ["thinking", "redacted_thinking", "thinking_delta", "signature_delta"],
+  fields: ["thinking", "signature", "data"],
+};
+
+/** The plan with the Claude line scrub attached; the host applies it before it appends a line. */
+function scrubbed(launch: LaunchPlan): LaunchPlan {
+  return { ...launch, lineScrub: CLAUDE_LINE_SCRUB };
 }
 
 /** The environment `probe` runs with: the worker's allowlist, so it sees the worker's login. */
@@ -86,7 +103,7 @@ export function claudeCliAdapter(
         env: probeEnv(ctx),
         ...(deps.probeTimeoutMs === undefined ? {} : { timeoutMs: deps.probeTimeoutMs }),
       }),
-    plan: (spec: WorkerSpec) => plan(spec, ctx),
+    plan: (spec: WorkerSpec) => scrubbed(plan(spec, ctx)),
     encode,
     interpret: (line: HostLine, state: ParseState) =>
       interpret(line, withInitChecks(state as unknown as ClaudeParseState, ctx)) as unknown as {
@@ -186,17 +203,26 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
     reportSchema: WORKER_REPORT_JSON_SCHEMA,
     localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths, config) => claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps),
-    prepare: (spec, paths, config, checkSession) =>
-      prepareLaunch(spec, claudeLaunchContext(deps, paths, config), deps.holds, {
-        spawn: deps.spawn,
-        clock: deps.clock,
-        selfTestSessionId: checkSession,
-        allowProjectSettings: config.worker.allowProjectSettings,
-        platform: deps.platform,
-        runStep: deps.runStep,
-        uid: deps.uid,
-        ...(deps.safeChainProxies === undefined ? {} : { safeChainProxies: deps.safeChainProxies }),
-      }),
+    prepare: async (spec, paths, config, checkSession) => {
+      const prepared = await prepareLaunch(
+        spec,
+        claudeLaunchContext(deps, paths, config),
+        deps.holds,
+        {
+          spawn: deps.spawn,
+          clock: deps.clock,
+          selfTestSessionId: checkSession,
+          allowProjectSettings: config.worker.allowProjectSettings,
+          platform: deps.platform,
+          runStep: deps.runStep,
+          uid: deps.uid,
+          ...(deps.safeChainProxies === undefined
+            ? {}
+            : { safeChainProxies: deps.safeChainProxies }),
+        },
+      );
+      return prepared.ok ? { ok: true, plan: scrubbed(prepared.plan) } : prepared;
+    },
     initialState: (spec, previous) =>
       initialState(
         previous === undefined

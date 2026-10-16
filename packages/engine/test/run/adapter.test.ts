@@ -9,6 +9,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { planRefusedText, runWorkerSpec, sessionUuid } from "../../src/run";
 import {
+  CLAUDE_LINE_SCRUB,
   claudeCliAdapter,
   claudeLaunchContext,
   claudeWorkerPort,
@@ -86,7 +87,7 @@ describe("the Claude CLI adapter of one run", () => {
     const ctx = context();
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     expect(adapter.id).toBe("claude-cli");
-    expect(adapter.plan(spec())).toEqual(plan(spec(), ctx));
+    expect(adapter.plan(spec())).toEqual({ ...plan(spec(), ctx), lineScrub: CLAUDE_LINE_SCRUB });
   });
 
   it("builds the launch context from the run's paths, the office sandbox and the daemon", () => {
@@ -124,7 +125,10 @@ describe("the Claude CLI adapter of one run", () => {
       },
       uid: 501,
     });
-    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual(plan(spec(), ctx));
+    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual({
+      ...plan(spec(), ctx),
+      lineScrub: CLAUDE_LINE_SCRUB,
+    });
   });
 
   it("detects Safe-Chain at launch and gives the plan its wrapper in the run directory (DIPO-82, DIPO-84)", () => {
