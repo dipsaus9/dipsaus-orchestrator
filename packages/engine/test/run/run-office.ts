@@ -52,6 +52,7 @@ import {
   runTempDir,
   readRunTempOwner,
 } from "../../src/run";
+import { readShortTempRun, shortTempDir } from "../../src/run/temp-dirs";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/runs/worker-hosts";
 import type { StepResult } from "../../src/sandbox/step";
 import type { RunProfile } from "../../src/scan/detect";
@@ -132,6 +133,8 @@ export interface Running {
     readonly atHostStart: boolean[];
     /** Per host start, the owner file in the run temp directory then (null when none). */
     readonly ownerAtHostStart: (string | null)[];
+    /** Per host start, the run the short temp root's run file named then (DIPO-118). */
+    readonly shortRunAtHostStart: (string | null)[];
     /** The owner this office writes. */
     owner(): string | undefined;
   } | null;
@@ -270,6 +273,7 @@ export async function withRunOffice(
       // The run temp directory sweeps (DIPO-102), as the daemon wires them.
       const atHostStart: boolean[] = [];
       const ownerAtHostStart: (string | null)[] = [];
+      const shortRunAtHostStart: (string | null)[] = [];
       const sweeps: Promise<unknown>[] = [];
       const tempDirs =
         options.tempDirs === true
@@ -287,6 +291,7 @@ export async function withRunOffice(
           const eventFile = join(runDir, EVENTS_FILE);
           atHostStart.push(existsSync(runTempDir(tmpRoot, run.runId)));
           ownerAtHostStart.push(readRunTempOwner(runTempDir(tmpRoot, run.runId)));
+          shortRunAtHostStart.push(readShortTempRun(shortTempDir(tmpRoot, run.runId)));
           hosts.push({
             runId: run.runId,
             agentId: run.agentId,
@@ -606,6 +611,7 @@ export async function withRunOffice(
                   },
                   atHostStart,
                   ownerAtHostStart,
+                  shortRunAtHostStart,
                   owner: () => tempDirs.owner(),
                 },
         });

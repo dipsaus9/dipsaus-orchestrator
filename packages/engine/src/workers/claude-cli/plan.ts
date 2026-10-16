@@ -148,6 +148,13 @@ export interface ClaudeLaunchContext {
   readonly hostSocket: string;
   /** The sandbox temp directory sandboxed commands may write. */
   readonly tmpDir: string;
+  /**
+   * The run's short temp root (DIPO-118): the worker's `DIPO_TMP`, writable by sandboxed commands
+   * and the one place they may bind and reach Unix sockets.
+   * `claudeLaunchContext` always sets it; without it (the recordings capture) the worker gets no
+   * `DIPO_TMP`, and the sandbox no extra write path and no Unix sockets.
+   */
+  readonly shortTmpDir?: string;
   /** The office `mcp.json`, when the office has one. */
   readonly mcpConfig?: string;
   /**
@@ -255,7 +262,8 @@ export const NPM_LOGS_SUBDIR = "npm-logs";
 // npm's log settings, which only dipo sets: an office value could point them back into home.
 const NPM_LOG_VARIABLE = /^npm_config_logs[-_]/i;
 
-function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, home: string, tmp: string) {
+function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
+  const { home, tmp } = paths;
   const env: Record<string, string> = {};
   for (const name of ctx.toolVariables) {
     if (!VARIABLE_NAME.test(name)) throw new PlanError(`not a variable name: ${name}`);
@@ -277,6 +285,9 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, home: string, t
   env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
   env.DIPO_RUN = spec.run;
   env.DIPO_HOST_SOCKET = absolute("hostSocket", ctx.hostSocket);
+  // Set by the engine, never taken from the daemon's environment (DIPO_ is not allowlisted and
+  // not an office tool variable): tests the worker runs keep their temp files and sockets here.
+  if (paths.shortTmp !== undefined) env.DIPO_TMP = paths.shortTmp;
   // Claude Code runs `npm root --global` at start, outside the sandbox, and npm would write a
   // debug log into <home>/.npm/_logs; every npm the worker runs inherits this too (DIPO-98).
   env.npm_config_logs_dir = `${tmp}/${NPM_LOGS_SUBDIR}`;
@@ -296,6 +307,7 @@ interface Paths {
   readonly workdir: string;
   readonly main: string;
   readonly tmp: string;
+  readonly shortTmp: string | undefined;
   readonly runDir: string;
 }
 
@@ -377,7 +389,7 @@ function safeChainNetwork(ctx: ClaudeLaunchContext) {
 }
 
 function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
-  const { home, workdir, main, tmp } = paths;
+  const { home, workdir, main, tmp, shortTmp } = paths;
   // The toolchain read list, not the install caches: the worker must reach `~/.bun/bin` to run bun.
   const allowRead = unique([
     ...ctx.sandbox.toolchainReadPaths.map((path) =>
@@ -392,7 +404,8 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
     failIfUnavailable: true,
     allowUnsandboxedCommands: false,
     filesystem: {
-      allowWrite: [workdir, tmp],
+      // The short temp root is the only write path added for tests (DIPO-118).
+      allowWrite: [workdir, tmp, ...(shortTmp === undefined ? [] : [shortTmp])],
       // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
       // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
       // With Safe-Chain the shell snapshot stays closed too: its functions would replace the
@@ -416,7 +429,13 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       ],
       allowRead,
     },
-    network: ctx.safeChain === undefined ? closedNetwork(ctx) : safeChainNetwork(ctx),
+    network: {
+      ...(ctx.safeChain === undefined ? closedNetwork(ctx) : safeChainNetwork(ctx)),
+      // A test daemon binds its socket under DIPO_TMP. macOS filters Unix sockets by path, so
+      // only sockets under the run's own short temp root open (bind and connect); Linux cannot
+      // filter them by path, so there they stay closed (DIPO-118).
+      ...(shortTmp === undefined ? {} : { allowUnixSockets: [shortTmp] }),
+    },
     credentials: {
       files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
       envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
@@ -497,6 +516,8 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
   const main = ruleSafe("mainCheckout", absolute("mainCheckout", ctx.mainCheckout));
   const runDir = absolute("runDir", ctx.runDir);
   const tmp = absolute("tmpDir", ctx.tmpDir);
+  const shortTmp =
+    ctx.shortTmpDir === undefined ? undefined : absolute("shortTmpDir", ctx.shortTmpDir);
   const systemFile = absolute("systemFile", spec.systemFile);
   if (isInside(workdir, main) || isInside(main, workdir)) {
     throw new PlanError(`the worktree ${workdir} must lie outside the main checkout ${main}`, {
@@ -507,6 +528,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
   for (const [label, dir] of [
     ["workdir", workdir],
     ["tmpDir", tmp],
+    ...(shortTmp === undefined ? [] : [["shortTmpDir", shortTmp] as const]),
   ] as const) {
     if (dir === "/" || isInside(home, dir)) {
       throw new PlanError(
@@ -548,7 +570,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
       throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
     }
   }
-  const paths: Paths = { home, workdir, main, tmp, runDir };
+  const paths: Paths = { home, workdir, main, tmp, shortTmp, runDir };
   const reportSchema = JSON.stringify(spec.reportSchema);
 
   const argv: [string, ...string[]] = [
@@ -588,7 +610,7 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
 
   return {
     argv,
-    env: environment(spec, ctx, home, tmp),
+    env: environment(spec, ctx, paths),
     cwd: workdir,
     files: [
       { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },

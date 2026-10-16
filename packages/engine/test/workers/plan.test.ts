@@ -47,6 +47,9 @@ function spec(tier: TierName, overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   };
 }
 
+/** The run's short temp root (DIPO-118), as `shortTempDir` makes it under macOS's /tmp. */
+const SHORT_TMP = "/private/tmp/dipo-t-0123456789";
+
 function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {
   return {
     claudePath: "/home/maintainer/.local/bin/claude",
@@ -71,6 +74,7 @@ function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchCont
     runDir: "/home/maintainer/code/shop/.git/dipo/runs/run-0001",
     hostSocket: "/home/maintainer/.dipo/run/hosts/run-0001.sock",
     tmpDir: "/tmp/claude-501",
+    shortTmpDir: SHORT_TMP,
     mcpConfig: "/home/maintainer/code/shop/.git/dipo/mcp.json",
     sandbox: OFFICE_DEFAULTS.sandbox,
     ...overrides,
@@ -254,13 +258,14 @@ describe("claude-cli plan", () => {
     expect(JSON.stringify(launch)).not.toContain(API_KEY);
   });
 
-  it("holds only allowlisted variables, declared tool variables and the five run variables", () => {
+  it("holds only allowlisted variables, declared tool variables and the six run variables", () => {
     const launch = plan(spec("M"), context());
     expect(Object.keys(launch.env).toSorted()).toEqual([
       "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS",
       "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
       "DIPO_HOST_SOCKET",
       "DIPO_RUN",
+      "DIPO_TMP",
       "HOME",
       "JAVA_HOME",
       "LANG",
@@ -275,6 +280,56 @@ describe("claude-cli plan", () => {
     expect(launch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("1");
     expect(launch.env.DIPO_RUN).toBe("run-0001");
     expect(launch.env.DIPO_HOST_SOCKET).toBe("/home/maintainer/.dipo/run/hosts/run-0001.sock");
+    expect(launch.env.DIPO_TMP).toBe(SHORT_TMP);
+  });
+
+  it("sets DIPO_TMP to the run's short temp root, never from the daemon's environment (DIPO-118)", () => {
+    const env = { ...context().env, DIPO_TMP: "/home/maintainer/long/daemon/tmp" };
+    expect(plan(spec("M"), context({ env })).env.DIPO_TMP).toBe(SHORT_TMP);
+    // Not an office tool variable either, so nothing but the engine sets it.
+    expect(() => plan(spec("M"), context({ env, toolVariables: ["DIPO_TMP"] }))).toThrow(
+      "tool variable DIPO_TMP may not reach a worker",
+    );
+    // Without a short temp root (the recordings capture) the worker gets none at all.
+    const { shortTmpDir: _, ...without } = context({ env });
+    expect(plan(spec("M"), without).env).not.toHaveProperty("DIPO_TMP");
+  });
+
+  it("grows the sandbox by the short temp root only: one write path and its Unix sockets (DIPO-118)", () => {
+    const { shortTmpDir: _, ...ctx } = context();
+    const before = settingsOf(plan(spec("M"), ctx));
+    const after = settingsOf(plan(spec("M"), context()));
+    const sandbox = after["sandbox"] as {
+      filesystem: { allowWrite: string[] };
+      network: Record<string, unknown>;
+    };
+    const base = before["sandbox"] as typeof sandbox;
+    expect(sandbox.filesystem.allowWrite).toEqual([
+      "/home/maintainer/code/shop.worktrees/DIPO-999",
+      "/tmp/claude-501",
+      SHORT_TMP,
+    ]);
+    expect(sandbox.filesystem.allowWrite).toEqual([...base.filesystem.allowWrite, SHORT_TMP]);
+    expect(sandbox.network).toEqual({ ...base.network, allowUnixSockets: [SHORT_TMP] });
+    // Everything else in the settings file is the same, permission rules included.
+    const rest: Record<string, unknown> = {
+      ...after,
+      sandbox: { ...sandbox, filesystem: base.filesystem, network: base.network },
+    };
+    expect(rest).toEqual(before);
+  });
+
+  it("refuses a short temp root that is the root, holds home or lies under a closed path", () => {
+    for (const dir of ["/", "/home/maintainer", "/home"]) {
+      expect(() => plan(spec("S"), context({ shortTmpDir: dir }))).toThrow(/shortTmpDir/);
+    }
+    expect(() => plan(spec("S"), context({ shortTmpDir: "/tmp/claude/dipo-t-1" }))).toThrow(
+      /may not write/,
+    );
+    expect(() => plan(spec("S"), context({ shortTmpDir: "/private/tmp" }))).toThrow(
+      /must not hold/,
+    );
+    expect(() => plan(spec("S"), context({ shortTmpDir: "dipo-t-1" }))).toThrow(/absolute/);
   });
 
   it("points npm's debug logs into the run temp directory, never home (DIPO-98)", () => {
@@ -688,13 +743,15 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
       // The parent of every proxy directory, not only this run's (DIPO-84 review).
       "/private/tmp/dipo-p",
     ]);
-    // Writes as before: the worktree and the run temp directory, where the caches go.
+    // Writes as before: the worktree, the run temp directory, where the caches go, and the
+    // short temp root (DIPO-118).
     expect(sandbox.filesystem.allowWrite).toEqual(base.filesystem.allowWrite);
     expect(sandbox.network).toEqual({
       allowedDomains: [],
       strictAllowlist: true,
       allowLocalBinding: false,
       httpProxyPort: 50123,
+      allowUnixSockets: [SHORT_TMP],
     });
   });
 
@@ -762,6 +819,7 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
       allowedDomains: ["example.com"],
       strictAllowlist: true,
       allowLocalBinding: true,
+      allowUnixSockets: [SHORT_TMP],
     });
   });
 

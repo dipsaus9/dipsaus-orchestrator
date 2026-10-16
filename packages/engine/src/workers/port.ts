@@ -28,6 +28,11 @@ export interface RunLaunchPaths {
   readonly hostSocket: string;
   /** The temp directory the worker's sandboxed commands may write. */
   readonly tmpDir: string;
+  /**
+   * The run's short temp root (DIPO-118), the worker's `DIPO_TMP`: also writable by its sandboxed
+   * commands, and short enough for testkit's Unix socket path limit.
+   */
+  readonly shortTmpDir: string;
 }
 
 export type PreparedWorker =

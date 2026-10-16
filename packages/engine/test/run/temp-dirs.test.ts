@@ -2,14 +2,23 @@
 // worker hosts exited, swept after each worker exit (`ended`) and at daemon start (`recovery`).
 // Live, held and re-attachable runs keep theirs; only real directories directly under the temp
 // root are removed, never through a link; an unknown run's directory goes only at daemon start and
-// only when this daemon's database made it.
+// only when this daemon's database made it. Each run's short temp root `<tmpRoot>/dipo-t-<hash>`
+// (DIPO-118) goes with it, mapped to its run by its run file and its name.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { MAX_TEMP_ROOT_BYTES, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeHandle } from "../../src/db/office";
 import type { ProcessInfo, ProcessProbe } from "../../src/platform/process";
@@ -24,6 +33,15 @@ import {
   runTempOwner,
   type RunOutcomesPort,
 } from "../../src/run";
+import {
+  prepareRunTempDirs,
+  prepareShortTempDir,
+  readShortTempRun,
+  removeShortTempDir,
+  SHORT_TEMP_MAX_BYTES,
+  SHORT_TEMP_RUN_FILE,
+  shortTempDir,
+} from "../../src/run/temp-dirs";
 import { recordWorkerHost } from "../../src/runs/worker-hosts";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
@@ -303,6 +321,147 @@ describe("the sweep at daemon start (recovery)", () => {
       expect(closed.owner()).toBeUndefined();
       expect(await closed.sweep("recovery")).toEqual([]);
       expect(existsSync(tmpDir)).toBe(true);
+    }));
+});
+
+/** Both temp directories of `run`, as a launch makes them (DIPO-118). */
+function makeBoth(tmpRoot: string, run: string, owner?: string): [string, string] {
+  const paths = { tmpDir: runTempDir(tmpRoot, run), shortTmpDir: shortTempDir(tmpRoot, run) };
+  prepareRunTempDirs(paths, run, owner);
+  writeFileSync(join(paths.shortTmpDir, "test.sock"), "");
+  return [paths.tmpDir, paths.shortTmpDir];
+}
+
+describe("the short temp root (DIPO-118)", () => {
+  const RUN = "run_01JA2B3C4D5E6F7G8H9J0K1M2N";
+
+  it("is at most 37 bytes on macOS and Linux, whatever the run id's length", () => {
+    expect(SHORT_TEMP_MAX_BYTES).toBe(MAX_TEMP_ROOT_BYTES);
+    for (const run of [RUN, "r", "x".repeat(128)]) {
+      expect(Buffer.byteLength(shortTempDir("/private/tmp", run))).toBe(30);
+      expect(Buffer.byteLength(shortTempDir("/tmp", run))).toBe(22);
+    }
+    // The daemon's default temp root, after symlinks, on this machine.
+    const real = shortTempDir(realpathSync("/tmp"), RUN);
+    expect(Buffer.byteLength(real)).toBeLessThanOrEqual(MAX_TEMP_ROOT_BYTES);
+    expect(shortTempDir("/tmp", RUN)).toMatch(/^\/tmp\/dipo-t-[0-9a-f]{10}$/);
+    expect(shortTempDir("/tmp", RUN)).not.toBe(shortTempDir("/tmp", `${RUN}X`));
+  });
+
+  it("is made 0700 with its run file and owner file, and reused for the same run", () =>
+    withTempDir((dir) => {
+      const short = shortTempDir(dir, RUN);
+      prepareShortTempDir(short, RUN, "owner-a");
+      expect(statSync(short).mode & 0o777).toBe(0o700);
+      expect(readShortTempRun(short)).toBe(RUN);
+      expect(readRunTempOwner(short)).toBe("owner-a");
+      writeFileSync(join(short, "keep"), "x");
+      prepareShortTempDir(short, RUN, "owner-a");
+      expect(existsSync(join(short, "keep"))).toBe(true);
+    }));
+
+  it("refuses a link, another run's root with the same name and another uid's directory", () =>
+    withTempDir((dir) => {
+      const target = join(dir, "target");
+      mkdirSync(target);
+      const linked = shortTempDir(dir, "run_link");
+      symlinkSync(target, linked);
+      expect(() => prepareShortTempDir(linked, "run_link", undefined)).toThrow(/not a directory/);
+      expect(existsSync(join(target, SHORT_TEMP_RUN_FILE))).toBe(false);
+
+      // Another run's root at this run's path (a hash shared by two run ids).
+      const shared = shortTempDir(dir, RUN);
+      prepareShortTempDir(shared, "run_other", undefined);
+      expect(() => prepareShortTempDir(shared, RUN, undefined)).toThrow(/belongs to run run_other/);
+      expect(removeShortTempDir(dir, RUN)).toBe(false);
+      expect(existsSync(shared)).toBe(true);
+
+      const owned = shortTempDir(dir, "run_mine");
+      const other = (process.getuid?.() ?? 0) + 1;
+      mkdirSync(owned, { mode: 0o700 });
+      expect(() => prepareShortTempDir(owned, "run_mine", undefined, other)).toThrow(
+        /not a directory/,
+      );
+    }));
+
+  it("replaces a link at the run file instead of writing through it", () =>
+    withTempDir((dir) => {
+      const victim = join(dir, "victim");
+      writeFileSync(victim, "precious\n");
+      const short = shortTempDir(dir, RUN);
+      mkdirSync(short, { mode: 0o700 });
+      symlinkSync(victim, join(short, SHORT_TEMP_RUN_FILE));
+      expect(readShortTempRun(short)).toBeNull();
+      prepareShortTempDir(short, RUN, undefined);
+      expect(readFileSync(victim, "utf8")).toBe("precious\n");
+      expect(readShortTempRun(short)).toBe(RUN);
+    }));
+
+  it("goes with the run temp directory once the run ended and its hosts exited", () =>
+    withTempDir(async (dir) => {
+      const f = await fixture(dir);
+      const ended = f.run({ endedAt: 1 });
+      f.host(ended, true);
+      const live = f.run();
+      f.claim(live, false);
+      f.host(live, false);
+      const endedDirs = makeBoth(f.tmpRoot, ended);
+      const liveDirs = makeBoth(f.tmpRoot, live);
+
+      expect((await f.dirs(ALIVE).sweep("ended")).toSorted()).toEqual(endedDirs.toSorted());
+      for (const path of endedDirs) expect(existsSync(path)).toBe(false);
+      for (const path of liveDirs) expect(existsSync(path)).toBe(true);
+    }));
+
+  it("goes alone when its run temp directory is already gone, mapped by its run file", () =>
+    withTempDir(async (dir) => {
+      const f = await fixture(dir);
+      const ended = f.run({ endedAt: 1 });
+      f.host(ended, true);
+      const short = shortTempDir(f.tmpRoot, ended);
+      prepareShortTempDir(short, ended, undefined);
+
+      expect(await f.dirs().sweep("ended")).toEqual([short]);
+      expect(existsSync(short)).toBe(false);
+    }));
+
+  it("stays when its run file is missing, names a run with another hash, or it is a link", () =>
+    withTempDir(async (dir) => {
+      const f = await fixture(dir);
+      const ended = f.run({ endedAt: 1 });
+      f.host(ended, true);
+      const owner = f.dirs().owner();
+      // Named for one run, its run file naming another (ended) run: not that run's.
+      const misnamed = shortTempDir(f.tmpRoot, "run_01SOMEONE");
+      prepareShortTempDir(misnamed, ended, owner);
+      // No run file: nothing maps it to a run by itself.
+      const unnamed = shortTempDir(f.tmpRoot, "run_01NOFILE");
+      mkdirSync(unnamed, { mode: 0o700 });
+      // A link named like a short temp root, to a directory whose run file names the ended run.
+      const target = join(dir, "target");
+      prepareShortTempDir(target, ended, owner);
+      const linked = shortTempDir(f.tmpRoot, ended);
+      symlinkSync(target, linked);
+
+      expect(await f.dirs().sweep("recovery")).toEqual([]);
+      for (const path of [misnamed, unnamed, linked, target]) expect(existsSync(path)).toBe(true);
+    }));
+
+  it("goes at daemon start for an unknown run only when its own owner file names this database", () =>
+    withTempDir(async (dir) => {
+      const f = await fixture(dir);
+      const dirs = f.dirs();
+      const owner = dirs.owner();
+      const mine = makeBoth(f.tmpRoot, "run_01MINE", owner);
+      const foreign = makeBoth(f.tmpRoot, "run_01FOREIGN", "another-daemon");
+      const unowned = makeBoth(f.tmpRoot, "run_01NOOWNER");
+      // The run temp directory went before; the short temp root of this daemon's run remains.
+      const leftover = shortTempDir(f.tmpRoot, "run_01LEFTOVER");
+      prepareShortTempDir(leftover, "run_01LEFTOVER", owner);
+
+      expect(await dirs.sweep("ended")).toEqual([]);
+      expect((await dirs.sweep("recovery")).toSorted()).toEqual([...mine, leftover].toSorted());
+      for (const path of [...foreign, ...unowned]) expect(existsSync(path)).toBe(true);
     }));
 });
 

@@ -47,6 +47,7 @@
     "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
     "DIPO_RUN": "run-0001",
     "DIPO_HOST_SOCKET": "/home/maintainer/.dipo/run/hosts/run-0001.sock",
+    "DIPO_TMP": "/private/tmp/dipo-t-0123456789",
     "npm_config_logs_dir": "/tmp/claude-501/npm-logs"
   },
   "cwd": "/home/maintainer/code/shop.worktrees/DIPO-999",
@@ -149,7 +150,11 @@
       "failIfUnavailable": true,
       "allowUnsandboxedCommands": false,
       "filesystem": {
-        "allowWrite": ["/home/maintainer/code/shop.worktrees/DIPO-999", "/tmp/claude-501"],
+        "allowWrite": [
+          "/home/maintainer/code/shop.worktrees/DIPO-999",
+          "/tmp/claude-501",
+          "/private/tmp/dipo-t-0123456789"
+        ],
         "denyRead": ["/home/maintainer/Library/Keychains"],
         "denyWrite": [
           "/home/maintainer/code/shop/.git",
@@ -168,7 +173,8 @@
       "network": {
         "allowedDomains": [],
         "strictAllowlist": true,
-        "allowLocalBinding": false
+        "allowLocalBinding": false,
+        "allowUnixSockets": ["/private/tmp/dipo-t-0123456789"]
       },
       "credentials": {
         "files": [
