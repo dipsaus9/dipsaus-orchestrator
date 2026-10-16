@@ -4,7 +4,7 @@ title: Keep the worker PATH order when the shell runs as a login shell
 status: To Do
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 13:19'
+updated_date: '2026-10-16 13:20'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -40,5 +40,5 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 In a zsh login shell started through the plan's init, the planned PATH order is restored after /etc/zprofile runs, through a login-only hook; non-login shells keep DIPO-103's ZDOTDIR=/dev/null behaviour
 - [ ] #2 The bash variant restores the planned PATH after its login files run in the same way
-- [ ] #3 A macOS test (skipped on other platforms) shows the planned PATH order in a zsh and a bash login shell, and unit tests cover the generated zsh and bash init
+- [ ] #3 A macOS test (skipped on other platforms) in a plain *.test.ts file, not *.ci.test.ts, so the local verify on macOS runs it, shows the planned PATH order in a zsh and a bash login shell; unit tests cover the generated zsh and bash init
 <!-- AC:END -->
