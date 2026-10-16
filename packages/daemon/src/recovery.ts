@@ -254,7 +254,10 @@ export function databaseFailure(error: unknown, stateDir: string): DatabaseFailu
  * Whether the next open must run quick_check after a failed open (DIPO-111): always after damage,
  * and after a failure that came before the check could pass (a network filesystem or any other
  * open failure) when this open had to check. A too-new database, a failed or an edited migration
- * fail after quick_check passed, so they clear it; without a check they leave it unset.
+ * fail after quick_check passed, so they clear it; without a check they leave it unset. The rule is
+ * deliberately conservative: any other open failure while a check was due keeps the flag, even when
+ * quick_check may have run and passed, because the open cannot tell; one extra check at the next
+ * start costs little.
  */
 export function needsCheckAfter(reason: string, checked: boolean): boolean {
   if (reason === "damaged") return true;
