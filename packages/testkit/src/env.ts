@@ -1,5 +1,9 @@
 // Tests run with a cleaned environment: no ANTHROPIC_*, CLAUDE_* or GH_* variables
-// (0017 section 3), so no test can reach Claude or GitHub with the maintainer's credentials.
+// (0017 section 3), so no test can reach Claude or GitHub with the maintainer's credentials. A
+// daemon a test starts as a process also gets its state, runtime and temp directories under the
+// test's temp directory (DIPO-109).
+
+import { isolatedDaemonEnv } from "./runtime";
 
 export const REMOVED_ENV_PREFIXES = ["ANTHROPIC_", "CLAUDE_", "GH_"] as const;
 
@@ -16,6 +20,22 @@ export function cleanEnv(
     if (value !== undefined && !isRemovedEnvName(name)) env[name] = value;
   }
   return env;
+}
+
+/**
+ * The environment of a `dipo daemon` process a test starts in `dir`: `cleanEnv(source)` without
+ * `BUN_OPTIONS` and `DIPO_LOG`, with `isolatedDaemonEnv(dir)` on top. Every runtime directory
+ * candidate is then under `dir` except the daemon's last one, `/tmp/dipo-<uid>`, which
+ * `withDaemonTempDir` and `assertTestRuntimeDir` fail on.
+ */
+export function daemonTestEnv(
+  dir: string,
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> {
+  const env = cleanEnv(source);
+  delete env["BUN_OPTIONS"];
+  delete env["DIPO_LOG"];
+  return { ...env, ...isolatedDaemonEnv(dir) };
 }
 
 /**

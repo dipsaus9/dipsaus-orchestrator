@@ -1,8 +1,15 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { tempRoot, withTempDir } from "./temp";
+import {
+  longestTestSocketBytes,
+  MAX_TEMP_ROOT_BYTES,
+  RUNTIME_PATH_LIMIT,
+  testRuntimeDir,
+  testStateDir,
+} from "./runtime";
+import { makeTempDir, tempRoot, withDaemonTempDir, withTempDir } from "./temp";
 
 /** Runs `fn` with one environment variable set or unset, restoring it afterwards. */
 async function withEnv<T>(name: string, value: string | undefined, fn: () => Promise<T>) {
@@ -68,5 +75,85 @@ describe("withTempDir", () => {
       // The kept directory sits inside `outer`, which this test's own withTempDir removes.
       expect(existsSync(kept)).toBe(true);
     });
+  });
+});
+
+/** A directory under `outer` whose path is `bytes` long, or null when `outer` is too long. */
+function rootOfLength(outer: string, bytes: number): string | null {
+  const pad = bytes - Buffer.byteLength(outer) - 1;
+  return pad >= 1 ? join(outer, "r".repeat(pad)) : null;
+}
+
+describe("the temp root limit (DIPO-109)", () => {
+  it("refuses a DIPO_TMP too long for a test daemon's socket paths, naming the limit", async () => {
+    await withTempDir(async (outer) => {
+      const long = join(outer, "x".repeat(MAX_TEMP_ROOT_BYTES));
+      await withEnv("DIPO_TMP", long, async () => {
+        expect(() => tempRoot()).toThrow(
+          `over the ${RUNTIME_PATH_LIMIT}-byte Unix socket path limit`,
+        );
+        expect(() => makeTempDir()).toThrow(`at most ${MAX_TEMP_ROOT_BYTES} bytes`);
+        await expect(withTempDir(() => "never runs")).rejects.toThrow(`DIPO_TMP ${long}`);
+      });
+    });
+  });
+
+  it("accepts a temp root of exactly the longest length, and refuses one byte more", async () => {
+    await withTempDir(async (outer) => {
+      const atLimit = rootOfLength(outer, MAX_TEMP_ROOT_BYTES);
+      const over = rootOfLength(outer, MAX_TEMP_ROOT_BYTES + 1);
+      // Only when this suite's own temp root leaves room for the padding.
+      if (atLimit === null || over === null) return;
+      await withEnv("DIPO_TMP", atLimit, async () => {
+        expect(longestTestSocketBytes(makeTempDir())).toBe(RUNTIME_PATH_LIMIT);
+      });
+      await withEnv("DIPO_TMP", over, async () => {
+        expect(() => makeTempDir()).toThrow(`${RUNTIME_PATH_LIMIT + 1} bytes`);
+      });
+    });
+  });
+
+  it("measures the temp root after symlinks", async () => {
+    await withTempDir(async (outer) => {
+      const target = join(outer, "t".repeat(MAX_TEMP_ROOT_BYTES));
+      mkdirSync(target);
+      const link = join(outer, "l");
+      symlinkSync(target, link);
+      await withEnv("DIPO_TMP", link, async () => {
+        expect(() => tempRoot()).toThrow(`(${target})`);
+      });
+    });
+  });
+});
+
+/** Writes a daemon log in `dir` that names `path` and `source` as the chosen runtime directory. */
+function writeLog(dir: string, path: string, source: string): void {
+  mkdirSync(join(testStateDir(dir), "logs"), { recursive: true });
+  writeFileSync(
+    join(testStateDir(dir), "logs", "daemon.log"),
+    `${JSON.stringify({ msg: "runtime directory chosen", path, source })}\n`,
+  );
+}
+
+describe("withDaemonTempDir", () => {
+  it("passes when the daemon log names its DIPO_RUNTIME_DIR, or no choice at all", async () => {
+    expect(await withDaemonTempDir(() => "no daemon")).toBe("no daemon");
+    const seen = await withDaemonTempDir((dir) => {
+      writeLog(dir, testRuntimeDir(dir), "DIPO_RUNTIME_DIR");
+      return dir;
+    });
+    expect(existsSync(seen)).toBe(false);
+  });
+
+  it("fails when the daemon chose another runtime directory, also after a failed body", async () => {
+    await expect(withDaemonTempDir((dir) => writeLog(dir, "/tmp/dipo-501", "tmp"))).rejects.toThrow(
+      "a test daemon chose runtime directory /tmp/dipo-501 (source tmp)",
+    );
+    await expect(
+      withDaemonTempDir((dir) => {
+        writeLog(dir, "/tmp/dipo-501", "tmp");
+        throw new Error("the test body failed");
+      }),
+    ).rejects.toThrow("(source tmp)");
   });
 });
