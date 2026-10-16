@@ -21,6 +21,7 @@ import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { systemClock } from "../../src/platform/clock";
 import { handleGateConnection } from "../../src/platform/safe-chain-gate";
 import {
+  endQuietly,
   ensureProxyRoot,
   proxyCheckProblem,
   sweepSafeChainProxies,
@@ -38,9 +39,37 @@ import {
   workerCacheEnv,
   workerCaEnv,
 } from "../../src/sandbox/safe-chain-proxy";
+import { watchRejections } from "../platform/rejections";
 
 const DIR = "/private/tmp/dipo-p/abc123";
 const LAYOUT = safeChainProxyLayout(DIR);
+
+describe("(unit) closing the gate's stdin (DIPO-117)", () => {
+  it("leaves no unhandled rejection when end() rejects, and no throw when it throws", async () => {
+    const watch = watchRejections();
+    let ends = 0;
+    endQuietly({
+      end: () => {
+        ends++;
+        return Promise.reject(new Error("the gate exited"));
+      },
+    });
+    endQuietly({
+      end: () => {
+        ends++;
+        throw new Error("already closed");
+      },
+    });
+    endQuietly({
+      end: () => {
+        ends++;
+        return 0;
+      },
+    });
+    expect(ends).toBe(3);
+    expect(await watch.stop()).toEqual([]);
+  });
+});
 
 describe("(unit) the gate's rule", () => {
   it("passes only CONNECT to a registry Safe-Chain checks, on 443", () => {
