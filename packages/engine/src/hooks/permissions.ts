@@ -16,6 +16,10 @@
 // never names a CLI field. A worker's exit closes its open questions (`ended`), and an office load
 // closes the ones a previous daemon left (`expired`): their hook calls were already answered by the
 // host with no decision.
+//
+// The timeout's own writes run in a timer, outside any command: a database error there is logged
+// once with its error code and the deny is still sent; a question that could not be closed stays
+// open until the next office load expires it (DIPO-119).
 
 import {
   type Clock,
@@ -30,7 +34,7 @@ import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
-import { background } from "../platform/background";
+import { background, failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
@@ -328,9 +332,27 @@ export class PermissionAsks {
   #timeout(officeId: OfficeId, questionId: string, seconds: number): void {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return;
-    const question = findQuestion(office, questionId);
+    let question: StoredQuestion | null;
+    try {
+      question = findQuestion(office, questionId);
+    } catch (error) {
+      // Without the question its hook is unknown; the host gives no decision when its wait ends.
+      this.#deps.warn?.("reading a timed-out permission question failed", {
+        question: questionId,
+        ...failureFields(error),
+      });
+      return;
+    }
     if (question === null || question.closedAt !== null || question.hook === null) return;
-    this.#close(office, [question], "timeout");
+    try {
+      this.#close(office, [question], "timeout");
+    } catch (error) {
+      this.#deps.warn?.("closing a timed-out permission question failed", {
+        question: questionId,
+        run: question.runId,
+        ...failureFields(error),
+      });
+    }
     this.#reply(
       office,
       question.runId as RunId,

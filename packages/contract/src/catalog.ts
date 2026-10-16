@@ -24,7 +24,12 @@ import {
   ServerFrame,
   SubscribeResult,
 } from "./envelope";
-import { ContractUnsupportedDetails, EngineError, StreamResetRequiredDetails } from "./errors";
+import {
+  ContractUnsupportedDetails,
+  DatabaseUnavailableDetails,
+  EngineError,
+  StreamResetRequiredDetails,
+} from "./errors";
 import {
   AgentId,
   Cursor,
@@ -124,6 +129,7 @@ const sharedSchemas: Record<string, z.ZodType> = {
   EngineError,
   ContractUnsupportedDetails,
   StreamResetRequiredDetails,
+  DatabaseUnavailableDetails,
   DaemonState,
   OfficeSummary,
   CommandRequest,

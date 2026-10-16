@@ -65,3 +65,41 @@ describe("lifecycleGate", () => {
     });
   }
 });
+
+function unavailable(): DaemonLifecycle {
+  const lifecycle = lifecycleIn("recovering");
+  lifecycle.holdUnavailable({
+    details: { reason: "tooNew" },
+    text: "The state database is newer. No office is loaded. Upgrade dipo.",
+  });
+  return lifecycle;
+}
+
+describe("lifecycleGate with an unavailable state database (DIPO-111)", () => {
+  it("refuses office commands, software commands and reads with the non-retryable code", () => {
+    const lifecycle = unavailable();
+    for (const [kind, name] of [
+      ["command", "work.pause"],
+      ["command", "work.run"],
+      ["command", "office.open"],
+      ["command", "office.forget"],
+      ["read", "office.snapshot"],
+      ["read", "story.detail"],
+    ] as const) {
+      expect(lifecycleGate(lifecycle, kind, name)).toMatchObject({
+        code: "database.unavailable",
+        retryable: false,
+        details: { reason: "tooNew" },
+      });
+    }
+  });
+
+  it("serves the handshake, commands.describe and daemon.*", () => {
+    const lifecycle = unavailable();
+    expect(lifecycleGate(lifecycle, "read", "engine.hello")).toBeNull();
+    expect(lifecycleGate(lifecycle, "read", "commands.describe")).toBeNull();
+    expect(lifecycleGate(lifecycle, "read", "daemon.status")).toBeNull();
+    expect(lifecycleGate(lifecycle, "command", "daemon.stop")).toBeNull();
+    expect(lifecycleGate(lifecycle, "command", "daemon.setLogLevel")).toBeNull();
+  });
+});

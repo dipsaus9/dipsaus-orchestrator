@@ -1,6 +1,7 @@
 // The `OfficeStore` (DIPO-53, 0009 sections 2 and 7): snapshot then events by subject, duplicate
 // cursors dropped, views replaced and never derived, `stream.resetRequired` reloads once, and
-// `office.switch` replaces the office and its stream.
+// `office.switch` replaces the office and its stream. A read refused with `engine.recovering` is
+// sent again on a timer, so a daemon held without its state database ends it (DIPO-111).
 
 import { describe, expect, it } from "bun:test";
 
@@ -21,6 +22,7 @@ import {
   cursorReached,
   type HelloResult,
   OfficeStore,
+  RECOVERY_POLL_MS,
   RELOADED_NOTICE,
 } from "../../src/index";
 import { FakeStoreClient, settle } from "./fake-store-client";
@@ -383,6 +385,70 @@ describe("OfficeStore", () => {
     );
     await settle();
     expect(store.state.office).toBe(B);
+  });
+
+  it("ends a read sent during recovery with database.unavailable from a held daemon", async () => {
+    const { client, clock, store } = await setup();
+    const unavailable = {
+      code: "database.unavailable",
+      message: "The state database is damaged. No office is loaded.",
+      retryable: false,
+      details: { reason: "damaged" },
+    };
+    let refusals = 2;
+    let sent = 0;
+    client.answers.set("office.switch", () => {
+      sent += 1;
+      return refusals-- > 0
+        ? { ok: false, error: { code: "engine.recovering", message: "wait", retryable: true } }
+        : { ok: false, error: unavailable };
+    });
+    await store.switchTo(B);
+    expect(store.state.error?.code).toBe("engine.recovering");
+    // No daemon.state ever comes: the daemon stays in recovering. The store asks again on a timer.
+    for (let i = 0; i < 2; i++) {
+      clock.advance(RECOVERY_POLL_MS);
+      await settle();
+    }
+    expect(sent).toBe(3);
+    expect(store.state.error).toEqual(unavailable);
+    expect(store.state.office).toBe(A);
+    expect(clock.pendingTimers).toBe(0);
+  });
+
+  it("retries on the timer without flipping loading, and publishes only a changed error", async () => {
+    const { client, clock, store } = await setup();
+    const recovering = { code: "engine.recovering", message: "wait", retryable: true };
+    const unavailable = { code: "database.unavailable", message: "held", retryable: false };
+    let answer: { code: string; message: string; retryable: boolean } = recovering;
+    client.answers.set("office.switch", () => ({ ok: false, error: answer }));
+    await store.switchTo(B);
+    expect(store.state).toMatchObject({ loading: false, error: recovering });
+    const seen: { loading: boolean; error: unknown }[] = [];
+    store.subscribe(() => seen.push({ loading: store.state.loading, error: store.state.error }));
+    for (let i = 0; i < 4; i++) {
+      clock.advance(RECOVERY_POLL_MS);
+      await settle();
+    }
+    // Four timed retries with the same answer: no change published, loading never set.
+    expect(seen).toEqual([]);
+    answer = unavailable;
+    clock.advance(RECOVERY_POLL_MS);
+    await settle();
+    expect(seen).toEqual([{ loading: false, error: unavailable }]);
+    expect(clock.pendingTimers).toBe(0);
+  });
+
+  it("stops asking again once closed", async () => {
+    const { client, clock, store } = await setup();
+    client.answers.set("office.switch", () => ({
+      ok: false,
+      error: { code: "engine.recovering", message: "wait", retryable: true },
+    }));
+    await store.switchTo(B);
+    expect(clock.pendingTimers).toBe(1);
+    store.close();
+    expect(clock.pendingTimers).toBe(0);
   });
 
   it("turns a read the closed client refuses into an outcome, never a rejection", async () => {

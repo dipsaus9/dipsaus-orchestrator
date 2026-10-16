@@ -1,10 +1,10 @@
 ---
 id: DIPO-119
 title: Guard the remaining background jobs and timer writes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 11:06'
-updated_date: '2026-10-16 11:11'
+updated_date: '2026-10-16 11:37'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -30,7 +30,13 @@ Context: the DIPO-110 review found packages/engine/src/backup/scheduler.ts runs 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The backup scheduler's check runs through background() with the re-arm in settled; a test with a throwing dependency (database(), backupDue() or a file-system read) shows one logged failure and the timer re-armed.
-- [ ] #2 The sync writes in act() and the PermissionAsks timer are guarded and logged once with their errorCode. A failed recordIntent sends no ops and act returns false (0008: an op is stored as an intent before it is sent). When #close fails in the timeout, the deny reply is still sent and the failure is logged.
-- [ ] #3 Tests make the act() and timer writes fail through a SQLite trigger and show no unhandled rejection or uncaught exception, one logged failure, and the component still working.
+- [x] #1 The backup scheduler's check runs through background() with the re-arm in settled; a test with a throwing dependency (database(), backupDue() or a file-system read) shows one logged failure and the timer re-armed.
+- [x] #2 The sync writes in act() and the PermissionAsks timer are guarded and logged once with their errorCode. A failed recordIntent sends no ops and act returns false (0008: an op is stored as an intent before it is sent). When #close fails in the timeout, the deny reply is still sent and the failure is logged.
+- [x] #3 Tests make the act() and timer writes fail through a SQLite trigger and show no unhandled rejection or uncaught exception, one logged failure, and the component still working.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Backup scheduler timer check runs through background() with the re-arm in settled. RunControl.act guards recordIntent: on failure it logs 'storing a run's decision failed' with errorCode, sends no ops, keeps the cap tick and returns false. PermissionAsks timeout guards findQuestion and #close: a failed close is logged once with errorCode and the deny is still sent; the question stays open until the next office load expires it. Tests: SQLite triggers on run_intents and questions, a throwing database() for the scheduler. bun run verify green; DIPO_TEST_CI=1 run/hooks/backup tests green. No live runs.
+<!-- SECTION:NOTES:END -->
