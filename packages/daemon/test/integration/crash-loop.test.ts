@@ -4,6 +4,7 @@
 // shutdown signal, so no real signal or timer is involved.
 
 import { describe, expect, it } from "bun:test";
+import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -138,6 +139,8 @@ function startInProcess(dir: string, clock: ManualClock) {
       signal = handler;
       return () => {};
     },
+    // No listener for uncaught errors on the test runner's own process (DIPO-117).
+    uncaughtErrors: new EventEmitter(),
   });
   const messages = () =>
     lines.flatMap((line) => {

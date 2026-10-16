@@ -107,7 +107,7 @@ import {
 import { controlFeature, emitDaemonStates } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
-import { noOrphansActive, type DaemonIo } from "./io";
+import { noOrphansActive, type DaemonIo, type UncaughtEvent, type UncaughtSource } from "./io";
 import { DATABASE_UNAVAILABLE, DaemonLifecycle } from "./lifecycle";
 import {
   databaseFailure,
@@ -147,21 +147,10 @@ export interface ForegroundOptions {
   readonly supervisorSpawn?: Spawn;
   /** This process's parent PID, for the launchd bootout check; tests stand in for launchd (1). */
   readonly parentPid?: number;
-  /** Where errors no code caught arrive (DIPO-117); `process` by default, tests pass a fake. */
-  readonly uncaughtErrors?: UncaughtSource;
 }
 
 /** The drain reason after an error no code caught (DIPO-117). */
 export const UNCAUGHT_REASON = "uncaught error";
-
-/** The process events of an error no code caught. */
-export type UncaughtEvent = "unhandledRejection" | "uncaughtException";
-
-/** Where the daemon hears of errors no code caught; tests pass a fake. */
-export interface UncaughtSource {
-  on(event: UncaughtEvent, listener: (error: unknown) => void): unknown;
-  off(event: UncaughtEvent, listener: (error: unknown) => void): unknown;
-}
 
 const UNCAUGHT_MESSAGES: Readonly<Record<UncaughtEvent, string>> = {
   unhandledRejection: "an unhandled rejection reached the daemon",
@@ -300,7 +289,7 @@ export async function runForeground(
   });
   // An error no code caught (DIPO-117) drains the daemon and makes its exit a crash: the crash
   // marker stays and the exit code is 1, so the crash loop counts it (0006 decision 7).
-  const removeUncaught = onUncaughtErrors(logger, () => stops.crash(), options.uncaughtErrors);
+  const removeUncaught = onUncaughtErrors(logger, () => stops.crash(), io.uncaughtErrors);
   try {
     // Software-level settings (0006 amendment of 2026-10-12), read once at start. An invalid or
     // newer file stops the start: the daemon never guesses its own settings (0017 section 5). It
@@ -348,7 +337,9 @@ export async function runForeground(
       stops,
       options,
     });
-    // Also an error no code caught after the drain, while the daemon closed down, is a crash.
+    // Only an error no code caught in this process turns an exit 0 into 1 (DIPO-117): one that came
+    // while the daemon closed down after its drain, or one in a start that then found another daemon
+    // running. Without such an error, that start still exits 0, so a supervisor does not restart it.
     return code === 0 && stops.crashed ? 1 : code;
   } catch (error) {
     logger.error("daemon failed", { error });

@@ -8,7 +8,8 @@ import { EventEmitter } from "node:events";
 import { createLogger } from "@dipsaus-orchestrator/engine";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { onUncaughtErrors, type UncaughtEvent } from "../../src/foreground";
+import { onUncaughtErrors } from "../../src/foreground";
+import type { UncaughtEvent } from "../../src/io";
 
 function logged(): { lines: Record<string, unknown>[]; logger: ReturnType<typeof createLogger> } {
   const lines: Record<string, unknown>[] = [];
