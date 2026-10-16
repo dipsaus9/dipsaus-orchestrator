@@ -1,9 +1,10 @@
 ---
 id: DIPO-101
 title: Give the agents table an adapter-neutral version column
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-16 07:34'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -12,6 +13,8 @@ references:
   - packages/engine/src/db/migrations/
   - packages/engine/src/ingest/ingestor.ts
   - packages/engine/src/run/resume.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/test/
 priority: low
 type: feature
 ordinal: 91000
@@ -27,7 +30,7 @@ Context: the agents table has claude_code_version (packages/engine/src/db/migrat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A migration adds adapter_version (copied from claude_code_version, or a rename) and engine code reads and writes only the neutral name.
-- [ ] #2 The Claude adapter still maps claude_code_version from stream-json to the neutral field; no engine file outside workers/claude-cli names claude_code_version.
-- [ ] #3 Migration and resume tests pass with the neutral column.
+- [x] #1 A migration adds adapter_version (copied from claude_code_version, or a rename) and engine code reads and writes only the neutral name.
+- [x] #2 The Claude adapter still maps claude_code_version from stream-json to the neutral field; no engine file outside workers/claude-cli names claude_code_version.
+- [x] #3 Migration and resume tests pass with the neutral column.
 <!-- AC:END -->

@@ -60,7 +60,14 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import type { WorkerPort } from "../../src/workers/port";
-import type { Caps, HostOp, ParseState, WorkerAdapter } from "../../src/workers/types";
+import type {
+  Caps,
+  HostOp,
+  ParseState,
+  ResumeCheck,
+  SessionRef,
+  WorkerAdapter,
+} from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import {
   appendLines,
@@ -753,6 +760,7 @@ function realResumer(
       "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace"
     >
   > = {},
+  canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
 ): RunResumer {
   const worker: WorkerPort = {
     id: "claude-cli",
@@ -760,7 +768,7 @@ function realResumer(
       ({
         id: "claude-cli",
         probe: async () => ({ version: "2.1.0" }),
-        canResume: () => ({ ok: true }),
+        canResume,
         interpret: claude.interpret,
       }) as unknown as WorkerAdapter,
     prepare: async () => ({
@@ -932,6 +940,53 @@ describe("restart windows of DIPO-51's review", () => {
       .map((event) => (event.data as { signal: string }).signal)
       .toSorted();
     expect(cleared).toEqual(["follow-only", "plan-limit"]);
+  });
+
+  it("the resume check gets the previous session's version from agents.adapter_version (DIPO-101)", async () => {
+    beforeRestart("terminated", 0);
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        `update agents set ended_at = 1, end_reason = 'exited', session_id = 'session-1',
+           adapter_version = '2.0.9'
+          where office_id = $office_id and agent_id = $agent`,
+        { agent: w.f.agent },
+      ),
+    );
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
+    const seen: (string | null)[] = [];
+    const resumer = realResumer(
+      {
+        start: async (office, options) => {
+          const host = {
+            pid: 4243,
+            startTimeMs: 0,
+            runId: options.runId,
+            agentId: options.agentId,
+            socketPath: join(w.dir, "host.sock"),
+            protocolVersion: 1,
+            runDir,
+            eventFile: join(runDir, "events.ndjson"),
+          };
+          recordWorkerHost(office, host, w.f.t.clock, {
+            ...(options.processedOffset === undefined
+              ? {}
+              : { processedOffset: options.processedOffset }),
+            ...(options.record === undefined ? {} : { record: options.record }),
+          });
+          return host;
+        },
+      },
+      { probe: async () => null },
+      (ref) => {
+        seen.push(ref.version);
+        return { ok: true };
+      },
+    );
+    const outcome = await resumer.next(nextRequest());
+    expect(outcome.kind).toBe("started");
+    expect(seen).toEqual(["2.0.9"]);
   });
 
   it("the next session waits for an earlier host of the run, then refuses with run.hostAlive (AC #5)", async () => {

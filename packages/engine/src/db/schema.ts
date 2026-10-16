@@ -29,6 +29,7 @@ import { exitSignalInferred } from "./migrations/0025-exit-signal-inferred";
 import { planLimitWarnings } from "./migrations/0026-plan-limit-warnings";
 import { reattachGaps } from "./migrations/0027-reattach-gaps";
 import { nudgeSources } from "./migrations/0028-nudge-sources";
+import { adapterVersion } from "./migrations/0029-adapter-version";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -93,4 +94,5 @@ create table offices (
   planLimitWarnings,
   reattachGaps,
   nudgeSources,
+  adapterVersion,
 ];

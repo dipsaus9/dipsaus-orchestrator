@@ -231,10 +231,10 @@ function lastVerifyOf(office: OfficeHandle, runId: RunId): LastVerify | null {
 function previousAgent(office: OfficeHandle, runId: string, agent: string): PreviousAgent {
   const row = office.get<{
     session_id: string | null;
-    claude_code_version: string | null;
+    adapter_version: string | null;
     system_hash: string | null;
   }>(
-    `select session_id, claude_code_version, system_hash from agents
+    `select session_id, adapter_version, system_hash from agents
       where office_id = $office_id and agent_id = $agent`,
     { agent },
   );
@@ -245,7 +245,7 @@ function previousAgent(office: OfficeHandle, runId: string, agent: string): Prev
   );
   return {
     sessionId: row?.session_id ?? null,
-    version: row?.claude_code_version ?? null,
+    version: row?.adapter_version ?? null,
     systemHash: row?.system_hash ?? null,
     state: cursor === null ? undefined : (JSON.parse(cursor.parse_state) as ParseState),
     lastLineAt: cursor?.updated_at ?? null,

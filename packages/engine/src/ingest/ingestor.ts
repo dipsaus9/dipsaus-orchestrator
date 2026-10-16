@@ -481,7 +481,7 @@ export class Ingestor {
               model = event.model;
               this.#office.run(
                 `update agents set model = $model, session_id = $session,
-                   claude_code_version = $version
+                   adapter_version = $version
                  where office_id = $office_id and agent_id = $agent`,
                 {
                   model: event.model,
