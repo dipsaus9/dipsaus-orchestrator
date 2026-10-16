@@ -1,10 +1,10 @@
 ---
 id: DIPO-106
 title: Store worker compactions as facts
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 18:39'
+updated_date: '2026-10-16 18:46'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -44,9 +44,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Ingestion stores each compacted event for the run and agent with preTokens and the time, once per compaction (a PostCompact and compact_boundary pair is one compaction).
-- [ ] #2 The per-run and per-agent usage stats give the compaction count and the latest preTokens.
-- [ ] #3 Tests cover a replayed recording with a compaction and the dedupe of the pair.
+- [x] #1 Ingestion stores each compacted event for the run and agent with preTokens and the time, once per compaction (a PostCompact and compact_boundary pair is one compaction).
+- [x] #2 The per-run and per-agent usage stats give the compaction count and the latest preTokens.
+- [x] #3 Tests cover a replayed recording with a compaction and the dedupe of the pair.
 <!-- AC:END -->
 
 ## Implementation Notes
