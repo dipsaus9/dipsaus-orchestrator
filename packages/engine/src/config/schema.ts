@@ -1,10 +1,18 @@
-// Version 1 of the office configuration (0017 section 5). The keys belong to the ADRs named next
-// to them; names no ADR sets are fixed by DIPO-26. Every key added later bumps `version` with a
-// migration (0017 amendment of 2026-10-12), so this file only changes together with a version 2.
+// The office configuration (0017 section 5). The keys belong to the ADRs named next to them;
+// names no ADR sets are fixed by DIPO-26. Every key added later bumps `version` with a migration
+// (0017 amendment of 2026-10-12): version 1 stays as it was, and each later version is the one
+// before plus its keys.
+//
+// Version 2 (DIPO-108) adds `worker.plugins` (0008 amendment of 2026-10-12): the plugins a worker
+// session may load, in the `<plugin>@<marketplace>` form Claude Code's `enabledPlugins` uses.
 
 import { z } from "zod";
 
-export const OFFICE_CONFIG_VERSION = 1;
+/** The newest office configuration version this binary knows. */
+export const OFFICE_CONFIG_VERSION = 2;
+/** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
+export const OFFICE_CONFIG_VERSIONS = [1, 2] as const;
+export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
 const text = () => z.string().min(1);
@@ -81,12 +89,20 @@ const retentionShape = {
   stateDays: count(),
 };
 
-const officeShape = {
+const workerShapeV1 = {
+  adapter: text(),
+  allowProjectSettings: z.array(text()),
+};
+
+// 0008 amendment of 2026-10-12: a plugin id as `enabledPlugins` names it, `<plugin>@<marketplace>`.
+const PluginId = text().regex(
+  /^[^@\s]+@[^@\s]+$/,
+  "must be <plugin>@<marketplace>, as enabledPlugins names it",
+);
+
+const officeShapeV1 = {
   tiers: z.strictObject({ S: TierCaps, M: TierCaps, L: TierCaps }),
-  worker: z.strictObject({
-    adapter: text(),
-    allowProjectSettings: z.array(text()),
-  }),
+  worker: z.strictObject(workerShapeV1),
   permissions: z.strictObject({
     ask: z.enum(["when-present", "never"]),
     presentMinutes: count(),
@@ -141,15 +157,37 @@ const officeShape = {
   }),
 };
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+// Version 2: version 1 plus `worker.plugins`.
+const officeShape = {
+  ...officeShapeV1,
+  worker: z.strictObject({
+    ...workerShapeV1,
+    plugins: z
+      .array(PluginId)
+      .describe(
+        "Plugins a worker session may load, as <plugin>@<marketplace> (0008 amendment of 2026-10-12). Every other installed plugin is switched off in the run settings, and a session whose system/init lists one refuses to start. A listed plugin brings its hooks, which run outside the sandbox, so listing one is reviewed like code.",
+      ),
+  }),
+};
+
+/** The effective configuration of an office, version 1 (kept to read version 1 files). */
 export const OfficeConfigV1 = z.strictObject({
+  version: z.literal(1),
+  ...officeShapeV1,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV2 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV1>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV2>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -179,33 +217,82 @@ function fileShape(shape: Record<string, z.ZodType>): Record<string, z.ZodType> 
 }
 
 export type OfficeOverrides = DeepPartial<Omit<OfficeConfig, "version" | "privacy" | "retention">>;
-export type OfficeFile = OfficeOverrides & { version: typeof OFFICE_CONFIG_VERSION };
-export type OfficeLocalFile = DeepPartial<
+export type OfficeFileOf<V extends OfficeConfigVersion> = OfficeOverrides & { version: V };
+export type OfficeFile = OfficeFileOf<typeof OFFICE_CONFIG_VERSION>;
+export type OfficeLocalFileOf<V extends OfficeConfigVersion> = DeepPartial<
   Pick<OfficeConfig, "timeouts" | "privacy" | "retention">
 > & {
-  version: typeof OFFICE_CONFIG_VERSION;
+  version: V;
+};
+export type OfficeLocalFile = OfficeLocalFileOf<typeof OFFICE_CONFIG_VERSION>;
+
+const localShape = {
+  timeouts: officeShapeV1.timeouts,
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
 };
 
 /** `.dipo/office.yaml`, version 1. `privacy` and `retention` are not accepted here. */
 export const OfficeFileV1 = z.strictObject({
+  version: z.literal(1),
+  ...fileShape(officeShapeV1),
+}) as unknown as z.ZodType<OfficeFileOf<1>>;
+
+/** `.dipo/office.yaml`, version 2: version 1 plus `worker.plugins`. */
+export const OfficeFileV2 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
 
 /** `.dipo/office.local.yaml`, version 1: only `timeouts`, `privacy` and `retention`. */
 export const OfficeLocalFileV1 = z.strictObject({
+  version: z.literal(1),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<1>>;
+
+/**
+ * `.dipo/office.local.yaml`, version 2: the same keys as version 1. The office files share one
+ * version number, so a local file may say 2 as soon as `office.yaml` does.
+ */
+export const OfficeLocalFileV2 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
-  ...fileShape({
-    timeouts: officeShape.timeouts,
-    privacy: z.strictObject(privacyShape),
-    retention: z.strictObject(retentionShape),
-  }),
+  ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 1 keys. */
 export const OfficeOverridesV1 = z.strictObject(
+  fileShape(officeShapeV1),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV2 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
+
+/** The file schemas of each version, for `resolveOfficeConfig`. */
+export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
+  1: OfficeFileV1,
+  2: OfficeFileV2,
+};
+export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
+  1: OfficeLocalFileV1,
+  2: OfficeLocalFileV2,
+};
+
+/**
+ * Pure: an office file's document of `version` migrated in memory to the newest version, one
+ * step at a time (0017 section 5, "Versioning and migration"). Version 1 to 2 is the identity
+ * (0017 amendment of 2026-10-12): `worker.plugins` is new and takes its default. Works for both
+ * office files; the document must already be valid for its own version.
+ */
+export function migrateOfficeDocument(
+  version: OfficeConfigVersion,
+  document: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  let current: Record<string, unknown> = { ...document, version };
+  if (current.version === 1) current = { ...current, version: 2 };
+  return current;
+}
 
 /** Keys that live only in `.dipo/office.local.yaml`. */
 export const LOCAL_ONLY_KEYS = ["privacy", "retention"] as const;
@@ -245,8 +332,9 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
       loops: 8,
     },
   },
-  // 0008 sections 2 and 5.
-  worker: { adapter: "claude-cli", allowProjectSettings: [] },
+  // 0008 sections 2 and 5; `plugins` empty: no plugin in a worker session (0008 amendment of
+  // 2026-10-12).
+  worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [] },
   permissions: { ask: "when-present", presentMinutes: 10 },
   // 0008, 0009 and 0013 section 1.
   timeouts: {

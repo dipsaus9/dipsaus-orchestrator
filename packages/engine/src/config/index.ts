@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { OfficeFileV1 } from "./schema";
+import { OfficeFileV2 } from "./schema";
 
 export {
   FLAGS_SOURCE,
@@ -18,20 +18,35 @@ export { loadSoftwareConfig, softwareConfigPath } from "./software";
 export {
   LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,
+  migrateOfficeDocument,
   OFFICE_CONFIG_VERSION,
+  OFFICE_CONFIG_VERSIONS,
   OFFICE_DEFAULTS,
   OfficeConfigV1,
+  OfficeConfigV2,
   OfficeFileV1,
+  OfficeFileV2,
   OfficeLocalFileV1,
+  OfficeLocalFileV2,
   OfficeOverridesV1,
+  OfficeOverridesV2,
   privacyOptIns,
 } from "./schema";
-export type { OfficeConfig, OfficeFile, OfficeLocalFile, OfficeOverrides } from "./schema";
+export type {
+  OfficeConfig,
+  OfficeConfigVersion,
+  OfficeFile,
+  OfficeLocalFile,
+  OfficeOverrides,
+} from "./schema";
 
-/** The JSON Schema of `.dipo/office.yaml`, for editor completion (0017 section 5). */
+/**
+ * The JSON Schema of `.dipo/office.yaml`, for editor completion (0017 section 5): the newest
+ * version. dipo still reads older versions and migrates them in memory.
+ */
 export function officeJsonSchema(): Record<string, unknown> {
   return {
-    ...(z.toJSONSchema(OfficeFileV1, { io: "input" }) as Record<string, unknown>),
+    ...(z.toJSONSchema(OfficeFileV2, { io: "input" }) as Record<string, unknown>),
     title: "dipo office configuration (.dipo/office.yaml)",
   };
 }

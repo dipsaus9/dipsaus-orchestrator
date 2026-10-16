@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 1
+      "const": 2
     },
     "tiers": {
       "type": "object",
@@ -127,6 +127,15 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^@\\s]+@[^@\\s]+$"
+          },
+          "description": "Plugins a worker session may load, as <plugin>@<marketplace> (0008 amendment of 2026-10-12). Every other installed plugin is switched off in the run settings, and a session whose system/init lists one refuses to start. A listed plugin brings its hooks, which run outside the sandbox, so listing one is reviewed like code."
         }
       },
       "additionalProperties": false

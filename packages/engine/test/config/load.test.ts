@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -144,7 +144,7 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 2\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 3\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -451,5 +451,69 @@ describe("loadOfficeConfig", () => {
         ".dipo/office.local.yaml: (top level): cannot read the file",
       );
     });
+  });
+});
+
+// Version 2 (DIPO-108, 0017 amendment of 2026-10-12): `worker.plugins`, identity migration from 1.
+function fixture(name: string): string {
+  return readFileSync(join(import.meta.dir, "fixtures", name), "utf8");
+}
+
+describe("office configuration version 2", () => {
+  it("loads a version 1 file migrated to version 2, the same as its version 2 form", () => {
+    const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
+    const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
+    expect(v1.config.version).toBe(2);
+    expect(v1.config.worker).toEqual({
+      adapter: "claude-cli",
+      allowProjectSettings: ["model"],
+      plugins: [],
+    });
+    expect(v1.config.remote).toBe("upstream");
+    expect(v1.config.tiers.S.budgetTokens).toBe(250_000);
+    expect(v1.config).toEqual(v2.config);
+    expect(v1.configHash).toBe(v2.configHash);
+  });
+
+  it("takes worker.plugins from a version 2 file", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 2\nworker: { plugins: [warp@claude-code-warp] }\n",
+      }),
+    );
+    expect(result.config.worker.plugins).toEqual(["warp@claude-code-warp"]);
+    expect(result.config.worker.adapter).toBe("claude-cli");
+  });
+
+  it("refuses worker.plugins in a version 1 file and says version 2 adds it", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 1\nworker: { plugins: [warp@claude-code-warp] }\n" }),
+    );
+    expect(error?.path).toBe("worker.plugins");
+    expect(error?.message).toContain("Version 2 adds worker.plugins: set version: 2");
+  });
+
+  it("refuses a plugin that is not <plugin>@<marketplace>", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 2\nworker: { plugins: [warp] }\n" }),
+    );
+    expect(error?.path).toBe("worker.plugins.0");
+    expect(error?.message).toContain("<plugin>@<marketplace>");
+  });
+
+  it("accepts a version 1 or 2 local file next to either office file", () => {
+    for (const [office, local] of [
+      ["version: 1\n", "version: 2\nretention: { shortDays: 3 }\n"],
+      ["version: 2\n", "version: 1\nretention: { shortDays: 3 }\n"],
+    ] as const) {
+      const result = ok(resolveOfficeConfig({ office, local }));
+      expect(result.config.version).toBe(2);
+      expect(result.config.retention.shortDays).toBe(3);
+    }
+  });
+
+  it("takes worker.plugins as a command flag override", () => {
+    const result = ok(resolveOfficeConfig({ flags: { worker: { plugins: ["a@b"] } } }));
+    expect(result.config.worker.plugins).toEqual(["a@b"]);
   });
 });

@@ -1,5 +1,6 @@
 // Loads an office's configuration (0017 section 5): parse each file as one YAML document, check
-// its version, validate it strictly, merge defaults < `.dipo/office.yaml` < allowed keys of
+// its version, validate it strictly against that version's schema, migrate it in memory to the
+// newest version (`migrateOfficeDocument`), merge defaults < `.dipo/office.yaml` < allowed keys of
 // `.dipo/office.local.yaml` < command flags, and hash the result. Errors are values, never thrown,
 // so the office (DIPO-27) can keep its previous configuration.
 
@@ -20,13 +21,15 @@ import { configHash, mergeLayer } from "./merge";
 import {
   LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,
+  migrateOfficeDocument,
   OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
-  OfficeConfigV1,
-  OfficeFileV1,
-  OfficeLocalFileV1,
-  OfficeOverridesV1,
+  OFFICE_FILE_SCHEMAS,
+  OFFICE_LOCAL_FILE_SCHEMAS,
+  OfficeConfigV2,
+  OfficeOverridesV2,
   type OfficeConfig,
+  type OfficeConfigVersion,
 } from "./schema";
 
 export const OFFICE_FILE = ".dipo/office.yaml";
@@ -60,34 +63,55 @@ export interface OfficeConfigSources {
 }
 
 // The contract's wording, except for an unknown top-level key in `office.local.yaml`, which
-// names the keys that file accepts.
+// names the keys that file accepts, and an unknown `worker` key in a version 1 file, which says
+// that version 2 adds `worker.plugins`.
 function issueErrors(
   file: string,
   schema: z.ZodType,
   input: unknown,
   issues: readonly z.core.$ZodIssue[],
+  version: OfficeConfigVersion = OFFICE_CONFIG_VERSION,
 ): ConfigError[] {
   return configIssueErrors(file, schema, input, issues, {
-    unknownKeyProblem: (parent) =>
-      file === OFFICE_LOCAL_FILE && parent.length === 0
-        ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`
-        : undefined,
+    unknownKeyProblem: (parent, expected) => {
+      if (file === OFFICE_LOCAL_FILE && parent.length === 0) {
+        return `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`;
+      }
+      if (version === 1 && parent.length === 1 && parent[0] === "worker") {
+        return `unknown key in version 1; expected ${expected}. Version 2 adds worker.plugins: set version: 2 to use it`;
+      }
+      return undefined;
+    },
   });
 }
 
 type Checked = { ok: true; value: Record<string, unknown> } | { ok: false; errors: ConfigError[] };
+type Read =
+  | { ok: true; value: Record<string, unknown>; version: OfficeConfigVersion }
+  | { ok: false; errors: ConfigError[] };
 
-function validate(file: string, schema: z.ZodType, input: unknown): Checked {
+function validate(
+  file: string,
+  schema: z.ZodType,
+  input: unknown,
+  version?: OfficeConfigVersion,
+): Checked {
   const parsed = schema.safeParse(input);
   if (parsed.success) return { ok: true, value: parsed.data as Record<string, unknown> };
-  return { ok: false, errors: issueErrors(file, schema, input, parsed.error.issues) };
+  return { ok: false, errors: issueErrors(file, schema, input, parsed.error.issues, version) };
 }
 
 // Parses one file and checks its version, the same way as software configuration. Returns the
-// mapping to validate.
-function readDocument(file: string, text: string): Checked {
+// mapping to validate and its version.
+function readDocument(file: string, text: string): Read {
   const checked = checkConfigDocument(file, parseYamlDocument(text), OFFICE_CONFIG_VERSION);
-  return checked.ok ? { ok: true, value: checked.document } : checked;
+  if (!checked.ok) return checked;
+  return { ok: true, value: checked.document, version: checked.version as OfficeConfigVersion };
+}
+
+// A file valid for its own version, migrated to the newest one, without `version`.
+function migrated(version: OfficeConfigVersion, value: Record<string, unknown>) {
+  return withoutVersion(migrateOfficeDocument(version, value));
 }
 
 // `privacy.*` and `retention.*` are machine-local (0007 amendment): in `office.yaml` each key is
@@ -133,8 +157,8 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
     } else {
       const { rest, errors: localOnly } = splitLocalOnly(read.value);
       errors.push(...localOnly);
-      const checked = validate(OFFICE_FILE, OfficeFileV1, rest);
-      if (checked.ok) layers.push(withoutVersion(checked.value));
+      const checked = validate(OFFICE_FILE, OFFICE_FILE_SCHEMAS[read.version], rest, read.version);
+      if (checked.ok) layers.push(migrated(read.version, checked.value));
       else errors.push(...checked.errors);
     }
   }
@@ -145,9 +169,14 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
     if (!read.ok) {
       errors.push(...read.errors);
     } else {
-      const checked = validate(OFFICE_LOCAL_FILE, OfficeLocalFileV1, read.value);
+      const checked = validate(
+        OFFICE_LOCAL_FILE,
+        OFFICE_LOCAL_FILE_SCHEMAS[read.version],
+        read.value,
+        read.version,
+      );
       if (checked.ok) {
-        const local = withoutVersion(checked.value);
+        const local = migrated(read.version, checked.value);
         layers.push(local);
         localKeys = valueKeyPaths(local).toSorted();
       } else {
@@ -157,7 +186,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   }
 
   if (sources.flags !== undefined) {
-    const checked = validate(FLAGS_SOURCE, OfficeOverridesV1, sources.flags);
+    const checked = validate(FLAGS_SOURCE, OfficeOverridesV2, sources.flags);
     if (checked.ok) layers.push(checked.value);
     else errors.push(...checked.errors);
   }
@@ -165,7 +194,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   if (errors.length > 0) return { ok: false, errors };
 
   const merged = layers.reduce<unknown>((base, layer) => mergeLayer(base, layer), OFFICE_DEFAULTS);
-  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV1, merged);
+  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV2, merged);
   if (!effective.ok) return { ok: false, errors: effective.errors };
   const config = effective.value as OfficeConfig;
   return { ok: true, config, configHash: configHash(config), localOverrideKeys: localKeys };
