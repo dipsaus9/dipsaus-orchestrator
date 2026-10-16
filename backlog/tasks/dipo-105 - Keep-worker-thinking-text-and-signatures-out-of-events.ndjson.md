@@ -1,10 +1,10 @@
 ---
 id: DIPO-105
 title: Keep worker thinking text and signatures out of events.ndjson
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 15:01'
+updated_date: '2026-10-16 15:07'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -44,6 +44,10 @@ test_plan:
       check: "(unit) ingestion derives the DIPO-96 thinking activity from a scrubbed line"
     - kind: "automated"
       check: "(integration) a recorded stream replayed through the testkit fake process leaves no thinking text or signature in events.ndjson"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 61 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
