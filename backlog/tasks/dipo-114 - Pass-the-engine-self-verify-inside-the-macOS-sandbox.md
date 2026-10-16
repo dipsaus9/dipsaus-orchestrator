@@ -4,7 +4,7 @@ title: Pass the engine self-verify inside the macOS sandbox
 status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 10:19'
+updated_date: '2026-10-16 10:23'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -45,4 +45,6 @@ Probe: probeDarwin in both copies (engine/src/platform/process.ts, client/src/no
 Sandboxed self-verify on macOS (Darwin 25.6.0, arm64): self-verify.ci.test.ts no longer Linux only. Command, in the worktree: DIPO_HOME=/tmp/dpo-114/home DIPO_RUNTIME_DIR=/tmp/dpo-114/run DIPO_TEST_CI=1 bun test packages/engine/test/sandbox/self-verify.ci.test.ts -> 1 pass, 0 fail (80 s; builds dipo with scripts/build.ts and runs bun run verify through dipo daemon sandbox-exec under the verify policy). First run: process tests passed but 1 other test failed: the Safe-Chain gate test (safe-chain-proxy.test.ts) listens on 127.0.0.1 TCP, which the closed verify network refuses on Seatbelt (EPERM; Linux gives the step its own loopback). No policy change: that test now skips when a loopback listen is refused. Second run passed. Also DIPO_TEST_CI=1 sandbox.ci, hardening.ci and client lifecycle.ci tests pass on macOS (18). bun run verify: 2909 pass, 2 skip.
 
 Review fixes: kinfoOutcome (both copies, parity-tested) returns null only when kern.proc.pid succeeds with 0 bytes; a failed call (EPERM, EINVAL, ENOMEM) or a malformed kinfo_proc throws (unknown, never dead). The Safe-Chain gate test now skips only on macOS with DIPO_SANDBOX_SELF_VERIFY=1 when loopback listen is refused. References gain packages/client/src/node/lifecycle/. Rerun: bun run verify 2911 pass, 2 skip; the macOS sandboxed self-verify (same command) 1 pass.
+
+Loopback skip changed again: the Safe-Chain gate test skips on macOS whenever a 127.0.0.1 listen is refused, with no marker, so the cutover's sandboxed verify passes without a policy change; on Linux it still fails. DIPO_SANDBOX_SELF_VERIFY stays as the self-verify recursion guard. Rerun: parity/process/safe-chain tests 51 pass; inside srt the gate test skips without a marker (18 pass, 1 skip); macOS sandboxed self-verify 1 pass; bun run verify 2911 pass, 2 skip.
 <!-- SECTION:NOTES:END -->
