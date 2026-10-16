@@ -2,3 +2,5 @@
 # 0017 section 4: tests may not depend on order, and a flaky test is a bug, not something to retry.
 randomize = true
 retry = 0
+# DIPO-117: every test leaves the process's uncaught-error listeners as it found them.
+preload = ["./packages/testkit/src/listener-guard.ts"]
