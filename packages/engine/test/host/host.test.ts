@@ -25,6 +25,7 @@ import {
   stdoutText,
   withTempDir,
   type FakeProcess,
+  type Recording,
 } from "@dipsaus-orchestrator/testkit";
 
 import { connectHost, type HostClient } from "../../src/host/client";
@@ -44,13 +45,14 @@ import {
 } from "../../src/host/protocol";
 import { connectLineSocket } from "../../src/platform/line-socket";
 import { systemClock } from "../../src/platform/clock";
+import { CLAUDE_LINE_SCRUB } from "../../src/workers/claude-cli/adapter";
 import {
   initialState,
   interpret,
   type ClaudeParseState,
 } from "../../src/workers/claude-cli/interpret";
 import { result } from "../../src/workers/claude-cli/result";
-import type { HostLine } from "../../src/workers/types";
+import type { HostLine, LineScrub } from "../../src/workers/types";
 import { loadRecording, plannedModel } from "../workers/replay";
 
 const RUN = "run_01JZ0000000000000000000001";
@@ -62,7 +64,7 @@ interface Setup {
   readonly launch: HostLaunch;
 }
 
-function setup(dir: string): Setup {
+function setup(dir: string, lineScrub?: LineScrub): Setup {
   const runDir = join(dir, "repo", ".git", "dipo", "runs", RUN);
   mkdirSync(runDir, { recursive: true, mode: 0o755 });
   const socket = hostSocketPath(join(dir, "rt"), RUN);
@@ -77,6 +79,7 @@ function setup(dir: string): Setup {
       cwd: dir,
       files: [{ name: "system.md", content: "# system\n" }],
       stdin: [FIRST_LINE],
+      ...(lineScrub === undefined ? {} : { lineScrub }),
     },
   };
   writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(launch), { mode: 0o600 });
@@ -525,6 +528,96 @@ describe("worker host in-process", () => {
       expect(readFileSync(join(runDir, HOST_LOG_FILE), "utf8")).toContain(
         "cannot read the launch file",
       );
+    }));
+});
+
+/**
+ * Where Claude stream-json carries thinking content, by the type of the object that holds it. Kept
+ * apart from the adapter's rule so the test checks the rule instead of repeating it.
+ */
+const THINKING_CONTENT: Readonly<Record<string, readonly string[]>> = {
+  thinking: ["thinking", "signature"],
+  redacted_thinking: ["data"],
+  thinking_delta: ["thinking"],
+  signature_delta: ["signature"],
+};
+
+/** The recording with `marker` written into every thinking text, signature and redacted data. */
+function planted(recording: Recording, marker: string): Recording {
+  return {
+    ...recording,
+    lines: recording.lines.map((line) => ({ ...line, data: plant(line.data, marker) })),
+  };
+}
+
+function plant(value: unknown, marker: string): unknown {
+  if (Array.isArray(value)) return value.map((item) => plant(item, marker));
+  if (value === null || typeof value !== "object") return value;
+  const record = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, plant(child, marker)]),
+  );
+  const type = record["type"];
+  for (const field of typeof type === "string" ? (THINKING_CONTENT[type] ?? []) : []) {
+    if (field in record) record[field] = `${marker} ${type}.${field}`;
+  }
+  return record;
+}
+
+/** Replays `recording` through a host started from a launch with `lineScrub`; the event file. */
+async function replayedEvents(
+  dir: string,
+  recording: Recording,
+  lineScrub?: LineScrub,
+): Promise<string> {
+  const { runDir } = setup(dir, lineScrub);
+  const clock = new ManualClock();
+  const fake = fakeSpawn(recording, clock);
+  const { spawn, open } = gated(fake.spawn);
+  const host = WorkerHost.start({
+    runId: RUN,
+    runDir,
+    clock,
+    spawn,
+    killGroup: () => {},
+    pid: 777,
+  });
+  open();
+  await host.done;
+  return readFileSync(join(runDir, EVENTS_FILE), "utf8");
+}
+
+describe("worker host thinking scrub (DIPO-105)", () => {
+  const recording = planted(loadRecording("permission-denied"), "PLANTED-THOUGHT");
+
+  it("plants a marker in each kind of thinking content the recording holds", () => {
+    const text = JSON.stringify(recording.lines);
+    for (const where of [
+      "thinking.thinking",
+      "thinking.signature",
+      "thinking_delta.thinking",
+      "signature_delta.signature",
+    ]) {
+      expect(text).toContain(`PLANTED-THOUGHT ${where}`);
+    }
+  });
+
+  it("writes the thinking content to events.ndjson when the plan names no scrub", () =>
+    withTempDir(async (dir) => {
+      expect(await replayedEvents(dir, recording)).toContain("PLANTED-THOUGHT");
+    }));
+
+  it("replays a recording through the fake process and writes no thinking text to events.ndjson", () =>
+    withTempDir(async (dir) => {
+      // launch.json carries the adapter's rule, as the Claude port plans it.
+      const bytes = await replayedEvents(dir, recording, CLAUDE_LINE_SCRUB);
+      expect(bytes).not.toContain("PLANTED-THOUGHT");
+      // The thinking blocks themselves stay, with their type, so ingestion still counts them.
+      const data = bytes
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => (JSON.parse(line) as HostLine).data);
+      expect(data.some((text) => text.includes('"type":"thinking"'))).toBe(true);
+      expect(data.some((text) => text.includes('"type":"thinking_delta"'))).toBe(true);
     }));
 });
 

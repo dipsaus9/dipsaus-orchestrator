@@ -9,25 +9,36 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { planRefusedText, runWorkerSpec, sessionUuid } from "../../src/run";
 import {
+  CLAUDE_LINE_SCRUB,
   claudeCliAdapter,
   claudeLaunchContext,
   claudeWorkerPort,
 } from "../../src/workers/claude-cli/adapter";
 import { initialState } from "../../src/workers/claude-cli/interpret";
 import { plan } from "../../src/workers/claude-cli/plan";
+import { selfTestLayout } from "../../src/workers/claude-cli/self-test";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { stripLocalSettings } from "../../src/workers/claude-cli/settings-check";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type ParseState } from "../../src/workers/types";
 import {
+  ADMIN_DIR,
+  BLOCKED_RESULTS,
   context,
+  credentialSteps,
   HOME,
   MAIN,
+  MemoryFs,
   RUN_DIR,
+  scriptedClaude,
+  SELF_TEST_SESSION,
+  selfTestSession,
   SHORT_TMP_DIR,
   spec,
   TMP_DIR,
+  TOOLS,
+  withInitPlugins,
   withoutSkills,
   WORKDIR,
 } from "../workers/launch-fixtures";
@@ -86,7 +97,7 @@ describe("the Claude CLI adapter of one run", () => {
     const ctx = context();
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     expect(adapter.id).toBe("claude-cli");
-    expect(adapter.plan(spec())).toEqual(plan(spec(), ctx));
+    expect(adapter.plan(spec())).toEqual({ ...plan(spec(), ctx), lineScrub: CLAUDE_LINE_SCRUB });
   });
 
   it("builds the launch context from the run's paths, the office sandbox and the daemon", () => {
@@ -124,7 +135,58 @@ describe("the Claude CLI adapter of one run", () => {
       },
       uid: 501,
     });
-    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual(plan(spec(), ctx));
+    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual({
+      ...plan(spec(), ctx),
+      lineScrub: CLAUDE_LINE_SCRUB,
+    });
+  });
+
+  it("gives the plan that prepare returns for a launch and a resume the line scrub (DIPO-105)", async () => {
+    // Production launches and resumes take their plan from prepare, not from adapter.plan.
+    const layout = selfTestLayout({
+      main: MAIN,
+      workdir: WORKDIR,
+      adminDir: ADMIN_DIR,
+      tmpDir: TMP_DIR,
+      nonce: SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16),
+      tools: TOOLS,
+      home: HOME,
+    });
+    for (const resume of [false, true]) {
+      const fs = new MemoryFs();
+      const claude = scriptedClaude(clock, {
+        // No plugins: the port reads none installed, so a listed one would refuse the session.
+        session: withInitPlugins(selfTestSession([layout.command]), []),
+        onSession: () => {
+          fs.files.set(layout.resultsFile, BLOCKED_RESULTS);
+          fs.files.set(layout.controlFile, "");
+        },
+      });
+      const port = claudeWorkerPort({
+        claudePath: `${HOME}/.local/bin/claude`,
+        home: HOME,
+        env: { PATH: "/usr/bin:/bin", HOME },
+        dipoCommand: ["/opt/dipo/bin/dipo"],
+        spawn: claude.spawn,
+        clock,
+        holds: new AdapterHolds({ clock, notify: () => undefined }),
+        platform: "darwin",
+        runStep: credentialSteps().runStep,
+        uid: 501,
+        pluginFiles: { read: () => undefined, dirs: () => [] },
+        launchCheckSeams: { fs, readText: async () => undefined },
+      });
+      const session = { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume };
+      const prepared = await port.prepare(
+        spec({ session }),
+        PATHS,
+        OFFICE_DEFAULTS,
+        SELF_TEST_SESSION,
+      );
+      if (!prepared.ok) throw new Error(`prepare refused: ${JSON.stringify(prepared)}`);
+      expect(prepared.plan.argv).toContain(resume ? "--resume" : "--session-id");
+      expect(prepared.plan.lineScrub).toEqual(CLAUDE_LINE_SCRUB);
+    }
   });
 
   it("detects Safe-Chain at launch and gives the plan its wrapper in the run directory (DIPO-82, DIPO-84)", () => {

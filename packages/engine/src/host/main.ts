@@ -38,6 +38,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { removeSocketFile } from "../platform/socket";
 import { EventLog, LineSplitter, type EventChannel } from "./events";
 import { openHostLog, type HostLog } from "./host-log";
+import { scrubLine } from "./scrub";
 import {
   claimedLaunchName,
   EVENTS_FILE,
@@ -61,6 +62,7 @@ import {
   type HostState,
   type HostStatus,
 } from "./protocol";
+import type { LineScrub } from "../workers/types";
 import { hostOpOf, Steering } from "./steering";
 
 /** How long the host waits for the worker's output to end after it killed the group. */
@@ -377,7 +379,7 @@ export class WorkerHost {
       if (!result.ok) this.#logger.warn("cannot write the first stdin line", { ...result.error });
     }
     const output = Promise.all([
-      this.#pump(child.stdout, "stdout"),
+      this.#pump(child.stdout, "stdout", plan.lineScrub),
       this.#pump(child.stderr, "stderr"),
     ]);
     void this.#watchExit(child, output).then(this.#resolveDone, this.#rejectDone);
@@ -405,21 +407,29 @@ export class WorkerHost {
     return this.#finish(exitCause(exit, this.#steering?.lastSignal ?? null));
   }
 
-  async #pump(stream: ReadableStream<Uint8Array>, ch: "stdout" | "stderr"): Promise<void> {
+  async #pump(
+    stream: ReadableStream<Uint8Array>,
+    ch: "stdout" | "stderr",
+    scrub?: LineScrub,
+  ): Promise<void> {
     const splitter = new LineSplitter();
     const reader = stream.getReader();
+    // The plan's scrub (DIPO-105) runs before a stdout line is appended, so the event file never
+    // holds what it removes.
+    const keep = (data: string): string =>
+      ch === "stdout" && scrub !== undefined ? scrubLine(data, scrub) : data;
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of splitter.push(value)) this.#append(ch, line);
+        for (const line of splitter.push(value)) this.#append(ch, keep(line));
       }
     } catch (error) {
       this.#logger.warn("reading worker output failed", { ch, error });
     } finally {
       reader.releaseLock();
       const rest = splitter.flush();
-      if (rest !== null) this.#append(ch, rest);
+      if (rest !== null) this.#append(ch, keep(rest));
     }
   }
 

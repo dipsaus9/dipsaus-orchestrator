@@ -10,8 +10,10 @@ import { join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { scrubLine } from "../../src/host/scrub";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import { outputText, thinkingLine } from "../../src/ingest/output";
+import { CLAUDE_LINE_SCRUB } from "../../src/workers/claude-cli/adapter";
 import {
   type ClaudeParseState,
   initialState,
@@ -19,7 +21,7 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
 import type { HostLine, ParseState, WorkerEvent } from "../../src/workers/types";
-import { loadRecording, plannedModel } from "../workers/replay";
+import { loadRecording, plannedModel, recordingNames } from "../workers/replay";
 import {
   appendLines,
   eventFileText,
@@ -98,6 +100,11 @@ function assistant(
     thinking_display: "updates",
     ...extra,
   });
+}
+
+/** `line` as the host appends it: a stdout line through the Claude scrub (DIPO-105). */
+function scrubbed(line: HostLine): HostLine {
+  return line.ch === "stdout" ? { ...line, data: scrubLine(line.data, CLAUDE_LINE_SCRUB) } : line;
 }
 
 const THINKING_BLOCK = { type: "thinking", thinking: THOUGHT, signature: SIGNATURE };
@@ -305,4 +312,31 @@ describe("the stored [thinking] line (DIPO-96)", () => {
       // The scan does see what is stored.
       expect(bytes).toContain("[thinking] 1.5s ~120 tokens");
     }));
+
+  it("derives the thinking activity from a line the host has scrubbed (DIPO-105)", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      // The host scrubs stdout lines before it appends them; the exit line is not stdout.
+      appendLines(f.eventFile, HAND_LINES.map(scrubbed));
+      ingestor(f).track(target(f, claude, initialState() as unknown as ParseState));
+      expect(storedOutput(f.office, f.run)).toBe(
+        "[thinking] 1.5s ~120 tokens\n[tool] Read src/a.ts\n",
+      );
+      expect(readFileSync(f.eventFile, "utf8")).not.toContain("PRIVATE-THOUGHT");
+      expect(readFileSync(f.eventFile, "utf8")).not.toContain("SIGNATURE-");
+    }));
+
+  it("the scrub changes no worker event of any live recording (DIPO-105)", () => {
+    let thoughts = 0;
+    for (const name of recordingNames()) {
+      const recording = loadRecording(name);
+      const lines = hostLines(recording);
+      const state = initialState({ plannedModel: plannedModel(recording) });
+      const raw = replay(lines, state);
+      expect(replay(lines.map(scrubbed), state)).toEqual(raw);
+      thoughts += thinkingOf(raw).length;
+    }
+    // The recordings do hold thinking, so the comparison covers it.
+    expect(thoughts).toBeGreaterThan(0);
+  });
 });

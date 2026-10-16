@@ -119,12 +119,18 @@ const LaunchFileSchema = z.object({
   executable: z.boolean().optional(),
 });
 
+const LineScrubSchema = z.object({
+  blockTypes: z.array(z.string()),
+  fields: z.array(z.string()),
+});
+
 const LaunchPlanSchema = z.object({
   argv: z.tuple([z.string().startsWith("/")], z.string()),
   env: z.record(z.string(), z.string()),
   cwd: z.string().startsWith("/"),
   files: z.array(LaunchFileSchema),
   stdin: z.array(z.string()),
+  lineScrub: LineScrubSchema.optional(),
 });
 
 /** `launch.json`: everything the host needs besides its run id. */
