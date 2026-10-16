@@ -189,7 +189,7 @@ export interface PreparedRun extends ClaimSetupDone {
   /** sha256 of the system file (L1+L2), stored on the agent for `canResume` (DIPO-51). */
   readonly systemHash: string;
   /** The context pack and input paths of the first session, stored for the nudges (DIPO-60). */
-  readonly promptSources: Pick<RunPrompts, "nudgeSources" | "sourceTexts">;
+  readonly promptSources: Pick<RunPrompts, "nudgeSources">;
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -347,7 +347,7 @@ export class RunLauncher {
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
-      promptSources = { nudgeSources: prompts.nudgeSources, sourceTexts: prompts.sourceTexts };
+      promptSources = { nudgeSources: prompts.nudgeSources };
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }

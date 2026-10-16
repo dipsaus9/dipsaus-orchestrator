@@ -66,6 +66,7 @@ export {
   type InputChange,
   type InputChangeReader,
   type NudgeFact,
+  type NudgeSourceKind,
   type NudgesDeps,
   type NudgeSources,
 } from "./nudges";

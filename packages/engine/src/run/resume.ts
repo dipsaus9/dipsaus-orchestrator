@@ -47,6 +47,7 @@ import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
+import { writeNudgeSources, type NudgeSources } from "../hooks/nudges";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
@@ -281,11 +282,10 @@ export class RunResumer implements NextSession {
     const systemHash = systemHashOf(systemFile);
 
     // The handoff message: the new session's task message, and the size a resume is weighed with.
-    let handoff: { text: string } | { error: string };
+    // Its context pack and input paths are the new session's nudge sources, resumed or not.
+    let handoff: { text: string; sources: NudgeSources } | { error: string };
     try {
-      handoff = {
-        text: await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null),
-      };
+      handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null);
     } catch (error) {
       handoff = { error: messageOf(error) };
     }
@@ -418,6 +418,8 @@ export class RunResumer implements NextSession {
         },
       );
       const at = deps.clock.now();
+      // The context pack and input paths this session's nudges check (DIPO-99).
+      if ("sources" in handoff) writeNudgeSources(office, run.runId, agent, handoff.sources, at);
       const cleared = clearSignals(
         office,
         run.runId,
@@ -553,14 +555,17 @@ export class RunResumer implements NextSession {
     };
   }
 
-  /** The task message of a new session: the story's task message with the handoff block. */
+  /**
+   * The task message of a new session (the story's task message with the handoff block) and the
+   * context pack and input paths it was built from.
+   */
   async #handoffMessage(
     office: OfficeHandle,
     git: OfficeGit,
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
-  ): Promise<string> {
+  ): Promise<{ text: string; sources: NudgeSources }> {
     const deps = this.#deps;
     const worktree = run.worktree ?? "";
     const story = await deps.story(office.officeId, run);
@@ -577,7 +582,7 @@ export class RunResumer implements NextSession {
       config,
       handoff,
     });
-    return prompts.taskMessage;
+    return { text: prompts.taskMessage, sources: prompts.nudgeSources };
   }
 
   async #gather(

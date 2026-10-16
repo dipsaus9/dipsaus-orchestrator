@@ -15,6 +15,10 @@
 // signature is a row of `prompt_parts` (`nudge.<trigger>:<subject>`, its text measured, `nudges`
 // counting the sends), so nudges are counted per run like any other prompt part.
 //
+// The context pack and input paths the context and input checks read are `nudge_sources` rows,
+// not prompt parts (DIPO-99): every session of a run (the first, a resume, a handoff) records its
+// own, and a check reads those of the session it answers.
+//
 // This module emits only the neutral `nudge` op; the adapter's `encode` decides what its CLI
 // prints (0008 amendment of 2026-10-12). Every failure is silent: the hook then prints nothing.
 
@@ -64,9 +68,6 @@ export const INPUT_CHECK_MS = 1_000;
 
 /** `prompt_parts` name prefix of a nudge row. */
 export const NUDGE_PART = "nudge.";
-/** `prompt_parts` names of the run's context pack and input paths, one row per path. */
-export const CONTEXT_PATH_PART = "task.context:";
-export const INPUT_PATH_PART = "task.inputs:";
 
 // ---- pure rules ----------------------------------------------------------------------------------
 
@@ -215,25 +216,36 @@ export interface NudgeSources {
   readonly inputs: readonly string[];
 }
 
+/** The `nudge_sources` kind of a path. */
+export type NudgeSourceKind = "context" | "input";
+
 /**
- * Stores the context pack and input paths of a run's session as `prompt_parts` rows (one per path,
- * its text measured), for the context and input nudges. Runs inside the caller's transaction.
+ * Stores the context pack and input paths of one session of a run (`agent`: the first session, a
+ * resume or a handoff) as `nudge_sources` rows, one per path, for the context and input nudges.
+ * Only the paths are kept; they are not prompt parts, so no prompt size counts them. Runs inside
+ * the caller's transaction.
  */
 export function writeNudgeSources(
   office: OfficeHandle,
   run: string,
   agent: string,
   sources: NudgeSources,
-  texts: Readonly<Record<string, string>>,
   at: number,
 ): void {
-  const rows = [
-    ...sources.context.map((path) => `${CONTEXT_PATH_PART}${path}`),
-    ...sources.inputs.map((path) => `${INPUT_PATH_PART}${path}`),
+  const rows: [NudgeSourceKind, readonly string[]][] = [
+    ["context", sources.context],
+    ["input", sources.inputs],
   ];
-  for (const name of new Set(rows)) {
-    const path = name.slice(name.indexOf(":") + 1);
-    insertPart(office, run, agent, measurePart(name, texts[path] ?? path), 0, at);
+  for (const [kind, paths] of rows) {
+    for (const path of new Set(paths)) {
+      office.run(
+        `insert into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
+         values ($office_id, $run, $agent, $kind, $path, $at)
+         on conflict (office_id, run_id, agent_id, kind, path) do update set
+           recorded_at = excluded.recorded_at`,
+        { run, agent, kind, path, at },
+      );
+    }
   }
 }
 
@@ -264,26 +276,31 @@ function insertPart(
   );
 }
 
-/** The stored paths of a run's `prefix` rows, over all its agents, sorted. */
-function pathsOf(office: OfficeHandle, run: string, prefix: string): string[] {
+/**
+ * The stored `kind` paths of `agent`'s session, sorted. A session that recorded no paths (its pack
+ * could not be gathered) checks those of the run's session that recorded last.
+ */
+function pathsOf(office: OfficeHandle, run: string, agent: string, kind: NudgeSourceKind) {
   return office
-    .all<{ part: string }>(
-      `select distinct part from prompt_parts
-       where office_id = $office_id and run_id = $run and substr(part, 1, length($prefix)) = $prefix
-       order by part`,
-      { run, prefix },
+    .all<{ path: string }>(
+      `select path from nudge_sources
+       where office_id = $office_id and run_id = $run and kind = $kind and agent_id = (
+         select agent_id from nudge_sources where office_id = $office_id and run_id = $run
+         order by agent_id = $agent desc, recorded_at desc, agent_id desc limit 1)
+       order by path`,
+      { run, agent, kind },
     )
-    .map((row) => row.part.slice(prefix.length));
+    .map((row) => row.path);
 }
 
-/** The run's context pack paths (`writeNudgeSources`). */
-export function contextPathsOf(office: OfficeHandle, run: string): string[] {
-  return pathsOf(office, run, CONTEXT_PATH_PART);
+/** The context pack paths of `agent`'s session (`writeNudgeSources`). */
+export function contextPathsOf(office: OfficeHandle, run: string, agent: string): string[] {
+  return pathsOf(office, run, agent, "context");
 }
 
-/** The run's input paths (`writeNudgeSources`). */
-export function inputPathsOf(office: OfficeHandle, run: string): string[] {
-  return pathsOf(office, run, INPUT_PATH_PART);
+/** The input paths of `agent`'s session (`writeNudgeSources`). */
+export function inputPathsOf(office: OfficeHandle, run: string, agent: string): string[] {
+  return pathsOf(office, run, agent, "input");
 }
 
 /** True when `signature` was nudged in `agent`'s session: by it or an agent with its session id. */
@@ -419,7 +436,7 @@ export class Nudges {
             path: written,
             scope: stored.kind === "story" ? stored.scope : null,
             story: stored.story,
-            contextPaths: new Set(contextPathsOf(office, run)),
+            contextPaths: new Set(contextPathsOf(office, run, agent)),
           });
         }
         const now = this.#deps.clock.now();
@@ -440,21 +457,21 @@ export class Nudges {
     const call = hook.id ?? 0;
     this.#track(
       (async () => {
-        const facts = hook.resumed === true ? await this.#inputFacts(office, run) : [];
+        const facts = hook.resumed === true ? await this.#inputFacts(office, run, agent) : [];
         await this.#reply(office, run, agent, call, "sessionStarted", facts);
       })(),
     );
   }
 
   /** The input facts of a resume, or none when the check fails or takes over `INPUT_CHECK_MS`. */
-  async #inputFacts(office: OfficeHandle, run: string): Promise<NudgeFact[]> {
+  async #inputFacts(office: OfficeHandle, run: string, agent: string): Promise<NudgeFact[]> {
     const reader = this.#deps.inputChanges;
     if (reader === undefined || this.#deps.ending?.(run) === true) return [];
     try {
       const stored = findRun(office, run as RunId);
       if (stored === null) return [];
       const since = findClaim(office, stored.runId)?.baseSha ?? stored.startSha;
-      const paths = inputPathsOf(office, run);
+      const paths = inputPathsOf(office, run, agent);
       if (since === null || paths.length === 0) return [];
       const changes = await this.#within(reader(office, stored, since, paths), INPUT_CHECK_MS);
       return (changes ?? []).map((change) => ({ trigger: "input", ...change }));
