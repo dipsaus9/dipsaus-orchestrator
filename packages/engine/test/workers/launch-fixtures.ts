@@ -294,9 +294,27 @@ export const BUILTIN_PLUGINS = [
   "cc-plugin-plugin-authoring@builtin",
 ] as const;
 
-/** `recording` with its redacted `system/init` plugins named as the builtin ones they are. */
+/**
+ * `recording` with its redacted `system/init` plugins named as the builtin ones they are, in
+ * order. Only entries whose name is still redacted change, so a recording that names its plugins
+ * (`withInitPlugins`) passes through as it is.
+ */
 export function withBuiltinPlugins(recording: Recording): Recording {
-  return withInitPlugins(recording, BUILTIN_PLUGINS);
+  const lines = recording.lines.map((line) => {
+    const data = line.data as { type?: string; subtype?: string; plugins?: unknown };
+    if (line.ch !== "stdout" || data.type !== "system" || data.subtype !== "init") return line;
+    if (!Array.isArray(data.plugins)) return line;
+    let redacted = 0;
+    const plugins = data.plugins.map((entry: unknown) => {
+      const name = (entry as { name?: unknown } | null)?.name;
+      if (typeof name !== "string" || !name.startsWith("[redacted")) return entry;
+      const id = BUILTIN_PLUGINS[redacted % BUILTIN_PLUGINS.length] ?? BUILTIN_PLUGINS[0];
+      redacted += 1;
+      return initPlugin(id);
+    });
+    return { ...line, data: { ...data, plugins } };
+  });
+  return { ...recording, lines };
 }
 
 /** A `system/init` plugin entry for `<name>@<marketplace>`. */
