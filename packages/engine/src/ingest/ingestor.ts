@@ -33,6 +33,7 @@ import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
 import {
   applyTurnTotals,
   feedFinalChanges,
+  recordCompaction,
   finalizeAgentUsage,
   finalRows,
   readUsage,
@@ -490,6 +491,10 @@ export class Ingestor {
                   agent,
                 },
               );
+              break;
+            case "compacted":
+              // The adapter emits one event per compaction, whichever of its lines reported it.
+              recordCompaction(this.#office, target, event.preTokens, now);
               break;
             case "initRejected":
               rejected.push(event.reason);
