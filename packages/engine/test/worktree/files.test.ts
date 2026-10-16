@@ -27,6 +27,8 @@ import {
   repoSegments,
   type WorktreeFileSpec,
 } from "../../src/worktree";
+import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
+import type { LocalSettingsCopy } from "../../src/workers/port";
 
 const SECRET = "SECRET-VALUE-4f9a1c";
 
@@ -83,13 +85,19 @@ function ignoredIn(l: Layout): (paths: readonly string[]) => Promise<ReadonlySet
   };
 }
 
-function place(l: Layout, files: WorktreeFileSpec[], envFiles: string[] = []) {
+function place(
+  l: Layout,
+  files: WorktreeFileSpec[],
+  envFiles: string[] = [],
+  localSettings: LocalSettingsCopy = CLAUDE_LOCAL_SETTINGS,
+) {
   return placeFiles({
     main: l.main,
     worktree: l.worktree,
     files,
     ignored: ignoredIn(l),
     envFiles: new Set(envFiles),
+    localSettings,
   });
 }
 
@@ -251,6 +259,38 @@ describe("placing worktree files", () => {
         JSON.parse(readFileSync(join(l.worktree, ".claude", "settings.local.json"), "utf8")),
       ).toEqual({ permissions: { deny: ["Read(./.env)"] } });
       expect(lstatSync(join(l.worktree, ".claude")).isSymbolicLink()).toBe(false);
+    });
+  });
+
+  it("takes the local settings file and its filter from the worker port (DIPO-113)", async () => {
+    await withTempRepo(async (repo) => {
+      const l = await layout(repo);
+      const other: LocalSettingsCopy = {
+        file: "data/agent.local.json",
+        strip: ({ token: _token, ...rest }) => rest,
+      };
+      mkdirSync(join(l.main, "data"));
+      writeFileSync(
+        join(l.main, "data", "agent.local.json"),
+        JSON.stringify({ token: SECRET, a: 1 }),
+      );
+      writeFileSync(join(l.main, "data", "seed.sql"), "select 1;\n");
+      mkdirSync(join(l.main, ".claude"));
+      writeFileSync(join(l.main, ".claude", "settings.local.json"), "{}");
+
+      expect(
+        await refused(place(l, [{ path: "data", mode: "link", required: false }], [], other)),
+      ).toContain("holds data/agent.local.json");
+
+      const result = await place(l, [copy("data")], [], other);
+      expect(result.copied).toEqual(["data/seed.sql"]);
+      expect(result.settings).toEqual({ copied: true });
+      expect(
+        JSON.parse(readFileSync(join(l.worktree, "data", "agent.local.json"), "utf8")),
+      ).toEqual({ a: 1 });
+      // The Claude file is that adapter's; another port's setup leaves it alone.
+      expect(existsSync(join(l.worktree, ".claude", "settings.local.json"))).toBe(false);
+      expect(result.log.join("\n")).not.toContain(SECRET);
     });
   });
 

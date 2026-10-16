@@ -48,7 +48,6 @@ import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type LaunchPlan, type WorkerSpec } from "../workers/types";
-import { WORKER_REPORT_JSON_SCHEMA } from "../workers/claude-cli/report-schema";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
@@ -224,8 +223,12 @@ export function runLaunchPaths(
   };
 }
 
-/** The `WorkerSpec` of one session of a run (DIPO-74; DIPO-51 for the later sessions). */
+/**
+ * The `WorkerSpec` of one session of a run (DIPO-74; DIPO-51 for the later sessions). The report
+ * schema comes from the worker port, never from an adapter module (DIPO-113).
+ */
 export function runWorkerSpec(
+  worker: Pick<WorkerPort, "reportSchema">,
   facts: { readonly runId: string; readonly agent: string; readonly caps: TierCaps },
   paths: RunLaunchPaths,
   taskMessage: string,
@@ -244,7 +247,7 @@ export function runWorkerSpec(
     taskMessage,
     tools: { allow: [...DEVELOPER_TOOLS], deny: [] },
     session,
-    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    reportSchema: worker.reportSchema,
     // The adapter relays its hooks to the worker host (0008 section 5, DIPO-59).
     hookRelay: true,
   };
@@ -302,7 +305,10 @@ export class RunLauncher {
     taskMessage: string,
     session: string,
   ): WorkerSpec {
-    return runWorkerSpec(facts, paths, taskMessage, { id: session, resume: false });
+    return runWorkerSpec(this.#deps.worker, facts, paths, taskMessage, {
+      id: session,
+      resume: false,
+    });
   }
 
   /** The session id of a run's first session (AC #3). */

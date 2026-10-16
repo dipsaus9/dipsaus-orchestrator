@@ -308,10 +308,16 @@ export class RunResumer implements NextSession {
           contextWindow: facts?.contextWindow ?? null,
           lastRequestAt: previous.lastLineAt,
         },
-        runWorkerSpec({ runId: run.runId, agent: request.work.agent, caps: tier }, paths, "", {
-          id: previous.sessionId,
-          resume: true,
-        }),
+        runWorkerSpec(
+          deps.worker,
+          { runId: run.runId, agent: request.work.agent, caps: tier },
+          paths,
+          "",
+          {
+            id: previous.sessionId,
+            resume: true,
+          },
+        ),
         {
           now: deps.clock.now(),
           version,
@@ -346,6 +352,7 @@ export class RunResumer implements NextSession {
           .filter((part) => part !== undefined && part !== "")
           .join("\n\n");
     const spec = runWorkerSpec(
+      deps.worker,
       { runId: run.runId, agent, caps: tier },
       paths,
       taskMessage,

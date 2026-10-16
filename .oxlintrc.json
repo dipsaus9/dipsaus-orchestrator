@@ -88,7 +88,8 @@
         "message": "Read time and arm timers only through the injected Clock (0017 section 4); the real clock belongs in packages/engine/src/platform/."
       }
     ],
-    "dipo/no-argless-date": "error"
+    "dipo/no-argless-date": "error",
+    "import/no-cycle": ["error", { "ignoreTypes": true }]
   },
   "overrides": [
     {
@@ -649,6 +650,35 @@
       }
     },
     {
+      "files": ["packages/engine/src/**"],
+      "rules": {
+        "dipo/no-claude-cli-import": "error"
+      }
+    },
+    {
+      "files": [
+        "packages/engine/src/workers/claude-cli/**",
+        "packages/engine/src/index.ts",
+        "packages/engine/src/index.test.ts"
+      ],
+      "rules": {
+        "dipo/no-claude-cli-import": "off"
+      }
+    },
+    {
+      "files": ["packages/engine/src/**", "packages/daemon/src/**"],
+      "rules": {
+        "dipo/no-bun-import": "error",
+        "dipo/no-bun-global": "error"
+      }
+    },
+    {
+      "files": ["packages/engine/src/**/*.test.ts", "packages/daemon/src/**/*.test.ts"],
+      "rules": {
+        "dipo/no-bun-global": "off"
+      }
+    },
+    {
       "files": ["packages/engine/src/host/**"],
       "rules": {
         "no-restricted-imports": [
@@ -777,7 +807,9 @@
             "message": "Synchronous process calls block every office on the daemon's one JS thread (0007 section 1). Use the async platform spawn."
           }
         ],
-        "dipo/no-argless-date": "off"
+        "dipo/no-argless-date": "off",
+        "dipo/no-bun-import": "off",
+        "dipo/no-bun-global": "off"
       }
     }
   ]
