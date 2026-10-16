@@ -313,11 +313,20 @@ export class OfficeStore {
 
   // Loading and following an office
 
-  async #load(office: OfficeId, read: "snapshot" | "switch"): Promise<ReadOutcome<OfficeSnapshot>> {
+  /**
+   * Reads the office and replaces the state with it. A `timed` load is the retry timer's (DIPO-111):
+   * it sets no `loading` and publishes a failure only when the error changed, so a daemon that
+   * stays in `recovering` does not make listeners render every `RECOVERY_POLL_MS`.
+   */
+  async #load(
+    office: OfficeId,
+    read: "snapshot" | "switch",
+    timed = false,
+  ): Promise<ReadOutcome<OfficeSnapshot>> {
     const generation = ++this.#generation;
     this.#retry = null;
     this.#clearRetryTimer();
-    this.#update({ loading: true });
+    if (!timed) this.#update({ loading: true });
     const definition = read === "switch" ? officeSwitch : officeSnapshot;
     const outcome = await this.#read(definition, { office });
     if (this.#closed || generation !== this.#generation) return outcome;
@@ -327,10 +336,12 @@ export class OfficeStore {
         this.#retry = retry;
         this.#retryTimer = this.#clock.setTimeout(() => {
           this.#retryTimer = null;
-          if (!this.#closed && this.#retry === retry) void this.#load(office, read);
+          if (!this.#closed && this.#retry === retry) void this.#load(office, read, true);
         }, RECOVERY_POLL_MS);
       }
-      this.#update({ loading: false, error: outcome.error });
+      const unchanged =
+        timed && JSON.stringify(this.#state.error) === JSON.stringify(outcome.error);
+      if (!unchanged) this.#update({ loading: false, error: outcome.error });
       return outcome;
     }
     this.#replace(office, outcome.result);

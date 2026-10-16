@@ -416,6 +416,29 @@ describe("OfficeStore", () => {
     expect(clock.pendingTimers).toBe(0);
   });
 
+  it("retries on the timer without flipping loading, and publishes only a changed error", async () => {
+    const { client, clock, store } = await setup();
+    const recovering = { code: "engine.recovering", message: "wait", retryable: true };
+    const unavailable = { code: "database.unavailable", message: "held", retryable: false };
+    let answer: { code: string; message: string; retryable: boolean } = recovering;
+    client.answers.set("office.switch", () => ({ ok: false, error: answer }));
+    await store.switchTo(B);
+    expect(store.state).toMatchObject({ loading: false, error: recovering });
+    const seen: { loading: boolean; error: unknown }[] = [];
+    store.subscribe(() => seen.push({ loading: store.state.loading, error: store.state.error }));
+    for (let i = 0; i < 4; i++) {
+      clock.advance(RECOVERY_POLL_MS);
+      await settle();
+    }
+    // Four timed retries with the same answer: no change published, loading never set.
+    expect(seen).toEqual([]);
+    answer = unavailable;
+    clock.advance(RECOVERY_POLL_MS);
+    await settle();
+    expect(seen).toEqual([{ loading: false, error: unavailable }]);
+    expect(clock.pendingTimers).toBe(0);
+  });
+
   it("stops asking again once closed", async () => {
     const { client, clock, store } = await setup();
     client.answers.set("office.switch", () => ({
