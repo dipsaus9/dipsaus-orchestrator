@@ -4,16 +4,17 @@ title: Keep daemon tests away from the real runtime directory
 status: To Do
 assignee: []
 created_date: '2026-10-16 09:39'
+updated_date: '2026-10-16 09:47'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies: []
 references:
-  - packages/testkit/src/temp.ts
   - packages/engine/src/platform/paths.ts
   - packages/daemon/test
   - packages/client/test
   - packages/testkit/README.md
+  - packages/testkit/src/
 priority: high
 type: task
 ordinal: 99000
@@ -29,7 +30,7 @@ Context: when DIPO_TMP resolves to more than about 42 bytes (macOS $TMPDIR, an a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/testkit/src/temp.ts refuses, with a message naming the limit, a DIPO_TMP whose socket paths would pass the Unix socket path limit, instead of letting tests fall back.
-- [ ] #2 Daemon and client tests that start a daemon run with their own TMPDIR and XDG_RUNTIME_DIR under the test temp directory, so the fallback can never be the maintainer's real runtime directory.
+- [ ] #1 packages/testkit/src/temp.ts refuses, with a message naming the limit, a DIPO_TMP whose socket paths would pass the Unix socket path limit, instead of letting tests fall back; testkit keeps its own copy of the engine's runtime path limits (testkit may not import engine) and a test keeps the two equal.
+- [ ] #2 Daemon and client tests that start a daemon set DIPO_RUNTIME_DIR, TMPDIR and XDG_RUNTIME_DIR under the test temp directory, and fail when the daemon reports a runtime directory source other than DIPO_RUNTIME_DIR, so no test daemon can choose the maintainer's real runtime directory ($TMPDIR/dipo or /tmp/dipo-<uid>).
 - [ ] #3 A test proves that a long DIPO_TMP is refused and that no test path removes a socket outside the test temp directory.
 <!-- AC:END -->

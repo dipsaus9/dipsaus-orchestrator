@@ -4,11 +4,13 @@ title: Cut this repository over to dipo and let dipo deliver its first stories
 status: To Do
 assignee: []
 created_date: '2026-10-16 09:39'
+updated_date: '2026-10-16 09:47'
 labels:
   - 'tier:M'
 milestone: m-1
 dependencies:
   - DIPO-108
+  - DIPO-109
   - DIPO-114
 references:
   - docs/plan.md
@@ -16,6 +18,7 @@ references:
   - packages/engine/src/office/init/
   - packages/engine/src/gate/
   - docs/decisions/0012-story-standard.md
+  - backlog/tasks/
 priority: high
 type: chore
 ordinal: 105000
@@ -31,8 +34,8 @@ Context: backlog/config.yml still has To Do, In Progress and Done, there is no .
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo office init has run on this repository with the maintainer present; its backlog PR merged and the statuses and .dipo/ config are on main.
+- [ ] #1 dipo office init has run on this repository with the maintainer present; its backlog PR merged and the new statuses and .dipo/.gitignore are on main. A .dipo/office.yaml is added in its own PR only when a setting the first runs need differs from the default.
 - [ ] #2 DIPO-105, DIPO-106 and DIPO-107 carry dipo field blocks, pass dipo gate, and were set Ready by the maintainer.
 - [ ] #3 dipo delivered each of the three to In Review on its own branch with verify green; the PRs were opened and merged by hand after the usual review, and the task notes record what dipo did and every place the maintainer had to step in.
-- [ ] #4 Every problem found during the cutover is a story or a dated note in the relevant ADR.
+- [ ] #4 Every problem found during the cutover is a story, or a dated note in the relevant ADR with the maintainer's approval.
 <!-- AC:END -->

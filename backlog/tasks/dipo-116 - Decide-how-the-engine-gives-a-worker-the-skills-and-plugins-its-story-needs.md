@@ -4,8 +4,10 @@ title: Decide how the engine gives a worker the skills and plugins its story nee
 status: To Do
 assignee: []
 created_date: '2026-10-16 09:39'
+updated_date: '2026-10-16 09:47'
 labels:
   - architecture
+  - 'tier:M'
 milestone: m-1
 dependencies:
   - DIPO-108

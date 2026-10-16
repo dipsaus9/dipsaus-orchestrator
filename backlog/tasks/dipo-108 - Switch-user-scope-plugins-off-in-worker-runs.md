@@ -4,19 +4,19 @@ title: Switch user-scope plugins off in worker runs
 status: To Do
 assignee: []
 created_date: '2026-10-16 09:39'
+updated_date: '2026-10-16 09:47'
 labels:
   - 'tier:M'
 milestone: m-1
 dependencies: []
 references:
   - docs/decisions/0008-worker-adapter.md
-  - packages/engine/src/workers/claude-cli/plan.ts
-  - packages/engine/src/workers/claude-cli/interpret.ts
-  - packages/engine/src/workers/claude-cli/self-test.ts
-  - packages/engine/src/workers/claude-cli/adapter.ts
   - packages/engine/src/config/
   - packages/engine/test/workers
   - packages/engine/test/
+  - packages/engine/src/workers/claude-cli/
+  - packages/engine/schema/
+  - packages/engine/test/recordings/claude-cli/
 priority: high
 type: feature
 ordinal: 98000
@@ -32,8 +32,9 @@ Context: user-scope plugins load in worker sessions even under --setting-sources
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Office config version 2 adds worker.plugins (default empty, entries in the <plugin>@<marketplace> form enabledPlugins uses) with an identity migration from version 1 (0017 rule of 2026-10-12); a version 1 file still loads.
+- [ ] #1 Office config version 2 adds worker.plugins (default empty, entries in the <plugin>@<marketplace> form enabledPlugins uses) with an identity migration from version 1 (0017 rule of 2026-10-12); a version 1 file still loads and the generated office JSON Schema is regenerated.
 - [ ] #2 The run settings file sets enabledPlugins to false for every user-scope plugin not named in worker.plugins; the adapter reads the installed list without the engine knowing Claude's file layout.
-- [ ] #3 A session whose system/init lists a plugin not in worker.plugins is refused with startFailed naming the plugin, before any tool call.
-- [ ] #4 Tests cover the settings block, the config migration and the init refusal through a recorded or fake stream; a live run on the scratch repository confirms that a user-scope plugin with a hook does not load and that its hook does not run (recorded in the task notes).
+- [ ] #3 The system/init parser keeps the plugins list, and a session whose system/init lists a plugin not in worker.plugins ends with outcome startFailed naming the plugin (the story stays Ready, as the 0008 amendment says), before any tool call.
+- [ ] #4 Tests cover the settings block, the config migration and the startFailed refusal through a recorded or fake stream.
+- [ ] #5 A live run on the scratch repository confirms that a user-scope plugin with a hook does not load and that its hook does not run; it is committed as a scrubbed safety-plugin-off recording under packages/engine/test/recordings/claude-cli/ (0017 safety recordings) and noted in the task.
 <!-- AC:END -->
