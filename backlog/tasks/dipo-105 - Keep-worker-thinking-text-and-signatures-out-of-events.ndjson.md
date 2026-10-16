@@ -1,10 +1,10 @@
 ---
 id: DIPO-105
 title: Keep worker thinking text and signatures out of events.ndjson
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 14:44'
+updated_date: '2026-10-16 17:53'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -49,13 +49,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Thinking text and signature fields are removed from a stdout line before the host appends it (an adapter-owned scrub, so the host and engine stay free of Claude specifics); the line stays valid JSON and the rest of it, including the thinking duration and token fields, is unchanged.
-- [ ] #2 Ingestion still derives the DIPO-96 thinking activity from the scrubbed line.
-- [ ] #3 Tests cover a line with a thinking block, a redacted thinking block and a line without thinking; a replay of a recorded stream through the testkit fake process (packages/testkit/src/fake-process.ts) shows no thinking text in events.ndjson.
+- [x] #1 Thinking text and signature fields are removed from a stdout line before the host appends it (an adapter-owned scrub, so the host and engine stay free of Claude specifics); the line stays valid JSON and the rest of it, including the thinking duration and token fields, is unchanged.
+- [x] #2 Ingestion still derives the DIPO-96 thinking activity from the scrubbed line.
+- [x] #3 Tests cover a line with a thinking block, a redacted thinking block and a line without thinking; a replay of a recorded stream through the testkit fake process (packages/testkit/src/fake-process.ts) shows no thinking text in events.ndjson.
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+
+Finished by hand on DIPO-105/scrub-thinking-by-hand during the DIPO-115 cutover, from the draft of dipo's parked run (60-turn cap; verify could not run in its sandbox). The Claude adapter attaches a declarative LineScrub (CLAUDE_LINE_SCRUB: thinking, redacted_thinking, thinking_delta and signature_delta objects lose thinking, signature and data) to every LaunchPlan, in plan() and in the port's prepare(); launch.json's schema keeps it and the host applies it (host/scrub.ts) to each stdout line before the append. A redacted_thinking block loses its data field. A line the rule does not touch stays byte for byte; a piece of a line longer than the 4 MiB splitter cap is not JSON and stays as it came. Tests: test/host/scrub.test.ts, test/ingest/thinking.test.ts (scrubbed lines still give the DIPO-96 activity; the scrub changes no worker event of any recording), test/host/host.test.ts (recording with planted thinking replayed through the testkit fake process). No live run.
 <!-- SECTION:NOTES:END -->
