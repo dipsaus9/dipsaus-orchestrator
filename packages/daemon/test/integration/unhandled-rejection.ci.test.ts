@@ -1,9 +1,10 @@
 // CI only (0017 section 1): a real daemon process, started as the `dipo` binary starts it (a
 // top-level await that sets the exit code), meets an unhandled rejection (DIPO-110). The daemon
 // logs the error once with its code, and the listener does not swallow it: Bun still reports it as
-// uncaught, and the process exits 1 where a clean stop exits 0. That is the path Bun 1.4.2 takes
-// without the listener too (0006 decision 7 unchanged). State, runtime and temp files stay under
-// the test's temp directory, and the process is stopped in a `finally`.
+// uncaught and keeps running, the crash counter does not count it, and the process exits 1 at its
+// next stop where a clean stop exits 0. That is the path Bun 1.4.2 takes without the listener too;
+// how the daemon should react to one is decided in a follow-up story. State, runtime and temp
+// files stay under the test's temp directory, and the process is stopped in a `finally`.
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";

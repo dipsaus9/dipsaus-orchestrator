@@ -32,6 +32,7 @@ import {
   engineFeatures,
   engineRegistry,
   ensurePrivateDir,
+  errorCodeOf,
   GateStore,
   GhHost,
   hasLiveClaim,
@@ -139,12 +140,6 @@ export interface ForegroundOptions {
   readonly parentPid?: number;
 }
 
-/**
- * Error codes such as `SQLITE_IOERR` or `ENOSPC`, logged as `errorCode`: a `code` field shows dipo
- * codes only (0006 amendment of 2026-10-15 (DIPO-91)).
- */
-const ERROR_CODE = /^[A-Za-z][\w.-]{0,63}$/;
-
 /** Where the daemon hears of unhandled rejections; tests pass a fake. */
 export interface RejectionSource {
   on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
@@ -153,25 +148,20 @@ export interface RejectionSource {
 
 /**
  * Logs an unhandled rejection with its error code (DIPO-110), then throws the reason again, so Bun
- * handles it exactly as without a listener: it reports it as uncaught and the process exits
- * non-zero (0006 decision 7 unchanged; under the binary's top-level await that exit comes when the
- * daemon stops). Known engine jobs never get here: `background` catches and logs their failures.
- * Returns the remover.
+ * handles it exactly as without a listener. Under the binary's top-level await, Bun 1.4.2 reports
+ * it and keeps running; the crash counter does not count it, and the process exits 1 at its next
+ * stop. How the daemon should react to one is decided in a follow-up story. Known engine jobs never
+ * get here: `background` catches and logs their failures. Returns the remover.
  */
 export function logUnhandledRejections(
   logger: Logger,
   source: RejectionSource = process,
 ): () => void {
   const listener = (reason: unknown): void => {
-    const code =
-      typeof reason === "object" && reason !== null && "code" in reason
-        ? (reason as { code: unknown }).code
-        : undefined;
+    const code = errorCodeOf(reason);
     logger.error("an unhandled rejection reached the daemon", {
       error: reason,
-      ...(typeof code === "number" || (typeof code === "string" && ERROR_CODE.test(code))
-        ? { errorCode: code }
-        : {}),
+      ...(code === undefined ? {} : { errorCode: code }),
     });
     throw reason;
   };

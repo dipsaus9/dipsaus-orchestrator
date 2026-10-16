@@ -1,9 +1,11 @@
 // Fire-and-forget engine jobs (DIPO-110). A job the engine starts without waiting for it (a reply
-// to a worker host, the ending of a run, a timer's pass) must never end in an unhandled rejection:
-// that exits the daemon, and the next start counts it as a crash (0006 decision 7). `background`
-// starts the job and attaches its error handler before anything else that follows it (the
-// `settled` callback, the in-flight set), so a database or I/O error inside the job is one log line
-// through the owner's engine logger, with the error's code when it has one, and the daemon stays up.
+// to a worker host, the ending of a run, a timer's pass) must never end in an unhandled rejection.
+// Under the binary's top-level await, Bun 1.4.2 reports one on stderr and keeps running; the crash
+// counter does not count it, and the process exits 1 at its next stop. How the daemon should react
+// to one is decided in a follow-up story. `background` starts the job and attaches its error
+// handler before anything else that follows it (the `settled` callback, the in-flight set), so a
+// database or I/O error inside the job is one log line through the owner's engine logger, with the
+// error's code when it has one.
 
 /** Where a failed job is logged: the owner's engine logger (`logger.warn`, or its `warn` dependency). */
 export type BackgroundLog = (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -66,7 +68,7 @@ export function failureFields(error: unknown): Record<string, unknown> {
   const fields: Record<string, unknown> = {
     reason: error instanceof Error ? error.message : String(error),
   };
-  const code = codeOf(error);
+  const code = errorCodeOf(error);
   if (code !== undefined) fields["errorCode"] = code;
   return fields;
 }
@@ -78,7 +80,8 @@ export function failureFields(error: unknown): Record<string, unknown> {
  */
 const ERROR_CODE = /^[A-Za-z][\w.-]{0,63}$/;
 
-function codeOf(error: unknown): string | number | undefined {
+/** The error's `code` property when it is a number or code-shaped, for an `errorCode` log field. */
+export function errorCodeOf(error: unknown): string | number | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
   const code = (error as { code: unknown }).code;
   if (typeof code === "number") return code;

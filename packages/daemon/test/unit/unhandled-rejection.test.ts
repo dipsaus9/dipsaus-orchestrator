@@ -1,6 +1,6 @@
-// The daemon's unhandled rejection listener (DIPO-110, 0006 decision 7 unchanged): it logs the
-// error with its code, then throws the reason again so Bun handles it as it did before. A fake
-// source stands in for `process`; the real process is in unhandled-rejection.ci.test.ts.
+// The daemon's unhandled rejection listener (DIPO-110): it logs the error with its code, then
+// throws the reason again so Bun handles it as it did before. A fake source stands in for
+// `process`; the real process is in unhandled-rejection.ci.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";

@@ -1,5 +1,6 @@
-// Watches the test process for unhandled rejections (DIPO-110): in the daemon each one is an exit
-// that counts as a crash (0006 decision 7), so a background job that fails must leave none.
+// Watches the test process for unhandled rejections (DIPO-110). Under the binary's top-level await,
+// Bun 1.4.2 reports one and keeps running; the crash counter does not count it, and the process
+// exits 1 at its next stop. A background job that fails must leave none.
 
 import { yieldToEventLoop } from "../../src/platform/clock";
 
