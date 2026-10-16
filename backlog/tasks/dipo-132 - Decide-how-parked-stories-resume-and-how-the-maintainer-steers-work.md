@@ -4,7 +4,7 @@ title: Decide how parked stories resume and how the maintainer steers work
 status: Refined
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 14:40'
+updated_date: '2026-10-16 14:48'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -23,7 +23,7 @@ ordinal: 122000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: an approved ADR, docs/decisions/0020-park-and-resume.md, decides how every parked story gets going again and how the maintainer steers work, so dipo resume works for each park reason and a plain-text dipo desk shows what needs the maintainer.
 
-Context: M1a, the first slice of M1 (maintainer decision 2026-10-16). M0 resumes only needs-permission parks and plan-limit holds. story.hold, story.drop, work.discard, work.steer, work.pause, work.reassign, gate.approve and gate.reject exist in the contract as provisional and unregistered (packages/contract/src/office.ts). The answer-before-park wait for worker questions is deferred to M1 (packages/engine/src/run/control.ts). Context packs and worker notes have no production writer (packages/engine/src/context/), and the handoff a resumed story gets depends on them. New M1 commands inherit the async command path the code already uses, which 0005 does not describe yet. Planning brief sections 2.2, 2.3, 3 (4.4, 4.6, 4.12, 4.14) and 6 (S2).
+Context: M1a, the first slice of M1 (maintainer decision 2026-10-16). M0 resumes only needs-permission parks and plan-limit holds. story.hold, story.drop, work.discard, work.steer, work.pause, work.reassign, gate.approve and gate.reject exist in the contract as provisional and unregistered (packages/contract/src/office.ts). The answer-before-park wait for worker questions is deferred to M1 (packages/engine/src/run/control.ts). Context packs are written by recordContextPack (packages/engine/src/context/pack.ts) and worker notes by recordWorkerNotes (packages/engine/src/prompts/notes.ts); neither is called in production, and the handoff a resumed story gets depends on them. New M1 commands inherit the async command path the code already uses, which 0005 does not describe yet. Found by the 2026-10-16 milestone review (docs/reviews/, not committed) and 0005, 0008 section 6, 0010 section 2a and 0014.
 
 Already decided by the maintainer (2026-10-16), to record in the ADR:
 - budget-exceeded: resume only with an explicit top-up (dipo resume <id> --budget +50% or a fixed token amount), recorded as a fact with who and why, resuming the same session; a plain resume is refused for this reason with a message naming the option; never topped up silently.
@@ -34,6 +34,7 @@ Questions the ADR answers:
 - The handoff for a new session: which context pack and worker notes are written, when and by whom, and what a resumed or restarted story reads.
 - The answer-before-park wait for worker questions.
 - hold, drop and discard (lane b, 0010 section 2a), steer and pause (0008 section 6), and their CLI confirmations.
+- What hold, drop and discard do to an open story PR and its branch.
 - The plain-text dipo desk: what it lists (parks, questions, review-blocked, conflicts, merges waiting on the maintainer), in which order, and its CLI form.
 - The structured summary written back to the story on park and close (0001).
 - Any ParkReason or SkipReason additions, and a dated 0005 note on the async command path.
