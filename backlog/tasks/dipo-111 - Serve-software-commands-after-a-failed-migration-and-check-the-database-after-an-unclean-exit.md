@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 10:51'
+updated_date: '2026-10-16 11:14'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -23,6 +23,14 @@ references:
   - packages/contract/src/
   - packages/daemon/src/server.ts
   - packages/daemon/src/restore.ts
+  - packages/client/src/recovery.ts
+  - packages/client/src/store/office-store.ts
+  - packages/client/test
+  - packages/contract/schema/
+  - packages/contract/src/catalog.ts
+  - packages/daemon/src/crash-counter.ts
+  - packages/cli/src/office-commands.test.ts
+  - packages/cli/src/watch-command.test.ts
 priority: high
 type: feature
 ordinal: 101000
