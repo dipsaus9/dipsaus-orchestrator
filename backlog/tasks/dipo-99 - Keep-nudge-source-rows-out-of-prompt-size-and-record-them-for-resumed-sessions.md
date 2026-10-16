@@ -1,9 +1,10 @@
 ---
 id: DIPO-99
 title: Keep nudge source rows out of prompt size and record them for resumed sessions
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-16 07:27'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -29,7 +30,7 @@ Context: DIPO-60 stores the context pack and input paths as pseudo rows task.con
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Nudge source paths live apart from prompt parts (own table, or a kind column excluded from prompt size), and promptPartsOf and any prompt size total return real parts only.
-- [ ] #2 A resumed or handoff session records its own context pack and input paths, and the context and input nudges check the current session paths.
-- [ ] #3 A migration moves existing pseudo rows; tests cover the size total and a resumed session with a changed pack.
+- [x] #1 Nudge source paths live apart from prompt parts (own table, or a kind column excluded from prompt size), and promptPartsOf and any prompt size total return real parts only.
+- [x] #2 A resumed or handoff session records its own context pack and input paths, and the context and input nudges check the current session paths.
+- [x] #3 A migration moves existing pseudo rows; tests cover the size total and a resumed session with a changed pack.
 <!-- AC:END -->
