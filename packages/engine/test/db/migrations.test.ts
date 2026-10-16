@@ -212,3 +212,64 @@ describe("migrate", () => {
     expect(backupStamp(Date.UTC(2026, 9, 12, 7, 5, 9, 450))).toBe("20261012T070509");
   });
 });
+
+describe("migration 28, nudge_sources (DIPO-99)", () => {
+  it("moves the context and input path rows out of prompt_parts", () =>
+    withTempDir(async (dir) => {
+      const before = MIGRATIONS.filter((step) => step.version < 28);
+      const old = await openStateDatabase(options(dir, before));
+      try {
+        const db = old.connection;
+        db.run(
+          `insert into offices (office_id, path, display_name, added_at, epoch, next_seq,
+             replay_floor_seq)
+           values ('off-1', '/repo', 'repo', 0, 'e', 1, 0)`,
+        );
+        const part = (agent: string, name: string, bytes: number, nudges = 0) =>
+          db.run(
+            `insert into prompt_parts (office_id, run_id, agent_id, part, sha256, bytes,
+               est_tokens, nudges, recorded_at)
+             values ('off-1', 'run-1', $agent, $name, 'h', $bytes, 1, $nudges, 5)`,
+            { agent, name, bytes, nudges },
+          );
+        part("agt-1", "system", 10);
+        part("agt-1", "task", 20);
+        part("agt-1", "task.context:src/a.ts", 300);
+        part("agt-1", "task.context:src/b.ts", 400);
+        part("agt-1", "task.inputs:docs/spec.md", 500);
+        part("agt-1", "nudge.context:src/a.ts", 50, 1);
+      } finally {
+        old.close();
+      }
+
+      const state = await openStateDatabase(options(dir, MIGRATIONS));
+      try {
+        const db = state.connection;
+        expect(
+          db.all("select part, bytes from prompt_parts where office_id = 'off-1' order by part"),
+        ).toEqual([
+          { part: "nudge.context:src/a.ts", bytes: 50 },
+          { part: "system", bytes: 10 },
+          { part: "task", bytes: 20 },
+        ]);
+        expect(
+          db.all(
+            `select run_id, agent_id, kind, path, recorded_at from nudge_sources
+             where office_id = 'off-1' order by kind, path`,
+          ),
+        ).toEqual([
+          { run_id: "run-1", agent_id: "agt-1", kind: "context", path: "src/a.ts", recorded_at: 5 },
+          { run_id: "run-1", agent_id: "agt-1", kind: "context", path: "src/b.ts", recorded_at: 5 },
+          {
+            run_id: "run-1",
+            agent_id: "agt-1",
+            kind: "input",
+            path: "docs/spec.md",
+            recorded_at: 5,
+          },
+        ]);
+      } finally {
+        state.close();
+      }
+    }));
+});

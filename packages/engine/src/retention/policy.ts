@@ -42,6 +42,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "S",
     rule: "recorded more than stateDays ago, once no agent of the run is running",
   },
+  nudge_sources: {
+    tier: "S",
+    rule: "recorded more than stateDays ago, once no agent of the run is running",
+  },
   claims: { tier: "S", rule: "released more than stateDays ago; a live claim is kept" },
   scans: { tier: "S", rule: "finished more than stateDays ago" },
   // 0007: P for the current and the previous profile; older ones are pruned, not aged.

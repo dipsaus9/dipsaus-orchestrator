@@ -22,7 +22,9 @@ import { join } from "node:path";
 import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 import { readRecording } from "@dipsaus-orchestrator/testkit";
 
+import { parseFieldBlock } from "../../src/backlog/fields/block";
 import { OFFICE_DEFAULTS } from "../../src/config/schema";
+import { writeNudgeSources } from "../../src/hooks/nudges";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -69,6 +71,8 @@ import {
   target,
 } from "../ingest/helpers";
 import { RECORDINGS_DIR } from "../workers/replay";
+import { memoryWorkspace } from "../context/helpers";
+import { plainTask } from "../prompts/helpers";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -744,7 +748,10 @@ function countDaily(): number {
 function realResumer(
   hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
   extra: Partial<
-    Pick<ConstructorParameters<typeof RunResumer>[0], "probe" | "hostExitWaitMs" | "ingest">
+    Pick<
+      ConstructorParameters<typeof RunResumer>[0],
+      "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace"
+    >
   > = {},
 ): RunResumer {
   const worker: WorkerPort = {
@@ -1286,5 +1293,108 @@ describe("a stop that did not reach the host before re-attach (DIPO-93)", () => 
       detail: STOP_AGAIN_DETAIL,
     });
     expect(hostRow().endedAt).toBeNull();
+  });
+});
+
+/** The nudge source rows of `agent`, as `kind:path`. */
+const sources = (agent: string) =>
+  w.f.office
+    .all<{ kind: string; path: string }>(
+      `select kind, path from nudge_sources where office_id = $office_id and run_id = $run
+        and agent_id = $agent order by kind, path`,
+      { run: w.f.run, agent },
+    )
+    .map((row) => `${row.kind}:${row.path}`);
+
+/** The run's first session with its pack, ready to be resumed. */
+function firstSession(): void {
+  beforeRestart("terminated", 0);
+  w.f.office.immediate(() => {
+    w.f.office.run(
+      `update agents set ended_at = 1, end_reason = 'crashed', session_id = 'session-1'
+        where office_id = $office_id and agent_id = $agent`,
+      { agent: w.f.agent },
+    );
+    writeNudgeSources(
+      w.f.office,
+      w.f.run,
+      w.f.agent,
+      { context: ["src/old.ts"], inputs: ["docs/old.md"] },
+      1,
+    );
+  });
+}
+
+const hosts: Parameters<typeof realResumer>[0] = {
+  start: async (office, options) => {
+    const runDir = join(w.dir, "git", "dipo", "runs", options.runId);
+    const host = {
+      pid: 4243,
+      startTimeMs: 0,
+      runId: options.runId,
+      agentId: options.agentId,
+      socketPath: join(w.dir, "host.sock"),
+      protocolVersion: 1,
+      runDir,
+      eventFile: join(runDir, "events.ndjson"),
+    };
+    recordWorkerHost(office, host, w.f.t.clock, {
+      ...(options.processedOffset === undefined
+        ? {}
+        : { processedOffset: options.processedOffset }),
+      ...(options.record === undefined ? {} : { record: options.record }),
+    });
+    return host;
+  },
+};
+
+describe("the next session's nudge sources (DIPO-99)", () => {
+  it("a resumed session whose context pack changed records its own pack", async () => {
+    firstSession();
+    const view = plainTask({
+      id: "DIPO-1",
+      dependencies: [],
+      references: ["src/new.ts"],
+      documentation: ["docs/new.md"],
+    });
+    const resumer = realResumer(hosts, {
+      probe: async () => null,
+      story: async () => ({
+        view,
+        fields: parseFieldBlock(view.description).fields,
+        taskFile: "backlog/tasks/dipo-1 - Story.md",
+        dependencies: [],
+      }),
+      handoff: async () => ({
+        commits: "",
+        diffstat: "",
+        untracked: [],
+        criteria: null,
+        verify: null,
+        feedback: [],
+        notes: null,
+      }),
+      workspace: () =>
+        memoryWorkspace({
+          "src/new.ts": "export const fresh = 1;\n",
+          "docs/new.md": "# New spec\n",
+        }),
+    });
+    const outcome = await resumer.next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: true });
+    const agent = (outcome as { agent: string }).agent;
+    expect(sources(agent)).toEqual(["context:src/new.ts", "input:docs/new.md"]);
+    expect(sources(w.f.agent)).toEqual(["context:src/old.ts", "input:docs/old.md"]);
+  });
+
+  it("a resume whose handoff could not be built keeps the resumed session's pack", async () => {
+    firstSession();
+    // The default story read throws, so no new pack is gathered; the resume still starts.
+    const outcome = await realResumer(hosts, { probe: async () => null }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: true });
+    expect(sources((outcome as { agent: string }).agent)).toEqual([
+      "context:src/old.ts",
+      "input:docs/old.md",
+    ]);
   });
 });
