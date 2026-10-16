@@ -36,8 +36,8 @@ export type { PidRecord } from "./files";
 export {
   isDaemonCommand,
   isSameProcess,
-  parseLstart,
-  parsePsLine,
+  parseKinfoProc,
+  parseProcArgs,
   parseProcStat,
   systemProcessProbe,
 } from "./process";
