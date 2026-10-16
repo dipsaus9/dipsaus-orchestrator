@@ -301,6 +301,7 @@ export {
   officeSummarySource,
   snapshot,
   storyView,
+  summarySettings,
   viewsFeature,
   withWorkViews,
   workRefOf,

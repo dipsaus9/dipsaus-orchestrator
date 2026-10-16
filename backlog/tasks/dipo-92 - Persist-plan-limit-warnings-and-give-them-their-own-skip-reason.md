@@ -4,6 +4,7 @@ title: Persist plan-limit warnings and give them their own skip reason
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 21:41'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,6 +14,19 @@ references:
   - packages/engine/src/run/plan-limit.ts
   - packages/engine/src/run/work-run.ts
   - packages/contract/src/work.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/db/migrations/0026-plan-limit-warnings.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/test/run/plan-limit.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/contract/src/work.test.ts
+  - packages/tui/src/format.ts
+  - packages/tui/src/format.test.ts
+  - packages/cli/src/run-command.ts
+  - packages/cli/src/run-command.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
 priority: medium
 type: feature
 ordinal: 82000

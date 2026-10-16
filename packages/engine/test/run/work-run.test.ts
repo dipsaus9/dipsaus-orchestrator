@@ -14,6 +14,7 @@ import {
   RunId,
   StoryId,
   type StoryKey,
+  type StoryView,
 } from "@dipsaus-orchestrator/contract";
 
 import type { JournalEntry, LaneOp } from "../../src/backlog/lane/journal";
@@ -456,6 +457,15 @@ describe("work.run picks and claims one Ready story", () => {
       ],
     });
     expect(log[0]?.view).toMatchObject({ lifecycle: "Refined", column: "refined" });
+    // The view carries the rule id as data next to the message (DIPO-97).
+    expect((log[0]?.view as StoryView | undefined)?.gateFailures).toEqual([
+      {
+        rule: "R15",
+        message:
+          'ready TASK-1 failed R15: unknown "Which format?" is open; resolve it with an answer',
+        text: 'unknown "Which format?" is open; resolve it with an answer',
+      },
+    ]);
   });
 
   it("returns a story over prompt.contractMax to Refined with the assembly error, before any claim", async () => {
@@ -471,6 +481,10 @@ describe("work.run picks and claims one Ready story", () => {
       "TASK-1 cannot start: prompt.contractTooLarge: story contract is ",
     );
     expect(detail[0]).toEndWith("characters; the limit is 10");
+    // No rule gave it, so the view has the message but no rule entry (DIPO-97).
+    const view = entries()[0]?.view as StoryView | undefined;
+    expect(view?.gateMessages).toEqual(detail);
+    expect(view).not.toHaveProperty("gateFailures");
   });
 
   it("sends a story with no frozen branch through the pickup gate on its own", async () => {
@@ -546,7 +560,7 @@ describe("work.run refusals", () => {
     expect(resultOf(await run()).started).toHaveLength(1);
   });
 
-  it("refuses every run while a plan limit of every model holds, and skips a held model (DIPO-61)", async () => {
+  it("refuses every run while a plan limit of every model holds, and skips a held model as planLimit (DIPO-61, DIPO-92)", async () => {
     story("TASK-1", "Ready");
     const asked: (string | null)[] = [];
     world.planLimit = (_adapter, model) => {
@@ -563,16 +577,29 @@ describe("work.run refusals", () => {
     }
     expect(asked).toEqual([null, null]);
 
-    // A model-family limit: only stories whose tier runs that model are skipped.
+    // A model-family limit: only stories whose tier runs that model are skipped, with their own
+    // reason, not capacity (DIPO-92).
     const model = world.config.tiers.S.model;
     world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
     expect(resultOf(await run())).toMatchObject({
       started: [],
-      skipped: [{ story: "TASK-1", reason: "capacity" }],
+      skipped: [{ story: "TASK-1", reason: "planLimit" }],
     });
     world.planLimit = () => null;
     expect(world.claims).toEqual([]);
     expect(resultOf(await run()).started).toHaveLength(1);
+  });
+
+  it("skips as capacity, not planLimit, when the office is full and a model-family hold also applies (DIPO-92)", async () => {
+    story("TASK-1", "Ready", { priority: "high" });
+    story("TASK-2", "Ready", { priority: "low" });
+    expect(resultOf(await run()).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    const model = world.config.tiers.S.model;
+    world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
+    expect(resultOf(await run()).skipped.map((s) => [s.story, s.reason])).toEqual([
+      ["TASK-1", "notRunnable"],
+      ["TASK-2", "capacity"],
+    ]);
   });
 
   it("answers engine.recovering for from while the state database is not open", async () => {

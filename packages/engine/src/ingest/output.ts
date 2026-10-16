@@ -6,6 +6,9 @@
 // line also holds the call's input as one line: `[tool] Bash bun test`. Line breaks and other
 // control characters become spaces, and an input longer than `INPUT_MAX_CHARS` is cut with a marker
 // that says how much was left out.
+//
+// A finished thinking block of the main agent is one line of counts (DIPO-96): `[thinking] 0.9s
+// ~265 tokens`. It holds no thinking text; the worker event carries none.
 
 import type { WorkerEvent } from "../workers/types";
 
@@ -45,6 +48,17 @@ export function toolLine(tool: string, path?: string, input?: string): string {
   return `${parts.join(" ")}\n`;
 }
 
+/**
+ * The line stored for one thinking block: `[thinking] 0.9s ~265 tokens`, with what is known of the
+ * duration (seconds, one decimal) and the estimated tokens.
+ */
+export function thinkingLine(ms?: number, tokens?: number): string {
+  const parts = ["[thinking]"];
+  if (ms !== undefined) parts.push(`${(ms / 1000).toFixed(1)}s`);
+  if (tokens !== undefined) parts.push(`~${tokens} tokens`);
+  return `${parts.join(" ")}\n`;
+}
+
 /** Stored text for one worker event, or "" when the event adds no output. */
 export function outputText(
   event: WorkerEvent,
@@ -54,8 +68,10 @@ export function outputText(
     return event.text.endsWith("\n") || event.text === "" ? event.text : `${event.text}\n`;
   }
   if (event.t !== "activity" || event.kind === "text") return "";
-  // Only the main agent's own calls: a subagent's work shows as the one call that started it.
-  if (event.kind === "tool" && event.agentId !== undefined) return "";
+  // Only the main agent's own calls and thinking: a subagent's work shows as the one call that
+  // started it.
+  if (event.kind !== "subagent" && event.agentId !== undefined) return "";
+  if (event.kind === "thinking") return thinkingLine(event.ms, event.tokens);
   if (event.kind !== "tool") return toolLine(event.tool ?? event.kind);
   // The input only with the opt-in; without it the line is exactly what it always was.
   const input = privacy.storeCommandBodies ? event.input : undefined;

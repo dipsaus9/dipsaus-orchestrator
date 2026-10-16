@@ -52,7 +52,8 @@
             "dependency",
             "collision",
             "capacity",
-            "pickupCheckFailed"
+            "pickupCheckFailed",
+            "planLimit"
           ]
         },
         {
@@ -562,6 +563,24 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "gateFailures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": ["rule", "message", "text"]
           }
         },
         "evidence": {
@@ -1198,6 +1217,24 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "gateFailures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["rule", "message", "text"]
                 }
               },
               "evidence": {

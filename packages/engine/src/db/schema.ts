@@ -26,6 +26,7 @@ import { questions } from "./migrations/0022-questions";
 import { parkQuestions } from "./migrations/0023-park-questions";
 import { runCriteria } from "./migrations/0024-run-criteria";
 import { exitSignalInferred } from "./migrations/0025-exit-signal-inferred";
+import { planLimitWarnings } from "./migrations/0026-plan-limit-warnings";
 import { reattachGaps } from "./migrations/0027-reattach-gaps";
 
 /**
@@ -88,5 +89,6 @@ create table offices (
   parkQuestions,
   runCriteria,
   exitSignalInferred,
+  planLimitWarnings,
   reattachGaps,
 ];

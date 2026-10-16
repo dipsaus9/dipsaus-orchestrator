@@ -1,9 +1,9 @@
 // Text pieces of the overview and the queue (0009 sections 3, 4 and 9): the budget bar, elapsed
-// time, short roles, evidence markers, the rule id of a Ready gate message and the words for
+// time, short roles, evidence markers, the first Ready gate failure of a story and the words for
 // `work.run` skip reasons. Pure functions of the views the engine sent; nothing here derives a
 // status.
 
-import type { Evidence, EvidenceMap, Usage } from "@dipsaus-orchestrator/contract";
+import type { Evidence, EvidenceMap, StoryView, Usage } from "@dipsaus-orchestrator/contract";
 
 /** The overview drops columns below these widths (0009 section 9). */
 export const FULL_COLUMNS = 120;
@@ -98,12 +98,15 @@ export function tokens(value: number): string {
 }
 
 /**
- * A Ready gate message as the queue shows it: its rule id first, then what failed. The engine
- * writes them as `ready DIPO-33 failed R15: 2 unknowns open…` (0012); another shape shows as is.
+ * The first Ready gate failure of a story as the queue shows it: its rule id first, then what
+ * failed (`R15 2 unknowns open…`), both from `gateFailures` (DIPO-97). A message no rule gave
+ * shows as is; undefined when the story has neither.
  */
-export function gateLine(message: string): string {
-  const match = /\b(R\d+[a-z]?):\s*(.*)$/.exec(message);
-  return match === null ? message : `${match[1]} ${match[2]}`;
+export function gateLine(
+  view: Pick<StoryView, "gateFailures" | "gateMessages">,
+): string | undefined {
+  const failure = view.gateFailures?.[0];
+  return failure === undefined ? view.gateMessages?.[0] : `${failure.rule} ${failure.text}`;
 }
 
 /** What each `work.run` skip reason means (0005 section 4); an unknown one shows as its word. */
@@ -115,6 +118,7 @@ const SKIP_REASONS: Readonly<Record<string, string>> = {
   collision: "its branch or worktree path is taken",
   capacity: "the office runs as many stories as it may",
   pickupCheckFailed: "it failed its pickup check or its setup",
+  planLimit: "a plan limit or plan-limit warning holds new runs on its model until the reset",
 };
 
 export function skipReason(reason: string): string {

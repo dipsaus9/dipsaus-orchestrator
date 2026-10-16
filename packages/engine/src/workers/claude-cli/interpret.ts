@@ -35,6 +35,8 @@ import {
   ResultMessage,
   SessionStateMessage,
   TextBlock,
+  THINKING_BLOCK_TYPES,
+  ThinkingTokensMessage,
   ToolUseBlock,
 } from "./schema";
 import type { z } from "zod";
@@ -146,6 +148,12 @@ export interface ClaudeParseState {
    * existed, where every counted compaction was already emitted.
    */
   readonly compactReported?: number;
+  /**
+   * The CLI's token estimate of the thinking block in progress, from `system/thinking_tokens`
+   * (DIPO-96); cleared when the block's assistant line reports it, and at the exit. A number only:
+   * the parser never keeps thinking text. Absent in states stored before it existed.
+   */
+  readonly thinkingTokens?: number;
 }
 
 export interface InitialStateOptions {
@@ -405,6 +413,8 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
         compactBoundaries: _boundaries,
         compactHooks: _hooks,
         compactReported: _reported,
+        // A thinking block the process never finished is not reported.
+        thinkingTokens: _thinking,
         ...rest
       } = flushed.state;
       return {
@@ -566,6 +576,8 @@ export function message(value: unknown, state: ClaudeParseState): Step {
         ? { events: [{ t: "waiting", on: "permission", detail: "requires_action" }], state }
         : { events: [], state };
     }
+    case "system/thinking_tokens":
+      return thinkingTokens(value, state);
     default:
       // Known, read for liveness only: stream events, user turns, status, task and hook progress.
       return { events: [], state };
@@ -679,14 +691,65 @@ function toolInput(tool: string, input: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
+/**
+ * A `system/thinking_tokens` line (DIPO-96): the estimate of the thinking block in progress. The
+ * CLI sends the block's running total; a line with only the rise adds it to what came before.
+ */
+function thinkingTokens(value: unknown, state: ClaudeParseState): Step {
+  const parsed = parseWith(ThinkingTokensMessage, value, state);
+  if (!parsed.ok) return { events: [], state: parsed.state };
+  const { estimated_tokens: total, estimated_tokens_delta: rise } = parsed.value;
+  const tokens =
+    total !== undefined
+      ? total
+      : rise !== undefined
+        ? (state.thinkingTokens ?? 0) + rise
+        : state.thinkingTokens;
+  return {
+    events: [],
+    state: tokens === undefined ? state : { ...state, thinkingTokens: Math.round(tokens) },
+  };
+}
+
+/**
+ * The `thinking` activity of an assistant line that carries a finished thinking block (DIPO-96):
+ * its duration and the token estimate gathered while it ran, never its text or signature. The CLI
+ * puts each content block on its own line, so one line reports one block.
+ */
+function thinkingActivity(
+  msg: z.infer<typeof AssistantMessage>,
+  state: ClaudeParseState,
+  scope: { readonly agentId?: string },
+): Step {
+  const thought = msg.message.content.some((block) => THINKING_BLOCK_TYPES.includes(block.type));
+  const ms = msg.thinking_duration_ms;
+  if (!thought && ms === undefined) return { events: [], state };
+  const tokens = state.thinkingTokens;
+  const { thinkingTokens: _done, ...rest } = state;
+  return {
+    events: [
+      {
+        t: "activity",
+        kind: "thinking",
+        ...(ms === undefined ? {} : { ms: Math.round(ms) }),
+        ...(tokens === undefined ? {} : { tokens }),
+        ...scope,
+      },
+    ],
+    state: rest,
+  };
+}
+
 function assistant(value: unknown, state: ClaudeParseState): Step {
   const parsed = parseWith(AssistantMessage, value, state);
   if (!parsed.ok) return { events: [], state: parsed.state };
   const msg = parsed.value;
   const agentId = msg.parent_tool_use_id ?? undefined;
   const scope = agentId === undefined ? {} : { agentId };
-  const events: WorkerEvent[] = [];
-  let next = state;
+  // Thinking comes before the words and tool calls it led to.
+  const thinking = thinkingActivity(msg, state, scope);
+  const events: WorkerEvent[] = [...thinking.events];
+  let next = thinking.state;
 
   for (const raw of msg.message.content) {
     const text = TextBlock.safeParse(raw);

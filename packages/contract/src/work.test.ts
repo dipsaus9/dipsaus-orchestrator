@@ -79,7 +79,7 @@ describe("open enums", () => {
   const cases = [
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 11 },
-    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
+    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 8 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
     { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 7 },
     { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 8 },
@@ -202,6 +202,27 @@ describe("views", () => {
     };
     expect(OfficeSummary.parse(summary)).toEqual(summary as never);
   });
+
+  // Minor-1 additions of DIPO-97: optional, so a summary or view without them still parses.
+  it("OfficeSummary takes an optional whole-day output retention period", () => {
+    expect(OfficeSummary.parse(officeSummary).outputRetentionDays).toBe(7);
+    const { outputRetentionDays: _, ...without } = officeSummary;
+    expect(OfficeSummary.safeParse(without).success).toBe(true);
+    for (const bad of [0, -1, 1.5, "7"]) {
+      const summary = { ...officeSummary, outputRetentionDays: bad };
+      expect(OfficeSummary.safeParse(summary).success).toBe(false);
+    }
+  });
+
+  it("StoryView carries each failed gate rule with its id next to the message", () => {
+    const view = StoryView.parse(refinedStoryView);
+    expect(view.gateFailures?.[0]?.rule).toBe("R15");
+    expect(view.gateFailures?.[0]?.message).toBe(view.gateMessages?.[0] ?? "");
+    const { gateFailures: _, ...without } = refinedStoryView;
+    expect(StoryView.safeParse(without).success).toBe(true);
+    const noText = { ...refinedStoryView, gateFailures: [{ rule: "R15", message: "m" }] };
+    expect(StoryView.safeParse(noText).success).toBe(false);
+  });
 });
 
 describe("office commands and reads", () => {
@@ -299,6 +320,16 @@ describe("office commands and reads", () => {
     expect(
       record?.args.safeParse({ test: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D", result: "pass" }).success,
     ).toBe(true);
+  });
+
+  it("work.run reports a plan-limit hold with its own skip reason (DIPO-92)", () => {
+    expect(KNOWN_SKIP_REASONS).toContain("planLimit");
+    const run = officeCommands.find((d) => d.name === "work.run");
+    const result = {
+      started: [],
+      skipped: [{ story: "DIPO-31", key: workRef.key, reason: "planLimit" }],
+    };
+    expect(run?.result.parse(result)).toEqual(result as never);
   });
 
   it("work.run reports an unknown skip reason without failing", () => {

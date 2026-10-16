@@ -54,6 +54,26 @@ export const AssistantMessage = z.object({
   }),
   parent_tool_use_id: z.string().nullable(),
   error: z.string().optional(),
+  /**
+   * How long the thinking block on this line took (DIPO-96). A value of the wrong shape is dropped,
+   * so it never costs the message its usage.
+   */
+  thinking_duration_ms: z.number().nonnegative().optional().catch(undefined),
+});
+
+/** Content blocks that hold thinking; only their presence is read, never their text (DIPO-96). */
+export const THINKING_BLOCK_TYPES: readonly string[] = ["thinking", "redacted_thinking"];
+
+/**
+ * The CLI's running estimate of the current thinking block (DIPO-96): `estimated_tokens` so far in
+ * the block, `estimated_tokens_delta` the rise since the last line. Recordings captured before the
+ * allowlist kept these fields hold neither, so both are optional.
+ */
+export const ThinkingTokensMessage = z.object({
+  type: z.literal("system"),
+  subtype: z.literal("thinking_tokens"),
+  estimated_tokens: z.number().nonnegative().optional(),
+  estimated_tokens_delta: z.number().nonnegative().optional(),
 });
 
 export const ModelUsageEntry = z.object({
@@ -182,7 +202,8 @@ export const KNOWN_TYPES = [
 
 /**
  * `system` subtypes the adapter knows: some map to events, the rest are read for liveness only.
- * `background_tasks_changed`, `thinking_tokens` and `task_updated` were seen live in DIPO-41.
+ * `background_tasks_changed`, `thinking_tokens` and `task_updated` were seen live in DIPO-41;
+ * `thinking_tokens` feeds the `thinking` activity since DIPO-96.
  */
 export const KNOWN_SYSTEM_SUBTYPES = [
   "init",
@@ -226,6 +247,8 @@ export function schemaFor(message: {
           return CompactBoundaryMessage;
         case "session_state_changed":
           return SessionStateMessage;
+        case "thinking_tokens":
+          return ThinkingTokensMessage;
         default:
           return null;
       }
@@ -270,6 +293,13 @@ export const ClaudeWorkerEventSchema = z.union([
     tool: Name,
     path: z.string().exactOptional(),
     input: z.string().exactOptional(),
+    agentId: Name.exactOptional(),
+  }),
+  z.strictObject({
+    t: z.literal("activity"),
+    kind: z.literal("thinking"),
+    ms: Count.exactOptional(),
+    tokens: Count.exactOptional(),
     agentId: Name.exactOptional(),
   }),
   z.strictObject({

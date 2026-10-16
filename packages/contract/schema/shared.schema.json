@@ -231,6 +231,11 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "outputRetentionDays": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": ["office", "name", "path", "running", "parked", "onHold", "waitingOnMaintainer"]

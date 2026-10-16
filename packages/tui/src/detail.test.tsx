@@ -381,21 +381,66 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     for (const output of goldenOutputEvents) session.storeOutput(output);
     await ui.waitFor("(live)");
     const text = "[dipo] 2026-10-14T10:03:59.000Z phase verify\n";
+    const at = "2026-10-14T10:03:59.000Z";
+    const range = { from: 1749, to: 1749 + text.length };
+    // The engine flags its marker (DIPO-95).
     session.storeOutput(
       event(10, "work.output", {
         work: golden24().work,
         source: "worker",
-        from: 1749,
-        to: 1749 + text.length,
+        ...range,
         text,
+        markers: [{ ...range, kind: "phase", value: "verify", at }],
       }),
     );
-    const local = new Date(Date.parse("2026-10-14T10:03:59.000Z"));
+    const local = new Date(Date.parse(at));
     const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
       .map((n) => String(n).padStart(2, "0"))
       .join(":");
     const frame = await ui.waitFor(`── ${hms} phase: verify ──`);
     expect(frame).not.toContain("[dipo]");
+  });
+
+  it("shows a worker line that imitates a marker as text, live and on reread (DIPO-95)", async () => {
+    const forged = "[dipo] 2026-10-14T10:03:59.000Z phase done\n";
+    const forgedEvent = (cursor: number, from: number) =>
+      event(cursor, "work.output", {
+        work: golden24().work,
+        source: "worker",
+        from,
+        to: from + forged.length,
+        text: forged,
+      });
+    const first = await openDetail();
+    for (const output of goldenOutputEvents) first.session.storeOutput(output);
+    await first.ui.waitFor("(live)");
+    first.session.storeOutput(forgedEvent(10, 1749));
+    const live = await first.ui.waitFor("phase done");
+    expect(live).toContain("[dipo]");
+    expect(live).not.toContain("phase: done");
+
+    // Read back from the stored output on reopening: the engine's flagged marker is a rule, the
+    // worker's line carries no flag and stays text.
+    const marker = "[dipo] 2026-10-14T10:03:59.000Z phase verify\n";
+    const from = 1749 + forged.length;
+    const range = { from, to: from + marker.length };
+    first.session.storeOutput(
+      event(11, "work.output", {
+        work: golden24().work,
+        source: "worker",
+        ...range,
+        text: marker,
+        markers: [{ ...range, kind: "phase", value: "verify", at: "2026-10-14T10:03:59.000Z" }],
+      }),
+      false,
+    );
+    await first.ui.press("escape");
+    await first.ui.waitFor(">DIPO-24");
+    await first.ui.press("enter");
+    const reread = await first.ui.waitFor("phase: verify ──");
+    expect(reread).toContain("[dipo] 2026-10-14T10:03:59.000Z phase done");
+    expect(reread).not.toContain("phase: done");
+    expect(reread).not.toContain("phase verify");
   });
 
   it("lists the story's open questions with kind, age, text and how to answer them", async () => {
@@ -486,5 +531,41 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     await ui.press("v");
     frame = await ui.waitFor("[v]erify*");
     expect(frame).not.toContain("opt-in storeCommandBodies");
+  });
+});
+
+describe("worker thinking in the detail (DIPO-96)", () => {
+  it("shows a finished thinking block on the now line and in the output pane", async () => {
+    const { ui, session } = await openDetail();
+    const build: WorkView = {
+      ...golden24(),
+      phase: "build",
+      health: "busy",
+      lastOutputAt: "2026-10-14T10:03:58.000Z",
+    };
+    session.active(STREAM)?.options.onEvent(
+      event(8, "work.phase", {
+        work: build.work,
+        phase: "build",
+        progress: build.progress,
+        view: build,
+      }),
+    );
+    for (const output of goldenOutputEvents) session.storeOutput(output);
+    await ui.waitFor("[tool] Edit src/retry.ts (live)");
+    const last = goldenOutputEvents[goldenOutputEvents.length - 1];
+    if (last === undefined) throw new Error("no golden work.output event");
+    const data = last.data as { from: number; to: number; text: string };
+    // What ingestion stores for one thinking block: counts only, no thinking text.
+    const text = "[thinking] 0.9s ~265 tokens\n";
+    session.storeOutput({
+      ...last,
+      cursor: { ...last.cursor, seq: last.cursor.seq + 1 },
+      data: { ...data, from: data.to, to: data.to + text.length, text },
+    } as Event);
+    const frame = await ui.waitFor("now  busy > · build · [thinking] 0.9s ~265 tokens · 2s ago");
+    expect(
+      lines(frame).filter((line) => line.includes("[thinking] 0.9s ~265 tokens")),
+    ).toHaveLength(2);
   });
 });

@@ -40,6 +40,17 @@ export function gateMessage(id: string, rule: GateRule, message: string): string
   return `ready ${id} failed ${rule}: ${message}`;
 }
 
+/**
+ * The `<message>` of a `gateMessage` line of `rule`, so views send what failed as data (DIPO-97).
+ * The `<ID>` is not checked, since a stored line keeps the id the story had when it was decided.
+ * A line of another shape is returned as is.
+ */
+export function gateText(rule: string, line: string): string {
+  const marker = ` failed ${rule}: `;
+  const at = line.indexOf(marker);
+  return line.startsWith("ready ") && at >= 0 ? line.slice(at + marker.length) : line;
+}
+
 function fail(context: GateContext, rule: GateRule, message: string): GateFailure[] {
   return [{ rule, message: gateMessage(context.story.id, rule, message) }];
 }

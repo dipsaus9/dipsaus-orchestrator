@@ -26,6 +26,7 @@ import {
   officeSnapshot,
   type OfficeSnapshot,
   type OfficeSummary,
+  type OutputMarker,
   type OutputSource,
   officeSummary,
   officeSwitch,
@@ -130,6 +131,8 @@ export interface OutputChunk {
   readonly from: number;
   readonly to: number;
   readonly text: string;
+  /** The engine markers in the range (DIPO-95); a client draws a marker only from this flag. */
+  readonly markers?: readonly OutputMarker[];
 }
 
 export interface OfficeStoreOptions {
@@ -565,8 +568,15 @@ export class OfficeStore {
     if (this.#closed) return;
     const data = workOutput.data.safeParse(event.data);
     if (!data.success) return;
-    const { work, source, from, to, text } = data.data;
-    const chunk: OutputChunk = { run: work.run, source, from, to, text };
+    const { work, source, from, to, text, markers } = data.data;
+    const chunk: OutputChunk = {
+      run: work.run,
+      source,
+      from,
+      to,
+      text,
+      ...(markers === undefined ? {} : { markers }),
+    };
     for (const listener of this.#outputListeners) listener(chunk);
   }
 
