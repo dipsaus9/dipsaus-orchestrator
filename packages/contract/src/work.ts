@@ -276,3 +276,21 @@ export type TestResult = z.infer<typeof TestResult>;
 // Where stored output came from.
 export const OutputSource = z.enum(["worker", "verify", "script"]);
 export type OutputSource = z.infer<typeof OutputSource>;
+
+// What an engine marker in the worker output marks: a phase the run entered, or its end.
+export const KNOWN_OUTPUT_MARKER_KINDS = ["phase", "ended"] as const;
+export const OutputMarkerKind = openEnum(KNOWN_OUTPUT_MARKER_KINDS);
+export type OutputMarkerKind = z.infer<typeof OutputMarkerKind>;
+
+// An engine-written marker in the stored worker output (DIPO-83), flagged as such since minor 1
+// (DIPO-95): the byte range of its line, what it marks (`phase verify`, `ended in-review`) and
+// when. Only the engine sets it; worker text that reads like a marker carries no flag, so clients
+// show it as text.
+export const OutputMarker = z.object({
+  from: z.int().nonnegative(),
+  to: z.int().nonnegative(),
+  kind: OutputMarkerKind,
+  value: z.string().min(1),
+  at: Timestamp,
+});
+export type OutputMarker = z.infer<typeof OutputMarker>;

@@ -4,6 +4,7 @@ title: Mark phase markers as structured output instead of matching text
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 21:19'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -14,6 +15,15 @@ references:
   - packages/tui/src/output.ts
   - packages/cli/src/watch-command.ts
   - packages/contract/src/
+  - packages/contract/schema/
+  - packages/engine/src/views/feature.ts
+  - packages/engine/test/run/markers.test.ts
+  - packages/client/src/store/office-store.ts
+  - packages/tui/src/index.ts
+  - packages/tui/src/output.test.ts
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/testing/fake-session.ts
+  - packages/cli/src/watch-command.test.ts
 priority: medium
 type: feature
 ordinal: 85000
