@@ -4,7 +4,7 @@ title: Keep the worker PATH order when the shell runs as a login shell
 status: To Do
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 13:09'
+updated_date: '2026-10-16 13:14'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -20,9 +20,9 @@ ordinal: 97000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: a PATH entry the Safe-Chain plan moved to the end of the worker PATH stays at the end, also when Claude Code starts the worker shell as a login shell.
+Outcome: a PATH entry the Safe-Chain plan moved to the end of the worker PATH stays at the end in every worker shell, login shell or not.
 
-Context: the Safe-Chain plan demotes PATH entries whose wrapped command points where the sandbox cannot read (packages/engine/src/workers/claude-cli/safe-chain.ts). If the shell is started with -l, macOS /etc/zprofile runs path_helper, which moves the /etc/paths entries (for example /usr/local/bin) back to the front, so a demoted entry can win again. Found as a review advisory on the Safe-Chain stories. This is functional only, not security: path_helper adds only root-owned system directories, and the self-test still refuses worker-writable PATH entries.
+Context: the Safe-Chain plan demotes PATH entries whose wrapped command points where the sandbox cannot read (packages/engine/src/workers/claude-cli/safe-chain.ts). If the shell is started with -l, macOS /etc/zprofile runs path_helper, which moves the /etc/paths entries (for example /usr/local/bin) back to the front, so a demoted entry can win again. The zsh init the plan writes runs as .zshenv, before /etc/zprofile, and sets ZDOTDIR=/dev/null (ZSH_STATE_NOWHERE, DIPO-103) so no dipo-owned .zprofile or .zlogin runs afterwards; a fix needs a login-only hook that runs after /etc/zprofile while keeping DIPO-103's behaviour for non-login shells. bash reads /etc/profile in a login shell in the same way. Whether Claude Code starts its shell with -l is not measured; this story makes the order hold either way. Found as a review advisory on the Safe-Chain stories. This is functional only, not security: path_helper adds only root-owned system directories, and the self-test still refuses worker-writable PATH entries.
 
 ```dipo
 branch: "DIPO-107/keep-path-order-in-login-shell"
@@ -30,15 +30,15 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(macOS) a login shell started through the wrapper keeps the planned PATH order, with a demoted entry still last"
+      check: "(macOS only, skipped elsewhere) a zsh login shell started through the plan's init keeps the planned PATH order, with a demoted entry still last, and a non-login shell is unchanged"
     - kind: "automated"
-      check: "(unit) the bash variant restores the planned PATH after its login files run"
+      check: "(unit) the generated zsh and bash init restore the planned PATH after the login files run, and keep ZDOTDIR=/dev/null for non-login zsh"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Measure whether Claude Code starts the worker shell as a login shell; if it does not, record that in the story notes and close it with no code change.
-- [ ] #2 If it does, the wrapper restores the planned PATH after the login files have run (for example in the zsh init that also sets ZDOTDIR), and the bash variant does the same.
-- [ ] #3 A test shows the planned PATH order in a login shell on macOS.
+- [ ] #1 In a zsh login shell started through the plan's init, the planned PATH order is restored after /etc/zprofile runs, through a login-only hook; non-login shells keep DIPO-103's ZDOTDIR=/dev/null behaviour
+- [ ] #2 The bash variant restores the planned PATH after its login files run in the same way
+- [ ] #3 A macOS test (skipped on other platforms) shows the planned PATH order in a login shell, and unit tests cover the generated zsh and bash init
 <!-- AC:END -->
