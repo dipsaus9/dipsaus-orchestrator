@@ -1,5 +1,4 @@
-// Migration 27 (DIPO-93): the re-attach gaps after a daemon restart. DIPO-92 owns 26; until its
-// migration is on main this one takes version 26, and it moves to 27 when that lands.
+// Migration 27 (DIPO-93): the re-attach gaps after a daemon restart.
 //
 // - `worker_hosts.pending`: 1 while the row was written before its host was spawned and the PID
 //   is not known yet (`pid` and `start_time_ms` are 0 then). A restart that finds a pending row
@@ -14,7 +13,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const reattachGaps: SqlMigration = {
-  version: 26,
+  version: 27,
   name: "re-attach gaps",
   sql: `
 alter table worker_hosts add column pending integer not null default 0
