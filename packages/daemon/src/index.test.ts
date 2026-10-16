@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 
 import { isolatedDaemonEnv, withDaemonTempDir } from "@dipsaus-orchestrator/testkit";
@@ -16,6 +17,8 @@ function capture(overrides: { env?: Record<string, string>; execArgv?: string[] 
     writeError: (line: string) => err.push(line),
     env: overrides.env ?? {},
     execArgv: overrides.execArgv ?? [],
+    // No listener for uncaught errors on the test runner's own process (DIPO-117).
+    uncaughtErrors: new EventEmitter(),
   };
   return { io, out, err };
 }

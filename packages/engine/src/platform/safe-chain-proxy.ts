@@ -38,6 +38,7 @@ import { basename, dirname, resolve } from "node:path";
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import { refusalPathFor } from "../sandbox/step";
+import { ignoreRejection } from "./background";
 import {
   holderScript,
   isCertificateBundle,
@@ -99,6 +100,19 @@ export interface RunningSafeChainProxy {
 export type SafeChainProxyStart =
   | { readonly ok: true; readonly proxy: RunningSafeChainProxy }
   | { readonly ok: false; readonly reason: string };
+
+/**
+ * Closes a pipe to a child without an unhandled rejection (DIPO-117): Bun's `FileSink.end()` may
+ * return a promise, which rejects when the child already exited; a throw means it was closed. In
+ * the daemon an unhandled rejection is a crash.
+ */
+export function endQuietly(sink: { end(): unknown }): void {
+  try {
+    ignoreRejection(sink.end());
+  } catch {
+    // Already closed.
+  }
+}
 
 export interface SafeChainProxyDeps {
   readonly platform: DipoPlatform;
@@ -409,11 +423,7 @@ export async function startSafeChainProxy(
     if (stopped) return;
     stopped = true;
     server?.close();
-    try {
-      void child.stdin.end();
-    } catch {
-      // Already closed.
-    }
+    endQuietly(child.stdin);
     // The gate stops when its stdin closes; one that does not gets SIGTERM, then SIGKILL.
     const term = deps.clock.setTimeout(() => child.kill("SIGTERM"), PROXY_STOP_GRACE_MS);
     const kill = deps.clock.setTimeout(() => child.kill("SIGKILL"), 2 * PROXY_STOP_GRACE_MS);

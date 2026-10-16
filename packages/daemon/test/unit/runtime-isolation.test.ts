@@ -8,6 +8,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -181,9 +182,12 @@ const STARTS_IN_PROCESS = [/\brunForeground\(/, /\brunDaemon\(\s*\[\s*"--foregro
 const STARTS_A_PROCESS = [
   /"daemon",\s*"(--foreground|start|restart)"/,
   /fixtures\/drain-daemon\.ts/,
+  /fixtures\/uncaught-daemon\.ts/,
 ];
 const ISOLATED_ENV = /\b(daemonTestEnv|isolatedDaemonEnv)\(/;
 const CHECKS_RUNTIME = /\b(withDaemonTempDir|assertTestRuntimeDir)\(/;
+/** A fake source for errors no code caught, so no listener lands on the test runner (DIPO-117). */
+const FAKE_UNCAUGHT = /\buncaughtErrors:\s*new EventEmitter\(\)|\buncaughtErrors:\s*uncaught\b/;
 
 function testFiles(root: string): string[] {
   return readdirSync(root, { recursive: true, encoding: "utf8" })
@@ -230,5 +234,30 @@ describe("tests that start a daemon", () => {
       return !ISOLATED_ENV.test(source) || !CHECKS_RUNTIME.test(source);
     });
     expect(unisolated.map((file) => relative(packages, file))).toEqual([]);
+  });
+
+  it("in this process all pass a fake source for uncaught errors", () => {
+    const packages = resolve(import.meta.dir, "../../..");
+    const files = ["daemon", "client", "cli"]
+      .flatMap((name) => [join(packages, name, "test"), join(packages, name, "src")])
+      .filter((root) => existsSync(root))
+      .flatMap((root) => testFiles(root))
+      .filter((file) => file !== import.meta.path);
+    const inProcess = files.filter((file) => {
+      const source = readFileSync(file, "utf8");
+      return STARTS_IN_PROCESS.some((pattern) => pattern.test(source));
+    });
+    const names = inProcess.map((file) => relative(packages, file));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "daemon/test/integration/crash-loop.test.ts",
+        "daemon/test/integration/uncaught-error.test.ts",
+        "daemon/test/integration/upgrade-restart.test.ts",
+        "daemon/src/foreground-bootout.test.ts",
+        "daemon/src/index.test.ts",
+      ]),
+    );
+    const listening = inProcess.filter((file) => !FAKE_UNCAUGHT.test(readFileSync(file, "utf8")));
+    expect(listening.map((file) => relative(packages, file))).toEqual([]);
   });
 });

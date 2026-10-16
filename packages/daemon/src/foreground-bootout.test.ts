@@ -4,6 +4,7 @@
 // directories stay under the test's temp directory (DIPO-109).
 
 import { describe, expect, it } from "bun:test";
+import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -32,6 +33,8 @@ function io(env: Record<string, string>, err: string[]): DaemonIo {
     version: "0.0.0-test",
     onShutdownSignal: () => () => {},
     clock: systemClock,
+    // No listener for uncaught errors on the test runner's own process (DIPO-117).
+    uncaughtErrors: new EventEmitter(),
   };
 }
 

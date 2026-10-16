@@ -25,8 +25,11 @@ import {
   pidExists,
   procStartTimeMs,
   systemProcessProbe,
+  systemSpawn,
   type ProcessInfo,
 } from "../../src/platform/process";
+
+import { watchRejections } from "./rejections";
 
 // `struct kinfo_proc` from `kern.proc.pid.<pid>` on macOS: `p_starttime` at 0, `p_stat` at 36,
 // `p_comm` at 243. Running is `SRUN` (2), a zombie `SZOMB` (5).
@@ -392,5 +395,27 @@ describe("signalProcess (DIPO-93)", () => {
     expect(child.signalCode).toBe("SIGTERM");
     // Gone now: nothing to signal.
     expect(signalProcess(child.pid, "SIGTERM")).toBe(false);
+  });
+});
+
+// Measured on Bun 1.4.2 (macOS arm64): after the child exited, `flush()` and `end()` return plain
+// values here; a promise they may return elsewhere is covered by `ignoreRejection` in
+// background.test.ts. This keeps the wrapper from turning either into an unhandled rejection.
+describe("systemSpawn stdin (DIPO-117)", () => {
+  it("writes to and closes the pipe of a child that already exited without an unhandled rejection", async () => {
+    const watch = watchRejections();
+    const child = systemSpawn({ cmd: ["/bin/sh", "-c", "exit 0"], stdin: "pipe" });
+    expect(await child.exited).toEqual({ code: 0, signal: null });
+    try {
+      child.stdin?.write("too late\n");
+    } catch {
+      // A sync throw reaches the caller, as before; only rejections are dropped.
+    }
+    try {
+      child.stdin?.end();
+    } catch {
+      // Likewise.
+    }
+    expect(await watch.stop()).toEqual([]);
   });
 });
