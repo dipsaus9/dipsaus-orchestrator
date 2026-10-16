@@ -372,7 +372,7 @@ export const ClaudeWorkerEventSchema = z.union([
       .exactOptional(),
   }),
   z.strictObject({ t: z.literal("hook"), hook: HookEventSchema }),
-  z.strictObject({ t: z.literal("compacted"), preTokens: Count }),
+  z.strictObject({ t: z.literal("compacted"), preTokens: Count.exactOptional() }),
   z.strictObject({ t: z.literal("modelSwitched"), from: Name, to: Name }),
   z.strictObject({ t: z.literal("initRejected"), reason: Name }),
   z.strictObject({ t: z.literal("startRefused"), reason: Name }),
