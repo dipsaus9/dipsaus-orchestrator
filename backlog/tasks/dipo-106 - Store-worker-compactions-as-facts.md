@@ -1,10 +1,10 @@
 ---
 id: DIPO-106
 title: Store worker compactions as facts
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 14:17'
+updated_date: '2026-10-16 14:44'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -48,3 +48,9 @@ test_plan:
 - [ ] #2 The per-run and per-agent usage stats give the compaction count and the latest preTokens.
 - [ ] #3 Tests cover a replayed recording with a compaction and the dedupe of the pair.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+<!-- SECTION:NOTES:END -->
