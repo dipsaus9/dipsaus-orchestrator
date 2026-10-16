@@ -4,7 +4,7 @@ title: Read worker usage from the transcript when a worker host died
 status: Refined
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 14:48'
+updated_date: '2026-10-16 14:50'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -40,7 +40,7 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(integration) a recorded transcript fixture for a host that died mid-turn restores the missing usage once, and a second pass adds nothing"
+      check: "(integration) a scrubbed transcript fixture under packages/engine/test/recordings/ for a host that died mid-turn restores the missing usage once, and a second pass adds nothing"
     - kind: "automated"
       check: "(unit) the adapter's transcript parser ignores unknown lines and refuses an unsupported Claude Code version"
     - kind: "automated"
