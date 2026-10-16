@@ -4,7 +4,7 @@ title: Cut this repository over to dipo and let dipo deliver its first stories
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 14:16'
+updated_date: '2026-10-16 17:48'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -21,6 +21,7 @@ references:
   - packages/engine/src/gate/
   - docs/decisions/0012-story-standard.md
   - backlog/tasks/
+  - .dipo/
 priority: high
 type: chore
 ordinal: 105000
