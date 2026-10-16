@@ -79,7 +79,7 @@ import type { SetupOutcome } from "../../src/worktree/setup";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { ROOMY } from "../worktree/helpers";
-import { withBuiltinPlugins } from "../workers/launch-fixtures";
+import { withBuiltinPlugins, withoutSkills } from "../workers/launch-fixtures";
 import { loadRecording } from "../workers/replay";
 
 export const CLAUDE = "/opt/claude/bin/claude";
@@ -334,10 +334,14 @@ export async function withRunOffice(
               runId: run.runId,
               runDir,
               clock: replayClock,
-              // The plugin check (DIPO-108) reads plugin names, which recordings redact.
+              // The plugin check (DIPO-108) reads plugin names, which recordings redact; the skills
+              // check (DIPO-130) refuses the bundled skills that recordings made before the plan
+              // passed --disable-slash-commands list.
               spawn: fakeSpawn(
                 withBuiltinPlugins(
-                  typeof recording === "string" ? loadRecording(recording) : recording,
+                  withoutSkills(
+                    typeof recording === "string" ? loadRecording(recording) : recording,
+                  ),
                 ),
                 replayClock,
               ).spawn,

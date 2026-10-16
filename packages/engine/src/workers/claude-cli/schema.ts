@@ -31,6 +31,11 @@ export const InitMessage = z.object({
     .array(z.looseObject({ name: z.string(), source: z.string().optional() }))
     .optional()
     .default([]),
+  /**
+   * The skills the session loaded (DIPO-130), by name; `[]` under `--disable-slash-commands` (live
+   * run, Claude Code 2.1.301). Recordings redact the names.
+   */
+  skills: z.array(z.string()).optional().default([]),
 });
 
 const ContentBlock = z.looseObject({ type: z.string() });
