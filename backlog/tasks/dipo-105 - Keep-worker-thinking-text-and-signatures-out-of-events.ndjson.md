@@ -1,10 +1,10 @@
 ---
 id: DIPO-105
 title: Keep worker thinking text and signatures out of events.ndjson
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 14:16'
+updated_date: '2026-10-16 14:44'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -53,3 +53,9 @@ test_plan:
 - [ ] #2 Ingestion still derives the DIPO-96 thinking activity from the scrubbed line.
 - [ ] #3 Tests cover a line with a thinking block, a redacted thinking block and a line without thinking; a replay of a recorded stream through the testkit fake process (packages/testkit/src/fake-process.ts) shows no thinking text in events.ndjson.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+<!-- SECTION:NOTES:END -->

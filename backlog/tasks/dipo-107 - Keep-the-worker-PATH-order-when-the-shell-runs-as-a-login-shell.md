@@ -1,10 +1,10 @@
 ---
 id: DIPO-107
 title: Keep the worker PATH order when the shell runs as a login shell
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 14:25'
+updated_date: '2026-10-16 14:44'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -42,3 +42,9 @@ test_plan:
 - [ ] #2 The bash variant restores the planned PATH after its login files run in the same way
 - [ ] #3 A macOS test (skipped on other platforms) in a plain *.test.ts file, not *.ci.test.ts, so the local verify on macOS runs it, shows the planned PATH order in a zsh and a bash login shell; unit tests cover the generated zsh and bash init
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+<!-- SECTION:NOTES:END -->
