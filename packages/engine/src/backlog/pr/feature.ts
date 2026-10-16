@@ -29,6 +29,7 @@ import { appendEntries, type NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
 import { gateDecisionsOf } from "../../gate/store/decisions";
 import type { GitSession } from "../../git/office";
+import { GitError } from "../../git/runner";
 import {
   type CodeHost,
   CodeHostError,
@@ -641,20 +642,14 @@ export class BacklogPrs {
 
   // ---- helpers -------------------------------------------------------------------------------
 
+  /** The office's base (`OfficeGit.resolveBaseIn`), failing with the text the PR notices show. */
   async #baseName(git: GitSession, lane: OfficeLane): Promise<string> {
-    const { base, remote } = lane.git.settings;
-    if (base !== undefined) return base;
-    const head = await git.step(git.repository, [
-      "symbolic-ref",
-      "--quiet",
-      `refs/remotes/${remote}/HEAD`,
-    ]);
-    const prefix = `refs/remotes/${remote}/`;
-    const target = head.stdout.trim();
-    if (head.code !== 0 || !target.startsWith(prefix)) {
-      throw new Error(`the office has no base branch: set \`base\` in .dipo/office.yaml`);
-    }
-    return target.slice(prefix.length);
+    return lane.git.resolveBaseIn(git).catch((error: unknown) => {
+      if (error instanceof GitError && error.code === "git.baseUnknown") {
+        throw new Error(`the office has no base branch: set \`base\` in .dipo/office.yaml`);
+      }
+      throw error;
+    });
   }
 
   async #remoteUrl(git: GitSession, lane: OfficeLane): Promise<string | null> {

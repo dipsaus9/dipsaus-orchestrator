@@ -35,6 +35,7 @@ import type { OfficeDirectory } from "../../commands/offices";
 import type { CommandOutcome, FeatureModule } from "../../commands/registry";
 import type { OfficeHandle } from "../../db/office";
 import type { GitSession, OfficeGit } from "../../git/office";
+import { GitError } from "../../git/runner";
 
 import {
   configGet,
@@ -421,21 +422,14 @@ async function readBaseConfig(
 ): Promise<
   { readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string }
 > {
-  const { remote, base: configured } = office.settings;
+  const { remote } = office.settings;
   const url = await git.step(git.repository, ["config", "--get", `remote.${remote}.url`]);
   const hasRemote = url.code === 0 && url.stdout.trim() !== "";
-  let name = configured;
-  if (name === undefined && hasRemote) {
-    const head = await git.step(git.repository, [
-      "symbolic-ref",
-      "--quiet",
-      `refs/remotes/${remote}/HEAD`,
-    ]);
-    const prefix = `refs/remotes/${remote}/`;
-    const target = head.stdout.trim();
-    if (head.code === 0 && target.startsWith(prefix)) name = target.slice(prefix.length);
-  }
-  if (name === undefined) {
+  let name: string;
+  try {
+    name = await office.resolveBaseIn(git);
+  } catch (error) {
+    if (!(error instanceof GitError && error.code === "git.baseUnknown")) throw error;
     return { ok: false, reason: "the office has no base branch: set `base` in .dipo/office.yaml" };
   }
   const ref = hasRemote ? `refs/remotes/${remote}/${name}` : `refs/heads/${name}`;
