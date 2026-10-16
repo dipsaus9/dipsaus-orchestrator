@@ -77,7 +77,7 @@ import {
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
-import { prepareRunTempDir } from "./temp-dirs";
+import { prepareRunTempDirs } from "./temp-dirs";
 import { verifyResults } from "./verify-records";
 import type { RunBase } from "./work-run";
 
@@ -354,7 +354,7 @@ export class RunResumer implements NextSession {
     );
     try {
       ensurePrivateDir(paths.runDir);
-      prepareRunTempDir(paths.tmpDir, deps.tempOwner?.());
+      prepareRunTempDirs(paths, run.runId, deps.tempOwner?.());
       if (!resume) writeFileSync(spec.systemFile, systemFile, { mode: 0o600 });
     } catch (error) {
       return {

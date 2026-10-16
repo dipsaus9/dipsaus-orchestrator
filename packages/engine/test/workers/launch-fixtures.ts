@@ -27,6 +27,8 @@ export const WORKDIR = "/home/maintainer/code/shop.worktrees/DIPO-999";
 export const ADMIN_DIR = `${MAIN}/.git/worktrees/DIPO-999`;
 export const RUN_DIR = `${MAIN}/.git/dipo/runs/run-0001`;
 export const TMP_DIR = "/tmp/dipo-run-0001";
+/** The run's short temp root (DIPO-118), the worker's DIPO_TMP. */
+export const SHORT_TMP_DIR = "/tmp/dipo-t-0123456789";
 export const POINTER = `gitdir: ${ADMIN_DIR}\n`;
 export const SELF_TEST_SESSION = "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
@@ -59,6 +61,7 @@ export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLau
     runDir: RUN_DIR,
     hostSocket: `${RUN_DIR}/host.sock`,
     tmpDir: TMP_DIR,
+    shortTmpDir: SHORT_TMP_DIR,
     sandbox: OFFICE_DEFAULTS.sandbox,
     ...overrides,
   };

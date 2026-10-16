@@ -1,6 +1,10 @@
-// The run temp directory's lifetime (DIPO-102). Each story run gets `<tmpRoot>/dipo-run-<run id>`
-// (the worker's `TMPDIR`, with the Safe-Chain install caches of DIPO-84 inside). Once the run has
-// ended (done, failed, stopped, parked) and its worker hosts have exited, the directory goes:
+// The run temp directories' lifetime (DIPO-102, DIPO-118). Each story run gets
+// `<tmpRoot>/dipo-run-<run id>` (the worker's `TMPDIR`, with the Safe-Chain install caches of DIPO-84
+// inside) and a short temp root `<tmpRoot>/dipo-t-<hash>`, the worker's `DIPO_TMP`, short enough
+// for testkit's Unix socket path limit (37 bytes, DIPO-109). Its name is a hash of the run id, so
+// it is known from the run id alone; a `.dipo-run` file inside names the run, and the sweep maps
+// the directory to that run only when the name is that run's hash. Once the run has ended (done,
+// failed, stopped, parked) and its worker hosts have exited, both directories go:
 //
 // - `sweep("ended")` runs when a session's exit is ingested and after the exit or a lost host is
 //   decided (`afterRunExits`), so a run that ends before or after its worker exits loses its
@@ -12,31 +16,38 @@
 //
 // What is never removed: a run that has not ended (live, held, re-attachable), an ended run with a
 // worker host that still runs, a claim that is still live, anything that is not a real directory
-// named `dipo-run-<run id>` directly under the temp root and owned by this user, and nothing
-// through a symlink. A parked run that is reopened (DIPO-75) loses its directory at the park; its
-// next session makes a fresh one (`RunResumer`), after the reopen cleared its end, and the check
-// right before each removal is synchronous, so a reopened run never loses the new directory.
+// named `dipo-run-<run id>` or `dipo-t-<hash>` directly under the temp root and owned by this user,
+// a short temp root whose run file names another run, nothing through a symlink, and nothing
+// another daemon made. A short temp root whose run file is missing or does not match its name is
+// found only through its run's `dipo-run-<run id>` directory. Of a run no database row names, each
+// directory goes only when its own owner file names this daemon's database. A parked run that is
+// reopened (DIPO-75) loses its directories at the park; its next session makes fresh ones
+// (`RunResumer`), after the reopen cleared its end, and the check right before each removal is
+// synchronous, so a reopened run never loses the new directories.
 
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   constants,
   fstatSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readdirSync,
   readSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
-import { ensurePrivateDir } from "../platform/paths";
+import { ensurePrivateDir, errorCode } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
+import type { RunLaunchPaths } from "../workers/port";
 import { hostAlive, workerHostsOf, type WorkerHostRow } from "../runs/worker-hosts";
 
 import type { RunOutcomesPort } from "./outcomes";
@@ -51,6 +62,24 @@ export const RUN_TEMP_PREFIX = "dipo-run-";
 /** The file in a run temp directory that names the database of the daemon that made it. */
 export const RUN_TEMP_OWNER_FILE = ".dipo-owner";
 
+/** The name prefix of a run's short temp root, the worker's `DIPO_TMP` (DIPO-118). */
+export const SHORT_TEMP_PREFIX = "dipo-t-";
+
+/** The file in a short temp root that names its run. */
+export const SHORT_TEMP_RUN_FILE = ".dipo-run";
+
+/**
+ * The longest short temp root testkit accepts as `DIPO_TMP` after symlinks (`MAX_TEMP_ROOT_BYTES`,
+ * DIPO-109): a test daemon's socket paths under a longer one would pass the Unix socket path
+ * limit. Under the default temp root (`/tmp`, real path `/private/tmp` on macOS) the root is 30
+ * bytes on macOS and 22 on Linux. Under a daemon `DIPO_TMP` over 19 bytes it is longer, and
+ * testkit refuses it inside the worker as it would refuse that `DIPO_TMP` itself.
+ */
+export const SHORT_TEMP_MAX_BYTES = 37;
+
+/** Hex characters of the run id's hash in a short temp root's name. */
+const SHORT_TEMP_HASH_LENGTH = 10;
+
 /** A run id as it may appear in a directory name: no separator, no dots. */
 const RUN_ID_NAME = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -60,6 +89,19 @@ const OWNER_MAX_BYTES = 128;
 /** `<tmpRoot>/dipo-run-<run id>`. */
 export function runTempDir(tmpRoot: string, runId: string): string {
   return join(tmpRoot, `${RUN_TEMP_PREFIX}${runId}`);
+}
+
+/**
+ * `<tmpRoot>/dipo-t-<hash>`: the first 10 hex characters of the run id's sha256, so the name is
+ * 17 bytes and `/private/tmp/dipo-t-<hash>` 30 (DIPO-118).
+ */
+export function shortTempDir(tmpRoot: string, runId: string): string {
+  return join(tmpRoot, shortTempName(runId));
+}
+
+function shortTempName(runId: string): string {
+  const hash = createHash("sha256").update(runId).digest("hex");
+  return `${SHORT_TEMP_PREFIX}${hash.slice(0, SHORT_TEMP_HASH_LENGTH)}`;
 }
 
 /** The owner a daemon writes into its run temp directories: a hash of its database's path. */
@@ -79,12 +121,71 @@ export function prepareRunTempDir(tmpDir: string, owner: string | undefined): vo
   writeFileSync(file, `${owner}\n`, { flag: "wx", mode: 0o600 });
 }
 
+/**
+ * Makes a run's short temp root (0700) with its run file and, given an owner, its owner file. A
+ * directory already there is reused only when it is a real directory this user owns whose run
+ * file, if any, names this run; anything else (a link, another user's directory, another run's
+ * directory with the same hash) throws, so the worker is never given a root someone else controls.
+ */
+export function prepareShortTempDir(
+  dir: string,
+  runId: string,
+  owner: string | undefined,
+  uid = currentUid(),
+): void {
+  mkdirSync(dirname(dir), { recursive: true });
+  try {
+    mkdirSync(dir, { mode: 0o700 });
+  } catch (error) {
+    if (errorCode(error) !== "EEXIST") throw error;
+  }
+  const info = lstatSync(dir);
+  if (info.isSymbolicLink() || !info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
+    throw new Error(`${dir} is not a directory of this user; remove it and start the run again`);
+  }
+  const named = readTempLine(dir, SHORT_TEMP_RUN_FILE);
+  if (named !== null && named !== runId) {
+    throw new Error(
+      `${dir} belongs to run ${named}, not ${runId}; remove it and start the run again`,
+    );
+  }
+  chmodSync(dir, 0o700);
+  writeFresh(join(dir, SHORT_TEMP_RUN_FILE), runId);
+  if (owner !== undefined) writeFresh(join(dir, RUN_TEMP_OWNER_FILE), owner);
+}
+
+/** Both temp directories of a run session (DIPO-102, DIPO-118), made before every launch. */
+export function prepareRunTempDirs(
+  paths: Pick<RunLaunchPaths, "tmpDir" | "shortTmpDir">,
+  runId: string,
+  owner: string | undefined,
+): void {
+  prepareRunTempDir(paths.tmpDir, owner);
+  prepareShortTempDir(paths.shortTmpDir, runId, owner);
+}
+
+/** Writes `line` into a new file; a link left in its place is removed, never written through. */
+function writeFresh(file: string, line: string): void {
+  rmSync(file, { force: true });
+  writeFileSync(file, `${line}\n`, { flag: "wx", mode: 0o600 });
+}
+
 /** The owner file's text, or null. Never follows a link and never blocks on a FIFO. */
 export function readRunTempOwner(tmpDir: string): string | null {
+  return readTempLine(tmpDir, RUN_TEMP_OWNER_FILE);
+}
+
+/** The run a short temp root's run file names, or null. Read like the owner file. */
+export function readShortTempRun(dir: string): string | null {
+  return readTempLine(dir, SHORT_TEMP_RUN_FILE);
+}
+
+/** A one-line file in a temp directory, trimmed, or null. */
+function readTempLine(dir: string, name: string): string | null {
   let fd: number;
   try {
     fd = openSync(
-      join(tmpDir, RUN_TEMP_OWNER_FILE),
+      join(dir, name),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
   } catch {
@@ -113,9 +214,17 @@ function currentUid(): number | undefined {
  * only kind of path the removal touches.
  */
 export function isRunTempDir(tmpRoot: string, runId: string, uid = currentUid()): boolean {
-  if (!RUN_ID_NAME.test(runId)) return false;
+  return RUN_ID_NAME.test(runId) && isOwnDir(runTempDir(tmpRoot, runId), uid);
+}
+
+/** The same for the run's short temp root `<tmpRoot>/dipo-t-<hash>` (DIPO-118). */
+export function isShortTempDir(tmpRoot: string, runId: string, uid = currentUid()): boolean {
+  return RUN_ID_NAME.test(runId) && isOwnDir(shortTempDir(tmpRoot, runId), uid);
+}
+
+function isOwnDir(dir: string, uid: number | undefined): boolean {
   try {
-    const info = lstatSync(runTempDir(tmpRoot, runId));
+    const info = lstatSync(dir);
     return !info.isSymbolicLink() && info.isDirectory() && (uid === undefined || info.uid === uid);
   } catch {
     return false;
@@ -130,6 +239,31 @@ export function removeRunTempDir(tmpRoot: string, runId: string, uid = currentUi
   if (!isRunTempDir(tmpRoot, runId, uid)) return false;
   rmSync(runTempDir(tmpRoot, runId), { recursive: true, force: true });
   return true;
+}
+
+/**
+ * Removes the run's short temp root as `removeRunTempDir` does, but never one whose run file
+ * names another run (a hash shared by two run ids). True when it removed the directory.
+ */
+export function removeShortTempDir(tmpRoot: string, runId: string, uid = currentUid()): boolean {
+  if (!isShortTempDir(tmpRoot, runId, uid)) return false;
+  const dir = shortTempDir(tmpRoot, runId);
+  const named = readShortTempRun(dir);
+  if (named !== null && named !== runId) return false;
+  rmSync(dir, { recursive: true, force: true });
+  return true;
+}
+
+/**
+ * The run a short temp root under `tmpRoot` belongs to: the run its run file names, when that
+ * run's hash is the directory's name and the directory is a real one owned by `uid`; else null.
+ */
+function shortTempRunOf(tmpRoot: string, name: string, uid: number | undefined): string | null {
+  const dir = join(tmpRoot, name);
+  if (!isOwnDir(dir, uid)) return null;
+  const runId = readShortTempRun(dir);
+  if (runId === null || !RUN_ID_NAME.test(runId) || shortTempName(runId) !== name) return null;
+  return runId;
 }
 
 /** `ended`: runs the database knows ended. `recovery`: also unknown runs with this owner. */
@@ -148,6 +282,15 @@ export interface RunTempDirsDeps {
 
 /** A synchronous check, made right before the removal, that the verdict still holds. */
 type StillRemovable = () => boolean;
+
+/**
+ * A run whose directories may go: `still` is checked right before the removal; with `owner` (a
+ * run no database row names) each directory goes only when its own owner file names it.
+ */
+interface Removable {
+  readonly still: StillRemovable;
+  readonly owner?: string;
+}
 
 function hostExited(host: WorkerHostRow): boolean {
   return host.endedAt !== null || host.exitCode !== null || host.exitSignal !== null;
@@ -191,16 +334,31 @@ export class RunTempDirs {
     } catch {
       return [];
     }
-    const removed: string[] = [];
+    const { uid } = this.#deps;
+    // The runs the directories belong to: a run temp directory by its name, a short temp root by
+    // its run file checked against its name (DIPO-118).
+    const runs = new Set<string>();
     for (const name of names) {
-      if (!name.startsWith(RUN_TEMP_PREFIX)) continue;
-      const runId = name.slice(RUN_TEMP_PREFIX.length);
-      if (!isRunTempDir(tmpRoot, runId, this.#deps.uid)) continue;
+      if (name.startsWith(RUN_TEMP_PREFIX)) {
+        const runId = name.slice(RUN_TEMP_PREFIX.length);
+        if (isRunTempDir(tmpRoot, runId, uid)) runs.add(runId);
+      } else if (name.startsWith(SHORT_TEMP_PREFIX)) {
+        const runId = shortTempRunOf(tmpRoot, name, uid);
+        if (runId !== null) runs.add(runId);
+      }
+    }
+    const removed: string[] = [];
+    for (const runId of runs) {
       try {
-        const still = await this.#removable(database, runId, mode);
-        if (still === null || !still()) continue;
-        if (removeRunTempDir(tmpRoot, runId, this.#deps.uid)) {
-          removed.push(runTempDir(tmpRoot, runId));
+        const verdict = await this.#removable(database, runId, mode);
+        if (verdict === null || !verdict.still()) continue;
+        const kinds = [
+          [runTempDir(tmpRoot, runId), removeRunTempDir],
+          [shortTempDir(tmpRoot, runId), removeShortTempDir],
+        ] as const;
+        for (const [dir, remove] of kinds) {
+          if (verdict.owner !== undefined && readRunTempOwner(dir) !== verdict.owner) continue;
+          if (remove(tmpRoot, runId, uid)) removed.push(dir);
         }
       } catch (error) {
         this.#deps.warn?.("removing a run temp directory failed", {
@@ -212,19 +370,23 @@ export class RunTempDirs {
     return removed;
   }
 
-  /** Null when the directory stays; else the check to make right before removing it. */
+  /** Null when the run's directories stay; else when and which of them go. */
   async #removable(
     database: StateDatabase,
     runId: string,
     mode: RunTempSweep,
-  ): Promise<StillRemovable | null> {
+  ): Promise<Removable | null> {
     const connection = database.connection;
     const row = connection.get<{ office_id: string }>(
       "select office_id from runs where run_id = $run limit 1",
       { run: runId },
     );
     if (row !== null) {
-      return this.#endedRun(database.office(row.office_id as OfficeId), runId as RunId);
+      const still = await this.#endedRun(
+        database.office(row.office_id as OfficeId),
+        runId as RunId,
+      );
+      return still === null ? null : { still };
     }
     // A claim without a run row: its setup was under way. A live claim keeps the directory.
     const claimed = () =>
@@ -235,13 +397,12 @@ export class RunTempDirs {
     const unknown = () =>
       connection.get("select 1 from runs where run_id = $run", { run: runId }) === null;
     const live = claimed();
-    if (live !== null) return live === 0 ? () => unknown() && claimed() === 0 : null;
+    if (live !== null) return live === 0 ? { still: () => unknown() && claimed() === 0 } : null;
     if (mode !== "recovery") return null;
-    // A run no database row names: only when this daemon's database made it.
+    // A run no database row names: only the directories this daemon's database made.
     const owner = this.owner();
     if (owner === undefined) return null;
-    if (readRunTempOwner(runTempDir(this.#deps.tmpRoot, runId)) !== owner) return null;
-    return () => unknown() && claimed() === null;
+    return { still: () => unknown() && claimed() === null, owner };
   }
 
   /** An ended run whose worker hosts all exited; the check sees no reopen and no new host. */
