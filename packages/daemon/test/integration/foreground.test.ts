@@ -8,7 +8,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { prepareRunTempDir, runTempOwner } from "@dipsaus-orchestrator/engine";
-import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
+import {
+  assertTestRuntimeDir,
+  daemonTestEnv,
+  withDaemonTempDir,
+} from "@dipsaus-orchestrator/testkit";
 
 import { TestClient } from "../support/client";
 
@@ -16,18 +20,6 @@ const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const TIMEOUT_MS = 20_000;
 
 type Daemon = Bun.Subprocess<"ignore", "pipe", "pipe">;
-
-function daemonEnv(dir: string): Record<string, string> {
-  const env = cleanEnv();
-  delete env["BUN_OPTIONS"];
-  delete env["DIPO_LOG"];
-  return {
-    ...env,
-    DIPO_HOME: join(dir, "state"),
-    DIPO_RUNTIME_DIR: join(dir, "run"),
-    DIPO_TMP: dir,
-  };
-}
 
 function start(env: Record<string, string>): Daemon {
   return Bun.spawn({
@@ -50,6 +42,8 @@ async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
   const socket = join(dir, "run", "dipo.sock");
   const log = join(dir, "state", "logs", "daemon.log");
   while (performance.now() < deadline) {
+    // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
+    assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
     try {
       const client = await TestClient.connect(socket);
@@ -87,8 +81,8 @@ describe("dipo daemon --foreground", () => {
   it(
     "lets exactly one of two racing starters run, and cleans up on SIGTERM",
     async () => {
-      await withTempDir(async (dir) => {
-        const env = daemonEnv(dir);
+      await withDaemonTempDir(async (dir) => {
+        const env = daemonTestEnv(dir);
         const daemons = [start(env), start(env)];
         try {
           const loser = await Promise.race(daemons.map((d) => d.exited.then(() => d)));
@@ -106,6 +100,8 @@ describe("dipo daemon --foreground", () => {
             runtimeDir: string;
           };
           expect(pidRecord).toMatchObject({ pid: winner.pid, runtimeDir: join(dir, "run") });
+          // The winner logged its choice of DIPO_RUNTIME_DIR; the loser exited before choosing.
+          expect(assertTestRuntimeDir(dir)).toBe(1);
           const runtime = JSON.parse(readFileSync(join(state, "runtime.json"), "utf8")) as {
             socket: string;
           };
@@ -149,7 +145,7 @@ describe("dipo daemon --foreground", () => {
   it(
     "removes its own unknown runs' temp directories at start and leaves another daemon's",
     async () => {
-      await withTempDir(async (dir) => {
+      await withDaemonTempDir(async (dir) => {
         // Directories a killed daemon of this state left (its owner file names this database),
         // another daemon's (another owner) and one from before owner files: only the first goes.
         const owner = runTempOwner(join(dir, "state", "dipo.db"));
@@ -160,7 +156,7 @@ describe("dipo daemon --foreground", () => {
         prepareRunTempDir(foreign, "another-daemon");
         const unowned = join(dir, "dipo-run-run_01NOOWNER");
         prepareRunTempDir(unowned, undefined);
-        const daemon = start(daemonEnv(dir));
+        const daemon = start(daemonTestEnv(dir));
         try {
           await waitUntilServing(dir, daemon);
           expect(existsSync(mine)).toBe(false);
@@ -183,13 +179,13 @@ describe("dipo daemon --foreground", () => {
   it(
     "reads <state>/config.yaml at start",
     async () => {
-      await withTempDir(async (dir) => {
+      await withDaemonTempDir(async (dir) => {
         const state = join(dir, "state");
         await Bun.write(
           join(state, "config.yaml"),
           "version: 1\ndaemon:\n  autoRestartOnUpgrade: true\n",
         );
-        const daemon = start(daemonEnv(dir));
+        const daemon = start(daemonTestEnv(dir));
         try {
           await waitUntilServing(dir, daemon);
           const line = readFileSync(join(state, "logs", "daemon.log"), "utf8")
@@ -213,10 +209,10 @@ describe("dipo daemon --foreground", () => {
   it(
     "refuses to start with a config.yaml newer than it knows",
     async () => {
-      await withTempDir(async (dir) => {
+      await withDaemonTempDir(async (dir) => {
         const state = join(dir, "state");
         await Bun.write(join(state, "config.yaml"), "version: 2\n");
-        const daemon = start(daemonEnv(dir));
+        const daemon = start(daemonTestEnv(dir));
         try {
           // EX_CONFIG, so a supervisor does not restart it in a loop.
           expect(await daemon.exited).toBe(78);
@@ -236,10 +232,10 @@ describe("dipo daemon --foreground", () => {
   it(
     "exits with EX_CONFIG for an invalid config.yaml",
     async () => {
-      await withTempDir(async (dir) => {
+      await withDaemonTempDir(async (dir) => {
         const state = join(dir, "state");
         await Bun.write(join(state, "config.yaml"), "version: 1\ndaemon:\n  autostrat: false\n");
-        const daemon = start(daemonEnv(dir));
+        const daemon = start(daemonTestEnv(dir));
         try {
           expect(await daemon.exited).toBe(78);
           expect(await new Response(daemon.stderr).text()).toContain(
@@ -257,8 +253,8 @@ describe("dipo daemon --foreground", () => {
   it(
     "breaks a stale lock left by a dead process",
     async () => {
-      await withTempDir(async (dir) => {
-        const env = daemonEnv(dir);
+      await withDaemonTempDir(async (dir) => {
+        const env = daemonTestEnv(dir);
         const dead = Bun.spawn({ cmd: ["true"], stdout: "ignore", stderr: "ignore" });
         await dead.exited;
         const state = join(dir, "state");
@@ -288,8 +284,8 @@ describe("dipo daemon --foreground", () => {
   it(
     "reports a live daemon as already running through engine.hello, not unresponsive",
     async () => {
-      await withTempDir(async (dir) => {
-        const env = daemonEnv(dir);
+      await withDaemonTempDir(async (dir) => {
+        const env = daemonTestEnv(dir);
         const daemon = start(env);
         try {
           await waitUntilServing(dir, daemon);
@@ -313,8 +309,8 @@ describe("dipo daemon --foreground", () => {
   it(
     "sends its lifecycle transitions to a subscribed client as daemon.state",
     async () => {
-      await withTempDir(async (dir) => {
-        const daemon = start(daemonEnv(dir));
+      await withDaemonTempDir(async (dir) => {
+        const daemon = start(daemonTestEnv(dir));
         try {
           await waitUntilServing(dir, daemon);
           const client = await TestClient.connect(join(dir, "run", "dipo.sock"));
@@ -354,8 +350,8 @@ describe("dipo daemon --foreground", () => {
   it(
     "stops on daemon.stop after sending its reply and the draining state",
     async () => {
-      await withTempDir(async (dir) => {
-        const daemon = start(daemonEnv(dir));
+      await withDaemonTempDir(async (dir) => {
+        const daemon = start(daemonTestEnv(dir));
         try {
           await waitUntilServing(dir, daemon);
           const client = await TestClient.connect(join(dir, "run", "dipo.sock"));

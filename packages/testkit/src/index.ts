@@ -17,7 +17,13 @@ export type {
   Recording,
   RecordingMeta,
 } from "./fake-process";
-export { cleanEnv, isRemovedEnvName, REMOVED_ENV_PREFIXES, withCleanEnv } from "./env";
+export {
+  cleanEnv,
+  daemonTestEnv,
+  isRemovedEnvName,
+  REMOVED_ENV_PREFIXES,
+  withCleanEnv,
+} from "./env";
 export {
   applyFixture,
   CommandError,
@@ -31,4 +37,27 @@ export {
 } from "./git";
 export type { FixtureTree, RunResult, TempRepo, TempRepoOptions, TempRepoWithRemote } from "./git";
 export { SequentialIds } from "./ids";
-export { keepTempDirs, makeTempDir, removeTempDir, tempRoot, withTempDir } from "./temp";
+export {
+  assertTestRuntimeDir,
+  isolatedDaemonEnv,
+  LONGEST_RUNTIME_ENTRY,
+  longestTestSocketBytes,
+  MAX_TEMP_ROOT_BYTES,
+  RUNTIME_PATH_LIMIT,
+  runtimeChoices,
+  TEMP_DIR_TEMPLATE,
+  TEST_RUNTIME_SOURCE,
+  testRuntimeCandidates,
+  testRuntimeDir,
+  testStateDir,
+  testTmpDir,
+} from "./runtime";
+export type { RuntimeChoice } from "./runtime";
+export {
+  keepTempDirs,
+  makeTempDir,
+  removeTempDir,
+  tempRoot,
+  withDaemonTempDir,
+  withTempDir,
+} from "./temp";

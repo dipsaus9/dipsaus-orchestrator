@@ -7,7 +7,11 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
+import {
+  assertTestRuntimeDir,
+  daemonTestEnv,
+  withDaemonTempDir,
+} from "@dipsaus-orchestrator/testkit";
 
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const TIMEOUT_MS = 30_000;
@@ -19,18 +23,6 @@ const CLOSE_WARNINGS = [
 ];
 
 type Line = { msg: string; level?: string; to?: string };
-
-function daemonEnv(dir: string): Record<string, string> {
-  const env = cleanEnv();
-  delete env["BUN_OPTIONS"];
-  delete env["DIPO_LOG"];
-  return {
-    ...env,
-    DIPO_HOME: join(dir, "state"),
-    DIPO_RUNTIME_DIR: join(dir, "run"),
-    DIPO_TMP: dir,
-  };
-}
 
 function readLog(dir: string): Line[] {
   const path = join(dir, "state", "logs", "daemon.log");
@@ -45,6 +37,8 @@ function readLog(dir: string): Line[] {
 async function waitForRunning(dir: string, daemon: Bun.Subprocess): Promise<void> {
   const deadline = performance.now() + 10_000;
   while (performance.now() < deadline) {
+    // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
+    assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
     if (readLog(dir).some((l) => l.msg === "daemon state" && l.to === "running")) return;
     await Bun.sleep(50);
@@ -57,8 +51,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "leaves dipo.db without a -wal or -shm file",
       () =>
-        withTempDir(async (dir) => {
-          const env = daemonEnv(dir);
+        withDaemonTempDir(async (dir) => {
+          const env = daemonTestEnv(dir);
           const state = join(dir, "state");
           const daemon = Bun.spawn({
             cmd: [process.execPath, MAIN, "daemon", "--foreground"],
