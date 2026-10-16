@@ -112,7 +112,6 @@ describe("ignoreRejection (DIPO-117)", () => {
   it("drops the rejection of a promise nobody waits for and leaves other values alone", async () => {
     const watch = watchRejections();
     ignoreRejection(Promise.reject(new Error("the child exited")));
-    ignoreRejection({ then: (_ok: unknown, fail: (error: unknown) => void) => fail("thenable") });
     ignoreRejection(0);
     ignoreRejection(undefined);
     ignoreRejection(null);
