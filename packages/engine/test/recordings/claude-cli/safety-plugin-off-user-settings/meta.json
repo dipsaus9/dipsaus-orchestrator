@@ -1,0 +1,75 @@
+{
+  "scenario": "safety-plugin-off-user-settings",
+  "source": "live",
+  "claude_code_version": "2.1.301",
+  "captured_at": "2026-10-16",
+  "expected": "DIPO-108 diagnostic: the run settings of the plan (enabledPlugins false for every installed and synced plugin, worker.plugins empty), but with --setting-sources user,project,local, so the user settings that enable those plugins are loaded too. The --settings false wins: system/init lists only the three builtin plugins, the synced plugin engineering is switched off by \"engineering@synced\": false (an earlier diagnostic run without that entry listed it), no hook runs, and the session completes with a done report.",
+  "usage_checksum": "9e6b3ae13741d13d659b0b6008eea5599034b5342280706fad60eb773794c1bc",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "3",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "user,project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 173,
+  "prompt_sha256": "80382657d8164d21281e0c9338511d0ebfe64e367d3bdc3dacdc0d7fc87c35d9",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 0,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 0,
+      "op": "user",
+      "bytes": 176
+    },
+    {
+      "t": 5300,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "checks": {
+    "settingSources": "user,project,local",
+    "installedPlugins": 4,
+    "pluginsSwitchedOff": 4,
+    "syncedSwitchedOff": 1,
+    "initPlugins": 3,
+    "initPluginsBuiltin": 3,
+    "initPluginsInstalled": 0,
+    "hookEvents": 0,
+    "firstRequestPromptTokens": 5788,
+    "resultSubtype": "success"
+  }
+}
