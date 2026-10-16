@@ -63,8 +63,8 @@ export interface OfficeConfigSources {
 }
 
 // The contract's wording, except for an unknown top-level key in `office.local.yaml`, which
-// names the keys that file accepts, and an unknown `worker` key in a version 1 file, which says
-// that version 2 adds `worker.plugins`.
+// names the keys that file accepts, and `worker.plugins` in a version 1 file, which says that
+// version 2 adds it.
 function issueErrors(
   file: string,
   schema: z.ZodType,
@@ -72,17 +72,23 @@ function issueErrors(
   issues: readonly z.core.$ZodIssue[],
   version: OfficeConfigVersion = OFFICE_CONFIG_VERSION,
 ): ConfigError[] {
-  return configIssueErrors(file, schema, input, issues, {
-    unknownKeyProblem: (parent, expected) => {
-      if (file === OFFICE_LOCAL_FILE && parent.length === 0) {
-        return `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`;
-      }
-      if (version === 1 && parent.length === 1 && parent[0] === "worker") {
-        return `unknown key in version 1; expected ${expected}. Version 2 adds worker.plugins: set version: 2 to use it`;
-      }
-      return undefined;
-    },
+  const errors = configIssueErrors(file, schema, input, issues, {
+    unknownKeyProblem: (parent) =>
+      file === OFFICE_LOCAL_FILE && parent.length === 0
+        ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`
+        : undefined,
   });
+  if (version !== 1) return errors;
+  return errors.map((error) =>
+    error.path === "worker.plugins"
+      ? configError(
+          file,
+          error.path,
+          error.expected,
+          `unknown key in version 1; expected ${error.expected}. Version 2 adds worker.plugins: set version: 2 to use it`,
+        )
+      : error,
+  );
 }
 
 type Checked = { ok: true; value: Record<string, unknown> } | { ok: false; errors: ConfigError[] };

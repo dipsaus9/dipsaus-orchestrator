@@ -517,3 +517,15 @@ describe("office configuration version 2", () => {
     expect(result.config.worker.plugins).toEqual(["a@b"]);
   });
 });
+
+describe("the version 1 hint for worker.plugins", () => {
+  it("names version 2 only for worker.plugins, not for another unknown worker key", () => {
+    const result = errors(
+      resolveOfficeConfig({ office: "version: 1\nworker: { plugin: [a@b], plugins: [a@b] }\n" }),
+    );
+    const byPath = Object.fromEntries(result.map((error) => [error.path, error.message]));
+    expect(byPath["worker.plugins"]).toContain("Version 2 adds worker.plugins");
+    expect(byPath["worker.plugin"]).toContain("unknown key");
+    expect(byPath["worker.plugin"]).not.toContain("Version 2");
+  });
+});
