@@ -1,10 +1,10 @@
 ---
 id: DIPO-100
 title: Correct compaction preTokens when PostCompact arrives first
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 20:49'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -30,6 +30,6 @@ Context: the adapter emits one compacted event per compaction, from whichever si
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When compact_boundary follows a hook-first compaction, the real pre_tokens reaches the stored compaction fact (a correcting event or an update of the same fact), without counting the compaction twice.
-- [ ] #2 Replay tests cover both orders and show the same compaction count and preTokens.
+- [x] #1 When compact_boundary follows a hook-first compaction, the real pre_tokens reaches the stored compaction fact (a correcting event or an update of the same fact), without counting the compaction twice.
+- [x] #2 Replay tests cover both orders and show the same compaction count and preTokens.
 <!-- AC:END -->

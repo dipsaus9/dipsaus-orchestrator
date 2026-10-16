@@ -1,10 +1,10 @@
 ---
 id: DIPO-97
 title: Send the output retention period and gate rule ids as data
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:23'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -48,7 +48,7 @@ Context: the TUI hard-codes a 7-day period (OUTPUT_RETENTION_DAYS, packages/tui/
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The office view (or summary) carries the stored-output retention period in days, and the TUI uses it for the removed-output line.
-- [ ] #2 Ready gate failures carry their rule id as a field next to the message, and the TUI uses the field; the text parsing is removed.
-- [ ] #3 Both are minor contract additions with updated schema, fixtures and tests.
+- [x] #1 The office view (or summary) carries the stored-output retention period in days, and the TUI uses it for the removed-output line.
+- [x] #2 Ready gate failures carry their rule id as a field next to the message, and the TUI uses the field; the text parsing is removed.
+- [x] #3 Both are minor contract additions with updated schema, fixtures and tests.
 <!-- AC:END -->

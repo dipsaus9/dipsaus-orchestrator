@@ -1,10 +1,10 @@
 ---
 id: DIPO-92
 title: Persist plan-limit warnings and give them their own skip reason
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:41'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -42,7 +42,7 @@ Context: DIPO-61 left warnings in memory: an allowed_warning holds new runs on i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A warning hold is stored with its scope, adapter and until time and is armed again on office load; a hold whose time passed while the daemon was down is dropped.
-- [ ] #2 The contract adds the skip reason planLimit (a minor addition to the open enum), work.run uses it for plan-limit holds, and the TUI and dipo run explain it in words.
-- [ ] #3 Tests cover a warning before a restart that still holds after it, an expired one that does not, and the planLimit reason.
+- [x] #1 A warning hold is stored with its scope, adapter and until time and is armed again on office load; a hold whose time passed while the daemon was down is dropped.
+- [x] #2 The contract adds the skip reason planLimit (a minor addition to the open enum), work.run uses it for plan-limit holds, and the TUI and dipo run explain it in words.
+- [x] #3 Tests cover a warning before a restart that still holds after it, an expired one that does not, and the planLimit reason.
 <!-- AC:END -->

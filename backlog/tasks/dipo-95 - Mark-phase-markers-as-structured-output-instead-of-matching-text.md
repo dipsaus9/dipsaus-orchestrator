@@ -1,10 +1,10 @@
 ---
 id: DIPO-95
 title: Mark phase markers as structured output instead of matching text
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:19'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -39,8 +39,8 @@ Context: DIPO-83 stores markers as plain text lines [dipo] <ISO> phase <name> in
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The work.output event and stored chunk say when a chunk is an engine marker (for example the agent-less chunk flagged as marker with kind and value), as a minor contract addition.
-- [ ] #2 The TUI draws a marker only from that flag; a worker line with the marker text is shown as plain text.
-- [ ] #3 dipo watch prints markers as a rule line with local time, as the TUI does, and stays plain in non-TTY output.
-- [ ] #4 Tests cover a real marker, a worker line that imitates one, and the watch rendering.
+- [x] #1 The work.output event and stored chunk say when a chunk is an engine marker (for example the agent-less chunk flagged as marker with kind and value), as a minor contract addition.
+- [x] #2 The TUI draws a marker only from that flag; a worker line with the marker text is shown as plain text.
+- [x] #3 dipo watch prints markers as a rule line with local time, as the TUI does, and stays plain in non-TTY output.
+- [x] #4 Tests cover a real marker, a worker line that imitates one, and the watch rendering.
 <!-- AC:END -->

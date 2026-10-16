@@ -1,10 +1,10 @@
 ---
 id: DIPO-91
 title: Stop the logger from hiding error codes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:20'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -28,7 +28,7 @@ Context: seen in the M0 delivery sessions: warn and error lines said code: [reda
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The maintainer approves a 0006 decision 13 amendment that names the secret fields (for example bootstrapCode, token, session.token) instead of every field named code, and it is recorded in docs/decisions/0006-daemon-and-ipc.md.
-- [ ] #2 Secret values that were logged as code are renamed to the new field name at their source, and the redaction set follows the amendment.
-- [ ] #3 Tests show an EngineError code in a warn line and a web bootstrap code still redacted at any depth.
+- [x] #1 The maintainer approves a 0006 decision 13 amendment that names the secret fields (for example bootstrapCode, token, session.token) instead of every field named code, and it is recorded in docs/decisions/0006-daemon-and-ipc.md.
+- [x] #2 Secret values that were logged as code are renamed to the new field name at their source, and the redaction set follows the amendment.
+- [x] #3 Tests show an EngineError code in a warn line and a web bootstrap code still redacted at any depth.
 <!-- AC:END -->

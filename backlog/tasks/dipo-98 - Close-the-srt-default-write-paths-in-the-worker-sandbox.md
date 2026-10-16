@@ -1,10 +1,10 @@
 ---
 id: DIPO-98
 title: Close the srt default write paths in the worker sandbox
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 19:33'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -37,8 +37,8 @@ Context: srt 0.0.79 always adds /tmp/claude and /private/tmp/claude, and adds ~/
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The worker sandbox denies writes to ~/.npm/_logs (and ~/.claude/debug unless the Claude CLI needs it there, measured), for example with a denyRead or denyWrite entry that srt honours, and dipo run --dry-run shows each such path with its reason.
-- [ ] #2 /tmp/claude is either denied or accepted with a written reason; the maintainer approves the choice as a 0008 amendment.
-- [ ] #3 The sandbox self-test proves a worker cannot write to ~/.npm/_logs, and a live Haiku run on the scratch repo still completes.
-- [ ] #4 The Safe-Chain install plan (DIPO-84) does not reopen these paths unless that story records why.
+- [x] #1 The worker sandbox denies writes to ~/.npm/_logs (and ~/.claude/debug unless the Claude CLI needs it there, measured), for example with a denyRead or denyWrite entry that srt honours, and dipo run --dry-run shows each such path with its reason.
+- [x] #2 /tmp/claude is either denied or accepted with a written reason; the maintainer approves the choice as a 0008 amendment.
+- [x] #3 The sandbox self-test proves a worker cannot write to ~/.npm/_logs, and a live Haiku run on the scratch repo still completes.
+- [x] #4 The Safe-Chain install plan (DIPO-84) does not reopen these paths unless that story records why.
 <!-- AC:END -->

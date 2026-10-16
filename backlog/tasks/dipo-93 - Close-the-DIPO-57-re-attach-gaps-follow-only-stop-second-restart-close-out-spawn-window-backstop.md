@@ -3,10 +3,10 @@ id: DIPO-93
 title: >-
   Close the DIPO-57 re-attach gaps: follow-only stop, second-restart close-out,
   spawn window, backstop
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:54'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -51,9 +51,9 @@ Context: follow-ups recorded in the DIPO-57 notes and its live test of 2026-10-1
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The maintainer approves an ADR 0006/0008 amendment for stopping a follow-only host by signal after a PID and start-time check; with it recorded, work.stop on a follow-only run sends that signal sequence and the story parks as for any stop.
-- [ ] #2 Recovery also sweeps worker_hosts rows without ended_at whose run has ended: a dead host is closed out (exit.json or lost), a live one is followed until it exits, across any number of restarts.
-- [ ] #3 A pending host row (or PID marker) is written before or at spawn, so a restart in that window finds the host and never starts a second one.
-- [ ] #4 The backstop snapshot is stored with the run and restored on re-attach, so the DIPO-49 backstop keeps running after a restart.
-- [ ] #5 Fast tests cover each case; a CI test stops a follow-only host on a real host process.
+- [x] #1 The maintainer approves an ADR 0006/0008 amendment for stopping a follow-only host by signal after a PID and start-time check; with it recorded, work.stop on a follow-only run sends that signal sequence and the story parks as for any stop.
+- [x] #2 Recovery also sweeps worker_hosts rows without ended_at whose run has ended: a dead host is closed out (exit.json or lost), a live one is followed until it exits, across any number of restarts.
+- [x] #3 A pending host row (or PID marker) is written before or at spawn, so a restart in that window finds the host and never starts a second one.
+- [x] #4 The backstop snapshot is stored with the run and restored on re-attach, so the DIPO-49 backstop keeps running after a restart.
+- [x] #5 Fast tests cover each case; a CI test stops a follow-only host on a real host process.
 <!-- AC:END -->

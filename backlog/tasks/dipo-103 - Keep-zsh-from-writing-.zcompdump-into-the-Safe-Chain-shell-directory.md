@@ -1,10 +1,10 @@
 ---
 id: DIPO-103
 title: Keep zsh from writing .zcompdump into the Safe-Chain shell directory
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 19:23'
-updated_date: '2026-10-15 21:08'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -29,9 +29,9 @@ Context: seen in the DIPO-84 test on 2026-10-15: <run>/safe-chain held a .zcompd
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cause is found and written in the story notes (which startup file runs compinit, under which zsh options).
-- [ ] #2 The worker shell starts without writing .zcompdump or any other file into the Safe-Chain shell directory (for example by skipping global rc files or pointing the dump elsewhere inside the run temp dir), and the Safe-Chain functions still load.
-- [ ] #3 A test (CI-only if it needs zsh) checks the directory listing after a shell start.
+- [x] #1 The cause is found and written in the story notes (which startup file runs compinit, under which zsh options).
+- [x] #2 The worker shell starts without writing .zcompdump or any other file into the Safe-Chain shell directory (for example by skipping global rc files or pointing the dump elsewhere inside the run temp dir), and the Safe-Chain functions still load.
+- [x] #3 A test (CI-only if it needs zsh) checks the directory listing after a shell start.
 <!-- AC:END -->
 
 ## Implementation Notes
