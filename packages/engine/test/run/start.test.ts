@@ -451,8 +451,13 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(host?.plan.cwd).toBe(join(world.worktreeRoot, "TASK-1"));
 
     // The session id is engine-made, stored on the run's agent and passed to the worker.
-    const agent = world.office.get<{ session_id: string; effort: string; model: string }>(
-      "select session_id, effort, model from agents where office_id = $office_id and run_id = $run",
+    const agent = world.office.get<{
+      agent_id: string;
+      session_id: string;
+      effort: string;
+      model: string;
+    }>(
+      "select agent_id, session_id, effort, model from agents where office_id = $office_id and run_id = $run",
       { run: runId },
     );
     expect(agent?.session_id).toMatch(UUID);
@@ -460,7 +465,7 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(agent).toMatchObject({ effort: caps.effort, model: caps.model });
 
     // The context pack's paths are stored for the context nudge (DIPO-60), with no nudge yet.
-    expect(contextPathsOf(world.office, runId)).toEqual(["src/greet.ts"]);
+    expect(contextPathsOf(world.office, runId, agent?.agent_id ?? "")).toEqual(["src/greet.ts"]);
     expect(nudgeCount(world.office, runId)).toBe(0);
 
     // The system file is in the run directory; the task message is the first stdin line.

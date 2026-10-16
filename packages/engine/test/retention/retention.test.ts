@@ -32,6 +32,7 @@ import {
   insertPricingCheck,
   insertProfile,
   insertPromptPart,
+  insertNudgeSource,
   insertReleasedBranch,
   insertScan,
   insertRequest,
@@ -223,7 +224,7 @@ describe("retention of run rows", () => {
       expect(ids("backlog_journal", "op_id")).toEqual([2, 3]);
     }));
 
-  it("deletes released claims, scans and prompt parts after the state tier", () =>
+  it("deletes released claims, scans, prompt parts and nudge sources after the state tier", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       insertClaim(office, "run-released", day(0));
@@ -239,6 +240,8 @@ describe("retention of run rows", () => {
       insertAgent(office, { run: "run-long", agent: "agt-long", startedAt: day(0), endedAt: null });
       insertPromptPart(office, "run-done", "agt-done", day(0));
       insertPromptPart(office, "run-long", "agt-long", day(0));
+      insertNudgeSource(office, "run-done", "agt-done", day(0));
+      insertNudgeSource(office, "run-long", "agt-long", day(0));
       t.clock.advanceTo(day(400));
 
       const report = await runRetention({
@@ -248,14 +251,22 @@ describe("retention of run rows", () => {
         pause: noPause,
       });
 
-      expect(report.deleted).toMatchObject({ claims: 1, scans: 1, prompt_parts: 1 });
+      expect(report.deleted).toMatchObject({
+        claims: 1,
+        scans: 1,
+        prompt_parts: 1,
+        nudge_sources: 1,
+      });
       const ids = (sql: string) => office.all<{ id: unknown }>(sql).map((row) => row.id);
       expect(ids("select run_id as id from claims where office_id = $office_id")).toEqual([
         "run-live",
       ]);
       expect(ids("select scan_id as id from scans where office_id = $office_id")).toEqual([2]);
-      // The run with an agent still running keeps its prompt parts.
+      // The run with an agent still running keeps its prompt parts and nudge sources.
       expect(ids("select run_id as id from prompt_parts where office_id = $office_id")).toEqual([
+        "run-long",
+      ]);
+      expect(ids("select run_id as id from nudge_sources where office_id = $office_id")).toEqual([
         "run-long",
       ]);
     }));

@@ -46,25 +46,18 @@ export interface RunPrompts {
   readonly taskMessage: string;
   /** The context pack and input paths the context and input nudges check (DIPO-60). */
   readonly nudgeSources: NudgeSources;
-  /** The text the task message holds for each of those paths, by path. */
-  readonly sourceTexts: Readonly<Record<string, string>>;
 }
 
-/** The nudge sources of a context pack: its item paths and the story's input paths, with texts. */
+/** The nudge sources of a context pack: its item paths and the story's input paths. */
 export function nudgeSourcesOf(
   pack: ContextPack,
   inputs: readonly string[],
-): Pick<RunPrompts, "nudgeSources" | "sourceTexts"> {
-  const texts: Record<string, string> = {};
-  for (const item of [...pack.items, ...pack.inputs.items]) {
-    texts[item.path] = `${texts[item.path] ?? ""}${item.text}`;
-  }
+): Pick<RunPrompts, "nudgeSources"> {
   return {
     nudgeSources: {
       context: [...new Set(pack.items.map((item) => item.path))].toSorted(),
       inputs: [...new Set(pack.inputs.paths.length > 0 ? pack.inputs.paths : inputs)].toSorted(),
     },
-    sourceTexts: texts,
   };
 }
 

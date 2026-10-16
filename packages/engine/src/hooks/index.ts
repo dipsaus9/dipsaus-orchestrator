@@ -50,6 +50,7 @@ export {
   BUDGET_NUDGE_SHARE,
   budgetFact,
   composeNudge,
+  copyNudgeSources,
   contextPathsOf,
   gitInputChanges,
   inputPathsOf,
@@ -66,6 +67,7 @@ export {
   type InputChange,
   type InputChangeReader,
   type NudgeFact,
+  type NudgeSourceKind,
   type NudgesDeps,
   type NudgeSources,
 } from "./nudges";

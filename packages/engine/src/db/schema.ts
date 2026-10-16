@@ -28,6 +28,7 @@ import { runCriteria } from "./migrations/0024-run-criteria";
 import { exitSignalInferred } from "./migrations/0025-exit-signal-inferred";
 import { planLimitWarnings } from "./migrations/0026-plan-limit-warnings";
 import { reattachGaps } from "./migrations/0027-reattach-gaps";
+import { nudgeSources } from "./migrations/0028-nudge-sources";
 import { adapterVersion } from "./migrations/0029-adapter-version";
 
 /**
@@ -92,5 +93,6 @@ create table offices (
   exitSignalInferred,
   planLimitWarnings,
   reattachGaps,
+  nudgeSources,
   adapterVersion,
 ];

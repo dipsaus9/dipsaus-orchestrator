@@ -13,6 +13,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import {
   budgetFact,
   composeNudge,
+  copyNudgeSources,
   contextPathsOf,
   inputPathsOf,
   type InputChangeReader,
@@ -27,6 +28,7 @@ import {
   writeNudgeSources,
 } from "../../src/hooks/nudges";
 import type { HookEvent } from "../../src/hooks/types";
+import { promptParts, promptPartsOf, recordPromptParts } from "../../src/prompts/parts";
 import { insertRun } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
 import type { RunSteering } from "../../src/run/control";
@@ -201,7 +203,6 @@ async function withWorld(
           RUN,
           "agt-1",
           { context: ["packages/a/b.ts"], inputs: ["docs/spec.md"] },
-          { "packages/a/b.ts": "export const b = 1;\n" },
           at,
         );
       });
@@ -344,8 +345,8 @@ describe("Nudges (DIPO-60)", () => {
     const sha = "d".repeat(40);
     await withWorld(
       async (w) => {
-        expect(inputPathsOf(w.office, RUN)).toEqual(["docs/spec.md"]);
-        expect(contextPathsOf(w.office, RUN)).toEqual(["packages/a/b.ts"]);
+        expect(inputPathsOf(w.office, RUN, "agt-1")).toEqual(["docs/spec.md"]);
+        expect(contextPathsOf(w.office, RUN, "agt-1")).toEqual(["packages/a/b.ts"]);
         await pass(w, "agt-1", { kind: "sessionStarted", id: 5, source: "startup" });
         await pass(w, "agt-1", { kind: "sessionStarted", id: 6, source: "resume", resumed: true });
         await pass(w, "agt-1", { kind: "sessionStarted", id: 7, source: "resume", resumed: true });
@@ -387,6 +388,83 @@ describe("Nudges (DIPO-60)", () => {
         expect(w.ops).toEqual([released(8), released(9)]);
       },
       () => (mode === "hang" ? new Promise(() => undefined) : Promise.reject(new Error("git"))),
+    );
+  });
+});
+
+describe("nudge sources (DIPO-99)", () => {
+  it("keeps the source paths out of the prompt parts and their size total", () =>
+    withWorld((w) => {
+      recordPromptParts(w.office, RUN, "agt-1", promptParts("sys", "task msg", []), w.t.clock);
+      const parts = promptPartsOf(w.office, RUN, "agt-1");
+      expect(parts.map((part) => part.name)).toEqual(["system", "task"]);
+      expect(parts.reduce((sum, part) => sum + part.bytes, 0)).toBe(11);
+      expect(parts.reduce((sum, part) => sum + part.estTokens, 0)).toBe(3);
+      expect(
+        w.office.all<{ part: string }>(
+          "select part from prompt_parts where office_id = $office_id order by part",
+        ),
+      ).toEqual([{ part: "system" }, { part: "task" }]);
+    }));
+
+  it("checks the paths of a resumed session whose context pack changed", async () => {
+    const calls: (readonly string[])[] = [];
+    await withWorld(
+      async (w) => {
+        w.t.clock.advance(1_000);
+        addAgent(w.office, "agt-2", "session-1", w.t.clock.now());
+        w.office.immediate(() =>
+          writeNudgeSources(
+            w.office,
+            RUN,
+            "agt-2",
+            { context: ["packages/a/c.ts"], inputs: ["docs/new.md"] },
+            w.t.clock.now(),
+          ),
+        );
+        expect(contextPathsOf(w.office, RUN, "agt-1")).toEqual(["packages/a/b.ts"]);
+        expect(contextPathsOf(w.office, RUN, "agt-2")).toEqual(["packages/a/c.ts"]);
+        expect(inputPathsOf(w.office, RUN, "agt-2")).toEqual(["docs/new.md"]);
+
+        await pass(w, "agt-2", { kind: "toolUsed", id: 1, tool: "Edit", wrote: "packages/a/b.ts" });
+        await pass(w, "agt-2", { kind: "toolUsed", id: 2, tool: "Edit", wrote: "packages/a/c.ts" });
+        await pass(w, "agt-2", { kind: "sessionStarted", id: 3, source: "resume", resumed: true });
+        expect(w.ops).toEqual([
+          released(1),
+          {
+            kind: "nudge",
+            hook: 2,
+            on: "toolUsed",
+            text: "The context shown for `packages/a/c.ts` predates your edit.",
+          },
+          released(3),
+        ]);
+        expect(calls).toEqual([["docs/new.md"]]);
+
+        // A session whose gathered pack was empty checks no paths, never another session's.
+        addAgent(w.office, "agt-3", "session-2", w.t.clock.now());
+        w.office.immediate(() =>
+          writeNudgeSources(w.office, RUN, "agt-3", { context: [], inputs: [] }, w.t.clock.now()),
+        );
+        expect(contextPathsOf(w.office, RUN, "agt-3")).toEqual([]);
+        await pass(w, "agt-3", { kind: "toolUsed", id: 4, tool: "Edit", wrote: "packages/a/c.ts" });
+        expect(w.ops.at(-1)).toEqual(released(4));
+        // A resume without a new pack takes over the pack of the session it resumes.
+        addAgent(w.office, "agt-4", "session-1", w.t.clock.now());
+        w.office.immediate(() =>
+          copyNudgeSources(w.office, RUN, "agt-2", "agt-4", w.t.clock.now()),
+        );
+        expect(contextPathsOf(w.office, RUN, "agt-4")).toEqual(["packages/a/c.ts"]);
+        expect(inputPathsOf(w.office, RUN, "agt-4")).toEqual(["docs/new.md"]);
+        // The source rows are no prompt parts of either session.
+        expect(promptPartsOf(w.office, RUN, "agt-2").map((part) => part.name)).toEqual([
+          "nudge.context:packages/a/c.ts",
+        ]);
+      },
+      async (_office, _run, _since, paths) => {
+        calls.push(paths);
+        return [];
+      },
     );
   });
 });

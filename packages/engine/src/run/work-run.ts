@@ -551,8 +551,8 @@ export class WorkRun {
       );
       // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
       if (prepared !== null) {
-        const { nudgeSources, sourceTexts } = prepared.promptSources;
-        writeNudgeSources(handle, runId, agent, nudgeSources, sourceTexts, at);
+        const { nudgeSources } = prepared.promptSources;
+        writeNudgeSources(handle, runId, agent, nudgeSources, at);
       }
       const marker = markPhase(handle, runId, "setup", at);
       return withWorkViews(handle, [
