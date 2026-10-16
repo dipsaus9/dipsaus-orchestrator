@@ -4,7 +4,7 @@ title: Decide how parked stories resume and how the maintainer steers work
 status: Refined
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 14:48'
+updated_date: '2026-10-16 15:11'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -38,6 +38,7 @@ Questions the ADR answers:
 - The plain-text dipo desk: what it lists (parks, questions, review-blocked, conflicts, merges waiting on the maintainer), in which order, and its CLI form.
 - The structured summary written back to the story on park and close (0001).
 - Any ParkReason or SkipReason additions, and a dated 0005 note on the async command path.
+- How a worker asks for more than its story gives (maintainer, 2026-10-16): (a) extra write paths as a scope request, granted by code when small and collision-free, else on dipo desk; (b) more input or research, for example on architecture; (c) improvements beyond the story, filed as proposed follow-up stories; which code decides, which wait for the maintainer, and how each shows on dipo desk.
 
 ```dipo
 branch: "DIPO-132/park-and-resume"
