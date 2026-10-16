@@ -1,10 +1,10 @@
 ---
 id: DIPO-102
 title: Remove the run temp directory when a run ends
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 19:23'
-updated_date: '2026-10-15 20:58'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -36,7 +36,7 @@ Context: seen in the DIPO-84 test on 2026-10-15: /tmp/dipo-run-* directories (wi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When a run ends (done, failed, stopped, parked), the engine removes its temp directory after the worker host has exited; a resumed session of the same run gets a fresh one.
-- [ ] #2 Daemon start (recovery) removes dipo-run-* directories under the temp root whose run has ended or is unknown, and never one of a live or re-attachable run.
-- [ ] #3 Tests cover removal at run end and the recovery sweep keeping a live run's directory.
+- [x] #1 When a run ends (done, failed, stopped, parked), the engine removes its temp directory after the worker host has exited; a resumed session of the same run gets a fresh one.
+- [x] #2 Daemon start (recovery) removes dipo-run-* directories under the temp root whose run has ended or is unknown, and never one of a live or re-attachable run.
+- [x] #3 Tests cover removal at run end and the recovery sweep keeping a live run's directory.
 <!-- AC:END -->

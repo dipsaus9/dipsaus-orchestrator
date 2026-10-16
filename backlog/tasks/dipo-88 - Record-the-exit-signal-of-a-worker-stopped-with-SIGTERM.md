@@ -1,10 +1,10 @@
 ---
 id: DIPO-88
 title: Record the exit signal of a worker stopped with SIGTERM
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:09'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -41,7 +41,7 @@ Context: seen in the M0 delivery sessions: worker_hosts.exit_signal stayed empty
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After a work.stop that ends the worker with SIGTERM, exit.json, the exit line in events.ndjson and worker_hosts.exit_signal all say SIGTERM (and SIGKILL when the kill step was needed); a worker that exits on its own keeps exit_signal null.
-- [ ] #2 When the signal cannot be read from the process (for example the sandbox wrapper exits 143), the host records the signal it sent last as the cause, with a field that says it was inferred.
-- [ ] #3 A test on a real host with a scripted worker covers a SIGTERM stop and a normal exit.
+- [x] #1 After a work.stop that ends the worker with SIGTERM, exit.json, the exit line in events.ndjson and worker_hosts.exit_signal all say SIGTERM (and SIGKILL when the kill step was needed); a worker that exits on its own keeps exit_signal null.
+- [x] #2 When the signal cannot be read from the process (for example the sandbox wrapper exits 143), the host records the signal it sent last as the cause, with a field that says it was inferred.
+- [x] #3 A test on a real host with a scripted worker covers a SIGTERM stop and a normal exit.
 <!-- AC:END -->

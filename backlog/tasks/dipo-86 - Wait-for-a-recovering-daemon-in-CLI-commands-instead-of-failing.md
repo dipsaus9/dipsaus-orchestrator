@@ -1,10 +1,10 @@
 ---
 id: DIPO-86
 title: Wait for a recovering daemon in CLI commands instead of failing
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 19:33'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -34,10 +34,10 @@ Context: seen in the M0 delivery sessions: dipo daemon start followed at once by
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A CLI command that gets engine.recovering waits for daemon.state running (or polls daemon.status) and sends the command again, within the existing reply timeout; it prints one line such as waiting for the daemon to finish recovering when the wait is longer than about a second.
-- [ ] #2 A daemon that ends recovery in safe makes the command fail with a clear line naming safe mode and dipo daemon resume, not a timeout.
-- [ ] #3 The retry lives in the client package so the CLI and any other client share it; commands that are not idempotent are sent again only with the same request id.
-- [ ] #4 Tests cover a fake daemon that answers engine.recovering twice and then succeeds, and one that goes to safe.
+- [x] #1 A CLI command that gets engine.recovering waits for daemon.state running (or polls daemon.status) and sends the command again, within the existing reply timeout; it prints one line such as waiting for the daemon to finish recovering when the wait is longer than about a second.
+- [x] #2 A daemon that ends recovery in safe makes the command fail with a clear line naming safe mode and dipo daemon resume, not a timeout.
+- [x] #3 The retry lives in the client package so the CLI and any other client share it; commands that are not idempotent are sent again only with the same request id.
+- [x] #4 Tests cover a fake daemon that answers engine.recovering twice and then succeeds, and one that goes to safe.
 <!-- AC:END -->
 
 ## Implementation Notes
