@@ -4,6 +4,7 @@ title: Show worker thinking as duration and token counts in the live detail
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 21:51'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,6 +14,9 @@ references:
   - packages/engine/src/workers/claude-cli/
   - packages/engine/src/ingest/
   - packages/tui/src/detail.tsx
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/ingest/thinking.test.ts
+  - packages/tui/src/detail.test.tsx
 priority: low
 type: feature
 ordinal: 86000

@@ -149,7 +149,7 @@ export type WorkerEvent =
     }
   | {
       readonly t: "activity";
-      readonly kind: "text" | "tool" | "subagent";
+      readonly kind: "text" | "tool" | "subagent" | "thinking";
       readonly tool?: string;
       readonly path?: string;
       /**
@@ -158,6 +158,13 @@ export type WorkerEvent =
        * opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83).
        */
       readonly input?: string;
+      /**
+       * `thinking` only (DIPO-96): how long one finished thinking block took, in milliseconds, when
+       * the adapter knows it. Counts only: no thinking text or signature ever travels.
+       */
+      readonly ms?: number;
+      /** `thinking` only: the adapter's estimate of the block's thinking tokens, when it has one. */
+      readonly tokens?: number;
       readonly agentId?: string;
     }
   | { readonly t: "output"; readonly text: string }

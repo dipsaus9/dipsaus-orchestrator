@@ -98,7 +98,7 @@ SteerOp = { kind: "steer" | "answer", text } | { kind: "pause" | "stop" | "kill"
 HostOp  = { write: string } | { signal: "SIGINT" | "SIGTERM" | "SIGKILL" } | { closeStdin: true }
 WorkerEvent =
   | { t: "started", sessionId, model, version, permissionMode, tools }
-  | { t: "activity", kind: "text" | "tool" | "subagent", tool?, path?, agentId? }
+  | { t: "activity", kind: "text" | "tool" | "subagent" | "thinking", tool?, path?, input?, ms?, tokens?, agentId? }   // thinking: duration and estimated tokens of one finished thinking block, never its text (DIPO-96)
   | { t: "output", text }                         // feeds work.output
   | { t: "usage", messageId, model, agentId?, input, cacheCreate, cacheRead }   // once per message id
   | { t: "turn", report: WorkerReport | null, totals: UsageTotalsByModel, numTurns, terminal }
@@ -173,6 +173,7 @@ The run settings file holds `includeGitInstructions: false`, empty `attribution`
 |---|---|---|
 | `system/init` | `started` | `work.assigned` (if not yet), model into `WorkRef.model`; version and `capabilities` stored on the run |
 | `assistant` text, `tool_use` | `output`, `activity` | `work.output` (debounced 250 ms); activity feeds the DIPO-6 health derivation |
+| assistant thinking block with `thinking_duration_ms`; `system/thinking_tokens` (`estimated_tokens`) | `activity` (kind `thinking`, `ms`, `tokens`) | one `[thinking]` line in `work.output`; no thinking text or signature is read or stored (DIPO-96) |
 | `assistant.message.usage`, deduped by id; `parent_tool_use_id` set means subagent | `usage` | `usage.updated` (agent and run totals, at most 1/s) |
 | `result` per turn | `turn` | Usage replaced by the result's cumulative `modelUsage`; budget tokens and estimated cost recomputed (section 4); `turns` from `num_turns`; report into `work.progress` (`criteriaMet`) |
 | `tool_progress` heartbeat, any line | none (liveness) | The engine watchdog writes `work.observed no-output` when no line arrives for `timeouts.workerStallMinutes` (default 20, health `stuck`); `timeouts.workerQuietMinutes` (default 3) separates `quiet` from `busy` (0009) |
