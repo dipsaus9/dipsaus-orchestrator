@@ -77,7 +77,8 @@ if (CI && ZSH !== undefined) {
         ]);
         expect(snapshot.code).toBe(0);
         expect(snapshot.stdout).toContain("rc ran: compinit: function");
-        // Only the init file sets this, so the init file loaded.
+        // Only dipo's files set this (the init file, or its .zprofile in a login shell), so they
+        // loaded.
         expect(snapshot.stdout).toContain("ZDOTDIR=/dev/null");
         expect(readdirSync(shellDir).toSorted()).toEqual(written);
         expect(readdirSync(home)).toEqual([".zshrc"]);
