@@ -20,7 +20,9 @@
 //   parks the story `stopped`; branch and worktree are kept.
 //
 // Every op is stored as a pending intent before it is sent (`intents.ts`), and when the worker
-// exits the intent that explains the exit is resolved with its outcome. After the first decision
+// exits the intent that explains the exit is resolved with its outcome. A decision without a park
+// (`act`) whose intent cannot be stored sends nothing: the failure is logged with its error code
+// and the run stays as it was, with its cap tick (DIPO-119). After the first decision
 // on a run nothing else is decided for it: later events of the same or a later pass are ignored.
 //
 // A refused start (`startRefused`, DIPO-108) is stopped at once as a `start-failed` stop, without a
@@ -50,7 +52,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
-import { background } from "../platform/background";
+import { background, failureFields } from "../platform/background";
 import { withWorkViews, workRefOf } from "../views/work";
 import type {
   Caps,
@@ -517,17 +519,29 @@ export class RunControl implements RunEnder {
   /**
    * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
-   * worker's exit is decided from the intent. False when a decision was made already.
+   * worker's exit is decided from the intent. False when a decision was made already, or when
+   * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).
    */
   act(runId: string, act: RunAct): boolean {
     const tracked = this.#tracked.get(runId);
     if (tracked === undefined || tracked.ending !== null) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return false;
+    let intentId: number;
+    try {
+      intentId = office.immediate(() =>
+        recordIntent(office, tracked.runId, act.intent, act.detail, this.#deps.clock.now()),
+      );
+    } catch (error) {
+      // 0008: an op is stored as an intent before it is sent, so none is sent.
+      this.#deps.warn?.("storing a run's decision failed", {
+        run: tracked.runId,
+        intent: act.intent,
+        ...failureFields(error),
+      });
+      return false;
+    }
     this.#disarm(tracked);
-    const intentId = office.immediate(() =>
-      recordIntent(office, tracked.runId, act.intent, act.detail, this.#deps.clock.now()),
-    );
     // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
     tracked.ending = background(
       async () => {

@@ -620,3 +620,52 @@ describe("a notice write that fails (DIPO-110)", () => {
     expect(openQuestions(w.f.office)).toHaveLength(1);
   });
 });
+
+describe("a timeout close that fails (DIPO-119)", () => {
+  it("still sends the deny and logs one error when the timed-out question cannot be closed", async () => {
+    await ingest(scenario().before);
+    const [question] = openQuestions(w.f.office);
+    // The database refuses the timeout's close, inside the timer.
+    w.f.t.state.connection.exec(
+      `create trigger close_fails before update of closed_at on questions
+       when new.closed_how = 'timeout'
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    const watch = watchRejections();
+    expect(() => w.f.t.clock.advance(WAIT_SECONDS * 1000)).not.toThrow();
+    await w.asks.idle();
+    expect(await watch.stop()).toEqual([]);
+    expect(outputOf(w.sent[0])).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: {
+          behavior: "deny",
+          message: `The maintainer did not answer within ${WAIT_SECONDS} s.`,
+        },
+      },
+    });
+    expect(w.warnings).toEqual([
+      {
+        message: "closing a timed-out permission question failed",
+        fields: {
+          question: question?.questionId,
+          run: w.f.run,
+          reason: "disk I/O error",
+          errorCode: expect.stringMatching(/^SQLITE_CONSTRAINT/),
+        },
+      },
+    ]);
+    // The question stays open until the next office load expires it.
+    expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedAt).toBeNull();
+    expect(types()).not.toContain("question.closed");
+    // The permission wait keeps working: the next request is asked and times out as before.
+    w.f.t.state.connection.exec("drop trigger close_fails");
+    await ingest(scenario().before);
+    expect(types().filter((type) => type === "question.asked")).toHaveLength(2);
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(2);
+    expect(types()).toContain("question.closed");
+    expect(w.warnings).toHaveLength(1);
+  });
+});

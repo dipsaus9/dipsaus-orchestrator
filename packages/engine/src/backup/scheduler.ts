@@ -6,7 +6,9 @@
 // - Maintenance: once per UTC day, only while no office has active work.
 //
 // Checks run one at a time; `stop` waits for the running one, so the daemon closes the database
-// only after it.
+// only after it. A timer's check runs as a background job (DIPO-110, DIPO-119): a failure outside
+// the backup and the maintenance (the database, the backups directory) is one logged line with
+// its error code, and the next check is still armed.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +17,7 @@ import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { StateDatabase } from "../db/database";
 import type { Logger } from "../log/logger";
+import { background } from "../platform/background";
 import { DAY_MS } from "../retention/run";
 
 import { type DailyBackupResult, type VacuumInto, writeDailyBackup } from "./daily";
@@ -144,8 +147,12 @@ export class MaintenanceScheduler {
     this.#timer = this.#deps.clock.setTimeout(() => {
       this.#timer = null;
       if (this.#stopped) return;
-      void this.check().finally(() => {
-        if (!this.#stopped) this.#arm(this.#deps.intervalMs ?? MAINTENANCE_CHECK_MS);
+      background(() => this.check(), {
+        failed: "the backup and maintenance check failed",
+        log: (message, fields) => this.#deps.logger.warn(message, fields),
+        settled: () => {
+          if (!this.#stopped) this.#arm(this.#deps.intervalMs ?? MAINTENANCE_CHECK_MS);
+        },
       });
     }, delayMs);
   }
