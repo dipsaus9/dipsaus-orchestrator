@@ -16,6 +16,7 @@ import {
   migrationChecksum,
   type Migration,
 } from "../../src/db/migrations";
+import { adapterVersion } from "../../src/db/migrations/0029-adapter-version";
 import { MIGRATIONS } from "../../src/db/schema";
 import { openSqlite } from "../../src/platform/sqlite";
 import { localMounts, memoryLogger } from "./helpers";
@@ -205,6 +206,44 @@ describe("migrate", () => {
         });
       } finally {
         db.close();
+      }
+    }));
+
+  it("renames agents.claude_code_version to adapter_version and keeps its values (DIPO-101)", () =>
+    withTempDir(async (dir) => {
+      const before = MIGRATIONS.slice(0, adapterVersion.version - 1);
+      const old = await openStateDatabase(options(dir, before));
+      try {
+        const db = old.connection;
+        db.run(
+          `insert into offices (office_id, path, display_name, added_at, epoch, next_seq, replay_floor_seq)
+           values ('o-1', '/repo', 'repo', 0, 'e-1', 1, 0)`,
+        );
+        db.run(
+          `insert into agents (office_id, agent_id, run_id, role, model, claude_code_version, started_at)
+           values ('o-1', 'a-1', 'r-1', 'worker', 'claude-haiku-5-5', '2.1.296', 0)`,
+        );
+      } finally {
+        old.close();
+      }
+
+      const state = await openStateDatabase(options(dir, MIGRATIONS));
+      try {
+        const db = state.connection;
+        const columns = db
+          .all<{ name: string }>("select name from pragma_table_info('agents')")
+          .map((column) => column.name);
+        expect(columns).toContain("adapter_version");
+        expect(columns).not.toContain("claude_code_version");
+        expect(
+          db.get<{ adapter_version: string }>(
+            "select adapter_version from agents where agent_id = 'a-1'",
+          ),
+        ).toEqual({
+          adapter_version: "2.1.296",
+        });
+      } finally {
+        state.close();
       }
     }));
 

@@ -127,10 +127,17 @@ describe("replaying success-tools-subagent", () => {
       expect(daily.map((row) => row.input)).toEqual(rows.map((row) => row.input));
       expect(daily.every((row) => row.runs === 1)).toBe(true);
 
-      const agent = f.office.get<{ session_id: string; model: string; ended_at: number }>(
-        "select session_id, model, ended_at from agents where office_id = $office_id",
+      const agent = f.office.get<{
+        session_id: string;
+        model: string;
+        ended_at: number;
+        adapter_version: string;
+      }>(
+        "select session_id, model, ended_at, adapter_version from agents where office_id = $office_id",
       );
       expect(agent?.session_id).toBe("session-1");
+      // The adapter's version under the neutral column (DIPO-101), from `system/init`.
+      expect(agent?.adapter_version).toBe("2.1.296");
       expect(agent?.model).toBe("claude-haiku-5-5");
       expect(agent?.ended_at).toBe(f.t.clock.now());
 
