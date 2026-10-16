@@ -6,8 +6,18 @@
 // The machine keeps the current state with its reason and reports every transition as
 // `{ from, to, reason }` to its listeners; DIPO-24 emits them as `daemon.state` on the software
 // stream. The predicates below are what the command and read executors ask before they run.
+//
+// A state database the daemon cannot open or migrate (0007 sections 9 and 10, DIPO-111) holds it in
+// `recovering` for good: no office loads, office commands and reads get the non-retryable
+// `database.unavailable` with what to do, and `daemon.resumeScheduling` refuses with it too, so
+// nothing makes office commands look usable. Only `daemon.stop` (or a signal) leaves it.
 
-import { engineError, type DaemonState, type EngineError } from "@dipsaus-orchestrator/contract";
+import {
+  engineError,
+  type DaemonState,
+  type DatabaseUnavailableDetails,
+  type EngineError,
+} from "@dipsaus-orchestrator/contract";
 import { CommandError } from "@dipsaus-orchestrator/engine";
 
 /** One transition, as `daemon.state` carries it. */
@@ -41,12 +51,23 @@ export class TransitionError extends Error {
 /** The reason `safe` carries after a crash loop (0006 decision 7). */
 export const CRASH_LOOP_REASON = "crash loop";
 
+/** The code for every office command and read while the state database is unavailable. */
+export const DATABASE_UNAVAILABLE = "database.unavailable";
+
+/** Why the state database cannot be used, and what the maintainer does about it (DIPO-111). */
+export interface DatabaseFailure {
+  readonly details: DatabaseUnavailableDetails;
+  /** One paragraph for people: what failed and the commands that fix it. */
+  readonly text: string;
+}
+
 export class DaemonLifecycle {
   #state: DaemonState = "starting";
   #reason: string;
   readonly #listeners = new Set<StateListener>();
   #inFlight = 0;
   readonly #idleWaiters: (() => void)[] = [];
+  #unavailable: EngineError | null = null;
 
   constructor(reason = "daemon started") {
     this.#reason = reason;
@@ -58,6 +79,24 @@ export class DaemonLifecycle {
 
   get reason(): string {
     return this.#reason;
+  }
+
+  /** The `database.unavailable` error while the state database cannot be used; null otherwise. */
+  get unavailable(): EngineError | null {
+    return this.#unavailable;
+  }
+
+  /**
+   * Holds the daemon in `recovering` without its state database (DIPO-111): the reason becomes
+   * `failure.text`, which `daemon.status` reports as `stateReason`, and every office command and
+   * read gets `database.unavailable` from now on. Only in `recovering`; false (nothing changed)
+   * when a drain has already begun.
+   */
+  holdUnavailable(failure: DatabaseFailure): boolean {
+    if (this.#state !== "recovering") return false;
+    this.#reason = failure.text;
+    this.#unavailable = engineError(DATABASE_UNAVAILABLE, failure.text, { ...failure.details });
+    return true;
   }
 
   /** Registers a listener for every later transition; returns a function that removes it. */
@@ -82,6 +121,10 @@ export class DaemonLifecycle {
    * throws the `daemon.notSafe` command error (0005 section 4).
    */
   resumeScheduling(reason = "scheduling resumed"): StateChange {
+    const unavailable = this.#unavailable;
+    if (unavailable !== null) {
+      throw new CommandError(unavailable.code, unavailable.message, unavailable.details);
+    }
     if (this.#state !== "safe") {
       throw new CommandError(
         "daemon.notSafe",
@@ -94,9 +137,12 @@ export class DaemonLifecycle {
 
   /**
    * Office access (0006 decision 7): office commands and reads fail with the retryable
-   * `engine.recovering` in `starting` and `recovering`; null means they may run.
+   * `engine.recovering` in `starting` and `recovering`, and with the non-retryable
+   * `database.unavailable` in every state once the state database could not be used (DIPO-111);
+   * null means they may run.
    */
   officeAccess(): EngineError | null {
+    if (this.#unavailable !== null) return this.#unavailable;
     if (this.#state === "starting" || this.#state === "recovering") {
       return engineError(
         "engine.recovering",

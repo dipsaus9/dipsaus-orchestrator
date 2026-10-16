@@ -3,11 +3,32 @@
 // enters `running`, or `safe` when the crash counter says so. Reconcile (DIPO-56) and re-attach
 // (DIPO-57) plug in here. A drain that starts during recovery lets the current step finish and runs
 // no further step.
+//
+// A state database that cannot be opened or migrated (0007 sections 9 and 10, DIPO-111) does not
+// stop the daemon: the migrations step holds it in `recovering` with a `DatabaseFailure` from
+// `databaseFailure` below, no further step runs, and the daemon serves software commands until it
+// is stopped. Exiting instead would make a supervisor restart it in a loop, and every start would
+// write another pre-migration backup.
 
-import type { Clock } from "@dipsaus-orchestrator/contract";
-import type { ChildProcesses, Logger, StateDatabase } from "@dipsaus-orchestrator/engine";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-import { CRASH_LOOP_REASON, type DaemonLifecycle } from "./lifecycle";
+import type { Clock, DatabaseUnavailableReason } from "@dipsaus-orchestrator/contract";
+import {
+  backupsDirectory,
+  dailyBackups,
+  DatabaseTooNewError,
+  IntegrityCheckError,
+  MigrationChecksumError,
+  MigrationFailedError,
+  NetworkFileSystemError,
+  preMigrationBackups,
+  type ChildProcesses,
+  type Logger,
+  type StateDatabase,
+} from "@dipsaus-orchestrator/engine";
+
+import { CRASH_LOOP_REASON, type DaemonLifecycle, type DatabaseFailure } from "./lifecycle";
 
 export interface RecoveryContext {
   readonly logger: Logger;
@@ -56,12 +77,13 @@ export interface RunRecoveryOptions {
 
 /**
  * Moves `starting` to `recovering`, runs every step, then enters `running` or `safe`. Resolves to
- * false when a drain began before recovery finished; a failing step rejects.
+ * false when a drain began before recovery finished, or when a step held the daemon in
+ * `recovering` because the state database is unavailable; a failing step rejects.
  */
 export async function runRecovery(options: RunRecoveryOptions): Promise<boolean> {
   const { lifecycle, steps, context, crashLoop } = options;
   // Read through a function: a drain may change the state while a step runs.
-  const recovering = () => lifecycle.state === "recovering";
+  const recovering = () => lifecycle.state === "recovering" && lifecycle.unavailable === null;
   if (lifecycle.state !== "starting") return false;
   lifecycle.transition("recovering", "running recovery steps");
   for (const step of steps.list()) {
@@ -82,4 +104,141 @@ export async function runRecovery(options: RunRecoveryOptions): Promise<boolean>
   if (crashLoop) lifecycle.transition("safe", CRASH_LOOP_REASON);
   else lifecycle.transition("running", "recovered");
   return true;
+}
+
+/** A failed `quick_check`, or SQLite finding the file damaged or no database at all. */
+function isDamage(error: unknown): boolean {
+  if (error instanceof IntegrityCheckError) return true;
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    typeof code === "string" && (code === "SQLITE_NOTADB" || code.startsWith("SQLITE_CORRUPT"))
+  );
+}
+
+/** `PRAGMA user_version` from the file header (offset 60, big-endian); null when unreadable. */
+function headerUserVersion(path: string): number | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, "r");
+    const bytes = Buffer.alloc(4);
+    if (readSync(fd, bytes, 0, 4, 60) !== 4) return null;
+    return bytes.readUInt32BE(0);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+/**
+ * The newest backup in `<state>/backups` that holds a schema (0007 section 10), daily or
+ * pre-migration, by modification time; null when there is none. A pre-migration copy of a database
+ * that was still empty has `user_version` 0 and restores nothing, so it is never named.
+ */
+export function newestBackup(stateDir: string): string | null {
+  const dir = backupsDirectory(join(stateDir, "dipo.db"));
+  let newest: { path: string; at: number } | null = null;
+  for (const name of [...dailyBackups(dir), ...preMigrationBackups(dir)]) {
+    const path = join(dir, name);
+    let at: number;
+    try {
+      at = statSync(path).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (newest !== null && at <= newest.at) continue;
+    const version = headerUserVersion(path);
+    if (version === null || version === 0) continue;
+    newest = { path, at };
+  }
+  return newest?.path ?? null;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The `dipo daemon stop`, then `dipo restore` instruction, naming the backup when one exists. */
+function restoreSteps(stateDir: string, backup: string | null): string {
+  if (backup !== null) return `Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`;
+  const dir = backupsDirectory(join(stateDir, "dipo.db"));
+  return `Run \`dipo daemon stop\`, then \`dipo restore <file>\` with a copy of dipo.db; ${dir} holds no backup.`;
+}
+
+/** `problem` says what failed, `action` what to do; both are whole sentences. */
+function failure(
+  reason: DatabaseUnavailableReason,
+  problem: string,
+  action: string,
+  backup: string | null = null,
+): DatabaseFailure {
+  return {
+    details: { reason, ...(backup === null ? {} : { backup }) },
+    text: `${problem} No office is loaded. ${action}`,
+  };
+}
+
+/** What the damage is: the first `quick_check` problems, or the SQLite message. */
+function damageOf(error: unknown): string {
+  if (error instanceof IntegrityCheckError) {
+    return `PRAGMA quick_check reported: ${error.problems.slice(0, 3).join("; ")}`;
+  }
+  return messageOf(error);
+}
+
+/**
+ * What a failed open or migration of the state database means for the maintainer (0007 sections 9
+ * and 10, DIPO-111): the reason, the newest backup when the fix is a restore, and one paragraph
+ * that says what to do. A failed migration, an edited migration, a damaged file or any other
+ * failure: stop the daemon and restore the newest backup. A too-new database: upgrade dipo. A
+ * network filesystem: move the state directory.
+ */
+export function databaseFailure(error: unknown, stateDir: string): DatabaseFailure {
+  if (error instanceof NetworkFileSystemError) {
+    return failure(
+      "networkFilesystem",
+      `The state directory ${error.path} is on a network filesystem (${error.fsType}), and SQLite needs a local disk.`,
+      "Run `dipo daemon stop`, move the state directory to a local disk (set DIPO_HOME to a local directory), then start the daemon again.",
+    );
+  }
+  if (error instanceof DatabaseTooNewError) {
+    return failure(
+      "tooNew",
+      `The state database is at schema version ${error.found}, newer than this dipo supports (${error.supported}).`,
+      "Upgrade dipo, then run `dipo daemon restart`.",
+    );
+  }
+  const backup = newestBackup(stateDir);
+  const restore = restoreSteps(stateDir, backup);
+  const cause = error instanceof MigrationFailedError ? error.cause : error;
+  if (isDamage(cause)) {
+    return failure(
+      "damaged",
+      `The state database is damaged (${damageOf(cause)}).`,
+      restore,
+      backup,
+    );
+  }
+  if (error instanceof MigrationFailedError) {
+    return failure(
+      "migration",
+      `Migration ${error.version} of the state database failed and was rolled back (${messageOf(error.cause)}).`,
+      restore,
+      backup,
+    );
+  }
+  if (error instanceof MigrationChecksumError) {
+    return failure(
+      "checksum",
+      `${error.message} A released migration was edited.`,
+      restore,
+      backup,
+    );
+  }
+  return failure(
+    "open",
+    `The state database could not be opened (${messageOf(error)}).`,
+    restore,
+    backup,
+  );
 }
