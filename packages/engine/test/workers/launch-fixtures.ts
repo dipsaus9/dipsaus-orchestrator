@@ -275,3 +275,63 @@ export function credentialSteps(
   };
   return { runStep, commands };
 }
+
+/** A Claude plugin as `system/init` lists it (DIPO-108). */
+export interface InitPlugin {
+  readonly name: string;
+  readonly source: string;
+  readonly path: string;
+}
+
+/**
+ * The plugins every live recording's `system/init` lists (redacted there): Claude Code's builtin
+ * ones (DIPO-108 live runs, Claude Code 2.1.301; the redacted name lengths of the 2.1.296
+ * recordings match).
+ */
+export const BUILTIN_PLUGINS = [
+  "cc-plugin-agents-md@builtin",
+  "cc-plugin-telemetry@builtin",
+  "cc-plugin-plugin-authoring@builtin",
+] as const;
+
+/**
+ * `recording` with its redacted `system/init` plugins named as the builtin ones they are, in
+ * order. Only entries whose name is still redacted change, so a recording that names its plugins
+ * (`withInitPlugins`) passes through as it is.
+ */
+export function withBuiltinPlugins(recording: Recording): Recording {
+  const lines = recording.lines.map((line) => {
+    const data = line.data as { type?: string; subtype?: string; plugins?: unknown };
+    if (line.ch !== "stdout" || data.type !== "system" || data.subtype !== "init") return line;
+    if (!Array.isArray(data.plugins)) return line;
+    let redacted = 0;
+    const plugins = data.plugins.map((entry: unknown) => {
+      const name = (entry as { name?: unknown } | null)?.name;
+      if (typeof name !== "string" || !name.startsWith("[redacted")) return entry;
+      const id = BUILTIN_PLUGINS[redacted % BUILTIN_PLUGINS.length] ?? BUILTIN_PLUGINS[0];
+      redacted += 1;
+      return initPlugin(id);
+    });
+    return { ...line, data: { ...data, plugins } };
+  });
+  return { ...recording, lines };
+}
+
+/** A `system/init` plugin entry for `<name>@<marketplace>`. */
+export function initPlugin(id: string): InitPlugin {
+  const name = id.split("@")[0] ?? id;
+  return { name, source: id, path: `${HOME}/.claude/plugins/cache/${name}` };
+}
+
+/**
+ * `recording` with the `plugins` of every `system/init` replaced (DIPO-108): committed recordings
+ * redact plugin names, so a test names the plugins a session listed.
+ */
+export function withInitPlugins(recording: Recording, ids: readonly string[]): Recording {
+  const lines = recording.lines.map((line) => {
+    const data = line.data as { type?: string; subtype?: string };
+    if (line.ch !== "stdout" || data.type !== "system" || data.subtype !== "init") return line;
+    return { ...line, data: { ...data, plugins: ids.map(initPlugin) } };
+  });
+  return { ...recording, lines };
+}

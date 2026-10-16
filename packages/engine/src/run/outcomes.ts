@@ -24,6 +24,9 @@
 //   no work the claim is released as DIPO-74 does (worktree removed, branch kept, story Ready);
 //   when it holds commits past the claim or a dirty tree, the story parks `worker-failed` and
 //   everything is kept (0008 amendment of 2026-10-14).
+//   A start the adapter refuses at its first line (`startRefused`, DIPO-108: a plugin the office
+//   does not allow) stores the same intent but stops the worker at once, as a rejected init does
+//   (stdin closed, SIGTERM now, SIGKILL after 30 s), and never parks for it.
 // - `pause` `plan-limit {scope, resetsAt?, since}`: a rejected plan limit (a `rate_limit_event`
 //   `rejected`, `credits_required`, or a 429 turn) closes stdin, writes the wait fact on the run,
 //   raises the `plan-limit` signal with `work.observed plan-limit` (health `limited`), and never
@@ -126,6 +129,23 @@ export const HOST_LOST_WHY = "the worker host died while the daemon was down";
 export const REASSIGN_SIGTERM_AFTER_MS = 10_000;
 /** Milliseconds to SIGKILL after a rejected init. */
 export const INIT_REJECTED_SIGKILL_AFTER_MS = 30_000;
+
+/**
+ * The act of a start the adapter refused at its first line (`startRefused`, DIPO-108): stop the
+ * worker at once, as for a rejected init, but as a `start-failed` stop, so its exit holds the
+ * adapter and releases the claim (story Ready) instead of parking.
+ */
+export function startRefusedAct(reason: string): RunAct {
+  return {
+    intent: "stop",
+    detail: `${INTENT_TAGS.startFailed} ${reason}`,
+    ops: [
+      { closeStdin: true },
+      { signal: "SIGTERM" },
+      { signal: "SIGKILL", afterMs: INIT_REJECTED_SIGKILL_AFTER_MS },
+    ],
+  };
+}
 
 /** The first message of a session resumed after a plan-limit reset (0008 section 7). */
 export const PLAN_LIMIT_CONTINUE = "continue";

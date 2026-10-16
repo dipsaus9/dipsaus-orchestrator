@@ -9,7 +9,12 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { StoryId, type RunId, type WorkRef } from "@dipsaus-orchestrator/contract";
-import { readRecording } from "@dipsaus-orchestrator/testkit";
+import {
+  type FakeProcess,
+  fakeSpawn,
+  ManualClock,
+  readRecording,
+} from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -32,6 +37,7 @@ import {
 import { recordWorkerHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { workView } from "../../src/views/work";
+import { claudeCliAdapter } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   type ClaudeParseState,
@@ -52,6 +58,7 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
+import { context, withInitPlugins } from "../workers/launch-fixtures";
 import { RECORDINGS_DIR } from "../workers/replay";
 
 const claude: IngestAdapter = {
@@ -846,5 +853,96 @@ describe("endRun finalizes usage (AC #10)", () => {
     ingestor.pass(w.f.run, w.f.agent);
     expect(daily()).toEqual({ ...finals(), runs: 1 } as never);
     expect(finals()?.output).toBe(155);
+  });
+});
+
+describe("a start the adapter refuses at system/init (DIPO-108)", () => {
+  it("stops the worker before its first tool call, without a park, and the story stays Ready", async () => {
+    track();
+    // safety-main-git runs Bash right after its system/init; here that init lists a plugin the
+    // office does not allow. The worker is the fake process, read chunk by chunk as the host does,
+    // and the ops run control sends reach it before the next chunk.
+    const recording = withInitPlugins(readRecording(join(RECORDINGS_DIR, "safety-main-git")), [
+      "warp@claude-code-warp",
+    ]);
+    const adapter = claudeCliAdapter(
+      context({ plugins: { installed: ["warp@claude-code-warp"], allowed: [] } }),
+      {
+        spawn: () => {
+          throw new Error("no process is spawned through the adapter");
+        },
+        clock: w.f.t.clock,
+      },
+    );
+    const ingestor = new Ingestor({
+      office: w.f.office,
+      clock: w.f.t.clock,
+      pricing: null,
+      hooks: w.control.hooks,
+    });
+    w.ingestor = ingestor;
+    ingestor.track(
+      target(
+        w.f,
+        adapter as unknown as IngestAdapter,
+        initialState({ plannedModel: "haiku" }) as unknown as ParseState,
+        {
+          budgetLimit: ROOMY.budgetTokens,
+        },
+      ),
+    );
+    const child = fakeSpawn(recording, new ManualClock()).spawn({
+      cmd: ["claude", "-p"],
+      stdin: "pipe",
+    }) as FakeProcess;
+    const reader = child.stdout.getReader();
+    const decoder = new TextDecoder();
+    const read: string[] = [];
+    const sent: HostOp[][] = [];
+    let t = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      read.push(text);
+      appendLines(w.f.eventFile, [{ t: (t += 1), ch: "stdout", data: text }]);
+      ingestor.pass(w.f.run, w.f.agent);
+      await w.control.idle();
+      for (const ops of w.sent.splice(0)) {
+        sent.push(ops);
+        for (const op of ops) {
+          if ("closeStdin" in op) child.stdin?.end();
+          if ("signal" in op && op.afterMs === undefined) child.kill(op.signal);
+        }
+      }
+    }
+    const exit = await child.exited;
+    appendLines(w.f.eventFile, [{ t: t + 1, ch: "exit", data: JSON.stringify(exit) }]);
+    ingestor.pass(w.f.run, w.f.agent);
+    await w.control.idle();
+
+    // Stopped at once, at its system/init: the tool call after it was never reached.
+    expect(sent).toEqual([
+      [{ closeStdin: true }, { signal: "SIGTERM" }, { signal: "SIGKILL", afterMs: 30_000 }],
+    ]);
+    expect(child.signals).toEqual(["SIGTERM"]);
+    expect(exit).toEqual({ code: 143, signal: null });
+    expect(read.some((text) => text.includes('"subtype":"init"'))).toBe(true);
+    expect(read.some((text) => text.includes('"tool_use"'))).toBe(false);
+    // Ended through startFailed: adapter held, claim released, no park, the story stays Ready.
+    expect(parks()).toEqual([]);
+    expect(w.released).toEqual(["start-failed"]);
+    expect(w.holds.map((hold) => [hold.adapter, hold.failures[0]?.check])).toEqual([
+      ["claude-cli", "start-failed"],
+    ]);
+    expect(w.holds[0]?.failures[0]?.detail).toContain("plugin warp@claude-code-warp");
+    // The stop sent at init and the release at the exit, both start-failed; no init-rejected one.
+    expect(intents()[0]).toEqual(["stop", "start-failed", "startFailed"]);
+    expect(intents().every(([, tag]) => tag === "start-failed")).toBe(true);
+    const notice = notices().find((n) => n.code === "run.startFailed");
+    expect(notice?.text).toContain("the story stays Ready");
+    expect(notices().some((n) => n.code === "run.initRejected")).toBe(false);
+    expect(w.next).toEqual([]);
+    expectEnded("start-failed", "start-failed");
   });
 });

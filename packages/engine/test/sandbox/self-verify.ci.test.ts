@@ -5,8 +5,9 @@
 // into a temp directory: from source, `sandbox-exec` would run this checkout's own code, which the
 // step can write, and is refused.
 //
-// Linux only: on macOS `srt`'s Seatbelt profile refuses to exec the setuid `/bin/ps` that the
-// process probe of DIPO-23 reads start times with, so four process and daemon tests fail there.
+// macOS and Linux: the process probe reads `kinfo_proc` through `sysctl` instead of the setuid
+// `/bin/ps`, which `srt`'s Seatbelt profile refuses to exec (DIPO-114). CI runs the verify job on
+// Linux; on macOS this test runs with `DIPO_TEST_CI=1 bun test <this file>`.
 
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
@@ -23,7 +24,7 @@ import { CI } from "./helpers";
 const GUARD = "DIPO_SANDBOX_SELF_VERIFY";
 const REPO = resolve(import.meta.dir, "../../../..");
 
-if (CI && process.platform === "linux" && process.env[GUARD] !== "1") {
+if (CI && process.env[GUARD] !== "1") {
   describe("self-verify under the verify policy", () => {
     it(
       "passes bun run verify in this checkout",

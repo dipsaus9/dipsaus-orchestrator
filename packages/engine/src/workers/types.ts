@@ -239,7 +239,14 @@ export type WorkerEvent =
    * any `started` of that init, so the engine can stop the worker at once instead of treating it
    * as a live start; the result is `initRejected`.
    */
-  | { readonly t: "initRejected"; readonly reason: string };
+  | { readonly t: "initRejected"; readonly reason: string }
+  /**
+   * The worker started in a state it must not run in, and the start is refused without blaming the
+   * story (0008 amendment of 2026-10-12, DIPO-108: a plugin the office does not allow). Emitted
+   * once, before any `started` of that init, so the engine stops the worker at once; the result
+   * is `startFailed`, and the story stays Ready when the worktree holds no work.
+   */
+  | { readonly t: "startRefused"; readonly reason: string };
 
 /**
  * The scope of a plan limit an adapter can name (0008 section 7): `session` and `weekly` cover

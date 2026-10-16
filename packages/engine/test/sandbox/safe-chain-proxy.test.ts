@@ -361,63 +361,84 @@ function exchange(path: string, text: string, after?: string): Promise<string> {
   });
 }
 
-describe("(unit) the gate on local sockets", () => {
-  it("forwards a registry CONNECT to that ecosystem's Safe-Chain and refuses the rest", () =>
-    withTempDir(async (dir) => {
-      // A fake Safe-Chain: answers the CONNECT, then echoes one line and closes.
-      const seen: string[] = [];
-      const fakeSafeChain = createServer((socket) => {
-        let buffer = "";
-        socket.on("data", (chunk) => {
-          buffer += chunk.toString("latin1");
-          const end = buffer.indexOf("\r\n\r\n");
-          if (end >= 0 && !buffer.startsWith("done")) {
-            seen.push(buffer.slice(0, end));
-            socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-            buffer = "done";
-            return;
-          }
-          if (buffer.startsWith("done") && buffer.includes("\n")) {
-            socket.end(`echo ${buffer.slice(4)}`);
-          }
-        });
-      });
-      fakeSafeChain.listen(0, "127.0.0.1");
-      await listening(fakeSafeChain);
-      const address = fakeSafeChain.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
-      const path = join(dir, "gate.sock");
-      const gate = createServer((socket) =>
-        handleGateConnection(socket, { npm: port, pypi: port }, systemClock),
-      );
-      gate.listen(path);
-      await listening(gate);
-      try {
-        const passed = await exchange(
-          path,
-          "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n",
-          "hello\n",
-        );
-        expect(passed).toContain("HTTP/1.1 200 Connection Established");
-        expect(passed).toContain("echo hello");
-        expect(seen).toEqual([
-          "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443",
-        ]);
+/**
+ * True only on macOS when a TCP listen on 127.0.0.1 is refused (DIPO-114): dipo's verify step there
+ * runs under Seatbelt with a closed network, which refuses loopback listens too, so this
+ * repository's verify run by dipo (the self-verify, and after cutover) would fail on it. A Linux
+ * step gets a loopback of its own, so on Linux a refused loopback listen still fails the test.
+ */
+async function sandboxRefusesLoopback(): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(true));
+    probe.listen(0, "127.0.0.1", () => probe.close(() => resolve(false)));
+  });
+}
 
-        const plain = await exchange(path, "GET http://127.0.0.1:6420/ HTTP/1.1\r\n\r\n");
-        expect(plain).toStartWith("HTTP/1.1 403 Forbidden");
-        const other = await exchange(path, "CONNECT example.com:443 HTTP/1.1\r\n\r\n");
-        expect(other).toStartWith("HTTP/1.1 403 Forbidden");
-        expect(other).toContain("example.com is not a registry Safe-Chain checks");
-        const huge = await exchange(path, `CONNECT ${"a".repeat(9_000)}`);
-        expect(huge).toStartWith("HTTP/1.1 400 Bad Request");
-        // Nothing refused reached the fake Safe-Chain.
-        expect(seen).toHaveLength(1);
-      } finally {
-        gate.close();
-        fakeSafeChain.close();
-      }
-    }));
+const SANDBOX_REFUSES_LOOPBACK = await sandboxRefusesLoopback();
+
+describe("(unit) the gate on local sockets", () => {
+  // The fake Safe-Chain listens on loopback TCP, as the real one does.
+  it.skipIf(SANDBOX_REFUSES_LOOPBACK)(
+    "forwards a registry CONNECT to that ecosystem's Safe-Chain and refuses the rest",
+    () =>
+      withTempDir(async (dir) => {
+        // A fake Safe-Chain: answers the CONNECT, then echoes one line and closes.
+        const seen: string[] = [];
+        const fakeSafeChain = createServer((socket) => {
+          let buffer = "";
+          socket.on("data", (chunk) => {
+            buffer += chunk.toString("latin1");
+            const end = buffer.indexOf("\r\n\r\n");
+            if (end >= 0 && !buffer.startsWith("done")) {
+              seen.push(buffer.slice(0, end));
+              socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+              buffer = "done";
+              return;
+            }
+            if (buffer.startsWith("done") && buffer.includes("\n")) {
+              socket.end(`echo ${buffer.slice(4)}`);
+            }
+          });
+        });
+        fakeSafeChain.listen(0, "127.0.0.1");
+        await listening(fakeSafeChain);
+        const address = fakeSafeChain.address();
+        const port = typeof address === "object" && address !== null ? address.port : 0;
+        const path = join(dir, "gate.sock");
+        const gate = createServer((socket) =>
+          handleGateConnection(socket, { npm: port, pypi: port }, systemClock),
+        );
+        gate.listen(path);
+        await listening(gate);
+        try {
+          const passed = await exchange(
+            path,
+            "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n",
+            "hello\n",
+          );
+          expect(passed).toContain("HTTP/1.1 200 Connection Established");
+          expect(passed).toContain("echo hello");
+          expect(seen).toEqual([
+            "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443",
+          ]);
+
+          const plain = await exchange(path, "GET http://127.0.0.1:6420/ HTTP/1.1\r\n\r\n");
+          expect(plain).toStartWith("HTTP/1.1 403 Forbidden");
+          const other = await exchange(path, "CONNECT example.com:443 HTTP/1.1\r\n\r\n");
+          expect(other).toStartWith("HTTP/1.1 403 Forbidden");
+          expect(other).toContain("example.com is not a registry Safe-Chain checks");
+          const huge = await exchange(path, `CONNECT ${"a".repeat(9_000)}`);
+          expect(huge).toStartWith("HTTP/1.1 400 Bad Request");
+          // Nothing refused reached the fake Safe-Chain.
+          expect(seen).toHaveLength(1);
+        } finally {
+          gate.close();
+          fakeSafeChain.close();
+        }
+      }),
+  );
 });
 
 describe("(unit) leftover proxy directories", () => {

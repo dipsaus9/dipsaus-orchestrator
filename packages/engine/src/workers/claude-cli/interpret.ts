@@ -20,6 +20,7 @@ import type {
   WorkerReport,
 } from "../types";
 import { hookEventOf } from "./hooks";
+import { pluginRefusal, refusedPlugins } from "./plugins";
 import { WorkerReportSchema } from "./report-schema";
 import {
   ApiRetryMessage,
@@ -83,6 +84,22 @@ export interface ClaudeParseState {
   readonly acceptedModels: readonly string[];
   /** Why `system/init` failed its checks (0008 section 2), or null. */
   readonly initRejected: string | null;
+  /**
+   * `worker.plugins` of the office (DIPO-108): a `system/init` that lists another plugin is a
+   * start failure. Absent or null skips the check (states stored before it existed, tests). The
+   * run's adapter sets it from the configuration of its launch on every line.
+   */
+  readonly allowedPlugins?: readonly string[] | null;
+  /**
+   * The installed and synced plugin ids the launch read (DIPO-108): an `@builtin` id among them is
+   * compared like any other plugin, not exempted.
+   */
+  readonly knownPlugins?: readonly string[];
+  /**
+   * The plugins of the last `system/init`, as `<plugin>@<marketplace>` (DIPO-108). Absent in states
+   * stored before it existed.
+   */
+  readonly plugins?: readonly string[];
   /** Message ids already counted. */
   readonly seen: readonly string[];
   /** Live numbers since the last turn end, per model. */
@@ -159,6 +176,10 @@ export interface ClaudeParseState {
 export interface InitialStateOptions {
   /** The planned `--model`, alias or full id; when set, `system/init` must match it. */
   readonly plannedModel?: string;
+  /** `worker.plugins`; when set, `system/init` may list no other plugin (DIPO-108). */
+  readonly allowedPlugins?: readonly string[];
+  /** The installed and synced plugin ids of the launch (DIPO-108). */
+  readonly knownPlugins?: readonly string[];
   /** Classifier switches already recorded on the run (0008 open question 7). */
   readonly acceptedModels?: readonly string[];
   /** Totals the run starts from, for a resumed run. */
@@ -204,6 +225,8 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
   const totals = options.totals ?? {};
   return {
     ...(options.restoredFloor === undefined ? {} : { restoredFloor: options.restoredFloor }),
+    ...(options.allowedPlugins === undefined ? {} : { allowedPlugins: options.allowedPlugins }),
+    ...(options.knownPlugins === undefined ? {} : { knownPlugins: options.knownPlugins }),
     ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     pending: "",
     truncated: false,
@@ -618,10 +641,14 @@ function init(value: unknown, state: ClaudeParseState): Step {
   if (!parsed.ok) return { events: [], state: parsed.state };
   const msg = parsed.value;
   const events: WorkerEvent[] = [];
+  // `source` is the `<plugin>@<marketplace>` id; a plugin without one is named by its name, which
+  // matches no id, so it refuses too (fail closed).
+  const plugins = msg.plugins.map((plugin) => plugin.source ?? plugin.name);
   let next: ClaudeParseState = {
     ...state,
     sessionId: msg.session_id,
     version: msg.claude_code_version,
+    plugins,
   };
 
   // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
@@ -640,6 +667,27 @@ function init(value: unknown, state: ClaudeParseState): Step {
     }
     // A neutral event, so the engine can stop the worker before it does anything (DIPO-45).
     if (next.initRejected !== null) events.push({ t: "initRejected", reason: next.initRejected });
+  }
+
+  // 0008 amendment of 2026-10-12 (DIPO-108): a plugin the run settings did not switch off is a
+  // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
+  // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
+  // Checked only when the key source and the model passed: a session that fails those as well
+  // stays a rejected init.
+  const allowed = next.allowedPlugins;
+  if (
+    allowed !== undefined &&
+    allowed !== null &&
+    next.initRejected === null &&
+    next.startFailure === null
+  ) {
+    const refused = refusedPlugins(plugins, allowed, next.knownPlugins ?? []);
+    if (refused.length > 0) {
+      const reason = pluginRefusal(refused);
+      next = { ...next, startFailure: reason };
+      // A neutral event, so the engine stops the worker before its first tool call.
+      events.push({ t: "startRefused", reason });
+    }
   }
 
   if (!next.started) {
@@ -931,7 +979,12 @@ function result(value: unknown, state: ClaudeParseState): Step {
     Object.values(msg.modelUsage).find((entry) => entry.contextWindow !== undefined)?.contextWindow;
   if (window !== undefined) next = { ...next, contextWindow: window };
 
-  const { report, problem: reportProblem } = readReport(msg.structured_output);
+  const read = readReport(msg.structured_output);
+  // A session that failed its start (an unlisted plugin, DIPO-108) reports nothing the engine may
+  // act on: its turn carries no report, so verify and commit never run on it, and the start
+  // failure decides.
+  const report = next.startFailure === null ? read.report : null;
+  const reportProblem = next.startFailure === null ? read.problem : next.startFailure;
   const terminal = msg.terminal_reason ?? msg.subtype;
   const turn: TurnRecord = {
     subtype: msg.subtype,

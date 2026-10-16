@@ -4,7 +4,7 @@ title: Cut this repository over to dipo and let dipo deliver its first stories
 status: To Do
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 09:47'
+updated_date: '2026-10-16 11:06'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -12,6 +12,7 @@ dependencies:
   - DIPO-108
   - DIPO-109
   - DIPO-114
+  - DIPO-118
 references:
   - docs/plan.md
   - backlog/config.yml
