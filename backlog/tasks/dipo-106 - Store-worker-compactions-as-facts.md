@@ -4,7 +4,7 @@ title: Store worker compactions as facts
 status: In Review
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 18:46'
+updated_date: '2026-10-16 19:18'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -53,4 +53,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+
+Review fixes (DIPO-106/compactions-review-fixes, on top of dipo's delivery): the neutral compacted event's preTokens is optional and absent when the adapter had no count (a hook-only compaction no longer reports 0); compactions.pre_tokens is nullable and stores null then, and readCompactions gives latestPreTokens null. The 0030 comment names no adapter lines and says at is the ingest time. New tests: a hook-only compaction stores one row with pre_tokens null; a second agent in the same run gives different agent and run counts; a second pass, re-track or restarted ingestor on a fully ingested file stores no new row. bun run verify green (3122 pass, 2 skip).
 <!-- SECTION:NOTES:END -->
