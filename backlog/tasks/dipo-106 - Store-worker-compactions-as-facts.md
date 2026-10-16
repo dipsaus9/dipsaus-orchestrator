@@ -1,10 +1,10 @@
 ---
 id: DIPO-106
 title: Store worker compactions as facts
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 19:18'
+updated_date: '2026-10-16 19:19'
 labels:
   - 'tier:S'
 milestone: m-1
