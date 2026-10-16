@@ -798,30 +798,11 @@ export class OfficeLane {
    * `<base>` without one (0010 section 7, start point).
    */
   async #base(git: GitSession, hasRemote: boolean): Promise<BaseRef> {
-    const { remote, base: configured } = this.#git.settings;
-    let name = configured;
-    // Without a remote `#assertBase` refused the lane unless `base` is set; the main checkout's
-    // HEAD is never taken as the base.
-    if (name === undefined && hasRemote) {
-      const head = await git.step(git.repository, [
-        "symbolic-ref",
-        "--quiet",
-        `refs/remotes/${remote}/HEAD`,
-      ]);
-      const target = head.stdout.trim();
-      const prefix = `refs/remotes/${remote}/`;
-      if (head.code === 0 && target.startsWith(prefix) && target.length > prefix.length) {
-        name = target.slice(prefix.length);
-      }
-    }
-    if (name === undefined) {
-      throw new GitError(
-        "git.baseUnknown",
-        `The office has no base branch for the backlog lane: .dipo/office.yaml sets no \`base\` and refs/remotes/${remote}/HEAD does not exist. Set \`base\`, or run \`git remote set-head ${remote} --auto\`.`,
-        false,
-        { remote },
-      );
-    }
+    const { remote } = this.#git.settings;
+    // The office's base rule (`git.baseUnknown` when it names none). Without a remote
+    // `#assertBase` refused the lane unless `base` is set; the main checkout's HEAD is never taken
+    // as the base.
+    const name = await this.#git.resolveBaseIn(git);
     const ref = hasRemote ? `refs/remotes/${remote}/${name}` : `refs/heads/${name}`;
     const sha = await this.#revParse(git, ref);
     if (sha === null) {
