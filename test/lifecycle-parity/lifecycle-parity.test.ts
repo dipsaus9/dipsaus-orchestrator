@@ -75,6 +75,15 @@ const COMMANDS = [
   "/usr/local/bin/dipo --foreground daemon",
 ];
 
+/** The value `fn` returns or the message it throws, so two copies compare on both. */
+function outcome(fn: () => unknown): { value: unknown } | { error: string } {
+  try {
+    return { value: fn() };
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+}
+
 describe("client lifecycle and engine agree", () => {
   it("parse dipo.pid the same way", () => {
     for (const raw of PID_RECORDS) {
@@ -98,6 +107,17 @@ describe("client lifecycle and engine agree", () => {
       expect(clientProcess.parseProcArgs(buffer)).toEqual(engineProcess.parseProcArgs(buffer));
     }
     expect(clientProcess.KINFO_PROC_SIZE).toBe(engineProcess.KINFO_PROC_SIZE);
+    // A failed or malformed kern.proc.pid read is unknown in both copies, never dead.
+    for (const [code, buffer] of [
+      [0, new Uint8Array(0)],
+      [0, KINFOS[0] ?? new Uint8Array(0)],
+      [0, new Uint8Array(100)],
+      [-1, new Uint8Array(engineProcess.KINFO_PROC_SIZE)],
+    ] as const) {
+      expect(outcome(() => clientProcess.kinfoOutcome(7, code, buffer))).toEqual(
+        outcome(() => engineProcess.kinfoOutcome(7, code, buffer)),
+      );
+    }
     for (const text of PROC_STATS) {
       expect(clientProcess.parseProcStat(text)).toEqual(engineProcess.parseProcStat(text));
     }

@@ -18,6 +18,7 @@ import {
   parseBootTime,
   darwinProcessInfo,
   KINFO_PROC_SIZE,
+  kinfoOutcome,
   parseKinfoProc,
   parseProcArgs,
   parseProcStat,
@@ -139,6 +140,26 @@ describe("kern.proc.pid and kern.procargs2 (DIPO-114)", () => {
     expect(parseKinfoProc(new Uint8Array(0))).toBeNull();
     expect(parseKinfoProc(kinfoBuffer(1, 2, "dipo").subarray(0, 100))).toBeNull();
     expect(parseKinfoProc(new Uint8Array(KINFO_PROC_SIZE))).toBeNull();
+  });
+
+  it("reads a process as gone only when the sysctl succeeds with no bytes", () => {
+    expect(kinfoOutcome(7, 0, new Uint8Array(0))).toBeNull();
+    expect(kinfoOutcome(7, 0, kinfoBuffer(1_791_535_923, 2, "dipo"))).toEqual({
+      startSeconds: 1_791_535_923,
+      zombie: false,
+      comm: "dipo",
+    });
+  });
+
+  it("throws, never reads as dead, when the sysctl fails or returns a malformed kinfo_proc", () => {
+    // EPERM from a Seatbelt denial, EINVAL or ENOMEM all come back as -1.
+    expect(() => kinfoOutcome(7, -1, new Uint8Array(KINFO_PROC_SIZE))).toThrow(
+      "cannot read process 7: sysctl kern.proc.pid returned -1",
+    );
+    expect(() => kinfoOutcome(7, 0, new Uint8Array(100))).toThrow("malformed kinfo_proc");
+    expect(() => kinfoOutcome(7, 0, new Uint8Array(KINFO_PROC_SIZE))).toThrow(
+      "malformed kinfo_proc",
+    );
   });
 
   it("joins the arguments with spaces, leaving out the executable path and the environment", () => {

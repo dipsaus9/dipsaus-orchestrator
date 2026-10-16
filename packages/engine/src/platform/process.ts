@@ -143,6 +143,25 @@ export function darwinProcessInfo(pid: number, kinfo: KinfoProc, args: string | 
   return { pid, startTimeMs: kinfo.startSeconds * 1000, zombie: kinfo.zombie, command };
 }
 
+/**
+ * What one `kern.proc.pid.<pid>` call says. Only a call that succeeds with no bytes means "no such
+ * process" (null). A failed call (EPERM from a sandbox denial, EINVAL, ENOMEM) or a malformed
+ * `kinfo_proc` is unknown, never dead: it throws, as a probe that cannot run does, so no caller
+ * breaks a live PID record on it.
+ */
+export function kinfoOutcome(pid: number, code: number, buffer: Uint8Array): KinfoProc | null {
+  if (code !== 0)
+    throw new Error(`cannot read process ${pid}: sysctl kern.proc.pid returned ${code}`);
+  if (buffer.byteLength === 0) return null;
+  const kinfo = parseKinfoProc(buffer);
+  if (kinfo === null) {
+    throw new Error(
+      `cannot read process ${pid}: malformed kinfo_proc (${buffer.byteLength} bytes)`,
+    );
+  }
+  return kinfo;
+}
+
 /** USER_HZ, the unit of `/proc/<pid>/stat` times; 100 on every Linux ABI dipo targets. */
 export const CLOCK_TICKS_PER_SECOND = 100;
 
@@ -228,14 +247,14 @@ function openLibSystem() {
 
 let libSystem: ReturnType<typeof openLibSystem> | null = null;
 
-/** Reads one sysctl into a buffer of at most `size` bytes; null when the call fails. */
-function readSysctl(mib: readonly number[], size: number): Uint8Array | null {
+/** Reads one sysctl into a buffer of at most `size` bytes: the return code and the bytes read. */
+function readSysctl(mib: readonly number[], size: number): { code: number; buffer: Uint8Array } {
   libSystem ??= openLibSystem();
   const name = Int32Array.from(mib);
   const buffer = new Uint8Array(size);
   const length = BigUint64Array.of(BigInt(size));
   const code = libSystem.symbols.sysctl(ptr(name), name.length, ptr(buffer), ptr(length), null, 0n);
-  return code === 0 ? buffer.subarray(0, Number(length[0] ?? 0n)) : null;
+  return { code, buffer: code === 0 ? buffer.subarray(0, Number(length[0] ?? 0n)) : buffer };
 }
 
 /** The size `kern.procargs2.<pid>` needs; null when the arguments cannot be read. */
@@ -250,15 +269,16 @@ function procArgsSize(pid: number): number | null {
 
 async function probeDarwin(pid: number): Promise<ProcessInfo | null> {
   const raw = readSysctl([CTL_KERN, KERN_PROC, KERN_PROC_PID, pid], KINFO_PROC_SIZE);
-  const kinfo = raw === null ? null : parseKinfoProc(raw);
+  const kinfo = kinfoOutcome(pid, raw.code, raw.buffer);
   if (kinfo === null) return null;
   let args: string | null = null;
   if (!kinfo.zombie) {
-    // A zombie has no arguments left; another user's process, or one outside this process's
-    // sandbox, refuses them, and the command falls back to `(comm)` as in `ps`.
+    // A zombie has no arguments left. Another user's process, or one outside this process's
+    // sandbox, refuses them too, and the command falls back to `(comm)`. Here this probe differs
+    // from the setuid `ps`, which could read another user's arguments.
     const size = procArgsSize(pid);
-    const buffer = size === null ? null : readSysctl([CTL_KERN, KERN_PROCARGS2, pid], size);
-    args = buffer === null ? null : parseProcArgs(buffer);
+    const read = size === null ? null : readSysctl([CTL_KERN, KERN_PROCARGS2, pid], size);
+    args = read === null || read.code !== 0 ? null : parseProcArgs(read.buffer);
   }
   return darwinProcessInfo(pid, kinfo, args);
 }
