@@ -4,7 +4,7 @@ title: Split RunOutcomes and RunControl before M1 extends the run code
 status: To Do
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-16 13:11'
+updated_date: '2026-10-16 13:12'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -30,7 +30,7 @@ Context: RunOutcomes in packages/engine/src/run/outcomes.ts is about 1,300 lines
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RunOutcomes and RunControl are split along their responsibilities (for example per outcome kind, the decision guard as one shared helper), with no file in packages/engine/src/run over 600 lines and no class over 400
+- [ ] #1 RunOutcomes and RunControl are split along their responsibilities (for example per outcome kind, the decision guard as one shared helper); no file split out of outcomes.ts or control.ts, nor what remains of them, is over 600 lines, and no class from them is over 400
 - [ ] #2 Behaviour is unchanged: the existing run tests pass without changes to their assertions, and the CI-only run tests pass
 - [ ] #3 The #deciding guard exists once
 - [ ] #4 The lint exception lists of DIPO-127 (when merged) shrink by the split files and do not grow

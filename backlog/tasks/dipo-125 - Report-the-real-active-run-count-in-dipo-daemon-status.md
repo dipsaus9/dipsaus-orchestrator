@@ -4,7 +4,7 @@ title: Report the real active run count in dipo daemon status
 status: To Do
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-16 13:10'
+updated_date: '2026-10-16 13:12'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -31,7 +31,7 @@ Context: packages/daemon/src/control.ts sets activeRuns: 0 with the comment "Run
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 daemon.status activeRuns is the sum of activeRunCount over the loaded offices, and the stale comment is gone
+- [ ] #1 daemon.status activeRuns is the sum of the active runs (activeRuns(handle).length) over the loaded offices, and the stale comment is gone
 - [ ] #2 A test with two offices and active runs checks the count and the CLI line
 <!-- AC:END -->
 
