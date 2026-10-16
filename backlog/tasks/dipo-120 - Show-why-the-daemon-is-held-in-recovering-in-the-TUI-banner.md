@@ -4,7 +4,7 @@ title: Show why the daemon is held in recovering in the TUI banner
 status: To Do
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-16 11:56'
+updated_date: '2026-10-16 11:57'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -33,7 +33,7 @@ Context: DIPO-111 holds the daemon in recovering and answers reads with the non-
 <!-- AC:BEGIN -->
 - [ ] #1 While the daemon answers database.unavailable, the banner shows a database line with the reason and, when given, the newest backup path, in place of the reconcile line
 - [ ] #2 The ordinary recovering banner (reconcile after a start) is unchanged
-- [ ] #3 The client store exposes the database line as typed state (DatabaseUnavailableDetails parsed from the error's details) that the TUI reads, also with no office selected and across an office switch; no UI imports engine internals
+- [ ] #3 The client store exposes the database line as typed state (DatabaseUnavailableDetails parsed from the error's details) that the TUI reads; with no office selected, a daemon reporting recovering gets one office read from the store so the details arrive; the line survives an office switch; no UI imports engine internals
 - [ ] #4 The database line clears when the daemon state goes to draining and after a reconnect to a daemon that answers reads again (a fresh engine.hello), with tests
 - [ ] #5 Tests cover the banner text in both cases and in ASCII mode
 - [ ] #6 A dated 0009 section 7 note for the database line is proposed in the PR for the maintainer's approval
