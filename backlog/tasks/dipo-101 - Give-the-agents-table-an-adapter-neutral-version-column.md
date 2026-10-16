@@ -4,7 +4,7 @@ title: Give the agents table an adapter-neutral version column
 status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-16 07:33'
+updated_date: '2026-10-16 07:34'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -13,6 +13,8 @@ references:
   - packages/engine/src/db/migrations/
   - packages/engine/src/ingest/ingestor.ts
   - packages/engine/src/run/resume.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/test/
 priority: low
 type: feature
 ordinal: 91000
