@@ -889,6 +889,29 @@ async function runSession(
   }
 }
 
+/**
+ * The plugins (DIPO-108) or skills (DIPO-130) the parser refused at `system/init`, as evidence:
+ * only when the session's start failure is that refusal. A session that also failed the key
+ * source or model check was never checked for them and stays a rejected init.
+ */
+function initRefusals(
+  state: ClaudeParseState,
+  plugins: ClaudeLaunchContext["plugins"],
+): Pick<SelfTestEvidence, "refusedPlugins" | "refusedSkills"> {
+  if (state.startFailure === null) return {};
+  if (plugins !== undefined) {
+    const refused = refusedPlugins(state.plugins ?? [], plugins.allowed, known(plugins));
+    if (refused.length > 0 && state.startFailure === pluginRefusal(refused)) {
+      return { refusedPlugins: refused };
+    }
+  }
+  const skills = state.skills ?? [];
+  if (skills.length > 0 && state.startFailure === skillRefusal(skills)) {
+    return { refusedSkills: skills };
+  }
+  return {};
+}
+
 /** The installed and synced ids of the launch; none when the list could not be read. */
 function known(plugins: NonNullable<ClaudeLaunchContext["plugins"]>): readonly string[] {
   return Array.isArray(plugins.installed) ? plugins.installed : [];
@@ -1123,16 +1146,7 @@ export async function runSelfTest(
     ...(layout.installDir === null || ctx.safeChain === undefined
       ? {}
       : { safeChain: { root: ctx.safeChain.root } }),
-    ...(typeof session === "string" || ctx.plugins === undefined
-      ? {}
-      : {
-          refusedPlugins: refusedPlugins(
-            session.state.plugins ?? [],
-            ctx.plugins.allowed,
-            known(ctx.plugins),
-          ),
-        }),
-    ...(typeof session === "string" ? {} : { refusedSkills: session.state.skills ?? [] }),
+    ...(typeof session === "string" ? {} : initRefusals(session.state, ctx.plugins)),
   };
   return {
     verdict: judgeSelfTest(evidence),

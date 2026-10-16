@@ -39,12 +39,19 @@ import {
 } from "./launch-fixtures";
 import { loadRecording, replay } from "./replay";
 
-/** `recording` with `skills` of every `system/init` set to `names` (recordings redact them). */
-function withInitSkills(recording: Recording, names: readonly string[]): Recording {
+/**
+ * `recording` with `skills` of every `system/init` set to `names` (recordings redact them), and
+ * any other `fields` set too.
+ */
+function withInitSkills(
+  recording: Recording,
+  names: readonly string[],
+  fields: Record<string, unknown> = {},
+): Recording {
   const lines = recording.lines.map((line) => {
     const data = line.data as { type?: string; subtype?: string };
     if (line.ch !== "stdout" || data.type !== "system" || data.subtype !== "init") return line;
-    return { ...line, data: { ...data, skills: [...names] } };
+    return { ...line, data: { ...data, skills: [...names], ...fields } };
   });
   return { ...recording, lines };
 }
@@ -219,14 +226,18 @@ describe("(engine) skills in the self-test session", () => {
     home: HOME,
   });
 
-  function run(skills: readonly string[]) {
+  function run(
+    skills: readonly string[],
+    init: Record<string, unknown> = {},
+    ctx: Parameters<typeof context>[0] = {},
+  ) {
     const clock = new ManualClock();
     const holds = new AdapterHolds({ clock, notify: () => undefined });
     const fs = new MemoryFs();
     const sessions: FakeProcess[] = [];
     const calls: (readonly string[])[] = [];
     const base = scriptedClaude(clock, {
-      session: withInitSkills(selfTestSession([LAYOUT.command]), skills),
+      session: withInitSkills(selfTestSession([LAYOUT.command]), skills, init),
       onSession: () => {
         fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
         fs.files.set(LAYOUT.controlFile, "");
@@ -240,7 +251,7 @@ describe("(engine) skills in the self-test session", () => {
       }
       return child;
     };
-    const launch = prepareLaunch(spec(), context(), holds, {
+    const launch = prepareLaunch(spec(), context(ctx), holds, {
       spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
@@ -272,5 +283,23 @@ describe("(engine) skills in the self-test session", () => {
     expect(hold?.failures[0]?.fix).toContain(DISABLE_SLASH_COMMANDS);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.signals).toEqual(["SIGTERM"]);
+  });
+
+  it("reports a rejected init, not the skills or plugins, when the key source fails too", async () => {
+    const warp = "warp@claude-code-warp";
+    for (const [init, ctx] of [
+      [{ apiKeySource: "user" }, {}],
+      [
+        { apiKeySource: "user", plugins: [initPlugin(warp)] },
+        { plugins: { installed: [warp], allowed: [] } },
+      ],
+    ] as const) {
+      const { launch, holds } = run(["x"], init, ctx);
+      expect(await launch).toMatchObject({ ok: false, outcome: "startFailed" });
+      const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
+      expect(hold?.key).toBeUndefined();
+      expect(hold?.detail).toContain("ended initRejected: apiKeySource is user");
+      expect(hold?.detail).not.toContain("system/init lists");
+    }
   });
 });
