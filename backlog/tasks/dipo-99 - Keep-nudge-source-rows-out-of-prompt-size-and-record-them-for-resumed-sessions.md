@@ -4,7 +4,7 @@ title: Keep nudge source rows out of prompt size and record them for resumed ses
 status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-16 07:27'
+updated_date: '2026-10-16 07:32'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -15,6 +15,12 @@ references:
   - packages/engine/src/prompts/parts.ts
   - packages/engine/src/run/resume.ts
   - packages/engine/src/run/work-run.ts
+  - packages/engine/src/db/
+  - packages/engine/src/hooks/index.ts
+  - packages/engine/src/retention/
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/prompts.ts
+  - packages/engine/test/
 priority: medium
 type: feature
 ordinal: 89000
