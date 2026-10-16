@@ -4,7 +4,7 @@
 // what to do for each kind of failure.
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -23,6 +23,7 @@ import { DaemonLifecycle } from "../../src/lifecycle";
 import {
   databaseFailure,
   MIGRATIONS_STEP,
+  needsCheckAfter,
   newestBackup,
   RecoverySteps,
   runRecovery,
@@ -185,7 +186,7 @@ describe("newestBackup", () => {
 });
 
 describe("databaseFailure", () => {
-  it("names stop and restore with the newest backup for a failed migration", () =>
+  it("says the file was left as it was after a failed migration and names the backup", () =>
     withTempDir((dir) => {
       const backup = backupFile(dir, "pre-v30-20261016T080000.db", 29, 1_000_000);
       const failure = databaseFailure(
@@ -194,7 +195,13 @@ describe("databaseFailure", () => {
       );
       expect(failure.details).toEqual({ reason: "migration", backup });
       expect(failure.text).toBe(
-        `Migration 30 of the state database failed and was rolled back (no such table: agents). No office is loaded. Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`,
+        `Migration 30 of the state database failed and was rolled back (no such table: agents), so dipo.db was left as it was. No office is loaded. This dipo cannot migrate it: run \`dipo daemon stop\`, then go back to the previous dipo version or upgrade to a release with a fixed migration, and start the daemon again. Restore the backup only if dipo.db itself is suspect: \`dipo restore ${backup}\`.`,
+      );
+      rmSync(backup);
+      expect(
+        databaseFailure(new MigrationFailedError(30, backup, new Error("x")), dir).text,
+      ).toContain(
+        `Restore a backup only if dipo.db itself is suspect; ${join(dir, "backups")} holds none.`,
       );
     }));
 
@@ -264,4 +271,22 @@ describe("databaseFailure", () => {
         `The state database could not be opened (EACCES: permission denied). No office is loaded. Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`,
       );
     }));
+});
+
+describe("needsCheckAfter", () => {
+  it("keeps a check pending after damage, and after a failure before the check could pass", () => {
+    expect(needsCheckAfter("damaged", false)).toBe(true);
+    expect(needsCheckAfter("damaged", true)).toBe(true);
+    expect(needsCheckAfter("networkFilesystem", true)).toBe(true);
+    expect(needsCheckAfter("open", true)).toBe(true);
+  });
+
+  it("clears it when quick_check passed before the failure, and sets none without a check", () => {
+    for (const reason of ["tooNew", "migration", "checksum"]) {
+      expect(needsCheckAfter(reason, true)).toBe(false);
+    }
+    for (const reason of ["tooNew", "migration", "checksum", "networkFilesystem", "open"]) {
+      expect(needsCheckAfter(reason, false)).toBe(false);
+    }
+  });
 });

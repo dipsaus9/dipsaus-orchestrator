@@ -2,7 +2,8 @@
 // real `dipo daemon --foreground` processes: the daemon stays up in `recovering` and serves
 // `engine.hello`, `daemon.status`, `daemon.setLogLevel` and `daemon.stop`, refuses office commands
 // and reads with the non-retryable `database.unavailable`, and its notice and `daemon.status` say
-// what to do. After an unclean exit it runs `PRAGMA quick_check` and reports damage the same way.
+// what to do. After an unclean exit it runs `PRAGMA quick_check` and reports damage the same way;
+// the check stays pending across a clean exit until a check passes.
 // From the kept-up state, `daemon.stop` (what `dipo daemon stop` sends without a supervisor) and
 // then `dipo restore` with the named backup bring it back. State, runtime directory and temp files
 // stay under the test's temp directory, and every daemon is stopped in a `finally`.
@@ -172,11 +173,21 @@ async function refusals(dir: string): Promise<Refusal> {
   }
 }
 
-function logMessages(dir: string): string[] {
+/** Why each start ran quick_check, from the daemon log, oldest first. */
+function checks(dir: string): string[] {
   return readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
     .trim()
     .split("\n")
-    .map((line) => (JSON.parse(line) as { msg: string }).msg);
+    .map((line) => JSON.parse(line) as { msg: string; because?: string })
+    .filter((line) => line.msg === "checking the state database with quick_check")
+    .map((line) => line.because ?? "");
+}
+
+function crashFile(dir: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(dir, "state", "crashes.json"), "utf8")) as Record<
+    string,
+    unknown
+  >;
 }
 
 function crashMarker(dir: string): unknown {
@@ -272,9 +283,14 @@ describe("dipo daemon --foreground with an unavailable state database", () => {
           });
           backup = refused.details?.backup ?? "";
           expect(backup).toMatch(/\/state\/backups\/pre-v\d+-\d{8}T\d{6}\.db$/);
-          expect(status.stateReason).toContain("of the state database failed and was rolled back");
           expect(status.stateReason).toContain(
-            `Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`,
+            "of the state database failed and was rolled back (no such table: no_such_table), so dipo.db was left as it was.",
+          );
+          expect(status.stateReason).toContain(
+            "go back to the previous dipo version or upgrade to a release with a fixed migration",
+          );
+          expect(status.stateReason).toContain(
+            `Restore the backup only if dipo.db itself is suspect: \`dipo restore ${backup}\`.`,
           );
           expect(await stopOverSocket(dir, failing)).toBe(0);
         } finally {
@@ -332,7 +348,7 @@ describe("dipo daemon --foreground with an unavailable state database", () => {
         const damaged = start(env);
         try {
           const status = await waitForStatus(dir, damaged, held);
-          expect(logMessages(dir)).toContain("checking the state database after an unclean exit");
+          expect(checks(dir)).toEqual(["unclean exit"]);
           const refused = await refusals(dir);
           expect(refused).toMatchObject({
             code: "database.unavailable",
@@ -351,13 +367,28 @@ describe("dipo daemon --foreground with an unavailable state database", () => {
           await kill(damaged);
         }
 
+        // A clean exit while held for damage keeps the check pending: a restart (or an upgrade
+        // restart) without a restore checks the file again and stays held.
+        expect(crashFile(dir)).toMatchObject({ running: null, needsCheck: true });
+        const again = start(env);
+        try {
+          await waitForStatus(dir, again, held);
+          expect(checks(dir)).toEqual(["unclean exit", "check pending from an earlier start"]);
+          expect(await stopOverSocket(dir, again)).toBe(0);
+        } finally {
+          await kill(again);
+        }
+
         const restored = await dipo(env, ["restore", backup]);
         expect(restored.err).toBe("");
         expect(restored.code).toBe(0);
 
+        // The restored file passes the pending check, which clears it.
         const daemon = start(env);
         try {
           await waitForStatus(dir, daemon, running);
+          expect(checks(dir)).toHaveLength(3);
+          expect(crashFile(dir)).not.toHaveProperty("needsCheck");
         } finally {
           await kill(daemon);
         }

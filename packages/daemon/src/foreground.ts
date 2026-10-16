@@ -111,6 +111,7 @@ import { DATABASE_UNAVAILABLE, DaemonLifecycle } from "./lifecycle";
 import {
   databaseFailure,
   MIGRATIONS_STEP,
+  needsCheckAfter,
   runRecovery,
   RecoverySteps,
   type RecoveryContext,
@@ -866,16 +867,26 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     watcher.start();
 
     // After an unclean exit the file may be damaged (0007 section 10): `PRAGMA quick_check` at open.
-    // An unreadable crash counter cannot tell, so it counts as one. A database that cannot be
-    // opened, checked or migrated holds the daemon in `recovering` (DIPO-111): office commands and
-    // reads get `database.unavailable`, the notice and `daemon.status` say what to do, and the
-    // daemon stays up, so a supervisor does not restart it in a loop.
-    const checkIntegrity = opened.previousCrashed || opened.damaged;
+    // An unreadable crash counter cannot tell, so it counts as one, and so does a check an earlier
+    // daemon left pending (`needsCheck`, DIPO-111). A database that cannot be opened, checked or
+    // migrated holds the daemon in `recovering` (DIPO-111): office commands and reads get
+    // `database.unavailable`, the notice and `daemon.status` say what to do, and the daemon stays
+    // up, so a supervisor does not restart it in a loop.
+    const checkBecause = opened.previousCrashed
+      ? "unclean exit"
+      : opened.damaged
+        ? "crash counter unreadable"
+        : opened.needsCheck
+          ? "check pending from an earlier start"
+          : null;
+    const checkIntegrity = checkBecause !== null;
     const steps = new RecoverySteps({
       name: MIGRATIONS_STEP,
       run: async (context) => {
         const dbLogger = context.logger.child({ component: "database" });
-        if (checkIntegrity) dbLogger.info("checking the state database after an unclean exit");
+        if (checkBecause !== null) {
+          dbLogger.info("checking the state database with quick_check", { because: checkBecause });
+        }
         try {
           held.database = await openStateDatabase({
             stateDir,
@@ -885,8 +896,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
             checkIntegrity,
             ...(options.migrations === undefined ? {} : { migrations: options.migrations }),
           });
+          // The check passed: nothing is pending any more.
+          if (checkIntegrity) crashes.setNeedsCheck(false);
         } catch (error) {
           const failure = databaseFailure(error, stateDir);
+          crashes.setNeedsCheck(needsCheckAfter(failure.details.reason, checkIntegrity));
           dbLogger.error("the state database is unavailable; serving software commands only", {
             ...failure.details,
             error,

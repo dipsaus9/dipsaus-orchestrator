@@ -189,9 +189,11 @@ function damageOf(error: unknown): string {
 /**
  * What a failed open or migration of the state database means for the maintainer (0007 sections 9
  * and 10, DIPO-111): the reason, the newest backup when the fix is a restore, and one paragraph
- * that says what to do. A failed migration, an edited migration, a damaged file or any other
- * failure: stop the daemon and restore the newest backup. A too-new database: upgrade dipo. A
- * network filesystem: move the state directory.
+ * that says what to do. A failed migration left `dipo.db` as it was (the step rolled back), so the
+ * fix is a dipo whose migrations work: the previous version or a fixed release; the backup is for
+ * a file that is itself suspect. An edited migration, a damaged file or any other failure: stop
+ * the daemon and restore the newest backup. A too-new database: upgrade dipo. A network
+ * filesystem: move the state directory.
  */
 export function databaseFailure(error: unknown, stateDir: string): DatabaseFailure {
   if (error instanceof NetworkFileSystemError) {
@@ -220,10 +222,15 @@ export function databaseFailure(error: unknown, stateDir: string): DatabaseFailu
     );
   }
   if (error instanceof MigrationFailedError) {
+    const dir = backupsDirectory(join(stateDir, "dipo.db"));
+    const suspect =
+      backup === null
+        ? `Restore a backup only if dipo.db itself is suspect; ${dir} holds none.`
+        : `Restore the backup only if dipo.db itself is suspect: \`dipo restore ${backup}\`.`;
     return failure(
       "migration",
-      `Migration ${error.version} of the state database failed and was rolled back (${messageOf(error.cause)}).`,
-      restore,
+      `Migration ${error.version} of the state database failed and was rolled back (${messageOf(error.cause)}), so dipo.db was left as it was.`,
+      `This dipo cannot migrate it: run \`dipo daemon stop\`, then go back to the previous dipo version or upgrade to a release with a fixed migration, and start the daemon again. ${suspect}`,
       backup,
     );
   }
@@ -241,4 +248,16 @@ export function databaseFailure(error: unknown, stateDir: string): DatabaseFailu
     restore,
     backup,
   );
+}
+
+/**
+ * Whether the next open must run quick_check after a failed open (DIPO-111): always after damage,
+ * and after a failure that came before the check could pass (a network filesystem or any other
+ * open failure) when this open had to check. A too-new database, a failed or an edited migration
+ * fail after quick_check passed, so they clear it; without a check they leave it unset.
+ */
+export function needsCheckAfter(reason: string, checked: boolean): boolean {
+  if (reason === "damaged") return true;
+  if (!checked) return false;
+  return reason !== "tooNew" && reason !== "migration" && reason !== "checksum";
 }

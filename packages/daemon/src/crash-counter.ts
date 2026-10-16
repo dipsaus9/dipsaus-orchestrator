@@ -3,6 +3,11 @@
 // a marker of another process knows that process exited uncleanly, and records one crash at its own
 // start time. Three crashes within 10 minutes start the daemon in `safe`; 10 minutes of stable
 // running clear the list. Only the lock holder writes the file, by write-to-temp then rename.
+//
+// The file also keeps `needsCheck` (DIPO-111): the state database must get `PRAGMA quick_check` at
+// the next open. It is set when an open after an unclean exit failed, or when the file was found
+// damaged, and survives clean exits; only an open whose quick_check passed clears it. So a daemon
+// held for damage and then restarted or upgraded without a restore still checks the file.
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +29,8 @@ interface CrashFile {
   readonly running: ProcessIdentity | null;
   /** Times of recorded crashes, ms since the epoch, oldest first. */
   readonly crashes: readonly number[];
+  /** Run `PRAGMA quick_check` at the next open; absent in files written before DIPO-111. */
+  readonly needsCheck?: boolean;
 }
 
 const EMPTY: CrashFile = { version: 1, running: null, crashes: [] };
@@ -41,11 +48,17 @@ function parse(raw: string): CrashFile | null {
       value.version !== 1 ||
       !runningValid ||
       !Array.isArray(value.crashes) ||
-      !value.crashes.every((t) => typeof t === "number" && Number.isFinite(t))
+      !value.crashes.every((t) => typeof t === "number" && Number.isFinite(t)) ||
+      (value.needsCheck !== undefined && typeof value.needsCheck !== "boolean")
     ) {
       return null;
     }
-    return { version: 1, running: running ?? null, crashes: value.crashes };
+    return {
+      version: 1,
+      running: running ?? null,
+      crashes: value.crashes,
+      needsCheck: value.needsCheck === true,
+    };
   } catch {
     return null;
   }
@@ -60,17 +73,26 @@ export interface CrashCounterOpen {
   readonly previousCrashed: boolean;
   /** True when the file could not be read as a crash file and was started afresh. */
   readonly damaged: boolean;
+  /** True when an earlier daemon left `needsCheck` set: quick_check at this open. */
+  readonly needsCheck: boolean;
 }
 
 export class CrashCounter {
   readonly path: string;
   readonly #self: ProcessIdentity;
   #crashes: readonly number[];
+  #needsCheck: boolean;
 
-  private constructor(path: string, self: ProcessIdentity, crashes: readonly number[]) {
+  private constructor(
+    path: string,
+    self: ProcessIdentity,
+    crashes: readonly number[],
+    needsCheck: boolean,
+  ) {
     this.path = path;
     this.#self = self;
     this.#crashes = crashes;
+    this.#needsCheck = needsCheck;
   }
 
   /**
@@ -93,9 +115,10 @@ export class CrashCounter {
     const crashes = [...file.crashes, ...(previousCrashed ? [now] : [])].filter(
       (t) => t > now - CRASH_WINDOW_MS && t <= now,
     );
-    const counter = new CrashCounter(path, self, crashes);
+    const needsCheck = file.needsCheck === true;
+    const counter = new CrashCounter(path, self, crashes, needsCheck);
     counter.#write(self);
-    return { counter, previousCrashed, damaged: raw !== null && parsed === null };
+    return { counter, previousCrashed, damaged: raw !== null && parsed === null, needsCheck };
   }
 
   /** The crashes within the window at start, this start's detected crash included. */
@@ -106,6 +129,21 @@ export class CrashCounter {
   /** True when the daemon must start in `safe` (0006 decision 7). */
   get crashLoop(): boolean {
     return this.#crashes.length >= CRASH_LOOP_COUNT;
+  }
+
+  /** Whether the next open must run quick_check (DIPO-111). */
+  get needsCheck(): boolean {
+    return this.#needsCheck;
+  }
+
+  /**
+   * Sets or clears `needsCheck` (DIPO-111): set when an open that had to check failed or found
+   * damage, cleared only after an open whose quick_check passed. Writes only on a change.
+   */
+  setNeedsCheck(needsCheck: boolean): void {
+    if (this.#needsCheck === needsCheck) return;
+    this.#needsCheck = needsCheck;
+    this.#write(this.#self);
   }
 
   /** Clears the counter after 10 minutes of stable running. */
@@ -128,7 +166,12 @@ export class CrashCounter {
   }
 
   #write(running: ProcessIdentity | null): void {
-    const file: CrashFile = { version: 1, running, crashes: this.#crashes };
+    const file: CrashFile = {
+      version: 1,
+      running,
+      crashes: this.#crashes,
+      ...(this.#needsCheck ? { needsCheck: true } : {}),
+    };
     const temp = `${this.path}.${this.#self.pid}.tmp`;
     writeFileSync(temp, `${JSON.stringify(file)}\n`, { mode: 0o600 });
     renameSync(temp, this.path);
