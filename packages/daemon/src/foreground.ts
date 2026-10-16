@@ -5,7 +5,8 @@
 // it cannot open or migrate keeps it in `recovering`, serving software commands with a notice that
 // says what to do (0007 sections 9 and 10, DIPO-111). SIGTERM, SIGINT, or the minute check finding
 // another live daemon holding the lock, move it to `draining`, and it exits once the drain is done
-// or capped.
+// or capped. An error no code caught drains it too, and that exit is a crash: exit 1 with the crash
+// marker kept (DIPO-117).
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -106,7 +107,7 @@ import {
 import { controlFeature, emitDaemonStates } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
-import { noOrphansActive, type DaemonIo } from "./io";
+import { noOrphansActive, type DaemonIo, type UncaughtEvent, type UncaughtSource } from "./io";
 import { DATABASE_UNAVAILABLE, DaemonLifecycle } from "./lifecycle";
 import {
   databaseFailure,
@@ -148,40 +149,58 @@ export interface ForegroundOptions {
   readonly parentPid?: number;
 }
 
-/** Where the daemon hears of unhandled rejections; tests pass a fake. */
-export interface RejectionSource {
-  on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
-  off(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+/** The drain reason after an error no code caught (DIPO-117). */
+export const UNCAUGHT_REASON = "uncaught error";
+
+const UNCAUGHT_MESSAGES: Readonly<Record<UncaughtEvent, string>> = {
+  unhandledRejection: "an unhandled rejection reached the daemon",
+  uncaughtException: "an uncaught exception reached the daemon",
+};
+
+/**
+ * Logs each error no code caught once, with its error code when it has one (DIPO-110), then calls
+ * `onError` (DIPO-117). The listener never throws: an error thrown again from it would leave Bun
+ * 1.4.2 under the binary's top-level await reporting it and running on in an unknown state (a
+ * rejection), or exiting 7 at once without a drain (an exception). Known engine jobs never get here:
+ * `background` catches and logs their failures. Returns the remover.
+ */
+export function onUncaughtErrors(
+  logger: Logger,
+  onError: (event: UncaughtEvent) => void,
+  source: UncaughtSource = process,
+): () => void {
+  const listeners = (Object.keys(UNCAUGHT_MESSAGES) as UncaughtEvent[]).map((event) => {
+    const listener = (error: unknown): void => {
+      try {
+        const code = errorCodeOf(error);
+        logger.error(UNCAUGHT_MESSAGES[event], {
+          error,
+          ...(code === undefined ? {} : { errorCode: code }),
+        });
+      } catch {
+        // A failing log must not stop the drain.
+      }
+      try {
+        onError(event);
+      } catch {
+        // Nothing may throw from here; see above.
+      }
+    };
+    source.on(event, listener);
+    return { event, listener };
+  });
+  return () => {
+    for (const { event, listener } of listeners) source.off(event, listener);
+  };
 }
 
 /**
- * Logs an unhandled rejection with its error code (DIPO-110), then throws the reason again, so Bun
- * handles it exactly as without a listener. Under the binary's top-level await, Bun 1.4.2 reports
- * it and keeps running; the crash counter does not count it, and the process exits 1 at its next
- * stop. How the daemon should react to one is decided in a follow-up story. Known engine jobs never
- * get here: `background` catches and logs their failures. Returns the remover.
+ * The first stop request wins: a signal, a lost lock, later `daemon.stop` (DIPO-24), or an error no
+ * code caught (DIPO-117).
  */
-export function logUnhandledRejections(
-  logger: Logger,
-  source: RejectionSource = process,
-): () => void {
-  const listener = (reason: unknown): void => {
-    const code = errorCodeOf(reason);
-    logger.error("an unhandled rejection reached the daemon", {
-      error: reason,
-      ...(code === undefined ? {} : { errorCode: code }),
-    });
-    throw reason;
-  };
-  source.on("unhandledRejection", listener);
-  return () => {
-    source.off("unhandledRejection", listener);
-  };
-}
-
-/** The first stop request wins: a signal, a lost lock, or later `daemon.stop` (DIPO-24). */
 class StopRequests {
   #requested: DrainRequest | null = null;
+  #crashed = false;
   #resolve: (request: DrainRequest) => void = () => {};
   readonly promise = new Promise<DrainRequest>((resolve) => {
     this.#resolve = resolve;
@@ -191,10 +210,24 @@ class StopRequests {
     return this.#requested;
   }
 
+  /** True once an error no code caught reached the daemon: its exit is a crash. */
+  get crashed(): boolean {
+    return this.#crashed;
+  }
+
   request(request: DrainRequest): void {
     if (this.#requested !== null) return;
     this.#requested = request;
     this.#resolve(request);
+  }
+
+  /**
+   * An error no code caught (DIPO-117): drains with its own reason, unless a drain is already
+   * requested (a signal, `daemon.stop`, an earlier error), and makes the exit a crash either way.
+   */
+  crash(): void {
+    this.#crashed = true;
+    this.request({ reason: UNCAUGHT_REASON, stopWorkers: false });
   }
 }
 
@@ -254,7 +287,9 @@ export async function runForeground(
     level: parsed.level,
     component: "daemon",
   });
-  const removeRejections = logUnhandledRejections(logger);
+  // An error no code caught (DIPO-117) drains the daemon and makes its exit a crash: the crash
+  // marker stays and the exit code is 1, so the crash loop counts it (0006 decision 7).
+  const removeUncaught = onUncaughtErrors(logger, () => stops.crash(), io.uncaughtErrors);
   try {
     // Software-level settings (0006 amendment of 2026-10-12), read once at start. An invalid or
     // newer file stops the start: the daemon never guesses its own settings (0017 section 5). It
@@ -291,7 +326,7 @@ export async function runForeground(
       fromFile: settings.fromFile,
       ...settings.config.daemon,
     });
-    return await runWithLog({
+    const code = await runWithLog({
       io,
       logger,
       logFile,
@@ -302,13 +337,17 @@ export async function runForeground(
       stops,
       options,
     });
+    // Only an error no code caught in this process turns an exit 0 into 1 (DIPO-117): one that came
+    // while the daemon closed down after its drain, or one in a start that then found another daemon
+    // running. Without such an error, that start still exits 0, so a supervisor does not restart it.
+    return code === 0 && stops.crashed ? 1 : code;
   } catch (error) {
     logger.error("daemon failed", { error });
     io.writeError(`dipo: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   } finally {
     removeSignal();
-    removeRejections();
+    removeUncaught();
     logFile.close();
   }
 }
@@ -1033,8 +1072,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       request,
       caps: options.drainCaps ?? DEFAULT_DRAIN_CAPS,
     });
-    clean = !lockLost;
-    return lockLost ? 1 : 0;
+    // A requested drain exits 0 and is no crash, even at its cap (0006 amendment of 2026-10-12,
+    // DIPO-68). After an error no code caught it is a crash, whichever reason the drain has.
+    if (stops.crashed) {
+      logger.error("exiting 1 after an uncaught error; the next start counts a crash", {
+        reason: request.reason,
+      });
+    }
+    clean = !lockLost && !stops.crashed;
+    return clean ? 0 : 1;
   } finally {
     if (held.lockTimer !== null) clock.clearTimeout(held.lockTimer);
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
@@ -1064,7 +1110,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // crash.
       held.database?.shutdown();
     }
-    // Only a clean exit clears the crash marker; any other exit counts as a crash next start.
+    // Only a clean exit clears the crash marker; any other exit counts as a crash next start. An
+    // error no code caught while the daemon closed down makes it unclean too (DIPO-117).
+    if (stops.crashed) clean = false;
     if (clean) held.crashes?.cleanExit();
     lock.release();
     if (ownsLock) logger.info("lock released", { path: lock.path });

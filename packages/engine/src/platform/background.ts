@@ -1,11 +1,9 @@
 // Fire-and-forget engine jobs (DIPO-110). A job the engine starts without waiting for it (a reply
-// to a worker host, the ending of a run, a timer's pass) must never end in an unhandled rejection.
-// Under the binary's top-level await, Bun 1.4.2 reports one on stderr and keeps running; the crash
-// counter does not count it, and the process exits 1 at its next stop. How the daemon should react
-// to one is decided in a follow-up story. `background` starts the job and attaches its error
-// handler before anything else that follows it (the `settled` callback, the in-flight set), so a
-// database or I/O error inside the job is one log line through the owner's engine logger, with the
-// error's code when it has one.
+// to a worker host, the ending of a run, a timer's pass) must never end in an unhandled rejection:
+// the daemon treats one as a crash, drains and exits 1, and the crash loop counts it (DIPO-117).
+// `background` starts the job and attaches its error handler before anything else that follows it
+// (the `settled` callback, the in-flight set), so a database or I/O error inside the job is one log
+// line through the owner's engine logger, with the error's code when it has one.
 
 /** Where a failed job is logged: the owner's engine logger (`logger.warn`, or its `warn` dependency). */
 export type BackgroundLog = (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -61,6 +59,19 @@ export function background<T>(
     void done.then(() => inflight.delete(done));
   }
   return done;
+}
+
+/**
+ * Drops the rejection of a result nobody waits for (DIPO-117): when `result` is a thenable, a
+ * handler that ignores its failure is attached; anything else is left alone. For calls such as
+ * Bun's `FileSink.flush()` and `end()`, which may return a promise that rejects once the child
+ * exited: in the daemon an unhandled rejection is a crash.
+ */
+export function ignoreRejection(result: unknown): void {
+  const thenable = result as { then?: unknown } | null | undefined;
+  if (typeof thenable?.then === "function") {
+    void (result as PromiseLike<unknown>).then(undefined, () => {});
+  }
 }
 
 /** The log fields of a failure: its message as `reason` and its code, when code-shaped, as `errorCode`. */

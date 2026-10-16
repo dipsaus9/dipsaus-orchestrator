@@ -3,6 +3,15 @@
 import type { Clock } from "@dipsaus-orchestrator/contract";
 import { systemClock } from "@dipsaus-orchestrator/engine";
 
+/** The process events of an error no code caught (DIPO-117). */
+export type UncaughtEvent = "unhandledRejection" | "uncaughtException";
+
+/** Where the daemon hears of errors no code caught; `process` in the binary. */
+export interface UncaughtSource {
+  on(event: UncaughtEvent, listener: (error: unknown) => void): unknown;
+  off(event: UncaughtEvent, listener: (error: unknown) => void): unknown;
+}
+
 export type DaemonIo = {
   readonly writeLine: (line: string) => void;
   readonly writeError: (line: string) => void;
@@ -15,6 +24,11 @@ export type DaemonIo = {
   readonly onShutdownSignal: (handler: (signal: string) => void) => () => void;
   /** Time and timers for the daemon: the drain cap, the minute lock check, the crash counter. */
   readonly clock: Clock;
+  /**
+   * Where `--foreground` hears of errors no code caught (DIPO-117); `process` by default. Tests
+   * that run the daemon in this process pass a fake, so no listener lands on the test runner.
+   */
+  readonly uncaughtErrors?: UncaughtSource;
   /** Writes `text` to stdout as is (`dipo hook` prints a hook reply, DIPO-59); stdout by default. */
   readonly write?: (text: string) => void;
   /**
@@ -77,6 +91,7 @@ export const defaultIo: DaemonIo = {
     };
   },
   clock: systemClock,
+  uncaughtErrors: process,
   write: (text) => process.stdout.write(text),
   readInput: (maxBytes, timeoutMs) => readProcessInput(systemClock, maxBytes, timeoutMs),
 };

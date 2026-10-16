@@ -1,10 +1,10 @@
 ---
 id: DIPO-117
 title: Count an uncaught daemon error as a crash after a graceful drain
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 11:06'
-updated_date: '2026-10-16 11:11'
+updated_date: '2026-10-16 12:23'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -15,6 +15,15 @@ references:
   - packages/daemon/test
   - packages/engine/src/platform/background.ts
   - docs/decisions/0006-daemon-and-ipc.md
+  - packages/engine/src/platform/safe-chain-proxy.ts
+  - packages/engine/test/sandbox/safe-chain-proxy.test.ts
+  - packages/engine/src/platform/process.ts
+  - packages/engine/test/platform/process.test.ts
+  - packages/engine/test/platform/rejections.ts
+  - packages/engine/test/platform/background.test.ts
+  - bunfig.toml
+  - packages/testkit/src/listener-guard.ts
+  - packages/testkit/src/listener-guard.test.ts
 priority: high
 type: feature
 ordinal: 107000
@@ -30,8 +39,14 @@ Context: DIPO-110 found that under the binary's top-level await (packages/cli/sr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An unhandled rejection or uncaught exception in the daemon is logged once (with its errorCode when it has one), then starts a drain with its own reason; the drain is capped as usual and is followed by the normal socket close and database checkpoint.
-- [ ] #2 That drain is not clean: the crash marker stays (cleanExit is not called) and the process exits 1, so the next start counts a crash and three within 10 minutes start in safe. A second uncaught error during the drain does not start another drain. An uncaught error during a requested drain (SIGTERM or daemon.stop already in progress) also exits 1 and keeps the marker.
-- [ ] #3 A requested stop (daemon.stop, SIGTERM, bootout) with no uncaught error still exits 0 and is not counted.
-- [ ] #4 Tests cover a rejection and a sync throw from a timer in a real daemon process (CI test allowed; the timer test records the measured Bun 1.4.2 behaviour), the crash count after restart, and a clean stop; the proposed dated 0006 decision 7 note is in the PR for the maintainer's approval.
+- [x] #1 An unhandled rejection or uncaught exception in the daemon is logged once (with its errorCode when it has one), then starts a drain with its own reason; the drain is capped as usual and is followed by the normal socket close and database checkpoint.
+- [x] #2 That drain is not clean: the crash marker stays (cleanExit is not called) and the process exits 1, so the next start counts a crash and three within 10 minutes start in safe. A second uncaught error during the drain does not start another drain. An uncaught error during a requested drain (SIGTERM or daemon.stop already in progress) also exits 1 and keeps the marker.
+- [x] #3 A requested stop (daemon.stop, SIGTERM, bootout) with no uncaught error still exits 0 and is not counted.
+- [x] #4 Tests cover a rejection and a sync throw from a timer in a real daemon process (CI test allowed; the timer test records the measured Bun 1.4.2 behaviour), the crash count after restart, and a clean stop; the proposed dated 0006 decision 7 note is in the PR for the maintainer's approval.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+An unhandledRejection or uncaughtException listener (onUncaughtErrors in packages/daemon/src/foreground.ts, replacing logUnhandledRejections) logs each error once with errorCode and never throws; StopRequests.crash() marks the exit a crash and requests a drain with reason "uncaught error" unless one is already requested. After the normal drain, socket close and checkpoint the daemon keeps the crash marker and exits 1. Measured Bun 1.4.2 (macOS arm64) under top-level await: a sync timer throw without a listener is reported and the process runs on, exit 1 at its end; with a returning uncaughtException listener it reaches only the listener; a listener that rethrows exits 7 at once. Tests: unit/uncaught-errors.test.ts, integration/uncaught-error.test.ts (in-process, daemon.stop), integration/uncaught-error.ci.test.ts (real process: rejection, timer throw, throw during SIGTERM drain, three crashes then safe and a clean stop). No live Claude sessions. Proposed 0006 decision 7 note is in the PR for maintainer approval.
+<!-- SECTION:NOTES:END -->

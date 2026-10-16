@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { background } from "../../src/platform/background";
+import { background, ignoreRejection } from "../../src/platform/background";
 
 import { watchRejections } from "./rejections";
 
@@ -105,5 +105,16 @@ describe("background", () => {
     });
     expect(await watch.stop()).toEqual([]);
     expect(lines).toEqual([{ message: "the job failed", fields: { reason: "odd" } }]);
+  });
+});
+
+describe("ignoreRejection (DIPO-117)", () => {
+  it("drops the rejection of a promise nobody waits for and leaves other values alone", async () => {
+    const watch = watchRejections();
+    ignoreRejection(Promise.reject(new Error("the child exited")));
+    ignoreRejection(0);
+    ignoreRejection(undefined);
+    ignoreRejection(null);
+    expect(await watch.stop()).toEqual([]);
   });
 });

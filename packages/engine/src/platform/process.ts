@@ -13,6 +13,7 @@ import { readFile } from "node:fs/promises";
 
 import type { ChildStdin, Signal, Spawn } from "@dipsaus-orchestrator/contract";
 
+import { ignoreRejection } from "./background";
 import type { DipoPlatform } from "./paths";
 
 /** Two readings of one process's start time differ by at most this much. */
@@ -523,10 +524,12 @@ export const systemSpawn: Spawn = (options) => {
       : {
           write: (chunk) => {
             sink.write(typeof chunk === "string" ? textEncoder.encode(chunk) : chunk);
-            void sink.flush();
+            // A flush or end that rejects once the child exited must not reach the daemon as an
+            // unhandled rejection, which is a crash (DIPO-117); a sync throw still reaches the caller.
+            ignoreRejection(sink.flush());
           },
           end: () => {
-            void sink.end();
+            ignoreRejection(sink.end());
           },
         };
   return {
