@@ -23,6 +23,9 @@
 // exits the intent that explains the exit is resolved with its outcome. After the first decision
 // on a run nothing else is decided for it: later events of the same or a later pass are ignored.
 //
+// A refused start (`startRefused`, DIPO-108) is stopped at once as a `start-failed` stop, without a
+// park; its exit is decided by worker outcomes like any start failure.
+//
 // Worker outcomes (DIPO-51, `outcomes.ts`): a rejected init, a plan limit, a classifier switch
 // and a turn's problem (no valid report, a full context, an execution error, a start failure) are
 // handed to the run's outcomes, and so is the worker's exit once the turns before it are done.
@@ -73,6 +76,7 @@ import { endRunMarked } from "./markers";
 import { activeRuns, findRun, type StoredRun } from "./records";
 import {
   initRejectedEnding,
+  startRefusedAct,
   type RunAct,
   type RunEnder,
   type RunOutcomesPort,
@@ -375,6 +379,11 @@ export class RunControl implements RunEnder {
       if (event.t === "initRejected") {
         // 0008 section 2: stop the worker before it does anything (DIPO-51).
         this.#initRejected(run, event.reason);
+        return;
+      }
+      if (event.t === "startRefused") {
+        // 0008 amendment of 2026-10-12 (DIPO-108): stop it before it does anything; no park.
+        this.act(run, startRefusedAct(event.reason));
         return;
       }
       if (

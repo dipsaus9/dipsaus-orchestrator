@@ -6,8 +6,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Event } from "@dipsaus-orchestrator/contract";
-import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
+import type { Event, Spawn } from "@dipsaus-orchestrator/contract";
+import { type FakeProcess, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { SoftwareStream } from "../../src/software-stream/stream";
 import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
@@ -34,6 +34,7 @@ import {
   spec,
   TMP_DIR,
   TOOLS,
+  withInitPlugins,
   WORKDIR,
 } from "./launch-fixtures";
 
@@ -452,5 +453,77 @@ describe("(engine) Safe-Chain proxy at launch (DIPO-84)", () => {
       key: "safe-chain",
     });
     expect(fake.calls.at(-1)).toBe("stop run-0001");
+  });
+});
+
+describe("(engine) plugins in the self-test session (DIPO-108)", () => {
+  const WARP = "warp@claude-code-warp";
+  const BUILTIN = "cc-plugin-telemetry@builtin";
+
+  function run(listed: readonly string[], allowed: readonly string[]) {
+    const { clock, holds, notices } = setup();
+    const fs = new MemoryFs();
+    const sessions: FakeProcess[] = [];
+    const base = scriptedClaude(clock, {
+      session: withInitPlugins(selfTestSession([LAYOUT.command]), listed),
+      onSession: () => {
+        fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
+        fs.files.set(LAYOUT.controlFile, "");
+      },
+    });
+    const spawn: Spawn = (options) => {
+      const child = base.spawn(options);
+      if (options.cmd.includes("-p")) sessions.push(child as FakeProcess);
+      return child;
+    };
+    const ctx = context({ plugins: { installed: [WARP], allowed } });
+    const launch = prepareLaunch(spec(), ctx, holds, {
+      spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      platform: "darwin",
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs,
+    });
+    return { launch, holds, notices, sessions };
+  }
+
+  it("refuses startFailed, stopping the session at system/init before its Bash call", async () => {
+    const { launch, holds, sessions } = run([BUILTIN, WARP], []);
+    const refused = await launch;
+    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
+    const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
+    expect(hold).toMatchObject({ check: "self-test", key: "plugins" });
+    expect(hold?.detail).toContain(`plugin ${WARP}, not in worker.plugins`);
+    expect(hold?.failures[0]?.fix).toContain("add it to worker.plugins");
+    // Stopped at its init: SIGTERM, and the replay never reached the Bash tool call.
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.signals).toEqual(["SIGTERM"]);
+  });
+
+  it("passes when the session lists only builtin or allowed plugins", async () => {
+    for (const [listed, allowed] of [
+      [[BUILTIN], []],
+      [[BUILTIN, WARP], [WARP]],
+    ] as const) {
+      const { launch, holds, sessions } = run(listed, allowed);
+      expect((await launch).ok).toBe(true);
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+      expect(sessions[0]?.signals).toEqual([]);
+    }
+  });
+
+  it("writes the switch-off into the settings file the self-test runs under", async () => {
+    const { launch, sessions } = run([BUILTIN], []);
+    const prepared = await launch;
+    expect(prepared.ok).toBe(true);
+    const settings = prepared.ok
+      ? prepared.plan.files.find((file) => file.name === "claude-settings.json")?.content
+      : undefined;
+    expect(JSON.parse(settings ?? "{}").enabledPlugins).toEqual({ [WARP]: false });
+    expect(sessions).toHaveLength(1);
   });
 });

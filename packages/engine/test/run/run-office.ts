@@ -76,6 +76,7 @@ import type { SetupOutcome } from "../../src/worktree/setup";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { ROOMY } from "../worktree/helpers";
+import { withBuiltinPlugins } from "../workers/launch-fixtures";
 import { loadRecording } from "../workers/replay";
 
 export const CLAUDE = "/opt/claude/bin/claude";
@@ -324,8 +325,11 @@ export async function withRunOffice(
               runId: run.runId,
               runDir,
               clock: replayClock,
+              // The plugin check (DIPO-108) reads plugin names, which recordings redact.
               spawn: fakeSpawn(
-                typeof recording === "string" ? loadRecording(recording) : recording,
+                withBuiltinPlugins(
+                  typeof recording === "string" ? loadRecording(recording) : recording,
+                ),
                 replayClock,
               ).spawn,
               killGroup: () => undefined,

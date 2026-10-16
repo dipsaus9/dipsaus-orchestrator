@@ -1,10 +1,15 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  migrateOfficeDocument,
+  OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
   OfficeConfigV1,
+  OfficeConfigV2,
   OfficeFileV1,
+  OfficeFileV2,
   OfficeLocalFileV1,
+  OfficeLocalFileV2,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -102,9 +107,70 @@ describe("version 1 key paths", () => {
   });
 });
 
+// Version 2 (DIPO-108): version 1 plus worker.plugins (0008 amendment of 2026-10-12).
+const VERSION_2_KEY_PATHS = [...VERSION_1_KEY_PATHS, "worker.plugins"];
+
+/** Whether `.dipo/office.yaml` version 2 accepts `worker.plugins`. */
+function file(plugins: unknown): boolean {
+  return OfficeFileV2.safeParse({ version: 2, worker: { plugins } }).success;
+}
+
+describe("version 2 key paths", () => {
+  it("are the version 1 paths plus worker.plugins", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(2);
+    expect(schemaKeyPaths(OfficeConfigV2)).toEqual(VERSION_2_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV2)).toEqual(
+      VERSION_2_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV2)).toEqual(
+      VERSION_2_KEY_PATHS.filter(localAllowed).toSorted(),
+    );
+  });
+
+  it("take worker.plugins only in the <plugin>@<marketplace> form", () => {
+    expect(file([])).toBe(true);
+    expect(file(["warp@claude-code-warp", "learning-output-style@claude-plugins-official"])).toBe(
+      true,
+    );
+    for (const bad of ["warp", "@market", "warp@", "a@b@c", "warp @x", ""]) {
+      expect(file([bad])).toBe(false);
+    }
+  });
+
+  it("keep version 1 without worker.plugins", () => {
+    expect(OfficeFileV1.safeParse({ version: 1, worker: { plugins: [] } }).success).toBe(false);
+    expect(OfficeFileV1.safeParse({ version: 2 }).success).toBe(false);
+  });
+});
+
+describe("migrateOfficeDocument", () => {
+  it("migrates version 1 to 2 as the identity", () => {
+    const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 2 });
+    expect(v1.version).toBe(1);
+  });
+
+  it("leaves a version 2 document as it is", () => {
+    const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
+    expect(migrateOfficeDocument(2, v2)).toEqual(v2);
+  });
+
+  it("turns the version 1 defaults into the version 2 defaults but worker.plugins", () => {
+    const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
+    const v1 = OfficeConfigV1.parse({ ...OFFICE_DEFAULTS, version: 1, worker });
+    expect(
+      OfficeConfigV2.parse({ ...migrateOfficeDocument(1, v1), worker: OFFICE_DEFAULTS.worker }),
+    ).toEqual(OFFICE_DEFAULTS);
+  });
+});
+
 describe("defaults", () => {
-  it("are a complete version 1 configuration", () => {
-    expect(OfficeConfigV1.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 2 configuration", () => {
+    expect(OfficeConfigV2.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("let no plugin into a worker session", () => {
+    expect(OFFICE_DEFAULTS.worker.plugins).toEqual([]);
   });
 
   it("carry the ADR values", () => {
