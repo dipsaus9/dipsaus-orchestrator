@@ -40,6 +40,7 @@ import {
   scriptedClaude,
   SELF_TEST_SESSION,
   selfTestSession,
+  SHORT_TMP_DIR,
   spec,
   TMP_DIR,
   TOOLS,
@@ -281,7 +282,7 @@ describe("(unit) self-test verdict", () => {
 });
 
 describe("(unit) trusted perl and gh", () => {
-  const writable = workerWritableRoots(WORKDIR, TMP_DIR, HOME);
+  const writable = workerWritableRoots(WORKDIR, TMP_DIR, SHORT_TMP_DIR, HOME);
   const resolveWith = (fs: SelfTestFs, daemonPath: string, workerPath = daemonPath) =>
     resolveSelfTestTools({ daemonPath, workerPath, writable }, fs);
 
@@ -308,6 +309,18 @@ describe("(unit) trusted perl and gh", () => {
     const linked = new MemoryFs();
     linked.links.set(TOOLS.gh, `${TMP_DIR}/gh`);
     expect(await resolveWith(linked, "/usr/bin")).toMatchObject({ ok: false });
+
+    // The short temp root is worker-writable too (DIPO-118).
+    const short = new MemoryFs();
+    short.links.set(TOOLS.perl, `${SHORT_TMP_DIR}/dipo-abc/perl`);
+    expect(await resolveWith(short, "/usr/bin")).toMatchObject({ ok: false });
+  });
+
+  it("counts the short temp root among the worker-writable roots, and nothing else new", () => {
+    expect(writable.slice(0, 3)).toEqual([WORKDIR, TMP_DIR, SHORT_TMP_DIR]);
+    expect(workerWritableRoots(WORKDIR, TMP_DIR, undefined, HOME)).toEqual(
+      writable.filter((root) => root !== SHORT_TMP_DIR),
+    );
   });
 
   it("refuses a worker PATH with an empty, relative, worktree or temp entry", async () => {
@@ -316,6 +329,7 @@ describe("(unit) trusted perl and gh", () => {
       "bin:/usr/bin",
       `/usr/bin:${WORKDIR}/node_modules/.bin`,
       `${TMP_DIR}:/usr/bin`,
+      `/usr/bin:${SHORT_TMP_DIR}/bin`,
     ]) {
       const result = await resolveWith(new MemoryFs(), "/usr/bin", path);
       expect(result).toMatchObject({ ok: false });

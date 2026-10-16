@@ -159,6 +159,7 @@ export function claudeLaunchContext(
     runDir: paths.runDir,
     hostSocket: paths.hostSocket,
     tmpDir: paths.tmpDir,
+    shortTmpDir: paths.shortTmpDir,
     sandbox: config.sandbox,
     // Read per launch, so a plugin installed since the last run is switched off too (DIPO-108).
     plugins: {

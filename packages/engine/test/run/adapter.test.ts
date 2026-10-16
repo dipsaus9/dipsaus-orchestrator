@@ -18,7 +18,16 @@ import { plan } from "../../src/workers/claude-cli/plan";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type ParseState } from "../../src/workers/types";
-import { context, HOME, MAIN, RUN_DIR, spec, TMP_DIR, WORKDIR } from "../workers/launch-fixtures";
+import {
+  context,
+  HOME,
+  MAIN,
+  RUN_DIR,
+  SHORT_TMP_DIR,
+  spec,
+  TMP_DIR,
+  WORKDIR,
+} from "../workers/launch-fixtures";
 import { hostLines } from "../ingest/helpers";
 import { loadRecording } from "../workers/replay";
 
@@ -32,6 +41,7 @@ const PATHS: RunLaunchPaths = {
   runDir: RUN_DIR,
   hostSocket: `${RUN_DIR}/host.sock`,
   tmpDir: TMP_DIR,
+  shortTmpDir: SHORT_TMP_DIR,
 };
 
 describe("the Claude CLI adapter of one run", () => {
@@ -60,6 +70,7 @@ describe("the Claude CLI adapter of one run", () => {
       runDir: RUN_DIR,
       hostSocket: `${RUN_DIR}/host.sock`,
       tmpDir: TMP_DIR,
+      shortTmpDir: SHORT_TMP_DIR,
       sandbox: OFFICE_DEFAULTS.sandbox,
       plugins: { installed: [], allowed: [] },
       hookCommand: ["/opt/dipo/bin/dipo"],

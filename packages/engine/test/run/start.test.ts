@@ -46,6 +46,7 @@ import {
   START_FAILED_END,
   WorkRun,
 } from "../../src/run";
+import { readShortTempRun, shortTempDir } from "../../src/run/temp-dirs";
 import { recordWorkerHost, type LaunchedHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import {
@@ -474,6 +475,10 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(readFileSync(systemFile, "utf8")).toContain("developer");
     expect(host?.plan.stdin[0]).toContain("TASK-1");
     expect(host?.plan.env["GH_TOKEN"]).toBeUndefined();
+    // The short temp root (DIPO-118) is made before the plan, names its run and is DIPO_TMP.
+    const shortTmp = shortTempDir(join(world.dir, "tmp"), runId);
+    expect(host?.plan.env["DIPO_TMP"]).toBe(shortTmp);
+    expect(readShortTempRun(shortTmp)).toBe(runId);
 
     // The run row has the slot setup took; ingestion runs with the tier's budget.
     expect(findRun(world.office, runId)).toMatchObject({ slot: 3, model: caps.model, tier: "M" });
@@ -529,6 +534,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(existsSync(join(world.dir, "repo", ".git", "dipo", "runs"))).toBe(true);
     const runs = join(world.dir, "repo", ".git", "dipo", "runs");
     expect(readdirSync(runs)).toEqual([]);
+    // Both run temp directories went with the rollback (DIPO-118).
+    expect(readdirSync(join(world.dir, "tmp"))).toEqual([]);
   });
 
   it("repeats the launch checks on a run that names its story while the adapter is held, and lifts the hold", async () => {
@@ -649,6 +656,12 @@ describe("work.preview, the dry run", () => {
     expect(JSON.stringify(launch)).not.toContain("/usr/bin:/bin");
     const settings = launch?.files.find((file) => file.name === "claude-settings.json");
     expect(JSON.parse(settings?.content ?? "{}").sandbox.enabled).toBe(true);
+    // The short temp root (DIPO-118) is a placeholder, as its name hashes the real run id.
+    expect(launch?.envNames).toContain("DIPO_TMP");
+    expect(JSON.parse(settings?.content ?? "{}").sandbox.filesystem.allowWrite).toContain(
+      join(world.dir, "tmp", "dipo-t-<hash>"),
+    );
+    expect(existsSync(join(world.dir, "tmp"))).toBe(false);
     expect(launch?.systemFile.text).toContain("developer");
     expect(launch?.taskMessage).toContain("TASK-1");
     expect(launch?.taskMessage).toContain("It greets the name it is given.");

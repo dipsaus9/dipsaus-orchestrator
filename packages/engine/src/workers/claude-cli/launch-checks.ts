@@ -116,7 +116,7 @@ export async function claudeLaunchChecks(
     {
       daemonPath: ctx.env["PATH"] ?? "",
       workerPath: ctx.env["PATH"] ?? "",
-      writable: workerWritableRoots(spec.workdir, ctx.tmpDir, ctx.home),
+      writable: workerWritableRoots(spec.workdir, ctx.tmpDir, ctx.shortTmpDir, ctx.home),
     },
     fs,
   );

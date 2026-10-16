@@ -652,11 +652,20 @@ export const BASH_INPUT_KEYS: readonly string[] = [
   "run_in_background",
 ];
 
-/** Where a sandboxed command of the worker can write (0008 section 2 and srt's defaults). */
-export function workerWritableRoots(workdir: string, tmpDir: string, home: string): string[] {
+/**
+ * Where a sandboxed command of the worker can write (0008 section 2 and srt's defaults): the
+ * worktree, the run temp directory, the short temp root (DIPO-118) and srt's default paths.
+ */
+export function workerWritableRoots(
+  workdir: string,
+  tmpDir: string,
+  shortTmpDir: string | undefined,
+  home: string,
+): string[] {
   return [
     workdir,
     tmpDir,
+    ...(shortTmpDir === undefined ? [] : [shortTmpDir]),
     ...SRT_DEFAULT_WRITE_PATHS,
     ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => `${home}/${rel}`),
   ];
@@ -960,7 +969,7 @@ export async function runSelfTest(
       // The plan passes the daemon's PATH through to the worker unchanged (ENV_ALLOWLIST); with
       // Safe-Chain the wrapper sets its own (DIPO-82).
       workerPath: ctx.safeChain === undefined ? (ctx.env["PATH"] ?? "") : ctx.safeChain.path,
-      writable: workerWritableRoots(workdir, ctx.tmpDir, ctx.home),
+      writable: workerWritableRoots(workdir, ctx.tmpDir, ctx.shortTmpDir, ctx.home),
     },
     fs,
   );

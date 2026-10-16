@@ -18,7 +18,7 @@
 
 import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type {
   AgentId,
@@ -59,7 +59,13 @@ import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { storeBackstopSnapshot } from "./records";
-import { prepareRunTempDir, runTempDir } from "./temp-dirs";
+import {
+  prepareRunTempDirs,
+  removeShortTempDir,
+  runTempDir,
+  SHORT_TEMP_PREFIX,
+  shortTempDir,
+} from "./temp-dirs";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
@@ -213,6 +219,7 @@ export function runLaunchPaths(
     runDir: runDirectory(officeDir, runId),
     hostSocket: hostSocketPath(dirs.runtimeDir, runId),
     tmpDir: runTempDir(dirs.tmpRoot, runId),
+    shortTmpDir: shortTempDir(dirs.tmpRoot, runId),
     officeDir,
   };
 }
@@ -319,6 +326,8 @@ export class RunLauncher {
     const cleanup = (): void => {
       rmSync(paths.runDir, { recursive: true, force: true });
       rmSync(paths.tmpDir, { recursive: true, force: true });
+      // Never through a link, and never another run's root with the same hash.
+      removeShortTempDir(dirname(paths.shortTmpDir), facts.runId);
     };
     const fail = (reason: string): ClaimSetupFailed => {
       setup.release();
@@ -343,7 +352,7 @@ export class RunLauncher {
         config: facts.config,
       });
       ensurePrivateDir(paths.runDir);
-      prepareRunTempDir(paths.tmpDir, this.#deps.tempOwner?.());
+      prepareRunTempDirs(paths, facts.runId, this.#deps.tempOwner?.());
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
@@ -513,7 +522,12 @@ export class RunLauncher {
   }): Promise<WorkerLaunchPreview> {
     const git = this.#git(input.office);
     const worktree = join(git.worktreeRoot(), input.story);
-    const paths = this.#paths(git, worktree, PREVIEW_RUN);
+    // The short temp root's name is a hash of the run id, so the dry run shows a placeholder.
+    const runPaths = this.#paths(git, worktree, PREVIEW_RUN);
+    const paths = {
+      ...runPaths,
+      shortTmpDir: join(dirname(runPaths.shortTmpDir), `${SHORT_TEMP_PREFIX}<hash>`),
+    };
     const dependencies = await this.#deps.dependencies(
       input.office,
       input.view.dependencies.map((dependency) => dependency.id),

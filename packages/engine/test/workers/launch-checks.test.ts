@@ -31,6 +31,7 @@ import {
   credentialSteps,
   SELF_TEST_SESSION,
   selfTestSession,
+  SHORT_TMP_DIR,
   spec,
   TMP_DIR,
   TOOLS,
@@ -397,6 +398,7 @@ describe("(engine) Safe-Chain proxy at launch (DIPO-84)", () => {
       strictAllowlist: true,
       allowLocalBinding: false,
       httpProxyPort: 50123,
+      allowUnixSockets: [SHORT_TMP_DIR],
     });
     // The parent of every proxy directory.
     expect(settings.sandbox.filesystem.denyRead).toContain("/private/tmp/dipo-p");

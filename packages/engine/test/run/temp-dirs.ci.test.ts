@@ -1,4 +1,5 @@
-// CI only (0017 section 1): run temp directories at run end (DIPO-102) on real git with the pinned
+// CI only (0017 section 1): run temp directories at run end (DIPO-102), and the short temp root
+// beside each (DIPO-118), on real git with the pinned
 // Backlog CLI and DIPO-44's worker host in this process, the sweeps wired as the daemon wires
 // them (after each ingested worker exit and each exit decision). A `needs-permission` park ends
 // the run and its directory goes; the answer reopens the run and its next session gets a fresh
@@ -18,6 +19,7 @@ import { PermissionAsks } from "../../src/hooks/permissions";
 import { openQuestions } from "../../src/hooks/questions";
 import { createSystemIds } from "../../src/platform/ids";
 import { findRun, openPark, runTempDir } from "../../src/run";
+import { shortTempDir } from "../../src/run/temp-dirs";
 import { detect } from "../../src/scan/detect";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { needsPermissionRecording } from "../hooks/needs-permission";
@@ -96,6 +98,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           async (r) => {
             const run = await startRun(r);
             const tmpDir = runTempDir(r.tmpRoot, run);
+            const shortTmp = shortTempDir(r.tmpRoot, run);
             await r.control?.idle();
             await r.tempDirs?.settled();
 
@@ -105,7 +108,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             );
             expect(findRun(r.office, run)?.endedAt).not.toBeNull();
             expect(r.tempDirs?.atHostStart).toEqual([true]);
+            expect(r.tempDirs?.shortRunAtHostStart).toEqual([run]);
             expect(existsSync(tmpDir)).toBe(false);
+            expect(existsSync(shortTmp)).toBe(false);
 
             // The answer reopens the same run; its next session starts with a fresh directory.
             const [question] = openQuestions(r.office);
@@ -144,8 +149,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const owner = r.tempDirs?.owner() ?? null;
             expect(owner).not.toBeNull();
             expect(r.tempDirs?.ownerAtHostStart).toEqual([owner, owner]);
+            expect(r.tempDirs?.shortRunAtHostStart).toEqual([run, run]);
             expect(findRun(r.office, run)?.endKind).toBe("in-review");
             expect(existsSync(tmpDir)).toBe(false);
+            expect(existsSync(shortTmp)).toBe(false);
           },
         ),
       90_000,
@@ -176,6 +183,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const owner = r.tempDirs?.owner() ?? null;
             expect(r.tempDirs?.ownerAtHostStart).toEqual([owner, owner]);
             expect(existsSync(runTempDir(r.tmpRoot, run))).toBe(true);
+            expect(r.tempDirs?.shortRunAtHostStart).toEqual([run, run]);
+            expect(existsSync(shortTempDir(r.tmpRoot, run))).toBe(true);
           },
         ),
       60_000,
