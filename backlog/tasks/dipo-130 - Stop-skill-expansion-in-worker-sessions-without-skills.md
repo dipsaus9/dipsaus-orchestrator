@@ -4,7 +4,7 @@ title: Stop skill expansion in worker sessions without skills
 status: Done
 assignee: []
 created_date: '2026-10-16 13:25'
-updated_date: '2026-10-16 13:42'
+updated_date: '2026-10-16 13:44'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -14,6 +14,8 @@ references:
   - packages/engine/test/workers/
   - packages/engine/test/recordings/claude-cli/
   - docs/decisions/0008-worker-adapter.md
+  - packages/engine/test/run/run-office.ts
+  - packages/engine/test/run/adapter.test.ts
 priority: high
 type: feature
 ordinal: 120000
