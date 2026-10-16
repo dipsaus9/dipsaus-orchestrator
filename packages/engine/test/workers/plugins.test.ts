@@ -5,7 +5,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { initialState } from "../../src/workers/claude-cli/interpret";
+import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
+import { result } from "../../src/workers/claude-cli/result";
 import { plan, SETTINGS_FILE } from "../../src/workers/claude-cli/plan";
 import {
   checkKnownMarketplaces,
@@ -21,7 +22,15 @@ import {
   type PluginFiles,
 } from "../../src/workers/claude-cli/plugins";
 import { PlanError } from "../../src/workers/types";
-import { context, HOME, spec, withInitPlugins } from "./launch-fixtures";
+import {
+  BUILTIN_PLUGINS,
+  context,
+  HOME,
+  initPlugin,
+  spec,
+  withBuiltinPlugins,
+  withInitPlugins,
+} from "./launch-fixtures";
 import { loadRecording, replay } from "./replay";
 
 const WARP = "warp@claude-code-warp";
@@ -200,6 +209,62 @@ describe("(unit) the system/init plugin check", () => {
     expect(refusedPlugins(BUILTINS, [], [telemetry])).toEqual([telemetry]);
     expect(pluginRefusal([WARP])).toContain(`plugin ${WARP}, not in worker.plugins`);
     expect(pluginRefusal([WARP, LEARNING])).toContain(`plugins ${WARP}, ${LEARNING}`);
+  });
+});
+
+/** One `system/init` line listing warp, with `fields` changed. */
+const initLine = (fields: Record<string, unknown>) => ({
+  t: 1,
+  ch: "stdout" as const,
+  data: `${JSON.stringify({
+    type: "system",
+    subtype: "init",
+    session_id: "s",
+    model: "claude-haiku-5-5",
+    claude_code_version: "2.1.301",
+    permissionMode: "default",
+    tools: ["Read"],
+    apiKeySource: "none",
+    plugins: [initPlugin(WARP)],
+    ...fields,
+  })}\n`,
+});
+/** A parser state that checks plugins against an empty `worker.plugins`. */
+const checkingState = () => initialState({ plannedModel: "haiku", allowedPlugins: [] });
+
+describe("(unit) the order of the system/init checks", () => {
+  it("keeps a session that fails the key source or model check and lists a plugin init-rejected", () => {
+    for (const fields of [{ apiKeySource: "user" }, { model: "claude-opus-4-5" }]) {
+      const step = interpret(initLine(fields), checkingState());
+      const kinds = step.events.map((event) => event.t);
+      expect(kinds).toContain("initRejected");
+      expect(kinds).not.toContain("startRefused");
+      expect(step.state.startFailure).toBeNull();
+      const decided = result(step.state, { code: 143, signal: null });
+      expect(decided.outcome).toBe("initRejected");
+      expect(decided.park?.reason).toBe("worker-failed");
+    }
+  });
+
+  it("refuses the plugin when the key source and model pass", () => {
+    const step = interpret(initLine({}), checkingState());
+    expect(step.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
+    expect(result(step.state, { code: 143, signal: null }).outcome).toBe("startFailed");
+  });
+});
+
+describe("(unit) withBuiltinPlugins", () => {
+  it("names only redacted plugins, so an explicit list passes through", () => {
+    const live = loadRecording("safety-plugin-off");
+    const initOf = (recording: typeof live) =>
+      recording.lines
+        .map((line) => line.data as { subtype?: string; plugins?: { source?: string }[] })
+        .find((data) => data.subtype === "init");
+    expect(initOf(withBuiltinPlugins(live))?.plugins?.map((p) => p.source)).toEqual([
+      ...BUILTIN_PLUGINS,
+    ]);
+    const named = withBuiltinPlugins(withInitPlugins(live, [WARP]));
+    expect(initOf(named)?.plugins?.map((p) => p.source)).toEqual([WARP]);
   });
 });
 

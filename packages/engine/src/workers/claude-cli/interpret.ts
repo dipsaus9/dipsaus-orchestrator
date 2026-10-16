@@ -651,20 +651,6 @@ function init(value: unknown, state: ClaudeParseState): Step {
     plugins,
   };
 
-  // 0008 amendment of 2026-10-12 (DIPO-108): a plugin the run settings did not switch off is a
-  // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
-  // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
-  const allowed = next.allowedPlugins;
-  if (allowed !== undefined && allowed !== null && next.startFailure === null) {
-    const refused = refusedPlugins(plugins, allowed, next.knownPlugins ?? []);
-    if (refused.length > 0) {
-      const reason = pluginRefusal(refused);
-      next = { ...next, startFailure: reason };
-      // A neutral event, so the engine stops the worker before its first tool call.
-      events.push({ t: "startRefused", reason });
-    }
-  }
-
   // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
   if (next.initRejected === null) {
     if (msg.apiKeySource !== "none") {
@@ -681,6 +667,27 @@ function init(value: unknown, state: ClaudeParseState): Step {
     }
     // A neutral event, so the engine can stop the worker before it does anything (DIPO-45).
     if (next.initRejected !== null) events.push({ t: "initRejected", reason: next.initRejected });
+  }
+
+  // 0008 amendment of 2026-10-12 (DIPO-108): a plugin the run settings did not switch off is a
+  // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
+  // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
+  // Checked only when the key source and the model passed: a session that fails those as well
+  // stays a rejected init.
+  const allowed = next.allowedPlugins;
+  if (
+    allowed !== undefined &&
+    allowed !== null &&
+    next.initRejected === null &&
+    next.startFailure === null
+  ) {
+    const refused = refusedPlugins(plugins, allowed, next.knownPlugins ?? []);
+    if (refused.length > 0) {
+      const reason = pluginRefusal(refused);
+      next = { ...next, startFailure: reason };
+      // A neutral event, so the engine stops the worker before its first tool call.
+      events.push({ t: "startRefused", reason });
+    }
   }
 
   if (!next.started) {
