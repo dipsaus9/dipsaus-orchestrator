@@ -54,6 +54,7 @@ const PATHS = {
   tmpDir: TMP_DIR,
   nonce: "n1",
   tools: TOOLS,
+  home: HOME,
 };
 const NONCE = SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16);
 const RUN_LAYOUT = selfTestLayout({ ...PATHS, nonce: NONCE });
@@ -93,6 +94,7 @@ describe("(unit) self-test layout", () => {
       ["refs", ">", `${MAIN}/.git/refs/heads/dipo-self-test-n1`],
       ["objects", ">", `${MAIN}/.git/objects/dipo-self-test-n1`],
       ["pointer", ">>", `${WORKDIR}/.git`],
+      ["npm-logs", ">", `${HOME}/.npm/_logs/dipo-self-test-n1`],
     ]);
     expect(layout.resultsFile).toBe(`${TMP_DIR}/dipo-self-test-n1.txt`);
     // Absolute perl with the program inline, so no redirection rule stops it first.
@@ -102,8 +104,21 @@ describe("(unit) self-test layout", () => {
     expect(layout.script).not.toContain("find-generic-password");
     expect(layout.script).not.toContain("opendir");
     expect(layout.command).not.toContain("Keychains");
-    expect(layout.command).toEndWith(`'pointer' '>>' '${WORKDIR}/.git'`);
+    expect(layout.command).toContain(`'pointer' '>>' '${WORKDIR}/.git'`);
     expect(layout.prompt).toContain(layout.command);
+  });
+
+  it("names the npm-logs probe relative to $HOME, so the command names no path in home (DIPO-98)", () => {
+    const layout = selfTestLayout(PATHS);
+    expect(layout.command).toEndWith(`'npm-logs' '~>' '.npm/_logs/dipo-self-test-n1'`);
+    expect(layout.command).not.toContain(`${HOME}/.npm`);
+    expect(layout.script).toContain('$p = "$ENV{HOME}/$p"');
+    expect(layout.prompt).toContain("npm's log directory");
+    // The recording groups stay as they were; without a home the probe cannot be laid out.
+    for (const probes of Object.values(PROBE_GROUPS)) {
+      expect(probes as readonly ProbeName[]).not.toContain("npm-logs");
+    }
+    expect(() => selfTestLayout({ ...PATHS, home: undefined })).toThrow("home directory");
   });
 
   it("builds one probe group per safety recording", () => {
@@ -181,7 +196,7 @@ describe("(unit) self-test verdict", () => {
     expect(judgeSelfTest(evidence({}))).toEqual({ ok: true });
   });
 
-  it.each(["main-git", "worktree-admin", "refs", "objects", "pointer"] as WriteProbe[])(
+  it.each(["main-git", "worktree-admin", "refs", "objects", "pointer", "npm-logs"] as WriteProbe[])(
     "refuses as unsafe when %s was written",
     (probe) => {
       const results = BLOCKED_RESULTS.replace(
@@ -202,6 +217,28 @@ describe("(unit) self-test verdict", () => {
     expect(judgeSelfTest(evidence({ pointerChanged: true }))).toMatchObject({
       unsafe: true,
       probe: "pointer",
+    });
+  });
+
+  it("counts the npm-logs probe as blocked only on a sandbox refusal (DIPO-98)", () => {
+    for (const detail of ["Permission denied", "Read-only file system"]) {
+      const results = BLOCKED_RESULTS.replace(
+        "npm-logs blocked Operation not permitted",
+        `npm-logs blocked ${detail}`,
+      );
+      expect(judgeSelfTest(evidence({ results }))).toEqual({ ok: true });
+    }
+    const missing = BLOCKED_RESULTS.replace(
+      "npm-logs blocked Operation not permitted",
+      "npm-logs blocked No such file or directory",
+    );
+    const verdict = judgeSelfTest(evidence({ results: missing }));
+    expect(verdict).toMatchObject({ ok: false, unsafe: false, probe: "npm-logs" });
+    expect(!verdict.ok && verdict.reason).toContain("not a sandbox refusal");
+    expect(judgeSelfTest(evidence({ written: ["npm-logs"] }))).toMatchObject({
+      ok: false,
+      unsafe: true,
+      probe: "npm-logs",
     });
   });
 
@@ -357,6 +394,82 @@ describe("(engine) self-test run", () => {
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "refs" });
     expect(fs.files.has(refs)).toBe(false);
     expect(selfTestFailure(report)).toMatchObject({ check: "self-test", key: "refs", file: refs });
+  });
+
+  it("makes a missing ~/.npm/_logs for the probe and removes only what it made (DIPO-98)", async () => {
+    const fs = new MemoryFs();
+    let during: boolean[] = [];
+    const { report } = await runWith(BLOCKED_RESULTS, {
+      fs,
+      extra: (disk) => {
+        during = [disk.dirs.has(`${HOME}/.npm`), disk.dirs.has(`${HOME}/.npm/_logs`)];
+      },
+    });
+    expect(report.verdict).toEqual({ ok: true });
+    expect(during).toEqual([true, true]);
+    expect(fs.removedDirs).toEqual([`${HOME}/.npm/_logs`, `${HOME}/.npm`]);
+
+    // An existing ~/.npm is left alone; only the log directory it made goes.
+    const kept = new MemoryFs();
+    kept.dirs.add(`${HOME}/.npm`);
+    await runWith(BLOCKED_RESULTS, { fs: kept });
+    expect(kept.removedDirs).toEqual([`${HOME}/.npm/_logs`]);
+    expect(kept.dirs.has(`${HOME}/.npm`)).toBe(true);
+  });
+
+  it("cannot run, before any session, when ~/.npm/_logs cannot be made or written by the daemon user", async () => {
+    const npm = `${HOME}/.npm`;
+    const logs = `${HOME}/.npm/_logs`;
+    const cases: [string, (fs: MemoryFs) => void, string, string[]][] = [
+      ["mkdir fails", (fs) => (fs.failMkdir = logs), "could not be made", [npm]],
+      [
+        "root-owned",
+        (fs) => {
+          fs.dirs.add(npm);
+          fs.dirs.add(logs);
+          fs.readOnlyDirs.add(logs);
+        },
+        "not a directory the daemon user can write",
+        [],
+      ],
+      // A dangling symlink counts as present: never replaced, and not writable.
+      [
+        "dangling symlink",
+        (fs) => {
+          fs.dirs.add(npm);
+          fs.dangling.add(logs);
+        },
+        "not a directory the daemon user can write",
+        [],
+      ],
+    ];
+    for (const [label, setup, text, removed] of cases) {
+      const clock = new ManualClock();
+      const fs = new MemoryFs();
+      setup(fs);
+      const fake = scriptedClaude(clock, {});
+      const runSpec = spec();
+      const report = await runSelfTest(
+        { spec: runSpec, ctx: context(), runSettings: "{}" },
+        { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      );
+      expect([label, report.verdict]).toMatchObject([label, { ok: false, unsafe: false }]);
+      expect(!report.verdict.ok && report.verdict.reason).toContain(text);
+      expect(selfTestFailure(report)?.key).toBe("npm-logs");
+      expect(fake.calls.filter((call) => call.cmd.includes("-p"))).toEqual([]);
+      expect(fs.removedDirs).toEqual(removed);
+      expect(fs.dirs.has(logs)).toBe(label !== "mkdir fails" && label !== "dangling symlink");
+    }
+  });
+
+  it("refuses as unsafe and removes the file when a write into ~/.npm/_logs got through", async () => {
+    const probe = `${HOME}/.npm/_logs/dipo-self-test-${NONCE}`;
+    const { report, fs } = await runWith(BLOCKED_RESULTS, {
+      extra: (disk) => disk.files.set(probe, "7"),
+    });
+    expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "npm-logs" });
+    expect(selfTestFailure(report)).toMatchObject({ key: "npm-logs", file: probe });
+    expect(fs.files.has(probe)).toBe(false);
   });
 
   it("removes the control file and anything that got through even when a disk read throws", async () => {
@@ -642,5 +755,38 @@ describe("(unit) Safe-Chain install check (DIPO-84)", () => {
       { spawn: fake.spawn, clock, fs: new MemoryFs(), sessionId: SELF_TEST_SESSION },
     );
     expect(missing.verdict).toMatchObject({ ok: false, unsafe: false, probe: "safe-chain" });
+  });
+});
+
+describe("(unit) npm-logs probe program (DIPO-98)", () => {
+  it("writes $HOME/<path> for the ~> mode with the real perl program", async () => {
+    const perl = "/usr/bin/perl";
+    if (!existsSync(perl)) return;
+    const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
+    await withTempDir(async (dir) => {
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(join(dir, ".npm", "_logs"), { recursive: true });
+      const results = join(dir, "results.txt");
+      const layout = selfTestLayout({ ...PATHS, home: dir });
+      const child = Bun.spawn(
+        [perl, "-e", layout.script, results, "n", "npm-logs", "~>", ".npm/_logs/probe"],
+        { stdout: "pipe", stderr: "pipe", env: { HOME: dir } },
+      );
+      expect(await child.exited).toBe(0);
+      expect(await Bun.file(results).text()).toBe("npm-logs written\n");
+      expect(await Bun.file(join(dir, ".npm", "_logs", "probe")).text()).toBe("n");
+      // Every result is printed too, so the model has nothing to add (live finding on PR #120).
+      expect(await new Response(child.stdout).text()).toBe(
+        "npm-logs written\ndipo-self-test finished\n",
+      );
+      expect(await new Response(child.stderr).text()).toBe("");
+    });
+  });
+
+  it("tells the model to add nothing to the command (live finding on PR #120)", () => {
+    const layout = selfTestLayout({ ...PATHS, safeChainInstall: true });
+    expect(layout.prompt).toContain("Add nothing before or after it");
+    expect(layout.prompt).toContain("no cat, no exit-code check");
+    expect(layout.prompt).toContain("prints every result itself");
   });
 });

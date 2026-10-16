@@ -34,6 +34,9 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-81 adds `OfficeSummary.ready` to the same, still unreleased, minor.
 // DIPO-83 adds the optional `optIns` of `OfficeSummary` (the privacy opt-ins that are on) to the
 // same, still unreleased, minor.
+// DIPO-95 adds `OutputMarker` and the optional `markers` of `work.output` and of the
+// `work.outputRange` result (engine phase markers flagged in the worker output) to the same, still
+// unreleased, minor.
 // DIPO-97 adds the optional `outputRetentionDays` of `OfficeSummary` (the stored-output retention
 // period) and `StoryView.gateFailures` (the failed Ready gate rules with their rule ids) to the
 // same, still unreleased, minor.

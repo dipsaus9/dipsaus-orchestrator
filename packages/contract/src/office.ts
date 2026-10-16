@@ -27,6 +27,7 @@ import {
   GateRuleFailure,
   GateView,
   Lifecycle,
+  OutputMarker,
   OutputSource,
   ParkReason,
   Phase,
@@ -324,6 +325,8 @@ export const workOutputRange = defineRead({
     from: Offset,
     to: Offset,
     text: z.string(),
+    // The engine markers that overlap the range (DIPO-95, minor 1), oldest first; absent when none.
+    markers: z.array(OutputMarker).optional(),
   }),
   since: 0,
 });
@@ -528,6 +531,9 @@ export const workOutput = defineEvent({
     from: Offset,
     to: Offset,
     text: z.string(),
+    // The engine markers in the range (DIPO-95, minor 1); absent when none. A range the engine
+    // writes for a marker holds exactly that marker.
+    markers: z.array(OutputMarker).optional(),
     view: WorkView.optional(),
   }),
 });

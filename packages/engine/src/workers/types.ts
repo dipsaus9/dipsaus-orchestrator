@@ -310,6 +310,8 @@ export type ParseState = Readonly<Record<string, unknown>>;
 export interface ExitRecord {
   readonly code: number | null;
   readonly signal: string | null;
+  /** True when the host inferred `signal` from the one it sent last (DIPO-88). */
+  readonly signalInferred?: boolean;
 }
 
 /** The native session a resume would continue. */
