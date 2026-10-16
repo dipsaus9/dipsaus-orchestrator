@@ -4,7 +4,7 @@ title: Give worker sessions a short temp root that tests accept
 status: Done
 assignee: []
 created_date: '2026-10-16 11:06'
-updated_date: '2026-10-16 11:54'
+updated_date: '2026-10-16 11:59'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -19,6 +19,7 @@ references:
   - packages/engine/src/platform/sandbox.ts
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0006-daemon-and-ipc.md
+  - packages/engine/src/run/resume.ts
 priority: high
 type: feature
 ordinal: 108000
