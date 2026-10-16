@@ -38,6 +38,7 @@ import { basename, dirname, resolve } from "node:path";
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import { refusalPathFor } from "../sandbox/step";
+import { ignoreRejection } from "./background";
 import {
   holderScript,
   isCertificateBundle,
@@ -107,10 +108,7 @@ export type SafeChainProxyStart =
  */
 export function endQuietly(sink: { end(): unknown }): void {
   try {
-    const ended = sink.end() as { then?: unknown } | null | undefined;
-    if (typeof ended?.then === "function") {
-      void (ended as PromiseLike<unknown>).then(undefined, () => {});
-    }
+    ignoreRejection(sink.end());
   } catch {
     // Already closed.
   }
