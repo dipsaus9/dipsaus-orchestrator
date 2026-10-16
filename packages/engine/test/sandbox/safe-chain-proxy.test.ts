@@ -362,14 +362,13 @@ function exchange(path: string, text: string, after?: string): Promise<string> {
 }
 
 /**
- * True only in the known case (DIPO-114): the sandboxed self-verify on macOS
- * (`DIPO_SANDBOX_SELF_VERIFY=1`, set by self-verify.ci.test.ts for its inner run), whose closed
- * network refuses a TCP listen even on loopback; Linux gives the step a loopback of its own.
- * Anywhere else a refused loopback listen still fails the test.
+ * True only on macOS when a TCP listen on 127.0.0.1 is refused (DIPO-114): dipo's verify step there
+ * runs under Seatbelt with a closed network, which refuses loopback listens too, so this
+ * repository's verify run by dipo (the self-verify, and after cutover) would fail on it. A Linux
+ * step gets a loopback of its own, so on Linux a refused loopback listen still fails the test.
  */
 async function sandboxRefusesLoopback(): Promise<boolean> {
-  if (process.platform !== "darwin" || process.env["DIPO_SANDBOX_SELF_VERIFY"] !== "1")
-    return false;
+  if (process.platform !== "darwin") return false;
   return new Promise((resolve) => {
     const probe = createServer();
     probe.once("error", () => resolve(true));
