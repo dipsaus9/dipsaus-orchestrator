@@ -4,7 +4,7 @@ title: Count an uncaught daemon error as a crash after a graceful drain
 status: Done
 assignee: []
 created_date: '2026-10-16 11:06'
-updated_date: '2026-10-16 11:55'
+updated_date: '2026-10-16 12:08'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -15,6 +15,8 @@ references:
   - packages/daemon/test
   - packages/engine/src/platform/background.ts
   - docs/decisions/0006-daemon-and-ipc.md
+  - packages/engine/src/platform/safe-chain-proxy.ts
+  - packages/engine/test/sandbox/safe-chain-proxy.test.ts
 priority: high
 type: feature
 ordinal: 107000
