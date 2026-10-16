@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 11:14'
+updated_date: '2026-10-16 11:18'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -58,4 +58,6 @@ Lifecycle state: the daemon must not let daemon.resumeScheduling or a retry make
 
 <!-- SECTION:NOTES:BEGIN -->
 The daemon stays in recovering when the state database cannot be opened, checked or migrated (no new DaemonState: the enum is closed and daemon.status.state is frozen). Office commands, reads, office subscriptions and daemon.resumeScheduling get the new non-retryable generic code database.unavailable (details.reason, details.backup); engine.hello, commands.describe and daemon.* still run. The notice (engine.notice, code database.unavailable) and daemon.status stateReason say what to do per kind and name the newest backup with a schema. quick_check runs at open after an unclean exit (crash marker left, or an unreadable crashes.json). Contract minor 1 gains the code and DatabaseUnavailableDetails. Tests: unit (lifecycle, gate, recovery, databaseFailure, newestBackup) and packages/daemon/test/integration/database-unavailable.test.ts against real daemons (too-new, failing migration via a fixture, damaged after SIGKILL; daemon.stop then dipo restore then running). Manual run in a temp DIPO_HOME: dipo daemon status prints state recovering with the upgrade text; dipo daemon resume-scheduling exits 1 with database.unavailable; dipo daemon stop exits 0 and leaves no crash marker. Proposed 0005 and 0006 amendments await the maintainer.
+
+Review fixes: the client recovery wait (CLI, dipo watch) and the office store send a request refused with engine.recovering again on every poll, so a held daemon ends the wait with database.unavailable (tests in client recovery and office-store, CLI office-commands and watch). crashes.json keeps needsCheck across clean exits until a quick_check passes. The failed-migration text says dipo.db was left as it was and the fix is a dipo with working migrations; restore only if the file is suspect. DatabaseUnavailableDetails is in shared.schema.json.
 <!-- SECTION:NOTES:END -->
