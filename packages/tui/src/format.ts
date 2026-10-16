@@ -118,6 +118,7 @@ const SKIP_REASONS: Readonly<Record<string, string>> = {
   collision: "its branch or worktree path is taken",
   capacity: "the office runs as many stories as it may",
   pickupCheckFailed: "it failed its pickup check or its setup",
+  planLimit: "a plan limit or plan-limit warning holds new runs on its model until the reset",
 };
 
 export function skipReason(reason: string): string {

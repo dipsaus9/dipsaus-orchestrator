@@ -82,6 +82,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   run_summaries: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   questions: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_outcomes: { tier: "P", rule: "kept until purge, for retro and tier tuning" },
+  plan_limit_warnings: {
+    tier: "P",
+    rule: "one row per adapter and scope, deleted by the plan-limit schedule once its hold ends",
+  },
   config_snapshots: {
     tier: "S",
     rule: "first seen more than stateDays ago and named by no run that is kept",

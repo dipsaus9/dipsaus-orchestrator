@@ -62,7 +62,8 @@ export const ParkReason = openEnum(KNOWN_PARK_REASONS);
 export type ParkReason = z.infer<typeof ParkReason>;
 
 // Why `work.run` did not start a story (0005 section 4). `notRunnable` covers states run never
-// picks; `capacity` means `maxAgents` or the office cap was reached.
+// picks; `capacity` means `maxAgents` or the office cap was reached; `planLimit` (DIPO-92, a minor
+// addition) means a plan limit or a plan-limit warning holds new runs on the story's model.
 export const KNOWN_SKIP_REASONS = [
   "parked",
   "notReady",
@@ -71,6 +72,7 @@ export const KNOWN_SKIP_REASONS = [
   "collision",
   "capacity",
   "pickupCheckFailed",
+  "planLimit",
 ] as const;
 export const SkipReason = openEnum(KNOWN_SKIP_REASONS);
 export type SkipReason = z.infer<typeof SkipReason>;
