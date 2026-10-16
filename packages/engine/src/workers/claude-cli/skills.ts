@@ -2,12 +2,13 @@
 // DIPO-116, so no session loads a skill:
 //
 // - the plan passes `--disable-slash-commands` to every session, the self-test included. Without
-//   it a user message that starts with `/<name>` expands a skill from the worktree's
-//   `.claude/skills` (or a bundled one) with no permission check, even without the Skill tool, and
-//   registers the skill's frontmatter hooks, which run outside the sandbox (DIPO-116 probe p16c,
-//   Claude Code 2.1.301). Steer and answer text goes to the worker verbatim (`encode.ts`), so a
-//   steer that starts with `/` could do it. With the flag nothing expands and `system/init` lists
-//   `skills: []` (probe p17b; recording `safety-slash-skill`);
+//   it a user message that starts with `/<name>` expands a project skill from the worktree's
+//   `.claude/skills` with no permission check, even without the Skill tool, and registers the
+//   skill's frontmatter hooks, which run outside the sandbox (DIPO-116 probe p16c, Claude Code
+//   2.1.301). Whether a bundled skill expands the same way is unverified. Steer and answer text
+//   goes to the worker verbatim (`encode.ts`), so a steer that starts with `/` could do it. With
+//   the flag nothing expands and `system/init` lists `skills: []` (probe p17b; recording
+//   `safety-slash-skill`);
 // - the parser reads `skills` from `system/init` as the backstop: a session that lists any skill
 //   is stopped at its `system/init` (`startRefused`) and ends `startFailed` naming them.
 
