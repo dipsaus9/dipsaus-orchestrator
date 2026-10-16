@@ -17,7 +17,7 @@ import {
   type Event,
   type StreamName,
 } from "@dipsaus-orchestrator/contract";
-import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
+import { daemonTestEnv, withDaemonTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { type ConnectionState, DipoClient, type Transport } from "../../src/index";
 import {
@@ -34,18 +34,6 @@ const SOFTWARE = "software" as StreamName;
 const CLIENT = { name: "client-test", version: "0" };
 
 type Daemon = Bun.Subprocess<"ignore", "pipe", "pipe">;
-
-function daemonEnv(dir: string): Record<string, string> {
-  const env = cleanEnv();
-  delete env["BUN_OPTIONS"];
-  delete env["DIPO_LOG"];
-  return {
-    ...env,
-    DIPO_HOME: join(dir, "state"),
-    DIPO_RUNTIME_DIR: join(dir, "run"),
-    DIPO_TMP: dir,
-  };
-}
 
 /** Two recent crashes and a marker left by a dead daemon: the next start is the third, so `safe`. */
 function seedCrashLoop(stateDir: string): void {
@@ -144,8 +132,8 @@ describe("client against a running daemon", () => {
   it(
     "says hello, sends a command, reconnects and replays what it missed without duplicates",
     async () => {
-      await withTempDir(async (dir) => {
-        const env = daemonEnv(dir);
+      await withDaemonTempDir(async (dir) => {
+        const env = daemonTestEnv(dir);
         seedCrashLoop(env["DIPO_HOME"] ?? "");
         const daemon = await startDaemon(env);
         const clients: DipoClient[] = [];
@@ -221,8 +209,8 @@ describe("client against a running daemon", () => {
   it(
     "runs dipo daemon log-level and resume-scheduling, and names dipo daemon start once it is gone with autostart off",
     async () => {
-      await withTempDir(async (dir) => {
-        const env = daemonEnv(dir);
+      await withDaemonTempDir(async (dir) => {
+        const env = daemonTestEnv(dir);
         const daemon = await startDaemon(env);
         try {
           const set = await runCli(["daemon", "log-level", "debug"], env);

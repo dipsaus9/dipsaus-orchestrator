@@ -8,9 +8,13 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { cleanEnv, removeTempDir, runCommand, withTempDir } from "@dipsaus-orchestrator/testkit";
-import { mkdtempSync } from "node:fs";
-import { tempRoot } from "@dipsaus-orchestrator/testkit";
+import {
+  daemonTestEnv,
+  makeTempDir,
+  removeTempDir,
+  runCommand,
+  withDaemonTempDir,
+} from "@dipsaus-orchestrator/testkit";
 
 const REPO = resolve(import.meta.dir, "../../../..");
 const TIMEOUT_MS = 120_000;
@@ -51,7 +55,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "starts, reports, restarts and stops the daemon, and autostarts it for a command",
       async () => {
-        const binDir = mkdtempSync(join(tempRoot(), "dipo-bin-"));
+        const binDir = makeTempDir();
         try {
           const bin = join(binDir, "dipo");
           const built = await runCommand([process.execPath, "scripts/build.ts", "--outfile", bin], {
@@ -60,16 +64,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           });
           expect(built.exitCode).toBe(0);
 
-          await withTempDir(async (dir) => {
-            const base = cleanEnv();
-            delete base["BUN_OPTIONS"];
-            delete base["DIPO_LOG"];
+          // Every daemon this test starts must log DIPO_RUNTIME_DIR as its runtime source (DIPO-109).
+          await withDaemonTempDir(async (dir) => {
             const state = join(dir, "state");
             const env = {
-              ...base,
-              DIPO_HOME: state,
-              DIPO_RUNTIME_DIR: join(dir, "run"),
-              DIPO_TMP: dir,
+              ...daemonTestEnv(dir),
               // AC #11: a client started under --no-orphans does not pass it to the daemon.
               BUN_FEATURE_FLAG_NO_ORPHANS: "1",
             };

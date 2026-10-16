@@ -9,7 +9,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { DetachedSpawnOptions, ExecutableStamp } from "@dipsaus-orchestrator/engine";
-import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
+import {
+  isolatedDaemonEnv,
+  ManualClock,
+  testStateDir,
+  withDaemonTempDir,
+} from "@dipsaus-orchestrator/testkit";
 
 import { runForeground } from "../../src/foreground";
 import type { DaemonIo } from "../../src/io";
@@ -19,7 +24,7 @@ const OLD: ExecutableStamp = { dev: 1, ino: 10, size: 100, mtimeMs: 1000 };
 const NEW: ExecutableStamp = { dev: 1, ino: 11, size: 120, mtimeMs: 2000 };
 
 function setup(dir: string) {
-  const state = join(dir, "state");
+  const state = testStateDir(dir);
   mkdirSync(state, { recursive: true, mode: 0o700 });
   writeFileSync(join(state, "config.yaml"), "version: 1\ndaemon:\n  autoRestartOnUpgrade: true\n");
   const clock = new ManualClock();
@@ -30,9 +35,7 @@ function setup(dir: string) {
     writeLine: () => {},
     writeError: () => {},
     env: {
-      DIPO_HOME: state,
-      DIPO_RUNTIME_DIR: join(dir, "run"),
-      DIPO_TMP: dir,
+      ...isolatedDaemonEnv(dir),
       PATH: process.env["PATH"] ?? "/usr/bin:/bin",
       BUN_OPTIONS: "--smol",
     },
@@ -77,7 +80,7 @@ async function untilRunning(state: string, exited: Promise<number>): Promise<voi
 
 describe("auto-restart on upgrade", () => {
   it("drains and starts the new binary once the executable changed", () =>
-    withTempDir(async (dir) => {
+    withDaemonTempDir(async (dir) => {
       const t = setup(dir);
       await untilRunning(t.state, t.exited);
       t.replace();
@@ -90,7 +93,7 @@ describe("auto-restart on upgrade", () => {
     }));
 
   it("does not start a new binary when a stop was requested before the watcher fired", () =>
-    withTempDir(async (dir) => {
+    withDaemonTempDir(async (dir) => {
       const t = setup(dir);
       await untilRunning(t.state, t.exited);
       t.replace();
