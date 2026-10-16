@@ -50,6 +50,7 @@ export {
   BUDGET_NUDGE_SHARE,
   budgetFact,
   composeNudge,
+  copyNudgeSources,
   contextPathsOf,
   gitInputChanges,
   inputPathsOf,

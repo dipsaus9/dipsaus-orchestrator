@@ -17,7 +17,8 @@
 //
 // The context pack and input paths the context and input checks read are `nudge_sources` rows,
 // not prompt parts (DIPO-99): every session of a run (the first, a resume, a handoff) records its
-// own, and a check reads those of the session it answers.
+// own (a resume without a new pack copies those of the session it resumes), and a check reads
+// only those of the session it answers.
 //
 // This module emits only the neutral `nudge` op; the adapter's `encode` decides what its CLI
 // prints (0008 amendment of 2026-10-12). Every failure is silent: the hook then prints nothing.
@@ -277,16 +278,31 @@ function insertPart(
 }
 
 /**
- * The stored `kind` paths of `agent`'s session, sorted. A session that recorded no paths (its pack
- * could not be gathered) checks those of the run's session that recorded last.
+ * Copies the `nudge_sources` rows of session `from` to session `to` of the same run: a resume that
+ * continues `from`'s conversation without a new pack (its handoff could not be built) checks the
+ * pack that conversation was given. Runs inside the caller's transaction.
  */
+export function copyNudgeSources(
+  office: OfficeHandle,
+  run: string,
+  from: string,
+  to: string,
+  at: number,
+): void {
+  office.run(
+    `insert or ignore into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
+     select office_id, run_id, $to, kind, path, $at from nudge_sources
+     where office_id = $office_id and run_id = $run and agent_id = $from`,
+    { run, from, to, at },
+  );
+}
+
+/** The stored `kind` paths of `agent`'s session only, sorted; none when it recorded none. */
 function pathsOf(office: OfficeHandle, run: string, agent: string, kind: NudgeSourceKind) {
   return office
     .all<{ path: string }>(
       `select path from nudge_sources
-       where office_id = $office_id and run_id = $run and kind = $kind and agent_id = (
-         select agent_id from nudge_sources where office_id = $office_id and run_id = $run
-         order by agent_id = $agent desc, recorded_at desc, agent_id desc limit 1)
+       where office_id = $office_id and run_id = $run and agent_id = $agent and kind = $kind
        order by path`,
       { run, agent, kind },
     )

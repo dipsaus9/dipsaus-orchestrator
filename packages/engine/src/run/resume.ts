@@ -47,7 +47,7 @@ import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
-import { writeNudgeSources, type NudgeSources } from "../hooks/nudges";
+import { copyNudgeSources, writeNudgeSources, type NudgeSources } from "../hooks/nudges";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
@@ -418,8 +418,10 @@ export class RunResumer implements NextSession {
         },
       );
       const at = deps.clock.now();
-      // The context pack and input paths this session's nudges check (DIPO-99).
+      // The context pack and input paths this session's nudges check (DIPO-99): the pack gathered
+      // for it, or, for a resume whose handoff could not be built, the resumed session's own.
       if ("sources" in handoff) writeNudgeSources(office, run.runId, agent, handoff.sources, at);
+      else copyNudgeSources(office, run.runId, request.work.agent, agent, at);
       const cleared = clearSignals(
         office,
         run.runId,

@@ -13,6 +13,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import {
   budgetFact,
   composeNudge,
+  copyNudgeSources,
   contextPathsOf,
   inputPathsOf,
   type InputChangeReader,
@@ -440,9 +441,21 @@ describe("nudge sources (DIPO-99)", () => {
         ]);
         expect(calls).toEqual([["docs/new.md"]]);
 
-        // A session that recorded no paths checks those of the session that recorded last.
+        // A session whose gathered pack was empty checks no paths, never another session's.
         addAgent(w.office, "agt-3", "session-2", w.t.clock.now());
-        expect(contextPathsOf(w.office, RUN, "agt-3")).toEqual(["packages/a/c.ts"]);
+        w.office.immediate(() =>
+          writeNudgeSources(w.office, RUN, "agt-3", { context: [], inputs: [] }, w.t.clock.now()),
+        );
+        expect(contextPathsOf(w.office, RUN, "agt-3")).toEqual([]);
+        await pass(w, "agt-3", { kind: "toolUsed", id: 4, tool: "Edit", wrote: "packages/a/c.ts" });
+        expect(w.ops.at(-1)).toEqual(released(4));
+        // A resume without a new pack takes over the pack of the session it resumes.
+        addAgent(w.office, "agt-4", "session-1", w.t.clock.now());
+        w.office.immediate(() =>
+          copyNudgeSources(w.office, RUN, "agt-2", "agt-4", w.t.clock.now()),
+        );
+        expect(contextPathsOf(w.office, RUN, "agt-4")).toEqual(["packages/a/c.ts"]);
+        expect(inputPathsOf(w.office, RUN, "agt-4")).toEqual(["docs/new.md"]);
         // The source rows are no prompt parts of either session.
         expect(promptPartsOf(w.office, RUN, "agt-2").map((part) => part.name)).toEqual([
           "nudge.context:packages/a/c.ts",
