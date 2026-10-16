@@ -21,6 +21,7 @@ import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
+import { background } from "../platform/background";
 import { createRepoFiles, type RepoFiles } from "../platform/repo-files";
 
 import { detect, fingerprint, type Probe, readProbe, type RunProfile } from "./detect";
@@ -122,9 +123,13 @@ export class RunProfiles {
             }
             this.#rescanning.add(office);
             // The scan starts once this command's transaction has committed and replied.
-            void this.#serial(state, () => this.#rescan(office, state, ctx.requestId)).finally(
-              () => {
-                this.#rescanning.delete(office);
+            background(
+              () => this.#serial(state, () => this.#rescan(office, state, ctx.requestId)),
+              {
+                failed: "rescanning the office failed",
+                fields: { office },
+                log: (message, fields) => this.#deps.logger?.warn(message, fields),
+                settled: () => this.#rescanning.delete(office),
               },
             );
             return { result: { scan: "started" as const }, changed: false };

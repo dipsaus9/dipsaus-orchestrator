@@ -30,6 +30,7 @@ import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
+import { background } from "../platform/background";
 import type { RunSteering } from "../run/control";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
@@ -409,11 +410,17 @@ export class PermissionAsks {
     this.#timers.delete(questionId);
   }
 
-  /** Sends a reply without waiting for it. */
+  /**
+   * Sends a reply without waiting for it. The notice of a reply that did not arrive is written in
+   * the job too; a failure there is logged, never an unhandled rejection (DIPO-110).
+   */
   #reply(office: OfficeHandle, run: RunId, reply: HookReply, timedOut = false): void {
-    const job = this.#send(office, run, reply, timedOut);
-    this.#inflight.add(job);
-    void job.finally(() => this.#inflight.delete(job));
+    background(() => this.#send(office, run, reply, timedOut), {
+      failed: "sending a permission decision failed",
+      fields: { run, hook: reply.hook },
+      log: this.#deps.warn,
+      inflight: this.#inflight,
+    });
   }
 
   /** Sends a reply to the run's worker host; a failure puts a notice on the office. */
