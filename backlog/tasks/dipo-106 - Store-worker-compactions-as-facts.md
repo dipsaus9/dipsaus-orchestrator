@@ -4,7 +4,7 @@ title: Store worker compactions as facts
 status: Done
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 19:19'
+updated_date: '2026-10-16 19:20'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -16,6 +16,7 @@ references:
   - packages/engine/test/
   - packages/engine/src/ingest/
   - packages/engine/src/retention/
+  - packages/engine/src/workers/claude-cli/schema.ts
 priority: low
 type: feature
 ordinal: 96000
