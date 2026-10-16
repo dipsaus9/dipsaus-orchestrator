@@ -44,6 +44,7 @@ export {
   killGroup,
   selfCommand,
   signalGroup,
+  signalProcess,
   systemProcessProbe,
   systemSpawn,
   systemSpawnDetached,

@@ -180,6 +180,10 @@ describe("worker_hosts", () => {
             startedAt: clock.now(),
             // The engine's secret, also in launch.json (DIPO-59).
             engineToken: host.engineToken ?? "",
+            // Recorded over the pending row written before the spawn (DIPO-93); this host stops
+            // its worker on SIGTERM.
+            pending: false,
+            signalStop: true,
           },
         ]);
         expect(host.engineToken).toMatch(/^[0-9a-f]{64}$/);

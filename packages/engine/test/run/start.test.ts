@@ -35,6 +35,9 @@ import type { IngestTarget } from "../../src/ingest/ingestor";
 import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
+  backstopSnapshotOf,
+  type BackstopSnapshot,
+  endRun,
   findRun,
   type HostStarter,
   LAUNCH_NOTICES,
@@ -62,6 +65,12 @@ import type { SetupOutcome } from "../../src/worktree/setup";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
 const CLAUDE = "/opt/claude/bin/claude";
+const BACKSTOP: BackstopSnapshot = {
+  head: "a".repeat(40),
+  branch: "refs/heads/TASK-1/add-a-greeting",
+  stash: "",
+  backlogStatus: "",
+};
 const HOME = "/home/maintainer";
 const BLOCK = (id: string) =>
   ["```dipo", `branch: "${id}/add-a-greeting"`, "unknowns: []", "```"].join("\n");
@@ -159,6 +168,8 @@ interface World {
   checks: LaunchCheckOutcome;
   worktreeRoot: string;
   hostFails: boolean;
+  /** Called as a host starts, with its run (DIPO-93). */
+  onHostStart: ((runId: string) => void) | null;
   releaseFails: boolean;
   readonly warnings: string[];
   gate: GateResult;
@@ -190,6 +201,7 @@ beforeEach(async () => {
     checks: { ok: true } as LaunchCheckOutcome,
     worktreeRoot: join(dir, "trees"),
     hostFails: false,
+    onHostStart: null,
     releaseFails: false,
     warnings: [] as string[],
     gate: { mode: "pickup", passed: true, failures: [] } as GateResult,
@@ -220,6 +232,7 @@ beforeEach(async () => {
   const hosts: HostStarter = {
     start: async (handle, started) => {
       if (w.hostFails) throw new Error("spawn failed: no such file");
+      w.onHostStart?.(started.runId);
       w.hosts.push({ ...started });
       const host: LaunchedHost = {
         pid: 4242,
@@ -252,6 +265,8 @@ beforeEach(async () => {
     dependencies: async () => [],
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
+    // The backstop's run-start snapshot (DIPO-49), stored with the run (DIPO-93).
+    snapshot: async () => BACKSTOP,
     hosts,
     ingest: { start: (_office, _host, target) => w.ingested.push(target) },
     release: async (_office, claim, reason) => {
@@ -474,6 +489,21 @@ describe("work.run starts the worker of a claimed run", () => {
       ["work.output", null],
       ["work.phase", "build"],
     ]);
+  });
+
+  it("stores the backstop snapshot with the run before the host starts (DIPO-93 AC #4)", async () => {
+    story("TASK-1", "Ready");
+    let atStart = null as BackstopSnapshot | null;
+    world.onHostStart = (runId) => {
+      atStart = backstopSnapshotOf(world.office, runId);
+    };
+    const result = resultOf<RunResult>(await run());
+    const runId = result.started[0]?.run as RunId;
+    expect(atStart).toEqual(BACKSTOP);
+    expect(backstopSnapshotOf(world.office, runId)).toEqual(BACKSTOP);
+    // The run's end clears it: the engine's own commit at the end moves what it compares.
+    world.office.immediate(() => endRun(world.office, runId, world.t.clock.now(), "done"));
+    expect(backstopSnapshotOf(world.office, runId)).toBeNull();
   });
 
   it("rolls back on a refused launch check: no host, the slot freed, the hold kept, the story skipped", async () => {

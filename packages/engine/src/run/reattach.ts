@@ -8,7 +8,8 @@
 // - Host alive without an answering socket (gone, silent, or a protocol this binary does not
 //   speak): follow-only. The row's mode becomes `follow`, the run shows `work.observed
 //   follow-only` with a notice, ingestion tails the event file until the exit line, and steering
-//   fails with a message (`hostSocketSteering`).
+//   fails with a message (`hostSocketSteering`), except a stop: that reaches the host as one
+//   SIGTERM after its PID, start time and command are verified (DIPO-93).
 // - Host dead with `exit.json`: the remaining events and the exit are processed as ingestion
 //   always does; run control and worker outcomes decide the exit.
 // - Host dead without `exit.json`: the remaining events are processed; an exit line among them is
@@ -24,6 +25,12 @@
 //
 // Exits ingested but not decided before the stop are `run-outcomes/redispatch`'s; runs whose host
 // has an ended agent are left to it.
+//
+// DIPO-93 adds three steps. First, `worker_hosts` rows left pending (written before their spawn)
+// are settled by the host's claimed launch or PID marker, or their launch is revoked; a run whose
+// only host never started parks `interrupted`. Then the active runs, as above, with the backstop
+// snapshot stored with the run. Last, the open hosts of runs that have ended are closed out when
+// dead, or followed until they exit, at every restart until their row ends.
 
 import {
   AgentId,
@@ -49,17 +56,19 @@ import {
   hostAlive,
   readHostExit,
   recordHostExit,
+  resolvePendingHost,
   type WorkerHostRow,
   workerHostsOf,
 } from "../runs/worker-hosts";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
-import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
+import { CAP_TICK_MS, type RunEnding, type RunSteering, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
+import { markIntentSent, recordIntent, runIntents } from "./intents";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
-import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
+import { activeRuns, backstopSnapshotOf, capsStartedAt, findRun, type StoredRun } from "./records";
 import { clearSignals, raiseSignal } from "./signals";
 
 /** The daemon's recovery step that re-attaches worker hosts (0006 decision 7). */
@@ -84,7 +93,26 @@ export type ReattachOutcome =
   /** The event file changed; the story parks `interrupted`. */
   | "fileChanged"
   /** Its Safe-Chain proxy is gone (DIPO-84); the worker is stopped and the story parks. */
-  | "proxyGone";
+  | "proxyGone"
+  /** Its only host was still pending and no host claimed the launch (DIPO-93): parks. */
+  | "neverStarted"
+  /** A living host of a run that has ended: followed until it exits (DIPO-93). */
+  | "followEnded"
+  /** A living host of an ended run whose stop had failed: stopped again, then followed (DIPO-93). */
+  | "stopAgain"
+  /** A dead host of a run that has ended: closed out (DIPO-93). */
+  | "closedOut";
+
+/** The intent kinds that end a run and send ops to its host. */
+const ENDING_INTENTS: ReadonlySet<string> = new Set(["stop", "cap", "park"]);
+
+/** The detail of the `stop` intent sent again to the host of an ended run (DIPO-93). */
+export const STOP_AGAIN_DETAIL =
+  "stop again after a restart: the stop that ended the run did not reach its worker host";
+
+/** The park detail of a run whose worker host never started before the daemon stopped. */
+export const HOST_NEVER_STARTED =
+  "the daemon stopped while it was starting the worker host, and no host started; nothing ran";
 
 export interface ReattachedRun {
   readonly run: RunId;
@@ -158,6 +186,13 @@ export interface RunReattacherDeps {
    * parks `interrupted` with the reason.
    */
   readonly proxyGone?: (office: OfficeId, run: StoredRun, host: WorkerHostRow) => string | null;
+  /**
+   * Sends host ops (`hostSocketSteering`): a living host of an ended run whose ending could not
+   * reach it (its last stop, cap or park intent failed, as when reconcile ran before re-attach) is
+   * sent the stop sequence again, by socket or by verified signal (DIPO-93). Without it such a host
+   * is only followed.
+   */
+  readonly steering?: RunSteering;
 }
 
 /** How often a follow-only host's liveness is checked by PID and start time: the cap tick. */
@@ -182,15 +217,20 @@ export class RunReattacher {
     this.#deps = deps;
   }
 
-  /** Re-attaches every active story run of the office; returns what it did per run. */
+  /**
+   * Re-attaches every active story run of the office, after settling host rows left pending
+   * (DIPO-93), then closes out or follows the open hosts of runs that have ended (DIPO-93);
+   * returns what it did per run.
+   */
   async reattach(officeId: OfficeId): Promise<ReattachedRun[]> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return [];
     const done: ReattachedRun[] = [];
+    const revoked = await this.#resolvePending(office);
     for (const run of activeRuns(office)) {
       if (run.kind !== "story") continue;
       try {
-        const outcome = await this.#reattachRun(office, run);
+        const outcome = await this.#reattachRun(office, run, revoked.get(run.runId));
         if (outcome !== null) done.push(outcome);
       } catch (error) {
         this.#deps.warn?.("re-attaching a run failed", {
@@ -200,16 +240,188 @@ export class RunReattacher {
         });
       }
     }
+    done.push(...(await this.#sweepEnded(office)));
     return done;
   }
 
-  async #reattachRun(office: OfficeHandle, run: StoredRun): Promise<ReattachedRun | null> {
+  /**
+   * Settles every `worker_hosts` row the previous daemon left pending between writing it and
+   * recording the spawned host (DIPO-93, `resolvePendingHost`). Returns the agent of each run whose
+   * pending host was revoked, which never ran.
+   */
+  async #resolvePending(office: OfficeHandle): Promise<Map<string, string>> {
+    const revoked = new Map<string, string>();
+    const rows = office.all<{ run_id: string; agent_id: string }>(
+      `select run_id, agent_id from worker_hosts where office_id = $office_id and pending = 1
+        order by started_at, rowid`,
+    );
+    for (const row of rows) {
+      const host = workerHostsOf(office, row.run_id).find((h) => h.agentId === row.agent_id);
+      if (host === undefined) continue;
+      try {
+        const resolved = await resolvePendingHost(office, host, this.#deps.probe);
+        if (resolved.kind === "revoked") revoked.set(row.run_id, row.agent_id);
+        this.#deps.warn?.("a worker host was still pending at the restart", {
+          run: row.run_id,
+          agent: row.agent_id,
+          resolved: resolved.kind,
+          ...(resolved.kind === "recorded" ? { pid: resolved.pid, alive: resolved.alive } : {}),
+        });
+      } catch (error) {
+        this.#deps.warn?.("settling a pending worker host failed", {
+          run: row.run_id,
+          agent: row.agent_id,
+          reason: messageOf(error),
+        });
+      }
+    }
+    return revoked;
+  }
+
+  /**
+   * The open hosts of runs that have ended (DIPO-93): a host a park could not stop, still followed
+   * when the daemon stopped. A dead one is closed out now (its `exit.json`, or lost); a living one
+   * is followed by PID and start time until it exits, then closed out. Its row stays open until
+   * then, so every later restart does the same.
+   */
+  async #sweepEnded(office: OfficeHandle): Promise<ReattachedRun[]> {
+    const done: ReattachedRun[] = [];
+    const rows = office.all<{ run_id: string; agent_id: string }>(
+      `select h.run_id, h.agent_id from worker_hosts h
+         join runs r on r.office_id = h.office_id and r.run_id = h.run_id
+        where h.office_id = $office_id and h.ended_at is null and h.pending = 0
+          and r.ended_at is not null
+        order by h.started_at, h.rowid`,
+    );
+    for (const row of rows) {
+      if (this.#followTimers.has(`${row.run_id} ${row.agent_id}`)) continue;
+      try {
+        const swept = await this.#sweepHost(office, row.run_id, row.agent_id);
+        if (swept !== null) done.push(swept);
+      } catch (error) {
+        this.#deps.warn?.("closing out the worker host of an ended run failed", {
+          run: row.run_id,
+          agent: row.agent_id,
+          reason: messageOf(error),
+        });
+      }
+    }
+    return done;
+  }
+
+  async #sweepHost(
+    office: OfficeHandle,
+    runId: string,
+    agentId: string,
+  ): Promise<ReattachedRun | null> {
+    const deps = this.#deps;
+    const run = findRun(office, runId as RunId);
+    const hosts = workerHostsOf(office, runId);
+    const host = hosts.find((h) => h.agentId === agentId);
+    if (run === null || host === undefined) return null;
+    const adapter = deps.adapter(office.officeId, run);
+    if (adapter === null) {
+      deps.warn?.("no worker adapter to close out a worker host with", { run: runId });
+      return null;
+    }
+    const agent = office.get<AgentRow>(
+      `select model, session_id, ended_at from agents
+        where office_id = $office_id and agent_id = $agent`,
+      { agent: agentId },
+    );
+    const work = this.#workOf(office, run, agentId, agent);
+    const model = work?.model ?? agent?.model ?? run.model;
+    const target: IngestTarget = {
+      run: runId,
+      agent: agentId,
+      role: run.role,
+      tier: run.tier ?? "",
+      budgetLimit: run.budgetLimit,
+      model,
+      ...(work === null ? {} : { work }),
+      adapter,
+      initialState: this.#initialState(office, run, hosts, host, agent, model),
+    };
+    if (await hostAlive(host, deps.probe)) {
+      const stopped = await this.#stopUnreached(office, run);
+      this.#watchFollowed(office, run, host, target);
+      return { run: run.runId, agent: agentId, outcome: stopped ? "stopAgain" : "followEnded" };
+    }
+    this.#closeFollowed(office, run, host, target);
+    return { run: run.runId, agent: agentId, outcome: "closedOut" };
+  }
+
+  /**
+   * Sends the stop sequence again to the living host of an ended run when the ending that ended
+   * the run could not reach it (DIPO-93): its newest stop, cap or park intent failed, for example
+   * because reconcile stopped the run before re-attach had settled its pending host. The stop goes
+   * as a new `stop` intent through steering, so a follow-only host gets the verified SIGTERM and
+   * nothing unverified is signalled. True when it was sent.
+   */
+  async #stopUnreached(office: OfficeHandle, run: StoredRun): Promise<boolean> {
+    const deps = this.#deps;
+    if (deps.steering === undefined) return false;
+    const ending = runIntents(office, run.runId)
+      .filter((intent) => ENDING_INTENTS.has(intent.kind))
+      .at(-1);
+    if (ending?.state !== "failed") return false;
+    const intentId = office.immediate(() =>
+      recordIntent(office, run.runId, "stop", STOP_AGAIN_DETAIL, deps.clock.now()),
+    );
+    let error: string | null = null;
+    try {
+      const sent = await deps.steering.send(
+        office,
+        run.runId,
+        deps.control.interruptedEnding().ops,
+      );
+      if (!sent.ok) error = sent.reason;
+    } catch (thrown) {
+      error = messageOf(thrown);
+    }
+    office.immediate(() => markIntentSent(office, run.runId, intentId, deps.clock.now(), error));
+    if (error !== null) {
+      deps.warn?.("stopping the worker host of an ended run again failed", {
+        run: run.runId,
+        reason: error,
+      });
+    }
+    return error === null;
+  }
+
+  /**
+   * A run whose only host was revoked while pending (DIPO-93): no worker ever ran. The story parks
+   * `interrupted`, keeping its worktree and branch, as for a run lost while the daemon was down.
+   */
+  async #neverStarted(
+    office: OfficeHandle,
+    run: StoredRun,
+    agentId: string,
+  ): Promise<ReattachedRun | null> {
+    const work = this.#workOf(office, run, agentId, null);
+    if (work === null) return null;
+    const ending = this.#deps.control.interruptedEnding();
+    await this.#deps.control.park(office, run, work, {
+      ...ending,
+      ops: [],
+      detail: HOST_NEVER_STARTED,
+    });
+    return { run: run.runId, agent: agentId, outcome: "neverStarted" };
+  }
+
+  async #reattachRun(
+    office: OfficeHandle,
+    run: StoredRun,
+    revokedAgent: string | undefined,
+  ): Promise<ReattachedRun | null> {
     const deps = this.#deps;
     // Followed by this daemon already, or an exit of it is being decided.
     if (deps.control.isTracked(run.runId) || deps.outcomes?.busy(run.runId) === true) return null;
     const hosts = workerHostsOf(office, run.runId);
     const host = hosts.at(-1);
-    if (host === undefined) return null;
+    if (host === undefined) {
+      return revokedAgent === undefined ? null : this.#neverStarted(office, run, revokedAgent);
+    }
     const agent = office.get<AgentRow>(
       `select model, session_id, ended_at from agents
         where office_id = $office_id and agent_id = $agent`,
@@ -224,17 +436,12 @@ export class RunReattacher {
       }
       return null;
     }
-    const work = this.#workOf(office, run, host, agent);
+    const work = this.#workOf(office, run, host.agentId, agent);
     if (work === null) return null;
     const alive = await hostAlive(host, deps.probe);
 
     // A host event file reported changed before the stop (0007 section 5).
-    const changed = office.get<{ found: number }>(
-      `select 1 as found from ingest_cursors where office_id = $office_id and run_id = $run
-        and agent_id = $agent and changed_at is not null`,
-      { run: run.runId, agent: host.agentId },
-    );
-    if (changed !== null) {
+    if (this.#fileChanged(office, run.runId, host.agentId)) {
       const ending = deps.control.interruptedEnding();
       await deps.control.park(office, run, work, alive ? ending : { ...ending, ops: [] });
       return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };
@@ -279,7 +486,8 @@ export class RunReattacher {
       },
       // The run's caps count from its first host, as worker outcomes count them.
       startedAt: capsStartedAt(run, hosts[0]?.startedAt),
-      snapshot: null,
+      // The backstop goes on from the run-start snapshot stored with the run (DIPO-93).
+      snapshot: backstopSnapshotOf(office, run.runId),
     });
 
     if (alive) {
@@ -381,6 +589,17 @@ export class RunReattacher {
     this.#armFollowed(key, check);
   }
 
+  /** True when ingestion reported the agent's event file changed (0007 section 5). */
+  #fileChanged(office: OfficeHandle, run: string, agent: string): boolean {
+    return (
+      office.get<{ found: number }>(
+        `select 1 as found from ingest_cursors where office_id = $office_id and run_id = $run
+          and agent_id = $agent and changed_at is not null`,
+        { run, agent },
+      ) !== null
+    );
+  }
+
   #agentEndedAt(office: OfficeHandle, agent: string): number | null {
     return (
       office.get<{ ended_at: number | null }>(
@@ -409,7 +628,11 @@ export class RunReattacher {
       // after the last poll (an exit line among them ends the agent as ingestion always does),
       // then its ingestion stops here. A running run whose agent ended has moved on, and its
       // ingestion and watchdog belong to the next session.
-      if (this.#agentEndedAt(office, followed.agentId) === null) {
+      // An event file reported changed is not read again (0007 section 5).
+      if (
+        this.#agentEndedAt(office, followed.agentId) === null &&
+        !this.#fileChanged(office, run.runId, followed.agentId)
+      ) {
         deps.ingest.attach(office, followed, target, null);
       }
       deps.ingest.untrack(office.officeId, run.runId, followed.agentId);
@@ -506,14 +729,14 @@ export class RunReattacher {
   #workOf(
     office: OfficeHandle,
     run: StoredRun,
-    host: WorkerHostRow,
+    agentId: string,
     agent: AgentRow | null,
   ): WorkRef | null {
     const known = workRefOf(office, run.runId);
     if (known !== null) {
       return {
         ...known,
-        agent: AgentId.parse(host.agentId),
+        agent: AgentId.parse(agentId),
         model: agent?.model ?? known.model,
       };
     }
@@ -522,7 +745,7 @@ export class RunReattacher {
       story: StoryId.parse(run.story),
       key: StoryKey.parse(run.key),
       run: RunId.parse(run.runId),
-      agent: AgentId.parse(host.agentId),
+      agent: AgentId.parse(agentId),
       role: RoleId.parse(run.role),
       tier: run.tier ?? "",
       model: agent?.model ?? run.model,

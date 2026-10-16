@@ -10,6 +10,8 @@ import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
 
+import type { BackstopSnapshot } from "./backstop";
+
 export type RunKind = "story" | "session";
 
 /** What a run starts with (0007 section 4). Story fields are null for a session run. */
@@ -166,6 +168,50 @@ export function findRun(office: OfficeHandle, runId: RunId): StoredRun | null {
 }
 
 /**
+ * Stores the DIPO-49 backstop's run-start snapshot with the run (DIPO-93), so a run re-attached
+ * after a restart keeps its backstop. Null clears it. Call it inside a write transaction.
+ */
+export function storeBackstopSnapshot(
+  office: OfficeHandle,
+  runId: string,
+  snapshot: BackstopSnapshot | null,
+): void {
+  office.run(
+    `update runs set backstop_snapshot = $snapshot
+      where office_id = $office_id and run_id = $run`,
+    { snapshot: snapshot === null ? null : JSON.stringify(snapshot), run: runId },
+  );
+}
+
+/**
+ * The run's stored backstop snapshot (DIPO-93); null when none was taken, or the run ended since
+ * (`endRun` clears it: the engine's own commit at the end moves what it compares).
+ */
+export function backstopSnapshotOf(office: OfficeHandle, runId: string): BackstopSnapshot | null {
+  const row = office.get<{ backstop_snapshot: string | null }>(
+    "select backstop_snapshot from runs where office_id = $office_id and run_id = $run",
+    { run: runId },
+  );
+  if (row?.backstop_snapshot == null) return null;
+  try {
+    const value = JSON.parse(row.backstop_snapshot) as Partial<BackstopSnapshot>;
+    return typeof value.head === "string" &&
+      typeof value.branch === "string" &&
+      typeof value.stash === "string" &&
+      typeof value.backlogStatus === "string"
+      ? {
+          head: value.head,
+          branch: value.branch,
+          stash: value.stash,
+          backlogStatus: value.backlogStatus,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The office's active runs, oldest first: story runs that have not ended and whose claim is live,
  * and session runs that have not ended.
  */
@@ -280,7 +326,7 @@ export const PARKED_OUTCOME = "parked";
  */
 export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): boolean {
   const ended = office.run(
-    `update runs set ended_at = $at, end_kind = $kind
+    `update runs set ended_at = $at, end_kind = $kind, backstop_snapshot = null
      where office_id = $office_id and run_id = $run and ended_at is null`,
     { run: runId, at, kind },
   );

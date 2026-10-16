@@ -58,6 +58,7 @@ import { withWorkViews } from "../views/work";
 import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
+import { storeBackstopSnapshot } from "./records";
 import { prepareRunTempDir, runTempDir } from "./temp-dirs";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
@@ -418,6 +419,11 @@ export class RunLauncher {
           reason: messageOf(error),
         });
       }
+    }
+    // Stored with the run, so a re-attach after a restart restores it (DIPO-93).
+    if (snapshot !== null) {
+      const taken = snapshot;
+      handle.immediate(() => storeBackstopSnapshot(handle, facts.runId, taken));
     }
     let host: LaunchedHost;
     try {

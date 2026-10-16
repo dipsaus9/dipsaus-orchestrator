@@ -1,7 +1,8 @@
 // `dipo daemon worker-host <run-id>` (0006 decisions 2 and 8): the detached process that hosts one
 // worker. The engine starts it with `DIPO_RUN_DIR` naming the run directory, stdio appended to
 // `host.log` and the Bun flag variables removed; the host itself is engine code (`runWorkerHost`).
-// `launch.json` holds the task message, so every refusal removes it before returning.
+// `launch.json` holds the task message, so every refusal removes it before returning. SIGTERM to
+// the host stops its worker (DIPO-93) instead of ending the host at once.
 
 import { rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -51,6 +52,14 @@ export async function runWorkerHostForm(runId: string, io: DaemonIo): Promise<nu
         signalGroup(pgid, signal);
       },
       pid: process.pid,
+      // SIGTERM to the host stops its worker and still writes exit.json (DIPO-93): the engine stops
+      // a follow-only host this way after a daemon restart.
+      onTerminate: (stop) => {
+        process.on("SIGTERM", stop);
+        return () => {
+          process.off("SIGTERM", stop);
+        };
+      },
       ...(level !== undefined && isLogLevel(level) ? { logLevel: level } : {}),
     });
   } catch (error) {

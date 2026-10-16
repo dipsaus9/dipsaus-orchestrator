@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 21:54'
 labels:
   - 'tier:M'
 milestone: m-0
@@ -18,6 +19,23 @@ references:
   - packages/engine/src/runs/worker-hosts.ts
   - docs/decisions/0006-daemon-and-ipc.md
   - docs/decisions/0008-worker-adapter.md
+  - packages/engine/src/platform/process.ts
+  - packages/engine/src/host/main.ts
+  - packages/engine/src/host/protocol.ts
+  - packages/daemon/src/worker-host.ts
+  - packages/daemon/src/runs.ts
+  - packages/engine/src/db/migrations/0027-reattach-gaps.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/records.ts
+  - packages/engine/src/run/outcomes.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/index.ts
+  - packages/engine/test/run
+  - packages/engine/test/host
+  - packages/engine/test/platform/process.test.ts
+  - packages/engine/test/db
+  - packages/daemon/test
 priority: medium
 type: feature
 ordinal: 83000
