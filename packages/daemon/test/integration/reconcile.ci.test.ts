@@ -8,7 +8,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { cleanEnv, withBareRemote } from "@dipsaus-orchestrator/testkit";
+import { assertTestRuntimeDir, daemonTestEnv, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { TestClient } from "../support/client";
 
@@ -23,18 +23,6 @@ interface LogLine {
   readonly to?: string;
   readonly office?: string;
   readonly trigger?: string;
-}
-
-function daemonEnv(dir: string): Record<string, string> {
-  const env = cleanEnv();
-  delete env["BUN_OPTIONS"];
-  delete env["DIPO_LOG"];
-  return {
-    ...env,
-    DIPO_HOME: join(dir, "state"),
-    DIPO_RUNTIME_DIR: join(dir, "run"),
-    DIPO_TMP: dir,
-  };
 }
 
 function start(env: Record<string, string>): Daemon {
@@ -58,6 +46,8 @@ async function waitUntilRunning(dir: string, daemon: Daemon): Promise<void> {
   const deadline = performance.now() + 30_000;
   const socket = join(dir, "run", "dipo.sock");
   while (performance.now() < deadline) {
+    // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
+    assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
     try {
       const client = await TestClient.connect(socket);
@@ -98,7 +88,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             await repo.git("push", "--quiet", "-u", "origin", "main");
             await repo.git("remote", "set-head", "origin", "main");
             const dir = repo.root;
-            const env = daemonEnv(dir);
+            const env = daemonTestEnv(dir);
 
             const first = start(env);
             let office = "";

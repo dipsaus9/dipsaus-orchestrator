@@ -50,6 +50,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
+import { background } from "../platform/background";
 import { withWorkViews, workRefOf } from "../views/work";
 import type {
   Caps,
@@ -303,15 +304,19 @@ export class RunControl implements RunEnder {
     if (tracked === undefined) return;
     this.#disarm(tracked);
     const outcomes = this.#deps.outcomes?.();
-    const job = (async () => {
-      await tracked.turns.catch(() => undefined);
-      if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
-      await outcomes?.onHostLost?.({ view: this.#view(tracked), agent, ending: tracked.ending });
-    })().catch((error: unknown) => {
-      this.#deps.warn?.("deciding a lost worker host failed", { run, reason: messageOf(error) });
-    });
-    this.#inflight.add(job);
-    void job.finally(() => this.#inflight.delete(job));
+    background(
+      async () => {
+        await tracked.turns.catch(() => undefined);
+        if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
+        await outcomes?.onHostLost?.({ view: this.#view(tracked), agent, ending: tracked.ending });
+      },
+      {
+        failed: "deciding a lost worker host failed",
+        fields: { run },
+        log: this.#deps.warn,
+        inflight: this.#inflight,
+      },
+    );
   }
 
   /** Starts tracking a started run; call it before ingestion starts, so no event is missed. */
@@ -460,24 +465,25 @@ export class RunControl implements RunEnder {
     if (outcomes !== undefined && agent !== undefined && end !== undefined) {
       // The turns before the exit are decided first, with the run still tracked; then the run is
       // untracked and the exit decided (DIPO-51).
-      const job = (async () => {
-        await tracked.turns.catch(() => undefined);
-        if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
-        await outcomes.onExit({
-          view: this.#view(tracked),
-          agent,
-          turns: Promise.resolve(),
-          ending: tracked.ending,
-          end,
-        });
-      })().catch((error: unknown) => {
-        this.#deps.warn?.("deciding a worker's exit failed", {
-          run,
-          reason: messageOf(error),
-        });
-      });
-      this.#inflight.add(job);
-      void job.finally(() => this.#inflight.delete(job));
+      background(
+        async () => {
+          await tracked.turns.catch(() => undefined);
+          if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
+          await outcomes.onExit({
+            view: this.#view(tracked),
+            agent,
+            turns: Promise.resolve(),
+            ending: tracked.ending,
+            end,
+          });
+        },
+        {
+          failed: "deciding a worker's exit failed",
+          fields: { run },
+          log: this.#deps.warn,
+          inflight: this.#inflight,
+        },
+      );
       return;
     }
     this.#tracked.delete(run);
@@ -522,23 +528,28 @@ export class RunControl implements RunEnder {
     const intentId = office.immediate(() =>
       recordIntent(office, tracked.runId, act.intent, act.detail, this.#deps.clock.now()),
     );
-    const done = (async (): Promise<null> => {
-      let error: string | null = null;
-      if (act.ops.length > 0) {
-        try {
-          const sent = await this.#deps.steering.send(office, tracked.runId, act.ops);
-          if (!sent.ok) error = sent.reason;
-        } catch (thrown) {
-          error = messageOf(thrown);
+    // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
+    tracked.ending = background(
+      async () => {
+        let error: string | null = null;
+        if (act.ops.length > 0) {
+          try {
+            const sent = await this.#deps.steering.send(office, tracked.runId, act.ops);
+            if (!sent.ok) error = sent.reason;
+          } catch (thrown) {
+            error = messageOf(thrown);
+          }
         }
-      }
-      const at = this.#deps.clock.now();
-      office.immediate(() => markIntentSent(office, tracked.runId, intentId, at, error));
-      return null;
-    })();
-    tracked.ending = done;
-    this.#inflight.add(done);
-    void done.finally(() => this.#inflight.delete(done));
+        const at = this.#deps.clock.now();
+        office.immediate(() => markIntentSent(office, tracked.runId, intentId, at, error));
+      },
+      {
+        failed: "sending a run's decision failed",
+        fields: { run: tracked.runId, intent: act.intent },
+        log: this.#deps.warn,
+        inflight: this.#inflight,
+      },
+    ).then(() => null);
     return true;
   }
 
@@ -819,12 +830,12 @@ export class RunControl implements RunEnder {
     };
     const done = this.#end(office, run, tracked.work, ending, write);
     tracked.ending = done;
-    const settled = done.catch((error: unknown) => {
-      this.#deps.warn?.("parking a run failed", { run: tracked.runId, reason: messageOf(error) });
-      return null;
+    background(() => done, {
+      failed: "parking a run failed",
+      fields: { run: tracked.runId },
+      log: this.#deps.warn,
+      inflight: this.#inflight,
     });
-    this.#inflight.add(settled);
-    void settled.finally(() => this.#inflight.delete(settled));
   }
 
   /**
@@ -943,17 +954,15 @@ export class RunControl implements RunEnder {
 
   /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
   #afterTurn(tracked: Tracked, report: WorkerReport | null, problem?: TurnProblem): void {
-    const job = tracked.turns
-      .then(() => this.#runTurn(tracked, report, problem))
-      .catch((error: unknown) => {
-        this.#deps.warn?.("verify and commit after a turn failed", {
-          run: tracked.runId,
-          reason: messageOf(error),
-        });
-      });
-    tracked.turns = job;
-    this.#inflight.add(job);
-    void job.finally(() => this.#inflight.delete(job));
+    tracked.turns = background(
+      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem)),
+      {
+        failed: "verify and commit after a turn failed",
+        fields: { run: tracked.runId },
+        log: this.#deps.warn,
+        inflight: this.#inflight,
+      },
+    );
   }
 
   async #runTurn(

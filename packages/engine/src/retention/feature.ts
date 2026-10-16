@@ -9,6 +9,7 @@ import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
+import { background } from "../platform/background";
 
 import type { SummaryCheck } from "./run-files";
 import { type RetentionReport, runRetention } from "./run";
@@ -153,9 +154,12 @@ export class Retention {
         }
         state.config = offices.config(office) ?? state.config;
       }
-      void this.#serial(state, () => this.#pass(office, state)).finally(() =>
-        this.#schedule(office, state),
-      );
+      background(() => this.#serial(state, () => this.#pass(office, state)), {
+        failed: "retention pass failed",
+        fields: { office },
+        log: (message, fields) => this.#deps.logger?.warn(message, fields),
+        settled: () => this.#schedule(office, state),
+      });
     }, this.#deps.intervalMs ?? RETENTION_INTERVAL_MS);
   }
 

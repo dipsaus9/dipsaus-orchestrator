@@ -24,6 +24,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
+import { background } from "../platform/background";
 
 import { type IndexResult, indexStories, refreshStory, type RefreshOptions } from "./index-stories";
 
@@ -262,9 +263,12 @@ export class StoryIndex {
     if (this.#offices.get(office) !== state) return;
     state.timer = state.clock.setTimeout(() => {
       state.timer = null;
-      void this.#serial(state, () => this.#poll(office, state)).finally(() =>
-        this.#schedule(office, state),
-      );
+      background(() => this.#serial(state, () => this.#poll(office, state)), {
+        failed: "polling the office failed",
+        fields: { office },
+        log: (message, fields) => this.#deps.logger?.warn(message, fields),
+        settled: () => this.#schedule(office, state),
+      });
     }, state.fetchSeconds * 1000);
   }
 

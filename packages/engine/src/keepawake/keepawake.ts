@@ -9,6 +9,7 @@
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { Logger } from "../log/logger";
+import { background } from "../platform/background";
 import type { DipoPlatform } from "../platform/paths";
 import type { KeepAwakeHolder, KeepAwakeStatus } from "./holder";
 
@@ -82,13 +83,18 @@ export class KeepAwake {
   start(): void {
     const tick = () => {
       this.#pollTimer = null;
-      void this.poll().finally(() => {
-        if (!this.#stopped) {
-          this.#pollTimer = this.#deps.clock.setTimeout(
-            tick,
-            this.#deps.pollMs ?? KEEP_AWAKE_POLL_MS,
-          );
-        }
+      // A failed poll is logged and the next one still comes (DIPO-110).
+      background(() => this.poll(), {
+        failed: "keep-awake poll failed",
+        log: (message, fields) => this.#deps.logger.warn(message, fields),
+        settled: () => {
+          if (!this.#stopped) {
+            this.#pollTimer = this.#deps.clock.setTimeout(
+              tick,
+              this.#deps.pollMs ?? KEEP_AWAKE_POLL_MS,
+            );
+          }
+        },
       });
     };
     tick();

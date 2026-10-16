@@ -344,6 +344,21 @@ describe("the base", () => {
     expect(error.code).toBe("git.baseUnknown");
     expect(error.message).toContain("Set `base`");
   });
+
+  it("resolves inside a running queue item with the same rule (DIPO-112)", async () => {
+    const git = baseGit(undefined, { code: 0, stdout: "refs/remotes/origin/main\n", stderr: "" });
+    expect(await git.run((session) => git.resolveBaseIn(session))).toBe("main");
+    const configured = baseGit("trunk", { code: 1, stdout: "", stderr: "" });
+    expect(await configured.run((session) => configured.resolveBaseIn(session))).toBe("trunk");
+  });
+
+  it("refuses an origin/HEAD that names no branch", async () => {
+    const git = baseGit(undefined, { code: 0, stdout: "refs/remotes/origin/\n", stderr: "" });
+    const error = (await git
+      .run((session) => git.resolveBaseIn(session))
+      .catch((thrown: unknown) => thrown)) as GitError;
+    expect(error.code).toBe("git.baseUnknown");
+  });
 });
 
 /** An executor whose process never ends unless the step's signal kills it. */
