@@ -1,13 +1,21 @@
-// The listener guard (DIPO-117): it is preloaded for every test, and names each uncaught-error
-// event whose listener count a test changed.
+// The listener guard (DIPO-117): it is preloaded for every test, takes the counts when each test
+// starts, and names each uncaught-error event whose listener count that test changed. A listener
+// this file adds when it is imported, and removes after its last test, blames none of its tests.
 
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { listenerChanges } from "./listener-guard";
 
 const listener = (): void => {};
+const atImport = (): void => {};
+
+// Added at import, before any test's count: no test here fails for it.
+process.on("unhandledRejection", atImport);
+afterAll(() => {
+  process.off("unhandledRejection", atImport);
+});
 
 describe("the uncaught-error listener guard", () => {
   it("is preloaded for every test", () => {
