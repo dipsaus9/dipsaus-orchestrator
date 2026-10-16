@@ -1,10 +1,10 @@
 ---
 id: DIPO-90
 title: Sweep leftover branch-read scratch directories
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 19:24'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -29,7 +29,7 @@ Context: seen in the M0 delivery sessions: _branch-read-* directories piled up u
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Office load (recovery) removes every <worktree root>/_branch-read-* directory older than the daemon start before any branch read runs, and logs how many it removed.
-- [ ] #2 A sweep never touches a claim worktree, _base, or any path not starting with BRANCH_READ_PREFIX.
-- [ ] #3 A test leaves two scratch directories and a claim worktree, loads the office, and finds only the claim worktree.
+- [x] #1 Office load (recovery) removes every <worktree root>/_branch-read-* directory older than the daemon start before any branch read runs, and logs how many it removed.
+- [x] #2 A sweep never touches a claim worktree, _base, or any path not starting with BRANCH_READ_PREFIX.
+- [x] #3 A test leaves two scratch directories and a claim worktree, loads the office, and finds only the claim worktree.
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: DIPO-87
 title: Checkpoint and close the state database cleanly on daemon stop
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 19:24'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -30,7 +30,7 @@ Context: seen in the M0 delivery sessions: dipo.db-wal and dipo.db-shm stayed af
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A clean stop runs pragma wal_checkpoint(TRUNCATE) after every office engine, retention and maintenance task has stopped, then closes the connection; after the process exits dipo.db-wal and dipo.db-shm do not exist.
-- [ ] #2 A close that fails (open statement, busy checkpoint) is logged at warn with the reason and does not turn the clean exit into a crash.
-- [ ] #3 A CI test starts and stops a daemon on a temp state dir and finds no -wal or -shm file left.
+- [x] #1 A clean stop runs pragma wal_checkpoint(TRUNCATE) after every office engine, retention and maintenance task has stopped, then closes the connection; after the process exits dipo.db-wal and dipo.db-shm do not exist.
+- [x] #2 A close that fails (open statement, busy checkpoint) is logged at warn with the reason and does not turn the clean exit into a crash.
+- [x] #3 A CI test starts and stops a daemon on a temp state dir and finds no -wal or -shm file left.
 <!-- AC:END -->

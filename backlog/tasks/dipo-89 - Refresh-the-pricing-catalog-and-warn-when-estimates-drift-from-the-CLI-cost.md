@@ -1,10 +1,10 @@
 ---
 id: DIPO-89
 title: Refresh the pricing catalog and warn when estimates drift from the CLI cost
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:05'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -32,10 +32,10 @@ Context: seen in the M0 delivery sessions: estimated cost was about 25% off the 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The gap is measured per model from stored runs (estimate vs stored CLI cost) and its cause is written in the story notes (stale price, missing cache tier, or token accounting).
-- [ ] #2 A new catalog version with the corrected prices from the official pricing page ships as catalog-2.json, imported by the existing catalog import; catalog-1 stays unchanged.
-- [ ] #3 When a finished agent has both numbers and they differ by more than 10%, dipo logs one warn line per model and day naming the model, both numbers and the catalog version.
-- [ ] #4 Tests cover the import of the new catalog and the drift warning.
+- [x] #1 The gap is measured per model from stored runs (estimate vs stored CLI cost) and its cause is written in the story notes (stale price, missing cache tier, or token accounting).
+- [x] #2 A new catalog version with the corrected prices from the official pricing page ships as catalog-2.json, imported by the existing catalog import; catalog-1 stays unchanged.
+- [x] #3 When a finished agent has both numbers and they differ by more than 10%, dipo logs one warn line per model and day naming the model, both numbers and the catalog version.
+- [x] #4 Tests cover the import of the new catalog and the drift warning.
 <!-- AC:END -->
 
 ## Implementation Notes

@@ -1,10 +1,10 @@
 ---
 id: DIPO-96
 title: Show worker thinking as duration and token counts in the live detail
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 21:51'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -32,8 +32,8 @@ Context: the DIPO-83 notes (AC3 investigation, 2026-10-15) found that stream-jso
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Claude adapter maps thinking_duration_ms and system/thinking_tokens to a neutral activity event (kind thinking, ms, estimated tokens); the engine stays free of Claude field names.
-- [ ] #2 Ingestion stores one short line per thinking block, [thinking] <seconds>s ~<tokens> tokens, and the live detail now-line shows it.
-- [ ] #3 No thinking text or signature is stored or sent.
-- [ ] #4 Replay tests on a recording with thinking show the lines.
+- [x] #1 The Claude adapter maps thinking_duration_ms and system/thinking_tokens to a neutral activity event (kind thinking, ms, estimated tokens); the engine stays free of Claude field names.
+- [x] #2 Ingestion stores one short line per thinking block, [thinking] <seconds>s ~<tokens> tokens, and the live detail now-line shows it.
+- [x] #3 No thinking text or signature is stored or sent.
+- [x] #4 Replay tests on a recording with thinking show the lines.
 <!-- AC:END -->

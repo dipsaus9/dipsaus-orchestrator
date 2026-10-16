@@ -1,10 +1,10 @@
 ---
 id: DIPO-85
 title: Update criteria progress from the worker report during a run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
-updated_date: '2026-10-15 20:35'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -38,8 +38,8 @@ Context: seen in the M0 delivery sessions of 2026-10-14/15: every run showed cri
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The run progress criteriaMet is the number of known criteria the latest accepted worker report marks met (or the criteria checked on the story branch tip), stored as a run fact so a daemon restart keeps it; criteriaTotal stays the story total.
-- [ ] #2 A work.progress event carries the new count when a report changes it, and the TUI detail boxes, the overview AC column and dipo watch show it without a merge.
-- [ ] #3 A report criterion number that the story does not have is ignored, and the evidence label of progress.criteriaMet stays claimed.
-- [ ] #4 Tests cover a run whose report marks 2 of 3 criteria met (view and event show 2/3) and a restart that keeps the count.
+- [x] #1 The run progress criteriaMet is the number of known criteria the latest accepted worker report marks met (or the criteria checked on the story branch tip), stored as a run fact so a daemon restart keeps it; criteriaTotal stays the story total.
+- [x] #2 A work.progress event carries the new count when a report changes it, and the TUI detail boxes, the overview AC column and dipo watch show it without a merge.
+- [x] #3 A report criterion number that the story does not have is ignored, and the evidence label of progress.criteriaMet stays claimed.
+- [x] #4 Tests cover a run whose report marks 2 of 3 criteria met (view and event show 2/3) and a restart that keeps the count.
 <!-- AC:END -->

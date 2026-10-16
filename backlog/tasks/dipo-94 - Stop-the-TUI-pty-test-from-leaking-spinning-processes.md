@@ -1,9 +1,10 @@
 ---
 id: DIPO-94
 title: Stop the TUI pty test from leaking spinning processes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-16 07:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -26,7 +27,7 @@ Context: seen in the M0 delivery sessions: pty-main.ts processes kept spinning a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 inPty kills the child (SIGKILL after a short SIGTERM grace) in its finally, also when the frame wait throws.
-- [ ] #2 pty-main.ts exits within a second when its terminal closes (SIGHUP, stdin EOF or EIO) or when its parent process is gone.
-- [ ] #3 A test closes the terminal under a running pty-main and checks the process is gone within 2 s.
+- [x] #1 inPty kills the child (SIGKILL after a short SIGTERM grace) in its finally, also when the frame wait throws.
+- [x] #2 pty-main.ts exits within a second when its terminal closes (SIGHUP, stdin EOF or EIO) or when its parent process is gone.
+- [x] #3 A test closes the terminal under a running pty-main and checks the process is gone within 2 s.
 <!-- AC:END -->
