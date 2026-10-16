@@ -148,6 +148,26 @@
       },
       "required": ["oldest"]
     },
+    "DatabaseUnavailableDetails": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["migration", "checksum", "damaged", "tooNew", "networkFilesystem", "open"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "backup": {
+          "type": "string"
+        }
+      },
+      "required": ["reason"]
+    },
     "DaemonState": {
       "type": "string",
       "enum": ["starting", "recovering", "running", "draining", "safe"]

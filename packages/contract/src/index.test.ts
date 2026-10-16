@@ -7,6 +7,7 @@ import {
   contractEvents,
   contractReads,
   Cursor,
+  DatabaseUnavailableDetails,
   engineError,
   GateId,
   GENERIC_ERROR_CODES,
@@ -193,6 +194,7 @@ describe("errors", () => {
         "capability.missing",
         "confirmation.required",
         "contract.unsupported",
+        "database.unavailable",
         "internal",
         "not.permitted",
         "office.unknown",
@@ -242,5 +244,14 @@ describe("errors", () => {
       retryable: false,
     });
     expect(engineError("args.invalid", "m", { path: ["x"] }).details).toEqual({ path: ["x"] });
+  });
+
+  it("parses database.unavailable details with known and unknown reasons (DIPO-111)", () => {
+    expect(engineError("database.unavailable", "m").retryable).toBe(false);
+    expect(
+      DatabaseUnavailableDetails.parse({ reason: "migration", backup: "/s/backups/pre-v3.db" }),
+    ).toEqual({ reason: "migration", backup: "/s/backups/pre-v3.db" });
+    expect(DatabaseUnavailableDetails.parse({ reason: "later" })).toEqual({ reason: "later" });
+    expect(DatabaseUnavailableDetails.safeParse({}).success).toBe(false);
   });
 });
