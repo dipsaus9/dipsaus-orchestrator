@@ -4,7 +4,7 @@ title: Keep daemon tests away from the real runtime directory
 status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 10:08'
+updated_date: '2026-10-16 10:14'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -15,6 +15,7 @@ references:
   - packages/client/test
   - packages/testkit/README.md
   - packages/testkit/src/
+  - packages/daemon/src/
 priority: high
 type: task
 ordinal: 99000
