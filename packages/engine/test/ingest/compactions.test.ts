@@ -4,12 +4,16 @@
 
 import { describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { AgentId } from "@dipsaus-orchestrator/contract";
 
 import { withTempDir, type RecordedLine, type Recording } from "@dipsaus-orchestrator/testkit";
 
 import { runRetention, DAY_MS } from "../../src/retention/run";
 import { Ingestor, type IngestAdapter } from "../../src/ingest/ingestor";
 import { readCompactions, type UsageScope } from "../../src/ingest/usage";
+import { recordWorkerHost } from "../../src/runs/worker-hosts";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { ParseState } from "../../src/workers/types";
 import { loadRecording, plannedModel } from "../workers/replay";
@@ -70,11 +74,43 @@ function withLinesBeforeResult(lines: (t: number) => RecordedLine[]): Recording 
   };
 }
 
-function ingestRecording(f: IngestFixture, recording: Recording) {
-  writeFileSync(f.eventFile, eventFileText(recording));
-  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+function newIngestor(f: IngestFixture): Ingestor {
+  return new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+}
+
+function targetOf(f: IngestFixture, recording: Recording) {
   const state = initialState({ plannedModel: plannedModel(recording) }) as unknown as ParseState;
-  return ingestor.track(target(f, claude, state));
+  return target(f, claude, state);
+}
+
+function ingestRecording(f: IngestFixture, recording: Recording, ingestor = newIngestor(f)) {
+  writeFileSync(f.eventFile, eventFileText(recording));
+  return ingestor.track(targetOf(f, recording));
+}
+
+/** A second agent of the same run, with its own worker host and event file. */
+function ingestSecondAgent(f: IngestFixture, dir: string, recording: Recording): AgentId {
+  const agent = AgentId.parse(f.t.ids.next("agt"));
+  const eventFile = join(dir, "events-2.ndjson");
+  writeFileSync(eventFile, eventFileText(recording));
+  recordWorkerHost(
+    f.office,
+    {
+      pid: 4343,
+      startTimeMs: 0,
+      runId: f.run,
+      agentId: agent,
+      socketPath: join(dir, "host-2.sock"),
+      protocolVersion: 1,
+      runDir: dir,
+      eventFile,
+    },
+    f.t.clock,
+  );
+  const state = initialState({ plannedModel: plannedModel(recording) }) as unknown as ParseState;
+  const result = newIngestor(f).track({ ...target(f, claude, state, { work: false }), agent });
+  expect(result.status).toBe("ended");
+  return agent;
 }
 
 function scopeOf(f: IngestFixture): UsageScope {
@@ -84,7 +120,7 @@ function scopeOf(f: IngestFixture): UsageScope {
 interface CompactionRow {
   run_id: string;
   agent_id: string;
-  pre_tokens: number;
+  pre_tokens: number | null;
   at: number;
 }
 
@@ -95,12 +131,12 @@ function compactionsOf(f: IngestFixture): CompactionRow[] {
 }
 
 /** A fresh ingestion fixture, closed after the test. */
-function withIngest(fn: (f: IngestFixture) => void | Promise<void>) {
+function withIngest(fn: (f: IngestFixture, dir: string) => void | Promise<void>) {
   return () =>
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       try {
-        await fn(f);
+        await fn(f, dir);
       } finally {
         f.t.state.close();
       }
@@ -139,6 +175,64 @@ describe("a compaction of a replayed session (DIPO-106)", () => {
         withLinesBeforeResult((t) => [postCompact(t), boundary(t, 150_000)]),
       );
       expect(compactionsOf(f).map((row) => row.pre_tokens)).toEqual([150_000]);
+    }),
+  );
+
+  it(
+    "stores a compaction only the PostCompact hook reported with no pre-compaction tokens",
+    withIngest((f) => {
+      ingestRecording(
+        f,
+        withLinesBeforeResult((t) => [postCompact(t)]),
+      );
+
+      expect(compactionsOf(f)).toEqual([
+        { run_id: f.run, agent_id: f.agent, pre_tokens: null, at: f.t.clock.now() },
+      ]);
+      expect(readCompactions(f.office, scopeOf(f))).toEqual({
+        agent: { count: 1, latestPreTokens: null },
+        run: { count: 1, latestPreTokens: null },
+      });
+    }),
+  );
+
+  it(
+    "stores nothing more when the fully ingested file is passed or tracked again",
+    withIngest((f) => {
+      const recording = withLinesBeforeResult((t) => [boundary(t, 150_000)]);
+      const ingestor = newIngestor(f);
+      expect(ingestRecording(f, recording, ingestor).status).toBe("ended");
+      expect(compactionsOf(f)).toHaveLength(1);
+
+      ingestor.pass(f.run, f.agent);
+      ingestor.track(targetOf(f, recording));
+      // A restarted engine resumes from the stored cursor.
+      newIngestor(f).track(targetOf(f, recording));
+      expect(compactionsOf(f)).toHaveLength(1);
+    }),
+  );
+
+  it(
+    "counts a second agent of the run in the run stats and in its own agent stats only",
+    withIngest((f, dir) => {
+      ingestRecording(
+        f,
+        withLinesBeforeResult((t) => [boundary(t, 120_000), boundary(t + 1, 90_000)]),
+      );
+      const second = ingestSecondAgent(
+        f,
+        dir,
+        withLinesBeforeResult((t) => [boundary(t, 60_000)]),
+      );
+
+      expect(readCompactions(f.office, scopeOf(f))).toEqual({
+        agent: { count: 2, latestPreTokens: 90_000 },
+        run: { count: 3, latestPreTokens: 60_000 },
+      });
+      expect(readCompactions(f.office, { ...scopeOf(f), agent: second })).toEqual({
+        agent: { count: 1, latestPreTokens: 60_000 },
+        run: { count: 3, latestPreTokens: 60_000 },
+      });
     }),
   );
 

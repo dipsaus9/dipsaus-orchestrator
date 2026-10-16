@@ -493,8 +493,8 @@ export class Ingestor {
               );
               break;
             case "compacted":
-              // The adapter emits one event per compaction, whichever of its lines reported it.
-              recordCompaction(this.#office, target, event.preTokens, now);
+              // The adapter emits one event per compaction; no preTokens when it had no count.
+              recordCompaction(this.#office, target, event.preTokens ?? null, now);
               break;
             case "initRejected":
               rejected.push(event.reason);

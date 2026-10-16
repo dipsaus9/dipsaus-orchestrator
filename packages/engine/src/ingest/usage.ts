@@ -350,11 +350,14 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
   };
 }
 
-/** One context compaction of the worker session (0008 section 4, DIPO-106). */
+/**
+ * One context compaction of the worker session (0008 section 4, DIPO-106). `preTokens` is null when
+ * the adapter had no count for it.
+ */
 export function recordCompaction(
   office: OfficeHandle,
   scope: UsageScope,
-  preTokens: number,
+  preTokens: number | null,
   at: number,
 ): void {
   office.run(
@@ -368,7 +371,7 @@ export function recordCompaction(
 /** The compaction count and the latest compaction's pre-compaction tokens (DIPO-106). */
 export interface CompactionStat {
   readonly count: number;
-  /** Null when no compaction was stored. */
+  /** Null when no compaction was stored, or when the latest one had no count. */
   readonly latestPreTokens: number | null;
 }
 
