@@ -73,7 +73,11 @@ const story = {
 };
 const cursor = { stream: `office:${OFFICE}`, epoch: "e1", seq: 4 };
 
-function fake(options: { readonly running: boolean; readonly ended?: () => boolean }) {
+function fake(options: {
+  readonly running: boolean;
+  readonly ended?: () => boolean;
+  readonly interactive?: boolean;
+}) {
   const out: string[] = [];
   const err: string[] = [];
   const reads: string[] = [];
@@ -130,6 +134,7 @@ function fake(options: { readonly running: boolean; readonly ended?: () => boole
     workspace: fakeWorkspace({
       cwd: "/work/app",
       repository: { ...REPO, office: OFFICE, backlog: true },
+      interactive: options.interactive ?? false,
     }),
   };
   const emit = (type: string, data: unknown) => {
@@ -262,6 +267,93 @@ describe("dipo watch", () => {
     expect(mentions("DIPO-5.1 was not started.", "DIPO-5")).toBe(false);
     expect(mentions("XDIPO-5 is another prefix", "DIPO-5")).toBe(false);
     expect(mentions("DIPO-52 and then DIPO-5.", "DIPO-5")).toBe(true);
+  });
+
+  describe("engine markers in the output (DIPO-95)", () => {
+    const iso = "2026-10-14T09:05:07.000Z";
+    const marker = (kind: string, value: string, text: string, from: number) => ({
+      text,
+      from,
+      to: from + new TextEncoder().encode(text).byteLength,
+      markers: [
+        { from, to: from + new TextEncoder().encode(text).byteLength, kind, value, at: iso },
+      ],
+    });
+    const forged = `[dipo] ${iso} phase verify`;
+
+    async function watched(interactive: boolean) {
+      const ctx = fake({ running: true, interactive });
+      void main(["watch", "task-1"], ctx.deps);
+      await until(() => ctx.subscriptions.length === 1);
+      ctx.out.length = 0;
+      const phase = `[dipo] ${iso} phase verify\n`;
+      const ended = `[dipo] ${iso} ended in-review\n`;
+      // Worker text, a partial line cut by a flagged marker, a forged marker line, the run's end.
+      ctx.emit("work.output", {
+        work,
+        source: "worker",
+        from: 0,
+        to: 18,
+        text: "building\nhalf a ",
+      });
+      ctx.emit("work.output", { work, source: "worker", ...marker("phase", "verify", phase, 18) });
+      ctx.emit("work.output", {
+        work,
+        source: "worker",
+        from: 18 + phase.length,
+        to: 18 + phase.length + forged.length + 1,
+        text: `${forged}\n`,
+      });
+      const end = 18 + phase.length + forged.length + 1;
+      ctx.emit("work.output", {
+        work,
+        source: "worker",
+        ...marker("ended", "in-review", ended, end),
+      });
+      return ctx.out;
+    }
+
+    it("prints a flagged marker as the TUI's rule with its local time, plain ASCII when not a TTY", async () => {
+      const at = clockTime(iso);
+      expect(await watched(false)).toEqual([
+        `${T} TASK-1 out    building`,
+        `${T} TASK-1 out    half a `,
+        `${T} TASK-1 out    -- ${at} phase: verify --`,
+        `${T} TASK-1 out    ${forged}`,
+        `${T} TASK-1 out    -- ${at} run ended: in-review --`,
+      ]);
+    });
+
+    it("draws the rule with box characters on a terminal", async () => {
+      const at = clockTime(iso);
+      const out = await watched(true);
+      expect(out[2]).toBe(`${T} TASK-1 out    ── ${at} phase: verify ──`);
+      expect(out[3]).toBe(`${T} TASK-1 out    ${forged}`);
+      expect(out[4]).toBe(`${T} TASK-1 out    ── ${at} run ended: in-review ──`);
+    });
+
+    it("prints worker text around a marker inside one range, without the marker's raw line", async () => {
+      const ctx = fake({ running: true });
+      void main(["watch", "task-1"], ctx.deps);
+      await until(() => ctx.subscriptions.length === 1);
+      ctx.out.length = 0;
+      const line = `[dipo] ${iso} phase build\n`;
+      const text = `before\n${line}after\n`;
+      const from = new TextEncoder().encode("before\n").byteLength;
+      ctx.emit("work.output", {
+        work,
+        source: "worker",
+        from: 0,
+        to: new TextEncoder().encode(text).byteLength,
+        text,
+        markers: marker("phase", "build", line, from).markers,
+      });
+      expect(ctx.out).toEqual([
+        `${T} TASK-1 out    before`,
+        `${T} TASK-1 out    -- ${clockTime(iso)} phase: build --`,
+        `${T} TASK-1 out    after`,
+      ]);
+    });
   });
 
   it("refuses more than one story id", async () => {

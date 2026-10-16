@@ -4,7 +4,8 @@
 // `features.ts` lists the modules, so a later story adds a command or read in its own directory
 // plus one line there, without editing `commands/` or `reads/`. Modules also add office load steps
 // and active-work checks here (DIPO-27), which `office/` runs without knowing the modules, and
-// config-reload listeners (DIPO-48), which `office.reloadConfig` calls with the new configuration.
+// config-reload listeners (DIPO-48), which `office.reloadConfig` calls with the new configuration,
+// and story refreshes (DIPO-104), which the executor calls before an unknown story reference fails.
 
 import {
   checkVersioning,
@@ -107,6 +108,19 @@ export interface RegisteredConfigReload {
   readonly listen: ConfigReloadListener;
 }
 
+/**
+ * Brings an office's stories up to date with its remote base (DIPO-104): the executor calls it
+ * once when an office command names a story the office does not know, then resolves again, so a
+ * story merged to the base since the last poll is found. It never throws.
+ */
+export type StoryRefresh = (office: OfficeId) => Promise<void>;
+
+export interface RegisteredStoryRefresh {
+  readonly module: string;
+  readonly name: string;
+  readonly refresh: StoryRefresh;
+}
+
 /** Software-level handlers write no office facts, so they may wait (for git, for example). */
 export type SoftwareCommandHandler<A, R> = (
   ctx: SoftwareCommandContext,
@@ -179,6 +193,8 @@ export interface FeatureRegistry {
   ): void;
   /** Called after `office.reloadConfig` read a valid configuration of a loaded office (DIPO-48). */
   registerConfigReload(name: string, listen: ConfigReloadListener): void;
+  /** Called when an office command names a story the office does not know (DIPO-104). */
+  registerStoryRefresh(name: string, refresh: StoryRefresh): void;
 }
 
 /** A feature module listed in `features.ts`. */
@@ -227,7 +243,13 @@ export type RegisteredRead =
 /** A command or read name registered by two modules; startup fails naming both. */
 export class DuplicateRegistrationError extends Error {
   constructor(
-    readonly kind: "command" | "read" | "load step" | "active-work check" | "config reload",
+    readonly kind:
+      | "command"
+      | "read"
+      | "load step"
+      | "active-work check"
+      | "config reload"
+      | "story refresh",
     readonly registeredName: string,
     readonly modules: readonly [string, string],
   ) {
@@ -252,6 +274,12 @@ export class Registry {
   readonly #loadSteps = new Map<string, RegisteredLoadStep>();
   readonly #activeWorkChecks = new Map<string, RegisteredActiveWorkCheck>();
   readonly #configReloads = new Map<string, RegisteredConfigReload>();
+  readonly #storyRefreshes = new Map<string, RegisteredStoryRefresh>();
+
+  /** Story refreshes, in registration order. */
+  storyRefreshes(): RegisteredStoryRefresh[] {
+    return [...this.#storyRefreshes.values()];
+  }
 
   /** Config-reload listeners, in registration order. */
   configReloads(): RegisteredConfigReload[] {
@@ -375,6 +403,13 @@ export class Registry {
           throw new DuplicateRegistrationError("config reload", name, [existing.module, module]);
         }
         this.#configReloads.set(name, { module, name, listen });
+      },
+      registerStoryRefresh: (name, refresh) => {
+        const existing = this.#storyRefreshes.get(name);
+        if (existing !== undefined) {
+          throw new DuplicateRegistrationError("story refresh", name, [existing.module, module]);
+        }
+        this.#storyRefreshes.set(name, { module, name, refresh });
       },
     });
   }

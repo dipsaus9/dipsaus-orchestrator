@@ -51,6 +51,10 @@ export const OfficeSummary = z.object({
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
   // (0007 section 8: the overview shows when one is on). Absent when none is on. Minor 1, DIPO-83.
   optIns: z.array(z.string().min(1)).optional(),
+  // The days stored output is kept (`retention.shortDays`, 0007 section 7), so a client can say
+  // that output was removed after this period. Absent when the office has no valid configuration.
+  // Minor 1, DIPO-97.
+  outputRetentionDays: z.int().positive().optional(),
 });
 export type OfficeSummary = z.infer<typeof OfficeSummary>;
 

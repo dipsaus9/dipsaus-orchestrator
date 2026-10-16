@@ -25,6 +25,7 @@ import type { FeatureModule, ReadContext } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openQuestionViews, storyQuestionViews } from "../hooks/questions";
 import { readUsage } from "../ingest/usage";
+import { storedMarker } from "../run/markers";
 
 import { activeStoryViews, storyView } from "./story";
 import { openGateViews } from "./summary";
@@ -180,6 +181,8 @@ type RangeResult = z.input<typeof workOutputRange.result>;
  * `OUTPUT_RANGE_MAX_BYTES`. Output removed by retention or not yet written is left out, so the
  * result's `from` and `to` say what it holds; both fall on character boundaries. An empty range
  * has `from` equal to `to`.
+ * Engine markers in the worker output that overlap the result are flagged in `markers` (DIPO-95):
+ * a marker is a worker chunk with no agent, which only the engine writes.
  */
 export function outputRange(
   office: OfficeHandle,
@@ -188,8 +191,13 @@ export function outputRange(
   from: number,
   to?: number,
 ): RangeResult {
-  const chunks = office.all<{ from_offset: number; to_offset: number; text: string }>(
-    `select from_offset, to_offset, text from output_chunks
+  const chunks = office.all<{
+    from_offset: number;
+    to_offset: number;
+    text: string;
+    agent_id: string | null;
+  }>(
+    `select from_offset, to_offset, text, agent_id from output_chunks
       where office_id = $office_id and run_id = $run and source = $source
         and to_offset > $from and ($to is null or from_offset < $to)
       order by from_offset`,
@@ -209,12 +217,23 @@ export function outputRange(
   end = Math.min(end, start + OUTPUT_RANGE_MAX_BYTES);
   while (start < end && continuation(bytes[start])) start += 1;
   while (end > start && end < bytes.length && continuation(bytes[end])) end -= 1;
+  const markers =
+    source === "worker"
+      ? chunks.flatMap((chunk) =>
+          chunk.agent_id === null &&
+          chunk.from_offset < base + end &&
+          chunk.to_offset > base + start
+            ? (storedMarker(chunk.text, chunk.from_offset, chunk.to_offset) ?? [])
+            : [],
+        )
+      : [];
   return {
     run,
     source,
     from: base + start,
     to: base + end,
     text: decoder.decode(bytes.subarray(start, end)),
+    ...(markers.length === 0 ? {} : { markers }),
   };
 }
 

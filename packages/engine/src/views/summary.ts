@@ -12,6 +12,7 @@ import {
   RunId,
 } from "@dipsaus-orchestrator/contract";
 
+import { type OfficeConfig, privacyOptIns } from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { openQuestions } from "../hooks/questions";
@@ -75,21 +76,42 @@ export interface OfficeIdentity {
   readonly path: string;
 }
 
-/** The privacy opt-ins on for an office (`privacyOptIns` of its configuration), for the summary. */
-export type OptInsOf = (office: OfficeId) => readonly string[];
+/**
+ * What the summary takes from an office's configuration: the privacy opt-ins that are on and the
+ * stored-output retention period in days, absent without a valid configuration.
+ */
+export interface SummarySettings {
+  readonly optIns: readonly string[];
+  readonly outputRetentionDays?: number;
+}
+
+/** The summary settings of an office, from its configuration in force (`summarySettings`). */
+export type SummarySettingsOf = (office: OfficeId) => SummarySettings;
+
+const noSettings: SummarySettingsOf = () => ({ optIns: [] });
+
+/** The summary settings of a configuration: `privacyOptIns` and `retention.shortDays`. */
+export function summarySettings(config: OfficeConfig | undefined): SummarySettings {
+  return {
+    optIns: privacyOptIns(config),
+    ...(config === undefined ? {} : { outputRetentionDays: config.retention.shortDays }),
+  };
+}
 
 /**
  * The summary of one office: `running` counts active runs, `parked` the stories in the `desk` and
  * `held` columns, `onHold` those in `held`, and `waitingOnMaintainer` the parked stories other than
  * on-hold, the open gates waiting on the maintainer and the open questions (DIPO-59; tests count
- * from M1), `ready` the stories in the `ready` column (DIPO-81) and `optIns` the privacy opt-ins
- * that are on (0007 section 8, DIPO-83).
+ * from M1), `ready` the stories in the `ready` column (DIPO-81), `optIns` the privacy opt-ins that
+ * are on (0007 section 8, DIPO-83) and `outputRetentionDays` the stored-output retention period
+ * (0007 section 7, DIPO-97).
  */
 export function deriveOfficeSummary(
   identity: OfficeIdentity,
   office: OfficeHandle,
-  optIns: readonly string[] = [],
+  settings: SummarySettings = { optIns: [] },
 ): OfficeSummary {
+  const { optIns, outputRetentionDays } = settings;
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
   const held = counts.held ?? 0;
@@ -104,6 +126,7 @@ export function deriveOfficeSummary(
     waitingOnMaintainer: desk + gates + openQuestions(office).length,
     ready: counts.ready ?? 0,
     ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),
+    ...(outputRetentionDays === undefined ? {} : { outputRetentionDays }),
   };
 }
 
@@ -122,14 +145,14 @@ function officeRows(database: StateDatabase): OfficeListRow[] {
 /** The summary of every office in the office list, in the order offices were added. */
 export function officeSummaries(
   database: StateDatabase,
-  optInsOf: OptInsOf = () => [],
+  settingsOf: SummarySettingsOf = noSettings,
 ): OfficeSummary[] {
   return officeRows(database).map((row) => {
     const office = OfficeId.parse(row.office_id);
     return deriveOfficeSummary(
       { office, name: row.display_name, path: row.path },
       database.office(office),
-      optInsOf(office),
+      settingsOf(office),
     );
   });
 }
@@ -138,7 +161,7 @@ export function officeSummaries(
 export function officeSummaryOf(
   database: StateDatabase,
   office: OfficeId,
-  optInsOf: OptInsOf = () => [],
+  settingsOf: SummarySettingsOf = noSettings,
 ): OfficeSummary | undefined {
   const row = database.connection.get<OfficeListRow>(
     "select office_id, path, display_name from offices where office_id = $office and forgotten_at is null",
@@ -149,7 +172,7 @@ export function officeSummaryOf(
     deriveOfficeSummary(
       { office, name: row.display_name, path: row.path },
       database.office(office),
-      optInsOf(office),
+      settingsOf(office),
     ),
   );
 }
@@ -160,11 +183,11 @@ export function officeSummaryOf(
  */
 export function officeSummaryOfSource(
   database: () => StateDatabase | null,
-  optInsOf: OptInsOf = () => [],
+  settingsOf: SummarySettingsOf = noSettings,
 ): (office: OfficeId) => OfficeSummary | undefined {
   return (office) => {
     const db = database();
-    return db === null ? undefined : officeSummaryOf(db, office, optInsOf);
+    return db === null ? undefined : officeSummaryOf(db, office, settingsOf);
   };
 }
 
@@ -174,10 +197,10 @@ export function officeSummaryOfSource(
  */
 export function officeSummarySource(
   database: () => StateDatabase | null,
-  optInsOf: OptInsOf = () => [],
+  settingsOf: SummarySettingsOf = noSettings,
 ): () => OfficeSummary[] {
   return () => {
     const db = database();
-    return db === null ? [] : db.connection.deferred(() => officeSummaries(db, optInsOf));
+    return db === null ? [] : db.connection.deferred(() => officeSummaries(db, settingsOf));
   };
 }

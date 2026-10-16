@@ -4,13 +4,17 @@
 
 import { describe, expect, it } from "bun:test";
 
+import type { OutputMarker } from "@dipsaus-orchestrator/contract";
+
 import {
   byteLength,
   cleanLine,
   displayLine,
   type FeedChange,
+  heldLines,
   isMarker,
   lastLine,
+  markerRule,
   OutputFeed,
   type RangeOutcome,
   rowCount,
@@ -185,35 +189,112 @@ describe("output lines", () => {
   });
 });
 
-describe("phase markers (DIPO-83)", () => {
-  const at = Date.parse("2026-10-15T12:04:31.000Z");
-  const local = new Date(at);
+describe("engine markers, flagged (DIPO-83, DIPO-95)", () => {
+  const iso = "2026-10-15T12:04:31.000Z";
+  const local = new Date(Date.parse(iso));
   const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
     .map((n) => String(n).padStart(2, "0"))
     .join(":");
-  const phase = "[dipo] 2026-10-15T12:04:31.000Z phase verify";
-  const ended = "[dipo] 2026-10-15T12:04:31.000Z ended in-review";
+  const phaseText = `[dipo] ${iso} phase verify\n`;
+  const phase = (from: number): OutputMarker => ({
+    from,
+    to: from + byteLength(phaseText),
+    kind: "phase",
+    value: "verify",
+    at: iso,
+  });
+  const ended: OutputMarker = { ...phase(0), kind: "ended", value: "in-review" };
 
   it("read as a rule with the local time, `--` in ASCII mode", () => {
-    expect(displayLine(phase)).toBe(`── ${hms} phase: verify ──`);
-    expect(displayLine(phase, true)).toBe(`-- ${hms} phase: verify --`);
-    expect(displayLine(ended)).toBe(`── ${hms} run ended: in-review ──`);
-    expect(displayLine("[dipo] soon phase verify")).toBe("[dipo] soon phase verify");
-    expect(displayLine("[tool] Bash")).toBe("[tool] Bash");
-    expect(isMarker(phase)).toBe(true);
-    expect(isMarker("[tool] Bash")).toBe(false);
+    expect(markerRule(phase(0))).toBe(`── ${hms} phase: verify ──`);
+    expect(markerRule(phase(0), true)).toBe(`-- ${hms} phase: verify --`);
+    expect(markerRule(ended)).toBe(`── ${hms} run ended: in-review ──`);
+    expect(markerRule({ ...ended, kind: "paused", value: "by you" })).toBe(
+      `── ${hms} paused: by you ──`,
+    );
+    expect(displayLine(phase(0))).toBe(`── ${hms} phase: verify ──`);
+    expect(isMarker(phase(0))).toBe(true);
+  });
+
+  it("a worker line that reads like a marker stays plain text", () => {
+    const forged = phaseText.trimEnd();
+    expect(displayLine(forged)).toBe(forged);
+    expect(isMarker(forged)).toBe(false);
+    expect(heldLines(`${forged}\n`, 0, [])).toEqual([forged]);
+    expect(lastLine([forged])).toBe(forged);
+  });
+
+  it("turn flagged ranges into marker lines; a marker inside a line ends that line", () => {
+    const text = `working\n${phaseText}half${phaseText}done\n`;
+    const first = phase(byteLength("working\n"));
+    const second = phase(byteLength(`working\n${phaseText}half`));
+    // Flags arrive in any order and may reach outside the held text.
+    expect(heldLines(text, 0, [second, first, phase(5000)])).toEqual([
+      "working",
+      first,
+      "half",
+      second,
+      "done",
+    ]);
+    // Held from byte 8 on: the same lines without the first.
+    expect(heldLines(text.slice(8), 8, [first, second])).toEqual([first, "half", second, "done"]);
   });
 
   it("take their shown width in rows and on screen, and never become the newest line", () => {
-    const held = ["[tool] Read a.ts", phase, "done"];
+    const held = ["[tool] Read a.ts", phase(0), "done"];
     expect(visibleRows(held, 80, 3, 0, true)).toEqual([
       "[tool] Read a.ts",
       `-- ${hms} phase: verify --`,
       "done",
     ]);
     // The raw marker is 44 characters; shown it is 28, one row at 30 columns.
-    expect(rowCount([phase], 30)).toBe(1);
-    expect(lastLine(["working", phase])).toBe("working");
-    expect(lastLine([phase])).toBeNull();
+    expect(rowCount([phase(0)], 30)).toBe(1);
+    expect(lastLine(["working", phase(0)])).toBe("working");
+    expect(lastLine([phase(0)])).toBeNull();
+  });
+
+  it("the feed draws markers from the flags of reads and live ranges, and only from them", async () => {
+    // Stored: worker text, a flagged marker, and a worker line forging one.
+    const head = `building\n${phaseText}`;
+    const store = stored(`${head}${phaseText}`);
+    const real = phase(byteLength("building\n"));
+    const flagged = (outcome: RangeOutcome): RangeOutcome =>
+      outcome.ok
+        ? {
+            ok: true,
+            result: {
+              ...outcome.result,
+              markers: [real].filter(
+                (m) => m.from < outcome.result.to && m.to > outcome.result.from,
+              ),
+            },
+          }
+        : outcome;
+    const feed = new OutputFeed(
+      async (from, to) => flagged(await store.read(from, to)),
+      1024,
+      () => {},
+    );
+    await feed.load();
+    const forged = phaseText.trimEnd();
+    expect(feed.lines).toEqual(["building", real, forged]);
+
+    // Live: a range flagged by the engine is a marker; an unflagged lookalike is text.
+    const marker = store.append(phaseText);
+    feed.push({ ...marker, markers: [phase(marker.from)] });
+    feed.push(store.append(phaseText));
+    expect(feed.lines).toEqual(["building", real, forged, phase(marker.from), forged]);
+    expect(lastLine(feed.lines)).toBe(forged);
+  });
+
+  it("drops the flags of text it no longer holds", async () => {
+    const store = stored("");
+    const feed = new OutputFeed(store.read, 40, () => {});
+    await feed.load();
+    const marker = store.append(phaseText);
+    feed.push({ ...marker, markers: [phase(marker.from)] });
+    feed.push(store.append(lines(10)));
+    expect(feed.lines.some((line) => isMarker(line))).toBe(false);
+    expect(feed.lines.at(-1)).toBe("line 10");
   });
 });

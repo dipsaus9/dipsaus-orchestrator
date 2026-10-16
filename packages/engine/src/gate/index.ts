@@ -9,6 +9,7 @@ export {
   contractCharacters,
   cycleThrough,
   gateMessage,
+  gateText,
   isValidScopePath,
   outcomeLines,
   r01a,

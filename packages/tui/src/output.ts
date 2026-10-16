@@ -4,15 +4,23 @@
 // missed, and reads earlier text when the pane scrolls past what it holds. Offsets count bytes in
 // the stored output; the text held always starts at a line start, so every line shown is whole.
 // While the pane follows the tail it keeps about `tailBytes`; scrolled back it keeps what it read.
+// The engine's phase markers come flagged with their byte ranges (DIPO-95); the feed keeps the
+// flags of the text it holds and turns each flagged range into one marker line, so only the engine
+// can draw a marker: worker text that reads like one stays text.
 
-import type { EngineError } from "@dipsaus-orchestrator/contract";
+import type { EngineError, OutputMarker } from "@dipsaus-orchestrator/contract";
 
 /** One byte range of stored output, as `work.output` and `work.outputRange` carry it. */
 export interface OutputRange {
   readonly from: number;
   readonly to: number;
   readonly text: string;
+  /** The engine markers in or overlapping the range (DIPO-95). */
+  readonly markers?: readonly OutputMarker[] | undefined;
 }
+
+/** A held line: text as stored, or an engine marker drawn from its flag. */
+export type OutputLine = string | OutputMarker;
 
 export type RangeOutcome =
   | { readonly ok: true; readonly result: OutputRange }
@@ -55,30 +63,60 @@ export function splitLines(text: string): string[] {
   return lines.map(cleanLine);
 }
 
-// A phase marker the engine writes into the worker output (DIPO-83):
-// `[dipo] 2026-10-15T12:04:31.000Z phase verify` or `[dipo] <time> ended in-review`.
-const MARKER = /^\[dipo\] (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) (phase|ended) (\S.*)$/;
+/**
+ * The held `text`, which starts at byte `start` of the stored output, as lines: each flagged
+ * marker range becomes one marker line and the text around it splits as usual. A marker that
+ * begins inside a line ends that line first.
+ */
+export function heldLines(
+  text: string,
+  start: number,
+  markers: readonly OutputMarker[],
+): OutputLine[] {
+  if (markers.length === 0) return splitLines(text);
+  const bytes = encoder.encode(text);
+  const inside = markers
+    .filter((marker) => marker.to > start && marker.from < start + bytes.length)
+    .toSorted((a, b) => a.from - b.from);
+  if (inside.length === 0) return splitLines(text);
+  const lines: OutputLine[] = [];
+  let at = 0;
+  for (const marker of inside) {
+    const from = Math.max(at, marker.from - start);
+    lines.push(...splitLines(decoder.decode(bytes.subarray(at, from))), marker);
+    at = Math.min(bytes.length, Math.max(from, marker.to - start));
+  }
+  lines.push(...splitLines(decoder.decode(bytes.subarray(at))));
+  return lines;
+}
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/** True for a phase marker line. */
-export function isMarker(line: string): boolean {
-  return MARKER.test(line);
+/** True for an engine marker line. */
+export function isMarker(line: OutputLine): line is OutputMarker {
+  return typeof line !== "string";
 }
 
 /**
- * A line as the pane shows it: a phase marker reads `── 12:04:31 phase: verify ──` or
- * `── 12:09:02 run ended: in-review ──` (local time; `--` in ASCII mode); any other line as is.
+ * An engine marker as a rule: `── 12:04:31 phase: verify ──` or `── 12:09:02 run ended: in-review
+ * ──` (local time; `--` in ASCII mode). `dipo watch` prints the same rule.
  */
-export function displayLine(line: string, ascii = false): string {
-  const match = MARKER.exec(line);
-  if (match === null) return line;
-  const [, iso, kind, value] = match;
-  const at = new Date(iso ?? "");
+export function markerRule(marker: OutputMarker, ascii = false): string {
+  const at = new Date(marker.at);
   const time = `${pad2(at.getHours())}:${pad2(at.getMinutes())}:${pad2(at.getSeconds())}`;
   const rule = ascii ? "--" : "──";
-  const label = kind === "phase" ? `phase: ${value}` : `run ended: ${value}`;
+  const label =
+    marker.kind === "phase"
+      ? `phase: ${marker.value}`
+      : marker.kind === "ended"
+        ? `run ended: ${marker.value}`
+        : `${marker.kind}: ${marker.value}`;
   return `${rule} ${time} ${label} ${rule}`;
+}
+
+/** A line as the pane shows it: an engine marker as its rule, any other line as is. */
+export function displayLine(line: OutputLine, ascii = false): string {
+  return isMarker(line) ? markerRule(line, ascii) : line;
 }
 
 /** The lines cut to `width` columns each, so the pane never scrolls sideways (0009 section 9). */
@@ -96,7 +134,7 @@ export function wrapLines(lines: readonly string[], width: number): string[] {
 }
 
 /** How many rows `lines` take at `width` columns. */
-export function rowCount(lines: readonly string[], width: number, ascii = false): number {
+export function rowCount(lines: readonly OutputLine[], width: number, ascii = false): number {
   const size = Math.max(1, width);
   let rows = 0;
   for (const line of lines) {
@@ -110,7 +148,7 @@ export function rowCount(lines: readonly string[], width: number, ascii = false)
  * the lines that reach the screen are cut into rows, the rest of the held text is not touched.
  */
 export function visibleRows(
-  lines: readonly string[],
+  lines: readonly OutputLine[],
   width: number,
   height: number,
   offset: number,
@@ -125,11 +163,13 @@ export function visibleRows(
   return rows.slice(Math.max(0, end - height), end);
 }
 
-/** The last non-empty line of `lines` that is not a phase marker, trimmed, or null. */
-export function lastLine(lines: readonly string[]): string | null {
+/** The last non-empty text line of `lines`, trimmed, or null; engine markers never count. */
+export function lastLine(lines: readonly OutputLine[]): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]?.trim() ?? "";
-    if (line !== "" && !isMarker(line)) return line;
+    const held = lines[i];
+    if (held === undefined || isMarker(held)) continue;
+    const line = held.trim();
+    if (line !== "") return line;
   }
   return null;
 }
@@ -142,7 +182,9 @@ export class OutputFeed {
   /** Byte offsets of `#text` in the stored output. */
   #start = 0;
   #end = 0;
-  #lines: string[] | null = null;
+  #lines: OutputLine[] | null = null;
+  /** The engine marker flags of the held text, oldest first. */
+  #markers: OutputMarker[] = [];
   #loaded = false;
   /** Nothing is stored before `#start` (it is 0, or an earlier read came back empty). */
   #atStart = false;
@@ -160,8 +202,8 @@ export class OutputFeed {
   }
 
   /** The held text as lines, oldest first. */
-  get lines(): readonly string[] {
-    this.#lines ??= splitLines(this.#text);
+  get lines(): readonly OutputLine[] {
+    this.#lines ??= heldLines(this.#text, this.#start, this.#markers);
     return this.#lines;
   }
 
@@ -242,6 +284,7 @@ export class OutputFeed {
         }
       }
       this.#text = text + this.#text;
+      this.#addMarkers(result.markers);
       this.#start = begin;
       this.#lines = null;
     }
@@ -272,6 +315,7 @@ export class OutputFeed {
     const text =
       skip === 0 ? range.text : decoder.decode(encoder.encode(range.text).subarray(skip));
     this.#text += text;
+    this.#addMarkers(range.markers);
     this.#end = range.to;
     this.#lines = null;
     if (this.#following) this.#trim(2 * this.#tailBytes);
@@ -302,10 +346,21 @@ export class OutputFeed {
       if (result.text === "" || result.to <= this.#end) return;
       if (initial && this.#text === "") this.#start = result.from;
       this.#text += result.text;
+      this.#addMarkers(result.markers);
       this.#end = result.to;
       this.#lines = null;
       if (initial || this.#following) this.#trim(this.#tailBytes);
     }
+  }
+
+  /** Keeps the flags of `markers` not held yet, oldest first. */
+  #addMarkers(markers: readonly OutputMarker[] | undefined): void {
+    if (markers === undefined) return;
+    for (const marker of markers) {
+      if (this.#markers.some((held) => held.from === marker.from)) continue;
+      this.#markers.push(marker);
+    }
+    this.#markers.sort((a, b) => a.from - b.from);
   }
 
   #drain(): void {
@@ -325,6 +380,7 @@ export class OutputFeed {
     at += 1;
     this.#text = decoder.decode(bytes.subarray(at));
     this.#start += at;
+    this.#markers = this.#markers.filter((marker) => marker.to > this.#start);
     this.#atStart = false;
     this.#lines = null;
     return true;

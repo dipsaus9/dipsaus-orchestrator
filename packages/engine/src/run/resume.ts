@@ -76,6 +76,7 @@ import {
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
+import { prepareRunTempDir } from "./temp-dirs";
 import { verifyResults } from "./verify-records";
 import type { RunBase } from "./work-run";
 
@@ -116,6 +117,8 @@ export interface RunResumerDeps {
   readonly story: (office: OfficeId, run: StoredRun) => Promise<RunStoryFacts>;
   readonly runtimeDir: string;
   readonly tmpRoot: string;
+  /** The owner written into a fresh run temp directory (`RunTempDirs.owner`, DIPO-102). */
+  readonly tempOwner?: () => string | undefined;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /** Run control: the new session is tracked before its ingestion starts. */
@@ -351,7 +354,7 @@ export class RunResumer implements NextSession {
     );
     try {
       ensurePrivateDir(paths.runDir);
-      ensurePrivateDir(paths.tmpDir);
+      prepareRunTempDir(paths.tmpDir, deps.tempOwner?.());
       if (!resume) writeFileSync(spec.systemFile, systemFile, { mode: 0o600 });
     } catch (error) {
       return {
