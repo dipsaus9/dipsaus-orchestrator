@@ -149,6 +149,11 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * `home`.
    */
   readonly pluginFiles?: PluginFiles;
+  /**
+   * The launch checks' file system and settings reader (DIPO-105); a test seam. Default to the
+   * real ones.
+   */
+  readonly launchCheckSeams?: Pick<ClaudeLaunchCheckDeps, "fs" | "readText">;
 }
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
@@ -216,6 +221,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
           platform: deps.platform,
           runStep: deps.runStep,
           uid: deps.uid,
+          ...deps.launchCheckSeams,
           ...(deps.safeChainProxies === undefined
             ? {}
             : { safeChainProxies: deps.safeChainProxies }),
