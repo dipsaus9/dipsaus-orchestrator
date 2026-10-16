@@ -4,7 +4,7 @@ title: Count an uncaught daemon error as a crash after a graceful drain
 status: Done
 assignee: []
 created_date: '2026-10-16 11:06'
-updated_date: '2026-10-16 12:15'
+updated_date: '2026-10-16 12:23'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -21,6 +21,9 @@ references:
   - packages/engine/test/platform/process.test.ts
   - packages/engine/test/platform/rejections.ts
   - packages/engine/test/platform/background.test.ts
+  - bunfig.toml
+  - packages/testkit/src/listener-guard.ts
+  - packages/testkit/src/listener-guard.test.ts
 priority: high
 type: feature
 ordinal: 107000
