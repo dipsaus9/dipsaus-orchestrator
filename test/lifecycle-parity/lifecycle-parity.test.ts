@@ -27,12 +27,39 @@ const PID_RECORDS = [
   "null",
 ];
 
-const PS_LINES = [
-  "Ss   Mon Oct 12 09:52:03 2026     /usr/local/bin/dipo daemon --foreground",
-  "S    Fri Oct  2 23:05:09 2026     /usr/local/bin/dipo daemon --foreground",
-  "Z+   Mon Oct 12 09:52:03 2026     (dipo)",
-  "S    Mon Foo 12 09:52:03 2026     x",
-  "garbage",
+// `struct kinfo_proc` (macOS): `p_starttime` at 0, `p_stat` at 36, `p_comm` at 243 (DIPO-114).
+function kinfo(startSeconds: number, stat: number, comm: string): Uint8Array {
+  const buffer = new Uint8Array(engineProcess.KINFO_PROC_SIZE);
+  new DataView(buffer.buffer).setBigInt64(0, BigInt(startSeconds), true);
+  buffer[36] = stat;
+  buffer.set(new TextEncoder().encode(comm).subarray(0, 16), 243);
+  return buffer;
+}
+
+// `kern.procargs2`: argc, the executable path, NUL padding, the arguments, the environment.
+function procArgs(argc: number, text: string): Uint8Array {
+  const bytes = new TextEncoder().encode(text);
+  const buffer = new Uint8Array(4 + bytes.byteLength);
+  new DataView(buffer.buffer).setInt32(0, argc, true);
+  buffer.set(bytes, 4);
+  return buffer;
+}
+
+const KINFOS = [
+  kinfo(1_791_535_923, 2, "dipo"),
+  kinfo(1_791_535_923, 5, "dipo"),
+  kinfo(1_791_535_923, 2, "a-very-long-command-name"),
+  kinfo(0, 2, "dipo"),
+  new Uint8Array(0),
+  new Uint8Array(100),
+];
+
+const PROC_ARGS = [
+  procArgs(3, "/usr/local/bin/dipo\0\0\0/usr/local/bin/dipo\0daemon\0--foreground\0HOME=/h\0"),
+  procArgs(2, "/b\0/Users/m/My Tools/dipo\0daemon\0"),
+  procArgs(5, "/b\0one\0two\0"),
+  procArgs(0, "/b\0"),
+  new Uint8Array(2),
 ];
 
 const PROC_STATS = [
@@ -57,9 +84,20 @@ describe("client lifecycle and engine agree", () => {
   });
 
   it("parse process start times and commands the same way", () => {
-    for (const line of PS_LINES) {
-      expect(clientProcess.parsePsLine(7, line)).toEqual(engineProcess.parsePsLine(7, line));
+    for (const buffer of KINFOS) {
+      const fromEngine = engineProcess.parseKinfoProc(buffer);
+      expect(clientProcess.parseKinfoProc(buffer)).toEqual(fromEngine);
+      if (fromEngine === null) continue;
+      for (const args of ["a b", null]) {
+        expect(clientProcess.darwinProcessInfo(7, fromEngine, args)).toEqual(
+          engineProcess.darwinProcessInfo(7, fromEngine, args),
+        );
+      }
     }
+    for (const buffer of PROC_ARGS) {
+      expect(clientProcess.parseProcArgs(buffer)).toEqual(engineProcess.parseProcArgs(buffer));
+    }
+    expect(clientProcess.KINFO_PROC_SIZE).toBe(engineProcess.KINFO_PROC_SIZE);
     for (const text of PROC_STATS) {
       expect(clientProcess.parseProcStat(text)).toEqual(engineProcess.parseProcStat(text));
     }
@@ -78,12 +116,20 @@ describe("client lifecycle and engine agree", () => {
     }
   });
 
-  it("probe this process the same way", async () => {
+  it("probe this process and a child the same way", async () => {
     const platform = process.platform === "linux" ? "linux" : "darwin";
-    const fromClient = await clientProcess.systemProcessProbe(platform)(process.pid);
-    const fromEngine = await engineProcess.systemProcessProbe(platform)(process.pid);
-    expect(fromClient).not.toBeNull();
-    expect(fromClient).toEqual(fromEngine);
+    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    try {
+      for (const pid of [process.pid, child.pid]) {
+        const fromClient = await clientProcess.systemProcessProbe(platform)(pid);
+        const fromEngine = await engineProcess.systemProcessProbe(platform)(pid);
+        expect(fromClient).not.toBeNull();
+        expect(fromClient).toEqual(fromEngine);
+      }
+    } finally {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
   });
 
   it("remove the same Bun flag variables", () => {

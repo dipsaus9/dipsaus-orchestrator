@@ -1,9 +1,13 @@
 // Process identity (0006 decisions 6 and 8): liveness is PID plus start time, never socket
 // reachability. On Linux the start time comes from field 22 of `/proc/<pid>/stat`; on macOS from
-// `LC_ALL=C TZ=UTC ps -o lstart=`. Both have whole-second precision, so two readings of the same
-// process match within a tolerance of 2 s. A zombie counts as dead. The lock (DIPO-23), host
-// liveness (DIPO-44), drain (DIPO-68) and `stop --force` (DIPO-70) share this check.
+// the `kern.proc.pid.<pid>` sysctl, the same `struct kinfo_proc` that `ps -o lstart=` reads, and
+// the command line from `kern.procargs2` (DIPO-114). The setuid `/bin/ps` is not used: Seatbelt
+// refuses to exec it inside the sandbox, and this probe must work there too. Both have
+// whole-second precision, so two readings of the same process match within a tolerance of 2 s. A
+// zombie counts as dead. The lock (DIPO-23), host liveness (DIPO-44), drain (DIPO-68) and
+// `stop --force` (DIPO-70) share this check.
 
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import { closeSync, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
@@ -65,38 +69,78 @@ export function isWorkerHostCommand(command: string, runId: string): boolean {
   );
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/**
+ * `sizeof(struct kinfo_proc)` on macOS arm64 and x86_64 (both LP64). The sysctl returns fewer
+ * bytes, zero, when no process has the PID.
+ */
+export const KINFO_PROC_SIZE = 648;
+// Offsets into `struct kinfo_proc`, whose first member is `struct extern_proc` (<sys/sysctl.h>,
+// <sys/proc.h>): `p_starttime.tv_sec` (int64), `p_stat` (char), `p_comm` (char[MAXCOMLEN + 1]).
+const KINFO_START_SECONDS = 0;
+const KINFO_STAT = 36;
+const KINFO_COMM = 243;
+const MAXCOMLEN = 16;
+/** `p_stat` of a zombie (<sys/proc.h>). */
+const SZOMB = 5;
 
-/** Parses `ps -o lstart=` under `LC_ALL=C TZ=UTC`, for example `Mon Oct 12 09:52:03 2026`. */
-export function parseLstart(text: string): number | null {
-  const match = /^\s*\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})\s*$/.exec(
-    text,
-  );
-  if (match === null) return null;
-  const [, month, day, hours, minutes, seconds, year] = match;
-  const monthIndex = MONTHS.indexOf(month ?? "");
-  if (monthIndex < 0) return null;
-  return Date.UTC(
-    Number(year),
-    monthIndex,
-    Number(day),
-    Number(hours),
-    Number(minutes),
-    Number(seconds),
-  );
+/** What `kern.proc.pid.<pid>` says about one process. */
+export interface KinfoProc {
+  /** `p_starttime.tv_sec`: whole seconds, as `ps -o lstart=` shows it. */
+  readonly startSeconds: number;
+  readonly zombie: boolean;
+  /** `p_comm`: the executable name, cut at 16 bytes. */
+  readonly comm: string;
+}
+
+const textDecoder = new TextDecoder();
+
+function cString(bytes: Uint8Array): string {
+  const end = bytes.indexOf(0);
+  return textDecoder.decode(end < 0 ? bytes : bytes.subarray(0, end));
+}
+
+/** Parses the `struct kinfo_proc` of `kern.proc.pid.<pid>`; null when the buffer is too short. */
+export function parseKinfoProc(buffer: Uint8Array): KinfoProc | null {
+  if (buffer.byteLength < KINFO_PROC_SIZE) return null;
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const startSeconds = Number(view.getBigInt64(KINFO_START_SECONDS, true));
+  if (startSeconds <= 0) return null;
+  return {
+    startSeconds,
+    zombie: buffer[KINFO_STAT] === SZOMB,
+    comm: cString(buffer.subarray(KINFO_COMM, KINFO_COMM + MAXCOMLEN + 1)),
+  };
 }
 
 /**
- * Parses one line of `ps -o stat= -o lstart= -o command=` under `LC_ALL=C TZ=UTC`: the state
- * flags, the five `lstart` fields, then the command, which may contain spaces.
+ * Parses `kern.procargs2.<pid>`: `argc` as an int32, the executable path, NUL padding, then the
+ * `argc` arguments, each NUL-terminated, then the environment. Returns the arguments joined by
+ * spaces, as `ps -o command=` shows them; null when the buffer is malformed.
  */
-export function parsePsLine(pid: number, line: string): ProcessInfo | null {
-  const fields = line.trim().split(/\s+/);
-  if (fields.length < 6) return null;
-  const [stat = "", ...rest] = fields;
-  const startTimeMs = parseLstart(rest.slice(0, 5).join(" "));
-  if (startTimeMs === null) return null;
-  return { pid, startTimeMs, zombie: stat.startsWith("Z"), command: rest.slice(5).join(" ") };
+export function parseProcArgs(buffer: Uint8Array): string | null {
+  if (buffer.byteLength < 4) return null;
+  const argc = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength).getInt32(0, true);
+  if (argc <= 0) return null;
+  let at = buffer.indexOf(0, 4);
+  if (at < 0) return null;
+  while (at < buffer.byteLength && buffer[at] === 0) at++;
+  const args: string[] = [];
+  while (args.length < argc && at < buffer.byteLength) {
+    const end = buffer.indexOf(0, at);
+    const stop = end < 0 ? buffer.byteLength : end;
+    args.push(textDecoder.decode(buffer.subarray(at, stop)));
+    at = stop + 1;
+  }
+  return args.length === argc ? args.join(" ") : null;
+}
+
+/**
+ * One process from its `kinfo_proc` and, when readable, its arguments. The command follows
+ * `ps -o command=`: `<defunct>` for a zombie, `(comm)` when the arguments cannot be read.
+ */
+export function darwinProcessInfo(pid: number, kinfo: KinfoProc, args: string | null): ProcessInfo {
+  const command = kinfo.zombie ? "<defunct>" : (args ?? `(${kinfo.comm})`);
+  return { pid, startTimeMs: kinfo.startSeconds * 1000, zombie: kinfo.zombie, command };
 }
 
 /** USER_HZ, the unit of `/proc/<pid>/stat` times; 100 on every Linux ABI dipo targets. */
@@ -166,19 +210,57 @@ async function probeLinux(pid: number): Promise<ProcessInfo | null> {
   };
 }
 
-async function probeDarwin(pid: number): Promise<ProcessInfo | null> {
-  const child = Bun.spawn({
-    cmd: ["/bin/ps", "-o", "stat=", "-o", "lstart=", "-o", "command=", "-p", String(pid)],
-    env: { LC_ALL: "C", TZ: "UTC", PATH: "/usr/bin:/bin" },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "ignore",
+// <sys/sysctl.h>: CTL_KERN, KERN_PROC with KERN_PROC_PID, KERN_PROCARGS2.
+const CTL_KERN = 1;
+const KERN_PROC = 14;
+const KERN_PROC_PID = 1;
+const KERN_PROCARGS2 = 49;
+
+function openLibSystem() {
+  return dlopen("/usr/lib/libSystem.B.dylib", {
+    // int sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen)
+    sysctl: {
+      args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64],
+      returns: FFIType.i32,
+    },
   });
-  const [text, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-  // ps exits 1 when the PID does not exist.
-  if (code !== 0) return null;
-  const line = text.split("\n").find((l) => l.trim() !== "");
-  return line === undefined ? null : parsePsLine(pid, line);
+}
+
+let libSystem: ReturnType<typeof openLibSystem> | null = null;
+
+/** Reads one sysctl into a buffer of at most `size` bytes; null when the call fails. */
+function readSysctl(mib: readonly number[], size: number): Uint8Array | null {
+  libSystem ??= openLibSystem();
+  const name = Int32Array.from(mib);
+  const buffer = new Uint8Array(size);
+  const length = BigUint64Array.of(BigInt(size));
+  const code = libSystem.symbols.sysctl(ptr(name), name.length, ptr(buffer), ptr(length), null, 0n);
+  return code === 0 ? buffer.subarray(0, Number(length[0] ?? 0n)) : null;
+}
+
+/** The size `kern.procargs2.<pid>` needs; null when the arguments cannot be read. */
+function procArgsSize(pid: number): number | null {
+  libSystem ??= openLibSystem();
+  const name = Int32Array.of(CTL_KERN, KERN_PROCARGS2, pid);
+  const length = BigUint64Array.of(0n);
+  const code = libSystem.symbols.sysctl(ptr(name), name.length, null, ptr(length), null, 0n);
+  const needed = length[0] ?? 0n;
+  return code === 0 && needed > 0n ? Number(needed) : null;
+}
+
+async function probeDarwin(pid: number): Promise<ProcessInfo | null> {
+  const raw = readSysctl([CTL_KERN, KERN_PROC, KERN_PROC_PID, pid], KINFO_PROC_SIZE);
+  const kinfo = raw === null ? null : parseKinfoProc(raw);
+  if (kinfo === null) return null;
+  let args: string | null = null;
+  if (!kinfo.zombie) {
+    // A zombie has no arguments left; another user's process, or one outside this process's
+    // sandbox, refuses them, and the command falls back to `(comm)` as in `ps`.
+    const size = procArgsSize(pid);
+    const buffer = size === null ? null : readSysctl([CTL_KERN, KERN_PROCARGS2, pid], size);
+    args = buffer === null ? null : parseProcArgs(buffer);
+  }
+  return darwinProcessInfo(pid, kinfo, args);
 }
 
 /** The system probe for this platform. */

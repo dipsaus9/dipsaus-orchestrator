@@ -1,5 +1,6 @@
-// PID identity (DIPO-23): start time from `ps -o lstart=` and `/proc/<pid>/stat` fixtures, the
-// 2 s tolerance, PID reuse, zombies, and the live probe on this machine.
+// PID identity (DIPO-23): start time from `kinfo_proc` and `kern.procargs2` buffers (DIPO-114) and
+// `/proc/<pid>/stat` fixtures, the 2 s tolerance, PID reuse, zombies, and the live probe on this
+// machine: a live PID, a dead PID and a zombie, and on macOS the same reading as `/bin/ps`.
 
 import { describe, expect, it } from "bun:test";
 
@@ -15,20 +16,99 @@ import {
   signalProcess,
   isSameProcess,
   parseBootTime,
-  parseLstart,
+  darwinProcessInfo,
+  KINFO_PROC_SIZE,
+  parseKinfoProc,
+  parseProcArgs,
   parseProcStat,
-  parsePsLine,
   pidExists,
   procStartTimeMs,
   systemProcessProbe,
   type ProcessInfo,
 } from "../../src/platform/process";
 
-// `LC_ALL=C TZ=UTC ps -o stat= -o lstart= -o command= -p <pid>` on macOS.
-const PS_DAEMON = "Ss   Mon Oct 12 09:52:03 2026     /usr/local/bin/dipo daemon --foreground";
-const PS_PADDED_DAY = "S    Fri Oct  2 23:05:09 2026     /usr/local/bin/dipo daemon --foreground";
-const PS_ZOMBIE = "Z+   Mon Oct 12 09:52:03 2026     (dipo)";
+// `struct kinfo_proc` from `kern.proc.pid.<pid>` on macOS: `p_starttime` at 0, `p_stat` at 36,
+// `p_comm` at 243. Running is `SRUN` (2), a zombie `SZOMB` (5).
+function kinfoBuffer(startSeconds: number, stat: number, comm: string): Uint8Array {
+  const buffer = new Uint8Array(KINFO_PROC_SIZE);
+  const view = new DataView(buffer.buffer);
+  view.setBigInt64(0, BigInt(startSeconds), true);
+  view.setInt32(8, 746_958, true);
+  buffer[36] = stat;
+  buffer.set(new TextEncoder().encode(comm).subarray(0, 16), 243);
+  return buffer;
+}
+
+// `kern.procargs2.<pid>`: argc, the executable path, NUL padding, the arguments, the environment.
+function procArgsBuffer(execPath: string, args: readonly string[], env: readonly string[] = []) {
+  const strings = [...args, ...env].map((s) => `${s}\0`).join("");
+  const bytes = new TextEncoder().encode(`${execPath}\0\0\0${strings}`);
+  const buffer = new Uint8Array(4 + bytes.byteLength);
+  new DataView(buffer.buffer).setInt32(0, args.length, true);
+  buffer.set(bytes, 4);
+  return buffer;
+}
+
 const OCT_12_095203 = Date.UTC(2026, 9, 12, 9, 52, 3);
+
+/**
+ * Runs `fn` with the PID of a zombie: the shell's background child exits at once and is never
+ * reaped, because `exec` replaces the shell with a `sleep` that does not wait for children.
+ */
+async function withZombie(fn: (pid: number) => Promise<void>): Promise<void> {
+  const parent = Bun.spawn({
+    cmd: ["/bin/sh", "-c", "/bin/sleep 0 & echo $!; exec /bin/sleep 30"],
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  try {
+    const { value } = await parent.stdout.getReader().read();
+    const pid = Number(new TextDecoder().decode(value).trim());
+    const probe = systemProcessProbe(process.platform === "linux" ? "linux" : "darwin");
+    for (let i = 0; i < 100 && (await probe(pid))?.zombie !== true; i++) await Bun.sleep(20);
+    await fn(pid);
+  } finally {
+    parent.kill("SIGKILL");
+    await parent.exited;
+  }
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** One process as `LC_ALL=C TZ=UTC /bin/ps -o stat= -o lstart= -o command=` shows it. */
+async function readPs(pid: number): Promise<ProcessInfo | null> {
+  const child = Bun.spawn({
+    cmd: ["/bin/ps", "-o", "stat=", "-o", "lstart=", "-o", "command=", "-p", String(pid)],
+    env: { LC_ALL: "C", TZ: "UTC", PATH: "/usr/bin:/bin" },
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [text, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  if (code !== 0) return null;
+  const [stat = "", , month = "", day, time = "", year, ...command] = text.trim().split(/\s+/);
+  const [hours, minutes, seconds] = time.split(":").map(Number);
+  const startTimeMs = Date.UTC(
+    Number(year),
+    MONTHS.indexOf(month),
+    Number(day),
+    hours,
+    minutes,
+    seconds,
+  );
+  return { pid, startTimeMs, zombie: stat.startsWith("Z"), command: command.join(" ") };
+}
+
+/** False on Linux, and inside the macOS sandbox, which refuses to exec the setuid `/bin/ps`. */
+async function psRuns(): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  try {
+    return (await readPs(process.pid)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+const PS_RUNS = await psRuns();
 
 // `/proc/<pid>/stat`: the command name may hold spaces and parentheses.
 const PROC_STAT = (state: string, startTicks: number) =>
@@ -42,23 +122,59 @@ const info = (startTimeMs: number, zombie = false): ProcessInfo => ({
   command: "dipo daemon --foreground",
 });
 
-describe("ps -o lstart", () => {
-  it("parses the C-locale UTC format, including a space-padded day", () => {
-    expect(parseLstart("Mon Oct 12 09:52:03 2026")).toBe(OCT_12_095203);
-    expect(parseLstart("Fri Oct  2 23:05:09 2026")).toBe(Date.UTC(2026, 9, 2, 23, 5, 9));
-    expect(parseLstart("lun 12 oct 09:52:03 2026")).toBeNull();
+describe("kern.proc.pid and kern.procargs2 (DIPO-114)", () => {
+  it("reads whole-second start time, zombie state and comm from kinfo_proc", () => {
+    expect(parseKinfoProc(kinfoBuffer(OCT_12_095203 / 1000, 2, "dipo"))).toEqual({
+      startSeconds: OCT_12_095203 / 1000,
+      zombie: false,
+      comm: "dipo",
+    });
+    expect(parseKinfoProc(kinfoBuffer(OCT_12_095203 / 1000, 5, "dipo"))?.zombie).toBe(true);
+    expect(parseKinfoProc(kinfoBuffer(1, 2, "a-very-long-command-name"))?.comm).toBe(
+      "a-very-long-comm",
+    );
   });
 
-  it("parses a line with state, start time and command", () => {
-    expect(parsePsLine(4242, PS_DAEMON)).toEqual({
-      pid: 4242,
-      startTimeMs: OCT_12_095203,
-      zombie: false,
-      command: "/usr/local/bin/dipo daemon --foreground",
-    });
-    expect(parsePsLine(4242, PS_PADDED_DAY)?.startTimeMs).toBe(Date.UTC(2026, 9, 2, 23, 5, 9));
-    expect(parsePsLine(4242, PS_ZOMBIE)?.zombie).toBe(true);
-    expect(parsePsLine(4242, "")).toBeNull();
+  it("finds no process in an empty or short kinfo_proc", () => {
+    expect(parseKinfoProc(new Uint8Array(0))).toBeNull();
+    expect(parseKinfoProc(kinfoBuffer(1, 2, "dipo").subarray(0, 100))).toBeNull();
+    expect(parseKinfoProc(new Uint8Array(KINFO_PROC_SIZE))).toBeNull();
+  });
+
+  it("joins the arguments with spaces, leaving out the executable path and the environment", () => {
+    expect(
+      parseProcArgs(
+        procArgsBuffer(
+          "/usr/local/bin/dipo",
+          ["/usr/local/bin/dipo", "daemon", "--foreground"],
+          ["HOME=/Users/me"],
+        ),
+      ),
+    ).toBe("/usr/local/bin/dipo daemon --foreground");
+    expect(
+      parseProcArgs(procArgsBuffer("/b", ["/Users/m/My Tools/dipo", "daemon", "worker-host", "r"])),
+    ).toBe("/Users/m/My Tools/dipo daemon worker-host r");
+  });
+
+  it("refuses malformed procargs", () => {
+    expect(parseProcArgs(new Uint8Array(0))).toBeNull();
+    expect(parseProcArgs(procArgsBuffer("/b", []))).toBeNull();
+    const truncated = procArgsBuffer("/b", ["one", "two"]);
+    new DataView(truncated.buffer).setInt32(0, 5, true);
+    expect(parseProcArgs(truncated)).toBeNull();
+  });
+
+  it("names the command as ps does: <defunct> for a zombie, (comm) without arguments", () => {
+    const start = OCT_12_095203 / 1000;
+    expect(
+      darwinProcessInfo(7, { startSeconds: start, zombie: false, comm: "dipo" }, "a b"),
+    ).toEqual({ pid: 7, startTimeMs: OCT_12_095203, zombie: false, command: "a b" });
+    expect(
+      darwinProcessInfo(7, { startSeconds: start, zombie: false, comm: "dipo" }, null).command,
+    ).toBe("(dipo)");
+    expect(
+      darwinProcessInfo(7, { startSeconds: start, zombie: true, comm: "dipo" }, "a b").command,
+    ).toBe("<defunct>");
   });
 });
 
@@ -139,6 +255,43 @@ describe("system probe", () => {
     expect(isSameProcess({ pid: process.pid, startTimeMs: first?.startTimeMs ?? 0 }, second)).toBe(
       true,
     );
+  });
+
+  it("reads a child's full command line", async () => {
+    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    try {
+      const read = await systemProcessProbe(platform)(child.pid);
+      expect(read).toMatchObject({ pid: child.pid, zombie: false, command: "/bin/sleep 30" });
+    } finally {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
+  });
+
+  it("reports a zombie as one, and as not the same process", async () => {
+    await withZombie(async (pid) => {
+      const read = await systemProcessProbe(platform)(pid);
+      expect(read).not.toBeNull();
+      expect(read?.zombie).toBe(true);
+      if (platform === "darwin") expect(read?.command).toBe("<defunct>");
+      expect(isSameProcess({ pid, startTimeMs: read?.startTimeMs ?? 0 }, read)).toBe(false);
+    });
+  });
+
+  // Outside the sandbox only: Seatbelt refuses to exec the setuid `/bin/ps` (DIPO-114).
+  it.skipIf(!PS_RUNS)("reads the same as /bin/ps on macOS: live, child and zombie", async () => {
+    const probe = systemProcessProbe("darwin");
+    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    try {
+      await withZombie(async (zombie) => {
+        for (const pid of [process.pid, child.pid, zombie]) {
+          expect(await probe(pid)).toEqual(await readPs(pid));
+        }
+      });
+    } finally {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
   });
 });
 
