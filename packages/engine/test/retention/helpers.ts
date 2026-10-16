@@ -224,3 +224,18 @@ export function insertProfile(
     );
   });
 }
+
+export function insertNudgeSource(
+  office: OfficeHandle,
+  run: string,
+  agent: string,
+  at: number,
+): void {
+  office.immediate(() =>
+    office.run(
+      `insert into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
+       values ($office_id, $run, $agent, 'context', 'src/a.ts', $at)`,
+      { run, agent, at },
+    ),
+  );
+}
