@@ -4,6 +4,7 @@ title: Stop the logger from hiding error codes
 status: To Do
 assignee: []
 created_date: '2026-10-15 16:49'
+updated_date: '2026-10-15 21:20'
 labels:
   - 'tier:S'
 milestone: m-0
@@ -11,6 +12,7 @@ dependencies: []
 references:
   - packages/engine/src/log/logger.ts
   - docs/decisions/0006-daemon-and-ipc.md
+  - packages/engine/test/log/logger.test.ts
 priority: medium
 type: feature
 ordinal: 81000

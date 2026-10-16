@@ -58,6 +58,7 @@ import { withWorkViews } from "../views/work";
 import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
+import { prepareRunTempDir, runTempDir } from "./temp-dirs";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
@@ -118,6 +119,11 @@ export interface RunLauncherDeps {
   readonly runtimeDir: string;
   /** Where each run's sandbox temp directory is made. */
   readonly tmpRoot: string;
+  /**
+   * The owner written into each new run temp directory (`RunTempDirs.owner`, DIPO-102), so the
+   * daemon-start sweep tells its own directories from another daemon's; none by default.
+   */
+  readonly tempOwner?: () => string | undefined;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /**
@@ -205,7 +211,7 @@ export function runLaunchPaths(
     mainCheckout: git.mainWorktree,
     runDir: runDirectory(officeDir, runId),
     hostSocket: hostSocketPath(dirs.runtimeDir, runId),
-    tmpDir: join(dirs.tmpRoot, `dipo-run-${runId}`),
+    tmpDir: runTempDir(dirs.tmpRoot, runId),
     officeDir,
   };
 }
@@ -336,7 +342,7 @@ export class RunLauncher {
         config: facts.config,
       });
       ensurePrivateDir(paths.runDir);
-      ensurePrivateDir(paths.tmpDir);
+      prepareRunTempDir(paths.tmpDir, this.#deps.tempOwner?.());
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
