@@ -138,6 +138,8 @@ export { createLogger, DEFAULT_LOG_LEVEL, isLogLevel, LOG_LEVELS } from "./log/l
 export type { LogContext, LogFields, Logger, LogSink } from "./log/logger";
 export { DAEMON_LOG_FILE, openLogFile } from "./log/file";
 export type { LogFile } from "./log/file";
+export { background, errorCodeOf, failureFields } from "./platform/background";
+export type { BackgroundLog, BackgroundOptions } from "./platform/background";
 export {
   appendEntries,
   cursorAt,

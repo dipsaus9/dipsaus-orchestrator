@@ -31,6 +31,7 @@ function failingLane(): OfficeLane {
     git: {
       run: <T>(fn: (git: GitSession) => Promise<T>) => fn(session),
       settings: { remote: "origin", base: "main" },
+      resolveBaseIn: async () => "main",
     },
     worktreePath: () => "/worktrees/_backlog",
   } as unknown as OfficeLane;

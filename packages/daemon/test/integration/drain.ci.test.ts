@@ -7,7 +7,11 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
+import {
+  assertTestRuntimeDir,
+  daemonTestEnv,
+  withDaemonTempDir,
+} from "@dipsaus-orchestrator/testkit";
 
 const FIXTURE = resolve(import.meta.dir, "fixtures/drain-daemon.ts");
 const TIMEOUT_MS = 30_000;
@@ -25,17 +29,9 @@ function readLog(dir: string): Line[] {
 }
 
 function start(dir: string, command: string, capMs: number) {
-  const env = cleanEnv();
-  delete env["BUN_OPTIONS"];
-  delete env["DIPO_LOG"];
   return Bun.spawn({
     cmd: [process.execPath, FIXTURE, command, String(capMs)],
-    env: {
-      ...env,
-      DIPO_HOME: join(dir, "state"),
-      DIPO_RUNTIME_DIR: join(dir, "run"),
-      DIPO_TMP: dir,
-    },
+    env: daemonTestEnv(dir),
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
@@ -45,6 +41,8 @@ function start(dir: string, command: string, capMs: number) {
 async function waitForRunning(dir: string, daemon: Bun.Subprocess): Promise<number> {
   const deadline = performance.now() + 10_000;
   while (performance.now() < deadline) {
+    // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
+    assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
     const log = readLog(dir);
     const child = log.find((line) => line.msg === "test child started")?.childPid;
@@ -84,7 +82,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "waits on SIGTERM for a running child, then removes dipo.sock and then dipo.pid",
       () =>
-        withTempDir(async (dir) => {
+        withDaemonTempDir(async (dir) => {
           const done = join(dir, "child-done");
           const daemon = start(dir, `sleep 2; touch "${done}"`, 20_000);
           let child = 0;
@@ -124,7 +122,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "kills the process group of a child still running at the drain cap and exits anyway",
       () =>
-        withTempDir(async (dir) => {
+        withDaemonTempDir(async (dir) => {
           const grandchildFile = join(dir, "grandchild.pid");
           const daemon = start(dir, `sleep 60 & echo $! > "${grandchildFile}"; wait`, 1000);
           let child = 0;

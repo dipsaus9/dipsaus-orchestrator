@@ -27,6 +27,7 @@ import type { Clock, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
+import { background } from "../platform/background";
 import budgetTemplate from "../prompts/feedback/nudge-budget.md" with { type: "text" };
 import contextTemplate from "../prompts/feedback/nudge-context.md" with { type: "text" };
 import inputTemplate from "../prompts/feedback/nudge-input.md" with { type: "text" };
@@ -466,17 +467,15 @@ export class Nudges {
       this.#warn("the nudge facts could not be read", run, error);
       facts = [];
     }
-    this.#track(this.#reply(office, run, agent, call, "toolUsed", facts));
+    this.#track(run, () => this.#reply(office, run, agent, call, "toolUsed", facts));
   }
 
   #sessionStarted(office: OfficeHandle, run: string, agent: string, hook: SessionStarted): void {
     const call = hook.id ?? 0;
-    this.#track(
-      (async () => {
-        const facts = hook.resumed === true ? await this.#inputFacts(office, run, agent) : [];
-        await this.#reply(office, run, agent, call, "sessionStarted", facts);
-      })(),
-    );
+    this.#track(run, async () => {
+      const facts = hook.resumed === true ? await this.#inputFacts(office, run, agent) : [];
+      await this.#reply(office, run, agent, call, "sessionStarted", facts);
+    });
   }
 
   /** The input facts of a resume, or none when the check fails or takes over `INPUT_CHECK_MS`. */
@@ -562,9 +561,14 @@ export class Nudges {
     });
   }
 
-  #track(job: Promise<void>): void {
-    this.#inflight.add(job);
-    void job.finally(() => this.#inflight.delete(job));
+  /** Runs a reply without waiting for it; a failure is logged (DIPO-110). */
+  #track(run: string, job: () => Promise<void>): void {
+    background(job, {
+      failed: "a nudge reply failed",
+      fields: { run },
+      log: this.#deps.warn,
+      inflight: this.#inflight,
+    });
   }
 
   #warn(message: string, run: string, error: unknown): void {

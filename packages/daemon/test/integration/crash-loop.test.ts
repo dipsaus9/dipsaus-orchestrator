@@ -7,7 +7,13 @@ import { describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { MANUAL_CLOCK_START, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
+import {
+  isolatedDaemonEnv,
+  MANUAL_CLOCK_START,
+  ManualClock,
+  withDaemonTempDir,
+  withTempDir,
+} from "@dipsaus-orchestrator/testkit";
 
 import { CRASH_FILE, CRASH_WINDOW_MS, CrashCounter, STABLE_RUN_MS } from "../../src/crash-counter";
 import { runDaemon } from "../../src/index";
@@ -101,11 +107,7 @@ function startInProcess(dir: string, clock: ManualClock) {
   const exited = runDaemon(["--foreground"], {
     writeLine: () => {},
     writeError: (line) => lines.push(line),
-    env: {
-      DIPO_HOME: join(dir, "state"),
-      DIPO_RUNTIME_DIR: join(dir, "run"),
-      DIPO_TMP: dir,
-    },
+    env: isolatedDaemonEnv(dir),
     execArgv: [],
     version: "test",
     clock,
@@ -136,7 +138,7 @@ describe("dipo daemon --foreground and the crash counter", () => {
   it(
     "starts in safe after three crashes within 10 minutes and resets after 10 stable minutes",
     () =>
-      withTempDir(async (dir) => {
+      withDaemonTempDir(async (dir) => {
         const clock = new ManualClock();
         const state = join(dir, "state");
         seed(state, [MANUAL_CLOCK_START - 7 * MINUTE, MANUAL_CLOCK_START - 3 * MINUTE], DEAD);
@@ -178,7 +180,7 @@ describe("dipo daemon --foreground and the crash counter", () => {
   it(
     "counts a failure between the lock and the socket bind as one crash at the next start",
     () =>
-      withTempDir(async (dir) => {
+      withDaemonTempDir(async (dir) => {
         const clock = new ManualClock();
         const state = join(dir, "state");
         // A non-empty directory where `dipo.sock` goes: removing the leftover socket fails, so the
@@ -202,7 +204,7 @@ describe("dipo daemon --foreground and the crash counter", () => {
   it(
     "starts in running after two crashes, and a clean stop records none",
     () =>
-      withTempDir(async (dir) => {
+      withDaemonTempDir(async (dir) => {
         const clock = new ManualClock();
         const state = join(dir, "state");
         seed(state, [MANUAL_CLOCK_START - 3 * MINUTE], DEAD);

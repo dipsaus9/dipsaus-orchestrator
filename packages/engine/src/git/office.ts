@@ -193,10 +193,14 @@ export class OfficeGit {
 
   /** The base branch: `base` from configuration, else `refs/remotes/<remote>/HEAD`; else throws. */
   resolveBase(): Promise<string> {
-    return this.run((git) => this.#resolveBase(git));
+    return this.run((git) => this.resolveBaseIn(git));
   }
 
-  async #resolveBase(git: GitSession): Promise<string> {
+  /**
+   * `resolveBase` inside a queue item that is already running: the queue is not re-entrant, so a
+   * caller holding `git` uses this instead. The office's only base-branch rule (DIPO-112).
+   */
+  async resolveBaseIn(git: GitSession): Promise<string> {
     const configured = this.#settings.base;
     if (configured !== undefined) return configured;
     const { remote } = this.#settings;
@@ -249,7 +253,7 @@ export class OfficeGit {
    */
   fetch(): Promise<FetchOutcome> {
     return this.run(async (git) => {
-      const base = await this.#resolveBase(git).catch(() => null);
+      const base = await this.resolveBaseIn(git).catch(() => null);
       const before = base === null ? null : await this.#remoteBaseSha(git, base);
       const { remote } = this.#settings;
       const result = await git
@@ -269,7 +273,7 @@ export class OfficeGit {
       }
       this.#fetch = { ok: true, at: this.#clock.now() };
       // A fetch may create `<remote>/HEAD`, so the base is resolved again.
-      const after = base ?? (await this.#resolveBase(git).catch(() => null));
+      const after = base ?? (await this.resolveBaseIn(git).catch(() => null));
       if (after === null) return { ok: true, base: null, moved: false, baseWorktree: null };
       const sha = await this.#remoteBaseSha(git, after);
       const moved = sha !== null && sha !== before;
@@ -282,7 +286,7 @@ export class OfficeGit {
 
   /** One queue item: creates or moves `<root>/_base`, detached at `<remote>/<base>`. */
   ensureBaseWorktree(): Promise<BaseWorktree> {
-    return this.run(async (git) => this.#ensureBaseWorktree(git, await this.#resolveBase(git)));
+    return this.run(async (git) => this.#ensureBaseWorktree(git, await this.resolveBaseIn(git)));
   }
 
   async #ensureBaseWorktree(git: GitSession, base: string): Promise<BaseWorktree> {

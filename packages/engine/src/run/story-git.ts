@@ -8,11 +8,11 @@ import { createHash } from "node:crypto";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { viewStory } from "../backlog/fields/write";
-import { statusPaths } from "../backlog/lane/lane";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
-import { FETCH_CONFIG, type GitLocation } from "../git/hardened";
+import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
+import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult } from "../git/runner";
+import { commitTaskFile, type PushResult, pushBranch, statusPaths } from "../git/task-commit";
 import { repoPath } from "../worktree/claim";
 
 import { type BackstopSnapshot, readBackstop } from "./backstop";
@@ -20,14 +20,7 @@ import { type BackstopSnapshot, readBackstop } from "./backstop";
 /** The Backlog.md status a story reaches when verify and commit pass (0012). */
 export const IN_REVIEW_STATUS = "In Review";
 
-/** What the push of a story branch did. */
-export interface PushResult {
-  readonly pushed: boolean;
-  /** True when the remote refused a non-fast-forward update (0010: park `conflict`). */
-  readonly rejected: boolean;
-  /** Why the push failed, or null; null with `pushed` false means the office has no remote. */
-  readonly error: string | null;
-}
+export type { PushResult } from "../git/task-commit";
 
 /** The story as the Backlog CLI shows it in its worktree. */
 export interface WorktreeStory {
@@ -194,52 +187,18 @@ export function gitStoryOps(deps: {
             `The Backlog CLI left ${input.story} at ${back.status}, not ${IN_REVIEW_STATUS}.`,
           );
         }
-        const changed = statusPaths(
-          await session.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-        );
-        if (!changed.includes(input.taskFile)) return null;
-        await session.ok(location, ["--literal-pathspecs", "add", "--", input.taskFile]);
         // Only the task file: anything else staged stays out of this commit.
-        await commitOrFail(
-          (args) =>
-            session.step(location, ["--literal-pathspecs", ...args, "--", input.taskFile], {
-              timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-            }),
+        return commitTaskFile(
+          session,
+          location,
+          input.taskFile,
           `${input.story}: status ${IN_REVIEW_STATUS}`,
         );
-        return (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
       });
     },
     push: (office, branch) => {
       const git = gitOf(office);
-      return git.run(async (session) => {
-        const { remote } = git.settings;
-        const url = await session.step(session.repository, [
-          "config",
-          "--get",
-          `remote.${remote}.url`,
-        ]);
-        if (url.code !== 0 || url.stdout.trim() === "") {
-          return { pushed: false, rejected: false, error: null };
-        }
-        const ref = `refs/heads/${branch}`;
-        const pushed = await session
-          .step(session.repository, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`], {
-            config: FETCH_CONFIG,
-            timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-          })
-          .catch((error: unknown): GitResult => {
-            if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-            throw error;
-          });
-        if (pushed.code === 0) return { pushed: true, rejected: false, error: null };
-        const stderr = pushed.stderr.trim();
-        return {
-          pushed: false,
-          rejected: /non-fast-forward|\[rejected\]|fetch first/.test(stderr),
-          error: `pushing ${branch} to ${remote} failed (${stderr || `exit ${pushed.code}`})`,
-        };
-      });
+      return git.run((session) => pushBranch(session, git.settings.remote, branch));
     },
     diffstat: (office, worktree, from) => {
       const git = gitOf(office);

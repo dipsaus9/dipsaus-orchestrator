@@ -39,7 +39,6 @@ import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orch
 
 import { viewStory } from "../backlog/fields/write";
 import { PENDING_LANE_NOTICE, pendingLaneOp } from "../backlog/lane/journal";
-import { statusPaths } from "../backlog/lane/lane";
 import { runBacklog, type BacklogCli } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
@@ -47,6 +46,7 @@ import { FETCH_CONFIG, type GitLocation, WORKTREE_ADD_CONFIG } from "../git/hard
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
 import { changedLinks, readWorktreeSnapshot, worktreeTampered } from "../git/snapshot";
+import { commitTaskFile, pushBranch, statusPaths } from "../git/task-commit";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
 import { endRunMarked } from "../run/markers";
 
@@ -547,41 +547,25 @@ async function claimCommit(
     );
   }
   if (changed.length === 0) return null;
-  await git.ok(location, ["add", "--", taskFile]);
-  const committed = await commitStep(git, location, [
-    "commit",
-    "--quiet",
-    "--no-verify",
-    "-m",
-    `${request.story}: status ${CLAIM_STATUS}`,
-  ]);
-  if (committed.code !== 0) throw failed(["commit"], committed);
-  return (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+  return commitTaskFile(git, location, taskFile, `${request.story}: status ${CLAIM_STATUS}`);
 }
 
 /** Pushes the story branch without force; a failure is a notice, the claim stands. */
 async function push(deps: ClaimDeps, git: GitSession, request: ClaimRequest): Promise<boolean> {
-  const { remote } = deps.git.settings;
-  const ref = `refs/heads/${request.branch}`;
-  const result = await git
-    .step(git.repository, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`], {
-      config: FETCH_CONFIG,
-      timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-    })
-    .catch((error: unknown): GitResult => {
-      if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-      throw error;
-    });
-  if (result.code === 0) {
+  const result = await pushBranch(git, deps.git.settings.remote, request.branch);
+  if (result.pushed) {
     const at = deps.clock.now();
     deps.office.immediate(() => updateClaim(deps.office, request.runId, { pushedAt: at }));
     return true;
   }
+  const { error } = result;
+  // No remote configured (removed since the claim checked): nothing to push, nothing to say.
+  if (error === null) return false;
   writeWith(deps, () => [
     notice(
       "warn",
       CLAIM_NOTICES.pushFailed,
-      `${request.story} is claimed, but pushing ${request.branch} to ${remote} failed (${result.stderr.trim() || `exit ${result.code}`}); the claim is durable only locally until a later push succeeds.`,
+      `${request.story} is claimed, but ${error}; the claim is durable only locally until a later push succeeds.`,
       request.key,
     ),
   ]);

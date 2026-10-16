@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
+
+import { isolatedDaemonEnv, withDaemonTempDir } from "@dipsaus-orchestrator/testkit";
 
 import * as daemon from "./index";
 import { noOrphansActive } from "./io";
@@ -77,23 +80,33 @@ describe("runDaemon", () => {
     expect(wait.err).toEqual([]);
   });
 
-  it("refuses --foreground when --no-orphans is in the Bun flags", async () => {
-    const { io, err } = capture({ execArgv: ["--no-orphans"] });
-    expect(await runDaemon(["--foreground"], io)).toBe(1);
-    expect(err.join("\n")).toContain("--no-orphans");
-  });
+  // The --foreground cases get state, runtime and temp directories under a temp directory
+  // (DIPO-109), although each is refused before it would use them.
+  it("refuses --foreground when --no-orphans is in the Bun flags", () =>
+    withDaemonTempDir(async (dir) => {
+      const { io, err } = capture({ env: isolatedDaemonEnv(dir), execArgv: ["--no-orphans"] });
+      expect(await runDaemon(["--foreground"], io)).toBe(1);
+      expect(err.join("\n")).toContain("--no-orphans");
+    }));
 
-  it("refuses --foreground when --no-orphans is in BUN_OPTIONS", async () => {
-    const { io, err } = capture({ env: { BUN_OPTIONS: "--smol --no-orphans" } });
-    expect(await runDaemon(["--foreground"], io)).toBe(1);
-    expect(err.join("\n")).toContain("BUN_OPTIONS");
-  });
+  it("refuses --foreground when --no-orphans is in BUN_OPTIONS", () =>
+    withDaemonTempDir(async (dir) => {
+      const { io, err } = capture({
+        env: { ...isolatedDaemonEnv(dir), BUN_OPTIONS: "--smol --no-orphans" },
+      });
+      expect(await runDaemon(["--foreground"], io)).toBe(1);
+      expect(err.join("\n")).toContain("BUN_OPTIONS");
+    }));
 
-  it("rejects an unknown log level before touching any directory", async () => {
-    const { io, err } = capture({ env: { DIPO_HOME: "/nonexistent/dipo-never-created" } });
-    expect(await runDaemon(["--foreground", "--log-level", "loud"], io)).toBe(2);
-    expect(err.join("\n")).toContain("unknown log level");
-  });
+  it("rejects an unknown log level before touching any directory", () =>
+    withDaemonTempDir(async (dir) => {
+      const env = isolatedDaemonEnv(dir);
+      const { io, err } = capture({ env });
+      expect(await runDaemon(["--foreground", "--log-level", "loud"], io)).toBe(2);
+      expect(err.join("\n")).toContain("unknown log level");
+      expect(existsSync(env.DIPO_HOME)).toBe(false);
+      expect(existsSync(env.DIPO_RUNTIME_DIR)).toBe(false);
+    }));
 });
 
 describe("noOrphansActive", () => {
