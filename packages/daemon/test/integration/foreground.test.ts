@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { prepareRunTempDir, runTempOwner } from "@dipsaus-orchestrator/engine";
 import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { TestClient } from "../support/client";
@@ -122,14 +123,15 @@ describe("dipo daemon --foreground", () => {
             .map((line) => (JSON.parse(line) as { msg: string }).msg);
           expect(messages).toContain("opened state database");
           expect(messages.at(-1)).toBe("daemon stopped");
-          // Re-attach is a recovery step after reconcile (DIPO-57 AC #8).
+          // Re-attach is a recovery step after reconcile (DIPO-57 AC #8); the run temp directory
+          // sweep follows it (DIPO-102).
           const steps = log
             .trim()
             .split("\n")
             .map((line) => JSON.parse(line) as { msg: string; step?: string })
             .filter((line) => line.msg === "recovery step")
             .map((line) => line.step);
-          expect(steps).toEqual(["migrations", "reconcile", "reattach"]);
+          expect(steps).toEqual(["migrations", "reconcile", "reattach", "run-temp-sweep"]);
           // The database opens only after the post-bind re-read: after "listening".
           expect(messages.indexOf("listening")).toBeLessThan(
             messages.indexOf("opened state database"),
@@ -138,6 +140,40 @@ describe("dipo daemon --foreground", () => {
           expect(await new Response(winner.stderr).text()).toContain('"msg":"daemon stopped"');
         } finally {
           await Promise.all(daemons.map(stop));
+        }
+      });
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
+    "removes its own unknown runs' temp directories at start and leaves another daemon's",
+    async () => {
+      await withTempDir(async (dir) => {
+        // Directories a killed daemon of this state left (its owner file names this database),
+        // another daemon's (another owner) and one from before owner files: only the first goes.
+        const owner = runTempOwner(join(dir, "state", "dipo.db"));
+        const mine = join(dir, "dipo-run-run_01MINE");
+        prepareRunTempDir(mine, owner);
+        writeFileSync(join(mine, "cache"), "x");
+        const foreign = join(dir, "dipo-run-run_01FOREIGN");
+        prepareRunTempDir(foreign, "another-daemon");
+        const unowned = join(dir, "dipo-run-run_01NOOWNER");
+        prepareRunTempDir(unowned, undefined);
+        const daemon = start(daemonEnv(dir));
+        try {
+          await waitUntilServing(dir, daemon);
+          expect(existsSync(mine)).toBe(false);
+          expect(existsSync(foreign)).toBe(true);
+          expect(existsSync(unowned)).toBe(true);
+          const removed = readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
+            .trim()
+            .split("\n")
+            .map((entry) => JSON.parse(entry) as Record<string, unknown>)
+            .find((entry) => entry["msg"] === "removed run temp directories of ended runs");
+          expect(removed).toMatchObject({ removed: [mine] });
+        } finally {
+          expect(await stop(daemon)).toBe(0);
         }
       });
     },
