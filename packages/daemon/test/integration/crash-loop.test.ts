@@ -91,6 +91,29 @@ describe("CrashCounter", () => {
       expect(readCrashFile(dir).running).toMatchObject({ pid: DEAD.pid });
     }));
 
+  it("keeps needsCheck across a clean exit until it is cleared (DIPO-111)", () =>
+    withTempDir((dir) => {
+      const clock = new ManualClock();
+      const first = CrashCounter.open(dir, SELF, clock);
+      expect(first.needsCheck).toBe(false);
+      first.counter.setNeedsCheck(true);
+      first.counter.cleanExit();
+      expect(readCrashFile(dir)).toMatchObject({ running: null, needsCheck: true });
+
+      const second = CrashCounter.open(dir, DEAD, clock);
+      expect(second.previousCrashed).toBe(false);
+      expect(second.needsCheck).toBe(true);
+      second.counter.setNeedsCheck(false);
+      expect(readCrashFile(dir)).not.toHaveProperty("needsCheck");
+      expect(CrashCounter.open(dir, DEAD, clock).needsCheck).toBe(false);
+    }));
+
+  it("reads a file without needsCheck as no check pending", () =>
+    withTempDir((dir) => {
+      seed(dir, [], null);
+      expect(CrashCounter.open(dir, SELF, new ManualClock()).needsCheck).toBe(false);
+    }));
+
   it("starts afresh from a damaged file", () =>
     withTempDir((dir) => {
       writeFileSync(join(dir, CRASH_FILE), "{not json");

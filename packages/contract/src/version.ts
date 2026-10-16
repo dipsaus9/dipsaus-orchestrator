@@ -40,4 +40,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-97 adds the optional `outputRetentionDays` of `OfficeSummary` (the stored-output retention
 // period) and `StoryView.gateFailures` (the failed Ready gate rules with their rule ids) to the
 // same, still unreleased, minor.
+// DIPO-111 adds the generic code `database.unavailable` (not retryable) and its
+// `DatabaseUnavailableDetails` to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

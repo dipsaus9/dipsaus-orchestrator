@@ -1,6 +1,7 @@
 // The daemon state machine (DIPO-68, 0006 decision 7): every allowed transition is accepted, every
 // other one throws, listeners see `{ from, to, reason }`, and the office-access and scheduling
-// predicates report `engine.recovering` and `scheduling.off`.
+// predicates report `engine.recovering` and `scheduling.off`, or `database.unavailable` once the
+// state database could not be used (DIPO-111).
 
 import { describe, expect, it } from "bun:test";
 
@@ -9,6 +10,7 @@ import { CommandError } from "@dipsaus-orchestrator/engine";
 
 import {
   CRASH_LOOP_REASON,
+  DATABASE_UNAVAILABLE,
   DaemonLifecycle,
   TransitionError,
   type StateChange,
@@ -174,5 +176,64 @@ describe("work tracking", () => {
     end?.(); // ending twice counts once
     await waiting;
     expect(lifecycle.inFlight).toBe(0);
+  });
+});
+
+describe("an unavailable state database (DIPO-111)", () => {
+  const failure = {
+    details: { reason: "migration", backup: "/s/backups/pre-v3-20261016T090000.db" },
+    text: "Migration 3 failed. No office is loaded. Run `dipo daemon stop`, then `dipo restore /s/backups/pre-v3-20261016T090000.db`.",
+  } as const;
+
+  it("holds recovering with the text as reason and refuses office access, not retryable", () => {
+    const lifecycle = lifecycleIn("recovering");
+    const changes: StateChange[] = [];
+    lifecycle.onTransition((change) => changes.push(change));
+    expect(lifecycle.holdUnavailable(failure)).toBe(true);
+    expect(lifecycle.state).toBe("recovering");
+    expect(lifecycle.reason).toBe(failure.text);
+    // Not a transition: the state stays recovering.
+    expect(changes).toEqual([]);
+    const expected = {
+      code: DATABASE_UNAVAILABLE,
+      message: failure.text,
+      retryable: false,
+      details: failure.details,
+    };
+    expect(lifecycle.officeAccess()).toEqual(expected);
+    expect(lifecycle.scheduling()).toEqual(expected);
+    expect(lifecycle.unavailable).toEqual(expected);
+  });
+
+  it("refuses resumeScheduling with database.unavailable instead of daemon.notSafe", () => {
+    const lifecycle = lifecycleIn("recovering");
+    lifecycle.holdUnavailable(failure);
+    let thrown: unknown;
+    try {
+      lifecycle.resumeScheduling();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(CommandError);
+    expect((thrown as CommandError).error).toMatchObject({
+      code: DATABASE_UNAVAILABLE,
+      retryable: false,
+    });
+    expect(lifecycle.state).toBe("recovering");
+  });
+
+  it("still drains, and keeps refusing office access while it does", () => {
+    const lifecycle = lifecycleIn("recovering");
+    lifecycle.holdUnavailable(failure);
+    lifecycle.transition("draining", "daemon.stop");
+    expect(lifecycle.officeAccess()?.code).toBe(DATABASE_UNAVAILABLE);
+  });
+
+  it("changes nothing outside recovering", () => {
+    for (const state of ["starting", "running", "safe", "draining"] as const) {
+      const lifecycle = lifecycleIn(state);
+      expect(lifecycle.holdUnavailable(failure)).toBe(false);
+      expect(lifecycle.unavailable).toBeNull();
+    }
   });
 });

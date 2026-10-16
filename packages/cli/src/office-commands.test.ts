@@ -525,22 +525,32 @@ describe("dipo office purge", () => {
   });
 });
 
-// DIPO-86: a command refused with `engine.recovering` waits for `daemon.status` to leave
-// `starting` and `recovering` and goes again with the same request id, inside the reply deadline.
+// DIPO-86: a command refused with `engine.recovering` polls `daemon.status` and goes again with the
+// same request id after every poll, inside the reply deadline. A daemon held in `recovering`
+// without its state database answers the repeat with `database.unavailable` (DIPO-111).
 describe("a command against a recovering daemon", () => {
   const RECOVERING = { code: "engine.recovering", message: "recovering", retryable: true };
 
   /**
-   * The daemon refuses the first `refusals` commands with `engine.recovering`, then answers with
-   * `answer`; `daemon.status` reports `states` one per poll, the last one repeating.
+   * The daemon refuses the first `refusals` commands with `engine.recovering`, and every command
+   * while the last `daemon.status` said `starting` or `recovering`, then answers with `answer`;
+   * `daemon.status` reports `states` one per poll, the last one repeating. With `held`, the
+   * state is ignored: the daemon answers `answer` once the refusals are used up, as a daemon held
+   * in `recovering` does.
    */
   function recovering(
     refusals: number,
     states: string[],
     answer: unknown = ok({ office: OFFICE, registered: true }),
     reason?: string,
+    held = false,
   ) {
-    const ctx = fake(() => (refusals-- > 0 ? { ok: false, error: RECOVERING } : answer));
+    let last = "recovering";
+    const ctx = fake(() =>
+      refusals-- > 0 || (!held && (last === "starting" || last === "recovering"))
+        ? { ok: false, error: RECOVERING }
+        : answer,
+    );
     const clock = ctx.deps.clock as ManualClock;
     const ids: unknown[] = [];
     let polls = 0;
@@ -558,6 +568,7 @@ describe("a command against a recovering daemon", () => {
             expect(definition.name).toBe("daemon.status");
             polls += 1;
             const state = states.length > 1 ? states.shift() : states[0];
+            last = state ?? "running";
             return { ok: true, result: { state, ...(reason ? { stateReason: reason } : {}) } };
           }) as DaemonSession["read"],
         };
@@ -631,6 +642,24 @@ describe("a command against a recovering daemon", () => {
       "dipo: the daemon finished recovering in safe mode (crash loop): scheduling is off until you run `dipo daemon resume-scheduling`.",
       "dipo: scheduling.off: Scheduling is off (crash loop); run `dipo daemon resume-scheduling` to turn it on.",
     ]);
+  });
+
+  it("ends a command sent before the migrations failed with database.unavailable", async () => {
+    const unavailable = {
+      code: "database.unavailable",
+      message:
+        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, then `dipo restore /s/backups/dipo-20261015.db`.",
+      retryable: false,
+      details: { reason: "damaged", backup: "/s/backups/dipo-20261015.db" },
+    };
+    const ctx = recovering(2, ["recovering"], { ok: false, error: unavailable }, undefined, true);
+    const code = main(["office", "open"], ctx.deps);
+    await ctx.advance(2 * RECOVERY_POLL_MS);
+    expect(await code).toBe(1);
+    expect(ctx.ids).toHaveLength(3);
+    expect(new Set(ctx.ids).size).toBe(1);
+    expect(ctx.err).toEqual([`dipo: database.unavailable: ${unavailable.message}`]);
+    expect((ctx.deps.clock as ManualClock).pendingTimers).toBe(0);
   });
 
   it("gives up at the reply deadline with a line that says the daemon is still recovering", async () => {

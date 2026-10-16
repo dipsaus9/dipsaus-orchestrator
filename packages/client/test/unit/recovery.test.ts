@@ -1,7 +1,9 @@
 // `waitForRecovery` (DIPO-86) against a fake daemon behind the real `DipoClient` on the manual
 // clock: `engine.recovering` makes a command wait for `daemon.status` to leave `starting` and
 // `recovering` and go again with the same `requestId`; a read goes again with a new one; a daemon
-// that ends recovery in `safe` is reported once; `close` ends a wait at once.
+// that ends recovery in `safe` is reported once; `close` ends a wait at once. The request goes
+// again after every answered poll, also while the daemon still says `recovering`, so a daemon held
+// there without its state database ends the wait with `database.unavailable` (DIPO-111).
 
 import { describe, expect, it } from "bun:test";
 
@@ -43,7 +45,17 @@ class FakeDaemon implements Transport {
   /** `fail` answers `daemon.status` with an `internal` error. */
   states: (DaemonState | "fail")[] = ["running"];
   reason: string | undefined;
+  /** The state the last `daemon.status` reported; `recovering` before the first. */
+  last: DaemonState | "fail" = "recovering";
   answer: (request: Request) => Answer = () => ({ ok: true, result: {}, changed: false });
+
+  /** Answers `engine.recovering` while the last reported state is `starting` or `recovering`. */
+  recoveringUntil(then: () => Answer): (request: Request) => Answer {
+    return () =>
+      this.last === "starting" || this.last === "recovering"
+        ? { ok: false, error: RECOVERING }
+        : then();
+  }
 
   connect(handlers: Parameters<Transport["connect"]>[0]) {
     queueMicrotask(() => handlers.onOpen());
@@ -76,6 +88,7 @@ class FakeDaemon implements Transport {
     this.requests.push(frame);
     if (frame.name === "daemon.status") {
       const state = this.states.length > 1 ? this.states.shift() : this.states[0];
+      this.last = state ?? "running";
       if (state === "fail") {
         return { ok: false, error: { code: "internal", message: "broken", retryable: false } };
       }
@@ -179,11 +192,11 @@ describe("waitForRecovery", () => {
   it("waits while daemon.status still says recovering and says so once after a second", async () => {
     const { daemon, session, said, polls } = await setup();
     daemon.states = ["starting", "recovering", "recovering", "recovering", "recovering", "running"];
-    let refusals = 1;
-    daemon.answer = () =>
-      refusals-- > 0
-        ? { ok: false, error: RECOVERING }
-        : { ok: true, result: { office: OFFICE, registered: false }, changed: false };
+    daemon.answer = daemon.recoveringUntil(() => ({
+      ok: true,
+      result: { office: OFFICE, registered: false },
+      changed: false,
+    }));
     const done = session.command(officeOpen, { path: "/work/app" });
     await flush();
     await polls(RECOVERY_NOTICE_MS / RECOVERY_POLL_MS - 1);
@@ -193,6 +206,10 @@ describe("waitForRecovery", () => {
     await polls(2);
     expect(await done).toMatchObject({ ok: true, changed: false });
     expect(daemon.named("daemon.status")).toHaveLength(6);
+    // Sent once, then again after every poll, always with the first id.
+    const sent = daemon.named("office.open");
+    expect(sent).toHaveLength(7);
+    expect(new Set(sent.map((request) => request.requestId)).size).toBe(1);
     expect(said).toEqual(["waiting"]);
   });
 
@@ -216,16 +233,14 @@ describe("waitForRecovery", () => {
     const { daemon, session, said, polls } = await setup();
     daemon.states = ["recovering", "safe"];
     daemon.reason = "crash loop";
-    let refusals = 1;
     const off = { code: "scheduling.off", message: "Scheduling is off", retryable: true };
-    daemon.answer = () =>
-      refusals-- > 0 ? { ok: false, error: RECOVERING } : { ok: false, error: off };
+    daemon.answer = daemon.recoveringUntil(() => ({ ok: false, error: off }));
     const done = session.command(workRun, {}, { office: OFFICE });
     await flush();
     await polls(2);
     expect(await done).toEqual({ ok: false, error: off });
     expect(said).toEqual(["safe: crash loop"]);
-    expect(daemon.named("work.run")).toHaveLength(2);
+    expect(daemon.named("work.run")).toHaveLength(3);
   });
 
   it("returns other errors at once without polling", async () => {
@@ -246,8 +261,51 @@ describe("waitForRecovery", () => {
     await polls(STATUS_FAILURES + 2);
     expect(await done).toEqual({ ok: false, error: RECOVERING });
     expect(daemon.named("daemon.status")).toHaveLength(STATUS_FAILURES + 2);
-    expect(daemon.named("office.open")).toHaveLength(1);
+    // Sent again only after the one answered poll.
+    expect(daemon.named("office.open")).toHaveLength(2);
     expect(session.waiting).toBe(false);
+  });
+
+  describe("a daemon held in recovering without its state database (DIPO-111)", () => {
+    const UNAVAILABLE = {
+      code: "database.unavailable",
+      message: "The state database is damaged. No office is loaded. Run `dipo daemon stop`.",
+      retryable: false,
+      details: { reason: "damaged" },
+    };
+
+    /** `engine.recovering` until the migrations step fails, then `database.unavailable`. */
+    function heldAfter(daemon: FakeDaemon, polls: number): void {
+      daemon.states = ["recovering"];
+      let left = polls;
+      daemon.answer = () =>
+        left-- > 0 ? { ok: false, error: RECOVERING } : { ok: false, error: UNAVAILABLE };
+    }
+
+    it("ends a command sent during the window (the CLI path) with database.unavailable", async () => {
+      const { daemon, session, polls } = await setup();
+      heldAfter(daemon, 2);
+      const done = session.command(officeOpen, { path: "/work/app" });
+      await flush();
+      await polls(2);
+      expect(await done).toEqual({ ok: false, error: UNAVAILABLE });
+      const sent = daemon.named("office.open");
+      expect(sent).toHaveLength(3);
+      expect(new Set(sent.map((request) => request.requestId)).size).toBe(1);
+      expect(session.waiting).toBe(false);
+    });
+
+    it("ends a read without a deadline (dipo watch's snapshot) with database.unavailable", async () => {
+      const { clock, daemon, session, polls } = await setup();
+      heldAfter(daemon, 1);
+      const done = session.read(officeSnapshot, { office: OFFICE });
+      await flush();
+      await polls(1);
+      expect(await done).toEqual({ ok: false, error: UNAVAILABLE });
+      expect(daemon.named("office.snapshot")).toHaveLength(2);
+      expect(daemon.named("daemon.status")).toHaveLength(1);
+      expect(clock.pendingTimers).toBe(0);
+    });
   });
 
   it("ends a wait at once on close and leaves no timer behind", async () => {

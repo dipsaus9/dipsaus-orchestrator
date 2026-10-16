@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { Cursor } from "./ids";
 import { ContractVersion } from "./version";
+import { openEnum } from "./work";
 
 export const EngineError = z.object({
   code: z.string(), // open set, dotted: "story.notRunning", "args.invalid", ...
@@ -13,7 +14,10 @@ export const EngineError = z.object({
 });
 export type EngineError = z.infer<typeof EngineError>;
 
-// Generic codes any command or read may return.
+// Generic codes any command or read may return. Since minor 1 (DIPO-111): `database.unavailable`,
+// not retryable, while the daemon cannot open or migrate its state database (0007 sections 9 and
+// 10): it stays in `recovering` and serves only `engine.hello`, `commands.describe` and
+// `daemon.*`; the message says what to do, and `details` are `DatabaseUnavailableDetails`.
 export const GENERIC_ERROR_CODES = [
   "contract.unsupported",
   "args.invalid",
@@ -27,6 +31,7 @@ export const GENERIC_ERROR_CODES = [
   "auth.failed",
   "stream.resetRequired",
   "internal",
+  "database.unavailable",
 ] as const;
 
 // The only codes for which the same request may succeed later.
@@ -97,3 +102,26 @@ export type ContractUnsupportedDetails = z.infer<typeof ContractUnsupportedDetai
 // `details` of `stream.resetRequired`: the oldest cursor the stream can still replay from.
 export const StreamResetRequiredDetails = z.object({ oldest: Cursor });
 export type StreamResetRequiredDetails = z.infer<typeof StreamResetRequiredDetails>;
+
+// Why the state database is unavailable (0007 sections 9 and 10). Open enum: `migration` (a step
+// failed and was rolled back), `checksum` (an applied migration was edited), `damaged` (the file
+// failed `PRAGMA quick_check` or is not a database), `tooNew` (written by a newer dipo),
+// `networkFilesystem` (`<state>` is on a network filesystem) and `open` (any other failure).
+export const DATABASE_UNAVAILABLE_REASONS = [
+  "migration",
+  "checksum",
+  "damaged",
+  "tooNew",
+  "networkFilesystem",
+  "open",
+] as const;
+export const DatabaseUnavailableReason = openEnum(DATABASE_UNAVAILABLE_REASONS);
+export type DatabaseUnavailableReason = z.infer<typeof DatabaseUnavailableReason>;
+
+// `details` of `database.unavailable`: the reason, and the newest backup when the fix is
+// `dipo restore` and one exists.
+export const DatabaseUnavailableDetails = z.object({
+  reason: DatabaseUnavailableReason,
+  backup: z.string().optional(),
+});
+export type DatabaseUnavailableDetails = z.infer<typeof DatabaseUnavailableDetails>;

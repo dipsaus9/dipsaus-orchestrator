@@ -1,8 +1,11 @@
 // `dipo daemon --foreground` (0006 decisions 3, 5, 6, 7 and 13): take the PID lock, choose the
 // runtime directory, bind the socket and re-read the lock in `starting`; open and migrate the state
-// database as the first recovery step in `recovering` (0007 section 1); then `running`, or `safe`
-// after a crash loop. SIGTERM, SIGINT, or the minute check finding another live daemon holding the
-// lock, move it to `draining`, and it exits once the drain is done or capped.
+// database as the first recovery step in `recovering` (0007 section 1), with `PRAGMA quick_check`
+// after an unclean exit (0007 section 10); then `running`, or `safe` after a crash loop. A database
+// it cannot open or migrate keeps it in `recovering`, serving software commands with a notice that
+// says what to do (0007 sections 9 and 10, DIPO-111). SIGTERM, SIGINT, or the minute check finding
+// another live daemon holding the lock, move it to `draining`, and it exits once the drain is done
+// or capped.
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -92,6 +95,7 @@ import {
   type SpawnKeepAwake,
   type HeldLock,
   type Logger,
+  type Migration,
   type LogFile,
   type Registry,
   type PidRecord,
@@ -103,9 +107,11 @@ import { controlFeature, emitDaemonStates } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
 import { noOrphansActive, type DaemonIo } from "./io";
-import { DaemonLifecycle } from "./lifecycle";
+import { DATABASE_UNAVAILABLE, DaemonLifecycle } from "./lifecycle";
 import {
+  databaseFailure,
   MIGRATIONS_STEP,
+  needsCheckAfter,
   runRecovery,
   RecoverySteps,
   type RecoveryContext,
@@ -125,6 +131,8 @@ export const FOREGROUND_USAGE =
 export interface ForegroundOptions {
   /** Recovery steps after the migrations, in registration order (DIPO-56, DIPO-57). */
   readonly recoverySteps?: readonly RecoveryStep[];
+  /** Replaces the compiled-in migrations; tests add a failing step (DIPO-111). */
+  readonly migrations?: readonly Migration[];
   readonly drainCaps?: DrainCaps;
   /** Feature modules served next to the engine's own; tests register fixtures here. */
   readonly features?: readonly FeatureModule[];
@@ -858,15 +866,53 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     tick();
     watcher.start();
 
+    // After an unclean exit the file may be damaged (0007 section 10): `PRAGMA quick_check` at open.
+    // An unreadable crash counter cannot tell, so it counts as one, and so does a check an earlier
+    // daemon left pending (`needsCheck`, DIPO-111). A database that cannot be opened, checked or
+    // migrated holds the daemon in `recovering` (DIPO-111): office commands and reads get
+    // `database.unavailable`, the notice and `daemon.status` say what to do, and the daemon stays
+    // up, so a supervisor does not restart it in a loop.
+    const checkBecause = opened.previousCrashed
+      ? "unclean exit"
+      : opened.damaged
+        ? "crash counter unreadable"
+        : opened.needsCheck
+          ? "check pending from an earlier start"
+          : null;
+    const checkIntegrity = checkBecause !== null;
     const steps = new RecoverySteps({
       name: MIGRATIONS_STEP,
       run: async (context) => {
-        held.database = await openStateDatabase({
-          stateDir,
-          logger: context.logger.child({ component: "database" }),
-          clock,
-          engineVersion: io.version,
-        });
+        const dbLogger = context.logger.child({ component: "database" });
+        if (checkBecause !== null) {
+          dbLogger.info("checking the state database with quick_check", { because: checkBecause });
+        }
+        try {
+          held.database = await openStateDatabase({
+            stateDir,
+            logger: dbLogger,
+            clock,
+            engineVersion: io.version,
+            checkIntegrity,
+            ...(options.migrations === undefined ? {} : { migrations: options.migrations }),
+          });
+          // The check passed: nothing is pending any more.
+          if (checkIntegrity) crashes.setNeedsCheck(false);
+        } catch (error) {
+          const failure = databaseFailure(error, stateDir);
+          crashes.setNeedsCheck(needsCheckAfter(failure.details.reason, checkIntegrity));
+          dbLogger.error("the state database is unavailable; serving software commands only", {
+            ...failure.details,
+            error,
+          });
+          if (lifecycle.holdUnavailable(failure)) {
+            software.append("engine.notice", {
+              level: "error",
+              code: DATABASE_UNAVAILABLE,
+              text: failure.text,
+            });
+          }
+        }
       },
     });
     // Every registered office loads in `recovering` (DIPO-56): its load steps end with reconcile,
