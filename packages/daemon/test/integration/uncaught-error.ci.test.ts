@@ -214,13 +214,18 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       "an uncaught error during a SIGTERM drain keeps the drain's reason, exits 1 and keeps the crash marker",
       () =>
         withDaemonTempDir(async (dir) => {
-          // The child keeps the SIGTERM drain open past the throw 100 ms after the signal.
-          const daemon = start(dir, ["stop-throw", "sleep 3", "20000"]);
+          // A long child holds the SIGTERM drain open (cap 20 s) until the test ends it, once the
+          // throw 100 ms after the signal was logged.
+          const daemon = start(dir, ["stop-throw", "sleep 30", "20000"]);
           let child = 0;
           try {
             await waitForLog(dir, daemon, "running state", reachedState("running"));
             child = readLog(dir).find((line) => line.msg === "test child started")?.childPid ?? 0;
+            expect(child).toBeGreaterThan(0);
             daemon.kill("SIGTERM");
+            // The child holds the drain open until the error is logged; then the test ends it.
+            await waitForLog(dir, daemon, "uncaught exception", (line) => line.msg === EXCEPTION);
+            process.kill(-child, "SIGKILL");
             expect(await daemon.exited).toBe(1);
             const log = readLog(dir);
             const messages = log.map((line) => line.msg);
