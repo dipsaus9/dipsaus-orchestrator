@@ -229,14 +229,16 @@ describe("an error no code caught in the daemon", () => {
         });
         try {
           const log = join(dir, "state", "logs", "daemon.log");
-          for (let i = 0; i < 400; i++) {
+          let up = false;
+          for (let i = 0; i < 400 && !up; i++) {
             // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
             assertTestRuntimeDir(dir);
             if (running.exitCode !== null)
               throw new Error(`daemon exited with ${running.exitCode}`);
-            if (existsSync(log) && readFileSync(log, "utf8").includes('"to":"running"')) break;
-            await Bun.sleep(25);
+            up = existsSync(log) && readFileSync(log, "utf8").includes('"to":"running"');
+            if (!up) await Bun.sleep(25);
           }
+          if (!up) throw new Error("the running daemon did not reach running within 10 s");
 
           const quiet = startInProcess(dir, false, systemClock);
           try {
