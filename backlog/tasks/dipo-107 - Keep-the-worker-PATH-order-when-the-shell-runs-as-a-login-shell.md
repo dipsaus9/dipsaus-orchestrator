@@ -1,10 +1,10 @@
 ---
 id: DIPO-107
 title: Keep the worker PATH order when the shell runs as a login shell
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 07:55'
-updated_date: '2026-10-16 20:08'
+updated_date: '2026-10-16 20:12'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -47,4 +47,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Set Ready by the maintainer on 2026-10-16 (DIPO-115 cutover step 2) after dipo gate passed on main.
+
+Delivered by dipo's live run during the DIPO-115 cutover (Haiku, 34 turns); reviewed and merged by hand with one test comment corrected.
 <!-- SECTION:NOTES:END -->
