@@ -52,6 +52,7 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
+import { watchRejections } from "../platform/rejections";
 import { RECORDINGS_DIR } from "../workers/replay";
 import { SCRIPTS } from "../workers/scripts";
 
@@ -77,6 +78,8 @@ interface World {
   writer: "ok" | "tampered" | "fails";
   steer: RunSteering["send"] | null;
   ingestor: Ingestor | null;
+  /** What run control logged through its `warn` dependency. */
+  readonly warnings: { message: string; fields: Readonly<Record<string, unknown>> }[];
 }
 
 let w: World;
@@ -96,6 +99,7 @@ beforeEach(async () => {
     writer: "ok",
     steer: null,
     ingestor: null,
+    warnings: [],
   } as unknown as World;
   const control = new RunControl({
     clock: f.t.clock,
@@ -129,6 +133,7 @@ beforeEach(async () => {
     refreshStory: async (_office, key) => {
       refreshed.push(key);
     },
+    warn: (message, fields) => world.warnings.push({ message, fields }),
   });
   (world as { control: RunControl }).control = control;
   w = world;
@@ -830,5 +835,45 @@ describe("reconcile against after-turn work (DIPO-56)", () => {
     } finally {
       control.close();
     }
+  });
+});
+
+describe("an intent's sent mark that fails (DIPO-110)", () => {
+  it("logs one error and leaves no unhandled rejection; run control keeps running", async () => {
+    track();
+    // The database refuses the update that marks the intent sent, after the ops went out.
+    w.f.t.state.connection.exec(
+      `create trigger sent_mark_fails before update of state on run_intents
+       when new.state in ('sent', 'failed')
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    const watch = watchRejections();
+    const acted = w.control.act(w.f.run, {
+      intent: "stop",
+      detail: "a plan-limit hold",
+      ops: encode({ kind: "stop" }),
+    });
+    expect(acted).toBe(true);
+    await w.control.idle();
+    expect(await watch.stop()).toEqual([]);
+    expect(w.sent).toHaveLength(1);
+    expect(w.warnings).toEqual([
+      {
+        message: "sending a run's decision failed",
+        fields: {
+          run: w.f.run,
+          intent: "stop",
+          reason: "disk I/O error",
+          errorCode: expect.stringMatching(/^SQLITE_CONSTRAINT/),
+        },
+      },
+    ]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "pending"],
+    ]);
+    // The decision stands and run control still answers for the run.
+    expect(w.control.isTracked(w.f.run)).toBe(true);
+    expect(w.control.live(w.f.run)).toBe(false);
+    expect(w.control.act(w.f.run, { intent: "stop", detail: "again", ops: [] })).toBe(false);
   });
 });

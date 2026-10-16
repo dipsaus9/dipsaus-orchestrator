@@ -41,6 +41,7 @@ import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
+import { background } from "../platform/background";
 import type { AdapterHold, HoldNotice } from "../workers/hold";
 
 import {
@@ -528,19 +529,18 @@ export class PlanLimits implements PlanLimitWaits {
     // Dropped before the resume: a limit the new session meets writes a new wait.
     this.#drop(wait);
     const why = wait.fact.resetsAt === undefined ? WHY.probe : WHY.reset;
-    const job = this.#deps
-      .resume(wait.office, wait.runId, why)
-      .then((outcome) => {
+    background(
+      async () => {
+        const outcome = await this.#deps.resume(wait.office, wait.runId, why);
         if (outcome === "busy") this.#rearm(wait);
-      })
-      .catch((error: unknown) => {
-        this.#deps.warn?.("resuming a run held by a plan limit failed", {
-          run: wait.runId,
-          reason: messageOf(error),
-        });
-      });
-    this.#inflight.add(job);
-    void job.finally(() => this.#inflight.delete(job));
+      },
+      {
+        failed: "resuming a run held by a plan limit failed",
+        fields: { run: wait.runId },
+        log: this.#deps.warn,
+        inflight: this.#inflight,
+      },
+    );
   }
 
   /** True while the wait's run is active and its fact open; a closed one is dropped. */

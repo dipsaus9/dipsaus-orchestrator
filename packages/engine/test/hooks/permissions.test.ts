@@ -50,6 +50,7 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
+import { watchRejections } from "../platform/rejections";
 import { RECORDINGS_DIR } from "../workers/replay";
 
 const claude: IngestAdapter = {
@@ -97,6 +98,8 @@ interface World {
   /** What the steering fake answers; ok by default. */
   refusal: { reason: string; code: string } | null;
   ingestor: Ingestor | null;
+  /** What `PermissionAsks` logged through its `warn` dependency. */
+  readonly warnings: { message: string; fields: Readonly<Record<string, unknown>> }[];
 }
 
 let w: World;
@@ -115,6 +118,7 @@ beforeEach(async () => {
     ending: false,
     refusal: null,
     ingestor: null,
+    warnings: [],
   } as unknown as World;
   const presence: Presence = {
     connected: () => world.connected,
@@ -133,6 +137,7 @@ beforeEach(async () => {
     encode,
     presence,
     ending: () => world.ending,
+    warn: (message, fields) => world.warnings.push({ message, fields }),
   });
   const { office } = f;
   const { key } = office.immediate(() =>
@@ -573,5 +578,45 @@ describe("a hook call the host no longer holds (DIPO-59 review)", () => {
     expect(
       loggedEvents(w.f.office).find((event) => event.type === "engine.notice")?.data,
     ).toMatchObject({ code: "run.hookReplyNotSent" });
+  });
+});
+
+describe("a notice write that fails (DIPO-110)", () => {
+  it("logs one error and leaves no unhandled rejection when the timeout deny's notice cannot be written", async () => {
+    await ingest(scenario().before);
+    // The host cannot be reached, so the engine's timeout deny is followed by a notice, written
+    // in the background job; the database refuses it.
+    w.refusal = { reason: "connect ECONNREFUSED", code: "host.unreachable" };
+    w.f.t.state.connection.exec(
+      `create trigger notice_fails before insert on change_log
+       when new.type = 'engine.notice' and new.delta like '%run.hookReplyNotSent%'
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    const watch = watchRejections();
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(await watch.stop()).toEqual([]);
+    expect(w.sent).toHaveLength(1);
+    expect(types()).toContain("question.closed");
+    expect(types()).not.toContain("engine.notice");
+    const failures = w.warnings.filter(
+      (line) => line.message === "sending a permission decision failed",
+    );
+    expect(failures).toEqual([
+      {
+        message: "sending a permission decision failed",
+        fields: {
+          run: w.f.run,
+          hook: expect.any(Number),
+          reason: "disk I/O error",
+          errorCode: expect.stringMatching(/^SQLITE_CONSTRAINT/),
+        },
+      },
+    ]);
+    // The permission wait keeps working: the next request of the run is asked as before.
+    w.refusal = null;
+    w.f.t.state.connection.exec("drop trigger notice_fails");
+    await ingest(scenario().before);
+    expect(openQuestions(w.f.office)).toHaveLength(1);
   });
 });
