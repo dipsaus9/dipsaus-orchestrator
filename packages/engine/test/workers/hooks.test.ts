@@ -189,7 +189,7 @@ describe("PostCompact and PostModelSwitch, deduplicated (DIPO-59 AC #10)", () =>
     // A hook whose boundary never comes is reported at the exit, with no token count.
     expect(compacted(run([boundary, exit, post, exit]).events)).toEqual([
       { t: "compacted", preTokens: 150_000 },
-      { t: "compacted", preTokens: 0 },
+      { t: "compacted" },
     ]);
   });
 
@@ -201,7 +201,7 @@ describe("PostCompact and PostModelSwitch, deduplicated (DIPO-59 AC #10)", () =>
     // Counts are per process: after the exit the next process starts from zero.
     const after = run([exit, boundary], state);
     expect(compacted(after.events)).toEqual([
-      { t: "compacted", preTokens: 0 },
+      { t: "compacted" },
       { t: "compacted", preTokens: 150_000 },
     ]);
   });

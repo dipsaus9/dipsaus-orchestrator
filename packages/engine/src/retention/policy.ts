@@ -30,6 +30,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   },
   agents: { tier: "S", rule: "ended more than stateDays ago" },
   usage_totals: { tier: "S", rule: "with its agent, ended more than stateDays ago" },
+  compactions: { tier: "S", rule: "with its agent, ended more than stateDays ago" },
   worker_hosts: { tier: "S", rule: "ended more than stateDays ago" },
   backlog_journal: { tier: "S", rule: "closed more than stateDays ago; open entries are kept" },
   usage_daily: { tier: "P", rule: "kept until purge" },

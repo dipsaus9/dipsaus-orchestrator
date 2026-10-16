@@ -244,7 +244,11 @@ export type WorkerEvent =
     }
   /** A relayed hook, adapter-neutral (0008 section 5, DIPO-59). */
   | { readonly t: "hook"; readonly hook: HookEvent }
-  | { readonly t: "compacted"; readonly preTokens: number }
+  /**
+   * One context compaction. `preTokens` is the context size before it; absent when the adapter
+   * had no count for it (DIPO-106).
+   */
+  | { readonly t: "compacted"; readonly preTokens?: number }
   | { readonly t: "modelSwitched"; readonly from: string; readonly to: string }
   /**
    * The worker failed its start checks (0008 section 2: key source, model). Emitted once, before

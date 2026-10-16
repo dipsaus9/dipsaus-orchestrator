@@ -1,7 +1,7 @@
 // One compaction reported through both `compact_boundary` and the `PostCompact` hook (DIPO-100):
 // replayed through the fake process and the real adapter, both orders give one `compacted` with
 // the real `pre_tokens`. A hook whose boundary does not come by the turn end is reported there with
-// `preTokens` 0, and a boundary after that does not count the compaction again.
+// no `preTokens` (DIPO-106), and a boundary after that does not count the compaction again.
 
 import { describe, expect, it } from "bun:test";
 
@@ -77,7 +77,7 @@ describe("a compaction seen as compact_boundary and PostCompact, replayed (DIPO-
 
   it("reports a hook-only compaction by the turn end, and a later boundary does not count it again", async () => {
     const hookOnly = await replay(withCompaction((t) => [postCompact(t)]));
-    expect(compacted(hookOnly.events)).toEqual([{ t: "compacted", preTokens: 0 }]);
+    expect(compacted(hookOnly.events)).toEqual([{ t: "compacted" }]);
     // Before the turn event, so a consumer of the turn already has the compaction.
     const at = hookOnly.events.findIndex((event) => event.t === "compacted");
     const turn = hookOnly.events.findIndex((event) => event.t === "turn");
@@ -89,6 +89,6 @@ describe("a compaction seen as compact_boundary and PostCompact, replayed (DIPO-
         (t) => [boundary(t)],
       ),
     );
-    expect(compacted(late.events)).toEqual([{ t: "compacted", preTokens: 0 }]);
+    expect(compacted(late.events)).toEqual([{ t: "compacted" }]);
   });
 });
