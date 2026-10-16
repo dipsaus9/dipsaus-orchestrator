@@ -99,6 +99,15 @@ function idleSnapshot(): OfficeSnapshot {
   };
 }
 
+/** The idle snapshot with its one Refined story changed by `story`. */
+function withRefined(story: (view: StoryView) => StoryView): OfficeSnapshot {
+  const base = idleSnapshot();
+  return {
+    ...base,
+    stories: base.stories.map((view) => (view.column === "refined" ? story(view) : view)),
+  };
+}
+
 async function open(
   columns: number,
   rows = 30,
@@ -195,6 +204,30 @@ describe("office overview board", () => {
       " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is on hold, 1 dra…",
       " [2] queue  [o] offices  [q] quit",
     ]);
+  });
+
+  it("names the Refined story's rule from the gateFailures field, not the message (DIPO-97)", async () => {
+    const message = "ready DIPO-33 failed R15: 2 unknowns open";
+    const field = await open(
+      120,
+      30,
+      withRefined((view) => ({
+        ...view,
+        gateMessages: [message],
+        gateFailures: [{ rule: "R20", message, text: "2 unknowns open" }],
+      })),
+    );
+    expect(field.ui.frame()).toContain("DIPO-33 is Refined (R20)");
+
+    const messageOnly = await open(
+      120,
+      30,
+      withRefined((view) => {
+        const { gateFailures: _, ...rest } = view;
+        return { ...rest, gateMessages: [message] };
+      }),
+    );
+    expect(messageOnly.ui.frame()).toContain("DIPO-33 is Refined, DIPO-29");
   });
 
   it("points at the queue when Ready stories wait and nothing runs", async () => {
@@ -425,6 +458,32 @@ describe("opening any board row (DIPO-81)", () => {
     frame = await recent.ui.waitFor(" no output stored");
     expect(frame).toContain(" run ended 2h ago (completed)  role developer");
     expect(lines(frame).at(-1)).toContain("[q] quit");
+  });
+
+  it("uses the office's retention period from its summary for the removed-output line (DIPO-97)", async () => {
+    const hello = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
+    if (hello === undefined) throw new Error("no golden summary");
+    const { outputRetentionDays: _, ...summary } = hello;
+    const shows = async (days: number | undefined, endedAt: string, line: string) => {
+      const { ui, session } = await open(120, 30, boardSnapshot());
+      session.active("software")?.options.onEvent({
+        cursor: { stream: "software", epoch: "e1", seq: 90 },
+        at: "2026-10-14T10:04:00.000Z",
+        type: "office.summary",
+        data: days === undefined ? summary : { ...summary, outputRetentionDays: days },
+      } as Event);
+      session.runs.set(KEY_28, [record28(endedAt)]);
+      await selectReview(ui);
+      await ui.press("enter");
+      await ui.waitFor("run ended · DIPO-28 is In Review");
+      return ui.waitFor(`│ ${line}`);
+    };
+    // Nine days ago: removed under the golden 7 days (the test above), kept under 30.
+    await shows(30, "2026-10-05T08:00:00.000Z", "no output stored");
+    // Three days ago: removed under a 2-day period.
+    await shows(2, "2026-10-11T08:00:00.000Z", "output removed after the retention period");
+    // Without the period the TUI does not claim that output was removed.
+    await shows(undefined, "2026-10-05T08:00:00.000Z", "no output stored");
   });
 
   it("Enter on a Ready row that never ran says so in the footer", async () => {

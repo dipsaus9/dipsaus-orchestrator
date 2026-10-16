@@ -7,9 +7,6 @@ import type { RunRecord, StoryView } from "@dipsaus-orchestrator/contract";
 
 import { age, elapsed, tokens } from "./format";
 
-/** The default short retention period of stored output (0007 section 7, tier R). */
-export const OUTPUT_RETENTION_DAYS = 7;
-
 /** `DIPO-28 Show the merge queue · developer · L · claude-haiku · run_01J…`. */
 export function recordHeaderLine(
   record: RunRecord,
@@ -64,13 +61,16 @@ export function compactRecordFactLines(record: RunRecord, now: number): string[]
 }
 
 /**
- * What an empty pane of an ended run says: output older than the retention period was removed
- * (the engine's default period; the office may set another, which the contract does not send),
- * otherwise nothing was stored for this source.
+ * What an empty pane of an ended run says: output of a run that ended longer ago than the office's
+ * retention period (`OfficeSummary.outputRetentionDays`, 0007 section 7) was removed; otherwise,
+ * or when the summary does not send the period, nothing was stored for this source.
  */
-export function noOutputLine(endedAt: string | undefined, now: number): string {
-  const days = endedAt === undefined ? 0 : (now - Date.parse(endedAt)) / 86_400_000;
-  return days > OUTPUT_RETENTION_DAYS
-    ? "output removed after the retention period"
-    : "no output stored";
+export function noOutputLine(
+  endedAt: string | undefined,
+  now: number,
+  retentionDays: number | undefined,
+): string {
+  if (endedAt === undefined || retentionDays === undefined) return "no output stored";
+  const days = (now - Date.parse(endedAt)) / 86_400_000;
+  return days > retentionDays ? "output removed after the retention period" : "no output stored";
 }

@@ -5,6 +5,8 @@ import { describe, expect, it } from "bun:test";
 
 import {
   evaluateGate,
+  gateMessage,
+  gateText,
   GATE_RULES,
   type GateInput,
   type GateMode,
@@ -633,5 +635,21 @@ describe("purity", () => {
     expect(second).toEqual(first);
     expect(first.failures.length).toBeGreaterThan(0);
     expect(PASSING_STORY.status).toBe("Refined");
+  });
+});
+
+describe("gateText (DIPO-97)", () => {
+  it("gives back the message a gate line was built from, for any story id", () => {
+    const line = gateMessage("DRAFT-3", "R15", "2 unknowns open: a: b");
+    expect(gateText("R15", line)).toBe("2 unknowns open: a: b");
+    expect(gateText("R01a", gateMessage(ID, "R01a", "status is Done"))).toBe("status is Done");
+  });
+
+  it("returns a line of another shape or another rule as is", () => {
+    const line = gateMessage(ID, "R15", "x");
+    expect(gateText("R07", line)).toBe(line);
+    expect(gateText("R15", "TASK-1 cannot start: too large")).toBe(
+      "TASK-1 cannot start: too large",
+    );
   });
 });

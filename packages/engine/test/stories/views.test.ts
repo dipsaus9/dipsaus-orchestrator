@@ -16,6 +16,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { type OfficeDirectory, officeUnknown } from "../../src/commands/offices";
+import { OFFICE_DEFAULTS } from "../../src/config";
 import { buildRegistry } from "../../src/commands/registry";
 import { executeRead } from "../../src/reads/execute";
 import { helloFeature } from "../../src/reads/hello";
@@ -28,6 +29,7 @@ import {
   officeSummaries,
   officeSummaryOfSource,
   officeSummarySource,
+  summarySettings,
 } from "../../src/views";
 import { addOffice } from "../commands/helpers";
 import { draft, pass, task, withOffice } from "./helpers";
@@ -161,12 +163,25 @@ describe("office summary", () => {
   it("names the privacy opt-ins that are on, and leaves the field out when none is (DIPO-83)", () =>
     withOffice(async (t, office) => {
       const on = ["privacy.storeCommandBodies"];
-      const optInsOf = (id: string) => (id === office.officeId ? on : []);
-      const summary = officeSummaryOfSource(() => t.state, optInsOf)(office.officeId);
+      const settingsOf = (id: string) => ({ optIns: id === office.officeId ? on : [] });
+      const summary = officeSummaryOfSource(() => t.state, settingsOf)(office.officeId);
       expect(summary?.optIns).toEqual(on);
       expect(OfficeSummary.parse(summary)).toEqual(summary as OfficeSummary);
-      expect(officeSummarySource(() => t.state, optInsOf)()[0]?.optIns).toEqual(on);
+      expect(officeSummarySource(() => t.state, settingsOf)()[0]?.optIns).toEqual(on);
       expect(officeSummaryOfSource(() => t.state)(office.officeId)).not.toHaveProperty("optIns");
+    }));
+
+  it("sends the office's stored-output retention period, absent without a config (DIPO-97)", () =>
+    withOffice(async (t, office) => {
+      const config = { ...OFFICE_DEFAULTS, retention: { shortDays: 3, stateDays: 365 } };
+      const settingsOf = () => summarySettings(config);
+      const summary = officeSummaryOfSource(() => t.state, settingsOf)(office.officeId);
+      expect(summary?.outputRetentionDays).toBe(3);
+      expect(OfficeSummary.parse(summary)).toEqual(summary as OfficeSummary);
+      expect(officeSummarySource(() => t.state, settingsOf)()[0]?.outputRetentionDays).toBe(3);
+      expect(summarySettings(undefined)).toEqual({ optIns: [] });
+      const without = officeSummaryOfSource(() => t.state)(office.officeId);
+      expect(without).not.toHaveProperty("outputRetentionDays");
     }));
 
   it("counts the Ready column as ready (DIPO-81)", () =>

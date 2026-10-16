@@ -202,6 +202,27 @@ describe("views", () => {
     };
     expect(OfficeSummary.parse(summary)).toEqual(summary as never);
   });
+
+  // Minor-1 additions of DIPO-97: optional, so a summary or view without them still parses.
+  it("OfficeSummary takes an optional whole-day output retention period", () => {
+    expect(OfficeSummary.parse(officeSummary).outputRetentionDays).toBe(7);
+    const { outputRetentionDays: _, ...without } = officeSummary;
+    expect(OfficeSummary.safeParse(without).success).toBe(true);
+    for (const bad of [0, -1, 1.5, "7"]) {
+      const summary = { ...officeSummary, outputRetentionDays: bad };
+      expect(OfficeSummary.safeParse(summary).success).toBe(false);
+    }
+  });
+
+  it("StoryView carries each failed gate rule with its id next to the message", () => {
+    const view = StoryView.parse(refinedStoryView);
+    expect(view.gateFailures?.[0]?.rule).toBe("R15");
+    expect(view.gateFailures?.[0]?.message).toBe(view.gateMessages?.[0] ?? "");
+    const { gateFailures: _, ...without } = refinedStoryView;
+    expect(StoryView.safeParse(without).success).toBe(true);
+    const noText = { ...refinedStoryView, gateFailures: [{ rule: "R15", message: "m" }] };
+    expect(StoryView.safeParse(noText).success).toBe(false);
+  });
 });
 
 describe("office commands and reads", () => {

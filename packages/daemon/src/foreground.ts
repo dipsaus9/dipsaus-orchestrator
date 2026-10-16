@@ -52,7 +52,7 @@ import {
   officeSummaryOfSource,
   officeSummarySource,
   OfficeManager,
-  privacyOptIns,
+  summarySettings,
   openLogFile,
   openStateDatabase,
   passwdHome,
@@ -704,9 +704,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     held.retention = retention;
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
-    // `optIns` names the privacy opt-ins that are on (0007 section 8, DIPO-83).
-    const optInsOf = (office: OfficeId) => privacyOptIns(offices.config(office));
-    const summaries = officeSummarySource(() => held.database, optInsOf);
+    // `optIns` names the privacy opt-ins that are on (0007 section 8, DIPO-83) and
+    // `outputRetentionDays` the stored-output retention period (0007 section 7, DIPO-97).
+    const settingsOf = (office: OfficeId) => summarySettings(offices.config(office));
+    const summaries = officeSummarySource(() => held.database, settingsOf);
     const registry: Registry = engineRegistry([
       ...engineFeatures({ backlog: backlogCli }),
       engineGit.feature,
@@ -770,7 +771,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lifecycle,
       software,
       officeSummaries: summaries,
-      officeSummary: officeSummaryOfSource(() => held.database, optInsOf),
+      officeSummary: officeSummaryOfSource(() => held.database, settingsOf),
       engineVersion: io.version,
       logger: logger.child({ component: "server" }),
     });

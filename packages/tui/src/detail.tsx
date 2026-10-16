@@ -408,12 +408,15 @@ export function Detail(props: DetailProps) {
     const top = start === 0 && feed.atStart ? "start of output  " : "";
     status = `${top}${scrolled} rows below ${dot} [End] follow tail`;
   } else status = "following the tail";
+  // The office's stored-output retention period, from its summary (DIPO-97).
+  const retentionDays = state.offices.find((entry) => entry.office === state.office)?.summary
+    ?.outputRetentionDays;
   const empty =
     feed.loaded && total === 0
       ? [
           ended === undefined
             ? `no ${source} output yet`
-            : noOutputLine(record?.endedAt, clock.now()),
+            : noOutputLine(record?.endedAt, clock.now(), retentionDays),
         ]
       : [];
   const pane = (

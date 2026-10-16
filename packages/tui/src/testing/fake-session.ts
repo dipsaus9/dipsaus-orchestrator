@@ -18,6 +18,7 @@ import {
   engineHello,
   findEvent,
   type OfficeId,
+  type OutputMarker,
   OfficeSnapshot,
   type RunRecord,
   type StreamName,
@@ -109,6 +110,8 @@ export class FakeSession implements TuiSession {
   readonly output = new Map<string, string>(
     Object.entries(outputLog.stored).map(([key, lines]) => [key, lines.join("")]),
   );
+  /** Engine marker flags of the stored output by `<run>:<source>` (DIPO-95). */
+  readonly markers = new Map<string, OutputMarker[]>();
   /** `story.detail` runs by story key (oldest first); a story not listed has run never (DIPO-81). */
   readonly runs = new Map<string, RunRecord[]>();
 
@@ -148,9 +151,19 @@ export class FakeSession implements TuiSession {
       const text = this.output.get(`${args.run}:${args.source}`) ?? "";
       const from = Math.min(args.from ?? 0, text.length);
       const to = Math.min(args.to ?? text.length, text.length, from + this.rangeMax);
+      const markers = (this.markers.get(`${args.run}:${args.source}`) ?? []).filter(
+        (marker) => marker.from < to && marker.to > from,
+      );
       return {
         ok: true,
-        result: { run: args.run, source: args.source, from, to, text: text.slice(from, to) },
+        result: {
+          run: args.run,
+          source: args.source,
+          from,
+          to,
+          text: text.slice(from, to),
+          ...(markers.length === 0 ? {} : { markers }),
+        },
       };
     }
     const snapshot =
@@ -225,9 +238,17 @@ export class FakeSession implements TuiSession {
    * office stream it names. `deliver: false` stores it without sending, a missed event.
    */
   storeOutput(event: Event, deliver = true): void {
-    const data = event.data as { work: { run: string }; source: string; text: string };
+    const data = event.data as {
+      work: { run: string };
+      source: string;
+      text: string;
+      markers?: OutputMarker[];
+    };
     const key = `${data.work.run}:${data.source}`;
     this.output.set(key, (this.output.get(key) ?? "") + data.text);
+    if (data.markers !== undefined) {
+      this.markers.set(key, [...(this.markers.get(key) ?? []), ...data.markers]);
+    }
     if (deliver) this.active(event.cursor.stream)?.options.onEvent(event);
   }
 }

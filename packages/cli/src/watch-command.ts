@@ -16,6 +16,7 @@ import {
   gateDecided,
   gateReached,
   type OfficeId,
+  type OutputMarker,
   questionAsked,
   questionClosed,
   officeSnapshot,
@@ -36,9 +37,22 @@ import {
   workProgress,
 } from "@dipsaus-orchestrator/contract";
 
+import { markerRule } from "@dipsaus-orchestrator/tui";
+
 import { type DaemonSession, engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 import { storyRef } from "./run-command";
+
+/** One output range of `work.output`, with the engine markers it holds (DIPO-95). */
+interface OutputRange {
+  readonly from: number;
+  readonly to: number;
+  readonly text: string;
+  readonly markers?: readonly OutputMarker[] | undefined;
+}
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 /** How long `dipo watch` waits for a snapshot or a story's detail before it reconnects. */
 export const WATCH_READ_DEADLINE_MS = 15_000;
@@ -350,7 +364,7 @@ class Watch {
       case workOutput.type: {
         const data = workOutput.data.safeParse(event.data);
         if (!data.success) break;
-        this.#output(event, data.data.work, data.data.source, data.data.text);
+        this.#output(event, data.data.work, data.data.source, data.data);
         this.#view(event, data.data.work, data.data.view);
         break;
       }
@@ -432,9 +446,38 @@ class Watch {
     }
   }
 
-  /** Worker output, one line per output line; a partial line waits for its newline. */
-  #output(event: Event, work: WorkRef, source: string, text: string): void {
+  /**
+   * Worker output, one line per output line; a partial line waits for its newline. An engine
+   * marker, known only by its flag (DIPO-95), ends the partial line and prints as the TUI's rule
+   * with its local time, in ASCII when the output is not a terminal. Worker text that reads like a
+   * marker has no flag and prints as text.
+   */
+  #output(event: Event, work: WorkRef, source: string, range: OutputRange): void {
     const tag = source === "worker" ? "out" : source;
+    const markers = (range.markers ?? [])
+      .filter((marker) => marker.to > range.from && marker.from < range.to)
+      .toSorted((a, b) => a.from - b.from);
+    if (markers.length === 0) {
+      this.#text(event, work, tag, range.text);
+      return;
+    }
+    const bytes = encoder.encode(range.text);
+    let at = 0;
+    for (const marker of markers) {
+      const from = Math.max(at, marker.from - range.from);
+      this.#text(event, work, tag, decoder.decode(bytes.subarray(at, from)));
+      const partial = this.#partial.get(work.run);
+      this.#partial.delete(work.run);
+      if (partial !== undefined) this.#event(event, work.story, tag, partial);
+      this.#event(event, work.story, tag, markerRule(marker, !this.#deps.workspace.interactive));
+      at = Math.min(bytes.length, Math.max(from, marker.to - range.from));
+    }
+    this.#text(event, work, tag, decoder.decode(bytes.subarray(at)));
+  }
+
+  /** Output text, one line per output line; a partial line waits for its newline. */
+  #text(event: Event, work: WorkRef, tag: string, text: string): void {
+    if (text === "") return;
     const pending = (this.#partial.get(work.run) ?? "") + text;
     const lines = pending.split("\n");
     const rest = lines.pop() ?? "";

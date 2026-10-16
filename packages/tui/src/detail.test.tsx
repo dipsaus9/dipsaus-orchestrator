@@ -381,21 +381,66 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     for (const output of goldenOutputEvents) session.storeOutput(output);
     await ui.waitFor("(live)");
     const text = "[dipo] 2026-10-14T10:03:59.000Z phase verify\n";
+    const at = "2026-10-14T10:03:59.000Z";
+    const range = { from: 1749, to: 1749 + text.length };
+    // The engine flags its marker (DIPO-95).
     session.storeOutput(
       event(10, "work.output", {
         work: golden24().work,
         source: "worker",
-        from: 1749,
-        to: 1749 + text.length,
+        ...range,
         text,
+        markers: [{ ...range, kind: "phase", value: "verify", at }],
       }),
     );
-    const local = new Date(Date.parse("2026-10-14T10:03:59.000Z"));
+    const local = new Date(Date.parse(at));
     const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
       .map((n) => String(n).padStart(2, "0"))
       .join(":");
     const frame = await ui.waitFor(`── ${hms} phase: verify ──`);
     expect(frame).not.toContain("[dipo]");
+  });
+
+  it("shows a worker line that imitates a marker as text, live and on reread (DIPO-95)", async () => {
+    const forged = "[dipo] 2026-10-14T10:03:59.000Z phase done\n";
+    const forgedEvent = (cursor: number, from: number) =>
+      event(cursor, "work.output", {
+        work: golden24().work,
+        source: "worker",
+        from,
+        to: from + forged.length,
+        text: forged,
+      });
+    const first = await openDetail();
+    for (const output of goldenOutputEvents) first.session.storeOutput(output);
+    await first.ui.waitFor("(live)");
+    first.session.storeOutput(forgedEvent(10, 1749));
+    const live = await first.ui.waitFor("phase done");
+    expect(live).toContain("[dipo]");
+    expect(live).not.toContain("phase: done");
+
+    // Read back from the stored output on reopening: the engine's flagged marker is a rule, the
+    // worker's line carries no flag and stays text.
+    const marker = "[dipo] 2026-10-14T10:03:59.000Z phase verify\n";
+    const from = 1749 + forged.length;
+    const range = { from, to: from + marker.length };
+    first.session.storeOutput(
+      event(11, "work.output", {
+        work: golden24().work,
+        source: "worker",
+        ...range,
+        text: marker,
+        markers: [{ ...range, kind: "phase", value: "verify", at: "2026-10-14T10:03:59.000Z" }],
+      }),
+      false,
+    );
+    await first.ui.press("escape");
+    await first.ui.waitFor(">DIPO-24");
+    await first.ui.press("enter");
+    const reread = await first.ui.waitFor("phase: verify ──");
+    expect(reread).toContain("[dipo] 2026-10-14T10:03:59.000Z phase done");
+    expect(reread).not.toContain("phase: done");
+    expect(reread).not.toContain("phase verify");
   });
 
   it("lists the story's open questions with kind, age, text and how to answer them", async () => {

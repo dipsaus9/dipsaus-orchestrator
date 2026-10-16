@@ -59,8 +59,8 @@ export function rowNote(view: StoryView, now: number): string {
   if (view.column === "waiting" && view.waitingOn !== undefined && view.waitingOn.length > 0) {
     return `needs ${view.waitingOn.join(", ")}`;
   }
-  const gate = view.gateMessages?.[0];
-  if (gate !== undefined) return gateLine(gate);
+  const gate = gateLine(view);
+  if (gate !== undefined) return gate;
   if (view.parked !== undefined) {
     const since = age(now - Date.parse(view.parked.since));
     return view.parked.reason === "on-hold"

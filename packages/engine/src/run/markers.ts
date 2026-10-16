@@ -8,12 +8,18 @@
 // The line is code-made from facts the engine already keeps (`run_steps`, `runs.end_kind`), so it
 // holds nothing private. Clients render it (the TUI as `── 12:04:31 phase: verify ──`).
 //
+// Clients know a marker by its flag, never by its text (DIPO-95): the marker's own `work.output`
+// carries `markers`, and `work.outputRange` flags each marker in the range. In the store a marker
+// is the worker-output chunk with no agent: ingestion stores every worker byte under its agent, so
+// only the engine writes an agent-less worker chunk, and a worker that prints the same line gets
+// no flag.
+//
 // Offsets stay exactly-once: in one transaction the marker first sends every agent's pending
 // worker output, then stores itself after the run's last stored byte (with no agent), sends its own
 // `work.output`, and moves every agent's emitted mark past itself. Ingestion only ever sends an
 // agent's own chunks from that mark, so no byte is sent twice and none is skipped.
 
-import { AgentId, type RunId } from "@dipsaus-orchestrator/contract";
+import { AgentId, type OutputMarker, type RunId } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
@@ -27,8 +33,26 @@ import { appendRunStep, endRun } from "./records";
 export const MARKER_PREFIX = "[dipo]";
 
 /** The marker line: `[dipo] <ISO time> phase verify` or `[dipo] <ISO time> ended in-review`. */
-export function markerLine(kind: "phase" | "ended", value: string, at: number): string {
+export function markerLine(kind: MarkerKind, value: string, at: number): string {
   return `${MARKER_PREFIX} ${new Date(at).toISOString()} ${kind} ${value}\n`;
+}
+
+type MarkerKind = "phase" | "ended";
+
+const STORED_MARKER = /^\[dipo\] (\S+) (phase|ended) (\S.*)\n?$/;
+
+/**
+ * The flag of a stored agent-less worker chunk, read back from the line `markerLine` wrote for it
+ * at `[from, to)`; null for text that is not such a line. Only ever called on chunks the engine
+ * wrote (no agent), never on worker text.
+ */
+export function storedMarker(text: string, from: number, to: number): OutputMarker | null {
+  const match = STORED_MARKER.exec(text);
+  if (match === null) return null;
+  const [, iso, kind, value] = match;
+  const at = Date.parse(iso ?? "");
+  if (Number.isNaN(at) || kind === undefined || value === undefined) return null;
+  return { from, to, kind, value, at: new Date(at).toISOString() };
 }
 
 /**
@@ -43,7 +67,7 @@ export function markPhase(
   at: number,
 ): NewEntry[] {
   appendRunStep(office, runId, "phase", phase, at);
-  return writeMarker(office, runId, markerLine("phase", phase, at), at);
+  return writeMarker(office, runId, "phase", phase, at);
 }
 
 /**
@@ -58,14 +82,24 @@ export function endRunMarked(
 ): boolean {
   const ended = endRun(office, runId, at, kind);
   if (ended) {
-    const entries = writeMarker(office, runId, markerLine("ended", kind, at), at);
+    const entries = writeMarker(office, runId, "ended", kind, at);
     appendEntries(office, withWorkViews(office, entries), { at });
   }
   return ended;
 }
 
-/** Stores the marker line; returns the pending output and the marker as `work.output` entries. */
-function writeMarker(office: OfficeHandle, runId: RunId, text: string, at: number): NewEntry[] {
+/**
+ * Stores the marker line with no agent; returns the pending output and the marker as `work.output`
+ * entries, the marker's flagged in `markers`.
+ */
+function writeMarker(
+  office: OfficeHandle,
+  runId: RunId,
+  kind: MarkerKind,
+  value: string,
+  at: number,
+): NewEntry[] {
+  const text = markerLine(kind, value, at);
   const work = workRefOf(office, runId) ?? undefined;
   const agents = office.all<{ agent_id: string }>(
     `select agent_id from ingest_cursors
@@ -105,7 +139,14 @@ function writeMarker(office: OfficeHandle, runId: RunId, text: string, at: numbe
       type: "work.output",
       key: work.key,
       run: work.run,
-      delta: { work, source: "worker", from, to, text },
+      delta: {
+        work,
+        source: "worker",
+        from,
+        to,
+        text,
+        markers: [{ from, to, kind, value, at: new Date(at).toISOString() }],
+      },
     });
   }
   return entries;

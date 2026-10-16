@@ -24,8 +24,10 @@ import {
   EvidenceMap,
   GateDecision,
   GateKind,
+  GateRuleFailure,
   GateView,
   Lifecycle,
+  OutputMarker,
   OutputSource,
   ParkReason,
   Phase,
@@ -323,14 +325,11 @@ export const workOutputRange = defineRead({
     from: Offset,
     to: Offset,
     text: z.string(),
+    // The engine markers that overlap the range (DIPO-95, minor 1), oldest first; absent when none.
+    markers: z.array(OutputMarker).optional(),
   }),
   since: 0,
 });
-
-// One failed Ready gate rule (0012 section 3): `rule` is the R-number, `message` the full line
-// `ready <ID> failed <rule>: <message>`.
-export const GateRuleFailure = z.object({ rule: z.string(), message: z.string() });
-export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
 
 // The Ready gate of one story in `ready` mode, evaluated on the office's base and not stored
 // (M0 breakdown decision D3, DIPO-71). It passes only with no failures; failures are in rule order.
@@ -532,6 +531,9 @@ export const workOutput = defineEvent({
     from: Offset,
     to: Offset,
     text: z.string(),
+    // The engine markers in the range (DIPO-95, minor 1); absent when none. A range the engine
+    // writes for a marker holds exactly that marker.
+    markers: z.array(OutputMarker).optional(),
     view: WorkView.optional(),
   }),
 });
