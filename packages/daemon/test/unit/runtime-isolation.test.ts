@@ -6,7 +6,15 @@
 // through a guard that throws on any path outside the test's temp directory.
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 import { chooseRuntimeDir, RuntimeDirError, runtimeCandidates } from "@dipsaus-orchestrator/engine";
@@ -17,6 +25,7 @@ import {
   makeTempDir,
   MAX_TEMP_ROOT_BYTES,
   RUNTIME_PATH_LIMIT,
+  tempRoot,
   testRuntimeDir,
   withTempDir,
 } from "@dipsaus-orchestrator/testkit";
@@ -60,12 +69,19 @@ function confinedTo(dir: string): RuntimeDirFs {
   };
 }
 
+/**
+ * Whether a root of exactly `MAX_TEMP_ROOT_BYTES` fits under this suite's temp root: its
+ * `dipo-XXXXXX` directory, a slash and at least one byte of padding. The tests that need it are
+ * skipped, visibly, under a longer `DIPO_TMP`.
+ */
+const LONGEST_ROOT_FITS =
+  Buffer.byteLength(realpathSync(tempRoot())) + "/dipo-XXXXXX/r".length <= MAX_TEMP_ROOT_BYTES;
+
 /** Runs `fn` on a fresh testkit temp directory whose root is exactly as long as testkit allows. */
 async function withLongestTempDir(fn: (dir: string) => void): Promise<void> {
   await withTempDir((outer) => {
     const pad = MAX_TEMP_ROOT_BYTES - Buffer.byteLength(outer) - 1;
-    // When this suite's own temp root leaves no room, its own temp directory is the longest.
-    if (pad < 1) return fn(outer);
+    if (pad < 1) throw new Error(`no room for a ${MAX_TEMP_ROOT_BYTES}-byte root under ${outer}`);
     const saved = process.env["DIPO_TMP"];
     process.env["DIPO_TMP"] = join(outer, "r".repeat(pad));
     let dir: string;
@@ -115,46 +131,52 @@ describe("testkit's runtime path limits", () => {
 
 describe("a test daemon's runtime directory", () => {
   for (const platform of ["darwin", "linux"] as const) {
-    it(`is its DIPO_RUNTIME_DIR on ${platform} for the longest temp root testkit accepts`, () =>
-      withLongestTempDir((dir) => {
-        const candidates = runtimeCandidates({
-          platform,
-          env: isolatedDaemonEnv(dir),
-          uid,
-          lingering: true,
-        });
-        // Everything but the engine's fixed last resort is under the test's temp directory.
-        expect(candidates.slice(0, -1).every((c) => c.path.startsWith(`${dir}/`))).toBe(true);
-        expect(candidates.at(-1)).toEqual({ path: `/tmp/dipo-${uid}`, source: "tmp" });
+    it.skipIf(!LONGEST_ROOT_FITS)(
+      `is its DIPO_RUNTIME_DIR on ${platform} for the longest temp root testkit accepts`,
+      () =>
+        withLongestTempDir((dir) => {
+          const candidates = runtimeCandidates({
+            platform,
+            env: isolatedDaemonEnv(dir),
+            uid,
+            lingering: true,
+          });
+          // Everything but the engine's fixed last resort is under the test's temp directory.
+          expect(candidates.slice(0, -1).every((c) => c.path.startsWith(`${dir}/`))).toBe(true);
+          expect(candidates.at(-1)).toEqual({ path: `/tmp/dipo-${uid}`, source: "tmp" });
 
-        const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
-        expect(choice).toMatchObject({
-          path: testRuntimeDir(dir),
-          source: "DIPO_RUNTIME_DIR",
-          rejected: [],
-        });
-      }));
+          const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
+          expect(choice).toMatchObject({
+            path: testRuntimeDir(dir),
+            source: "DIPO_RUNTIME_DIR",
+            rejected: [],
+          });
+        }),
+    );
   }
 
-  it("stays under the test's temp directory when DIPO_RUNTIME_DIR is unusable", () =>
-    withLongestTempDir((dir) => {
-      mkdirSync(testRuntimeDir(dir), { mode: 0o700 });
-      chmodSync(testRuntimeDir(dir), 0o755);
-      const env = isolatedDaemonEnv(dir);
-      for (const platform of ["darwin", "linux"] as const) {
-        const candidates = runtimeCandidates({ platform, env, uid, lingering: true });
-        const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
-        expect(choice.path).toBe(join(dir, "tmp", "dipo"));
-        expect(choice.source).toBe(platform === "darwin" ? "TMPDIR" : "XDG_RUNTIME_DIR");
-        expect(choice.rejected).toEqual([
-          { path: testRuntimeDir(dir), reason: "its mode is 0755, not 0700" },
-        ]);
-      }
-    }));
+  it.skipIf(!LONGEST_ROOT_FITS)(
+    "stays under the test's temp directory when DIPO_RUNTIME_DIR is unusable",
+    () =>
+      withLongestTempDir((dir) => {
+        mkdirSync(testRuntimeDir(dir), { mode: 0o700 });
+        chmodSync(testRuntimeDir(dir), 0o755);
+        const env = isolatedDaemonEnv(dir);
+        for (const platform of ["darwin", "linux"] as const) {
+          const candidates = runtimeCandidates({ platform, env, uid, lingering: true });
+          const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
+          expect(choice.path).toBe(join(dir, "tmp", "dipo"));
+          expect(choice.source).toBe(platform === "darwin" ? "TMPDIR" : "XDG_RUNTIME_DIR");
+          expect(choice.rejected).toEqual([
+            { path: testRuntimeDir(dir), reason: "its mode is 0755, not 0700" },
+          ]);
+        }
+      }),
+  );
 });
 
-// A daemon started in process, anywhere; or as a process, by an integration test (unit tests only
-// name `dipo daemon --foreground` in fake processes and supervisor files).
+// A daemon started in process, in any test; or as a process, in any test outside `test/unit`
+// (whose tests only name `dipo daemon --foreground` in fake processes and supervisor files).
 const STARTS_IN_PROCESS = [/\brunForeground\(/, /\brunDaemon\(\s*\[\s*"--foreground"/];
 const STARTS_A_PROCESS = [
   /"daemon",\s*"(--foreground|start|restart)"/,
@@ -174,13 +196,16 @@ describe("tests that start a daemon", () => {
     const packages = resolve(import.meta.dir, "../../..");
     const files = [
       ...testFiles(join(packages, "daemon", "test")),
+      ...testFiles(join(packages, "daemon", "src")),
       ...testFiles(join(packages, "client", "test")),
+      ...testFiles(join(packages, "client", "src")),
     ].filter((file) => file !== import.meta.path);
     const starting = files.filter((file) => {
       const source = readFileSync(file, "utf8");
-      const patterns = file.includes("/integration/")
-        ? [...STARTS_IN_PROCESS, ...STARTS_A_PROCESS]
-        : STARTS_IN_PROCESS;
+      // One daemon start in a file is enough to require the isolation.
+      const patterns = file.includes("/test/unit/")
+        ? STARTS_IN_PROCESS
+        : [...STARTS_IN_PROCESS, ...STARTS_A_PROCESS];
       return patterns.some((pattern) => pattern.test(source));
     });
     const names = starting.map((file) => relative(packages, file));
@@ -196,6 +221,8 @@ describe("tests that start a daemon", () => {
         "daemon/test/integration/reconcile.ci.test.ts",
         "daemon/test/integration/restore.ci.test.ts",
         "daemon/test/integration/upgrade-restart.test.ts",
+        "daemon/src/foreground-bootout.test.ts",
+        "daemon/src/index.test.ts",
       ]),
     );
     const unisolated = starting.filter((file) => {
