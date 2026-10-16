@@ -57,6 +57,7 @@ import {
   type GitStepOptions,
   isTimedOut,
 } from "../../git/runner";
+import { statusPaths } from "../../git/task-commit";
 import { findStoryByKey } from "../../stories/keys";
 import type { BacklogCli } from "../runner";
 
@@ -218,22 +219,8 @@ function messageOf(entry: Pick<JournalEntry, "kind" | "subject">): string {
   return `backlog: ${entry.kind} ${entry.subject}`;
 }
 
-/** Paths in `git status --porcelain=v1 -z` output, both sides of a rename or copy. */
-export function statusPaths(output: string): string[] {
-  const records = output.split("\0").filter((record) => record !== "");
-  const paths: string[] = [];
-  for (let i = 0; i < records.length; i++) {
-    const record = records[i] ?? "";
-    paths.push(record.slice(3));
-    const x = record[0];
-    if (x === "R" || x === "C") {
-      i += 1;
-      const from = records[i];
-      if (from !== undefined) paths.push(from);
-    }
-  }
-  return paths;
-}
+/** `git status --porcelain=v1 -z` paths; it lives with the status commit (`git/task-commit.ts`). */
+export { statusPaths };
 
 /** True when `path` lies under `backlog/` or is one of `extra`. */
 function inLane(path: string, extra: readonly string[]): boolean {
