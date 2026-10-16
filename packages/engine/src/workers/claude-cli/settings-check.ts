@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { LaunchCheckFailure } from "../hold";
+import type { LocalSettingsCopy } from "../port";
 
 /** The engine's safe list (0008 section 2). The MCP keys are inert under `--strict-mcp-config`. */
 export const SAFE_PROJECT_SETTINGS: readonly string[] = [
@@ -137,6 +138,12 @@ export function stripLocalSettings(settings: Json): Json {
   }
   return out;
 }
+
+/** The setup copy of the local settings, as the Claude worker port hands it out (DIPO-113). */
+export const CLAUDE_LOCAL_SETTINGS: LocalSettingsCopy = {
+  file: LOCAL_SETTINGS_FILE,
+  strip: stripLocalSettings,
+};
 
 /** Reads a file's text, or undefined when it does not exist. Injectable for tests. */
 export type ReadOptionalText = (path: string) => Promise<string | undefined>;

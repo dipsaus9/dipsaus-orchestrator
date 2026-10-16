@@ -56,6 +56,8 @@ import {
 } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { type ClaudeParseState, initialState } from "../../src/workers/claude-cli/interpret";
+import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
@@ -215,6 +217,8 @@ beforeEach(async () => {
   } as unknown as OfficeGit;
   const worker: WorkerPort = {
     id: "claude-cli",
+    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths, config) =>
       claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
     prepare: async (spec, paths, config) => {

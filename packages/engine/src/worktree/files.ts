@@ -47,7 +47,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
-import { LOCAL_SETTINGS_FILE, stripLocalSettings } from "../workers/claude-cli/settings-check";
+import type { LocalSettingsCopy } from "../workers/port";
 
 /** One `worktree.files` entry, as the office config holds it. */
 export interface WorktreeFileSpec {
@@ -77,6 +77,11 @@ export interface FileStepInput {
   readonly ignored: (paths: readonly string[]) => Promise<ReadonlySet<string>>;
   /** Env file paths the run profile knows (0013 section 4). */
   readonly envFiles: ReadonlySet<string>;
+  /**
+   * The worker port's local settings file and its filter (DIPO-113); for Claude
+   * `.claude/settings.local.json`, the file the rules above name.
+   */
+  readonly localSettings: LocalSettingsCopy;
 }
 
 export interface FileStepResult {
@@ -342,9 +347,9 @@ function ensureParents(worktree: string, segments: readonly string[]): void {
   if (segments.length > 1) mkdirSync(join(worktree, ...segments.slice(0, -1)), { recursive: true });
 }
 
-/** True when `rel` is `.claude/settings.local.json` or a directory above it. */
-function holdsLocalSettings(rel: string): boolean {
-  return rel === LOCAL_SETTINGS_FILE || LOCAL_SETTINGS_FILE.startsWith(`${rel}/`);
+/** True when `rel` is the local settings `file` or a directory above it. */
+function holdsLocalSettings(rel: string, file: string): boolean {
+  return rel === file || file.startsWith(`${rel}/`);
 }
 
 interface Plan {
@@ -364,15 +369,16 @@ export async function placeFiles(input: FileStepInput): Promise<FileStepResult> 
 
   // Plan every entry first, so a refusal happens before anything is written.
   const plans: Plan[] = [];
+  const settingsFile = input.localSettings.file;
   for (const spec of input.files) {
     const segments = repoSegments(spec.path);
     const rel = segments.join("/");
-    if (holdsLocalSettings(rel) && spec.mode === "link") {
+    if (holdsLocalSettings(rel, settingsFile) && spec.mode === "link") {
       throw new FileStepError(
-        `${rel} is linked by worktree.files but holds ${LOCAL_SETTINGS_FILE}, which the worktree gets only as a copy without its permission keys; copy it instead.`,
+        `${rel} is linked by worktree.files but holds ${settingsFile}, which the worktree gets only as a copy without its permission keys; copy it instead.`,
       );
     }
-    if (rel === LOCAL_SETTINGS_FILE) {
+    if (rel === settingsFile) {
       log.push(`files: ${rel} is copied by its own rule (permission keys dropped), not as listed`);
       continue;
     }
@@ -390,10 +396,10 @@ export async function placeFiles(input: FileStepInput): Promise<FileStepResult> 
     const entries =
       source.kind === "file"
         ? [{ rel, kind: "file" as const, stats: source.stats }]
-        : walk(input.main, rel, source.stats, rel, LOCAL_SETTINGS_FILE);
-    if (source.kind === "dir" && holdsLocalSettings(rel)) {
+        : walk(input.main, rel, source.stats, rel, settingsFile);
+    if (source.kind === "dir" && holdsLocalSettings(rel, settingsFile)) {
       log.push(
-        `files: ${LOCAL_SETTINGS_FILE} under ${rel} is copied by its own rule (permission keys dropped), not as listed`,
+        `files: ${settingsFile} under ${rel} is copied by its own rule (permission keys dropped), not as listed`,
       );
     }
     for (const entry of entries) plainName(entry.rel);
@@ -451,23 +457,23 @@ async function copyLocalSettings(
   input: FileStepInput,
   log: string[],
 ): Promise<SettingsCopy | null> {
-  const rel = LOCAL_SETTINGS_FILE;
+  const rel = input.localSettings.file;
   const segments = rel.split("/");
   let source: Source;
   try {
     source = sourceOf(input.main, segments, rel);
   } catch (error) {
-    return leftOut(log, error instanceof Error ? error.message : String(error));
+    return leftOut(log, rel, error instanceof Error ? error.message : String(error));
   }
   if (source.kind === "missing") return null;
-  if (source.kind !== "file") return leftOut(log, `${rel} is not a file in the main checkout`);
+  if (source.kind !== "file") return leftOut(log, rel, `${rel} is not a file in the main checkout`);
   if (!(await input.ignored([rel])).has(rel)) {
-    return leftOut(log, `${rel} is not ignored by git, so dipo does not copy it`);
+    return leftOut(log, rel, `${rel} is not ignored by git, so dipo does not copy it`);
   }
   try {
     checkDestination(input.worktree, segments, rel);
   } catch (error) {
-    return leftOut(log, error instanceof Error ? error.message : String(error));
+    return leftOut(log, rel, error instanceof Error ? error.message : String(error));
   }
   let text: string;
   try {
@@ -480,27 +486,27 @@ async function copyLocalSettings(
       closeSync(fd);
     }
   } catch {
-    return leftOut(log, `${rel} changed in the main checkout while dipo read it`);
+    return leftOut(log, rel, `${rel} changed in the main checkout while dipo read it`);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return leftOut(log, `${rel} in the main checkout is not valid JSON`);
+    return leftOut(log, rel, `${rel} in the main checkout is not valid JSON`);
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return leftOut(log, `${rel} in the main checkout does not hold a JSON object`);
+    return leftOut(log, rel, `${rel} in the main checkout does not hold a JSON object`);
   }
   ensureParents(input.worktree, segments);
   const to = join(input.worktree, rel);
-  const stripped = stripLocalSettings(parsed as Record<string, unknown>);
+  const stripped = input.localSettings.strip(parsed as Record<string, unknown>);
   writeFileSync(to, `${JSON.stringify(stripped, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   chmodSync(to, modeOf(source.stats));
   log.push(`files: copied ${rel} without its permission-widening and MCP keys`);
   return { copied: true };
 }
 
-function leftOut(log: string[], why: string): SettingsCopy {
-  log.push(`files: ${LOCAL_SETTINGS_FILE} not copied: ${why}`);
+function leftOut(log: string[], rel: string, why: string): SettingsCopy {
+  log.push(`files: ${rel} not copied: ${why}`);
   return { copied: false, why };
 }

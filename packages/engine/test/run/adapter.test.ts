@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { planRefusedText, sessionUuid } from "../../src/run";
+import { planRefusedText, runWorkerSpec, sessionUuid } from "../../src/run";
 import {
   claudeCliAdapter,
   claudeLaunchContext,
@@ -15,6 +15,8 @@ import {
 } from "../../src/workers/claude-cli/adapter";
 import { initialState } from "../../src/workers/claude-cli/interpret";
 import { plan } from "../../src/workers/claude-cli/plan";
+import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { stripLocalSettings } from "../../src/workers/claude-cli/settings-check";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type ParseState } from "../../src/workers/types";
@@ -43,6 +45,40 @@ const PATHS: RunLaunchPaths = {
   tmpDir: TMP_DIR,
   shortTmpDir: SHORT_TMP_DIR,
 };
+
+describe("the worker port seam (DIPO-113)", () => {
+  it("hands out the Claude report schema and the local settings copy", () => {
+    const port = claudeWorkerPort({
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", HOME },
+      dipoCommand: ["/opt/dipo/bin/dipo"],
+      spawn: neverSpawn,
+      clock,
+      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      platform: "darwin",
+      runStep: async () => {
+        throw new Error("no step may run in this test");
+      },
+      uid: 501,
+    });
+    expect(port.reportSchema).toBe(WORKER_REPORT_JSON_SCHEMA);
+    expect(port.localSettings.file).toBe(".claude/settings.local.json");
+    expect(port.localSettings.strip).toBe(stripLocalSettings);
+  });
+
+  it("builds a run's WorkerSpec with the port's report schema", () => {
+    const reportSchema = { type: "object", title: "another adapter's report" };
+    const built = runWorkerSpec(
+      { reportSchema },
+      { runId: "run_1", agent: "agt_1", caps: OFFICE_DEFAULTS.tiers.S },
+      PATHS,
+      "task",
+      { id: "s-1", resume: false },
+    );
+    expect(built.reportSchema).toBe(reportSchema);
+  });
+});
 
 describe("the Claude CLI adapter of one run", () => {
   it("binds plan(spec) to the run's launch context", () => {

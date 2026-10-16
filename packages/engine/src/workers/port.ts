@@ -1,12 +1,14 @@
 // What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run,
-// its launch checks and the parser state ingestion starts from. The daemon supplies the Claude
-// CLI one (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
+// its launch checks, the parser state ingestion starts from, the report schema and the local
+// settings file worktree setup copies (DIPO-113). The daemon supplies the Claude CLI one
+// (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
 
 import type { OfficeConfig } from "../config";
 import type { AdapterHold } from "./hold";
 import type {
   ExitRecord,
   HostOp,
+  JsonSchema,
   LaunchPlan,
   ParseState,
   SteerOp,
@@ -39,9 +41,25 @@ export type PreparedWorker =
   | { readonly ok: true; readonly plan: LaunchPlan }
   | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
 
+/**
+ * The adapter's local settings file that worktree setup copies from the main checkout, filtered
+ * (0010 section 8 and its 0008 amendment; for Claude `.claude/settings.local.json` without its
+ * permission-widening and MCP keys).
+ */
+export interface LocalSettingsCopy {
+  /** The repo-relative path of the file. */
+  readonly file: string;
+  /** Pure: the parsed file as the setup copy writes it. */
+  strip(settings: Record<string, unknown>): Record<string, unknown>;
+}
+
 export interface WorkerPort {
   /** The adapter id, as `worker.adapter` names it (for example `claude-cli`). */
   readonly id: string;
+  /** The JSON Schema of `WorkerReport` a run puts in `WorkerSpec.reportSchema` (0008 section 1). */
+  readonly reportSchema: JsonSchema;
+  /** What worktree setup copies as the adapter's local settings (DIPO-39, DIPO-113). */
+  readonly localSettings: LocalSettingsCopy;
   /** The adapter for one run, its `plan` bound to the run's launch context (0008 section 1). */
   adapter(paths: RunLaunchPaths, config: OfficeConfig): WorkerAdapter;
   /**
