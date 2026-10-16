@@ -4,7 +4,7 @@ title: Keep the daemon up when a background job fails
 status: Done
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 10:17'
+updated_date: '2026-10-16 10:27'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -24,6 +24,7 @@ references:
   - packages/engine/src/scan/feature.ts
   - packages/engine/src/stories/feature.ts
   - packages/engine/src/platform/
+  - packages/engine/src/index.ts
 priority: high
 type: feature
 ordinal: 100000
