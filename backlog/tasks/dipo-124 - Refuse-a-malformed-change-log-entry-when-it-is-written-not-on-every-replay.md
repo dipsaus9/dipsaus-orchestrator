@@ -1,10 +1,10 @@
 ---
 id: DIPO-124
 title: 'Refuse a malformed change-log entry when it is written, not on every replay'
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-16 13:10'
+updated_date: '2026-10-16 14:16'
 labels:
   - 'tier:S'
 milestone: m-1
