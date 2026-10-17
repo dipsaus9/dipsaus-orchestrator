@@ -527,6 +527,25 @@ describe("office configuration version 2", () => {
     expect(result.config.mergeSlot.requiredChecks).toEqual(["build", "Lint (ubuntu)"]);
   });
 
+  it("migrates the version 2 fixture to the version 3 fixture, except mergeSlot", () => {
+    const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
+    const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
+    expect(v2.config.mergeSlot.requiredChecks).toEqual(["ci-ok", "pr-title"]);
+    expect(v3.config.mergeSlot.requiredChecks).toEqual(["build", "Lint (ubuntu)"]);
+    const { mergeSlot: _v2Slot, ...v2Rest } = v2.config;
+    const { mergeSlot: _v3Slot, ...v3Rest } = v3.config;
+    expect(v2Rest).toEqual(v3Rest);
+  });
+
+  it("refuses mergeSlot in a version 2 file and says version 3 adds it", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 2\nmergeSlot: { requiredChecks: [build] }\n" }),
+    );
+    expect(error?.path).toBe("mergeSlot");
+    expect(error?.message).toContain("unknown key in version 2");
+    expect(error?.message).toContain("Version 3 adds mergeSlot: set version: 3 to use it");
+  });
+
   it("gives a version 2 file the default check names, as the migration does", () => {
     const result = ok(resolveOfficeConfig({ office: "version: 2\nremote: upstream\n" }));
     expect(result.config.mergeSlot.requiredChecks).toEqual(["ci-ok", "pr-title"]);
@@ -567,5 +586,14 @@ describe("the version 1 hint for worker.plugins", () => {
     expect(byPath["worker.plugins"]).toContain("Version 2 adds worker.plugins");
     expect(byPath["worker.plugin"]).toContain("unknown key");
     expect(byPath["worker.plugin"]).not.toContain("Version 2");
+  });
+
+  it("gives no version hint in the local file, which accepts mergeSlot in no version", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ local: "version: 2\nmergeSlot: { requiredChecks: [build] }\n" }),
+    );
+    expect(error?.path).toBe("mergeSlot");
+    expect(error?.message).toContain("accepts only version");
+    expect(error?.message).not.toContain("Version 3");
   });
 });

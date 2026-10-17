@@ -1,5 +1,6 @@
-// The required checks a PR waits for in the merge slot (0016 rule 2): `ci-ok` and `pr-title`, and
-// every other check the base requires. Pure code over what the host reports.
+// The required checks a PR waits for in the merge slot (0016 rule 2): the office's
+// `mergeSlot.requiredChecks` (default `ci-ok` and `pr-title`), and every other check the base
+// requires. Pure code over what the host reports.
 
 import { OFFICE_DEFAULTS } from "../config";
 import type { RequiredCheck } from "../platform/host";

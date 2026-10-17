@@ -62,9 +62,15 @@ export interface OfficeConfigSources {
   readonly flags?: unknown;
 }
 
+// The version that adds each key path, for the hint on an unknown key in an older office file.
+const KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = {
+  "worker.plugins": 2,
+  mergeSlot: 3,
+};
+
 // The contract's wording, except for an unknown top-level key in `office.local.yaml`, which
-// names the keys that file accepts, and `worker.plugins` in a version 1 file, which says that
-// version 2 adds it.
+// names the keys that file accepts, and a key of `KEY_ADDED_IN` in an office file older than
+// that key, which says the version that adds it.
 function issueErrors(
   file: string,
   schema: z.ZodType,
@@ -78,17 +84,18 @@ function issueErrors(
         ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`
         : undefined,
   });
-  if (version !== 1) return errors;
-  return errors.map((error) =>
-    error.path === "worker.plugins"
-      ? configError(
-          file,
-          error.path,
-          error.expected,
-          `unknown key in version 1; expected ${error.expected}. Version 2 adds worker.plugins: set version: 2 to use it`,
-        )
-      : error,
-  );
+  // `office.local.yaml` accepts none of these keys in any version, so it gets no hint.
+  if (file === OFFICE_LOCAL_FILE) return errors;
+  return errors.map((error) => {
+    const added = KEY_ADDED_IN[error.path];
+    if (added === undefined || version >= added) return error;
+    return configError(
+      file,
+      error.path,
+      error.expected,
+      `unknown key in version ${version}; expected ${error.expected}. Version ${added} adds ${error.path}: set version: ${added} to use it`,
+    );
+  });
 }
 
 type Checked = { ok: true; value: Record<string, unknown> } | { ok: false; errors: ConfigError[] };
