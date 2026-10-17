@@ -214,6 +214,8 @@ describe("(unit) Safe-Chain shell files (DIPO-84)", () => {
     const [wrapper, init] = files;
     expect(wrapper?.name).toBe("safe-chain/bash");
     expect(wrapper?.content).toContain(`export BASH_ENV='${SHELL_DIR}/bash-env.sh'\n`);
+    // DIPO-178: no bash login shell reads the profile files.
+    expect(wrapper?.content).toEndWith(`exec '/bin/bash' --noprofile "$@"\n`);
     expect(init?.name).toBe("safe-chain/bash-env.sh");
     expect(init?.content).not.toContain("init-posix.sh");
     expect(init?.content).not.toContain("ZDOTDIR");
