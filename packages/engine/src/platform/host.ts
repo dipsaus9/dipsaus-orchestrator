@@ -10,7 +10,7 @@
 // `pr edit --title --body`, `pr close --comment`, `pr merge --squash --match-head-commit --subject
 // --body`, and `pr checks --required --json name,state,bucket`. The review reads and comments
 // (DIPO-141) add `pr view --json labels`, `pr checks --json name,state,bucket,link,workflow`,
-// `run view --repo --job --log-failed` and `pr comment --repo --body`. The newest of these is
+// `run view --repo --job --log-failed` and `pr comment --repo --body-file -`. The newest of these is
 // `pr checks --json`, added in gh 2.50.0 (https://github.com/cli/cli/releases/tag/v2.50.0).
 
 import type { ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
@@ -140,8 +140,8 @@ export interface PrReviewHost {
   /** Every check of the pull request's head, required or not. Throws `CodeHostError`. */
   prChecks(repo: string, number: number): Promise<PrCheck[]>;
   /**
-   * The last `LOG_TAIL_BYTES` of the failed-step log of a GitHub Actions job, read from its check
-   * `link`; null for any other link, which is not read. Throws `CodeHostError`, also when `gh`
+   * The last `LOG_TAIL_BYTES` of the failed-step log of a GitHub Actions job of `repo`, read from
+   * its check `link`; null for any other link, which is not read. Throws `CodeHostError`, also when `gh`
    * runs past `LOG_TIMEOUT_MS`.
    */
   failedJobLog(repo: string, link: string): Promise<string | null>;
@@ -149,10 +149,19 @@ export interface PrReviewHost {
   commentPr(repo: string, number: number, body: string): Promise<string>;
 }
 
-/** The job id of a GitHub Actions job link (`.../actions/runs/RUN/job/JOB`), or null. */
-export function actionsJobOf(link: string): string | null {
-  const match = /^https?:\/\/\S+\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/.exec(link.trim());
-  return match?.[1] ?? null;
+/**
+ * The job id of a GitHub Actions job link of `repo`
+ * (`https://github.com/OWNER/REPO/actions/runs/RUN/job/JOB`, then nothing or `/`, `?` or `#`),
+ * or null. `OWNER/REPO` must equal `repo`, compared case-insensitively; any other host, scheme,
+ * path or repository gives null, so `gh` never reads a link it was not meant to.
+ */
+export function actionsJobOf(repo: string, link: string): string | null {
+  const match =
+    /^https:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/.exec(
+      link.trim(),
+    );
+  if (match?.[1] === undefined || match[1].toLowerCase() !== repo.toLowerCase()) return null;
+  return match[2] ?? null;
 }
 
 /** `major.minor.patch` compared numerically; negative when `a` is older. */
@@ -322,8 +331,14 @@ async function readTail(stream: ReadableStream<Uint8Array>, limit: number): Prom
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes.subarray(Math.max(0, size - limit)));
+  let start = Math.max(0, size - limit);
+  // A cut inside a multi-byte character leaves its continuation bytes (0b10xxxxxx); skip them.
+  if (start > 0) while (start < size && ((bytes[start] ?? 0) & 0xc0) === 0x80) start++;
+  return new TextDecoder().decode(bytes.subarray(start));
 }
+
+/** The most stderr of a failed-job log read that is kept: its last 64 KiB. */
+const STDERR_TAIL_BYTES = 64 * 1024;
 
 export interface GhHostOptions {
   readonly spawn: Spawn;
@@ -559,7 +574,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
   }
 
   async failedJobLog(repo: string, link: string): Promise<string | null> {
-    const job = actionsJobOf(link);
+    const job = actionsJobOf(repo, link);
     if (job === null) return null;
     await this.checkVersion();
     const result = await this.#tailRun([
@@ -577,7 +592,11 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
   }
 
   async commentPr(repo: string, number: number, body: string): Promise<string> {
-    const out = await this.#ok(["pr", "comment", String(number), "--repo", repo, "--body", body]);
+    // The body goes on stdin: a long body as one argument can pass the system's argument limit.
+    const out = await this.#ok(
+      ["pr", "comment", String(number), "--repo", repo, "--body-file", "-"],
+      body,
+    );
     // `gh pr comment` prints the comment's URL as its last line.
     const url = out
       .split("\n")
@@ -610,8 +629,8 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
   }
 
   /**
-   * Runs `gh <args>` after the version check and keeps only the last `LOG_TAIL_BYTES` of stdout.
-   * The child is killed, and the call throws `CodeHostError`, once `#logTimeoutMs` has passed.
+   * Runs `gh <args>` and keeps only the last `LOG_TAIL_BYTES` of stdout and the last
+   * `STDERR_TAIL_BYTES` of stderr. The child is killed, and the call throws `CodeHostError`, once `#logTimeoutMs` has passed.
    */
   async #tailRun(args: readonly string[]): Promise<GhResult> {
     const child = this.#spawnGh(args);
@@ -631,7 +650,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
       const [stdout, stderr, exit] = await Promise.race([
         Promise.all([
           readTail(child.stdout, LOG_TAIL_BYTES),
-          new Response(child.stderr).text(),
+          readTail(child.stderr, STDERR_TAIL_BYTES),
           child.exited,
         ]),
         timeout,
@@ -642,10 +661,13 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     }
   }
 
-  /** Runs `gh <args>` after the version check; a non-zero exit throws. Returns stdout. */
-  async #ok(args: readonly string[]): Promise<string> {
+  /**
+   * Runs `gh <args>` after the version check, with `input` on stdin when given; a non-zero exit
+   * throws. Returns stdout.
+   */
+  async #ok(args: readonly string[], input?: string): Promise<string> {
     await this.checkVersion();
-    const result = await this.#raw(args);
+    const result = await this.#raw(args, input);
     this.#assertAuth(result);
     if (result.code !== 0) throw this.#failure(args.slice(0, 2), result);
     return result.stdout;
@@ -668,19 +690,33 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     return new CodeHostError("failed", `\`gh ${args.join(" ")}\` failed: ${detail}`);
   }
 
-  #spawnGh(args: readonly string[]): ChildProcess {
+  /** Starts `gh <args>`; with `input`, writes it to the child's stdin and closes it. */
+  #spawnGh(args: readonly string[], input?: string): ChildProcess {
+    let child: ChildProcess;
     try {
-      return this.#spawn({ cmd: [this.#gh, ...args], env: this.#env });
+      child =
+        input === undefined
+          ? this.#spawn({ cmd: [this.#gh, ...args], env: this.#env })
+          : this.#spawn({ cmd: [this.#gh, ...args], env: this.#env, stdin: "pipe" });
     } catch (error) {
       throw new CodeHostError(
         "missing",
         `gh could not start (${error instanceof Error ? error.message : String(error)}); install gh ${MIN_GH_VERSION} or newer (https://cli.github.com).`,
       );
     }
+    if (input !== undefined) {
+      if (child.stdin === null) {
+        child.kill("SIGKILL");
+        throw new CodeHostError("failed", `\`gh ${args.slice(0, 2).join(" ")}\` got no stdin.`);
+      }
+      child.stdin.write(input);
+      child.stdin.end();
+    }
+    return child;
   }
 
-  async #raw(args: readonly string[]): Promise<GhResult> {
-    const child = this.#spawnGh(args);
+  async #raw(args: readonly string[], input?: string): Promise<GhResult> {
+    const child = this.#spawnGh(args, input);
     const [stdout, stderr, exit] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
