@@ -1,10 +1,10 @@
 ---
 id: DIPO-184
 title: Tell the worker to keep DIPO_TMP and the sandbox TMPDIR as set
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-17 17:33'
+updated_date: '2026-10-17 20:16'
 labels:
   - 'tier:S'
   - cutover

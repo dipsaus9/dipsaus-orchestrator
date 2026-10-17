@@ -1,10 +1,10 @@
 ---
 id: DIPO-171
 title: Make the process-probe and Ready gate CI tests deterministic
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-17 20:16'
 labels:
   - 'tier:S'
   - cutover
