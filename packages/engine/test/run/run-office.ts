@@ -3,14 +3,15 @@
 // index, the gate store, the claims, the planning lane and `work.run` with the run launcher. Setup
 // is stubbed and the launch checks are DIPO-43's hold gate with scripted outcomes, so no `claude`
 // process ever starts. The worker host is either a stub or DIPO-44's host in this process with a
-// FakeProcess replaying a committed recording. With `control`, run control (DIPO-50) is wired as
-// the ingestion hooks, with the real park writer on the office git. Shared by start.ci.test.ts and
-// park.ci.test.ts.
+// FakeProcess replaying a committed recording. The run services are built by `composeRuns` as the
+// daemon builds them (DIPO-129): ingestion always has the permission wait (the maintainer absent)
+// and the nudges; with `control`, run control (DIPO-50) is wired as the ingestion hooks, with the
+// real park writer on the office git. Shared by the run CI tests.
 
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { IdPrefix, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Clock, IdPrefix, OfficeId } from "@dipsaus-orchestrator/contract";
 import {
   fakeSpawn,
   ManualClock,
@@ -24,30 +25,28 @@ import type { OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
+import { gitInputChanges } from "../../src/hooks/nudges";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/host/protocol";
 import { officeStatusesReady } from "../../src/office/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
 import {
-  baseStoryFacts,
   capsOf,
   cliRunBase,
   gitParkWriter,
   gitUnparkWriter,
   gitStoryOps,
-  readBackstop,
   VerifyCommit,
   type HostStarter,
   OfficeIngest,
-  PlanLimits,
+  type PlanLimits,
   RunControl,
   type RunSteering,
-  RunLauncher,
+  composeRuns,
   RunOutcomes,
-  RunResumer,
+  type StoredRun,
   storyHoldsWork,
   WorkRun,
-  afterRunExits,
   RunTempDirs,
   runTempDir,
   readRunTempOwner,
@@ -166,8 +165,8 @@ export interface RunOfficeOptions {
    */
   readonly planLimits?: boolean;
   /**
-   * Lets worker outcomes resume a parked run (DIPO-75): the real unpark writer on the office git,
-   * the tier caps, and run control asking a `needs-permission` park's question.
+   * Lets worker outcomes resume a parked run (DIPO-75): the real unpark writer on the office git
+   * and the tier caps.
    */
   readonly resumeParks?: boolean;
   /** Wires run control; `caps` replaces the tier's caps it tracks the run with. */
@@ -366,7 +365,6 @@ export async function withRunOffice(
           return { ok: false, reason: "the worker host has exited" };
         },
       };
-      let ingest: OfficeIngest | null = null;
       const finisherOptions = options.finisher;
       const exitCodes = [...(finisherOptions?.exitCodes ?? [])];
       const finisher =
@@ -397,131 +395,91 @@ export async function withRunOffice(
               scanWorktree: async () => finisherOptions.profile,
               host: { home: repo.root, uid: 501, env: { PATH: "/usr/bin:/bin" } },
             });
-      let outcomes: RunOutcomes | null = null;
-      let planLimits: PlanLimits | null = null;
-      const control =
-        options.control === undefined
-          ? null
-          : new RunControl({
-              ...(finisher === undefined ? {} : { finisher }),
-              get clock() {
-                return loaded().clock;
-              },
-              offices: {
-                get: (office) => loaded().manager.get(office),
-                config: (office) => loaded().manager.config(office),
-              },
-              ...(options.resumeParks === true
-                ? { ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) } }
-                : {}),
-              writer: gitParkWriter({
-                git: (office) => engineGit.forOffice(office),
-                cli: CLI(repo),
-              }),
-              steering,
-              encode,
-              flushOutput: (office, run) => ingest?.flushOutput(office, run),
-              outcomes: () =>
-                outcomes === null
-                  ? undefined
-                  : tempDirs === null
-                    ? outcomes
-                    : afterRunExits(outcomes, sweep),
-            });
-      ingest = new OfficeIngest({
-        clock: new ManualClock(),
-        pricing: () => null,
-        ...(control === null ? {} : { hooks: control.hooks }),
-        ...(tempDirs === null
-          ? {}
-          : { hookEvents: { onWorkerEvents: () => undefined, onEnded: () => sweep() } }),
-      });
+      // The clock and ids of the office setup, which is built after this wiring.
+      const officeClock: Clock = {
+        now: () => loaded().clock.now(),
+        setTimeout: (callback, delayMs) => loaded().clock.setTimeout(callback, delayMs),
+        clearTimeout: (handle) => loaded().clock.clearTimeout(handle),
+      };
       const capsOverride = options.control?.caps ?? {};
       // Worker outcomes and the run's next session (DIPO-51), on the same replay hosts.
       const starts: Running["starts"] = [];
-      const officeIngest = ingest;
-      if (options.outcomes === true && control !== null) {
-        const resumer = new RunResumer({
-          get clock() {
-            return loaded().clock;
-          },
-          get ids() {
-            return loaded().ids;
-          },
-          offices,
-          worker,
-          git: (office) => engineGit.forOffice(office),
-          story: baseStoryFacts(base),
-          runtimeDir,
-          tmpRoot,
-          ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
-          hosts: hostStarter,
-          ingest: {
-            start: (office, host, target) => {
-              const row = office.get<{ processed_offset: number }>(
-                `select processed_offset from worker_hosts
-                  where office_id = $office_id and run_id = $run and agent_id = $agent`,
-                { run: host.runId, agent: host.agentId },
-              );
-              starts.push({ agent: host.agentId, processedOffset: row?.processed_offset ?? -1 });
-              officeIngest.start(office, host, target);
-            },
-          },
-          control: {
-            track: (office, run) =>
-              control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
-          },
-        });
-        outcomes = new RunOutcomes({
-          get clock() {
-            return loaded().clock;
-          },
-          offices,
-          steering,
-          encode,
-          worker,
-          ender: () => control,
-          resumer,
-          holds,
-          release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
-          holdsWork: storyHoldsWork(
-            gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
-          ),
-          caps: (office, run) => {
-            if (
-              (options.planLimits !== true && options.resumeParks !== true) ||
-              run.tier === null
-            ) {
-              return null;
-            }
-            const tier = loaded().manager.config(office)?.tiers[run.tier as "S" | "M" | "L"];
-            return tier === undefined ? null : capsOf(tier);
-          },
-          waits: () => planLimits ?? undefined,
-          ...(options.resumeParks === true
-            ? {
-                unpark: gitUnparkWriter({
+      const composed = composeRuns({
+        clock: officeClock,
+        ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
+        offices,
+        worker,
+        steering,
+        hosts: hostStarter,
+        git: (office) => engineGit.forOffice(office),
+        base,
+        runtimeDir,
+        tmpRoot,
+        ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
+        release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+        ...(tempDirs === null ? {} : { afterExit: sweep }),
+        // The permission wait (the maintainer absent) and the nudges hear every run, as in the daemon.
+        inputChanges: gitInputChanges((handle) => engineGit.forOffice(handle.officeId)),
+        ingest: {
+          pricing: () => null,
+          ...(tempDirs === null ? {} : { onEnded: () => sweep() }),
+        },
+        ...(options.control === undefined
+          ? {}
+          : {
+              control: {
+                writer: gitParkWriter({
                   git: (office) => engineGit.forOffice(office),
                   cli: CLI(repo),
                 }),
-              }
-            : {}),
-        });
-        if (options.planLimits === true) {
-          const decided = outcomes;
-          planLimits = new PlanLimits({
-            get clock() {
-              return loaded().clock;
-            },
-            offices,
-            resume: (office, run, why) => decided.resumeWait(office, run, why),
-            holds,
-          });
-        }
-      }
-      const launcher = new RunLauncher({
-        worker,
-        git: (office) => engineGit.forOffice(office),
+                ...(finisher === undefined ? {} : { finisher }),
+              },
+            }),
+        tracker: (control) => ({
+          track: (office, run) =>
+            control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
+        }),
+        resumeIngest: (officeIngest) => ({
+          start: (office, host, target) => {
+            const row = office.get<{ processed_offset: number }>(
+              `select processed_offset from worker_hosts
+                where office_id = $office_id and run_id = $run and agent_id = $agent`,
+              { run: host.runId, agent: host.agentId },
+            );
+            starts.push({ agent: host.agentId, processedOffset: row?.processed_offset ?? -1 });
+            officeIngest.start(office, host, target);
+          },
+        }),
+        ...(options.outcomes === true
+          ? {
+              outcomes: {
+                holds,
+                holdsWork: storyHoldsWork(
+                  gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+                ),
+                caps: (office: OfficeId, run: StoredRun) => {
+                  if (
+                    (options.planLimits !== true && options.resumeParks !== true) ||
+                    run.tier === null
+                  ) {
+                    return null;
+                  }
+                  const tier = loaded().manager.config(office)?.tiers[run.tier as "S" | "M" | "L"];
+                  return tier === undefined ? null : capsOf(tier);
+                },
+                ...(options.resumeParks === true
+                  ? {
+                      unpark: gitUnparkWriter({
+                        git: (office) => engineGit.forOffice(office),
+                        cli: CLI(repo),
+                      }),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(options.planLimits === true ? { planLimits: { holds } } : {}),
+        // Setup is stubbed: no install step runs (DIPO-39's own tests cover the real one).
         setup: async (): Promise<SetupOutcome> =>
           ({
             ok: true,
@@ -531,31 +489,8 @@ export async function withRunOffice(
             log: ["setup: done"],
             release: () => undefined,
           }) as unknown as SetupOutcome,
-        dependencies: async () => [],
-        runtimeDir,
-        tmpRoot,
-        ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
-        hosts: hostStarter,
-        ingest,
-        ...(control === null
-          ? {}
-          : {
-              control: {
-                track: (office, run) =>
-                  control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
-              },
-            }),
-        release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
-        ...(finisher === undefined
-          ? {}
-          : {
-              snapshot: (office: OfficeId, worktree: string) => {
-                const git = engineGit.forOffice(office);
-                if (git === undefined) throw new Error("no git");
-                return readBackstop(git, worktree);
-              },
-            }),
       });
+      const { ingest, permissions, control, outcomes, planLimits, launcher } = composed;
       const workRun = new WorkRun({
         offices: {
           get: (office) => loaded().manager.get(office),
@@ -625,6 +560,7 @@ export async function withRunOffice(
         });
       } finally {
         planLimits?.close();
+        permissions.close();
         control?.close();
         ingest.close();
         index.stop();

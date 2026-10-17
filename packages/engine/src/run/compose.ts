@@ -1,0 +1,344 @@
+// The one wiring of the run services (DIPO-129): ingestion with the permission wait and the
+// nudges, run control, worker outcomes, the resumer, the plan-limit schedule, the launcher and
+// re-attach, built from injected ports. The daemon and the engine's run tests both build them
+// here, so a test exercises the wiring the daemon runs. What differs between them is only which
+// ports are injected.
+
+import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
+
+import { type InputChangeReader, Nudges } from "../hooks/nudges";
+import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
+import type { WorkerPort } from "../workers/port";
+import { readBackstop } from "./backstop";
+import { RunControl, type RunControlDeps, type RunSteering } from "./control";
+import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "./hosts";
+import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
+import { RunOutcomes, type RunOutcomesDeps, type RunOutcomesPort } from "./outcomes";
+import { PlanLimits, type PlanLimitsDeps } from "./plan-limit";
+import { RunReattacher, type RunReattacherDeps } from "./reattach";
+import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
+import { afterRunExits } from "./temp-dirs";
+import type { RunBase } from "./work-run";
+
+type Warn = (message: string, fields: Readonly<Record<string, unknown>>) => void;
+
+export interface RunPorts {
+  readonly clock: Clock;
+  readonly ids: IdSource;
+  readonly offices: RunResumerDeps["offices"];
+  readonly worker: WorkerPort;
+  /** Sends host ops to a running worker (`hostSocketSteering` in the daemon). */
+  readonly steering: RunSteering;
+  readonly hosts: HostStarter;
+  readonly git: RunLauncherDeps["git"];
+  /** The stories on the base: a launch's dependencies and a next session's story (DIPO-51). */
+  readonly base: Pick<RunBase, "read">;
+  readonly runtimeDir: string;
+  readonly tmpRoot: string;
+  readonly tempOwner?: () => string | undefined;
+  readonly onChanged?: (office: Parameters<NonNullable<RunControlDeps["onChanged"]>>[0]) => void;
+  readonly warn?: Warn;
+  readonly refreshStory?: RunControlDeps["refreshStory"];
+  /** Ends a live claim whose worker did not start; the launcher's and the outcomes' release. */
+  readonly release: RunLauncherDeps["release"];
+  /** Runs after each worker exit decision of worker outcomes (the run temp directory sweep). */
+  readonly afterExit?: () => void;
+  /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
+  readonly presence?: Presence;
+  /** False while no work is scheduled: the permission wait and the plan-limit schedule (DIPO-61). */
+  readonly scheduling?: () => boolean;
+  /** Which input files the base changed, for the nudges (DIPO-60); no input nudge without it. */
+  readonly inputChanges?: InputChangeReader;
+  /** Ingestion; every entry it appends reaches `onChanged` at once. */
+  readonly ingest: Pick<OfficeIngestOptions, "pricing" | "watchdog"> & {
+    /** Hears each run's worker exit after the permission wait and the nudges did. */
+    readonly onEnded?: OfficeRunListener["onEnded"];
+  };
+  /** Run control; without it nothing is tracked, ended or decided (and no outcomes follow). */
+  readonly control?: Pick<RunControlDeps, "writer" | "finisher" | "implemented" | "tickMs">;
+  /** Worker outcomes and the run's next session; needs `control`. */
+  readonly outcomes?: Pick<RunOutcomesDeps, "holds" | "holdsWork" | "caps" | "unpark"> & {
+    /** The liveness of earlier hosts a next session waits for (DIPO-57). */
+    readonly probe?: RunResumerDeps["probe"];
+  };
+  /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
+  readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
+  /** Replaces run control as the resumer's and the launcher's tracker (a test's caps override). */
+  readonly tracker?: (control: RunControl) => NonNullable<RunLauncherDeps["control"]>;
+  /** Replaces ingestion as the resumer's (a test recording each start). */
+  readonly resumeIngest?: (ingest: OfficeIngest) => RunIngest;
+  /** DIPO-39's worktree setup of a claimed story, before its worker starts. */
+  readonly setup: RunLauncherDeps["setup"];
+  /** Re-attach after a restart; needs `control`. */
+  readonly reattach?: Omit<
+    RunReattacherDeps,
+    "clock" | "offices" | "ingest" | "control" | "outcomes" | "onChanged" | "warn"
+  >;
+}
+
+export interface ComposedRuns {
+  readonly ingest: OfficeIngest;
+  /** The permission wait (DIPO-59), on every run's ingestion. */
+  readonly permissions: PermissionAsks;
+  /** The 0014 section 8 nudges (DIPO-60), on every run's ingestion. */
+  readonly nudges: Nudges;
+  readonly control: RunControl | null;
+  readonly outcomes: RunOutcomes | null;
+  readonly resumer: RunResumer | null;
+  readonly planLimits: PlanLimits | null;
+  readonly launcher: RunLauncher;
+  readonly reattacher: RunReattacher | null;
+}
+
+/** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
+function given<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V });
+}
+
+/** The services built later that earlier ones call: each is read when called, never before. */
+interface Late {
+  ingest: OfficeIngest | null;
+  outcomes: RunOutcomes | null;
+  exitPort: RunOutcomesPort | null;
+  planLimits: PlanLimits | null;
+}
+
+function buildControl(ports: RunPorts, late: Late): RunControl | null {
+  if (ports.control === undefined) return null;
+  return new RunControl({
+    ...ports.control,
+    clock: ports.clock,
+    offices: ports.offices,
+    ids: ports.ids,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    // The ingestion hooks call the control, and the control flushes ingestion's output first.
+    flushOutput: (office, run) => late.ingest?.flushOutput(office, run),
+    // Each exit decision may end the run after its worker exited (the temp directory goes).
+    outcomes: () => late.exitPort ?? undefined,
+    ...given("onChanged", ports.onChanged),
+    ...given("refreshStory", ports.refreshStory),
+    ...given("warn", ports.warn),
+  });
+}
+
+interface HookListeners {
+  readonly permissions: PermissionAsks;
+  readonly nudges: Nudges;
+  readonly hookEvents: OfficeRunListener;
+}
+
+/** The permission wait and the nudges, and the one listener per ingestion pass that hears both. */
+function buildHookListeners(
+  ports: RunPorts,
+  control: RunControl | null,
+  late: Late,
+): HookListeners {
+  const ending = (run: string) => control?.isEnding(run) ?? false;
+  const permissions = new PermissionAsks({
+    clock: ports.clock,
+    ids: ports.ids,
+    offices: ports.offices,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    presence: ports.presence ?? ABSENT,
+    ending,
+    // An answer to a `needs-permission` park resumes its run (DIPO-75).
+    parks: {
+      resume: (office, run, request) =>
+        late.outcomes?.resumePark(office, run, request) ??
+        Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
+    },
+    ...given("scheduling", ports.scheduling),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+  const nudges = new Nudges({
+    clock: ports.clock,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    ...given("inputChanges", ports.inputChanges),
+    ending,
+    ...given("warn", ports.warn),
+  });
+  const onEnded = ports.ingest.onEnded;
+  const hookEvents: OfficeRunListener = {
+    onWorkerEvents: (office, run, agent, events) => {
+      permissions.onWorkerEvents(office, run, agent, events);
+      nudges.onWorkerEvents(office, run, agent, events);
+    },
+    onEnded: (office, run) => {
+      permissions.onEnded(office, run);
+      nudges.onEnded(office, run);
+      onEnded?.(office, run);
+    },
+  };
+  return { permissions, nudges, hookEvents };
+}
+
+function buildIngest(
+  ports: RunPorts,
+  control: RunControl | null,
+  hookEvents: OfficeRunListener,
+): OfficeIngest {
+  return new OfficeIngest({
+    clock: ports.clock,
+    pricing: ports.ingest.pricing,
+    ...(control === null ? {} : { hooks: control.hooks }),
+    hookEvents,
+    ...given("watchdog", ports.ingest.watchdog),
+    ...given("onAppended", ports.onChanged),
+    // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
+    privacy: (office) => ({
+      storeCommandBodies: ports.offices.config(office)?.privacy.storeCommandBodies ?? false,
+    }),
+    ...given("warn", ports.warn),
+  });
+}
+
+/** Run control as the resumer and the launcher track runs with it (or the test's override). */
+function trackerOf(ports: RunPorts, control: RunControl): NonNullable<RunLauncherDeps["control"]> {
+  return ports.tracker?.(control) ?? control;
+}
+
+interface Outcomes {
+  readonly resumer: RunResumer;
+  readonly outcomes: RunOutcomes;
+  readonly planLimits: PlanLimits | null;
+}
+
+/** The resumer, worker outcomes and the plan-limit schedule; null without control or outcomes. */
+function buildOutcomes(
+  ports: RunPorts,
+  control: RunControl | null,
+  ingest: OfficeIngest,
+  late: Late,
+): Outcomes | null {
+  if (control === null || ports.outcomes === undefined) return null;
+  const { probe, ...outcomePorts } = ports.outcomes;
+  const resumer = new RunResumer({
+    clock: ports.clock,
+    ids: ports.ids,
+    offices: ports.offices,
+    worker: ports.worker,
+    git: ports.git,
+    story: baseStoryFacts(ports.base),
+    runtimeDir: ports.runtimeDir,
+    tmpRoot: ports.tmpRoot,
+    ...given("tempOwner", ports.tempOwner),
+    hosts: ports.hosts,
+    ingest: ports.resumeIngest?.(ingest) ?? ingest,
+    control: trackerOf(ports, control),
+    ...given("probe", probe),
+    ...given("onChanged", ports.onChanged),
+  });
+  const outcomes = new RunOutcomes({
+    ...outcomePorts,
+    waits: () => late.planLimits ?? undefined,
+    clock: ports.clock,
+    offices: ports.offices,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    worker: ports.worker,
+    ender: () => control,
+    resumer,
+    release: ports.release,
+    ...given("refreshStory", ports.refreshStory),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+  const planLimits =
+    ports.planLimits === undefined
+      ? null
+      : new PlanLimits({
+          ...ports.planLimits,
+          clock: ports.clock,
+          offices: ports.offices,
+          resume: (office, run, why) => outcomes.resumeWait(office, run, why),
+          ...given("scheduling", ports.scheduling),
+          ...given("warn", ports.warn),
+        });
+  return { resumer, outcomes, planLimits };
+}
+
+function buildReattacher(
+  ports: RunPorts,
+  control: RunControl | null,
+  ingest: OfficeIngest,
+  outcomes: RunOutcomes | null,
+): RunReattacher | null {
+  if (control === null || ports.reattach === undefined) return null;
+  return new RunReattacher({
+    ...ports.reattach,
+    clock: ports.clock,
+    offices: ports.offices,
+    ingest,
+    control,
+    ...given("outcomes", outcomes ?? undefined),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+}
+
+function buildLauncher(
+  ports: RunPorts,
+  control: RunControl | null,
+  ingest: OfficeIngest,
+): RunLauncher {
+  return new RunLauncher({
+    worker: ports.worker,
+    git: ports.git,
+    setup: ports.setup,
+    dependencies: async (office, ids) =>
+      ids.length === 0 ? [] : (await ports.base.read(office, ids)).views,
+    runtimeDir: ports.runtimeDir,
+    tmpRoot: ports.tmpRoot,
+    ...given("tempOwner", ports.tempOwner),
+    hosts: ports.hosts,
+    ingest,
+    ...(control === null ? {} : { control: trackerOf(ports, control) }),
+    release: ports.release,
+    // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
+    ...(ports.control?.finisher === undefined
+      ? {}
+      : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
+    ...given("warn", ports.warn),
+  });
+}
+
+function snapshotOf(ports: RunPorts, office: OfficeId, worktree: string) {
+  const git = ports.git(office);
+  if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+  return readBackstop(git, worktree);
+}
+
+/** Builds the run services from `ports`. */
+export function composeRuns(ports: RunPorts): ComposedRuns {
+  const late: Late = { ingest: null, outcomes: null, exitPort: null, planLimits: null };
+  const control = buildControl(ports, late);
+  const { permissions, nudges, hookEvents } = buildHookListeners(ports, control, late);
+  const ingest = buildIngest(ports, control, hookEvents);
+  late.ingest = ingest;
+  const built = buildOutcomes(ports, control, ingest, late);
+  const outcomes = built?.outcomes ?? null;
+  late.outcomes = outcomes;
+  late.planLimits = built?.planLimits ?? null;
+  // Each exit decision of worker outcomes, then `afterExit` (the run temp directory sweep).
+  if (outcomes !== null) {
+    late.exitPort =
+      ports.afterExit === undefined ? outcomes : afterRunExits(outcomes, ports.afterExit);
+  }
+  const reattacher = buildReattacher(ports, control, ingest, outcomes);
+  const launcher = buildLauncher(ports, control, ingest);
+  return {
+    ingest,
+    permissions,
+    nudges,
+    control,
+    outcomes,
+    resumer: built?.resumer ?? null,
+    planLimits: late.planLimits,
+    launcher,
+    reattacher,
+  };
+}
