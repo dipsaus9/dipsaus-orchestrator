@@ -4,7 +4,7 @@ title: Pass the full verify inside the worker sandbox on this repository
 status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 20:05'
+updated_date: '2026-10-17 20:13'
 labels:
   - 'tier:M'
   - cutover
@@ -59,4 +59,6 @@ Criterion 4, sandboxed verify: on macOS, inside dipo worker session run_01M55PE8
 Failures fixed (10): the five 'work.run starts the worker of a claimed run' tests, the two 'work.preview, the dry run' tests and 'a failed release after a failed host start' in run/start.test.ts, and 'detects Safe-Chain at launch' in run/adapter.test.ts all built the launch context with the default plugin reader, which read /home/maintainer/.claude/plugins/installed_plugins.json and got EPERM under the fence (now an injected empty pluginFiles reader, also in run-office.ts); and platform/paths.test.ts 'falls back to a fresh mkdtemp directory' went over the 100-byte socket limit (now a short mkdtemp alias through the RuntimeDirFs seam, so it passes at any temp root testkit accepts). The 'snapshot differs on a story branch' in criterion 3 was the plugin EPERM: start.test.ts uses no real git.
 
 Delivery: dipo parked the story blocked, asking whether its own sandboxed verify counts for criterion 4 (it does, per the test plan); the work was finished outside the sandbox on DIPO-176/verify-inside-worker-sandbox-finish. Verify outside: 3154 pass, 2 skip, 0 fail.
+
+The recorded sandboxed run predates 8afad3a (it ran the first paths fix, a short tmpBase). 8afad3a's alias version does not depend on the temp root length and passes with DIPO_TMP unset and at a 37-byte root outside the sandbox.
 <!-- SECTION:NOTES:END -->
