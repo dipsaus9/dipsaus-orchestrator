@@ -38,7 +38,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { removeSocketFile } from "../platform/socket";
 import { EventLog, LineSplitter, type EventChannel } from "./events";
 import { openHostLog, type HostLog } from "./host-log";
-import { scrubLine } from "./scrub";
+import { LineScrubber } from "./scrub";
 import {
   claimedLaunchName,
   EVENTS_FILE,
@@ -413,23 +413,28 @@ export class WorkerHost {
     scrub?: LineScrub,
   ): Promise<void> {
     const splitter = new LineSplitter();
-    const reader = stream.getReader();
     // The plan's scrub (DIPO-105) runs before a stdout line is appended, so the event file never
-    // holds what it removes.
-    const keep = (data: string): string =>
-      ch === "stdout" && scrub !== undefined ? scrubLine(data, scrub) : data;
+    // holds what it removes. A line the splitter cut into pieces is scrubbed whole (DIPO-175).
+    const scrubber = ch === "stdout" && scrub !== undefined ? new LineScrubber(scrub) : null;
+    const keep = (piece: string): void => {
+      const data = scrubber === null ? piece : scrubber.push(piece);
+      if (data !== null) this.#append(ch, data);
+    };
+    const reader = stream.getReader();
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of splitter.push(value)) this.#append(ch, keep(line));
+        for (const piece of splitter.push(value)) keep(piece);
       }
     } catch (error) {
       this.#logger.warn("reading worker output failed", { ch, error });
     } finally {
       reader.releaseLock();
       const rest = splitter.flush();
-      if (rest !== null) this.#append(ch, keep(rest));
+      if (rest !== null) keep(rest);
+      const tail = scrubber?.flush() ?? null;
+      if (tail !== null) this.#append(ch, tail);
     }
   }
 
