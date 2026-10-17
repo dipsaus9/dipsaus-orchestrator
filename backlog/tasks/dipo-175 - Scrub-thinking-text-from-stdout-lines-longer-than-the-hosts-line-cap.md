@@ -1,10 +1,10 @@
 ---
 id: DIPO-175
 title: Scrub thinking text from stdout lines longer than the host's line cap
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 21:00'
+updated_date: '2026-10-17 21:07'
 labels:
   - 'tier:S'
   - cutover
@@ -44,3 +44,9 @@ test_plan:
 - [x] #3 A stdout line under the cap is stored as today: unchanged when the scrub removes nothing, scrubbed when it holds a scrubbed block type
 - [x] #4 Tests in packages/engine/test/host/ cover a capped line with a thinking block whose text spans two pieces, a capped line whose block type field comes after the thinking text, a capped line with no thinking block, and a line under the cap
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M55TDXVYKHH6QE3VZPFWH6QH (Haiku low, 22 turns, about $0.02, 2 min) reported done. LineScrubber (host/scrub.ts) holds the splitter pieces of one stdout line until its newline and scrubs the joined line; WorkerHost #pump feeds every stdout piece through it. MAX_SCRUB_LINE is 16 Mi UTF-16 code units: a longer line is dropped up to its newline. Review: no reader breaks on the larger event lines (ingest reads a line over MAX_READ_BYTES whole; the host socket sends only offsets; the adapter already joined the old pieces). A line over 16 Mi used to be rebuilt from its pieces and is now dropped, so on the finish branch the drop is logged to host.log (warn 'dropped a stdout line over the scrub cap', with the held length); no stdout marker, which the adapter would only count as unparseable. Verify outside the sandbox on DIPO-175/scrub-capped-stdout-lines-finish: 3160 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 host and ingest 122 pass. Inside the worker sandbox the worker overrode DIPO_TMP and saw 15 EPERM host failures (DIPO-184 now tells workers not to).
+<!-- SECTION:NOTES:END -->
