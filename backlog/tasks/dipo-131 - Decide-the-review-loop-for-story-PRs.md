@@ -1,10 +1,10 @@
 ---
 id: DIPO-131
 title: Decide the review loop for story PRs
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 14:48'
+updated_date: '2026-10-17 12:54'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -53,8 +53,14 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/decisions/0019-review-loop.md answers each question in the description, with the options weighed and a decision for each
-- [ ] #2 The maintainer decisions of 2026-10-16 on merge authority, reviewer defaults and conflicts are recorded in the ADR as decided
-- [ ] #3 Maintainer approved the decision
-- [ ] #4 Implementation stories for the decision are filed in m-1 with the label slice:m1a
+- [x] #1 docs/decisions/0019-review-loop.md answers each question in the description, with the options weighed and a decision for each
+- [x] #2 The maintainer decisions of 2026-10-16 on merge authority, reviewer defaults and conflicts are recorded in the ADR as decided
+- [x] #3 Maintainer approved the decision
+- [x] #4 Implementation stories for the decision are filed in m-1 with the label slice:m1a
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR docs/decisions/0019-review-loop.md accepted by the maintainer on 2026-10-17, with amendment notes in 0001, 0002, 0005, 0007, 0008, 0009, 0010, 0012, 0014 and 0016. Implementation stories filed in m-1 with slice:m1a: DIPO-139 (A), DIPO-140 (B), DIPO-141 (C), DIPO-142 (D), DIPO-144 (E), DIPO-145 (F), DIPO-146 (G), DIPO-147 (H), DIPO-148 (I), DIPO-149 (J), DIPO-150 (K), DIPO-151 (L), DIPO-152 (N), DIPO-153 (M).
+<!-- SECTION:FINAL_SUMMARY:END -->

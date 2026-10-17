@@ -1,10 +1,10 @@
 ---
 id: DIPO-132
 title: Decide how parked stories resume and how the maintainer steers work
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 15:11'
+updated_date: '2026-10-17 12:54'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -48,8 +48,14 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/decisions/0020-park-and-resume.md answers each question in the description, with the options weighed and a decision for each
-- [ ] #2 The maintainer decision of 2026-10-16 on budget-exceeded resume is recorded in the ADR as decided, and a dated note on 0005's async command path is proposed for approval
-- [ ] #3 Maintainer approved the decision
-- [ ] #4 Implementation stories for the decision are filed in m-1 with the label slice:m1a
+- [x] #1 docs/decisions/0020-park-and-resume.md answers each question in the description, with the options weighed and a decision for each
+- [x] #2 The maintainer decision of 2026-10-16 on budget-exceeded resume is recorded in the ADR as decided, and a dated note on 0005's async command path is proposed for approval
+- [x] #3 Maintainer approved the decision
+- [x] #4 Implementation stories for the decision are filed in m-1 with the label slice:m1a
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ADR docs/decisions/0020-park-and-resume.md accepted by the maintainer on 2026-10-17, with amendment notes in 0005 (including the waiting command path), 0007, 0008, 0009, 0010, 0012 and 0014. Implementation stories filed in m-1 with slice:m1a: DIPO-138 (1), DIPO-143 (2), DIPO-154 (3), DIPO-155 (4), DIPO-156 (5), DIPO-157 (6), DIPO-159 (7), DIPO-160 (8), DIPO-161 (9), DIPO-162 (10), DIPO-163 (11), DIPO-158 (12), DIPO-165 (13), DIPO-166 (14), DIPO-167 (15), DIPO-168 (16), DIPO-164 (17). Follow-up DIPO-169 (18, Refine worker research access) is filed in m-1 without a slice label; the maintainer sets its slice.
+<!-- SECTION:FINAL_SUMMARY:END -->

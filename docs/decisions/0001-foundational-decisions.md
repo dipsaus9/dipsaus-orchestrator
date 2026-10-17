@@ -62,3 +62,4 @@ Status: accepted (grill session, 2026-10-09). Technical stack is deliberately un
 - 2026-10-10, decision 0005: park reasons `stopped` (maintainer ended a worker) and `interrupted` (worker lost while the daemon was down).
 - 2026-10-10, decision 0008 (maintainer): park reasons `needs-permission` (worker cannot finish without a denied action) and `worker-failed` (worker crashed again after one resume, or failed its init checks: `apiKeySource`, model).
 - 2026-10-10, decision 0007 (maintainer): "local database per project" becomes local work state per project, kept in one central local database keyed by office; never in the repository and never the only copy of a story fact.
+- 2026-10-16, DIPO-131 (maintainer): the review-round hard cap counts failed rounds only: a round whose verdict is blocked counts, an approved round does not; the cap is 3 by default (`review.maxRounds`).
