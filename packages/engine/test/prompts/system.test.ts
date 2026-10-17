@@ -26,7 +26,8 @@ describe("system file", () => {
       .split(/\s+/)
       .map((token) => token.replace(/[`.,;:()]/g, ""))
       .filter((token) => /[/\\]/.test(token));
-    expect(paths).toEqual(["/tmp"]);
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths.every((path) => path === "/tmp")).toBe(true);
     expect(text).not.toMatch(/\{\{/);
   });
 

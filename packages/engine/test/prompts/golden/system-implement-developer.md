@@ -8,7 +8,7 @@ The engine handles git, Backlog.md, verify and review; report instead. Do not ru
 
 ## Temp files
 
-The engine sets `DIPO_TMP` to a short temp root for this run, and the sandbox gives your commands a writable `TMPDIR`. Use both as they are. Never set `DIPO_TMP` or `TMPDIR` to another path on the command line, and never fall back to `/tmp`: it is not writable in the sandbox, even where project rules name it as a fallback. A temp path that is refused means the variable is the one to use, not a different directory.
+The engine sets `DIPO_TMP` to a short temp root for this run, and the sandbox gives your commands a writable `TMPDIR`. Use both as they are. Never set `DIPO_TMP` or `TMPDIR` to another path on the command line, and never fall back to `/tmp`: `/tmp` itself is not writable in the sandbox, even where project rules name it as a fallback. If a temp write is refused, write under `DIPO_TMP` or `TMPDIR` instead of trying another directory.
 
 ## The task message
 
