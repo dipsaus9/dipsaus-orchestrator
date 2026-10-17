@@ -1,10 +1,10 @@
 ---
 id: DIPO-179
 title: List open dependencies in the dipo gate output
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 22:30'
+updated_date: '2026-10-17 22:36'
 labels:
   - 'tier:S'
   - cutover
@@ -43,8 +43,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The story.gate result carries an optional waitingOn list with each dependency of the story that is not Done on the base, its id and its status there (missing when it cannot be read), from openDependencies; packages/contract/schema/ is regenerated and packages/contract/src/version.ts notes the addition
-- [ ] #2 `dipo gate <id>` for a passing story prints `ready <ID> passed` and then one line `waits on <ID> (<status>), ...` naming the open dependencies, and exits 0; with none open it prints only the passed line
-- [ ] #3 For a failing story the command prints its failure lines as today, then the waits-on line when dependencies are open, and exits 1
-- [ ] #4 Tests cover a passing story with two open dependencies, a passing story whose dependencies are all Done, and a failing story with an open dependency, in packages/cli/src/gate-command.test.ts and packages/engine/test/gate/
+- [x] #1 The story.gate result carries an optional waitingOn list with each dependency of the story that is not Done on the base, its id and its status there (missing when it cannot be read), from openDependencies; packages/contract/schema/ is regenerated and packages/contract/src/version.ts notes the addition
+- [x] #2 `dipo gate <id>` for a passing story prints `ready <ID> passed` and then one line `waits on <ID> (<status>), ...` naming the open dependencies, and exits 0; with none open it prints only the passed line
+- [x] #3 For a failing story the command prints its failure lines as today, then the waits-on line when dependencies are open, and exits 1
+- [x] #4 Tests cover a passing story with two open dependencies, a passing story whose dependencies are all Done, and a failing story with an open dependency, in packages/cli/src/gate-command.test.ts and packages/engine/test/gate/
 <!-- AC:END -->
