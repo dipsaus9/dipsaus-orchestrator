@@ -4,7 +4,7 @@ title: List open dependencies in the dipo gate output
 status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 22:38'
+updated_date: '2026-10-17 22:39'
 labels:
   - 'tier:S'
   - cutover
@@ -53,4 +53,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Delivery: dipo run run_01M55ZSFANV2MQZQ9ARBAJVE6C (Haiku low, 49 turns, about $0.05, 4 min) reported done. story.gate carries an optional waitingOn (GateDependency id, status?), set from openDependencies in gate/store/read.ts (the pure gate core may not import it; its purity test). dipo gate prints 'waits on DIPO-3 (Ready), DIPO-4 (Refined)' after the verdict line or after the failures; a dependency whose status the CLI could not read prints '(status unknown)'; waitingOn is left out when nothing is open. Verify outside the sandbox on DIPO-179/gate-lists-open-dependencies-finish: 3211 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 gate and cli 344 pass.
+
+Review advisory applied: a dependency whose status cannot be read prints '(missing)', the story's word and the Backlog CLI's own state name.
 <!-- SECTION:NOTES:END -->
