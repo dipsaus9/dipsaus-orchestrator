@@ -1,10 +1,10 @@
 ---
 id: DIPO-123
 title: Close the gaps DIPO-119 left in run decisions and permission timeouts
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 11:53'
-updated_date: '2026-10-17 16:57'
+updated_date: '2026-10-17 17:04'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -43,7 +43,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A turn problem whose act failed (act returns false; packages/engine/src/run/outcomes.ts ignores it today) is retried at the next cap tick, or parks the run with a worker-failed reason, with a test
-- [ ] #2 A question whose timeout close failed re-arms its own timer and on that retry only closes the question, without sending a second reply, with a test
-- [ ] #3 A test covers a findQuestion failure in the timeout
+- [x] #1 A turn problem whose act failed (act returns false; packages/engine/src/run/outcomes.ts ignores it today) is retried at the next cap tick, or parks the run with a worker-failed reason, with a test
+- [x] #2 A question whose timeout close failed re-arms its own timer and on that retry only closes the question, without sending a second reply, with a test
+- [x] #3 A test covers a findQuestion failure in the timeout
 <!-- AC:END -->
