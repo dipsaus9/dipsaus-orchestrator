@@ -229,6 +229,8 @@ export interface RunAct {
   readonly intent: IntentKind;
   readonly detail: string;
   readonly ops: readonly HostOp[];
+  /** A turn problem's act: when its intent cannot be stored, the next cap tick tries it again (DIPO-123). */
+  readonly retryAtTick?: boolean;
 }
 
 /** What worker outcomes ask of run control. */
@@ -435,6 +437,7 @@ export class RunOutcomes implements RunOutcomesPort {
           intent: "stop",
           detail: `${INTENT_TAGS.startFailed} ${problem.detail}`,
           ops: close,
+          retryAtTick: true,
         });
         return;
       case "contextFull":
@@ -448,7 +451,12 @@ export class RunOutcomes implements RunOutcomesPort {
           });
           return;
         }
-        ender.act(view.runId, { intent: "reassign", detail: INTENT_TAGS.contextFull, ops: close });
+        ender.act(view.runId, {
+          intent: "reassign",
+          detail: INTENT_TAGS.contextFull,
+          ops: close,
+          retryAtTick: true,
+        });
         return;
       case "error": {
         const refused = this.#noRetry(office, view, view.work.agent);
@@ -466,6 +474,7 @@ export class RunOutcomes implements RunOutcomesPort {
           intent: "reassign",
           detail: `${INTENT_TAGS.error} ${problem.detail}`,
           ops: close,
+          retryAtTick: true,
         });
         return;
       }

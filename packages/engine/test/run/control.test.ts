@@ -926,3 +926,96 @@ describe("an intent that cannot be stored (DIPO-119)", () => {
     expect(w.warnings).toHaveLength(1);
   });
 });
+
+describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
+  it("is tried again at the next cap tick and sent once the database accepts it", async () => {
+    track();
+    w.f.t.state.connection.exec(
+      `create trigger intent_fails before insert on run_intents
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    const watch = watchRejections();
+    const problem = {
+      intent: "stop" as const,
+      detail: "a turn problem",
+      ops: encode({ kind: "stop" }),
+      retryAtTick: true,
+    };
+    expect(w.control.act(w.f.run, problem)).toBe(false);
+    // The next tick tries it again; the database still refuses it, so the run stays live.
+    w.f.t.clock.advance(CAP_TICK_MS);
+    expect(w.warnings).toHaveLength(2);
+    expect(w.control.live(w.f.run)).toBe(true);
+    expect(w.sent).toEqual([]);
+    w.f.t.state.connection.exec("drop trigger intent_fails");
+    w.f.t.clock.advance(CAP_TICK_MS);
+    await w.control.idle();
+    expect(await watch.stop()).toEqual([]);
+    expect(w.sent).toHaveLength(1);
+    expect(w.control.live(w.f.run)).toBe(false);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
+      ["stop", "sent"],
+    ]);
+    expect(w.warnings).toHaveLength(2);
+  });
+
+  it("still waits for the next tick after an unflagged act fails too", async () => {
+    track();
+    w.f.t.state.connection.exec(
+      `create trigger intent_fails before insert on run_intents
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    const watch = watchRejections();
+    expect(
+      w.control.act(w.f.run, {
+        intent: "reassign",
+        detail: "a turn problem",
+        ops: encode({ kind: "stop" }),
+        retryAtTick: true,
+      }),
+    ).toBe(false);
+    // A plan-limit hold fails while the turn problem's retry waits; the retry is kept.
+    expect(
+      w.control.act(w.f.run, {
+        intent: "pause",
+        detail: "a plan-limit hold",
+        ops: [{ closeStdin: true }],
+      }),
+    ).toBe(false);
+    w.f.t.state.connection.exec("drop trigger intent_fails");
+    w.f.t.clock.advance(CAP_TICK_MS);
+    await w.control.idle();
+    expect(await watch.stop()).toEqual([]);
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.detail, i.state])).toEqual([
+      ["reassign", "a turn problem", "sent"],
+    ]);
+    expect(w.control.live(w.f.run)).toBe(false);
+    // Later ticks send nothing more.
+    w.f.t.clock.advance(CAP_TICK_MS * 3);
+    await w.control.idle();
+    expect(w.sent).toHaveLength(1);
+    expect(w.warnings).toHaveLength(2);
+  });
+
+  it("is not retried when the act is not a turn problem's", async () => {
+    track();
+    w.f.t.state.connection.exec(
+      `create trigger intent_fails before insert on run_intents
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    expect(
+      w.control.act(w.f.run, {
+        intent: "stop",
+        detail: "a plan-limit hold",
+        ops: encode({ kind: "stop" }),
+      }),
+    ).toBe(false);
+    w.f.t.state.connection.exec("drop trigger intent_fails");
+    w.f.t.clock.advance(CAP_TICK_MS);
+    await w.control.idle();
+    expect(w.sent).toEqual([]);
+    expect(runIntents(w.f.office, w.f.run)).toEqual([]);
+    expect(w.control.live(w.f.run)).toBe(true);
+  });
+});

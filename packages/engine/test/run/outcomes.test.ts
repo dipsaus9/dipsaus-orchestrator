@@ -20,6 +20,7 @@ import { appendEntries } from "../../src/changelog/log";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
+  CAP_TICK_MS,
   endRun,
   findRun,
   insertRun,
@@ -945,4 +946,47 @@ describe("a start the adapter refuses at system/init (DIPO-108)", () => {
     expect(w.next).toEqual([]);
     expectEnded("start-failed", "start-failed");
   });
+});
+
+describe("a turn problem whose intent cannot be stored (DIPO-123)", () => {
+  const PROBLEMS: [TurnProblem, string, string][] = [
+    [
+      { kind: "error", detail: "error_during_execution (an API error)" },
+      "reassign",
+      "new-session:error",
+    ],
+    [
+      { kind: "contextFull", detail: "prompt_too_long: the context is full" },
+      "reassign",
+      "new-session:context-full",
+    ],
+    [{ kind: "startFailed", detail: "startup_failure_reason sandbox" }, "stop", "start-failed"],
+  ];
+  for (const [problem, kind, tag] of PROBLEMS) {
+    it(`${problem.kind}: the next cap tick stores and sends its intent once`, async () => {
+      track();
+      w.f.t.state.connection.exec(
+        `create trigger intent_fails before insert on run_intents
+         begin select raise(abort, 'disk I/O error'); end`,
+      );
+      w.control.onWorkerEvents(w.f.run, [turnWith(problem)]);
+      await w.control.idle();
+      expect(w.sent).toEqual([]);
+      expect(runIntents(w.f.office, w.f.run)).toEqual([]);
+      expect(w.control.live(w.f.run)).toBe(true);
+      w.f.t.state.connection.exec("drop trigger intent_fails");
+      w.f.t.clock.advance(CAP_TICK_MS);
+      await w.control.idle();
+      expect(w.sent).toEqual([CLOSE]);
+      expect(
+        runIntents(w.f.office, w.f.run).map((i) => [i.kind, intentTag(i.detail), i.state]),
+      ).toEqual([[kind, tag, "sent"]]);
+      expect(w.control.live(w.f.run)).toBe(false);
+      // Later ticks send nothing more.
+      w.f.t.clock.advance(CAP_TICK_MS * 3);
+      await w.control.idle();
+      expect(w.sent).toHaveLength(1);
+      expect(runIntents(w.f.office, w.f.run)).toHaveLength(1);
+    });
+  }
 });

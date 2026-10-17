@@ -18,8 +18,8 @@
 // host with no decision.
 //
 // The timeout's own writes run in a timer, outside any command: a database error there is logged
-// once with its error code and the deny is still sent; a question that could not be closed stays
-// open until the next office load expires it (DIPO-119).
+// once with its error code and the deny is still sent; the question's timer is armed again and
+// only its close is retried (DIPO-123).
 
 import {
   type Clock,
@@ -211,11 +211,7 @@ export class PermissionAsks {
     });
     if (appended > 0) this.#deps.onChanged?.(officeId);
     const seconds = config?.timeouts.permissionWaitSeconds ?? 300;
-    const timer = this.#deps.clock.setTimeout(() => {
-      this.#timers.delete(questionId);
-      this.#timeout(officeId, questionId, seconds);
-    }, seconds * 1000);
-    this.#timers.set(questionId, timer);
+    this.#arm(questionId, seconds, () => this.#timeout(officeId, questionId, seconds));
   }
 
   /** `work.answer { question, text, decision? }` on a permission question (0008 section 5). */
@@ -329,7 +325,20 @@ export class PermissionAsks {
     return true;
   }
 
-  #timeout(officeId: OfficeId, questionId: string, seconds: number): void {
+  /** Arms the timer of a question's wait; `fire` runs when it ends. */
+  #arm(questionId: string, seconds: number, fire: () => void): void {
+    const timer = this.#deps.clock.setTimeout(() => {
+      this.#timers.delete(questionId);
+      fire();
+    }, seconds * 1000);
+    this.#timers.set(questionId, timer);
+  }
+
+  /**
+   * The wait of a question ends. The deny is sent once; a retry (`retry`, DIPO-123) only closes
+   * the question, so a close that failed before is tried again without a second reply.
+   */
+  #timeout(officeId: OfficeId, questionId: string, seconds: number, retry = false): void {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return;
     let question: StoredQuestion | null;
@@ -352,7 +361,10 @@ export class PermissionAsks {
         run: question.runId,
         ...failureFields(error),
       });
+      // The question stays open: its timer is armed again and only the close is retried (DIPO-123).
+      this.#arm(questionId, seconds, () => this.#timeout(officeId, questionId, seconds, true));
     }
+    if (retry) return;
     this.#reply(
       office,
       question.runId as RunId,
