@@ -1,10 +1,10 @@
 ---
 id: DIPO-133
 title: Read the merge slot's required checks from the office config
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-17 22:09'
+updated_date: '2026-10-17 22:16'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -49,3 +49,9 @@ test_plan:
 - [x] #2 The merge slot waits for the configured names for every PR it merges; an empty list or a duplicate name is refused by config validation with the key named
 - [x] #3 The office config JSON Schema packages/engine/schema/office.schema.json (written by bun packages/engine/scripts/write-schema.ts) and the config and office tests that pin the version are updated; an office without the key behaves as today
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M55Y5WSQ48X8SY6HQ23CMPRP (Haiku low, 53 turns, about $0.10, 5 min) reported done. Office config version 3 adds mergeSlot.requiredChecks (default ci-ok and pr-title; an empty list or a duplicate name is refused with the key named); version 2 migrates as identity and gets the defaults. The merge slot waits for the configured names (#namesOf in #pick and #advance). office.schema.json regenerated. Unchanged by design: a pending check that is not listed still makes the slot wait. Verify outside the sandbox on DIPO-133/merge-slot-check-names-finish: 3178 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 merge-slot, config, office and daemon tests 351 pass.
+<!-- SECTION:NOTES:END -->
