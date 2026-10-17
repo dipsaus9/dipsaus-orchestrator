@@ -3,10 +3,10 @@ id: DIPO-141
 title: >-
   Read PR labels, all checks and failed CI logs, and post comments, through the
   code host
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 21:56'
+updated_date: '2026-10-17 22:00'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -39,17 +39,21 @@ test_plan:
       check: "(unit) the log read keeps only the last 1 MiB, stops at 60 seconds, and skips a check link that is not an Actions job"
     - kind: "automated"
       check: "(unit) no gh command built by the code host names deployments or environments"
-park:
-  reason: "needs-permission"
-  from: "In Progress"
-  note: "Bash: Run `gh --version`, `gh run view --help`, `gh pr comment --help` and `gh pr checks --help` (local gh 2.50.0 check), and fetch https://raw.githubusercontent.com/cli/cli/v2.50.0/pkg/cmd/... for the flag check"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new interface in packages/engine/src/platform/host.ts, separate from CodeHost, PrStateHost and PrListHost, reads a PR's labels (gh pr view --json labels), lists every check of a head with name, state, bucket, link and workflow, and posts a comment with gh pr comment, returning the comment URL
-- [ ] #2 A failed-job log read runs gh run view --job <job> --log-failed only for a GitHub Actions job link, keeps at most the last 1 MiB of output, and stops after 60 seconds
-- [ ] #3 A unit test asserts that no gh command the code host builds names deployments or environments
-- [ ] #4 Every gh flag the interface uses exists in gh 2.50.0, checked against its manual, and the story's implementation notes record the check
+- [x] #1 A new interface in packages/engine/src/platform/host.ts, separate from CodeHost, PrStateHost and PrListHost, reads a PR's labels (gh pr view --json labels), lists every check of a head with name, state, bucket, link and workflow, and posts a comment with gh pr comment, returning the comment URL
+- [x] #2 A failed-job log read runs gh run view --job <job> --log-failed only for a GitHub Actions job link, keeps at most the last 1 MiB of output, and stops after 60 seconds
+- [x] #3 A unit test asserts that no gh command the code host builds names deployments or environments
+- [x] #4 Every gh flag the interface uses exists in gh 2.50.0, checked against its manual, and the story's implementation notes record the check
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Criterion 4, gh 2.50.0 check (maintainer, against the v2.50.0 source on github.com/cli/cli, 2026-10-18): pr view --json labels: 'labels' is in IssueFields, which PullRequestFields appends (api/query_builder.go). pr checks --json name,state,bucket,link,workflow: all five are in prCheckFields (pkg/cmd/pr/checks/checks.go; the full list is name, state, startedAt, completedAt, link, bucket, event, workflow, description). run view --job and --log-failed: both defined in pkg/cmd/run/view/view.go; --repo comes from cmdutil.EnableRepoOverride on the run command (pkg/cmd/run/run.go). pr comment --body: defined in pkg/cmd/pr/comment/comment.go; --repo from EnableRepoOverride on the pr command (pkg/cmd/pr/pr.go). So MIN_GH_VERSION 2.50.0 stays.
+
+Delivery: dipo run run_01M55XPQ4DHJBPZHGHZCSF1SMR (Haiku low, 26 turns, about $0.04, 2 min) wrote the code and tests, then parked blocked asking for this check: gh is denied in the worker and it has no network. Its uncommitted work was copied to DIPO-141/code-host-labels-checks-logs-comments-finish. PrReviewHost (prLabels, prChecks, failedJobLog, commentPr) on GhHost; failedJobLog reads only an Actions job link, keeps the last 1 MiB, stops at 60 s. Verify outside the sandbox: 3174 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 platform tests 95 pass.
+<!-- SECTION:NOTES:END -->
