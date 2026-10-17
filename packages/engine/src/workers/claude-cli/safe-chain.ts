@@ -13,11 +13,12 @@
 // What dipo does, only when `~/.safe-chain/bin/safe-chain` and its POSIX init script exist:
 // - Claude Code's shell (`CLAUDE_CODE_SHELL`) is a wrapper in the run directory. It sets PATH,
 //   the install caches (all in the run temp directory) and the CA bundle of the run's proxy, and
-//   starts zsh with `ZDOTDIR` (or bash with `BASH_ENV`) on a file that loads nothing else. The
-//   zsh file then points `ZDOTDIR` at `/dev/null`, so zsh keeps no state there (DIPO-103). A
-//   login shell is the exception: its `.zprofile` runs after `/etc/zprofile` (path_helper), and
-//   restores the planned PATH there, so the demoted entries stay last (DIPO-107). bash's
-//   `BASH_ENV` file runs after a login shell's system and user profiles, and does the same.
+//   starts zsh with `ZDOTDIR` (or bash with `--noprofile` and `BASH_ENV`) on a file that loads
+//   nothing else. The zsh file then points `ZDOTDIR` at `/dev/null`, so zsh keeps no state there
+//   (DIPO-103). A zsh login shell is the exception: its `.zprofile` runs after `/etc/zprofile`
+//   (path_helper), and restores the planned PATH there, so the demoted entries stay last
+//   (DIPO-107). bash's `--noprofile` keeps its system and user profile files out of a login
+//   shell (DIPO-178), so its PATH stays the planned one.
 // - The snapshot directory is read-denied, so its functions never load in the sandbox.
 // - The package managers run as they are, not through Safe-Chain's shell functions: Safe-Chain
 //   in the sandbox would have to listen on 127.0.0.1, which needs local binding (DIPO-84). Their
@@ -300,7 +301,12 @@ export function safeChainShellFiles(
     ),
     ...exports,
     startup,
-    `exec ${quote("the shell", safeChain.shell)} "$@"`,
+    // DIPO-178: a bash login shell reads ~/.bash_profile, ~/.bash_login and ~/.profile before
+    // BASH_ENV; --noprofile keeps them out, as zsh keeps its own files out with ZDOTDIR.
+    ...(family === "bash"
+      ? ["# dipo (DIPO-178): no bash login shell reads the maintainer's profile files."]
+      : []),
+    `exec ${quote("the shell", safeChain.shell)}${family === "bash" ? " --noprofile" : ""} "$@"`,
     "",
   ].join("\n");
   const initText = [
@@ -354,8 +360,9 @@ export function zshLoginText(pathExport: string): string {
 }
 
 /**
- * The bash login hook (DIPO-107): bash runs `BASH_ENV` after a login shell's `/etc/profile` and
- * `~/.profile`-style files, so the planned PATH is restored here for login shells only.
+ * The bash login hook (DIPO-107). The wrapper starts bash with `--noprofile` (DIPO-178), so no
+ * login profile runs and path_helper does not touch PATH; this restores the planned PATH for
+ * login shells anyway, in case a profile file ever runs.
  */
 export function bashLoginLines(pathExport: string): string[] {
   return [
