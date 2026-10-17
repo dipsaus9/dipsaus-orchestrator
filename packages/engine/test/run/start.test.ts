@@ -123,6 +123,7 @@ const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
       home: HOME,
       env: { PATH: "/usr/bin:/bin", GH_TOKEN: "not-a-token" },
       dipoCommand: ["/opt/dipo/bin/dipo"],
+      pluginFiles: { read: () => undefined, dirs: () => [] },
     },
     paths,
     config,
