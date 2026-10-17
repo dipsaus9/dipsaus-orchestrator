@@ -4,7 +4,7 @@ title: Move park resume and work.resume out of RunOutcomes into one resume modul
 status: Done
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 22:29'
+updated_date: '2026-10-17 22:41'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -53,4 +53,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Delivery: dipo run run_01M55Z0GHGBN2YQ85CM5HMA9MX (Sonnet medium, 71 turns, about $1.41, 7 min) reported done. Park resume and work.resume live in run/resumption.ts (Resumption: resumeWait, resumePark, recoverParkResumes, the work.resume handler); outcome-resumes.ts is gone. PARK_RESUME_POLICY with resumeVia holds the M0 rows (needs-permission through the permission answer, plan-limit through work.resume); any other reason answers story.notPausedOrParked. RunOutcomes reaches park recovery through a recoverParks dependency. Tests moved their construction and calls from outcomes to resumption; assertions unchanged. Left for later: packages/daemon/src/foreground.ts still registers work.resume through runs.planLimits.feature, which delegates to the resumption. Verify outside the sandbox on DIPO-138/move-park-resume-out-of-run-outcomes-finish: 3192 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 run, hooks and daemon 517 pass.
+
+Review fix (maintainer side): work.resume now works out the story's standing reason first (the open park's reason when it has no active run, plan-limit when its active run has an open wait) and refuses only through resumeVia(reason) !== 'work.resume' (same story.notPausedOrParked message and details), then dispatches on the row. The command moved to WorkResumeCommand (run/work-resume.ts) and the table to run/resume-policy.ts, so every class is under 400 lines (Resumption 349). The planLimits fallback is gone (no caller used it). New tests: work.resume on a park of each KNOWN_PARK_REASONS value refuses; the plan-limit hold still resumes; resumePark refuses a park of any other reason. Verify: 3217 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 run, hooks and daemon 542 pass.
 <!-- SECTION:NOTES:END -->
