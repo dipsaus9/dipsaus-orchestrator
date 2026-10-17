@@ -38,7 +38,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { removeSocketFile } from "../platform/socket";
 import { EventLog, LineSplitter, type EventChannel } from "./events";
 import { openHostLog, type HostLog } from "./host-log";
-import { LineScrubber } from "./scrub";
+import { LineScrubber, MAX_SCRUB_LINE } from "./scrub";
 import {
   claimedLaunchName,
   EVENTS_FILE,
@@ -415,7 +415,12 @@ export class WorkerHost {
     const splitter = new LineSplitter();
     // The plan's scrub (DIPO-105) runs before a stdout line is appended, so the event file never
     // holds what it removes. A line the splitter cut into pieces is scrubbed whole (DIPO-175).
-    const scrubber = ch === "stdout" && scrub !== undefined ? new LineScrubber(scrub) : null;
+    const scrubber =
+      ch === "stdout" && scrub !== undefined
+        ? new LineScrubber(scrub, MAX_SCRUB_LINE, (held) =>
+            this.#logger.warn("dropped a stdout line over the scrub cap", { ch, held }),
+          )
+        : null;
     const keep = (piece: string): void => {
       const data = scrubber === null ? piece : scrubber.push(piece);
       if (data !== null) this.#append(ch, data);

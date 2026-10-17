@@ -219,11 +219,14 @@ describe("worker host stdout scrub of capped lines (DIPO-175)", () => {
   });
 
   it("drops a line that never ends, and holds no more than the cap", () => {
-    const scrubber = new LineScrubber(CLAUDE_LINE_SCRUB, 10);
+    const drops: number[] = [];
+    const scrubber = new LineScrubber(CLAUDE_LINE_SCRUB, 10, (held) => drops.push(held));
     const pieces = ['{"type":"thinking",', '"thinking":"xxxxxxxxxx', "xxxxxxxxxx", "xxxxxxxxxx"];
     for (const piece of pieces) expect(scrubber.push(piece)).toBeNull();
     expect(scrubber.push('"}\n')).toBeNull();
     expect(scrubber.flush()).toBeNull();
+    // One drop, reported once, when the held text first passed the cap.
+    expect(drops).toEqual(['{"type":"thinking",'.length]);
   });
 });
 

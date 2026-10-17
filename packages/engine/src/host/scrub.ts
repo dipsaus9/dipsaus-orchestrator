@@ -7,9 +7,10 @@
 import type { LineScrub } from "../workers/types";
 
 /**
- * The most a capped line is held for the scrub (16 MiB, four splitter pieces). A longer line is
- * dropped up to its newline (DIPO-175), so a worker that never writes one cannot grow the host's
- * memory, and no part of it reaches the event file.
+ * The most a capped line is held for the scrub, in UTF-16 code units (about its bytes for stream
+ * JSON; 16 Mi, four splitter pieces). A longer line is dropped up to its newline (DIPO-175), so a
+ * worker that never ends one cannot grow the host's memory, and no part of it reaches the event
+ * file. The host logs each drop, so a lost line is not silent.
  */
 export const MAX_SCRUB_LINE = 16 * 1024 * 1024;
 
@@ -21,12 +22,19 @@ export const MAX_SCRUB_LINE = 16 * 1024 * 1024;
 export class LineScrubber {
   readonly #scrub: LineScrub;
   readonly #maxLine: number;
+  readonly #onDrop: (held: number) => void;
   #held = "";
   #dropping = false;
 
-  constructor(scrub: LineScrub, maxLine: number = MAX_SCRUB_LINE) {
+  /** `onDrop` hears of each dropped line, with the code units held when it passed the cap. */
+  constructor(
+    scrub: LineScrub,
+    maxLine: number = MAX_SCRUB_LINE,
+    onDrop: (held: number) => void = () => {},
+  ) {
     this.#scrub = scrub;
     this.#maxLine = maxLine;
+    this.#onDrop = onDrop;
   }
 
   /** Takes the next piece; returns the scrubbed line when the piece completes one, else null. */
@@ -37,6 +45,7 @@ export class LineScrubber {
     }
     this.#held += piece;
     if (this.#held.length > this.#maxLine) {
+      this.#onDrop(this.#held.length);
       this.#held = "";
       this.#dropping = !piece.endsWith("\n");
       return null;
