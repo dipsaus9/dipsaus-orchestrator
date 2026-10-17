@@ -1,10 +1,10 @@
 ---
 id: DIPO-128
 title: Split RunOutcomes and RunControl before M1 extends the run code
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 20:21'
+updated_date: '2026-10-17 20:36'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -45,8 +45,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RunOutcomes and RunControl are split along their responsibilities (for example per outcome kind, the decision guard as one shared helper); no file split out of outcomes.ts or control.ts, nor what remains of them, is over 600 lines, and no class from them is over 400
-- [ ] #2 Behaviour is unchanged: the existing run tests pass without changes to their assertions, and the CI-only run tests pass
-- [ ] #3 The #deciding guard exists once
-- [ ] #4 The lint exception lists of DIPO-127 (when merged) shrink by the split files and do not grow
+- [x] #1 RunOutcomes and RunControl are split along their responsibilities (for example per outcome kind, the decision guard as one shared helper); no file split out of outcomes.ts or control.ts, nor what remains of them, is over 600 lines, and no class from them is over 400
+- [x] #2 Behaviour is unchanged: the existing run tests pass without changes to their assertions, and the CI-only run tests pass
+- [x] #3 The #deciding guard exists once
+- [x] #4 The lint exception lists of DIPO-127 (when merged) shrink by the split files and do not grow
 <!-- AC:END -->
