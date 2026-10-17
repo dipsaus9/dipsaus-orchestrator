@@ -73,6 +73,7 @@ import {
   recordIntent,
   resolveIntent,
   runIntents,
+  sendAsIntent,
   type StoredIntent,
 } from "./intents";
 import { START_FAILED_END } from "./launch";
@@ -496,28 +497,12 @@ export class RunOutcomes implements RunOutcomesPort {
 
   /** The one feedback turn for a missing or invalid report, stored first as a `steer` intent. */
   async #sendReportFeedback(office: OfficeHandle, view: RunView, why: string): Promise<void> {
-    const intentId = office.immediate(() =>
-      recordIntent(
-        office,
-        view.runId,
-        "steer",
-        `${INTENT_TAGS.reportFeedback} ${view.work.agent} ${why}`,
-        this.#deps.clock.now(),
-      ),
-    );
-    let error: string | null = null;
-    try {
-      const sent = await this.#deps.steering.send(
-        office,
-        view.runId,
-        this.#deps.encode({ kind: "steer", text: reportFeedbackText(why) }),
-      );
-      if (!sent.ok) error = sent.reason;
-    } catch (thrown) {
-      error = messageOf(thrown);
-    }
-    const at = this.#deps.clock.now();
-    office.immediate(() => markIntentSent(office, view.runId, intentId, at, error));
+    await sendAsIntent(office, this.#deps.steering, view.runId, {
+      kind: "steer",
+      detail: `${INTENT_TAGS.reportFeedback} ${view.work.agent} ${why}`,
+      ops: this.#deps.encode({ kind: "steer", text: reportFeedbackText(why) }),
+      clock: this.#deps.clock,
+    }).done;
     // A worker that exited before it read the feedback gets it as its resume's first message.
   }
 

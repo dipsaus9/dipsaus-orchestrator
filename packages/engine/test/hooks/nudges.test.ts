@@ -29,7 +29,7 @@ import {
 } from "../../src/hooks/nudges";
 import type { HookEvent } from "../../src/hooks/types";
 import { promptParts, promptPartsOf, recordPromptParts } from "../../src/prompts/parts";
-import { insertRun } from "../../src/run";
+import { insertRun, runIntents } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
 import type { RunSteering } from "../../src/run/control";
 import type { SteerOp, WorkerEvent } from "../../src/workers/types";
@@ -266,6 +266,8 @@ describe("Nudges (DIPO-60)", () => {
         released(20),
       ]);
       expect(nudgeCount(w.office, RUN)).toBe(1);
+      // A nudge is an exception to the stored intent (the `intents.ts` header): no intent row.
+      expect(runIntents(w.office, RUN)).toEqual([]);
       const row = w.office.get<{ nudges: number; bytes: number }>(
         `select nudges, bytes from prompt_parts where office_id = $office_id and part = $part`,
         { part: "nudge.scope:README.md" },

@@ -65,7 +65,7 @@ import type { Caps, ParseState } from "../workers/types";
 
 import { CAP_TICK_MS, type RunEnding, type RunSteering, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
-import { markIntentSent, recordIntent, runIntents } from "./intents";
+import { runIntents, sendAsIntent } from "./intents";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
 import { activeRuns, backstopSnapshotOf, capsStartedAt, findRun, type StoredRun } from "./records";
@@ -365,21 +365,12 @@ export class RunReattacher {
       .filter((intent) => ENDING_INTENTS.has(intent.kind))
       .at(-1);
     if (ending?.state !== "failed") return false;
-    const intentId = office.immediate(() =>
-      recordIntent(office, run.runId, "stop", STOP_AGAIN_DETAIL, deps.clock.now()),
-    );
-    let error: string | null = null;
-    try {
-      const sent = await deps.steering.send(
-        office,
-        run.runId,
-        deps.control.interruptedEnding().ops,
-      );
-      if (!sent.ok) error = sent.reason;
-    } catch (thrown) {
-      error = messageOf(thrown);
-    }
-    office.immediate(() => markIntentSent(office, run.runId, intentId, deps.clock.now(), error));
+    const { error } = await sendAsIntent(office, deps.steering, run.runId, {
+      kind: "stop",
+      detail: STOP_AGAIN_DETAIL,
+      ops: deps.control.interruptedEnding().ops,
+      clock: deps.clock,
+    }).done;
     if (error !== null) {
       deps.warn?.("stopping the worker host of an ended run again failed", {
         run: run.runId,
