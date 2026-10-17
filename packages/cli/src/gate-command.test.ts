@@ -132,7 +132,7 @@ describe("dipo gate", () => {
       IN_OFFICE,
     );
     expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(1);
-    expect(ctx.out).toEqual([failure, "waits on DIPO-3 (status unknown)"]);
+    expect(ctx.out).toEqual([failure, "waits on DIPO-3 (missing)"]);
   });
 
   it("prints an engine error and exits 1", async () => {

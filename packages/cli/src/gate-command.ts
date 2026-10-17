@@ -53,7 +53,7 @@ export async function gateCommand(
     }
     // The verdict does not depend on open dependencies, but pickup skips the story until they are Done.
     if (waitingOn.length > 0) {
-      const list = waitingOn.map((dep) => `${dep.id} (${dep.status ?? "status unknown"})`);
+      const list = waitingOn.map((dep) => `${dep.id} (${dep.status ?? "missing"})`);
       deps.writeLine(`waits on ${list.join(", ")}`);
     }
     return passed ? 0 : 1;
