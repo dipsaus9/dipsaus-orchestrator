@@ -34,204 +34,58 @@
 // Run control is their `RunEnder`: it records the intent, sends the ops and parks.
 
 import {
-  type Clock,
-  type IdSource,
-  type CommandName,
   type OfficeId,
   type ParkReason,
-  type RunId,
-  type StoryKey,
-  type TimerHandle,
   type WorkRef,
   workStop,
 } from "@dipsaus-orchestrator/contract";
 
-import { appendEntries, type NewEntry } from "../changelog/log";
-import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
-import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
-import { background, failureFields } from "../platform/background";
-import { withWorkViews, workRefOf } from "../views/work";
-import type {
-  Caps,
-  HostOp,
-  SteerOp,
-  TurnProblem,
-  WorkerEvent,
-  WorkerReport,
-} from "../workers/types";
-
-import type { BackstopSnapshot } from "./backstop";
+import { background } from "../platform/background";
+import type { WorkerEvent } from "../workers/types";
 
 import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
-import { type IntentKind, outcomeOfIntent, sendAsIntent, resolveIntent } from "./intents";
-import { type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
-import { endRunMarked } from "./markers";
-import { activeRuns, findRun, type StoredRun } from "./records";
+import { RunEndings } from "./control-endings";
+import { ReconcileStops } from "./control-reconcile";
 import {
-  initRejectedEnding,
-  startRefusedAct,
-  type RunAct,
-  type RunEnder,
-  type RunOutcomesPort,
-  type RunView,
-} from "./outcomes";
-import type { RunFinisher } from "./verify-commit";
+  CAP_TICK_MS,
+  disarm,
+  EVENT_FILE_CHANGED,
+  INTERRUPTED_END,
+  type ReconcileNotice,
+  RECONCILED_END,
+  type RunControlDeps,
+  type RunEnding,
+  type StopArgs,
+  type StopResult,
+  type Tracked,
+  type TrackedRun,
+  viewOf,
+} from "./control-types";
+import { AfterTurns } from "./control-turns";
+import { outcomeOfIntent, resolveIntent } from "./intents";
+import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
+import type { ParkOutcome } from "./park";
+import type { StoredRun } from "./records";
 
-/** The error of `work.stop` for a story with no active run (0005 section 4). */
-export const STORY_NOT_RUNNING = "story.notRunning";
-
-/** How often the caps are rechecked without new events (DIPO-15 M0 review): one minute. */
-export const CAP_TICK_MS = 60_000;
-
-/** The end kind of a run reconcile stopped or parked (DIPO-56). */
-export const RECONCILED_END = "reconciled";
-
-/** The park detail of a run whose host event file changed (0007 section 5, DIPO-57). */
-export const EVENT_FILE_CHANGED = "event file changed";
-
-/** The end kind of a run parked `interrupted` (DIPO-57). */
-export const INTERRUPTED_END = "interrupted";
-
-/** The park detail of `work.stop` without a note. */
-export const STOPPED_DETAIL = "Stopped by the maintainer.";
-
-/** `engine.notice` codes of run control. */
-export const CONTROL_NOTICES = {
-  notSent: "run.stopNotSent",
-  stopSignalled: "run.stopSignalled",
-  feedbackNotSent: "run.feedbackNotSent",
-} as const;
-
-/** Sends host ops to a run's worker host. */
-export interface RunSteering {
-  send(
-    office: OfficeHandle,
-    runId: RunId,
-    ops: readonly HostOp[],
-  ): Promise<
-    | {
-        readonly ok: true;
-        /** `signal` when a verified SIGTERM stopped a follow-only host instead (DIPO-93). */
-        readonly via?: "socket" | "signal";
-      }
-    | {
-        readonly ok: false;
-        readonly reason: string;
-        /** The host's error code, when the host refused an op (for example `hook.unknown`). */
-        readonly code?: string;
-      }
-  >;
-}
-
-export interface RunControlDeps {
-  readonly clock: Clock;
-  readonly offices: {
-    get(office: OfficeId): OfficeHandle | undefined;
-    /** The office config; a `needs-permission` park's question reads its sandbox from it. */
-    config?(office: OfficeId): OfficeConfig | undefined;
-  };
-  /** Question ids for the permission question of a `needs-permission` park (DIPO-75). */
-  readonly ids?: IdSource;
-  readonly writer: ParkWriter;
-  readonly steering: RunSteering;
-  /** The worker adapter's pure `encode` (`WorkerPort.encode`). */
-  readonly encode: (op: SteerOp) => HostOp[];
-  /** True when the engine implements a command; parks offer only those. None by default. */
-  readonly implemented?: (name: CommandName) => boolean;
-  /** Writes pending `work.output` of a run before its state changes (0005 section 6). */
-  readonly flushOutput?: (office: OfficeId, run: string) => void;
-  /** Called after change-log entries were appended outside a command. */
-  readonly onChanged?: (office: OfficeId) => void;
-  /**
-   * Reads the story again at its branch tip after the park commit or the In Review commit
-   * (DIPO-56), so the story view and snapshots say Parked (with the F16 record) or In Review at
-   * once. Both already emitted the story's state.
-   */
-  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
-  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-  /** The cap tick; one minute by default. */
-  readonly tickMs?: number;
-  /**
-   * Verify and commit (DIPO-49): the backstop after every turn and the In Review transition at
-   * a `done` report. Without it a turn decides nothing beyond caps and blocked reports.
-   */
-  readonly finisher?: RunFinisher;
-  /**
-   * Worker outcomes (DIPO-51): turn problems, rejected inits, plan limits, classifier switches and
-   * the decision at the worker's exit. Read when needed, so it can be built after run control.
-   */
-  readonly outcomes?: () => RunOutcomesPort | undefined;
-}
-
-/** What a started run is tracked with. */
-export interface TrackedRun {
-  readonly runId: RunId;
-  readonly work: WorkRef;
-  readonly caps: Caps;
-  /** When the worker started (its host start), on the engine clock. */
-  readonly startedAt: number;
-  /** The backstop snapshot taken before the worker started (DIPO-49); null without one. */
-  readonly snapshot?: BackstopSnapshot | null;
-}
-
-interface Tracked extends TrackedRun {
-  readonly office: OfficeId;
-  timer: TimerHandle | null;
-  /** Set at the first decision; nothing else is decided for the run after it. */
-  ending: Promise<ParkOutcome | null> | null;
-  /** A turn problem's act whose intent could not be stored; the next cap tick tries it (DIPO-123). */
-  unstored: RunAct | null;
-  /** The after-turn work of the run, one turn at a time (DIPO-49). */
-  turns: Promise<void>;
-  /** The newest worker report, for the run summary. */
-  lastReport: WorkerReport | null;
-}
-
-/** What ending a run does: the intent, the ops it sends and the park that follows. */
-export interface RunEnding {
-  readonly intent: IntentKind;
-  /** The intent's detail; the park detail by default (DIPO-51 stores its tag here). */
-  readonly intentDetail?: string;
-  readonly ops: readonly HostOp[];
-  readonly reason: ParkReason;
-  readonly detail: string;
-  readonly endKind: string;
-  /** The report that led to the end, when a turn decided it. */
-  readonly report?: WorkerReport | null;
-  /** An `engine.notice` written before the park (DIPO-51). */
-  readonly notice?: {
-    readonly level: "info" | "warn" | "error";
-    readonly code: string;
-    readonly text: string;
-  };
-}
-
-type Ending = RunEnding;
-
-type StopArgs = { readonly story: string; readonly note?: string | undefined };
-type StopResult = { run: RunId };
-
-/** A notice reconcile puts on the office with what it did to a run (DIPO-56). */
-export interface ReconcileNotice {
-  readonly code: string;
-  readonly text: string;
-}
-
-function noticeEntry(run: StoredRun, notice: ReconcileNotice): NewEntry {
-  return {
-    type: "engine.notice",
-    ...(run.key === null ? {} : { key: run.key }),
-    run: run.runId,
-    delta: { level: "warn", code: notice.code, text: notice.text },
-  };
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export {
+  CAP_TICK_MS,
+  CONTROL_NOTICES,
+  EVENT_FILE_CHANGED,
+  INTERRUPTED_END,
+  RECONCILED_END,
+  STOPPED_DETAIL,
+  STORY_NOT_RUNNING,
+} from "./control-types";
+export type {
+  ReconcileNotice,
+  RunControlDeps,
+  RunEnding,
+  RunSteering,
+  TrackedRun,
+} from "./control-types";
 
 export class RunControl implements RunEnder {
   readonly #deps: RunControlDeps;
@@ -239,9 +93,15 @@ export class RunControl implements RunEnder {
   readonly #inflight = new Set<Promise<unknown>>();
   /** Events at which a cap was reached, as of that event inside its pass (`onEventApplied`). */
   readonly #crossings = new WeakMap<WorkerEvent, FiredCap>();
+  readonly #endings: RunEndings;
+  readonly #turns: AfterTurns;
+  readonly #reconcile: ReconcileStops;
 
   constructor(deps: RunControlDeps) {
     this.#deps = deps;
+    this.#endings = new RunEndings(deps, this.#tracked, this.#inflight);
+    this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
+    this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
   }
 
   /** The ingestion hooks: caps and reports after every committed pass, intents at the exit. */
@@ -268,7 +128,7 @@ export class RunControl implements RunEnder {
       }
       return;
     }
-    this.#begin(tracked, this.interruptedEnding());
+    this.#endings.begin(tracked, this.interruptedEnding());
   }
 
   /** The ending of a run whose host event file changed (0007 section 5). */
@@ -300,13 +160,13 @@ export class RunControl implements RunEnder {
   onHostLost(run: string, agent: string): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
-    this.#disarm(tracked);
+    disarm(this.#deps.clock, tracked);
     const outcomes = this.#deps.outcomes?.();
     background(
       async () => {
         await tracked.turns.catch(() => undefined);
         if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
-        await outcomes?.onHostLost?.({ view: this.#view(tracked), agent, ending: tracked.ending });
+        await outcomes?.onHostLost?.({ view: viewOf(tracked), agent, ending: tracked.ending });
       },
       {
         failed: "deciding a lost worker host failed",
@@ -345,7 +205,7 @@ export class RunControl implements RunEnder {
 
   /** Stops every tick; tracked runs keep their stored facts. */
   close(): void {
-    for (const tracked of this.#tracked.values()) this.#disarm(tracked);
+    for (const tracked of this.#tracked.values()) disarm(this.#deps.clock, tracked);
     this.#tracked.clear();
   }
 
@@ -390,7 +250,7 @@ export class RunControl implements RunEnder {
         outcomes !== undefined &&
         (event.status === "rejected" || event.creditsRequired === true)
       ) {
-        outcomes.onPlanLimit(this.#view(tracked), {
+        outcomes.onPlanLimit(viewOf(tracked), {
           credits: event.creditsRequired === true,
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
           ...(event.scope === undefined ? {} : { scope: event.scope }),
@@ -399,12 +259,12 @@ export class RunControl implements RunEnder {
       }
       // A warning lets the run go on; new runs on its scope wait for the reset (DIPO-61).
       if (event.t === "limit" && event.status === "allowed_warning") {
-        outcomes?.onPlanWarning?.(this.#view(tracked), {
+        outcomes?.onPlanWarning?.(viewOf(tracked), {
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
           ...(event.scope === undefined ? {} : { scope: event.scope }),
         });
       }
-      if (event.t === "modelSwitched") outcomes?.onModelSwitched(this.#view(tracked), event.to);
+      if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
       if (event.t === "turn") {
         if (event.capped !== undefined) {
           this.#cap(tracked, "maxTurns", event.capped);
@@ -413,9 +273,9 @@ export class RunControl implements RunEnder {
         const report = event.report;
         if (report !== null) tracked.lastReport = report;
         // A turn after the report feedback answers it (DIPO-51).
-        outcomes?.answered(this.#view(tracked));
+        outcomes?.answered(viewOf(tracked));
         if (event.problem?.kind === "planLimit" && outcomes !== undefined) {
-          outcomes.onPlanLimit(this.#view(tracked), { credits: false });
+          outcomes.onPlanLimit(viewOf(tracked), { credits: false });
           return;
         }
         if (report?.status === "blocked") {
@@ -426,7 +286,7 @@ export class RunControl implements RunEnder {
             permission === undefined
               ? (report.question ?? report.summary)
               : `${permission.tool}: ${permission.action}`;
-          this.#begin(tracked, {
+          this.#endings.begin(tracked, {
             intent: "park",
             ops: [{ closeStdin: true }],
             reason,
@@ -439,7 +299,7 @@ export class RunControl implements RunEnder {
         // then the turn's problem, if any (DIPO-51).
         const problem = outcomes === undefined ? undefined : event.problem;
         if (this.#deps.finisher !== undefined || problem !== undefined) {
-          this.#afterTurn(tracked, report, problem);
+          this.#turns.queue(tracked, report, problem);
         }
       }
       // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
@@ -459,7 +319,7 @@ export class RunControl implements RunEnder {
   onEnded(run: string, agent?: string, end?: IngestedExit): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
-    this.#disarm(tracked);
+    disarm(this.#deps.clock, tracked);
     const outcomes = this.#deps.outcomes?.();
     if (outcomes !== undefined && agent !== undefined && end !== undefined) {
       // The turns before the exit are decided first, with the run still tracked; then the run is
@@ -469,7 +329,7 @@ export class RunControl implements RunEnder {
           await tracked.turns.catch(() => undefined);
           if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
           await outcomes.onExit({
-            view: this.#view(tracked),
+            view: viewOf(tracked),
             agent,
             turns: Promise.resolve(),
             ending: tracked.ending,
@@ -509,7 +369,7 @@ export class RunControl implements RunEnder {
   begin(runId: string, ending: RunEnding): boolean {
     const tracked = this.#tracked.get(runId);
     if (tracked === undefined || tracked.ending !== null) return false;
-    this.#begin(tracked, ending);
+    this.#endings.begin(tracked, ending);
     return tracked.ending !== null;
   }
 
@@ -522,46 +382,7 @@ export class RunControl implements RunEnder {
   act(runId: string, act: RunAct): boolean {
     const tracked = this.#tracked.get(runId);
     if (tracked === undefined || tracked.ending !== null) return false;
-    const office = this.#deps.offices.get(tracked.office);
-    if (office === undefined) return false;
-    let sending: Promise<unknown>;
-    try {
-      sending = sendAsIntent(office, this.#deps.steering, tracked.runId, {
-        kind: act.intent,
-        detail: act.detail,
-        ops: act.ops,
-        clock: this.#deps.clock,
-      }).done;
-    } catch (error) {
-      // 0008: an op is stored as an intent before it is sent, so none is sent. A turn problem's
-      // act is tried again at the next cap tick (DIPO-123); a failing unflagged act leaves a
-      // waiting one in place.
-      if (act.retryAtTick === true) tracked.unstored = act;
-      this.#deps.warn?.("storing a run's decision failed", {
-        run: tracked.runId,
-        intent: act.intent,
-        ...failureFields(error),
-      });
-      return false;
-    }
-    // The send started inside `sendAsIntent`, but nothing reached the host yet: the steering's
-    // first await (`hostSocketSteering` looking up the newest host) comes before any effect, so
-    // these synchronous writes land before any op is sent.
-    tracked.unstored = null;
-    this.#disarm(tracked);
-    // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
-    tracked.ending = background(
-      async () => {
-        await sending;
-      },
-      {
-        failed: "sending a run's decision failed",
-        fields: { run: tracked.runId, intent: act.intent },
-        log: this.#deps.warn,
-        inflight: this.#inflight,
-      },
-    ).then(() => null);
-    return true;
+    return this.#endings.act(tracked, act);
   }
 
   /** Parks a run whose worker exited (a decision at the exit, DIPO-51). */
@@ -571,63 +392,19 @@ export class RunControl implements RunEnder {
     work: WorkRef | undefined,
     ending: RunEnding,
   ): Promise<ParkOutcome> {
-    return this.#end(office, run, work, ending, this.#writer(office, office.officeId));
-  }
-
-  #view(tracked: Tracked): RunView {
-    return {
-      office: tracked.office,
-      runId: tracked.runId,
-      work: tracked.work,
-      caps: tracked.caps,
-      startedAt: tracked.startedAt,
-      snapshot: tracked.snapshot ?? null,
-    };
+    return this.#endings.park(office, run, work, ending);
   }
 
   /** A `system/init` that failed its checks: stop the worker and park `worker-failed`. */
   #initRejected(run: string, reason: string): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined || tracked.ending !== null) return;
-    this.#begin(tracked, initRejectedEnding(tracked.work.story, reason));
+    this.#endings.begin(tracked, initRejectedEnding(tracked.work.story, reason));
   }
 
   /** `work.stop`: see the file comment. */
-  async stop(ctx: AsyncCommandContext, args: StopArgs): Promise<CommandOutcome<StopResult>> {
-    const handle = ctx.office;
-    const identity = ctx.stories.get(args.story);
-    if (identity === undefined) throw new Error(`${args.story} was not resolved`);
-    const find = () =>
-      activeRuns(handle).find((run) => run.kind === "story" && run.key === identity.key);
-    let run = find();
-    // A decision already under way (a cap or a report) finishes first; then the run has ended.
-    const pending = run === undefined ? undefined : this.#tracked.get(run.runId)?.ending;
-    if (pending !== undefined && pending !== null) {
-      await pending.catch(() => null);
-      run = find();
-    }
-    if (run === undefined) {
-      throw new CommandError(
-        STORY_NOT_RUNNING,
-        `${identity.story} has no running worker to stop.`,
-        { story: identity.story },
-      );
-    }
-    const note = args.note?.trim();
-    const ending: Ending = {
-      intent: "stop",
-      ops: this.#deps.encode({ kind: "stop" }),
-      reason: "stopped",
-      detail: note === undefined || note === "" ? STOPPED_DETAIL : note,
-      endKind: "stopped",
-    };
-    const tracked = this.#tracked.get(run.runId);
-    const work = tracked?.work ?? workRefOf(handle, run.runId) ?? undefined;
-    if (tracked !== undefined) this.#disarm(tracked);
-    const done = this.#end(handle, run, work, ending, (fn) => ctx.commit(fn));
-    if (tracked !== undefined) tracked.ending = done;
-    await done;
-    return { result: { run: run.runId } };
+  stop(ctx: AsyncCommandContext, args: StopArgs): Promise<CommandOutcome<StopResult>> {
+    return this.#endings.stop(ctx, args);
   }
 
   /** True while a decision on the run (a cap, a report, `work.stop`) is being carried out. */
@@ -636,137 +413,24 @@ export class RunControl implements RunEnder {
     return ending !== undefined && ending !== null;
   }
 
-  /**
-   * Reconcile (DIPO-56, 0007 section 6): the run is active in the database, but its story's
-   * status is no longer In Progress or In Review, or the story was removed. The engine records a
-   * `stop` intent, sends the stop sequence to its worker host if one still answers, and ends the
-   * run with `endKind`, together with `notice`, in one transaction. Nothing is parked: the
-   * story's status already says where it is.
-   *
-   * The decision is claimed first, before any await: no after-turn work (verify and commit, an
-   * In Review commit, a second run summary) starts or commits once reconcile decided, since it
-   * claims the run's end the same way. A decision already being carried out wins; reconcile then
-   * waits for it and does nothing more.
-   */
-  async stopForReconcile(
+  /** Reconcile (DIPO-56, 0007 section 6): stops a run whose story left In Progress or In Review. */
+  stopForReconcile(
     office: OfficeHandle,
     run: StoredRun,
     notice: ReconcileNotice,
     endKind = RECONCILED_END,
   ): Promise<void> {
-    const tracked = this.#tracked.get(run.runId);
-    if (tracked?.ending != null) {
-      await tracked.ending.catch(() => null);
-      return;
-    }
-    const { promise: mine, resolve } = Promise.withResolvers<ParkOutcome | null>();
-    if (tracked !== undefined) {
-      this.#disarm(tracked);
-      tracked.ending = mine;
-    }
-    try {
-      await this.#stopForReconcile(office, run, notice, endKind, tracked?.lastReport ?? null);
-    } finally {
-      resolve(null);
-      if (tracked !== undefined && this.#tracked.get(run.runId) === tracked) {
-        this.#tracked.delete(run.runId);
-      }
-    }
+    return this.#reconcile.stopForReconcile(office, run, notice, endKind);
   }
 
-  async #stopForReconcile(
-    office: OfficeHandle,
-    run: StoredRun,
-    notice: ReconcileNotice,
-    endKind: string,
-    lastReport: WorkerReport | null,
-  ): Promise<void> {
-    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
-      kind: "stop",
-      detail: notice.text,
-      ops: this.#deps.encode({ kind: "stop" }),
-      clock: this.#deps.clock,
-      inMark: (_error, at) => this.#endReconciled(office, run, notice, endKind, at),
-    });
-    const appended = (await done).marked ?? 0;
-    if (appended > 0) this.#deps.onChanged?.(office.officeId);
-    // The run summary (DIPO-49), as for every run that ends here.
-    await this.#deps.finisher?.summarize(office, run, lastReport).catch((thrown: unknown) => {
-      this.#deps.warn?.("storing the run summary failed", {
-        run: run.runId,
-        reason: messageOf(thrown),
-      });
-    });
-  }
-
-  /** The end of a reconciled run, in the transaction that marks its stop intent. */
-  #endReconciled(
-    office: OfficeHandle,
-    run: StoredRun,
-    notice: ReconcileNotice,
-    endKind: string,
-    at: number,
-  ): number {
-    endRunMarked(office, run.runId, at, endKind);
-    office.run(
-      `update agents set end_reason = coalesce(end_reason, $kind)
-       where office_id = $office_id and run_id = $run and ended_at is null`,
-      { kind: endKind, run: run.runId },
-    );
-    const entries = withWorkViews(office, [noticeEntry(run, notice)]);
-    appendEntries(office, entries, { at });
-    return entries.length;
-  }
-
-  /**
-   * Reconcile (DIPO-56, 0010 section 7 "Worktree or branch changed by hand"): the running story's
-   * worktree or branch changed by hand. The worker is stopped and the story parks
-   * `scope-violation` with the evidence as detail. The park is not written on the branch, since
-   * the worktree can no longer be trusted; `notice` says why and the park's own notice says what
-   * is missing.
-   */
-  async parkForReconcile(
+  /** Reconcile (DIPO-56): parks a run whose worktree or branch changed by hand `scope-violation`. */
+  parkForReconcile(
     office: OfficeHandle,
     run: StoredRun,
     detail: string,
     notice: ReconcileNotice,
   ): Promise<ParkOutcome | null> {
-    const tracked = this.#tracked.get(run.runId);
-    // A decision already being carried out wins (see `stopForReconcile`).
-    if (tracked?.ending != null) return tracked.ending.catch(() => null);
-    if (tracked !== undefined) this.#disarm(tracked);
-    const work = tracked?.work ?? workRefOf(office, run.runId) ?? undefined;
-    const write = (fn: () => readonly NewEntry[]): void => {
-      const at = this.#deps.clock.now();
-      const appended = office.immediate(() => {
-        const entries = fn() ?? [];
-        appendEntries(office, entries, { at });
-        return entries.length;
-      });
-      if (appended > 0) this.#deps.onChanged?.(office.officeId);
-    };
-    write(() => [noticeEntry(run, notice)]);
-    const done = this.#end(
-      office,
-      run,
-      work,
-      {
-        intent: "stop",
-        ops: this.#deps.encode({ kind: "stop" }),
-        reason: "scope-violation",
-        detail,
-        endKind: RECONCILED_END,
-      },
-      write,
-      {
-        write: () =>
-          Promise.reject(
-            new Error("its worktree or branch changed by hand, so dipo writes nothing there"),
-          ),
-      },
-    );
-    if (tracked !== undefined) tracked.ending = done;
-    return done;
+    return this.#reconcile.parkForReconcile(office, run, detail, notice);
   }
 
   /** The command `work.stop`. */
@@ -796,11 +460,6 @@ export class RunControl implements RunEnder {
     }, this.#deps.tickMs ?? CAP_TICK_MS);
   }
 
-  #disarm(tracked: Tracked): void {
-    if (tracked.timer !== null) this.#deps.clock.clearTimeout(tracked.timer);
-    tracked.timer = null;
-  }
-
   /** Compares the run's totals with its caps; true when one fired and the run is ending. */
   #checkCaps(tracked: Tracked): boolean {
     const office = this.#deps.offices.get(tracked.office);
@@ -815,311 +474,12 @@ export class RunControl implements RunEnder {
   }
 
   #cap(tracked: Tracked, cap: CapName, detail: string): void {
-    this.#begin(tracked, {
+    this.#endings.begin(tracked, {
       intent: "cap",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "budget-exceeded",
       detail: cap === "maxTurns" && !detail.startsWith("turn cap") ? `turn cap: ${detail}` : detail,
       endKind: "capped",
     });
-  }
-
-  // ---- ending a run ----------------------------------------------------------------------------
-
-  /** The first decision on a tracked run, outside any command. */
-  #begin(tracked: Tracked, ending: Ending): void {
-    this.#disarm(tracked);
-    const office = this.#deps.offices.get(tracked.office);
-    if (office === undefined) return;
-    const run = findRun(office, tracked.runId);
-    if (run === null || run.endedAt !== null) return;
-    const write = (fn: () => readonly NewEntry[]): void => {
-      const at = this.#deps.clock.now();
-      const appended = office.immediate(() => {
-        const entries = fn() ?? [];
-        appendEntries(office, entries, { at });
-        return entries.length;
-      });
-      if (appended > 0) this.#deps.onChanged?.(tracked.office);
-    };
-    const done = this.#end(office, run, tracked.work, ending, write);
-    tracked.ending = done;
-    background(() => done, {
-      failed: "parking a run failed",
-      fields: { run: tracked.runId },
-      log: this.#deps.warn,
-      inflight: this.#inflight,
-    });
-  }
-
-  /**
-   * Records the intent (synchronously, before the first await), sends its ops through the host and
-   * parks the story. A send that fails leaves the intent `failed` and puts a notice on the office;
-   * the park still happens. Every entry it writes carries the run's work view where its type has
-   * one (DIPO-52's `withWorkViews`), derived in the transaction that wrote the facts.
-   */
-  #end(
-    office: OfficeHandle,
-    run: StoredRun,
-    work: WorkRef | undefined,
-    ending: Ending,
-    commit: (fn: () => readonly NewEntry[]) => void,
-    writer: ParkWriter = this.#deps.writer,
-  ): Promise<ParkOutcome> {
-    const write = (fn: () => readonly NewEntry[]): void =>
-      commit(() => withWorkViews(office, fn()));
-    const notice = ending.notice;
-    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
-      kind: ending.intent,
-      detail: ending.intentDetail ?? ending.detail,
-      ops: ending.ops,
-      clock: this.#deps.clock,
-      beforeSend: () => {
-        if (notice === undefined) return;
-        write(() => [
-          {
-            type: "engine.notice",
-            ...(run.key === null ? {} : { key: run.key }),
-            run: run.runId,
-            delta: notice,
-          },
-        ]);
-      },
-    });
-    return (async () => {
-      const { error, via } = await done;
-      const signalled = via === "signal";
-      if (signalled) {
-        // A follow-only host got one SIGTERM after its PID and start time were verified (DIPO-93).
-        write(() => [
-          {
-            type: "engine.notice",
-            ...(run.key === null ? {} : { key: run.key }),
-            run: run.runId,
-            delta: {
-              level: "info",
-              code: CONTROL_NOTICES.stopSignalled,
-              text: `${run.story ?? run.runId}: its worker host is followed only, so dipo sent it SIGTERM after checking its PID and start time; the host stops the worker and dipo follows it until it exits.`,
-            },
-          },
-        ]);
-      }
-      if (error !== null) {
-        write(() => [
-          {
-            type: "engine.notice",
-            ...(run.key === null ? {} : { key: run.key }),
-            run: run.runId,
-            delta: {
-              level: "warn",
-              code: CONTROL_NOTICES.notSent,
-              text: `${run.story ?? run.runId}: dipo could not send ${ending.intent} to its worker (${error}); if the worker still runs, it is no longer followed by a run.`,
-            },
-          },
-        ]);
-      }
-      this.#deps.flushOutput?.(office.officeId, run.runId);
-      const parked = await parkStory(
-        {
-          office,
-          writer,
-          now: () => this.#deps.clock.now(),
-          write,
-          implemented: this.#deps.implemented ?? (() => false),
-          ...this.#parkQuestion(office.officeId),
-        },
-        {
-          run,
-          ...(work === undefined ? {} : { work }),
-          reason: ending.reason,
-          detail: ending.detail,
-          endKind: ending.endKind,
-        },
-      );
-      // The run summary (DIPO-49): every run that ends here gets one.
-      await this.#deps.finisher
-        ?.summarize(office, run, this.#tracked.get(run.runId)?.lastReport ?? ending.report ?? null)
-        .catch((thrown: unknown) => {
-          this.#deps.warn?.("storing the run summary failed", {
-            run: run.runId,
-            reason: messageOf(thrown),
-          });
-        });
-      // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
-      if (writer === this.#deps.writer) await this.#refresh(office, run, "parked");
-      return parked;
-    })();
-  }
-
-  // ---- after every turn (DIPO-49) --------------------------------------------------------------
-
-  /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
-  #afterTurn(tracked: Tracked, report: WorkerReport | null, problem?: TurnProblem): void {
-    tracked.turns = background(
-      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem)),
-      {
-        failed: "verify and commit after a turn failed",
-        fields: { run: tracked.runId },
-        log: this.#deps.warn,
-        inflight: this.#inflight,
-      },
-    );
-  }
-
-  async #runTurn(
-    tracked: Tracked,
-    report: WorkerReport | null,
-    problem?: TurnProblem,
-  ): Promise<void> {
-    if (tracked.ending !== null) return;
-    const finisher = this.#deps.finisher;
-    const decided =
-      finisher === undefined ? "continue" : await this.#finishTurn(tracked, finisher, report);
-    // A turn the finisher let continue: its problem decides next (DIPO-51).
-    const outcomes = this.#deps.outcomes?.();
-    if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
-      if (tracked.ending === null) await outcomes.onTurnProblem(this.#view(tracked), problem);
-    }
-  }
-
-  /** Verify and commit after one turn (DIPO-49); `continue` when the turn decided nothing. */
-  async #finishTurn(
-    tracked: Tracked,
-    finisher: RunFinisher,
-    report: WorkerReport | null,
-  ): Promise<"continue" | "decided"> {
-    const office = this.#deps.offices.get(tracked.office);
-    if (office === undefined) return "decided";
-    const run = findRun(office, tracked.runId);
-    if (run === null || run.endedAt !== null) return "decided";
-    const { promise: mine, resolve: settle } = Promise.withResolvers<ParkOutcome | null>();
-    const claim = (): boolean => {
-      if (tracked.ending !== null) return tracked.ending === mine;
-      this.#disarm(tracked);
-      tracked.ending = mine;
-      return true;
-    };
-    const write = this.#writer(office, tracked.office);
-    try {
-      const decision = await finisher.afterTurn({
-        office,
-        run,
-        work: tracked.work,
-        report,
-        snapshot: tracked.snapshot ?? null,
-        live: () => tracked.ending === null || tracked.ending === mine,
-        claimEnd: claim,
-        write: (fn) => write(() => withWorkViews(office, fn())),
-        flushOutput: () => this.#deps.flushOutput?.(office.officeId, run.runId),
-      });
-      switch (decision.kind) {
-        case "continue":
-          return "continue";
-        case "park": {
-          if (!claim()) return "decided";
-          const outcome = await this.#end(
-            office,
-            run,
-            tracked.work,
-            {
-              intent: "park",
-              ops: [{ closeStdin: true }],
-              reason: decision.reason,
-              detail: decision.detail,
-              endKind: decision.endKind,
-              report,
-            },
-            write,
-          );
-          settle(outcome);
-          return "decided";
-        }
-        case "feedback":
-          if (tracked.ending !== null) return "decided";
-          await this.#sendFeedback(office, run, decision.text, write);
-          return "decided";
-        case "ended":
-          // The In Review commit is read again at the branch tip (DIPO-56).
-          await this.#refresh(office, run, "In Review");
-          // The worker's turn ended and it waits on stdin: closing it ends the worker.
-          await this.#deps.steering.send(office, run.runId, [{ closeStdin: true }]).catch(() => {
-            // A worker that already exited needs nothing more.
-          });
-          return "decided";
-      }
-    } finally {
-      settle(null);
-    }
-  }
-
-  /**
-   * Reads the run's story again at its branch tip after a status commit there (DIPO-56), so the
-   * story view and snapshots read the new status at once. A read that fails is logged; the next
-   * index pass reads it.
-   */
-  async #refresh(office: OfficeHandle, run: StoredRun, what: string): Promise<void> {
-    if (run.key === null || this.#deps.refreshStory === undefined) return;
-    await this.#deps.refreshStory(office.officeId, run.key).catch((thrown: unknown) => {
-      this.#deps.warn?.(`reading the ${what} story again failed`, {
-        run: run.runId,
-        reason: messageOf(thrown),
-      });
-    });
-  }
-
-  /** Sends a verify feedback item as the next user message, stored first as a `steer` intent. */
-  async #sendFeedback(
-    office: OfficeHandle,
-    run: StoredRun,
-    text: string,
-    write: (fn: () => readonly NewEntry[]) => void,
-  ): Promise<void> {
-    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
-      kind: "steer",
-      detail: "verify feedback",
-      ops: this.#deps.encode({ kind: "steer", text }),
-      clock: this.#deps.clock,
-    });
-    const { error } = await done;
-    if (error !== null) {
-      write(() => [
-        {
-          type: "engine.notice",
-          ...(run.key === null ? {} : { key: run.key }),
-          run: run.runId,
-          delta: {
-            level: "warn",
-            code: CONTROL_NOTICES.feedbackNotSent,
-            text: `${run.story ?? run.runId}: dipo could not send the verify feedback to its worker (${error}).`,
-          },
-        },
-      ]);
-    }
-  }
-
-  /** What a `needs-permission` park needs to ask its question (DIPO-75); nothing without ids. */
-  #parkQuestion(officeId: OfficeId): Pick<ParkDeps, "question"> {
-    const ids = this.#deps.ids;
-    if (ids === undefined) return {};
-    const config = this.#deps.offices.config?.(officeId);
-    return {
-      question: {
-        id: () => ids.next("qst"),
-        allowedDomains: config?.sandbox.allowedDomains ?? [],
-      },
-    };
-  }
-
-  /** Writes entries outside a command: one transaction, then subscribers are told. */
-  #writer(office: OfficeHandle, officeId: OfficeId): (fn: () => readonly NewEntry[]) => void {
-    return (fn) => {
-      const at = this.#deps.clock.now();
-      const appended = office.immediate(() => {
-        const entries = fn() ?? [];
-        appendEntries(office, entries, { at });
-        return entries.length;
-      });
-      if (appended > 0) this.#deps.onChanged?.(officeId);
-    };
   }
 }
