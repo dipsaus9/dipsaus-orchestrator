@@ -33,8 +33,11 @@ import {
   Phase,
   Progress,
   QuestionView,
+  ReviewSummary,
+  ReviewVerdict,
   WatchdogSignal,
   SkipReason,
+  StoryPr,
   StoryRef,
   StoryRefValue,
   StoryView,
@@ -187,6 +190,8 @@ export const storyDrop = defineCommand({
   provisional: true,
 });
 
+// Since minor 1 (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits
+// for the maintainer (0019 section 11).
 export const gateApprove = defineCommand({
   name: "gate.approve",
   level: "office",
@@ -194,7 +199,7 @@ export const gateApprove = defineCommand({
   result: z.object({ gate: GateId, decision: z.literal("approved") }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
 // The note becomes worker input.
@@ -205,7 +210,7 @@ export const gateReject = defineCommand({
   result: z.object({ gate: GateId, decision: z.literal("rejected") }),
   confirm: true,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
 export const testStart = defineCommand({
@@ -292,6 +297,8 @@ export const Verdict = z.object({
   note: z.string().optional(),
   failures: z.array(z.string()).optional(),
   at: Timestamp,
+  // Since minor 1 (DIPO-140): the review round of a review gate (0019 section 14).
+  review: ReviewVerdict.optional(),
 });
 export type Verdict = z.infer<typeof Verdict>;
 
@@ -577,6 +584,8 @@ export const gateDecided = defineEvent({
     decision: GateDecision,
     by: DecidedBy,
     note: z.string().optional(),
+    // Since minor 1 (DIPO-140): the review summary of a review gate.
+    review: ReviewSummary.optional(),
   }),
 });
 
@@ -612,6 +621,15 @@ export const storyParked = defineEvent({
     lastGoodCommit: z.string().optional(),
     actions: z.array(CommandName),
   }),
+});
+
+// Sent when a story's PR opens, changes state or gets a new head (0019 section 14). Since minor 1
+// (DIPO-140).
+export const storyPr = defineEvent({
+  type: "story.pr",
+  stream: "office",
+  derived: false,
+  data: z.object({ story: StoryId, key: StoryKey, pr: StoryPr }),
 });
 
 export const testStarted = defineEvent({
@@ -677,6 +695,7 @@ export const officeEvents = [
   questionAsked,
   questionClosed,
   storyParked,
+  storyPr,
   testStarted,
   testRecorded,
 ] as const;
