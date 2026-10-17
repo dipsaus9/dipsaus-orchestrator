@@ -4,7 +4,7 @@ title: Make the process-probe and Ready gate CI tests deterministic
 status: Done
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-17 23:38'
+updated_date: '2026-10-17 23:43'
 labels:
   - 'tier:S'
   - cutover
@@ -63,4 +63,6 @@ Criterion 3 (mutations, each restored): the worker's (systemProcessProbe returns
 Criterion 4: bun refuses --rerun-each with bunfig retry = 0, so the run used a temp bunfig without retry. Outside the sandbox: DIPO_TEST_CI=1 bun test --rerun-each 20 process.test.ts lifecycle-parity.test.ts: 660 pass, 0 fail (the macOS ps test runs here; it is skipped in the worker sandbox).
 
 Verify outside the sandbox: 3211 pass, 2 skip, 0 fail.
+
+Review advisories applied: the gate test's timeout comment now states the 5-run CI measurement, and spawnReady (both copies) kills and awaits its child when the ready line does not come. Not changed: withZombie's bounded poll for zombie state (it reads no live command line; a follow-up could make it fail loudly).
 <!-- SECTION:NOTES:END -->
