@@ -1,10 +1,10 @@
 ---
 id: DIPO-133
 title: Read the merge slot's required checks from the office config
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-17 22:02'
+updated_date: '2026-10-17 22:09'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -45,7 +45,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An office config key (for example mergeSlot.requiredChecks) lists the check names the merge slot waits for, with the default ci-ok and pr-title, in the next office config version with its migration
-- [ ] #2 The merge slot waits for the configured names for every PR it merges; an empty list or a duplicate name is refused by config validation with the key named
-- [ ] #3 The office config JSON Schema packages/engine/schema/office.schema.json (written by bun packages/engine/scripts/write-schema.ts) and the config and office tests that pin the version are updated; an office without the key behaves as today
+- [x] #1 An office config key (for example mergeSlot.requiredChecks) lists the check names the merge slot waits for, with the default ci-ok and pr-title, in the next office config version with its migration
+- [x] #2 The merge slot waits for the configured names for every PR it merges; an empty list or a duplicate name is refused by config validation with the key named
+- [x] #3 The office config JSON Schema packages/engine/schema/office.schema.json (written by bun packages/engine/scripts/write-schema.ts) and the config and office tests that pin the version are updated; an office without the key behaves as today
 <!-- AC:END -->
