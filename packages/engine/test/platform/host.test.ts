@@ -4,18 +4,24 @@
 
 import { describe, expect, it } from "bun:test";
 
+import type { ChildExit, ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
+
 import {
+  actionsJobOf,
   checkGhVersion,
   CodeHostError,
   compareVersions,
   GhHost,
   LIST_OPEN_LIMIT,
+  LOG_TAIL_BYTES,
   MIN_GH_VERSION,
   repoOfRemoteUrl,
 } from "../../src/platform/host";
 import { scriptedSpawn, type ScriptedReply } from "../backlog/helpers";
 
 const VERSION = `gh version ${MIN_GH_VERSION} (2024-05-29)\nhttps://github.com/cli/cli/releases/tag/v${MIN_GH_VERSION}\n`;
+
+const JOB_LINK = "https://github.com/o/r/actions/runs/1/job/2";
 
 const PR_JSON = {
   number: 7,
@@ -241,6 +247,176 @@ describe("gh calls", () => {
     expect((failed as CodeHostError).message).toContain("Could not resolve");
   });
 });
+
+describe("the review reads and comment (DIPO-141)", () => {
+  const checks = [
+    { name: "ci-ok", state: "SUCCESS", bucket: "pass" as const, link: JOB_LINK, workflow: "CI" },
+    { name: "external", state: "FAILURE", bucket: "fail" as const, link: "", workflow: "" },
+  ];
+
+  it("reads the labels of a PR, and every check of its head with link and workflow", async () => {
+    const { host: gh, stub } = host((args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return { stdout: JSON.stringify({ labels: [{ name: "autorelease: pending" }] }) };
+      }
+      return { stdout: JSON.stringify(checks) };
+    });
+    expect(await gh.prLabels("o/r", 7)).toEqual(["autorelease: pending"]);
+    expect(await gh.prChecks("o/r", 7)).toEqual(checks);
+    const calls = stub.calls.map((call) => call.cmd.slice(1));
+    expect(calls[1]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "labels"]);
+    expect(calls[2]).toEqual([
+      "pr",
+      "checks",
+      "7",
+      "--repo",
+      "o/r",
+      "--json",
+      "name,state,bucket,link,workflow",
+    ]);
+  });
+
+  it("reads no checks when the PR has none", async () => {
+    const { host: gh } = host(() => ({
+      stderr: "no checks reported on the 'x' branch",
+      code: 1,
+    }));
+    expect(await gh.prChecks("o/r", 7)).toEqual([]);
+  });
+
+  it("returns the URL a posted comment has", async () => {
+    const { host: gh, stub } = host(() => ({
+      stdout: "https://github.com/o/r/pull/7#issuecomment-123\n",
+    }));
+    expect(await gh.commentPr("o/r", 7, "Review: approved")).toBe(
+      "https://github.com/o/r/pull/7#issuecomment-123",
+    );
+    expect(stub.calls.at(-1)?.cmd.slice(1)).toEqual([
+      "pr",
+      "comment",
+      "7",
+      "--repo",
+      "o/r",
+      "--body",
+      "Review: approved",
+    ]);
+  });
+
+  it("reads the failed-job log of an Actions job link, with the job id", async () => {
+    const { host: gh, stub } = host(() => ({ stdout: "step failed\n" }));
+    expect(await gh.failedJobLog("o/r", JOB_LINK)).toBe("step failed\n");
+    expect(stub.calls.at(-1)?.cmd.slice(1)).toEqual([
+      "run",
+      "view",
+      "--repo",
+      "o/r",
+      "--job",
+      "2",
+      "--log-failed",
+    ]);
+  });
+
+  it("reads no log for a link that is not an Actions job, and runs nothing", async () => {
+    const { host: gh, stub } = host(() => ({ stdout: "" }));
+    expect(await gh.failedJobLog("o/r", "https://ci.example.com/build/9")).toBeNull();
+    expect(await gh.failedJobLog("o/r", "https://github.com/o/r/actions/runs/1")).toBeNull();
+    expect(actionsJobOf(JOB_LINK)).toBe("2");
+    expect(stub.calls).toEqual([]);
+  });
+
+  it("keeps only the last 1 MiB of a failed-job log", async () => {
+    const encoder = new TextEncoder();
+    const parts = [
+      encoder.encode("a".repeat(LOG_TAIL_BYTES + 512 * 1024)),
+      encoder.encode("x".repeat(100 * 1024)),
+      encoder.encode("END"),
+    ];
+    const stub = byteSpawn(parts);
+    const gh = new GhHost({ spawn: stub, env: {} });
+    const log = await gh.failedJobLog("o/r", JOB_LINK);
+    expect(log).toHaveLength(LOG_TAIL_BYTES);
+    expect(log?.endsWith("x".repeat(100 * 1024) + "END")).toBe(true);
+  });
+
+  it("stops a failed-job log read that runs past its timeout", async () => {
+    const kills: string[] = [];
+    const spawn: Spawn = (options) => {
+      if (options.cmd[1] === "--version") return textChild(VERSION);
+      // Neither output ends nor does the child exit: only the timeout ends this read.
+      return {
+        pid: 4242,
+        stdin: null,
+        stdout: new ReadableStream<Uint8Array>(),
+        stderr: new ReadableStream<Uint8Array>(),
+        exited: new Promise<ChildExit>(() => {}),
+        kill: (signal) => kills.push(signal ?? "SIGTERM"),
+      };
+    };
+    const gh = new GhHost({ spawn, env: {}, logTimeoutMs: 20 });
+    const error = await gh.failedJobLog("o/r", JOB_LINK).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CodeHostError);
+    expect((error as CodeHostError).code).toBe("failed");
+    expect((error as CodeHostError).message).toContain("did not finish within 0.02 seconds");
+    expect(kills).toEqual(["SIGKILL"]);
+  });
+
+  it("never builds a gh command that names deployments or environments", async () => {
+    const { host: gh, stub } = host((args) => {
+      if (args[0] === "run") return { stdout: "log\n" };
+      if (args[1] === "comment")
+        return { stdout: "https://github.com/o/r/pull/7#issuecomment-1\n" };
+      if (args[1] === "checks") return { stdout: JSON.stringify(checks) };
+      return { stdout: JSON.stringify({ labels: [{ name: "autorelease: pending" }] }) };
+    });
+    await gh.prLabels("o/r", 7);
+    await gh.prChecks("o/r", 7);
+    await gh.failedJobLog("o/r", JOB_LINK);
+    await gh.commentPr("o/r", 7, "Review: approved");
+    const argvs = stub.calls.map((call) => call.cmd.slice(1));
+    expect(argvs.map((argv) => argv.slice(0, 2).join(" "))).toEqual([
+      "--version",
+      "pr view",
+      "pr checks",
+      "run view",
+      "pr comment",
+    ]);
+    for (const argv of argvs) {
+      expect(argv.join(" ")).not.toMatch(/deployment|environment/i);
+    }
+  });
+});
+
+/** A child whose stdout yields `parts` as they are, then ends; it exits 0. */
+function byteSpawn(parts: readonly Uint8Array[]): Spawn {
+  return (options) => {
+    if (options.cmd[1] === "--version") return textChild(VERSION);
+    const stdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
+    return {
+      pid: 4242,
+      stdin: null,
+      stdout,
+      stderr: new Response("").body ?? new ReadableStream<Uint8Array>(),
+      exited: Promise.resolve({ code: 0, signal: null }),
+      kill: () => {},
+    };
+  };
+}
+
+function textChild(stdout: string): ChildProcess {
+  return {
+    pid: 4242,
+    stdin: null,
+    stdout: new Response(stdout).body ?? new ReadableStream<Uint8Array>(),
+    stderr: new Response("").body ?? new ReadableStream<Uint8Array>(),
+    exited: Promise.resolve({ code: 0, signal: null }),
+    kill: () => {},
+  };
+}
 
 describe("repoOfRemoteUrl", () => {
   it("reads GitHub remotes in every form and refuses local paths", () => {

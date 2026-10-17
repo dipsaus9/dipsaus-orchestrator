@@ -8,10 +8,12 @@
 // `pr create --repo --base --head --title --body`, `pr list --head --state --json`, `pr list --state
 // --limit --json` (DIPO-80), `pr view --json`,
 // `pr edit --title --body`, `pr close --comment`, `pr merge --squash --match-head-commit --subject
-// --body`, and `pr checks --required --json name,state,bucket`. The newest of these is
+// --body`, and `pr checks --required --json name,state,bucket`. The review reads and comments
+// (DIPO-141) add `pr view --json labels`, `pr checks --json name,state,bucket,link,workflow`,
+// `run view --repo --job --log-failed` and `pr comment --repo --body`. The newest of these is
 // `pr checks --json`, added in gh 2.50.0 (https://github.com/cli/cli/releases/tag/v2.50.0).
 
-import type { Spawn } from "@dipsaus-orchestrator/contract";
+import type { ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
 
 /** The oldest `gh` with every subcommand and flag the engine uses. */
 export const MIN_GH_VERSION = "2.50.0";
@@ -112,6 +114,45 @@ export interface PrListHost {
    * itself (not a fork), oldest first. Throws `CodeHostError`.
    */
   listOpenPrs(repo: string, prefix: string): Promise<HostPr[]>;
+}
+
+/** The most output of a failed job's log that is kept: its last 1 MiB (DIPO-141). */
+export const LOG_TAIL_BYTES = 1024 * 1024;
+/** How long `gh run view --log-failed` may run before it is stopped (DIPO-141). */
+export const LOG_TIMEOUT_MS = 60_000;
+
+/** One check of a pull request's head, with the link and workflow `gh` reports for it. */
+export interface PrCheck extends RequiredCheck {
+  /** The check's link: an Actions job page, another URL, or "" when there is none. */
+  readonly link: string;
+  /** The workflow's name, or "" for a check that is not a workflow run. */
+  readonly workflow: string;
+}
+
+/**
+ * What the review loop and the autorelease guard read and write on a Pull request (DIPO-141;
+ * 0019 section 7 and fact 3). Kept apart from `CodeHost`, like `PrStateHost`, so the `CodeHost`
+ * fakes stay as they are. It has no call to deployments or environments.
+ */
+export interface PrReviewHost {
+  /** The label names of a pull request. Throws `CodeHostError`. */
+  prLabels(repo: string, number: number): Promise<string[]>;
+  /** Every check of the pull request's head, required or not. Throws `CodeHostError`. */
+  prChecks(repo: string, number: number): Promise<PrCheck[]>;
+  /**
+   * The last `LOG_TAIL_BYTES` of the failed-step log of a GitHub Actions job, read from its check
+   * `link`; null for any other link, which is not read. Throws `CodeHostError`, also when `gh`
+   * runs past `LOG_TIMEOUT_MS`.
+   */
+  failedJobLog(repo: string, link: string): Promise<string | null>;
+  /** Posts `body` as a comment on a pull request and returns the comment's URL. Throws `CodeHostError`. */
+  commentPr(repo: string, number: number, body: string): Promise<string>;
+}
+
+/** The job id of a GitHub Actions job link (`.../actions/runs/RUN/job/JOB`), or null. */
+export function actionsJobOf(link: string): string | null {
+  const match = /^https?:\/\/\S+\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/.exec(link.trim());
+  return match?.[1] ?? null;
 }
 
 /** `major.minor.patch` compared numerically; negative when `a` is older. */
@@ -252,6 +293,38 @@ function parseJson(text: string, what: string): unknown {
 
 const BUCKETS: ReadonlySet<string> = new Set(["pass", "fail", "pending", "skipping", "cancel"]);
 
+/** One row of `gh pr checks --json`. */
+type CheckJson = Record<string, unknown>;
+
+function checkOf(row: CheckJson): RequiredCheck {
+  const bucket = String(row.bucket ?? "");
+  return {
+    name: String(row.name ?? ""),
+    state: String(row.state ?? ""),
+    bucket: (BUCKETS.has(bucket) ? bucket : "pending") as CheckBucket,
+  };
+}
+
+/** The last `limit` bytes a stream yields, decoded; older chunks are dropped as they pass. */
+async function readTail(stream: ReadableStream<Uint8Array>, limit: number): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+    size += chunk.byteLength;
+    while (chunks.length > 1 && size - (chunks[0]?.byteLength ?? 0) >= limit) {
+      size -= chunks.shift()?.byteLength ?? 0;
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes.subarray(Math.max(0, size - limit)));
+}
+
 export interface GhHostOptions {
   readonly spawn: Spawn;
   /** The resolved `gh`; `gh` on `PATH` by default. */
@@ -260,6 +333,8 @@ export interface GhHostOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Gets warnings, such as a PR list cut off at `LIST_OPEN_LIMIT`; none by default. */
   readonly logger?: { warn(message: string, fields?: Readonly<Record<string, unknown>>): void };
+  /** How long a failed-job log read may run; `LOG_TIMEOUT_MS` by default. */
+  readonly logTimeoutMs?: number;
 }
 
 interface GhResult {
@@ -269,11 +344,12 @@ interface GhResult {
 }
 
 /** The `CodeHost` that runs `gh`. */
-export class GhHost implements CodeHost, PrStateHost, PrListHost {
+export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
   readonly #spawn: Spawn;
   readonly #gh: string;
   readonly #env: Record<string, string>;
   readonly #logger: GhHostOptions["logger"];
+  readonly #logTimeoutMs: number;
   #version: string | null = null;
 
   constructor(options: GhHostOptions) {
@@ -281,6 +357,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
     this.#gh = options.gh ?? "gh";
     this.#env = ghEnv(options.env ?? process.env);
     this.#logger = options.logger;
+    this.#logTimeoutMs = options.logTimeoutMs ?? LOG_TIMEOUT_MS;
   }
 
   async checkVersion(): Promise<string> {
@@ -444,8 +521,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
   }
 
   async requiredChecks(repo: string, number: number): Promise<RequiredCheck[]> {
-    await this.checkVersion();
-    const result = await this.#raw([
+    const rows = await this.#checkRows([
       "pr",
       "checks",
       String(number),
@@ -455,27 +531,116 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
       "--json",
       "name,state,bucket",
     ]);
+    return rows.map(checkOf);
+  }
+
+  async prLabels(repo: string, number: number): Promise<string[]> {
+    const out = await this.#ok(["pr", "view", String(number), "--repo", repo, "--json", "labels"]);
+    const json = parseJson(out, "a pull request's labels") as { labels?: unknown };
+    if (!Array.isArray(json.labels)) throw new CodeHostError("failed", "gh printed no label list");
+    return json.labels.map((label) => String((label as { name?: unknown }).name ?? ""));
+  }
+
+  async prChecks(repo: string, number: number): Promise<PrCheck[]> {
+    const rows = await this.#checkRows([
+      "pr",
+      "checks",
+      String(number),
+      "--repo",
+      repo,
+      "--json",
+      "name,state,bucket,link,workflow",
+    ]);
+    return rows.map((row) => ({
+      ...checkOf(row),
+      link: String(row.link ?? ""),
+      workflow: String(row.workflow ?? ""),
+    }));
+  }
+
+  async failedJobLog(repo: string, link: string): Promise<string | null> {
+    const job = actionsJobOf(link);
+    if (job === null) return null;
+    await this.checkVersion();
+    const result = await this.#tailRun([
+      "run",
+      "view",
+      "--repo",
+      repo,
+      "--job",
+      job,
+      "--log-failed",
+    ]);
     this.#assertAuth(result);
-    // `pr checks` exits 1 when a check failed and 8 while one is pending, and still prints them.
+    if (result.code !== 0) throw this.#failure(["run", "view"], result);
+    return result.stdout;
+  }
+
+  async commentPr(repo: string, number: number, body: string): Promise<string> {
+    const out = await this.#ok(["pr", "comment", String(number), "--repo", repo, "--body", body]);
+    // `gh pr comment` prints the comment's URL as its last line.
+    const url = out
+      .split("\n")
+      .map((line) => line.trim())
+      .findLast((line) => /^https?:\/\/\S+$/.test(line));
+    if (url === undefined) {
+      throw new CodeHostError("failed", `\`gh pr comment\` printed no comment URL: ${out.trim()}`);
+    }
+    return url;
+  }
+
+  // ---- running gh ------------------------------------------------------------------------------
+
+  /**
+   * The rows of `gh pr checks`. gh exits 1 when a check failed and 8 while one is pending, and
+   * still prints the rows; with no checks it says so on stderr.
+   */
+  async #checkRows(args: readonly string[]): Promise<CheckJson[]> {
+    await this.checkVersion();
+    const result = await this.#raw(args);
+    this.#assertAuth(result);
     if (result.stdout.trim().startsWith("[")) {
       const list = parseJson(result.stdout, "a check list");
       if (!Array.isArray(list)) throw new CodeHostError("failed", "gh printed no check list");
-      return list.map((item) => {
-        const check = item as { name?: unknown; state?: unknown; bucket?: unknown };
-        const bucket = String(check.bucket ?? "");
-        return {
-          name: String(check.name ?? ""),
-          state: String(check.state ?? ""),
-          bucket: (BUCKETS.has(bucket) ? bucket : "pending") as CheckBucket,
-        };
-      });
+      return list as CheckJson[];
     }
     if (/no (required )?checks reported/i.test(result.stderr)) return [];
     if (result.code === 0 || result.code === EXIT_PENDING) return [];
     throw this.#failure(["pr", "checks"], result);
   }
 
-  // ---- running gh ------------------------------------------------------------------------------
+  /**
+   * Runs `gh <args>` after the version check and keeps only the last `LOG_TAIL_BYTES` of stdout.
+   * The child is killed, and the call throws `CodeHostError`, once `#logTimeoutMs` has passed.
+   */
+  async #tailRun(args: readonly string[]): Promise<GhResult> {
+    const child = this.#spawnGh(args);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(
+          new CodeHostError(
+            "failed",
+            `\`gh ${args.join(" ")}\` did not finish within ${this.#logTimeoutMs / 1000} seconds; it was stopped.`,
+          ),
+        );
+      }, this.#logTimeoutMs);
+    });
+    try {
+      const [stdout, stderr, exit] = await Promise.race([
+        Promise.all([
+          readTail(child.stdout, LOG_TAIL_BYTES),
+          new Response(child.stderr).text(),
+          child.exited,
+        ]),
+        timeout,
+      ]);
+      return { code: exit.code, stdout, stderr };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /** Runs `gh <args>` after the version check; a non-zero exit throws. Returns stdout. */
   async #ok(args: readonly string[]): Promise<string> {
@@ -503,16 +668,19 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost {
     return new CodeHostError("failed", `\`gh ${args.join(" ")}\` failed: ${detail}`);
   }
 
-  async #raw(args: readonly string[]): Promise<GhResult> {
-    let child;
+  #spawnGh(args: readonly string[]): ChildProcess {
     try {
-      child = this.#spawn({ cmd: [this.#gh, ...args], env: this.#env });
+      return this.#spawn({ cmd: [this.#gh, ...args], env: this.#env });
     } catch (error) {
       throw new CodeHostError(
         "missing",
         `gh could not start (${error instanceof Error ? error.message : String(error)}); install gh ${MIN_GH_VERSION} or newer (https://cli.github.com).`,
       );
     }
+  }
+
+  async #raw(args: readonly string[]): Promise<GhResult> {
+    const child = this.#spawnGh(args);
     const [stdout, stderr, exit] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
