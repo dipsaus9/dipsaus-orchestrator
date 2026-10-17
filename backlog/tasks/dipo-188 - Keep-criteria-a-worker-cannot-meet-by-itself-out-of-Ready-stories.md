@@ -4,7 +4,7 @@ title: Keep criteria a worker cannot meet by itself out of Ready stories
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:30'
+updated_date: '2026-10-17 20:36'
 labels:
   - 'tier:S'
   - cutover
@@ -18,6 +18,8 @@ references:
   - packages/engine/test/config/
   - packages/engine/src/prompts/contract/implement.md
   - packages/engine/test/prompts/
+  - packages/engine/src/gate/types.ts
+  - packages/engine/src/gate/evaluate.ts
 priority: medium
 type: enhancement
 ordinal: 177000
@@ -30,7 +32,7 @@ Outcome: a criterion that asks for a step only the maintainer or the engine can 
 
 Context: the fourth M1a run, DIPO-176 (run_01M55PE8B6W4X9TMJEW2SYV7B6). Criterion 4 asked for a sandboxed verify "recorded in the task notes". The worker's own session was that sandboxed run, but a worker cannot write task notes: the run settings deny the backlog CLI (packages/engine/src/workers/claude-cli/plan.ts). It read the criterion as needing a separate recording, parked blocked to ask, and the maintainer finished the story by hand. Manual test plan entries (0012 F14) are already where maintainer steps live, and L1 lists them in the <test_plan> section, but nothing stops a criterion from naming such a step.
 
-DIPO-159 makes a worker question wait for an answer before parking. This story removes the need for the question in this case and does not change the question path, so it does not depend on DIPO-159. DIPO-170 changes how R10 matches phrases in packages/engine/src/gate/rules.ts; whichever lands second rebases on the other.
+DIPO-159 makes a worker question wait for an answer before parking. This story removes the need for the question in this case and does not change the question path, so it does not depend on DIPO-159. DIPO-170 changes how R10 matches phrases in packages/engine/src/gate/rules.ts; whichever lands second rebases on the other. With the R27 option, the rule id list in packages/engine/src/gate/types.ts (it ends at R26) and the rule lists in packages/engine/src/gate/evaluate.ts (R02 to R26) gain R27.
 
 A new Ready gate rule is an 0012 section 3 amendment the maintainer approves; the maintainer writes it, and this story does not edit docs/decisions/.
 

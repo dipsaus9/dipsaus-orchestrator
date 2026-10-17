@@ -4,7 +4,7 @@ title: Keep read-only commands from starting the daemon
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:30'
+updated_date: '2026-10-17 20:36'
 labels:
   - 'tier:S'
   - cutover
@@ -26,6 +26,8 @@ references:
   - packages/cli/src/stats-command.test.ts
   - packages/cli/src/watch-command.ts
   - packages/cli/src/watch-command.test.ts
+  - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/daemon-commands.test.ts
 priority: high
 type: bug
 ordinal: 176000
@@ -36,7 +38,7 @@ ordinal: 176000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: dipo run --dry-run, dipo gate and the other read-only commands never start the daemon; when none answers they say the daemon is not running and how to start it, so a read never runs recovery or migrations on whatever state the environment points at.
 
-Context: seen 2026-10-17. A dry run without the temp DIPO_HOME found no daemon, started one on the maintainer's real state, and that daemon ran recovery and migrated the state database. Every office command connects through withOffice (packages/cli/src/office-commands.ts) and connectDaemon in packages/cli/src/index.ts, which calls connectOrStart (packages/client/src/node/lifecycle/lifecycle.ts): when no daemon answers, it starts one unless daemon.autostart is false. The dry run's own header says "Nothing is claimed, created, stored or started" (packages/cli/src/run-command.ts), which the autostart breaks. The CLI already prints DaemonNotRunningError with START_HINT.
+Context: seen 2026-10-17. A dry run without the temp DIPO_HOME found no daemon, started one on the maintainer's real state, and that daemon ran recovery and migrated the state database. Every office command connects through withOffice (packages/cli/src/office-commands.ts), which calls withDaemon (packages/cli/src/daemon-commands.ts), and connectDaemon in packages/cli/src/index.ts, which calls connectOrStart (packages/client/src/node/lifecycle/lifecycle.ts): when no daemon answers, it starts one unless daemon.autostart is false. The dry run's own header says "Nothing is claimed, created, stored or started" (packages/cli/src/run-command.ts), which the autostart breaks. The CLI already prints DaemonNotRunningError with START_HINT.
 
 0006 decision 5 and its answered open question 4 say any client command starts the daemon when it is not running. This story changes that for read-only commands, so it needs an 0006 amendment the maintainer approves; the maintainer writes it, and this story does not edit docs/decisions/. dipo tui keeps its autostart in this proposal, since it is the main client.
 

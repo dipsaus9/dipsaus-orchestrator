@@ -4,7 +4,7 @@ title: Name the test guards a sandboxed verify skips
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:30'
+updated_date: '2026-10-17 20:36'
 labels:
   - 'tier:S'
   - cutover
@@ -25,7 +25,7 @@ ordinal: 180000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: a verify run in the worker sandbox prints the name and reason of every test guard that skipped, and the DIPO-109 temp-root limits are also checked at the worker's 30-byte temp root, so "verify passes in the sandbox" no longer hides tests that never ran.
 
-Context: the fourth M1a run, DIPO-176 (run_01M55PE8B6W4X9TMJEW2SYV7B6), recorded in the DIPO-176 notes. Inside the worker sandbox 10 tests skip, outside it 2. Six are the root-length guards NESTED_ROOT_FITS and LONGEST_ROOT_FITS in packages/testkit/src/temp.test.ts and packages/daemon/test/unit/runtime-isolation.test.ts. They skip when the temp root plus "/dipo-XXXXXX" is over MAX_TEMP_ROOT_BYTES (37 bytes, packages/testkit/src/runtime.ts), and the worker's DIPO_TMP is 30 bytes by design (DIPO-118), so the DIPO-109 runtime-isolation guards never run under the fence. The other two are likely PS_RUNS (packages/engine/test/platform/process.test.ts) and SANDBOX_REFUSES_LOOPBACK (packages/engine/test/sandbox/safe-chain-proxy.test.ts); that is inferred, not observed, and the new skip lines will show it. In the sandbox the only writable roots are DIPO_TMP and TMPDIR, so a shorter real root cannot be made there; the limits themselves are byte counts on paths and can be checked without creating the directories.
+Context: the fourth M1a run, DIPO-176 (run_01M55PE8B6W4X9TMJEW2SYV7B6), recorded in the DIPO-176 notes. Inside the worker sandbox 10 tests skip, outside it 2. Six are root-length guards. NESTED_ROOT_FITS, only in packages/testkit/src/temp.test.ts, checks the real temp root plus "/dipo-XXXXXX"; LONGEST_ROOT_FITS, in packages/testkit/src/temp.test.ts and packages/daemon/test/unit/runtime-isolation.test.ts, checks the root plus "/dipo-XXXXXX/r". Both compare against MAX_TEMP_ROOT_BYTES (37 bytes, packages/testkit/src/runtime.ts). The worker's DIPO_TMP is 30 bytes by design (DIPO-118), so the sums are 42 and 44 bytes, and the DIPO-109 runtime-isolation guards never run under the fence. The other two are likely PS_RUNS (packages/engine/test/platform/process.test.ts) and SANDBOX_REFUSES_LOOPBACK (packages/engine/test/sandbox/safe-chain-proxy.test.ts); that is inferred, not observed, and the new skip lines will show it. In the sandbox the only writable roots are DIPO_TMP and TMPDIR, so a shorter real root cannot be made there; the limits themselves are byte counts on paths and can be checked without creating the directories.
 
 ```dipo
 branch: "DIPO-191/name-skipped-test-guards"
