@@ -1,10 +1,10 @@
 ---
 id: DIPO-140
 title: Add the review loop to the contract
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 21:41'
+updated_date: '2026-10-17 21:50'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -41,8 +41,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Verdict gains an optional review field (ReviewVerdict: round, commit, code tree key, verdict, per-criterion results, findings with an unverified mark, summary, reviewer model and usage, comment URL, carried-to-later-head flag, override) and gate.decided gains an optional review (ReviewSummary: round, commit, verdict, blocking and advisory counts, comment URL)
-- [ ] #2 StoryView.pr (number, URL, state), Progress.reviewRoundCap and Progress.reviewRoundsFailed are added as optional fields, and a new event story.pr carries story, key and pr
-- [ ] #3 gate.approve and gate.reject are no longer provisional and carry their since; the error codes gate.notWaitingOnMaintainer, gate.handMergeOnly and gate.noteRequired exist as office errors that are not retryable
-- [ ] #4 Contract tests parse a fixture of each new shape and of the old payloads without the optional fields
+- [x] #1 Verdict gains an optional review field (ReviewVerdict: round, commit, code tree key, verdict, per-criterion results, findings with an unverified mark, summary, reviewer model and usage, comment URL, carried-to-later-head flag, override) and gate.decided gains an optional review (ReviewSummary: round, commit, verdict, blocking and advisory counts, comment URL)
+- [x] #2 StoryView.pr (number, URL, state), Progress.reviewRoundCap and Progress.reviewRoundsFailed are added as optional fields, and a new event story.pr carries story, key and pr
+- [x] #3 gate.approve and gate.reject are no longer provisional and carry their since; the error codes gate.notWaitingOnMaintainer, gate.handMergeOnly and gate.noteRequired exist as office errors that are not retryable
+- [x] #4 Contract tests parse a fixture of each new shape and of the old payloads without the optional fields
 <!-- AC:END -->
