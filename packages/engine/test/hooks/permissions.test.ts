@@ -35,7 +35,7 @@ import { systemClock } from "../../src/platform/clock";
 import { hostSocketSteering } from "../../src/run/hosts";
 import { HOST_WAIT_MARGIN_SECONDS } from "../../src/workers/claude-cli/hooks";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
-import { insertRun } from "../../src/run";
+import { insertRun, runIntents } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
 import { detail, snapshot } from "../../src/views/feature";
 import { workView } from "../../src/views/work";
@@ -278,6 +278,8 @@ describe("permission wait with the maintainer present (AC #4, #6, #7)", () => {
     expect(outputOf(w.sent[0])).toEqual({
       hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } },
     });
+    // A hook reply is an exception to the stored intent (the `intents.ts` header): no intent row.
+    expect(runIntents(w.f.office, w.f.run)).toEqual([]);
     const closed = loggedEvents(w.f.office).filter((event) => event.type === "question.closed");
     expect(closed.map((event) => event.data)).toEqual([
       { question: view.question, answer: "allow" },

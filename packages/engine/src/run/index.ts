@@ -110,8 +110,9 @@ export {
   recordIntent,
   resolveIntent,
   runIntents,
+  sendAsIntent,
 } from "./intents";
-export type { IntentKind, IntentState, StoredIntent } from "./intents";
+export type { IntentKind, IntentState, IntentSteering, StoredIntent } from "./intents";
 export {
   gitParkWriter,
   gitUnparkWriter,

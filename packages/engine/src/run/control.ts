@@ -66,13 +66,7 @@ import type {
 import type { BackstopSnapshot } from "./backstop";
 
 import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
-import {
-  type IntentKind,
-  markIntentSent,
-  outcomeOfIntent,
-  recordIntent,
-  resolveIntent,
-} from "./intents";
+import { type IntentKind, outcomeOfIntent, sendAsIntent, resolveIntent } from "./intents";
 import { type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { endRunMarked } from "./markers";
 import { activeRuns, findRun, type StoredRun } from "./records";
@@ -530,11 +524,14 @@ export class RunControl implements RunEnder {
     if (tracked === undefined || tracked.ending !== null) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return false;
-    let intentId: number;
+    let sending: Promise<unknown>;
     try {
-      intentId = office.immediate(() =>
-        recordIntent(office, tracked.runId, act.intent, act.detail, this.#deps.clock.now()),
-      );
+      sending = sendAsIntent(office, this.#deps.steering, tracked.runId, {
+        kind: act.intent,
+        detail: act.detail,
+        ops: act.ops,
+        clock: this.#deps.clock,
+      }).done;
     } catch (error) {
       // 0008: an op is stored as an intent before it is sent, so none is sent. A turn problem's
       // act is tried again at the next cap tick (DIPO-123); a failing unflagged act leaves a
@@ -547,22 +544,15 @@ export class RunControl implements RunEnder {
       });
       return false;
     }
+    // The send started inside `sendAsIntent`, but nothing reached the host yet: the steering's
+    // first await (`hostSocketSteering` looking up the newest host) comes before any effect, so
+    // these synchronous writes land before any op is sent.
     tracked.unstored = null;
     this.#disarm(tracked);
     // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
     tracked.ending = background(
       async () => {
-        let error: string | null = null;
-        if (act.ops.length > 0) {
-          try {
-            const sent = await this.#deps.steering.send(office, tracked.runId, act.ops);
-            if (!sent.ok) error = sent.reason;
-          } catch (thrown) {
-            error = messageOf(thrown);
-          }
-        }
-        const at = this.#deps.clock.now();
-        office.immediate(() => markIntentSent(office, tracked.runId, intentId, at, error));
+        await sending;
       },
       {
         failed: "sending a run's decision failed",
@@ -691,33 +681,14 @@ export class RunControl implements RunEnder {
     endKind: string,
     lastReport: WorkerReport | null,
   ): Promise<void> {
-    const intentId = office.immediate(() =>
-      recordIntent(office, run.runId, "stop", notice.text, this.#deps.clock.now()),
-    );
-    let error: string | null = null;
-    try {
-      const sent = await this.#deps.steering.send(
-        office,
-        run.runId,
-        this.#deps.encode({ kind: "stop" }),
-      );
-      if (!sent.ok) error = sent.reason;
-    } catch (thrown) {
-      error = messageOf(thrown);
-    }
-    const at = this.#deps.clock.now();
-    const appended = office.immediate(() => {
-      markIntentSent(office, run.runId, intentId, at, error);
-      endRunMarked(office, run.runId, at, endKind);
-      office.run(
-        `update agents set end_reason = coalesce(end_reason, $kind)
-         where office_id = $office_id and run_id = $run and ended_at is null`,
-        { kind: endKind, run: run.runId },
-      );
-      const entries = withWorkViews(office, [noticeEntry(run, notice)]);
-      appendEntries(office, entries, { at });
-      return entries.length;
+    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
+      kind: "stop",
+      detail: notice.text,
+      ops: this.#deps.encode({ kind: "stop" }),
+      clock: this.#deps.clock,
+      inMark: (_error, at) => this.#endReconciled(office, run, notice, endKind, at),
     });
+    const appended = (await done).marked ?? 0;
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
     // The run summary (DIPO-49), as for every run that ends here.
     await this.#deps.finisher?.summarize(office, run, lastReport).catch((thrown: unknown) => {
@@ -726,6 +697,25 @@ export class RunControl implements RunEnder {
         reason: messageOf(thrown),
       });
     });
+  }
+
+  /** The end of a reconciled run, in the transaction that marks its stop intent. */
+  #endReconciled(
+    office: OfficeHandle,
+    run: StoredRun,
+    notice: ReconcileNotice,
+    endKind: string,
+    at: number,
+  ): number {
+    endRunMarked(office, run.runId, at, endKind);
+    office.run(
+      `update agents set end_reason = coalesce(end_reason, $kind)
+       where office_id = $office_id and run_id = $run and ended_at is null`,
+      { kind: endKind, run: run.runId },
+    );
+    const entries = withWorkViews(office, [noticeEntry(run, notice)]);
+    appendEntries(office, entries, { at });
+    return entries.length;
   }
 
   /**
@@ -878,18 +868,14 @@ export class RunControl implements RunEnder {
   ): Promise<ParkOutcome> {
     const write = (fn: () => readonly NewEntry[]): void =>
       commit(() => withWorkViews(office, fn()));
-    const intentId = office.immediate(() =>
-      recordIntent(
-        office,
-        run.runId,
-        ending.intent,
-        ending.intentDetail ?? ending.detail,
-        this.#deps.clock.now(),
-      ),
-    );
-    return (async () => {
-      const notice = ending.notice;
-      if (notice !== undefined) {
+    const notice = ending.notice;
+    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
+      kind: ending.intent,
+      detail: ending.intentDetail ?? ending.detail,
+      ops: ending.ops,
+      clock: this.#deps.clock,
+      beforeSend: () => {
+        if (notice === undefined) return;
         write(() => [
           {
             type: "engine.notice",
@@ -898,20 +884,11 @@ export class RunControl implements RunEnder {
             delta: notice,
           },
         ]);
-      }
-      let error: string | null = null;
-      let signalled = false;
-      if (ending.ops.length > 0) {
-        try {
-          const sent = await this.#deps.steering.send(office, run.runId, ending.ops);
-          if (!sent.ok) error = sent.reason;
-          else signalled = sent.via === "signal";
-        } catch (thrown) {
-          error = messageOf(thrown);
-        }
-      }
-      const at = this.#deps.clock.now();
-      office.immediate(() => markIntentSent(office, run.runId, intentId, at, error));
+      },
+    });
+    return (async () => {
+      const { error, via } = await done;
+      const signalled = via === "signal";
       if (signalled) {
         // A follow-only host got one SIGTERM after its PID and start time were verified (DIPO-93).
         write(() => [
@@ -1097,22 +1074,13 @@ export class RunControl implements RunEnder {
     text: string,
     write: (fn: () => readonly NewEntry[]) => void,
   ): Promise<void> {
-    const intentId = office.immediate(() =>
-      recordIntent(office, run.runId, "steer", "verify feedback", this.#deps.clock.now()),
-    );
-    let error: string | null = null;
-    try {
-      const sent = await this.#deps.steering.send(
-        office,
-        run.runId,
-        this.#deps.encode({ kind: "steer", text }),
-      );
-      if (!sent.ok) error = sent.reason;
-    } catch (thrown) {
-      error = messageOf(thrown);
-    }
-    const at = this.#deps.clock.now();
-    office.immediate(() => markIntentSent(office, run.runId, intentId, at, error));
+    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
+      kind: "steer",
+      detail: "verify feedback",
+      ops: this.#deps.encode({ kind: "steer", text }),
+      clock: this.#deps.clock,
+    });
+    const { error } = await done;
     if (error !== null) {
       write(() => [
         {

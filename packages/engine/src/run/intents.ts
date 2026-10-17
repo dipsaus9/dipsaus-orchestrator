@@ -3,11 +3,22 @@
 // worker exits, the outcome is read from the intent first (`outcomeOfIntent`); only an exit no
 // intent explains is left to the adapter's `result` (DIPO-51). Writers run inside the caller's
 // `office.immediate`.
+//
+// `sendAsIntent` is the one helper that stores, sends and marks (DIPO-126). Sent with no intent, by
+// design (none of them explains an exit, so no intent would be read):
+// - closeStdin after a turn whose report ended the run: the report explains the exit (section 7's
+//   table), not an engine decision.
+// - 0014 nudges: each answers a pending `PostToolUse` or `SessionStart` hook call (section 5) and is
+//   counted as a prompt part.
+// - `PermissionRequest` hook replies: each answers a pending hook call (section 5) and is recorded
+//   as the permission question's close.
+// More on `sendAsIntent`. A new intent kind needs a migration (`run_intents.kind` has a CHECK
+// constraint) and a row in `INTENT_OUTCOMES` with its test.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import type { WorkerOutcome } from "../workers/types";
+import type { HostOp, WorkerOutcome } from "../workers/types";
 
 /**
  * The ops 0008 section 6 names, plus `park`: closing stdin of a worker whose report parks the story
@@ -90,6 +101,95 @@ export function markIntentSent(
      where office_id = $office_id and run_id = $run and intent_id = $id and state = 'pending'`,
     { state: error === null ? "sent" : "failed", at, error, run: runId, id: intentId },
   );
+}
+
+/** What the helper needs of the steering: the shape of `RunSteering` in `control.ts`. */
+export interface IntentSteering {
+  send(
+    office: OfficeHandle,
+    runId: RunId,
+    ops: readonly HostOp[],
+  ): Promise<
+    | { readonly ok: true; readonly via?: "socket" | "signal" }
+    | { readonly ok: false; readonly reason: string; readonly code?: string }
+  >;
+}
+
+export interface SendAsIntent<R> {
+  readonly kind: IntentKind;
+  readonly detail: string;
+  /** The ops to send; with none, the intent is only stored and marked sent. */
+  readonly ops: readonly HostOp[];
+  readonly clock: { now(): number };
+  /** Runs after the intent is stored and before the first op is sent; a throw sends nothing. */
+  readonly beforeSend?: () => void;
+  /** Runs in the transaction that marks the intent, given the failure reason or null. */
+  readonly inMark?: (error: string | null, at: number) => R;
+}
+
+export interface IntentSent<R> {
+  /** The failure reason the host gave, or null when the ops were sent. */
+  readonly error: string | null;
+  /** `signal` when a verified SIGTERM stopped a follow-only host instead (DIPO-93). */
+  readonly via: "socket" | "signal" | undefined;
+  readonly marked: R | undefined;
+}
+
+/**
+ * The one way to send ops to a running worker (0008 sections 6 and 7): stores the intent
+ * synchronously (a failed store throws and nothing is sent), sends the ops, then marks the intent
+ * `sent`, or `failed` with the reason the host gave or the send threw. `done` rejects only when
+ * `beforeSend` or the mark throws; then a `beforeSend` failure leaves the intent pending.
+ *
+ * Exceptions, sent with no intent (each is an answer to something the worker did, or a send that
+ * changes nothing about how the exit reads):
+ * - closeStdin after a turn that ended the run (`run/control.ts`, report-driven `ended`): the exit
+ *   is explained by the worker's own report, not by an engine decision; an intent kind would give
+ *   an outcome the adapter's `result` already gives.
+ * - nudges (`hooks/nudges.ts`): one text per tool call, answering a hook call the worker is waiting
+ *   on; they are counted as prompt parts (`nudges`) and never explain an exit.
+ * - hook replies (`hooks/permissions.ts`): the allow or deny a waiting `PermissionRequest` hook
+ *   call gets, recorded as the question's close; it never explains an exit.
+ * Record-only sites send no op to a running worker and call `recordIntent` (and `markIntentSent`
+ * or `resolveIntent`) directly, all in `run/outcomes.ts`:
+ * - the plan-limit `pause`: stored, then resolved `plan-limit` in a second transaction; never
+ *   marked sent.
+ * - the start-failed `stop`: stored, marked sent and resolved `startFailed` in one transaction.
+ * - the report-feedback `steer`: stored and marked sent in one transaction; its text is the first
+ *   message of the resume, and it is resolved `resumed` once that session started.
+ * - the park-resume `answer`: stored before anything changes, marked sent later in the resume's
+ *   own transaction (with the park lift and the answer), then resolved with how the resume went.
+ */
+export function sendAsIntent<R = undefined>(
+  office: OfficeHandle,
+  steering: IntentSteering,
+  runId: RunId,
+  spec: SendAsIntent<R>,
+): { readonly intentId: number; readonly done: Promise<IntentSent<R>> } {
+  const intentId = office.immediate(() =>
+    recordIntent(office, runId, spec.kind, spec.detail, spec.clock.now()),
+  );
+  const done = (async (): Promise<IntentSent<R>> => {
+    spec.beforeSend?.();
+    let error: string | null = null;
+    let via: "socket" | "signal" | undefined;
+    if (spec.ops.length > 0) {
+      try {
+        const sent = await steering.send(office, runId, spec.ops);
+        if (!sent.ok) error = sent.reason;
+        else via = sent.via;
+      } catch (thrown) {
+        error = thrown instanceof Error ? thrown.message : String(thrown);
+      }
+    }
+    const at = spec.clock.now();
+    const marked = office.immediate(() => {
+      markIntentSent(office, runId, intentId, at, error);
+      return spec.inMark?.(error, at);
+    });
+    return { error, via, marked };
+  })();
+  return { intentId, done };
 }
 
 /** The run's intents, oldest first. */

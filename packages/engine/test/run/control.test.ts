@@ -780,6 +780,9 @@ describe("the In Review commit (DIPO-49) and the story view (DIPO-56)", () => {
       await control.idle();
       expect(refreshed).toEqual([w.work.key]);
       expect(sent).toEqual([[{ closeStdin: true }]]);
+      // closeStdin after a report-driven end is an exception to the stored intent (the
+      // `intents.ts` header): no intent row.
+      expect(runIntents(w.f.office, w.f.run)).toEqual([]);
     } finally {
       control.close();
     }
