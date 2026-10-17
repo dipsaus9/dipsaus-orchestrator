@@ -1,10 +1,10 @@
 ---
 id: DIPO-126
 title: Send every worker op through one stored-intent helper
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 17:49'
+updated_date: '2026-10-17 17:52'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -58,4 +58,8 @@ test_plan:
 Proposed 0008 note (needs the maintainer's approval, not applied):
 
 - 2026-10-17, DIPO-126 (maintainer): section 6. Three ops are sent with no intent, because none of them explains an exit, so section 7 would never read one: the `closeStdin` after a turn whose report ended the run (report `done`; the exit is read from the report, the first row of the section 7 table, not from an engine decision); a 0014 nudge (it answers a pending `PostToolUse` or `SessionStart` hook call, section 5 and the DIPO-60 notes); and a `PermissionRequest` hook reply (the allow or deny a pending hook call gets under section 5, recorded as the close of the permission question). Every other op the engine sends to a running worker is first stored as a pending intent; the `closeStdin` on a park stays a `park` intent (DIPO-50 note).
+
+Delivered by dipo (M1a run 2, run_01M55EM75CBSWYH0TE2QQPAD7N, Sonnet medium): 66 turns, about $0.87, In Review on DIPO-126/one-stored-intent-helper. The worker saw 23 test failures inside its sandbox and did not check them against the base; verify outside the sandbox passed (3148 tests), so they were sandbox-only.
+
+Maintainer side: review blocked once because the worker's notes claimed a proposed 0008 note that did not exist; fixed on top in DIPO-126/one-stored-intent-helper-review with the proposed note above, an accurate record-only list, reasons in the intents.ts header and a comment in act(). The 0008 note waits for the maintainer's approval.
 <!-- SECTION:NOTES:END -->
