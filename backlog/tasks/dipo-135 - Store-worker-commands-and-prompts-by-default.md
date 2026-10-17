@@ -1,10 +1,10 @@
 ---
 id: DIPO-135
 title: Store worker commands by default
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 19:08'
-updated_date: '2026-10-17 22:39'
+updated_date: '2026-10-17 22:57'
 labels:
   - 'tier:S'
   - 'slice:m1a'
