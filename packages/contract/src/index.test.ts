@@ -215,6 +215,9 @@ describe("errors", () => {
       "backlog.unreadable",
       "run.refused",
       "question.closed",
+      "gate.notWaitingOnMaintainer",
+      "gate.handMergeOnly",
+      "gate.noteRequired",
     ]);
   });
 

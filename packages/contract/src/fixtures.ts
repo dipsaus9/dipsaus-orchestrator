@@ -404,6 +404,11 @@ const officeEventFixtures: Record<string, unknown> = {
     lastGoodCommit: "4f2a9c1",
     actions: ["work.answer", "work.resume", "work.discard", "story.drop"],
   },
+  "story.pr": {
+    story: "DIPO-21",
+    key: ids.storyKey,
+    pr: { number: 142, url: "https://github.com/example/demo/pull/142", state: "open" },
+  },
   "test.started": testView,
   "test.recorded": {
     test: ids.test,
