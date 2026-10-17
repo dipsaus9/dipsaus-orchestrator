@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { parseView } from "../../src/backlog/plain";
-import { gateStoryFromView, gateTaskFromView } from "../../src/gate";
+import { type DependencyEntry, parseView } from "../../src/backlog/plain";
+import { gateStoryFromView, gateTaskFromView, waitingOnOf } from "../../src/gate";
 import { recorded } from "../backlog/helpers";
 
 describe("gate inputs from a parsed view", () => {
@@ -25,6 +25,17 @@ describe("gate inputs from a parsed view", () => {
       subtasks: ["TASK-1.1.1"],
       implementationPlan: "Step one",
     });
+  });
+
+  it("lists the dependencies that are not Done, with their statuses", () => {
+    expect(waitingOnOf(view)).toEqual([
+      { id: "TASK-1", status: "Ready" },
+      { id: "TASK-2", status: "Refined" },
+    ]);
+    const done: DependencyEntry = { id: "TASK-1", state: "resolved", status: "Done" };
+    expect(waitingOnOf({ ...view, dependencies: [done] })).toEqual([]);
+    const missing: DependencyEntry = { id: "TASK-9", state: "missing" };
+    expect(waitingOnOf({ ...view, dependencies: [missing] })).toEqual([{ id: "TASK-9" }]);
   });
 
   it("reads an active task's branch from its field block, and none from a broken block", () => {

@@ -99,6 +99,42 @@ describe("dipo gate", () => {
     ]);
   });
 
+  it("names the open dependencies after the passed line and exits 0", async () => {
+    const waitingOn = [
+      { id: "DIPO-3", status: "Ready" },
+      { id: "DIPO-4", status: "Refined" },
+    ];
+    const ctx = fake(
+      () => ({ ok: true, result: { ...result(true).result, waitingOn } }),
+      IN_OFFICE,
+    );
+    expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual(["ready DIPO-7 passed", "waits on DIPO-3 (Ready), DIPO-4 (Refined)"]);
+    expect(ctx.err).toEqual([]);
+  });
+
+  it("prints only the passed line when every dependency is Done", async () => {
+    const ctx = fake(() => result(true), IN_OFFICE);
+    expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual(["ready DIPO-7 passed"]);
+  });
+
+  it("prints the failures, then the open dependencies, and exits 1", async () => {
+    const failure = "ready DIPO-7 failed R07: milestone is missing or does not exist";
+    const ctx = fake(
+      () => ({
+        ok: true,
+        result: {
+          ...result(false, [{ rule: "R07", message: failure }]).result,
+          waitingOn: [{ id: "DIPO-3" }],
+        },
+      }),
+      IN_OFFICE,
+    );
+    expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(1);
+    expect(ctx.out).toEqual([failure, "waits on DIPO-3 (status unknown)"]);
+  });
+
   it("prints an engine error and exits 1", async () => {
     const ctx = fake(
       () => ({

@@ -45,12 +45,17 @@ export async function gateCommand(
         ? "unknown"
         : engineFailure(deps, outcome.error);
     }
-    const { passed, failures } = outcome.result;
+    const { passed, failures, waitingOn = [] } = outcome.result;
     if (passed) {
       deps.writeLine(`ready ${outcome.result.story} passed`);
-      return 0;
+    } else {
+      for (const failure of failures) deps.writeLine(failure.message);
     }
-    for (const failure of failures) deps.writeLine(failure.message);
-    return 1;
+    // The verdict does not depend on open dependencies, but pickup skips the story until they are Done.
+    if (waitingOn.length > 0) {
+      const list = waitingOn.map((dep) => `${dep.id} (${dep.status ?? "status unknown"})`);
+      deps.writeLine(`waits on ${list.join(", ")}`);
+    }
+    return passed ? 0 : 1;
   });
 }
