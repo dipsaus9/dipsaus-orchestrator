@@ -1,10 +1,10 @@
 ---
 id: DIPO-189
 title: Tell the worker how to read its branch when git branch is denied
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:30'
+updated_date: '2026-10-17 21:14'
 labels:
   - 'tier:S'
   - cutover

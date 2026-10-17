@@ -1,10 +1,10 @@
 ---
 id: DIPO-133
 title: Read the merge slot's required checks from the office config
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 14:48'
+updated_date: '2026-10-17 21:14'
 labels:
   - 'tier:S'
   - 'slice:m1a'
