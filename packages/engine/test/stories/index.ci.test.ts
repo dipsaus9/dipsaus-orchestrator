@@ -111,6 +111,9 @@ function mirrorStatus(office: OfficeHandle, id: string): string | undefined {
   );
 }
 
+/** The per-test timeout of the remote-base index tests (DIPO-121; measured, see the tests). */
+const REMOTE_BASE_TIMEOUT_MS = 10_000;
+
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("story index on the Backlog CLI", () => {
     it("keeps keys stable across passes and a retitle with the CLI", () =>
@@ -240,50 +243,62 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(s.clock.pendingTimers).toBe(0);
       }));
 
+    // DIPO-121: the two remote-base tests below run a dozen git and Backlog CLI subprocesses each.
+    // Measured over 5 CI runs of #186 (ubuntu, verify job): poll 1.62 to 2.10 s, refresh 2.56 to
+    // 3.43 s; over the default 5 s timeout half the time for refresh. Each gets 10 s, so the slowest
+    // run is under half its timeout.
     // DIPO-104: a story merged to the remote base while the office is loaded, indexed at the next
     // poll. Split from the refresh case below so each test has its own per-test timeout.
-    it("indexes a story merged to the remote base at the next poll", () =>
-      withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
-        const other = join(repo.root, "other");
-        await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
-        await merge(repo, other, "Add the is-number dependency");
-        s.changed.length = 0;
+    it(
+      "indexes a story merged to the remote base at the next poll",
+      () =>
+        withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
+          const other = join(repo.root, "other");
+          await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
+          await merge(repo, other, "Add the is-number dependency");
+          s.changed.length = 0;
 
-        const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
-        s.clock.advance(interval - 1);
-        await index.whenIdle(officeId);
-        expect(keyOf(office, "TASK-4")).toBeNull();
+          const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
+          s.clock.advance(interval - 1);
+          await index.whenIdle(officeId);
+          expect(keyOf(office, "TASK-4")).toBeNull();
 
-        s.clock.advance(1);
-        await index.whenIdle(officeId);
-        expect(keyOf(office, "TASK-4")).not.toBeNull();
-        expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
-        expect(s.changed).toContain(officeId);
-      }));
+          s.clock.advance(1);
+          await index.whenIdle(officeId);
+          expect(keyOf(office, "TASK-4")).not.toBeNull();
+          expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
+          expect(s.changed).toContain(officeId);
+        }),
+      REMOTE_BASE_TIMEOUT_MS,
+    );
 
     // DIPO-104: a refresh (a command named an unknown story) fetches and indexes without the poll.
-    it("indexes a story merged to the remote base at once on a refresh", () =>
-      withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
-        const other = join(repo.root, "other");
-        await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
+    it(
+      "indexes a story merged to the remote base at once on a refresh",
+      () =>
+        withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
+          const other = join(repo.root, "other");
+          await git(repo.root, repo.home, "clone", "--quiet", repo.remote, other);
 
-        await merge(repo, other, "Add the is-number dependency");
-        await index.refresh(officeId);
-        expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
-        // Within REFRESH_FETCH_FRESH_MS of a refresh's own fetch, a refresh does not fetch again.
-        await merge(repo, other, "Add the is-odd dependency");
-        await index.refresh(officeId);
-        expect(keyOf(office, "TASK-5")).toBeNull();
-        s.clock.advance(REFRESH_FETCH_FRESH_MS);
-        // Two refreshes at once share one run.
-        const first = index.refresh(officeId);
-        expect(index.refresh(officeId)).toBe(first);
-        await first;
-        expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
-        // A refresh with nothing new writes nothing.
-        const after = lastSeq(office);
-        await index.refresh(officeId);
-        expect(lastSeq(office)).toBe(after);
-      }));
+          await merge(repo, other, "Add the is-number dependency");
+          await index.refresh(officeId);
+          expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
+          // Within REFRESH_FETCH_FRESH_MS of a refresh's own fetch, a refresh does not fetch again.
+          await merge(repo, other, "Add the is-odd dependency");
+          await index.refresh(officeId);
+          expect(keyOf(office, "TASK-5")).toBeNull();
+          s.clock.advance(REFRESH_FETCH_FRESH_MS);
+          // Two refreshes at once share one run.
+          const first = index.refresh(officeId);
+          expect(index.refresh(officeId)).toBe(first);
+          await first;
+          expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
+          // A refresh with nothing new writes nothing.
+          const after = lastSeq(office);
+          await index.refresh(officeId);
+          expect(lastSeq(office)).toBe(after);
+        }),
+      REMOTE_BASE_TIMEOUT_MS,
+    );
   });
 }
