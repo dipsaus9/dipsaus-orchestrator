@@ -26,8 +26,8 @@ import {
   OFFICE_DEFAULTS,
   OFFICE_FILE_SCHEMAS,
   OFFICE_LOCAL_FILE_SCHEMAS,
-  OfficeConfigV2,
-  OfficeOverridesV2,
+  OfficeConfigV3,
+  OfficeOverridesV3,
   type OfficeConfig,
   type OfficeConfigVersion,
 } from "./schema";
@@ -192,7 +192,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   }
 
   if (sources.flags !== undefined) {
-    const checked = validate(FLAGS_SOURCE, OfficeOverridesV2, sources.flags);
+    const checked = validate(FLAGS_SOURCE, OfficeOverridesV3, sources.flags);
     if (checked.ok) layers.push(checked.value);
     else errors.push(...checked.errors);
   }
@@ -200,7 +200,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   if (errors.length > 0) return { ok: false, errors };
 
   const merged = layers.reduce<unknown>((base, layer) => mergeLayer(base, layer), OFFICE_DEFAULTS);
-  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV2, merged);
+  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV3, merged);
   if (!effective.ok) return { ok: false, errors: effective.errors };
   const config = effective.value as OfficeConfig;
   return { ok: true, config, configHash: configHash(config), localOverrideKeys: localKeys };
