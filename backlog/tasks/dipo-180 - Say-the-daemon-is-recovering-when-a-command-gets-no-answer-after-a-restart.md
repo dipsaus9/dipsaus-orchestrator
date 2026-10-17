@@ -1,10 +1,10 @@
 ---
 id: DIPO-180
 title: Answer dipo gate without one Backlog CLI view per task
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:06'
+updated_date: '2026-10-17 21:14'
 labels:
   - 'tier:M'
   - cutover
