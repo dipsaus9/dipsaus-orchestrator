@@ -4,7 +4,7 @@ title: Store worker commands by default
 status: Ready
 assignee: []
 created_date: '2026-10-16 19:08'
-updated_date: '2026-10-17 20:16'
+updated_date: '2026-10-17 22:39'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -48,7 +48,8 @@ test_plan:
     - kind: "automated"
       check: "(unit) the overview count line and the worker-output title in the detail show `stores commands` while storeCommandBodies is on, never the word opt-in, and no label when no privacy setting is on"
     - kind: "manual"
-      check: "(live) with no .dipo/office.local.yaml in the scratch repo, run a story that uses Bash and see `[tool] Bash <command>` lines in its worker output and `stores commands` in the overview"
+      check: "(live) with no .dipo/office.local.yaml in the scratch repo, run a story that uses Bash and open its worker output and the overview"
+      expect: "the worker output shows `[tool] Bash <command>` lines and the overview shows `stores commands`"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
