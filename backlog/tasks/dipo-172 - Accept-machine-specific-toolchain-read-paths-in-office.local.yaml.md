@@ -4,7 +4,7 @@ title: Accept machine-specific toolchain read paths in office.local.yaml
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-17 17:23'
 labels:
   - 'tier:M'
   - cutover
@@ -58,4 +58,5 @@ test_plan:
 - [ ] #4 The PR proposes a dated note in docs/decisions/0017-testing-strategy-and-configuration.md (Amendments, section 5 Precedence): sandbox.toolchainReadPaths is accepted in office.local.yaml and adds to the committed list (maintainer decision 2026-10-17, option A), for the maintainer's approval
 - [ ] #5 A launch check refuses a run when npm's global config file of a node install under a toolchain read path, or a .npmrc at the root of a read path, holds an auth key (_authToken, _auth or _password); the refusal names the file and says to keep tokens in ~/.npmrc, and no token value is logged or stored
 - [ ] #6 packages/engine/schema/office.schema.json is rewritten by bun packages/engine/scripts/write-schema.ts, and the config tests that pin the version and the local keys are updated
+- [ ] #7 The npm-token refusal does not hold the adapter for other offices: a run in an office whose readable npm config files hold no auth key still starts
 <!-- AC:END -->

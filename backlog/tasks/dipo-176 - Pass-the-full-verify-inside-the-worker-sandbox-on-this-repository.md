@@ -4,7 +4,7 @@ title: Pass the full verify inside the worker sandbox on this repository
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-17 17:23'
 labels:
   - 'tier:M'
   - cutover
@@ -15,6 +15,7 @@ references:
   - packages/engine/test/platform/
   - packages/engine/test/worktree/
   - packages/engine/test/workers/
+  - packages/engine/src/workers/claude-cli/plugins.ts
 priority: high
 type: bug
 ordinal: 165000
