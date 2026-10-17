@@ -1,10 +1,10 @@
 ---
 id: DIPO-184
 title: Tell the worker to keep DIPO_TMP and the sandbox TMPDIR as set
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-17 20:51'
+updated_date: '2026-10-17 20:53'
 labels:
   - 'tier:S'
   - cutover
@@ -40,6 +40,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 L1 (packages/engine/src/prompts/contract/implement.md) states that DIPO_TMP is set for the run and the sandbox gives a writable TMPDIR, that commands use both as they are and never set either to another path, and that /tmp is not writable in the sandbox, even where project rules name it as a fallback
-- [ ] #2 The new text holds no run-specific path, id or date (the only path it names is /tmp), and the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
+- [x] #1 L1 (packages/engine/src/prompts/contract/implement.md) states that DIPO_TMP is set for the run and the sandbox gives a writable TMPDIR, that commands use both as they are and never set either to another path, and that /tmp is not writable in the sandbox, even where project rules name it as a fallback
+- [x] #2 The new text holds no run-specific path, id or date (the only path it names is /tmp), and the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
 <!-- AC:END -->
