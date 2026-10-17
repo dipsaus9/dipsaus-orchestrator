@@ -1,10 +1,10 @@
 ---
 id: DIPO-191
 title: Name the test guards a sandboxed verify skips
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 22:40'
+updated_date: '2026-10-17 22:46'
 labels:
   - 'tier:S'
   - cutover
@@ -44,8 +44,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/testkit/src/ exports one helper for a conditional skip that takes a guard name and a reason and, when it skips, writes one line naming the guard and the reason to stderr; NESTED_ROOT_FITS, LONGEST_ROOT_FITS, PS_RUNS and SANDBOX_REFUSES_LOOPBACK in packages/testkit/src/temp.test.ts, packages/daemon/test/unit/runtime-isolation.test.ts, packages/engine/test/platform/process.test.ts and packages/engine/test/sandbox/safe-chain-proxy.test.ts use it
-- [ ] #2 A unit test shows the helper writes the line when its condition skips the test and writes nothing when the test runs
-- [ ] #3 The limits that NESTED_ROOT_FITS and LONGEST_ROOT_FITS guard (a nested DIPO_TMP is accepted when it fits; a root of exactly MAX_TEMP_ROOT_BYTES is accepted and one byte more is refused) gain a variant that checks them on computed paths without creating the directories, and that variant runs with DIPO_TMP at a 30-byte root
-- [ ] #4 The PR lists the skip lines printed by bun test with DIPO_TMP at a 30-byte root
+- [x] #1 packages/testkit/src/ exports one helper for a conditional skip that takes a guard name and a reason and, when it skips, writes one line naming the guard and the reason to stderr; NESTED_ROOT_FITS, LONGEST_ROOT_FITS, PS_RUNS and SANDBOX_REFUSES_LOOPBACK in packages/testkit/src/temp.test.ts, packages/daemon/test/unit/runtime-isolation.test.ts, packages/engine/test/platform/process.test.ts and packages/engine/test/sandbox/safe-chain-proxy.test.ts use it
+- [x] #2 A unit test shows the helper writes the line when its condition skips the test and writes nothing when the test runs
+- [x] #3 The limits that NESTED_ROOT_FITS and LONGEST_ROOT_FITS guard (a nested DIPO_TMP is accepted when it fits; a root of exactly MAX_TEMP_ROOT_BYTES is accepted and one byte more is refused) gain a variant that checks them on computed paths without creating the directories, and that variant runs with DIPO_TMP at a 30-byte root
+- [x] #4 The PR lists the skip lines printed by bun test with DIPO_TMP at a 30-byte root
 <!-- AC:END -->
