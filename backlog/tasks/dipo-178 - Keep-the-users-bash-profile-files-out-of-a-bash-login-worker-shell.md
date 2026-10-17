@@ -1,10 +1,10 @@
 ---
 id: DIPO-178
 title: Keep the user's bash profile files out of a bash login worker shell
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 20:16'
+updated_date: '2026-10-17 21:06'
 labels:
   - 'tier:S'
   - cutover
