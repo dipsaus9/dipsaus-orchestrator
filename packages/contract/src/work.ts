@@ -165,6 +165,10 @@ export const Progress = z.object({
   loopCap: Count,
   verify: VerifyState,
   reviewRound: Count,
+  // Since minor 1 (DIPO-140, 0019 section 14): the review rounds the story may run and how many
+  // of its rounds failed, so a client shows "round 2, 1 of 3 failed" without computing it.
+  reviewRoundCap: Count.optional(),
+  reviewRoundsFailed: Count.optional(),
 });
 export type Progress = z.infer<typeof Progress>;
 
@@ -214,6 +218,92 @@ export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
 export const StoryGateFailure = GateRuleFailure.extend({ text: z.string() });
 export type StoryGateFailure = z.infer<typeof StoryGateFailure>;
 
+// The story's PR on the code host (0019 section 3). Since minor 1 (DIPO-140).
+export const StoryPrState = z.enum(["open", "merged", "closed"]);
+export type StoryPrState = z.infer<typeof StoryPrState>;
+
+export const StoryPr = z.object({
+  number: z.int().positive(),
+  url: z.url(),
+  state: StoryPrState,
+});
+export type StoryPr = z.infer<typeof StoryPr>;
+
+// One criterion's result in a review round: exactly one per criterion of the story (0019
+// section 5). `maintainer` means only the maintainer can check it.
+export const ReviewCriterionStatus = z.enum(["met", "unmet", "maintainer"]);
+export type ReviewCriterionStatus = z.infer<typeof ReviewCriterionStatus>;
+
+export const ReviewCriterionResult = z.object({
+  n: z.int().positive(),
+  status: ReviewCriterionStatus,
+  evidence: z.string(),
+});
+export type ReviewCriterionResult = z.infer<typeof ReviewCriterionResult>;
+
+// Blocking kinds are `scope`, `test`, `correctness` and `security`; the rest are advisory.
+export const KNOWN_FINDING_KINDS = [
+  "scope",
+  "test",
+  "correctness",
+  "security",
+  "maintainability",
+  "other",
+] as const;
+export const FindingKind = openEnum(KNOWN_FINDING_KINDS);
+export type FindingKind = z.infer<typeof FindingKind>;
+
+// A finding of a review round. `unverified` marks a blocking finding whose evidence failed the
+// code check after its correction turn, so it is kept as advisory (0019 section 5).
+export const ReviewFinding = z.object({
+  severity: z.enum(["blocking", "advisory"]),
+  kind: FindingKind,
+  criterion: z.int().positive().optional(),
+  testEntry: z.int().positive().optional(),
+  file: z.string().optional(),
+  line: z.int().positive().optional(),
+  quote: z.string().optional(),
+  text: z.string(),
+  unverified: z.boolean().optional(),
+});
+export type ReviewFinding = z.infer<typeof ReviewFinding>;
+
+// A maintainer override of a blocked review, with the required note (0019 section 11).
+export const ReviewOverride = z.object({
+  note: z.string().min(1),
+  at: Timestamp,
+});
+export type ReviewOverride = z.infer<typeof ReviewOverride>;
+
+// One review round as shown on `story.detail` (0019 section 14). `treeKey` is the code tree key
+// the verdict is keyed on (section 6); `carried` is set when an approval moved to a later head.
+export const ReviewVerdict = z.object({
+  round: z.int().positive(),
+  commit: z.string().min(1),
+  treeKey: z.string().min(1),
+  verdict: z.enum(["approved", "blocked"]),
+  criteria: z.array(ReviewCriterionResult),
+  findings: z.array(ReviewFinding),
+  summary: z.string(),
+  model: z.string(),
+  usage: UsageTotals,
+  commentUrl: z.url().optional(),
+  carried: z.boolean().optional(),
+  override: ReviewOverride.optional(),
+});
+export type ReviewVerdict = z.infer<typeof ReviewVerdict>;
+
+// The review summary of a `gate.decided` event for a review gate (0019 section 14).
+export const ReviewSummary = z.object({
+  round: z.int().positive(),
+  commit: z.string().min(1),
+  verdict: z.enum(["approved", "blocked"]),
+  blocking: Count,
+  advisory: Count,
+  commentUrl: z.url().optional(),
+});
+export type ReviewSummary = z.infer<typeof ReviewSummary>;
+
 export const StoryView = z.object({
   key: StoryKey,
   story: StoryId,
@@ -230,6 +320,8 @@ export const StoryView = z.object({
   // its rule id. A message no rule gave (a pickup check that could not size the story) is only in
   // `gateMessages`.
   gateFailures: z.array(StoryGateFailure).optional(),
+  // Since minor 1 (DIPO-140): the story's PR, once one is open.
+  pr: StoryPr.optional(),
   evidence: EvidenceMap.optional(),
 });
 export type StoryView = z.infer<typeof StoryView>;
