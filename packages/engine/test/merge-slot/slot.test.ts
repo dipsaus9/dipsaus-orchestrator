@@ -164,6 +164,41 @@ describe("the merge slot", () => {
     });
   });
 
+  it("waits for the check names the office configuration lists, and merges when each passed", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      s.config = { ...OFFICE_DEFAULTS, mergeSlot: { requiredChecks: ["build"] } };
+
+      // `build` is the only required check here, so the slot waits for it.
+      s.host.checks = [{ name: "build", state: "IN_PROGRESS", bucket: "pending" }];
+      expect(await s.slot.tick(s.officeId)).toBe("waiting");
+      expect(s.host.merges).toEqual([]);
+
+      // `build` passed and `ci-ok`, which the office does not require, never reported: the slot
+      // merges.
+      s.host.checks = [{ name: "build", state: "SUCCESS", bucket: "pass" }];
+      expect(await s.slot.tick(s.officeId)).toBe("merged");
+      expect(s.host.merges.map((merge) => merge.number)).toEqual([1]);
+    });
+  });
+
+  it("holds a PR whose configured check failed, even when the default names pass", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      s.config = { ...OFFICE_DEFAULTS, mergeSlot: { requiredChecks: ["build", "pr-title"] } };
+      s.host.checks = [
+        { name: "build", state: "FAILURE", bucket: "fail" },
+        { name: "ci-ok", state: "SUCCESS", bucket: "pass" },
+        { name: "pr-title", state: "SUCCESS", bucket: "pass" },
+      ];
+      expect(await s.slot.tick(s.officeId)).toBe("left");
+      expect(notices(s.office).map((n) => n.code)).toContain(SLOT_NOTICES.checksFailed);
+      expect(s.host.merges).toEqual([]);
+    });
+  });
+
   it("reads the checks every polling.prStateSeconds of the office configuration", async () => {
     await withTempDir(async (dir) => {
       const s = await slotSetup(dir);

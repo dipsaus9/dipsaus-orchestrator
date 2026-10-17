@@ -7,7 +7,8 @@
 //      a conflict aborts the merge and the lane rebuilds the branch from the journal on a new
 //      branch name, which opens a new PR and closes the old one (DIPO-34, DIPO-35);
 //   2. push once, never forced;
-//   3. wait for `ci-ok` and `pr-title`, read every `polling.prStateSeconds`, while the PR is open,
+//   3. wait for the office's `mergeSlot.requiredChecks` (`ci-ok` and `pr-title` by default, DIPO-133),
+//      read every `polling.prStateSeconds`, while the PR is open,
 //      at most `CHECKS_WAIT_MS` (also when the host cannot be read), then leave with a notice;
 //   4. run the structural check again on the head it merges;
 //   5. squash-merge on the host with `--match-head-commit`. A refusal after which the base has
@@ -95,7 +96,10 @@ export interface MergeSlotDeps {
   readonly clock: Clock;
   /** The slot's git for a lane; the real `laneSlotGit` by default. */
   readonly git?: (lane: OfficeLane) => SlotGit;
-  /** The checks every PR waits for; `REQUIRED_CHECKS` by default. */
+  /**
+   * The checks every PR waits for when the office config gives none (tests); the office's
+   * `mergeSlot.requiredChecks` decides otherwise, and `REQUIRED_CHECKS` when neither does.
+   */
   readonly requiredChecks?: readonly string[];
   /** How long a PR waits for its checks before it leaves; `CHECKS_WAIT_MS` by default. */
   readonly checksWaitMs?: number;
@@ -287,7 +291,7 @@ export class MergeSlot {
     const git = (this.#deps.git ?? laneSlotGit)(lane);
     try {
       if (state.slot === null) {
-        const next = await this.#pick(state, handle, git);
+        const next = await this.#pick(office, state, handle, git);
         if (next === null) return "idle";
         state.slot = next;
         this.#deps.logger?.debug("merge slot entered", {
@@ -320,7 +324,12 @@ export class MergeSlot {
   }
 
   /** The oldest open backlog PR whose last structural check passed and that may enter. */
-  async #pick(state: OfficeSlot, handle: OfficeHandle, git: SlotGit): Promise<InSlot | null> {
+  async #pick(
+    office: OfficeId,
+    state: OfficeSlot,
+    handle: OfficeHandle,
+    git: SlotGit,
+  ): Promise<InSlot | null> {
     for (const pr of openPrs(handle)) {
       if (pr.check !== "passed") continue;
       const repo = repoOfUrl(pr.url);
@@ -335,7 +344,8 @@ export class MergeSlot {
           // Red required checks come back once they no longer fail (a re-run); checks that never
           // reported come back once they pass.
           const checks = await this.#deps.host.requiredChecks(repo, pr.number).catch(() => null);
-          const verdict = checks === null ? null : evaluateChecks(checks, this.#names).state;
+          const names = this.#namesOf(office);
+          const verdict = checks === null ? null : evaluateChecks(checks, names).state;
           if (verdict === null || verdict === "failed") continue;
           if (parked.reason === "checksStuck" && verdict !== "passed") continue;
         }
@@ -433,7 +443,7 @@ export class MergeSlot {
         );
         return this.#waitOrLeave(office, state, slot, handle, lane, ["the host's answer"]);
       }
-      const verdict = evaluateChecks(checks, this.#names);
+      const verdict = evaluateChecks(checks, this.#namesOf(office));
       if (verdict.state === "pending") {
         return this.#waitOrLeave(office, state, slot, handle, lane, verdict.waiting);
       }
@@ -596,8 +606,13 @@ export class MergeSlot {
     await lane.flush().catch(() => undefined);
   }
 
-  get #names(): readonly string[] {
-    return this.#deps.requiredChecks ?? REQUIRED_CHECKS;
+  /** The check names the office's PRs wait for: its `mergeSlot.requiredChecks` (DIPO-133). */
+  #namesOf(office: OfficeId): readonly string[] {
+    return (
+      this.#deps.offices.config?.(office)?.mergeSlot.requiredChecks ??
+      this.#deps.requiredChecks ??
+      REQUIRED_CHECKS
+    );
   }
 
   /** Writes the notice unless this PR had it already for the same head or cause. */
