@@ -655,17 +655,78 @@ describe("a timeout close that fails (DIPO-119)", () => {
         },
       },
     ]);
-    // The question stays open until the next office load expires it.
+    // The question stays open until its timer, armed again, retries the close.
     expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedAt).toBeNull();
     expect(types()).not.toContain("question.closed");
-    // The permission wait keeps working: the next request is asked and times out as before.
+    // The retry closes the question and sends no second reply.
     w.f.t.state.connection.exec("drop trigger close_fails");
-    await ingest(scenario().before);
-    expect(types().filter((type) => type === "question.asked")).toHaveLength(2);
     w.f.t.clock.advance(WAIT_SECONDS * 1000);
     await w.asks.idle();
-    expect(w.sent).toHaveLength(2);
+    expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedAt).not.toBeNull();
     expect(types()).toContain("question.closed");
+    expect(w.sent).toHaveLength(1);
     expect(w.warnings).toHaveLength(1);
+  });
+
+  it("retries the close alone and logs one error per failed try", async () => {
+    await ingest(scenario().before);
+    const [question] = openQuestions(w.f.office);
+    w.f.t.state.connection.exec(
+      `create trigger close_fails before update of closed_at on questions
+       when new.closed_how = 'timeout'
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    // The retry fails too: its timer is armed again, and the question stays open.
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(1);
+    expect(w.warnings.map((line) => line.message)).toEqual([
+      "closing a timed-out permission question failed",
+      "closing a timed-out permission question failed",
+    ]);
+    expect(w.warnings[1]?.fields).toEqual({
+      question: question?.questionId,
+      run: w.f.run,
+      reason: "disk I/O error",
+      errorCode: expect.stringMatching(/^SQLITE_CONSTRAINT/),
+    });
+    expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedAt).toBeNull();
+    w.f.t.state.connection.exec("drop trigger close_fails");
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedAt).not.toBeNull();
+    expect(w.sent).toHaveLength(1);
+  });
+});
+
+describe("a timeout that cannot read its question (DIPO-123)", () => {
+  it("logs one error and sends no reply when findQuestion fails inside the timer", async () => {
+    await ingest(scenario().before);
+    const [question] = openQuestions(w.f.office);
+    // The questions table is unreadable while the wait ends.
+    w.f.t.state.connection.exec("alter table questions rename to questions_gone");
+    const watch = watchRejections();
+    try {
+      expect(() => w.f.t.clock.advance(WAIT_SECONDS * 1000)).not.toThrow();
+      await w.asks.idle();
+    } finally {
+      w.f.t.state.connection.exec("alter table questions_gone rename to questions");
+    }
+    expect(await watch.stop()).toEqual([]);
+    expect(w.sent).toEqual([]);
+    expect(w.warnings).toEqual([
+      {
+        message: "reading a timed-out permission question failed",
+        fields: {
+          question: question?.questionId,
+          reason: expect.stringContaining("questions"),
+          errorCode: expect.stringMatching(/^SQLITE_/),
+        },
+      },
+    ]);
+    // The question was not closed; with its timer gone, the next office load expires it.
+    expect(findQuestion(w.f.office, question?.questionId ?? "")?.closedAt).toBeNull();
   });
 });

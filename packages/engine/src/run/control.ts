@@ -188,6 +188,8 @@ interface Tracked extends TrackedRun {
   timer: TimerHandle | null;
   /** Set at the first decision; nothing else is decided for the run after it. */
   ending: Promise<ParkOutcome | null> | null;
+  /** A turn problem's act whose intent could not be stored; the next cap tick tries it (DIPO-123). */
+  unstored: RunAct | null;
   /** The after-turn work of the run, one turn at a time (DIPO-49). */
   turns: Promise<void>;
   /** The newest worker report, for the run summary. */
@@ -329,6 +331,7 @@ export class RunControl implements RunEnder {
       office,
       timer: null,
       ending: null,
+      unstored: null,
       turns: Promise.resolve(),
       lastReport: null,
     };
@@ -533,7 +536,10 @@ export class RunControl implements RunEnder {
         recordIntent(office, tracked.runId, act.intent, act.detail, this.#deps.clock.now()),
       );
     } catch (error) {
-      // 0008: an op is stored as an intent before it is sent, so none is sent.
+      // 0008: an op is stored as an intent before it is sent, so none is sent. A turn problem's
+      // act is tried again at the next cap tick (DIPO-123); a failing unflagged act leaves a
+      // waiting one in place.
+      if (act.retryAtTick === true) tracked.unstored = act;
       this.#deps.warn?.("storing a run's decision failed", {
         run: tracked.runId,
         intent: act.intent,
@@ -541,6 +547,7 @@ export class RunControl implements RunEnder {
       });
       return false;
     }
+    tracked.unstored = null;
     this.#disarm(tracked);
     // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
     tracked.ending = background(
@@ -792,6 +799,9 @@ export class RunControl implements RunEnder {
     tracked.timer = this.#deps.clock.setTimeout(() => {
       tracked.timer = null;
       if (tracked.ending !== null || !this.#tracked.has(tracked.runId)) return;
+      // A turn problem whose intent failed is decided now, before the caps (DIPO-123).
+      const retry = tracked.unstored;
+      if (retry !== null && this.act(tracked.runId, retry)) return;
       if (!this.#checkCaps(tracked)) this.#arm(tracked);
     }, this.#deps.tickMs ?? CAP_TICK_MS);
   }
