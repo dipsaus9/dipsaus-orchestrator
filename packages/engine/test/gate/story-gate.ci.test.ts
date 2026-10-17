@@ -93,61 +93,70 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(countRows(office, "gates")).toBe(0);
       }));
 
-    it("a pickup-mode evaluation stores one decision with every rule result and the hash", () =>
-      withGatedOffice(async ({ repo, s, engineGit, index, gates, office, officeId }) => {
-        const task1 = key(office, "TASK-1");
-        const rejected = await gates.recordGateDecision(officeId, task1, "pickup");
-        expect(rejected.passed).toBe(false);
-        expect(rejected.mode).toBe("pickup");
-        expect(rejected.result.failures.map((f) => f.rule)).toEqual(["R06", "R07", "R11"]);
-        expect(rejected.ruleResults.map((r) => r.rule)).toEqual(ruleNamesFor("pickup"));
-        expect(rejected.ruleResults.filter((r) => !r.passed).map((r) => r.rule)).toEqual([
-          "R06",
-          "R07",
-          "R11",
-        ]);
-        expect(gateDecisionsOf(office, task1)).toEqual([
-          {
-            gate: rejected.gate,
-            key: task1,
-            mode: "pickup",
-            passed: false,
-            ruleResults: rejected.ruleResults,
-            contentHash: rejected.contentHash,
-            decidedAt: s.clock.now(),
-          },
-        ]);
-        const git = engineGit.forOffice(officeId);
-        const config = s.manager.config(officeId);
-        if (git === undefined || config === undefined) throw new Error("office not loaded");
-        const base = await git.ensureBaseWorktree();
-        const input = await readGateInput(CLI(repo), base.path, "TASK-1", gateConfigOf(config));
-        expect(rejected.contentHash).toBe(gateContentHash(input.story));
-        expect(findPassingDecision(office, task1, rejected.contentHash)).toBeUndefined();
+    // Its time goes to real Backlog CLI and git subprocesses. It took 3853 ms on the passing rerun of
+    // PR #159 (run 38942474480) and hit bun's 5000 ms default on the first attempt, so it gets 20 s:
+    // the slowest CI run should stay under half of that (DIPO-171).
+    it(
+      "a pickup-mode evaluation stores one decision with every rule result and the hash",
+      () =>
+        withGatedOffice(async ({ repo, s, engineGit, index, gates, office, officeId }) => {
+          const task1 = key(office, "TASK-1");
+          const rejected = await gates.recordGateDecision(officeId, task1, "pickup");
+          expect(rejected.passed).toBe(false);
+          expect(rejected.mode).toBe("pickup");
+          expect(rejected.result.failures.map((f) => f.rule)).toEqual(["R06", "R07", "R11"]);
+          expect(rejected.ruleResults.map((r) => r.rule)).toEqual(ruleNamesFor("pickup"));
+          expect(rejected.ruleResults.filter((r) => !r.passed).map((r) => r.rule)).toEqual([
+            "R06",
+            "R07",
+            "R11",
+          ]);
+          expect(gateDecisionsOf(office, task1)).toEqual([
+            {
+              gate: rejected.gate,
+              key: task1,
+              mode: "pickup",
+              passed: false,
+              ruleResults: rejected.ruleResults,
+              contentHash: rejected.contentHash,
+              decidedAt: s.clock.now(),
+            },
+          ]);
+          const git = engineGit.forOffice(officeId);
+          const config = s.manager.config(officeId);
+          if (git === undefined || config === undefined) throw new Error("office not loaded");
+          const base = await git.ensureBaseWorktree();
+          const input = await readGateInput(CLI(repo), base.path, "TASK-1", gateConfigOf(config));
+          expect(rejected.contentHash).toBe(gateContentHash(input.story));
+          expect(findPassingDecision(office, task1, rejected.contentHash)).toBeUndefined();
 
-        await backlog(repo, ["milestone", "add", "M0 Walking skeleton"]);
-        await backlog(repo, [
-          "task",
-          "edit",
-          "TASK-1",
-          "--type",
-          "feature",
-          "-m",
-          "m-0",
-          "--ref",
-          "packages/export/",
-        ]);
-        await publish(repo, "make TASK-1 pass the gate");
-        await git.fetch();
-        await index.indexStories(officeId);
+          await backlog(repo, ["milestone", "add", "M0 Walking skeleton"]);
+          await backlog(repo, [
+            "task",
+            "edit",
+            "TASK-1",
+            "--type",
+            "feature",
+            "-m",
+            "m-0",
+            "--ref",
+            "packages/export/",
+          ]);
+          await publish(repo, "make TASK-1 pass the gate");
+          await git.fetch();
+          await index.indexStories(officeId);
 
-        s.clock.advance(1000);
-        const approved = await gates.recordGateDecision(officeId, task1, "pickup");
-        expect(approved.result.failures).toEqual([]);
-        expect(approved.passed).toBe(true);
-        expect(approved.contentHash).not.toBe(rejected.contentHash);
-        expect(countRows(office, "gate_decisions")).toBe(2);
-        expect(findPassingDecision(office, task1, approved.contentHash)?.gate).toBe(approved.gate);
-      }));
+          s.clock.advance(1000);
+          const approved = await gates.recordGateDecision(officeId, task1, "pickup");
+          expect(approved.result.failures).toEqual([]);
+          expect(approved.passed).toBe(true);
+          expect(approved.contentHash).not.toBe(rejected.contentHash);
+          expect(countRows(office, "gate_decisions")).toBe(2);
+          expect(findPassingDecision(office, task1, approved.contentHash)?.gate).toBe(
+            approved.gate,
+          );
+        }),
+      20_000,
+    );
   });
 }

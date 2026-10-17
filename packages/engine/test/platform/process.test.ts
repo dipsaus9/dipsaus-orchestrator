@@ -55,6 +55,29 @@ function procArgsBuffer(execPath: string, args: readonly string[], env: readonly
 
 const OCT_12_095203 = Date.UTC(2026, 9, 12, 9, 52, 3);
 
+/** The command line of `spawnReady`, as the probes show it: arguments joined by spaces. */
+const READY_CMD = ["/bin/sh", "-c", "echo ready; read line"];
+const READY_COMMAND = READY_CMD.join(" ");
+
+/**
+ * Spawns `READY_CMD` and returns once the child has written its `ready` line from its own program.
+ * Linux shows an empty command line until the exec, so a probe read straight after `Bun.spawn`
+ * can see nothing (DIPO-171). The line is only written after the exec, so the command is final.
+ */
+async function spawnReady(): Promise<Bun.Subprocess<"pipe", "pipe", "ignore">> {
+  const child = Bun.spawn({ cmd: READY_CMD, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  while (!text.includes("ready\n")) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error(`the ready child exited before its ready line: ${text}`);
+    text += decoder.decode(value);
+  }
+  reader.releaseLock();
+  return child;
+}
+
 /**
  * Runs `fn` with the PID of a zombie: the shell's background child exits at once and is never
  * reaped, because `exec` replaces the shell with a `sleep` that does not wait for children.
@@ -282,10 +305,10 @@ describe("system probe", () => {
   });
 
   it("reads a child's full command line", async () => {
-    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    const child = await spawnReady();
     try {
       const read = await systemProcessProbe(platform)(child.pid);
-      expect(read).toMatchObject({ pid: child.pid, zombie: false, command: "/bin/sleep 30" });
+      expect(read).toMatchObject({ pid: child.pid, zombie: false, command: READY_COMMAND });
     } finally {
       child.kill("SIGKILL");
       await child.exited;
@@ -305,7 +328,7 @@ describe("system probe", () => {
   // Outside the sandbox only: Seatbelt refuses to exec the setuid `/bin/ps` (DIPO-114).
   it.skipIf(!PS_RUNS)("reads the same as /bin/ps on macOS: live, child and zombie", async () => {
     const probe = systemProcessProbe("darwin");
-    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    const child = await spawnReady();
     try {
       await withZombie(async (zombie) => {
         for (const pid of [process.pid, child.pid, zombie]) {
