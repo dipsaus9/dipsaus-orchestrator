@@ -34,6 +34,7 @@ import {
   PermissionAsks,
   type Presence,
   PlanLimits,
+  type Resumption,
   type RunBase,
   RunControl,
   RunLauncher,
@@ -122,6 +123,11 @@ export interface DaemonRuns {
   readonly control: RunControl;
   /** Worker outcomes and the run's next session (DIPO-51); its feature decides exits at load. */
   readonly outcomes: RunOutcomes;
+  /**
+   * Park resume and `work.resume` (DIPO-138): `work.answer` on a `needs-permission` park resumes
+   * through it, and its feature rides on the plan-limit schedule's.
+   */
+  readonly resumption: Resumption;
   /** The permission wait and `work.answer` (DIPO-59). */
   readonly permissions: PermissionAsks;
   /** The 0014 section 8 nudges (DIPO-60). */
@@ -421,9 +427,24 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       caps: capsFor,
     },
   });
-  const { ingest, control, outcomes, permissions, nudges, reattacher, planLimits, launcher } =
-    composed;
-  if (control === null || outcomes === null || reattacher === null || planLimits === null) {
+  const {
+    ingest,
+    control,
+    outcomes,
+    resumption,
+    permissions,
+    nudges,
+    reattacher,
+    planLimits,
+    launcher,
+  } = composed;
+  if (
+    control === null ||
+    outcomes === null ||
+    resumption === null ||
+    reattacher === null ||
+    planLimits === null
+  ) {
     throw new Error("the daemon's run services are not all wired");
   }
   return {
@@ -431,6 +452,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ingest,
     control,
     outcomes,
+    resumption,
     permissions,
     nudges,
     reattacher,

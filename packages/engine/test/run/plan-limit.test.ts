@@ -28,7 +28,9 @@ import {
   PLAN_LIMIT_RETRY_MS,
   PlanLimits,
   RunControl,
-  RunOutcomes,
+  createRunOutcomes,
+  type Resumption,
+  type RunOutcomes,
   scopeHolds,
   wakeAt,
 } from "../../src/run";
@@ -73,6 +75,7 @@ interface World {
   readonly f: IngestFixture;
   readonly control: RunControl;
   readonly outcomes: RunOutcomes;
+  readonly resumption: Resumption;
   plans: PlanLimits;
   readonly next: NextSessionRequest[];
   readonly notices: HoldNotice[];
@@ -98,7 +101,7 @@ function planLimits(): PlanLimits {
       config: () => (w.unconfigured ? undefined : CONFIG),
     },
     warn: (message) => w.logged.push(message),
-    resume: (office, run, why) => w.outcomes.resumeWait(office, run, why),
+    resume: (office, run, why) => w.resumption.resumeWait(office, run, why),
     scheduling: () => w.scheduling,
     holds: {
       adapterHeld: () => w.hold,
@@ -109,6 +112,7 @@ function planLimits(): PlanLimits {
       },
     },
     notify: (notice) => w.notices.push(notice),
+    commands: w.resumption.feature,
   });
 }
 
@@ -146,48 +150,52 @@ beforeEach(async () => {
     encode,
     outcomes: () => outcomes ?? undefined,
   });
-  outcomes = new RunOutcomes({
-    clock: f.t.clock,
-    offices: { get: () => f.office },
-    steering,
-    encode,
-    worker: {
-      id: ADAPTER,
-      result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-    },
-    ender: () => control,
-    // The next session as the real resumer records it: a new agent, the named signals cleared.
-    resumer: {
-      next: async (request) => {
-        world.next.push(request);
-        const at = f.t.clock.now();
-        f.office.immediate(() => {
-          f.office.run(
-            `insert into agents (office_id, agent_id, run_id, role, model, started_at)
+  const built = createRunOutcomes(
+    {
+      clock: f.t.clock,
+      offices: { get: () => f.office },
+      steering,
+      encode,
+      worker: {
+        id: ADAPTER,
+        result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
+      },
+      ender: () => control,
+      // The next session as the real resumer records it: a new agent, the named signals cleared.
+      resumer: {
+        next: async (request) => {
+          world.next.push(request);
+          const at = f.t.clock.now();
+          f.office.immediate(() => {
+            f.office.run(
+              `insert into agents (office_id, agent_id, run_id, role, model, started_at)
              values ($office_id, $agent, $run, 'developer', 'haiku', $at)`,
-            { agent: f.t.ids.next("agt"), run: f.run, at: at + 1 },
-          );
-          clearSignals(f.office, f.run, request.clear ?? [], at);
-        });
-        return { kind: "started", agent: "agt_next" as AgentId, resumed: true };
+              { agent: f.t.ids.next("agt"), run: f.run, at: at + 1 },
+            );
+            clearSignals(f.office, f.run, request.clear ?? [], at);
+          });
+          return { kind: "started", agent: "agt_next" as AgentId, resumed: true };
+        },
       },
-    },
-    holds: {
-      hold: (adapter, failures) => {
-        world.hold = {
-          adapter,
-          check: failures[0]?.check ?? "",
-          detail: failures[0]?.detail ?? "",
-          failures,
-          since: 0,
-        };
-        return world.hold;
+      holds: {
+        hold: (adapter, failures) => {
+          world.hold = {
+            adapter,
+            check: failures[0]?.check ?? "",
+            detail: failures[0]?.detail ?? "",
+            failures,
+            since: 0,
+          };
+          return world.hold;
+        },
       },
+      caps: () => ROOMY,
+      waits: () => world.plans,
     },
-    caps: () => ROOMY,
-    waits: () => world.plans,
-  });
-  Object.assign(world, { control, outcomes });
+    { planLimits: () => world.plans },
+  );
+  outcomes = built.outcomes;
+  Object.assign(world, { control, outcomes, resumption: built.resumption });
   w = world;
   w.plans = planLimits();
   const { office, run } = f;
@@ -631,7 +639,7 @@ describe("plan-limit-credits (AC #5)", () => {
     expect(w.next).toEqual([]);
     expectActive();
 
-    const reply = await w.plans.resumeCommand(resumeCtx(), { story: StoryId.parse("DIPO-1") });
+    const reply = await w.resumption.resumeCommand(resumeCtx(), { story: StoryId.parse("DIPO-1") });
     expect(reply.result).toEqual({
       story: "DIPO-1",
       key: w.work.key,
@@ -656,7 +664,7 @@ describe("plan-limit-credits (AC #5)", () => {
   it("work.resume refuses a story with no held run, and a held worker that has not exited", async () => {
     const refusal = async () => {
       try {
-        await w.plans.resumeCommand(resumeCtx(), { story: StoryId.parse("DIPO-1") });
+        await w.resumption.resumeCommand(resumeCtx(), { story: StoryId.parse("DIPO-1") });
       } catch (error) {
         return error instanceof CommandError ? error.error.code : String(error);
       }

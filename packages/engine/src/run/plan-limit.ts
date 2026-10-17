@@ -5,7 +5,7 @@
 // - A rejected limit writes a wait fact on the run (DIPO-51, `openWait`) and tells the schedule
 //   (`waiting`). With `resetsAt` the run is resumed two minutes after it; without it a resume probe
 //   runs once an hour from the fact's `since`. Both are the cheapest resume: the native session
-//   continues with "continue" (`RunOutcomes.resumeWait`), and when the plan is still limited the
+//   continues with "continue" (`Resumption.resumeWait`), and when the plan is still limited the
 //   worker meets the limit again and writes a new fact. `credits` has no reset coming: no timer;
 //   `work.resume` on the held run lifts it.
 // - While a fact is open, scheduling is held: scopes `session`, `weekly` and `unknown` hold new runs
@@ -22,23 +22,13 @@
 //   again too, without a new notice, and deletes those whose time passed while the daemon was down.
 // - The timers run on the injected clock. A resume that comes due while scheduling is off (the
 //   daemon in `safe`) or while the held worker has not exited yet is tried again a minute later.
-// - `work.resume { story, note? }` (implemented here for held runs only): a story whose active run
-//   holds an open wait is resumed at once, a `credits` hold on the adapter is lifted, and the
-//   result names the run. A story with no held run fails `story.notPausedOrParked`; a held worker
-//   that has not exited yet fails the retryable `run.hostAlive`.
+// - `work.resume { story, note? }` is implemented by `Resumption` (`resumption.ts`, DIPO-138), which
+//   calls `resumeNow` here for a held run: its timer stops, a `credits` hold on the adapter is
+//   lifted, and the session continues.
 
-import {
-  type Clock,
-  type Lifecycle,
-  type OfficeId,
-  type RunId,
-  type TimerHandle,
-  workResume,
-} from "@dipsaus-orchestrator/contract";
-import type { z } from "zod";
+import type { Clock, OfficeId, RunId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import { CommandError } from "../commands/errors";
-import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
+import type { FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
@@ -52,6 +42,7 @@ import {
   type WaitScope,
 } from "./outcomes";
 import { activeRuns, findRun } from "./records";
+import type { ResumeWaitOutcome } from "./resumption";
 
 /** A run with `resetsAt` resumes this long after it (0008 section 7). */
 export const PLAN_LIMIT_RESUME_AFTER_MS = 2 * 60_000;
@@ -62,10 +53,6 @@ export const PLAN_LIMIT_RETRY_MS = 60_000;
 
 /** The office load step that reads open wait facts back after a restart. */
 export const PLAN_LIMIT_STEP = "plan-limits/recover";
-/** `work.resume` on a story with no held run (0005 section 4). */
-export const NOT_PAUSED_OR_PARKED = "story.notPausedOrParked";
-/** `work.resume` while the held worker has not exited (0005 section 10, retryable). */
-export const RUN_HOST_ALIVE = "run.hostAlive";
 
 /** `engine.notice` codes of the schedule. */
 export const PLAN_LIMIT_NOTICES = {
@@ -120,16 +107,13 @@ function describeScope(scope: WaitScope): string {
   return `the ${scope} limit`;
 }
 
-/** What `resumeWait` answers (`RunOutcomes.resumeWait`). */
-export type ResumeWaitOutcome = "started" | "failed" | "notHeld" | "busy";
-
 export interface PlanLimitsDeps {
   readonly clock: Clock;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
   };
-  /** Resumes a held run (`RunOutcomes.resumeWait`). */
+  /** Resumes a held run (`Resumption.resumeWait`). */
   readonly resume: (office: OfficeId, run: RunId, why: string) => Promise<ResumeWaitOutcome>;
   /** False while the daemon schedules no work (`safe`); true by default. */
   readonly scheduling?: () => boolean;
@@ -138,6 +122,8 @@ export interface PlanLimitsDeps {
     adapterHeld(adapter: string): AdapterHold | null;
     lift(adapter: string): boolean;
   };
+  /** The feature that registers `work.resume` (`Resumption.feature`), with the schedule's own. */
+  readonly commands?: FeatureModule;
   /** Raises an `engine.notice` on the software stream (a warning holds every office). */
   readonly notify?: (notice: HoldNotice) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -178,9 +164,6 @@ function isWarningScope(scope: string): scope is WaitScope {
     scope === "session" || scope === "weekly" || scope === "unknown" || scope.startsWith("model:")
   );
 }
-
-type ResumeArgs = z.output<typeof workResume.args>;
-type ResumeResult = z.input<typeof workResume.result>;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -316,7 +299,10 @@ export class PlanLimits implements PlanLimitWaits {
     this.#warnings.clear();
   }
 
-  /** The load step that recovers waits, and `work.resume` for held runs. */
+  /**
+   * The load step that recovers waits, and `work.resume` for held runs, which `Resumption` (DIPO-138)
+   * implements: it is registered here when the schedule is given it (`PlanLimitsDeps.commands`).
+   */
   get feature(): FeatureModule {
     return {
       name: "plan-limits",
@@ -325,60 +311,9 @@ export class PlanLimits implements PlanLimitWaits {
           this.recover(ctx.officeId, ctx.office);
           return { ok: true };
         });
-        registry.addAsyncOfficeCommand({
-          definition: workResume,
-          handle: (ctx, args) => this.resumeCommand(ctx, args),
-        });
+        this.#deps.commands?.register(registry);
       },
     };
-  }
-
-  /** `work.resume`: see the file comment. */
-  async resumeCommand(
-    ctx: AsyncCommandContext,
-    args: ResumeArgs,
-  ): Promise<CommandOutcome<ResumeResult>> {
-    const handle = ctx.office;
-    const identity = ctx.stories.get(args.story);
-    if (identity === undefined) throw new Error(`${args.story} was not resolved`);
-    const run = activeRuns(handle).find(
-      (candidate) => candidate.kind === "story" && candidate.key === identity.key,
-    );
-    const notHeld = () =>
-      new CommandError(
-        NOT_PAUSED_OR_PARKED,
-        `${identity.story} has no run held by a plan limit; work.resume continues only those for now.`,
-        { story: identity.story },
-      );
-    if (run === undefined || openWait(handle, run.runId) === null) throw notHeld();
-    const outcome = await this.resumeNow(handle.officeId, run.runId);
-    switch (outcome) {
-      case "notHeld":
-        throw notHeld();
-      case "busy":
-        throw new CommandError(
-          RUN_HOST_ALIVE,
-          `${identity.story}'s held worker has not exited yet; send work.resume again in a moment.`,
-          { story: identity.story, run: run.runId },
-        );
-      case "started":
-        return {
-          result: {
-            story: identity.story,
-            key: identity.key,
-            to: "In Progress",
-            run: run.runId,
-          },
-        };
-      case "failed":
-        return {
-          result: {
-            story: identity.story,
-            key: identity.key,
-            to: this.#afterFailure(handle, run.runId),
-          },
-        };
-    }
   }
 
   // ---- warnings --------------------------------------------------------------------------------
@@ -568,14 +503,5 @@ export class PlanLimits implements PlanLimitWaits {
   #storyOf(wait: Wait): string {
     const handle = this.#deps.offices.get(wait.office);
     return (handle === undefined ? null : findRun(handle, wait.runId)?.story) ?? wait.runId;
-  }
-
-  /** Where the story is after a resume that did not start: parked, else released to Ready. */
-  #afterFailure(handle: OfficeHandle, runId: RunId): Lifecycle {
-    const parked = handle.get(
-      "select 1 as found from parks where office_id = $office_id and run_id = $run",
-      { run: runId },
-    );
-    return parked === null ? "Ready" : "Parked";
   }
 }
