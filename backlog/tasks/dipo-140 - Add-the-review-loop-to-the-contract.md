@@ -4,7 +4,7 @@ title: Add the review loop to the contract
 status: Done
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 21:53'
+updated_date: '2026-10-17 21:58'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -51,4 +51,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Delivery: dipo run run_01M55WYVJNV5MTV41F6A1WR8QQ (Haiku low, 38 turns, about $0.05, 8 min; the first run on the dipo binary rebuilt from main at eda3884, with DIPO-184's temp rule) reported done. Contract minor 1 (unreleased) gains ReviewVerdict and ReviewSummary (work.ts), Verdict.review and gate.decided.review, StoryView.pr (StoryPr: number, url, state open/merged/closed), Progress.reviewRoundCap and reviewRoundsFailed, the event story.pr, and the office errors gate.notWaitingOnMaintainer, gate.handMergeOnly and gate.noteRequired (not retryable). gate.approve and gate.reject ship with since 1. Worker choices: finding kind is an open enum; the code tree key is named treeKey. JSON Schema regenerated with bun run contract:schema. Verify outside the sandbox on DIPO-140/review-loop-contract-finish: 3179 pass, 2 skip, 0 fail.
+
+Review fix (maintainer side): ReviewVerdict.treeKey renamed codeTreeKey, the name the engine and migration 0021 already use; StoryPrState is an open enum (KNOWN_STORY_PR_STATES), so a later state such as draft needs no major. Both are free in the unreleased minor 1. Verify after the fix: 3179 pass, 2 skip, 0 fail. The 0005 amendment log has no DIPO-140 entry; that is a docs/decisions change left for the maintainer.
 <!-- SECTION:NOTES:END -->
