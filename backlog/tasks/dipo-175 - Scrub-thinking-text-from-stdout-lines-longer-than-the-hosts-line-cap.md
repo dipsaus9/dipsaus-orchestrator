@@ -1,10 +1,10 @@
 ---
 id: DIPO-175
 title: Scrub thinking text from stdout lines longer than the host's line cap
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 20:57'
+updated_date: '2026-10-17 21:00'
 labels:
   - 'tier:S'
   - cutover
@@ -39,8 +39,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No byte of a field the plan's lineScrub names (thinking text, signature) reaches events.ndjson from a stdout line longer than MAX_PENDING_LINE, whatever the field order in the line and wherever the piece boundaries fall
-- [ ] #2 The host's held text stays under a fixed cap stated in packages/engine/src/host/: a line that never ends still cannot grow the host's memory without limit
-- [ ] #3 A stdout line under the cap is stored as today: unchanged when the scrub removes nothing, scrubbed when it holds a scrubbed block type
-- [ ] #4 Tests in packages/engine/test/host/ cover a capped line with a thinking block whose text spans two pieces, a capped line whose block type field comes after the thinking text, a capped line with no thinking block, and a line under the cap
+- [x] #1 No byte of a field the plan's lineScrub names (thinking text, signature) reaches events.ndjson from a stdout line longer than MAX_PENDING_LINE, whatever the field order in the line and wherever the piece boundaries fall
+- [x] #2 The host's held text stays under a fixed cap stated in packages/engine/src/host/: a line that never ends still cannot grow the host's memory without limit
+- [x] #3 A stdout line under the cap is stored as today: unchanged when the scrub removes nothing, scrubbed when it holds a scrubbed block type
+- [x] #4 Tests in packages/engine/test/host/ cover a capped line with a thinking block whose text spans two pieces, a capped line whose block type field comes after the thinking text, a capped line with no thinking block, and a line under the cap
 <!-- AC:END -->
