@@ -32,7 +32,9 @@ import {
   firedCap,
   insertRun,
   openPark,
-  RunOutcomes,
+  createRunOutcomes,
+  type Resumption,
+  type RunOutcomes,
   type RunEnder,
   runIntents,
   runOutcome,
@@ -154,10 +156,10 @@ function park(): { parkId: number; question: string } {
   return { parkId, question };
 }
 
-function outcomes(unpark: UnparkWriter): RunOutcomes {
+function built(unpark: UnparkWriter): { outcomes: RunOutcomes; resumption: Resumption } {
   const { f } = w;
   const ender = { isTracked: () => false } as unknown as RunEnder;
-  return new RunOutcomes({
+  return createRunOutcomes({
     clock: f.t.clock,
     offices: { get: () => f.office },
     steering: { send: async () => ({ ok: true }) },
@@ -174,6 +176,9 @@ function outcomes(unpark: UnparkWriter): RunOutcomes {
     unpark,
   });
 }
+
+const outcomes = (unpark: UnparkWriter): RunOutcomes => built(unpark).outcomes;
+const resumptionOf = (unpark: UnparkWriter): Resumption => built(unpark).resumption;
 
 const lifting: UnparkWriter = {
   lift: async (_office, request) => {
@@ -233,7 +238,7 @@ describe("parked time (runs.parked_ms)", () => {
     t.clock.advance(10 * MINUTE);
     const { parkId, question } = park();
     t.clock.advance(24 * 60 * MINUTE);
-    const resuming = outcomes(lifting);
+    const resuming = resumptionOf(lifting);
     const result = await resuming.resumePark(w.f.office.officeId as never, run, {
       parkId,
       question,
@@ -255,7 +260,7 @@ describe("a resume a restart interrupted", () => {
     const { parkId, question } = park();
     // The daemon stops while the park is being lifted on the branch.
     const stuck: UnparkWriter = { lift: () => new Promise(() => undefined) };
-    void outcomes(stuck).resumePark(office.officeId as never, run, {
+    void resumptionOf(stuck).resumePark(office.officeId as never, run, {
       parkId,
       question,
       decision: "deny",
@@ -295,7 +300,7 @@ describe("a resume a restart interrupted", () => {
     // The reopen committed, then the daemon stopped before the session started.
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
-    const first = new RunOutcomes({
+    const first = createRunOutcomes({
       clock: w.f.t.clock,
       offices: { get: () => office },
       steering: { send: async () => ({ ok: true }) },
@@ -306,7 +311,7 @@ describe("a resume a restart interrupted", () => {
       caps: () => CAPS,
       unpark: lifting,
     });
-    void first.resumePark(office.officeId as never, run, {
+    void first.resumption.resumePark(office.officeId as never, run, {
       parkId,
       question,
       decision: "allow",
@@ -326,7 +331,7 @@ describe("a resume a restart interrupted", () => {
   it("drops the intent and leaves the question answerable when the park ended meanwhile", async () => {
     const { office, run } = w.f;
     const { parkId, question } = park();
-    void outcomes({ lift: () => new Promise(() => undefined) }).resumePark(
+    void resumptionOf({ lift: () => new Promise(() => undefined) }).resumePark(
       office.officeId as never,
       run,
       { parkId, question, decision: "allow", text: "" },
@@ -351,7 +356,7 @@ describe("the reply of work.answer (live test of 2026-10-15)", () => {
     const { question } = park();
     // A worker host that never finishes starting.
     let asked = 0;
-    const hanging = new RunOutcomes({
+    const hanging = createRunOutcomes({
       clock: w.f.t.clock,
       offices: { get: () => office },
       steering: { send: async () => ({ ok: true }) },
@@ -374,7 +379,7 @@ describe("the reply of work.answer (live test of 2026-10-15)", () => {
       steering: { send: async () => ({ ok: true }) },
       encode,
       presence: { connected: () => false, lastRequestAt: () => null },
-      parks: { resume: (o, id, request) => hanging.resumePark(o, id, request) },
+      parks: { resume: (o, id, request) => hanging.resumption.resumePark(o, id, request) },
     });
     const reply = await executeCommand(
       {
@@ -404,7 +409,7 @@ describe("the reply of work.answer (live test of 2026-10-15)", () => {
     expect(findRun(office, run)?.endedAt).toBeNull();
     expect(findQuestion(office, question)?.closedHow).toBe("answered");
     expect(runIntents(office, run).find((i) => i.kind === "answer")?.state).toBe("sent");
-    expect(hanging.busy(run)).toBe(true);
+    expect(hanging.outcomes.busy(run)).toBe(true);
     asks.close();
   });
 });

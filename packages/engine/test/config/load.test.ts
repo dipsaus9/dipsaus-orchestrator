@@ -144,13 +144,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 3\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 4\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 3\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 4\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -260,6 +260,19 @@ describe("precedence and merge", () => {
       workerQuietMinutes: 4,
       questionWaitMinutes: 6,
     });
+  });
+
+  it("stores commands by default and turns it off in office.local.yaml (DIPO-135)", () => {
+    const none = ok(resolveOfficeConfig({}));
+    expect(none.config.privacy).toEqual({
+      storePrompts: false,
+      storeCommandBodies: true,
+      keepRawEvents: false,
+    });
+    const off = ok(
+      resolveOfficeConfig({ local: "version: 1\nprivacy: { storeCommandBodies: false }\n" }),
+    );
+    expect(off.config.privacy.storeCommandBodies).toBe(false);
   });
 
   it("takes privacy.* and retention.* from the local file only", () => {
@@ -460,10 +473,10 @@ function fixture(name: string): string {
 }
 
 describe("office configuration version 2", () => {
-  it("loads a version 1 file migrated to version 2, the same as its version 2 form", () => {
+  it("loads a version 1 file migrated to version 3, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(2);
+    expect(v1.config.version).toBe(3);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -501,13 +514,14 @@ describe("office configuration version 2", () => {
     expect(error?.message).toContain("<plugin>@<marketplace>");
   });
 
-  it("accepts a version 1 or 2 local file next to either office file", () => {
+  it("accepts an older local file next to either office file", () => {
     for (const [office, local] of [
       ["version: 1\n", "version: 2\nretention: { shortDays: 3 }\n"],
       ["version: 2\n", "version: 1\nretention: { shortDays: 3 }\n"],
+      ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(2);
+      expect(result.config.version).toBe(3);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -515,6 +529,64 @@ describe("office configuration version 2", () => {
   it("takes worker.plugins as a command flag override", () => {
     const result = ok(resolveOfficeConfig({ flags: { worker: { plugins: ["a@b"] } } }));
     expect(result.config.worker.plugins).toEqual(["a@b"]);
+  });
+
+  it("takes mergeSlot.requiredChecks from a version 3 file", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 3\nmergeSlot: { requiredChecks: [build, Lint (ubuntu)] }\n",
+      }),
+    );
+    expect(result.config.mergeSlot.requiredChecks).toEqual(["build", "Lint (ubuntu)"]);
+  });
+
+  it("migrates the version 2 fixture to the version 3 fixture, except mergeSlot", () => {
+    const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
+    const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
+    expect(v2.config.mergeSlot.requiredChecks).toEqual(["ci-ok", "pr-title"]);
+    expect(v3.config.mergeSlot.requiredChecks).toEqual(["build", "Lint (ubuntu)"]);
+    const { mergeSlot: _v2Slot, ...v2Rest } = v2.config;
+    const { mergeSlot: _v3Slot, ...v3Rest } = v3.config;
+    expect(v2Rest).toEqual(v3Rest);
+  });
+
+  it("refuses mergeSlot in a version 2 file and says version 3 adds it", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 2\nmergeSlot: { requiredChecks: [build] }\n" }),
+    );
+    expect(error?.path).toBe("mergeSlot");
+    expect(error?.message).toContain("unknown key in version 2");
+    expect(error?.message).toContain("Version 3 adds mergeSlot: set version: 3 to use it");
+  });
+
+  it("gives a version 2 file the default check names, as the migration does", () => {
+    const result = ok(resolveOfficeConfig({ office: "version: 2\nremote: upstream\n" }));
+    expect(result.config.mergeSlot.requiredChecks).toEqual(["ci-ok", "pr-title"]);
+  });
+
+  it("takes mergeSlot.requiredChecks as a command flag override", () => {
+    const result = ok(resolveOfficeConfig({ flags: { mergeSlot: { requiredChecks: ["x"] } } }));
+    expect(result.config.mergeSlot.requiredChecks).toEqual(["x"]);
+  });
+
+  it("refuses an empty mergeSlot.requiredChecks and names the key", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 3\nmergeSlot: { requiredChecks: [] }\n" }),
+    );
+    expect(error?.path).toBe("mergeSlot.requiredChecks");
+    expect(error?.message).toContain("mergeSlot.requiredChecks");
+    expect(error?.message).toContain("at least one check");
+  });
+
+  it("refuses a check name twice in mergeSlot.requiredChecks and names the key", () => {
+    const [error] = errors(
+      resolveOfficeConfig({
+        office: "version: 3\nmergeSlot: { requiredChecks: [ci-ok, pr-title, ci-ok] }\n",
+      }),
+    );
+    expect(error?.path).toBe("mergeSlot.requiredChecks");
+    expect(error?.message).toContain("mergeSlot.requiredChecks");
+    expect(error?.message).toContain("twice");
   });
 });
 
@@ -527,5 +599,14 @@ describe("the version 1 hint for worker.plugins", () => {
     expect(byPath["worker.plugins"]).toContain("Version 2 adds worker.plugins");
     expect(byPath["worker.plugin"]).toContain("unknown key");
     expect(byPath["worker.plugin"]).not.toContain("Version 2");
+  });
+
+  it("gives no version hint in the local file, which accepts mergeSlot in no version", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ local: "version: 2\nmergeSlot: { requiredChecks: [build] }\n" }),
+    );
+    expect(error?.path).toBe("mergeSlot");
+    expect(error?.message).toContain("accepts only version");
+    expect(error?.message).not.toContain("Version 3");
   });
 });

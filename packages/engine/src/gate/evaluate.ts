@@ -32,5 +32,11 @@ export function evaluateGate(input: GateInput, mode: GateMode): GateResult {
     roster: input.roster ?? BUILT_IN_ROSTER,
   };
   const failures = rulesFor(mode).flatMap((rule) => rule(context));
-  return { mode, passed: failures.length === 0, failures };
+  const waiting = input.story.waitingOn ?? [];
+  return {
+    mode,
+    passed: failures.length === 0,
+    failures,
+    ...(waiting.length === 0 ? {} : { waitingOn: waiting }),
+  };
 }

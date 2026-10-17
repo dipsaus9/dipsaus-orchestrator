@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
+import { guardRuns, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { systemClock } from "../../src/platform/clock";
 import { handleGateConnection } from "../../src/platform/safe-chain-gate";
@@ -409,64 +409,68 @@ const SANDBOX_REFUSES_LOOPBACK = await sandboxRefusesLoopback();
 
 describe("(unit) the gate on local sockets", () => {
   // The fake Safe-Chain listens on loopback TCP, as the real one does.
-  it.skipIf(SANDBOX_REFUSES_LOOPBACK)(
-    "forwards a registry CONNECT to that ecosystem's Safe-Chain and refuses the rest",
-    () =>
-      withTempDir(async (dir) => {
-        // A fake Safe-Chain: answers the CONNECT, then echoes one line and closes.
-        const seen: string[] = [];
-        const fakeSafeChain = createServer((socket) => {
-          let buffer = "";
-          socket.on("data", (chunk) => {
-            buffer += chunk.toString("latin1");
-            const end = buffer.indexOf("\r\n\r\n");
-            if (end >= 0 && !buffer.startsWith("done")) {
-              seen.push(buffer.slice(0, end));
-              socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-              buffer = "done";
-              return;
-            }
-            if (buffer.startsWith("done") && buffer.includes("\n")) {
-              socket.end(`echo ${buffer.slice(4)}`);
-            }
-          });
+  it.skipIf(
+    !guardRuns(
+      "SANDBOX_REFUSES_LOOPBACK",
+      "the sandbox refuses loopback TCP listens, so the fake Safe-Chain cannot listen",
+      !SANDBOX_REFUSES_LOOPBACK,
+    ),
+  )("forwards a registry CONNECT to that ecosystem's Safe-Chain and refuses the rest", () =>
+    withTempDir(async (dir) => {
+      // A fake Safe-Chain: answers the CONNECT, then echoes one line and closes.
+      const seen: string[] = [];
+      const fakeSafeChain = createServer((socket) => {
+        let buffer = "";
+        socket.on("data", (chunk) => {
+          buffer += chunk.toString("latin1");
+          const end = buffer.indexOf("\r\n\r\n");
+          if (end >= 0 && !buffer.startsWith("done")) {
+            seen.push(buffer.slice(0, end));
+            socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+            buffer = "done";
+            return;
+          }
+          if (buffer.startsWith("done") && buffer.includes("\n")) {
+            socket.end(`echo ${buffer.slice(4)}`);
+          }
         });
-        fakeSafeChain.listen(0, "127.0.0.1");
-        await listening(fakeSafeChain);
-        const address = fakeSafeChain.address();
-        const port = typeof address === "object" && address !== null ? address.port : 0;
-        const path = join(dir, "gate.sock");
-        const gate = createServer((socket) =>
-          handleGateConnection(socket, { npm: port, pypi: port }, systemClock),
+      });
+      fakeSafeChain.listen(0, "127.0.0.1");
+      await listening(fakeSafeChain);
+      const address = fakeSafeChain.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const path = join(dir, "gate.sock");
+      const gate = createServer((socket) =>
+        handleGateConnection(socket, { npm: port, pypi: port }, systemClock),
+      );
+      gate.listen(path);
+      await listening(gate);
+      try {
+        const passed = await exchange(
+          path,
+          "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n",
+          "hello\n",
         );
-        gate.listen(path);
-        await listening(gate);
-        try {
-          const passed = await exchange(
-            path,
-            "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n",
-            "hello\n",
-          );
-          expect(passed).toContain("HTTP/1.1 200 Connection Established");
-          expect(passed).toContain("echo hello");
-          expect(seen).toEqual([
-            "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443",
-          ]);
+        expect(passed).toContain("HTTP/1.1 200 Connection Established");
+        expect(passed).toContain("echo hello");
+        expect(seen).toEqual([
+          "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443",
+        ]);
 
-          const plain = await exchange(path, "GET http://127.0.0.1:6420/ HTTP/1.1\r\n\r\n");
-          expect(plain).toStartWith("HTTP/1.1 403 Forbidden");
-          const other = await exchange(path, "CONNECT example.com:443 HTTP/1.1\r\n\r\n");
-          expect(other).toStartWith("HTTP/1.1 403 Forbidden");
-          expect(other).toContain("example.com is not a registry Safe-Chain checks");
-          const huge = await exchange(path, `CONNECT ${"a".repeat(9_000)}`);
-          expect(huge).toStartWith("HTTP/1.1 400 Bad Request");
-          // Nothing refused reached the fake Safe-Chain.
-          expect(seen).toHaveLength(1);
-        } finally {
-          gate.close();
-          fakeSafeChain.close();
-        }
-      }),
+        const plain = await exchange(path, "GET http://127.0.0.1:6420/ HTTP/1.1\r\n\r\n");
+        expect(plain).toStartWith("HTTP/1.1 403 Forbidden");
+        const other = await exchange(path, "CONNECT example.com:443 HTTP/1.1\r\n\r\n");
+        expect(other).toStartWith("HTTP/1.1 403 Forbidden");
+        expect(other).toContain("example.com is not a registry Safe-Chain checks");
+        const huge = await exchange(path, `CONNECT ${"a".repeat(9_000)}`);
+        expect(huge).toStartWith("HTTP/1.1 400 Bad Request");
+        // Nothing refused reached the fake Safe-Chain.
+        expect(seen).toHaveLength(1);
+      } finally {
+        gate.close();
+        fakeSafeChain.close();
+      }
+    }),
   );
 });
 

@@ -220,18 +220,32 @@ export type {
 // Waiting for plan-limit resets and `work.resume` of held runs (DIPO-61).
 export {
   inFamily,
-  NOT_PAUSED_OR_PARKED,
   PLAN_LIMIT_NOTICES,
   PLAN_LIMIT_PROBE_MS,
   PLAN_LIMIT_RESUME_AFTER_MS,
   PLAN_LIMIT_RETRY_MS,
   PLAN_LIMIT_STEP,
   PlanLimits,
-  RUN_HOST_ALIVE,
   scopeHolds,
   wakeAt,
 } from "./plan-limit";
-export type { PlanLimitsDeps, ResumeWaitOutcome } from "./plan-limit";
+export type { PlanLimitsDeps } from "./plan-limit";
+// Park resume and `work.resume` in one module with a per-reason policy table (DIPO-138).
+export {
+  createRunOutcomes,
+  NOT_PAUSED_OR_PARKED,
+  PARK_RESUME_POLICY,
+  Resumption,
+  resumeVia,
+  RUN_HOST_ALIVE,
+} from "./resumption";
+export type {
+  HeldRunResumer,
+  ResumePolicyRow,
+  ResumeVia,
+  ResumeWaitOutcome,
+  ResumptionOptions,
+} from "./resumption";
 export {
   baseStoryFacts,
   HOST_EXIT_WAIT_MS,

@@ -209,6 +209,7 @@ export class GateStore {
               key: identity.key,
               passed: result.passed,
               failures: result.failures.map(({ rule, message }) => ({ rule, message })),
+              ...(result.waitingOn === undefined ? {} : { waitingOn: [...result.waitingOn] }),
             };
           },
         });

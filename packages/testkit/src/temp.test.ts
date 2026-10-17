@@ -2,14 +2,16 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import { guardRuns } from "./guard";
 import {
   longestTestSocketBytes,
   MAX_TEMP_ROOT_BYTES,
   RUNTIME_PATH_LIMIT,
+  TEMP_DIR_TEMPLATE,
   testRuntimeDir,
   testStateDir,
 } from "./runtime";
-import { makeTempDir, tempRoot, withDaemonTempDir, withTempDir } from "./temp";
+import { makeTempDir, tempRoot, tempRootFits, withDaemonTempDir, withTempDir } from "./temp";
 
 /** Runs `fn` with one environment variable set or unset, restoring it afterwards. */
 async function withEnv<T>(name: string, value: string | undefined, fn: () => Promise<T>) {
@@ -28,8 +30,11 @@ async function withEnv<T>(name: string, value: string | undefined, fn: () => Pro
  * Whether a temp directory under this suite's temp root can itself be `DIPO_TMP` (DIPO-109). The
  * tests that nest one are skipped, visibly, under a `DIPO_TMP` longer than about 25 bytes.
  */
-const NESTED_ROOT_FITS =
-  Buffer.byteLength(realpathSync(tempRoot())) + "/dipo-XXXXXX".length <= MAX_TEMP_ROOT_BYTES;
+const NESTED_ROOT_FITS = guardRuns(
+  "NESTED_ROOT_FITS",
+  "a temp directory under DIPO_TMP is too long to be a DIPO_TMP itself (DIPO-109)",
+  tempRootFits(join(realpathSync(tempRoot()), TEMP_DIR_TEMPLATE)),
+);
 
 describe("withTempDir", () => {
   it("creates dipo-XXXXXX under the temp root and removes it afterwards", async () => {
@@ -97,8 +102,11 @@ function rootOfLength(outer: string, bytes: number): string {
  * `dipo-XXXXXX` directory, a slash and at least one byte of padding. The test that needs it is
  * skipped, visibly, under a longer `DIPO_TMP`.
  */
-const LONGEST_ROOT_FITS =
-  Buffer.byteLength(realpathSync(tempRoot())) + "/dipo-XXXXXX/r".length <= MAX_TEMP_ROOT_BYTES;
+const LONGEST_ROOT_FITS = guardRuns(
+  "LONGEST_ROOT_FITS",
+  "DIPO_TMP is too long for a root of the longest length the limit allows (DIPO-109)",
+  tempRootFits(join(realpathSync(tempRoot()), TEMP_DIR_TEMPLATE, "r")),
+);
 
 describe("the temp root limit (DIPO-109)", () => {
   it("refuses a DIPO_TMP too long for a test daemon's socket paths, naming the limit", async () => {
@@ -172,5 +180,24 @@ describe("withDaemonTempDir", () => {
         throw new Error("the test body failed");
       }),
     ).rejects.toThrow("(source tmp)");
+  });
+});
+
+/** A path of exactly `bytes` bytes. It is computed, never created, so it needs no DIPO_TMP. */
+function pathOfLength(bytes: number): string {
+  return `/${"c".repeat(bytes - 1)}`;
+}
+
+describe("the temp root limits on computed paths (DIPO-191)", () => {
+  // Unlike the guarded tests above, these run under any DIPO_TMP, the worker's 30-byte one too.
+  it("accepts a root of exactly MAX_TEMP_ROOT_BYTES, and refuses one byte more", () => {
+    expect(tempRootFits(pathOfLength(MAX_TEMP_ROOT_BYTES))).toBe(true);
+    expect(tempRootFits(pathOfLength(MAX_TEMP_ROOT_BYTES + 1))).toBe(false);
+  });
+
+  it("accepts a nested temp directory that fits as DIPO_TMP, and refuses one byte more", () => {
+    const outerBytes = MAX_TEMP_ROOT_BYTES - TEMP_DIR_TEMPLATE.length - 1;
+    expect(tempRootFits(join(pathOfLength(outerBytes), TEMP_DIR_TEMPLATE))).toBe(true);
+    expect(tempRootFits(join(pathOfLength(outerBytes + 1), TEMP_DIR_TEMPLATE))).toBe(false);
   });
 });

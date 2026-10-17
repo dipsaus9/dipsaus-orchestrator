@@ -48,6 +48,7 @@ export { BUILT_IN_ROSTER, GATE_RULES } from "./types";
 export type {
   GateConfig,
   GateCriterion,
+  GateDependency,
   GateFailure,
   GateInput,
   GateMode,

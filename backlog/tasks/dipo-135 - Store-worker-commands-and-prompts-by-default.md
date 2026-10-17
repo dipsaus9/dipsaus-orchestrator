@@ -1,10 +1,10 @@
 ---
 id: DIPO-135
 title: Store worker commands by default
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-16 19:08'
-updated_date: '2026-10-17 20:16'
+updated_date: '2026-10-17 23:04'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -48,15 +48,22 @@ test_plan:
     - kind: "automated"
       check: "(unit) the overview count line and the worker-output title in the detail show `stores commands` while storeCommandBodies is on, never the word opt-in, and no label when no privacy setting is on"
     - kind: "manual"
-      check: "(live) with no .dipo/office.local.yaml in the scratch repo, run a story that uses Bash and see `[tool] Bash <command>` lines in its worker output and `stores commands` in the overview"
+      check: "(live) with no .dipo/office.local.yaml in the scratch repo, run a story that uses Bash and open its worker output and the overview"
+      expect: "the worker output shows `[tool] Bash <command>` lines and the overview shows `stores commands`"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With no privacy keys in .dipo/office.local.yaml, privacy.storeCommandBodies resolves to true and privacy.storePrompts and privacy.keepRawEvents to false (OFFICE_DEFAULTS.privacy in packages/engine/src/config/schema.ts); `privacy.storeCommandBodies: false` in office.local.yaml turns it off
-- [ ] #2 The no-configuration fallbacks stay off as the safe default: DEFAULT_OUTPUT_PRIVACY in packages/engine/src/ingest/output.ts and the `?? false` in packages/daemon/src/runs.ts are unchanged, so an office without a configuration in force stores no commands
-- [ ] #3 The tests that pin the old defaults in packages/engine/test/config/schema.test.ts (the OFFICE_DEFAULTS.privacy check and privacyOptIns(OFFICE_DEFAULTS)) assert the new defaults, and packages/engine/test/ingest/command-bodies.test.ts still tests the off case with an explicit false
-- [ ] #4 optInLabel in packages/tui/src/views.tsx is replaced by a label that names the stored data (`stores commands`, `stores prompts`, `keeps raw events`, joined with commas) instead of the word opt-in; the overview count line (overview.tsx) and the worker-output title in the detail (detail.tsx) use it, overview.test.tsx and detail.test.tsx assert the new text, and neither shows a label when no privacy setting is on
-- [ ] #5 The contract field OfficeSummary.optIns and the engine function privacyOptIns keep their names: no contract change and no change in packages/engine/src/views/
+- [x] #1 With no privacy keys in .dipo/office.local.yaml, privacy.storeCommandBodies resolves to true and privacy.storePrompts and privacy.keepRawEvents to false (OFFICE_DEFAULTS.privacy in packages/engine/src/config/schema.ts); `privacy.storeCommandBodies: false` in office.local.yaml turns it off
+- [x] #2 The no-configuration fallbacks stay off as the safe default: DEFAULT_OUTPUT_PRIVACY in packages/engine/src/ingest/output.ts and the `?? false` in packages/daemon/src/runs.ts are unchanged, so an office without a configuration in force stores no commands
+- [x] #3 The tests that pin the old defaults in packages/engine/test/config/schema.test.ts (the OFFICE_DEFAULTS.privacy check and privacyOptIns(OFFICE_DEFAULTS)) assert the new defaults, and packages/engine/test/ingest/command-bodies.test.ts still tests the off case with an explicit false
+- [x] #4 optInLabel in packages/tui/src/views.tsx is replaced by a label that names the stored data (`stores commands`, `stores prompts`, `keeps raw events`, joined with commas) instead of the word opt-in; the overview count line (overview.tsx) and the worker-output title in the detail (detail.tsx) use it, overview.test.tsx and detail.test.tsx assert the new text, and neither shows a label when no privacy setting is on
+- [x] #5 The contract field OfficeSummary.optIns and the engine function privacyOptIns keep their names: no contract change and no change in packages/engine/src/views/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5619VZDHNJH9AHJY3VCZAYK (Haiku low, 27 turns, about $0.02, 3 min) reported done. OFFICE_DEFAULTS.privacy.storeCommandBodies is true; the no-configuration fallbacks stay off. The TUI label is storedLabel (views.tsx): 'stores commands', 'stores prompts', 'keeps raw events', joined with commas, no label when none is on; overview and detail use it. OfficeSummary.optIns and privacyOptIns keep their names. The worker set DIPO_TMP=$TMPDIR itself (against L1's DIPO-184 rule) and saw 71 sandbox socket failures in daemon tests. Verify outside the sandbox on DIPO-135/store-commands-by-default-finish: 3240 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 config, ingest, tui and daemon 457 pass. The manual live check (a scratch-repo run shows [tool] Bash lines and 'stores commands') is left for the maintainer.
+<!-- SECTION:NOTES:END -->

@@ -6,10 +6,13 @@ import {
   OFFICE_DEFAULTS,
   OfficeConfigV1,
   OfficeConfigV2,
+  OfficeConfigV3,
   OfficeFileV1,
   OfficeFileV2,
+  OfficeFileV3,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
+  OfficeLocalFileV3,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -117,7 +120,6 @@ function file(plugins: unknown): boolean {
 
 describe("version 2 key paths", () => {
   it("are the version 1 paths plus worker.plugins", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(2);
     expect(schemaKeyPaths(OfficeConfigV2)).toEqual(VERSION_2_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV2)).toEqual(
       VERSION_2_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -143,34 +145,84 @@ describe("version 2 key paths", () => {
   });
 });
 
+// Version 3 (DIPO-133): version 2 plus mergeSlot.requiredChecks (0016 rule 2).
+const VERSION_3_KEY_PATHS = [...VERSION_2_KEY_PATHS, "mergeSlot.requiredChecks"];
+
+/** Whether `.dipo/office.yaml` version 3 accepts `mergeSlot.requiredChecks` as `names`. */
+function checks(names: unknown): boolean {
+  return OfficeFileV3.safeParse({ version: 3, mergeSlot: { requiredChecks: names } }).success;
+}
+
+describe("version 3 key paths", () => {
+  it("are the version 2 paths plus mergeSlot.requiredChecks", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(3);
+    expect(schemaKeyPaths(OfficeConfigV3)).toEqual(VERSION_3_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV3)).toEqual(
+      VERSION_3_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV3)).toEqual(
+      VERSION_3_KEY_PATHS.filter(localAllowed).toSorted(),
+    );
+  });
+
+  it("take mergeSlot.requiredChecks as a list of distinct, non-empty check names", () => {
+    expect(checks(["ci-ok", "pr-title"])).toBe(true);
+    expect(checks(["Build (ubuntu)"])).toBe(true);
+    expect(checks([])).toBe(false);
+    expect(checks(["ci-ok", "ci-ok"])).toBe(false);
+    expect(checks([""])).toBe(false);
+  });
+
+  it("keep version 2 without mergeSlot", () => {
+    expect(
+      OfficeFileV2.safeParse({ version: 2, mergeSlot: { requiredChecks: ["a"] } }).success,
+    ).toBe(false);
+    expect(OfficeLocalFileV2.safeParse({ version: 2, mergeSlot: {} }).success).toBe(false);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 2 as the identity", () => {
+  it("migrates version 1 to 3 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 2 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 3 });
     expect(v1.version).toBe(1);
   });
 
-  it("leaves a version 2 document as it is", () => {
+  it("migrates version 2 to 3 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual(v2);
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 3 });
   });
 
-  it("turns the version 1 defaults into the version 2 defaults but worker.plugins", () => {
+  it("leaves a version 3 document as it is", () => {
+    const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
+    expect(migrateOfficeDocument(3, v3)).toEqual(v3);
+  });
+
+  it("turns the version 1 defaults into the version 3 defaults but worker.plugins and mergeSlot", () => {
     const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
-    const v1 = OfficeConfigV1.parse({ ...OFFICE_DEFAULTS, version: 1, worker });
+    const { mergeSlot: _mergeSlot, ...rest } = OFFICE_DEFAULTS;
+    const v1 = OfficeConfigV1.parse({ ...rest, version: 1, worker });
     expect(
-      OfficeConfigV2.parse({ ...migrateOfficeDocument(1, v1), worker: OFFICE_DEFAULTS.worker }),
+      OfficeConfigV3.parse({
+        ...migrateOfficeDocument(1, v1),
+        worker: OFFICE_DEFAULTS.worker,
+        mergeSlot: OFFICE_DEFAULTS.mergeSlot,
+      }),
     ).toEqual(OFFICE_DEFAULTS);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 2 configuration", () => {
-    expect(OfficeConfigV2.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 3 configuration", () => {
+    expect(OfficeConfigV3.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 
   it("let no plugin into a worker session", () => {
     expect(OFFICE_DEFAULTS.worker.plugins).toEqual([]);
+  });
+
+  it("wait for ci-ok and pr-title in the merge slot (0016 rule 2)", () => {
+    expect(OFFICE_DEFAULTS.mergeSlot.requiredChecks).toEqual(["ci-ok", "pr-title"]);
   });
 
   it("carry the ADR values", () => {
@@ -203,9 +255,10 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.story.tiers).toEqual(["S", "M", "L"]);
     expect(OFFICE_DEFAULTS.prompt.contractMax).toBe(12_000);
     expect(OFFICE_DEFAULTS.polling).toEqual({ prStateSeconds: 60, fetchSeconds: 300 });
+    // Commands are stored by default (DIPO-135); prompts and raw events stay off.
     expect(OFFICE_DEFAULTS.privacy).toEqual({
       storePrompts: false,
-      storeCommandBodies: false,
+      storeCommandBodies: true,
       keepRawEvents: false,
     });
     expect(OFFICE_DEFAULTS.retention).toEqual({ shortDays: 7, stateDays: 365 });
@@ -215,7 +268,7 @@ describe("defaults", () => {
 describe("privacyOptIns (DIPO-83)", () => {
   it("lists the privacy opt-ins that are on as full keys, in schema order", () => {
     expect(privacyOptIns(undefined)).toEqual([]);
-    expect(privacyOptIns(OFFICE_DEFAULTS)).toEqual([]);
+    expect(privacyOptIns(OFFICE_DEFAULTS)).toEqual(["privacy.storeCommandBodies"]);
     expect(
       privacyOptIns({
         privacy: { storePrompts: false, storeCommandBodies: true, keepRawEvents: true },

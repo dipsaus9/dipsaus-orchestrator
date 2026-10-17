@@ -2,7 +2,7 @@
 // DIPO-75; M0 breakdown decision D10). The park (DIPO-50) stored the question with the recorded
 // tool and action; the maintainer answers it with a decision:
 //
-// - Allow once: the park is lifted and the run's session resumes (`RunOutcomes.resumePark`) with a
+// - Allow once: the park is lifted and the run's session resumes (`Resumption.resumePark`) with a
 //   message naming the call. For that run only, the first permission request whose tool and exact
 //   command or path equal the recorded ones is allowed (`takeAllowOnce`, called by the permission
 //   wait); never a prefix or glob, never saved as a rule or for a later run, and never a change
@@ -20,9 +20,10 @@ import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import type { ResumeParkOutcome, ResumeParkRequest } from "../run/outcomes";
+import type { ResumeParkOutcome, ResumeParkRequest } from "../run/outcome-types";
 import { openPark } from "../run/park";
 import { findRun } from "../run/records";
+import { resumeVia } from "../run/resumption";
 
 import { closeQuestion, openQuestions, type StoredQuestion } from "./questions";
 
@@ -35,7 +36,7 @@ const RUN_HOST_ALIVE = "run.hostAlive";
 /** A command that would schedule work while the daemon schedules none (0006 decision 7). */
 const SCHEDULING_OFF = "scheduling.off";
 
-/** Resumes a parked run (the real one is `RunOutcomes.resumePark`). */
+/** Resumes a parked run (the real one is `Resumption.resumePark`). */
 export interface ParkResumer {
   resume(office: OfficeId, run: RunId, request: ResumeParkRequest): Promise<ResumeParkOutcome>;
 }
@@ -86,7 +87,7 @@ export function parkedElsewhere(
   if (question.parkId !== null && park.parkId === question.parkId) return null;
   const story = run.story ?? run.runId;
   const own =
-    park.reason === "needs-permission"
+    resumeVia(park.reason) === "permission-answer"
       ? openQuestions(office).find((open) => open.parkId === park.parkId)
       : undefined;
   const hint =
@@ -154,7 +155,7 @@ export async function answerParkQuestion(
     throw new Error("this engine cannot resume a parked story");
   }
   // The resumer records the answer in the transaction that reopens the run, after storing an
-  // intent, so a restart in between finishes the resume (`RunOutcomes.resumePark`).
+  // intent, so a restart in between finishes the resume (`Resumption.resumePark`).
   const outcome = await resumer.resume(office.officeId, question.runId as RunId, {
     parkId,
     question: question.questionId,
