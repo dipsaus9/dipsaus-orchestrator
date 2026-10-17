@@ -172,7 +172,8 @@ describe("chooseRuntimeDir", () => {
       chmodSync(open, 0o755);
       const file = join(dir, "file");
       writeFileSync(file, "");
-      const tmpBase = join(dir, "base");
+      // Short, so the fresh directory's socket paths stay under the 100-byte limit in a deep temp dir.
+      const tmpBase = join(dir, "b");
       mkdirSync(tmpBase);
 
       const choice = chooseRuntimeDir({
