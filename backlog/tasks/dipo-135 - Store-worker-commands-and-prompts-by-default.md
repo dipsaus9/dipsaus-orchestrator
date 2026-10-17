@@ -1,10 +1,10 @@
 ---
 id: DIPO-135
 title: Store worker commands by default
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 19:08'
-updated_date: '2026-10-17 22:57'
+updated_date: '2026-10-17 23:01'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -55,9 +55,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With no privacy keys in .dipo/office.local.yaml, privacy.storeCommandBodies resolves to true and privacy.storePrompts and privacy.keepRawEvents to false (OFFICE_DEFAULTS.privacy in packages/engine/src/config/schema.ts); `privacy.storeCommandBodies: false` in office.local.yaml turns it off
-- [ ] #2 The no-configuration fallbacks stay off as the safe default: DEFAULT_OUTPUT_PRIVACY in packages/engine/src/ingest/output.ts and the `?? false` in packages/daemon/src/runs.ts are unchanged, so an office without a configuration in force stores no commands
-- [ ] #3 The tests that pin the old defaults in packages/engine/test/config/schema.test.ts (the OFFICE_DEFAULTS.privacy check and privacyOptIns(OFFICE_DEFAULTS)) assert the new defaults, and packages/engine/test/ingest/command-bodies.test.ts still tests the off case with an explicit false
-- [ ] #4 optInLabel in packages/tui/src/views.tsx is replaced by a label that names the stored data (`stores commands`, `stores prompts`, `keeps raw events`, joined with commas) instead of the word opt-in; the overview count line (overview.tsx) and the worker-output title in the detail (detail.tsx) use it, overview.test.tsx and detail.test.tsx assert the new text, and neither shows a label when no privacy setting is on
-- [ ] #5 The contract field OfficeSummary.optIns and the engine function privacyOptIns keep their names: no contract change and no change in packages/engine/src/views/
+- [x] #1 With no privacy keys in .dipo/office.local.yaml, privacy.storeCommandBodies resolves to true and privacy.storePrompts and privacy.keepRawEvents to false (OFFICE_DEFAULTS.privacy in packages/engine/src/config/schema.ts); `privacy.storeCommandBodies: false` in office.local.yaml turns it off
+- [x] #2 The no-configuration fallbacks stay off as the safe default: DEFAULT_OUTPUT_PRIVACY in packages/engine/src/ingest/output.ts and the `?? false` in packages/daemon/src/runs.ts are unchanged, so an office without a configuration in force stores no commands
+- [x] #3 The tests that pin the old defaults in packages/engine/test/config/schema.test.ts (the OFFICE_DEFAULTS.privacy check and privacyOptIns(OFFICE_DEFAULTS)) assert the new defaults, and packages/engine/test/ingest/command-bodies.test.ts still tests the off case with an explicit false
+- [x] #4 optInLabel in packages/tui/src/views.tsx is replaced by a label that names the stored data (`stores commands`, `stores prompts`, `keeps raw events`, joined with commas) instead of the word opt-in; the overview count line (overview.tsx) and the worker-output title in the detail (detail.tsx) use it, overview.test.tsx and detail.test.tsx assert the new text, and neither shows a label when no privacy setting is on
+- [x] #5 The contract field OfficeSummary.optIns and the engine function privacyOptIns keep their names: no contract change and no change in packages/engine/src/views/
 <!-- AC:END -->
