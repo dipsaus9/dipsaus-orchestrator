@@ -48,6 +48,7 @@ import type { WorkerEvent } from "../workers/types";
 
 import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
 import { RunEndings } from "./control-endings";
+import { ReconcileStops } from "./control-reconcile";
 import {
   CAP_TICK_MS,
   disarm,
@@ -94,11 +95,13 @@ export class RunControl implements RunEnder {
   readonly #crossings = new WeakMap<WorkerEvent, FiredCap>();
   readonly #endings: RunEndings;
   readonly #turns: AfterTurns;
+  readonly #reconcile: ReconcileStops;
 
   constructor(deps: RunControlDeps) {
     this.#deps = deps;
     this.#endings = new RunEndings(deps, this.#tracked, this.#inflight);
     this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
+    this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
   }
 
   /** The ingestion hooks: caps and reports after every committed pass, intents at the exit. */
@@ -417,7 +420,7 @@ export class RunControl implements RunEnder {
     notice: ReconcileNotice,
     endKind = RECONCILED_END,
   ): Promise<void> {
-    return this.#endings.stopForReconcile(office, run, notice, endKind);
+    return this.#reconcile.stopForReconcile(office, run, notice, endKind);
   }
 
   /** Reconcile (DIPO-56): parks a run whose worktree or branch changed by hand `scope-violation`. */
@@ -427,7 +430,7 @@ export class RunControl implements RunEnder {
     detail: string,
     notice: ReconcileNotice,
   ): Promise<ParkOutcome | null> {
-    return this.#endings.parkForReconcile(office, run, detail, notice);
+    return this.#reconcile.parkForReconcile(office, run, detail, notice);
   }
 
   /** The command `work.stop`. */

@@ -1,13 +1,13 @@
 // The work after every turn of a run (DIPO-49, split out of `control.ts` by DIPO-128): verify and
 // commit, one turn at a time, then the turn's problem for worker outcomes (DIPO-51).
 
-import type { ParkOutcome } from "./park";
+import { background } from "../platform/background";
 import { withWorkViews } from "../views/work";
 import type { TurnProblem, WorkerReport } from "../workers/types";
-import { background } from "../platform/background";
 
-import { disarm, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { RunEndings } from "./control-endings";
+import { disarm, type RunControlDeps, type Tracked, viewOf } from "./control-types";
+import type { ParkOutcome } from "./park";
 import { findRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
 

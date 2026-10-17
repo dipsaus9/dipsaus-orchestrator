@@ -26,6 +26,23 @@ describe("DecidingGuard", () => {
     expect(guard.has("run_1 agent_1")).toBe(false);
   });
 
+  it("refuses a key that is already held and keeps it for its holder", async () => {
+    const guard = new DecidingGuard();
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const holder = guard.within("run_1 agent_1", () => promise);
+    let ran = false;
+    await expect(
+      guard.within("run_1 agent_1", async () => {
+        ran = true;
+      }),
+    ).rejects.toThrow("run_1 agent_1");
+    expect(ran).toBe(false);
+    expect(guard.has("run_1 agent_1")).toBe(true);
+    resolve();
+    await holder;
+    expect(guard.has("run_1 agent_1")).toBe(false);
+  });
+
   it("is busy for the decisions of one run only", async () => {
     const guard = new DecidingGuard();
     const { promise, resolve } = Promise.withResolvers<void>();
