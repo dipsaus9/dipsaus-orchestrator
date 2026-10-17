@@ -3,10 +3,10 @@ id: DIPO-141
 title: >-
   Read PR labels, all checks and failed CI logs, and post comments, through the
   code host
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 21:54'
+updated_date: '2026-10-17 21:56'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -39,6 +39,10 @@ test_plan:
       check: "(unit) the log read keeps only the last 1 MiB, stops at 60 seconds, and skips a check link that is not an Actions job"
     - kind: "automated"
       check: "(unit) no gh command built by the code host names deployments or environments"
+park:
+  reason: "needs-permission"
+  from: "In Progress"
+  note: "Bash: Run `gh --version`, `gh run view --help`, `gh pr comment --help` and `gh pr checks --help` (local gh 2.50.0 check), and fetch https://raw.githubusercontent.com/cli/cli/v2.50.0/pkg/cmd/... for the flag check"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
