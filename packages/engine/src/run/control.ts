@@ -537,8 +537,9 @@ export class RunControl implements RunEnder {
       );
     } catch (error) {
       // 0008: an op is stored as an intent before it is sent, so none is sent. A turn problem's
-      // act is tried again at the next cap tick (DIPO-123).
-      tracked.unstored = act.retryAtTick === true ? act : null;
+      // act is tried again at the next cap tick (DIPO-123); a failing unflagged act leaves a
+      // waiting one in place.
+      if (act.retryAtTick === true) tracked.unstored = act;
       this.#deps.warn?.("storing a run's decision failed", {
         run: tracked.runId,
         intent: act.intent,
