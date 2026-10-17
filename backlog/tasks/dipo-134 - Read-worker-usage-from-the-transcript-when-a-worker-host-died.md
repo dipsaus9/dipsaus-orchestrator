@@ -1,10 +1,10 @@
 ---
 id: DIPO-134
 title: Read worker usage from the transcript when a worker host died
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-16 14:50'
+updated_date: '2026-10-17 21:14'
 labels:
   - 'tier:M'
   - 'slice:m1a'

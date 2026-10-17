@@ -1,10 +1,10 @@
 ---
 id: DIPO-177
 title: Record the prompt part hashes and sizes of every worker session
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-17 21:14'
 labels:
   - 'tier:S'
   - cutover
