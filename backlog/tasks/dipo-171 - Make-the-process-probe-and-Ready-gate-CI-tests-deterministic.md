@@ -1,10 +1,10 @@
 ---
 id: DIPO-171
 title: Make the process-probe and Ready gate CI tests deterministic
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-17 22:51'
+updated_date: '2026-10-17 22:53'
 labels:
   - 'tier:S'
   - cutover
@@ -38,6 +38,10 @@ test_plan:
       check: "(unit) the probe tests read the command line of a child that has written its ready line, on Linux and macOS"
     - kind: "automated"
       check: "(ci) the pickup-mode gate test passes under half its timeout in 5 CI runs"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Criterion 2 asks for the slowest of five CI runs to be under half the timeout, and that can only be measured after this PR runs in CI. Is it acceptable to merge on the 3853 ms measured rerun against the 20 s timeout, and check the five-run figure after merge?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
