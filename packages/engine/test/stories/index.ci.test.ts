@@ -245,8 +245,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
     // DIPO-121: the two remote-base tests below run a dozen git and Backlog CLI subprocesses each.
     // Measured over 5 CI runs of #186 (ubuntu, verify job): poll 1.62 to 2.10 s, refresh 2.56 to
-    // 3.43 s; over the default 5 s timeout half the time for refresh. Each gets 10 s, so the slowest
-    // run is under half its timeout.
+    // 3.43 s, so refresh is over half the default 5 s timeout in every run. Each gets 10 s, so the
+    // slowest run is under half its timeout.
     // DIPO-104: a story merged to the remote base while the office is loaded, indexed at the next
     // poll. Split from the refresh case below so each test has its own per-test timeout.
     it(
@@ -268,6 +268,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(keyOf(office, "TASK-4")).not.toBeNull();
           expect(mirrorStatus(office, "TASK-4")).toBe("Ready");
           expect(s.changed).toContain(officeId);
+
+          // A refresh right after the poll's fetch still fetches: a poll's fetch is not a
+          // refresh's own (DIPO-104), so a merge just after a poll is seen.
+          await merge(repo, other, "Add the is-odd dependency");
+          await index.refresh(officeId);
+          expect(mirrorStatus(office, "TASK-5")).toBe("Ready");
         }),
       REMOTE_BASE_TIMEOUT_MS,
     );
