@@ -255,9 +255,10 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.story.tiers).toEqual(["S", "M", "L"]);
     expect(OFFICE_DEFAULTS.prompt.contractMax).toBe(12_000);
     expect(OFFICE_DEFAULTS.polling).toEqual({ prStateSeconds: 60, fetchSeconds: 300 });
+    // Commands are stored by default (DIPO-135); prompts and raw events stay off.
     expect(OFFICE_DEFAULTS.privacy).toEqual({
       storePrompts: false,
-      storeCommandBodies: false,
+      storeCommandBodies: true,
       keepRawEvents: false,
     });
     expect(OFFICE_DEFAULTS.retention).toEqual({ shortDays: 7, stateDays: 365 });
@@ -267,7 +268,7 @@ describe("defaults", () => {
 describe("privacyOptIns (DIPO-83)", () => {
   it("lists the privacy opt-ins that are on as full keys, in schema order", () => {
     expect(privacyOptIns(undefined)).toEqual([]);
-    expect(privacyOptIns(OFFICE_DEFAULTS)).toEqual([]);
+    expect(privacyOptIns(OFFICE_DEFAULTS)).toEqual(["privacy.storeCommandBodies"]);
     expect(
       privacyOptIns({
         privacy: { storePrompts: false, storeCommandBodies: true, keepRawEvents: true },

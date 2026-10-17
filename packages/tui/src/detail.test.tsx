@@ -516,9 +516,9 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     expect(questionLines([], 0, "·")).toEqual([]);
   });
 
-  it("tags the worker output while privacy.storeCommandBodies is on", async () => {
+  it("names the stored commands in the worker output title while privacy.storeCommandBodies is on", async () => {
     const { ui, session } = await openDetail();
-    expect(ui.frame()).not.toContain("opt-in");
+    expect(ui.frame()).not.toContain("stores");
     const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
     session.active("software")?.options.onEvent({
       cursor: { stream: "software", epoch: "e1", seq: 90 },
@@ -526,11 +526,12 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       type: "office.summary",
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
     } as Event);
-    let frame = await ui.waitFor("opt-in storeCommandBodies");
-    expect(frame).toContain("output (worker) [w]orker* [v]erify  opt-in storeCommandBodies");
+    let frame = await ui.waitFor("stores commands");
+    expect(frame).toContain("output (worker) [w]orker* [v]erify  stores commands");
+    expect(frame).not.toContain("opt-in");
     await ui.press("v");
     frame = await ui.waitFor("[v]erify*");
-    expect(frame).not.toContain("opt-in storeCommandBodies");
+    expect(frame).not.toContain("stores commands");
   });
 });
 
