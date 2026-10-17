@@ -1,10 +1,10 @@
 ---
 id: DIPO-172
 title: Accept machine-specific toolchain read paths in office.local.yaml
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 21:14'
+updated_date: '2026-10-17 17:23'
 labels:
   - 'tier:M'
   - cutover
