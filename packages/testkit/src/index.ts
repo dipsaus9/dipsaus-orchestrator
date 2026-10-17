@@ -36,6 +36,7 @@ export {
   withTempRepo,
 } from "./git";
 export type { FixtureTree, RunResult, TempRepo, TempRepoOptions, TempRepoWithRemote } from "./git";
+export { guardRuns } from "./guard";
 export { SequentialIds } from "./ids";
 export {
   assertTestRuntimeDir,
@@ -58,6 +59,7 @@ export {
   makeTempDir,
   removeTempDir,
   tempRoot,
+  tempRootFits,
   withDaemonTempDir,
   withTempDir,
 } from "./temp";
