@@ -90,10 +90,17 @@ async function spawnReady(): Promise<Bun.Subprocess<"pipe", "pipe", "ignore">> {
   const reader = child.stdout.getReader();
   const decoder = new TextDecoder();
   let text = "";
-  while (!text.includes("ready\n")) {
-    const { value, done } = await reader.read();
-    if (done) throw new Error(`the ready child exited before its ready line: ${text}`);
-    text += decoder.decode(value);
+  try {
+    while (!text.includes("ready\n")) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`the ready child exited before its ready line: ${text}`);
+      text += decoder.decode(value);
+    }
+  } catch (error) {
+    // No child is left behind when the ready line does not come.
+    child.kill("SIGKILL");
+    await child.exited;
+    throw error;
   }
   reader.releaseLock();
   return child;

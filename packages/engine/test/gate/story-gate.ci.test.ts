@@ -93,9 +93,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(countRows(office, "gates")).toBe(0);
       }));
 
-    // Its time goes to real Backlog CLI and git subprocesses. It took 3853 ms on the passing rerun of
-    // PR #159 (run 38942474480) and hit bun's 5000 ms default on the first attempt, so it gets 20 s:
-    // the slowest CI run should stay under half of that (DIPO-171).
+    // Its time goes to real Backlog CLI and git subprocesses. It hit bun's 5000 ms default once on
+    // PR #159 (run 38942474480), so it gets 20 s. Measured over 5 CI runs of #192 at f0a67d3 (run
+    // 39077260569): 3551 to 4775 ms, so the slowest run is under half of that (DIPO-171).
     it(
       "a pickup-mode evaluation stores one decision with every rule result and the hash",
       () =>
