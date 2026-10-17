@@ -1,10 +1,10 @@
 ---
 id: DIPO-178
 title: Keep the user's bash profile files out of a bash login worker shell
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 21:06'
+updated_date: '2026-10-17 21:14'
 labels:
   - 'tier:S'
   - cutover
@@ -37,8 +37,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A bash login shell started through the worker shell wrapper runs none of ~/.bash_profile, ~/.bash_login and ~/.profile of the home directory
-- [ ] #2 In that shell PATH equals the planned PATH, with the demoted entries last, as DIPO-107 asserts for bash today
-- [ ] #3 A bash shell that is not a login shell and every zsh shell behave as before: their existing tests in packages/engine/test/workers/ pass unchanged
-- [ ] #4 A test starts the wrapper as a bash login shell with a temp home whose three profile files each write a marker file, and finds no marker
+- [x] #1 A bash login shell started through the worker shell wrapper runs none of ~/.bash_profile, ~/.bash_login and ~/.profile of the home directory
+- [x] #2 In that shell PATH equals the planned PATH, with the demoted entries last, as DIPO-107 asserts for bash today
+- [x] #3 A bash shell that is not a login shell and every zsh shell behave as before: their existing tests in packages/engine/test/workers/ pass unchanged
+- [x] #4 A test starts the wrapper as a bash login shell with a temp home whose three profile files each write a marker file, and finds no marker
 <!-- AC:END -->
