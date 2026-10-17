@@ -40,12 +40,11 @@ import {
   type RunBase,
   RunControl,
   RunLauncher,
+  composeRuns,
+  type ComposedRuns,
   RunOutcomes,
-  type RunOutcomesPort,
   RunTempDirs,
   RunReattacher,
-  afterRunExits,
-  RunResumer,
   runLaunchPaths,
   runSandboxedStep,
   runWorkerSpec,
@@ -262,35 +261,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ...(options.work === undefined ? {} : { work: options.work }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  // The ingestion hooks call the control, and the control flushes ingestion's output first.
-  let ingest: OfficeIngest | null = null;
-  let outcomes: RunOutcomes | null = null;
-  let exitPort: RunOutcomesPort | null = null;
-  const control = new RunControl({
-    finisher,
-    // Each exit decision may end the run after its worker exited: its temp directory goes then.
-    outcomes: () => exitPort ?? undefined,
-    clock,
-    offices: options.offices,
-    // A `needs-permission` park asks its permission question (DIPO-75).
-    ids: options.ids,
-    writer: gitParkWriter({
-      git: (office) => options.engineGit.forOffice(office),
-      cli: options.cli,
-    }),
-    steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
-    encode: (op) => worker.encode(op),
-    implemented: options.implemented,
-    flushOutput: (office, run) => ingest?.flushOutput(office, run),
-    onChanged: options.onChanged,
-    ...(options.stories === undefined
-      ? {}
-      : {
-          refreshStory: (office: OfficeId, key: StoryKey) =>
-            options.stories?.refreshStory(office, key, { quiet: true }) ?? Promise.resolve(),
-        }),
-    warn: (message, fields) => options.logger.warn(message, fields),
-  });
+  // The run services (composeRuns below); the permission wait and the nudges reach them late.
+  let composed: ComposedRuns | null = null;
   // The permission wait (DIPO-59): a worker's permission request asks the maintainer when present.
   const permissions = new PermissionAsks({
     clock,
@@ -299,11 +271,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
     encode: (op) => worker.encode(op),
     presence: options.presence ?? { connected: () => false, lastRequestAt: () => null },
-    ending: (run) => control.isEnding(run),
+    ending: (run) => composed?.control?.isEnding(run) ?? false,
     // An answer to a `needs-permission` park resumes its run (DIPO-75).
     parks: {
       resume: (office, run, request) =>
-        outcomes?.resumePark(office, run, request) ??
+        composed?.outcomes?.resumePark(office, run, request) ??
         Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
     },
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
@@ -316,7 +288,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
     encode: (op) => worker.encode(op),
     inputChanges: gitInputChanges((handle) => options.engineGit.forOffice(handle.officeId)),
-    ending: (run) => control.isEnding(run),
+    ending: (run) => composed?.control?.isEnding(run) ?? false,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   // One listener per pass hears both: the permission wait and the nudges.
@@ -334,19 +306,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       sweepTempDirs();
     },
   };
-  ingest = new OfficeIngest({
-    clock,
-    hooks: control.hooks,
-    hookEvents,
-    pricing: () => options.database()?.pricing ?? null,
-    warn: (message, fields) => options.logger.warn(message, fields),
-    watchdog,
-    onAppended: options.onChanged,
-    // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
-    privacy: (office) => ({
-      storeCommandBodies: options.offices.config(office)?.privacy.storeCommandBodies ?? false,
-    }),
-  });
   const started = systemHostStarter({
     clock,
     runtimeDir: options.runtimeDir,
@@ -367,58 +326,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     claim: Parameters<StoryClaims["releaseUnstarted"]>[1],
     reason: string,
   ) => options.claims.releaseUnstarted(office, claim, reason);
-  // A run's next session after a crash, a full context or a missing report (DIPO-51).
-  const resumer = new RunResumer({
-    clock,
-    ids: options.ids,
-    offices: options.offices,
-    worker,
-    git: (office) => options.engineGit.forOffice(office),
-    story: baseStoryFacts(options.base),
-    runtimeDir: options.runtimeDir,
-    tmpRoot: realDir(options.tmpRoot),
-    // A next session after the park removed the directory writes its owner again (DIPO-102).
-    tempOwner: () => tempDirs.owner(),
-    hosts,
-    ingest,
-    control,
-    onChanged: options.onChanged,
-    // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
-    probe,
-  });
-  let planLimits: PlanLimits | null = null;
-  outcomes = new RunOutcomes({
-    waits: () => planLimits ?? undefined,
-    clock,
-    offices: options.offices,
-    steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
-    encode: (op) => worker.encode(op),
-    worker,
-    ender: () => control,
-    resumer,
-    holds: options.holds,
-    release,
-    holdsWork: storyHoldsWork(storyGit),
-    // Lifting a `needs-permission` park on the story branch before its run resumes (DIPO-75).
-    unpark: gitUnparkWriter({
-      git: (office) => options.engineGit.forOffice(office),
-      cli: options.cli,
-    }),
-    ...(options.stories === undefined
-      ? {}
-      : {
-          refreshStory: (office: OfficeId, key: StoryKey) =>
-            options.stories?.refreshStory(office, key, { quiet: true }) ?? Promise.resolve(),
-        }),
-    caps: (office, run) => {
-      const tier = tierOf(office, run);
-      return tier === undefined ? null : capsOf(tier);
-    },
-    onChanged: options.onChanged,
-    warn: (message, fields) => options.logger.warn(message, fields),
-  });
-  exitPort = afterRunExits(outcomes, sweepTempDirs);
-  // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
   const runPaths = (office: OfficeId, run: StoredRun) => {
     const git = options.engineGit.forOffice(office);
     if (git === undefined || run.worktree === null) return null;
@@ -429,44 +336,137 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       run.runId,
     );
   };
-  const reattacher = new RunReattacher({
+  const capsFor = (office: OfficeId, run: StoredRun) => {
+    const tier = tierOf(office, run);
+    return tier === undefined ? null : capsOf(tier);
+  };
+  let planLimits: PlanLimits | null = null;
+  const refreshStory = options.stories;
+  composed = composeRuns({
     clock,
+    ids: options.ids,
     offices: options.offices,
-    probe,
-    // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
+    worker,
     steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
-    // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
-    proxyGone: (_office, run, host) =>
-      launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined
-        ? safeChainProxyGoneText(run.story ?? run.runId)
-        : null,
-    ingest,
-    control,
-    outcomes,
-    adapter: (office, run) => {
-      const paths = runPaths(office, run);
-      const config = options.offices.config(office);
-      return paths === null || config === undefined
-        ? null
-        : (worker.adapter(paths, config) as IngestAdapter);
-    },
-    initialState: ({ office, run, agent, resume, previous }) => {
-      const paths = runPaths(office, run);
-      const tier = tierOf(office, run);
-      if (paths === null || tier === undefined) return {};
-      const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
-        id: "",
-        resume,
-      });
-      return worker.initialState(spec, previous);
-    },
-    caps: (office, run) => {
-      const tier = tierOf(office, run);
-      return tier === undefined ? null : capsOf(tier);
-    },
+    hosts,
+    git: (office) => options.engineGit.forOffice(office),
+    runtimeDir: options.runtimeDir,
+    tmpRoot: realDir(options.tmpRoot),
+    // The daemon-start sweep removes a run it does not know only when this daemon made it.
+    tempOwner: () => tempDirs.owner(),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
+    ...(refreshStory === undefined
+      ? {}
+      : {
+          refreshStory: (office: OfficeId, key: StoryKey) =>
+            refreshStory.refreshStory(office, key, { quiet: true }),
+        }),
+    release,
+    // Each exit decision may end the run after its worker exited: its temp directory goes then.
+    afterExit: sweepTempDirs,
+    ingest: {
+      pricing: () => options.database()?.pricing ?? null,
+      watchdog,
+      onAppended: options.onChanged,
+      // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
+      privacy: (office) => ({
+        storeCommandBodies: options.offices.config(office)?.privacy.storeCommandBodies ?? false,
+      }),
+      hookEvents,
+    },
+    control: {
+      finisher,
+      // A `needs-permission` park asks its permission question (DIPO-75).
+      writer: gitParkWriter({
+        git: (office) => options.engineGit.forOffice(office),
+        cli: options.cli,
+      }),
+      implemented: options.implemented,
+    },
+    outcomes: {
+      // A run's next session after a crash, a full context or a missing report (DIPO-51).
+      story: baseStoryFacts(options.base),
+      // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
+      probe,
+      waits: () => planLimits ?? undefined,
+      holds: options.holds,
+      holdsWork: storyHoldsWork(storyGit),
+      // Lifting a `needs-permission` park on the story branch before its run resumes (DIPO-75).
+      unpark: gitUnparkWriter({
+        git: (office) => options.engineGit.forOffice(office),
+        cli: options.cli,
+      }),
+      caps: capsFor,
+    },
+    launcher: {
+      setup: async (office, claim) => {
+        const handle = options.offices.get(office);
+        const config = options.offices.config(office);
+        const git = options.engineGit.forOffice(office);
+        if (handle === undefined || config === undefined || git === undefined) {
+          const reason = `office ${office} is not loaded with a valid configuration`;
+          return { ok: false, reason, log: `setup: ${reason}` };
+        }
+        return setupWorktree(
+          {
+            officeId: office,
+            office: handle,
+            git,
+            clock,
+            onChanged: options.onChanged,
+            disk: systemDiskProbe,
+            slots: options.slots,
+            runStep,
+            localSettings: worker.localSettings,
+            warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
+          },
+          {
+            claim,
+            config,
+            profile: currentProfile(handle)?.profile ?? null,
+            host: { home, uid, env },
+          },
+        );
+      },
+      dependencies: async (office, ids) =>
+        ids.length === 0 ? [] : (await options.base.read(office, ids)).views,
+      snapshot: (office, worktree) => readBackstop(gitOf(office), worktree),
+    },
+    // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
+    reattach: {
+      probe,
+      // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
+      steering: hostSocketSteering({ clock, probe, signal: signalProcess }),
+      // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
+      proxyGone: (_office, run, host) =>
+        launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined
+          ? safeChainProxyGoneText(run.story ?? run.runId)
+          : null,
+      adapter: (office, run) => {
+        const paths = runPaths(office, run);
+        const config = options.offices.config(office);
+        return paths === null || config === undefined
+          ? null
+          : (worker.adapter(paths, config) as IngestAdapter);
+      },
+      initialState: ({ office, run, agent, resume, previous }) => {
+        const paths = runPaths(office, run);
+        const tier = tierOf(office, run);
+        if (paths === null || tier === undefined) return {};
+        const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
+          id: "",
+          resume,
+        });
+        return worker.initialState(spec, previous);
+      },
+      caps: capsFor,
+    },
   });
+  const { ingest, control, outcomes, reattacher, launcher } = composed;
+  if (control === null || outcomes === null || reattacher === null) {
+    throw new Error("the daemon's run services are not all wired");
+  }
   const runOutcomes = outcomes;
   planLimits = new PlanLimits({
     clock,
@@ -475,51 +475,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     holds: options.holds,
     ...(options.notify === undefined ? {} : { notify: options.notify }),
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
-    warn: (message, fields) => options.logger.warn(message, fields),
-  });
-  const launcher = new RunLauncher({
-    worker,
-    git: (office) => options.engineGit.forOffice(office),
-    setup: async (office, claim) => {
-      const handle = options.offices.get(office);
-      const config = options.offices.config(office);
-      const git = options.engineGit.forOffice(office);
-      if (handle === undefined || config === undefined || git === undefined) {
-        const reason = `office ${office} is not loaded with a valid configuration`;
-        return { ok: false, reason, log: `setup: ${reason}` };
-      }
-      return setupWorktree(
-        {
-          officeId: office,
-          office: handle,
-          git,
-          clock,
-          onChanged: options.onChanged,
-          disk: systemDiskProbe,
-          slots: options.slots,
-          runStep,
-          localSettings: worker.localSettings,
-          warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
-        },
-        {
-          claim,
-          config,
-          profile: currentProfile(handle)?.profile ?? null,
-          host: { home, uid, env },
-        },
-      );
-    },
-    dependencies: async (office, ids) =>
-      ids.length === 0 ? [] : (await options.base.read(office, ids)).views,
-    runtimeDir: options.runtimeDir,
-    tmpRoot: realDir(options.tmpRoot),
-    // The daemon-start sweep removes a run it does not know only when this daemon made it.
-    tempOwner: () => tempDirs.owner(),
-    hosts,
-    ingest,
-    control,
-    snapshot: (office, worktree) => readBackstop(gitOf(office), worktree),
-    release,
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   return {

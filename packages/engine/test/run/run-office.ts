@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { IdPrefix, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Clock, IdPrefix, OfficeId } from "@dipsaus-orchestrator/contract";
 import {
   fakeSpawn,
   ManualClock,
@@ -42,12 +42,11 @@ import {
   PlanLimits,
   RunControl,
   type RunSteering,
-  RunLauncher,
+  composeRuns,
   RunOutcomes,
-  RunResumer,
+  type StoredRun,
   storyHoldsWork,
   WorkRun,
-  afterRunExits,
   RunTempDirs,
   runTempDir,
   readRunTempOwner,
@@ -366,7 +365,6 @@ export async function withRunOffice(
           return { ok: false, reason: "the worker host has exited" };
         },
       };
-      let ingest: OfficeIngest | null = null;
       const finisherOptions = options.finisher;
       const exitCodes = [...(finisherOptions?.exitCodes ?? [])];
       const finisher =
@@ -397,165 +395,122 @@ export async function withRunOffice(
               scanWorktree: async () => finisherOptions.profile,
               host: { home: repo.root, uid: 501, env: { PATH: "/usr/bin:/bin" } },
             });
-      let outcomes: RunOutcomes | null = null;
-      let planLimits: PlanLimits | null = null;
-      const control =
-        options.control === undefined
-          ? null
-          : new RunControl({
-              ...(finisher === undefined ? {} : { finisher }),
-              get clock() {
-                return loaded().clock;
-              },
-              offices: {
-                get: (office) => loaded().manager.get(office),
-                config: (office) => loaded().manager.config(office),
-              },
-              ...(options.resumeParks === true
-                ? { ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) } }
-                : {}),
-              writer: gitParkWriter({
-                git: (office) => engineGit.forOffice(office),
-                cli: CLI(repo),
-              }),
-              steering,
-              encode,
-              flushOutput: (office, run) => ingest?.flushOutput(office, run),
-              outcomes: () =>
-                outcomes === null
-                  ? undefined
-                  : tempDirs === null
-                    ? outcomes
-                    : afterRunExits(outcomes, sweep),
-            });
-      ingest = new OfficeIngest({
-        clock: new ManualClock(),
-        pricing: () => null,
-        ...(control === null ? {} : { hooks: control.hooks }),
-        ...(tempDirs === null
-          ? {}
-          : { hookEvents: { onWorkerEvents: () => undefined, onEnded: () => sweep() } }),
-      });
+      // The clock and ids of the office setup, which is built after this wiring.
+      const officeClock: Clock = {
+        now: () => loaded().clock.now(),
+        setTimeout: (callback, delayMs) => loaded().clock.setTimeout(callback, delayMs),
+        clearTimeout: (handle) => loaded().clock.clearTimeout(handle),
+      };
       const capsOverride = options.control?.caps ?? {};
       // Worker outcomes and the run's next session (DIPO-51), on the same replay hosts.
       const starts: Running["starts"] = [];
-      const officeIngest = ingest;
-      if (options.outcomes === true && control !== null) {
-        const resumer = new RunResumer({
-          get clock() {
-            return loaded().clock;
-          },
-          get ids() {
-            return loaded().ids;
-          },
-          offices,
-          worker,
-          git: (office) => engineGit.forOffice(office),
-          story: baseStoryFacts(base),
-          runtimeDir,
-          tmpRoot,
-          ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
-          hosts: hostStarter,
-          ingest: {
-            start: (office, host, target) => {
-              const row = office.get<{ processed_offset: number }>(
-                `select processed_offset from worker_hosts
-                  where office_id = $office_id and run_id = $run and agent_id = $agent`,
-                { run: host.runId, agent: host.agentId },
-              );
-              starts.push({ agent: host.agentId, processedOffset: row?.processed_offset ?? -1 });
-              officeIngest.start(office, host, target);
-            },
-          },
-          control: {
-            track: (office, run) =>
-              control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
-          },
-        });
-        outcomes = new RunOutcomes({
-          get clock() {
-            return loaded().clock;
-          },
-          offices,
-          steering,
-          encode,
-          worker,
-          ender: () => control,
-          resumer,
-          holds,
-          release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
-          holdsWork: storyHoldsWork(
-            gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
-          ),
-          caps: (office, run) => {
-            if (
-              (options.planLimits !== true && options.resumeParks !== true) ||
-              run.tier === null
-            ) {
-              return null;
-            }
-            const tier = loaded().manager.config(office)?.tiers[run.tier as "S" | "M" | "L"];
-            return tier === undefined ? null : capsOf(tier);
-          },
-          waits: () => planLimits ?? undefined,
-          ...(options.resumeParks === true
-            ? {
-                unpark: gitUnparkWriter({
-                  git: (office) => engineGit.forOffice(office),
-                  cli: CLI(repo),
-                }),
-              }
-            : {}),
-        });
-        if (options.planLimits === true) {
-          const decided = outcomes;
-          planLimits = new PlanLimits({
-            get clock() {
-              return loaded().clock;
-            },
-            offices,
-            resume: (office, run, why) => decided.resumeWait(office, run, why),
-            holds,
-          });
-        }
-      }
-      const launcher = new RunLauncher({
+      let planLimits: PlanLimits | null = null;
+      const composed = composeRuns({
+        clock: officeClock,
+        ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
+        offices,
         worker,
+        steering,
+        hosts: hostStarter,
         git: (office) => engineGit.forOffice(office),
-        setup: async (): Promise<SetupOutcome> =>
-          ({
-            ok: true,
-            slot: 1,
-            env: {},
-            files: { log: [], skipped: [], envFiles: [], settings: null },
-            log: ["setup: done"],
-            release: () => undefined,
-          }) as unknown as SetupOutcome,
-        dependencies: async () => [],
         runtimeDir,
         tmpRoot,
         ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
-        hosts: hostStarter,
-        ingest,
-        ...(control === null
+        release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+        ...(tempDirs === null ? {} : { afterExit: sweep }),
+        ingest: {
+          pricing: () => null,
+          ...(tempDirs === null
+            ? {}
+            : { hookEvents: { onWorkerEvents: () => undefined, onEnded: () => sweep() } }),
+        },
+        ...(options.control === undefined
           ? {}
           : {
               control: {
-                track: (office, run) =>
-                  control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
+                writer: gitParkWriter({
+                  git: (office) => engineGit.forOffice(office),
+                  cli: CLI(repo),
+                }),
+                ...(finisher === undefined ? {} : { finisher }),
               },
             }),
-        release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
-        ...(finisher === undefined
-          ? {}
-          : {
-              snapshot: (office: OfficeId, worktree: string) => {
-                const git = engineGit.forOffice(office);
-                if (git === undefined) throw new Error("no git");
-                return readBackstop(git, worktree);
+        tracker: (control) => ({
+          track: (office, run) =>
+            control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
+        }),
+        resumeIngest: (officeIngest) => ({
+          start: (office, host, target) => {
+            const row = office.get<{ processed_offset: number }>(
+              `select processed_offset from worker_hosts
+                where office_id = $office_id and run_id = $run and agent_id = $agent`,
+              { run: host.runId, agent: host.agentId },
+            );
+            starts.push({ agent: host.agentId, processedOffset: row?.processed_offset ?? -1 });
+            officeIngest.start(office, host, target);
+          },
+        }),
+        ...(options.outcomes === true
+          ? {
+              outcomes: {
+                story: baseStoryFacts(base),
+                holds,
+                holdsWork: storyHoldsWork(
+                  gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+                ),
+                caps: (office: OfficeId, run: StoredRun) => {
+                  if (
+                    (options.planLimits !== true && options.resumeParks !== true) ||
+                    run.tier === null
+                  ) {
+                    return null;
+                  }
+                  const tier = loaded().manager.config(office)?.tiers[run.tier as "S" | "M" | "L"];
+                  return tier === undefined ? null : capsOf(tier);
+                },
+                waits: () => planLimits ?? undefined,
+                ...(options.resumeParks === true
+                  ? {
+                      unpark: gitUnparkWriter({
+                        git: (office) => engineGit.forOffice(office),
+                        cli: CLI(repo),
+                      }),
+                    }
+                  : {}),
               },
-            }),
+            }
+          : {}),
+        launcher: {
+          setup: async (): Promise<SetupOutcome> =>
+            ({
+              ok: true,
+              slot: 1,
+              env: {},
+              files: { log: [], skipped: [], envFiles: [], settings: null },
+              log: ["setup: done"],
+              release: () => undefined,
+            }) as unknown as SetupOutcome,
+          dependencies: async () => [],
+          ...(finisher === undefined
+            ? {}
+            : {
+                snapshot: (office: OfficeId, worktree: string) => {
+                  const git = engineGit.forOffice(office);
+                  if (git === undefined) throw new Error("no git");
+                  return readBackstop(git, worktree);
+                },
+              }),
+        },
       });
+      const { ingest, control, outcomes, launcher } = composed;
+      if (options.planLimits === true && outcomes !== null) {
+        planLimits = new PlanLimits({
+          clock: officeClock,
+          offices,
+          resume: (office, run, why) => outcomes.resumeWait(office, run, why),
+          holds,
+        });
+      }
       const workRun = new WorkRun({
         offices: {
           get: (office) => loaded().manager.get(office),
