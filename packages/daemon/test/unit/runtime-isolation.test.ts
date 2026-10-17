@@ -20,14 +20,18 @@ import { join, relative, resolve } from "node:path";
 
 import { chooseRuntimeDir, RuntimeDirError, runtimeCandidates } from "@dipsaus-orchestrator/engine";
 import {
+  guardRuns,
   isolatedDaemonEnv,
   LONGEST_RUNTIME_ENTRY,
   longestTestSocketBytes,
   makeTempDir,
   MAX_TEMP_ROOT_BYTES,
   RUNTIME_PATH_LIMIT,
+  TEMP_DIR_TEMPLATE,
   tempRoot,
+  tempRootFits,
   testRuntimeDir,
+  testTmpDir,
   withTempDir,
 } from "@dipsaus-orchestrator/testkit";
 
@@ -75,8 +79,11 @@ function confinedTo(dir: string): RuntimeDirFs {
  * `dipo-XXXXXX` directory, a slash and at least one byte of padding. The tests that need it are
  * skipped, visibly, under a longer `DIPO_TMP`.
  */
-const LONGEST_ROOT_FITS =
-  Buffer.byteLength(realpathSync(tempRoot())) + "/dipo-XXXXXX/r".length <= MAX_TEMP_ROOT_BYTES;
+const LONGEST_ROOT_FITS = guardRuns(
+  "LONGEST_ROOT_FITS",
+  "DIPO_TMP is too long for a root of the longest length the limit allows (DIPO-109)",
+  tempRootFits(join(realpathSync(tempRoot()), TEMP_DIR_TEMPLATE, "r")),
+);
 
 /** Runs `fn` on a fresh testkit temp directory whose root is exactly as long as testkit allows. */
 async function withLongestTempDir(fn: (dir: string) => void): Promise<void> {
@@ -174,6 +181,27 @@ describe("a test daemon's runtime directory", () => {
         }
       }),
   );
+
+  it("keeps the longest root's runtime candidates in the limit, on computed paths (DIPO-191)", () => {
+    // The temp directory under a root of exactly MAX_TEMP_ROOT_BYTES, computed and never created,
+    // so it runs under any DIPO_TMP, the worker's 30-byte one too.
+    const dir = join(`/${"c".repeat(MAX_TEMP_ROOT_BYTES - 1)}`, TEMP_DIR_TEMPLATE);
+    expect(longestTestSocketBytes(dir)).toBe(RUNTIME_PATH_LIMIT);
+    for (const platform of ["darwin", "linux"] as const) {
+      const env = {
+        DIPO_RUNTIME_DIR: testRuntimeDir(dir),
+        TMPDIR: testTmpDir(dir),
+        XDG_RUNTIME_DIR: testTmpDir(dir),
+      };
+      const candidates = runtimeCandidates({ platform, env, uid, lingering: true });
+      const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: usableEverywhere });
+      expect(choice).toMatchObject({
+        path: testRuntimeDir(dir),
+        source: "DIPO_RUNTIME_DIR",
+        rejected: [],
+      });
+    }
+  });
 });
 
 // A daemon started in process, in any test; or as a process, in any test outside `test/unit`
