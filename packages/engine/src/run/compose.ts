@@ -13,10 +13,11 @@ import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
 import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "./hosts";
 import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
-import { RunOutcomes, type RunOutcomesDeps, type RunOutcomesPort } from "./outcomes";
+import type { RunOutcomes, RunOutcomesDeps, RunOutcomesPort } from "./outcomes";
 import { PlanLimits, type PlanLimitsDeps } from "./plan-limit";
 import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
+import { createRunOutcomes, type Resumption } from "./resumption";
 import { afterRunExits } from "./temp-dirs";
 import type { RunBase } from "./work-run";
 
@@ -84,6 +85,8 @@ export interface ComposedRuns {
   readonly nudges: Nudges;
   readonly control: RunControl | null;
   readonly outcomes: RunOutcomes | null;
+  /** Park resume and `work.resume` (DIPO-138), sharing the outcomes' facts. */
+  readonly resumption: Resumption | null;
   readonly resumer: RunResumer | null;
   readonly planLimits: PlanLimits | null;
   readonly launcher: RunLauncher;
@@ -99,6 +102,7 @@ function given<K extends string, V>(key: K, value: V | undefined): { [P in K]?: 
 interface Late {
   ingest: OfficeIngest | null;
   outcomes: RunOutcomes | null;
+  resumption: Resumption | null;
   exitPort: RunOutcomesPort | null;
   planLimits: PlanLimits | null;
 }
@@ -146,7 +150,7 @@ function buildHookListeners(
     // An answer to a `needs-permission` park resumes its run (DIPO-75).
     parks: {
       resume: (office, run, request) =>
-        late.outcomes?.resumePark(office, run, request) ??
+        late.resumption?.resumePark(office, run, request) ??
         Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
     },
     ...given("scheduling", ports.scheduling),
@@ -204,6 +208,7 @@ function trackerOf(ports: RunPorts, control: RunControl): NonNullable<RunLaunche
 interface Outcomes {
   readonly resumer: RunResumer;
   readonly outcomes: RunOutcomes;
+  readonly resumption: Resumption;
   readonly planLimits: PlanLimits | null;
 }
 
@@ -232,21 +237,24 @@ function buildOutcomes(
     ...given("probe", probe),
     ...given("onChanged", ports.onChanged),
   });
-  const outcomes = new RunOutcomes({
-    ...outcomePorts,
-    waits: () => late.planLimits ?? undefined,
-    clock: ports.clock,
-    offices: ports.offices,
-    steering: ports.steering,
-    encode: (op) => ports.worker.encode(op),
-    worker: ports.worker,
-    ender: () => control,
-    resumer,
-    release: ports.release,
-    ...given("refreshStory", ports.refreshStory),
-    ...given("onChanged", ports.onChanged),
-    ...given("warn", ports.warn),
-  });
+  const { outcomes, resumption } = createRunOutcomes(
+    {
+      ...outcomePorts,
+      waits: () => late.planLimits ?? undefined,
+      clock: ports.clock,
+      offices: ports.offices,
+      steering: ports.steering,
+      encode: (op) => ports.worker.encode(op),
+      worker: ports.worker,
+      ender: () => control,
+      resumer,
+      release: ports.release,
+      ...given("refreshStory", ports.refreshStory),
+      ...given("onChanged", ports.onChanged),
+      ...given("warn", ports.warn),
+    },
+    { planLimits: () => late.planLimits ?? undefined },
+  );
   const planLimits =
     ports.planLimits === undefined
       ? null
@@ -254,11 +262,12 @@ function buildOutcomes(
           ...ports.planLimits,
           clock: ports.clock,
           offices: ports.offices,
-          resume: (office, run, why) => outcomes.resumeWait(office, run, why),
+          resume: (office, run, why) => resumption.resumeWait(office, run, why),
+          commands: resumption.feature,
           ...given("scheduling", ports.scheduling),
           ...given("warn", ports.warn),
         });
-  return { resumer, outcomes, planLimits };
+  return { resumer, outcomes, resumption, planLimits };
 }
 
 function buildReattacher(
@@ -314,7 +323,13 @@ function snapshotOf(ports: RunPorts, office: OfficeId, worktree: string) {
 
 /** Builds the run services from `ports`. */
 export function composeRuns(ports: RunPorts): ComposedRuns {
-  const late: Late = { ingest: null, outcomes: null, exitPort: null, planLimits: null };
+  const late: Late = {
+    ingest: null,
+    outcomes: null,
+    resumption: null,
+    exitPort: null,
+    planLimits: null,
+  };
   const control = buildControl(ports, late);
   const { permissions, nudges, hookEvents } = buildHookListeners(ports, control, late);
   const ingest = buildIngest(ports, control, hookEvents);
@@ -322,6 +337,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const built = buildOutcomes(ports, control, ingest, late);
   const outcomes = built?.outcomes ?? null;
   late.outcomes = outcomes;
+  late.resumption = built?.resumption ?? null;
   late.planLimits = built?.planLimits ?? null;
   // Each exit decision of worker outcomes, then `afterExit` (the run temp directory sweep).
   if (outcomes !== null) {
@@ -336,6 +352,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     nudges,
     control,
     outcomes,
+    resumption: late.resumption,
     resumer: built?.resumer ?? null,
     planLimits: late.planLimits,
     launcher,

@@ -126,7 +126,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               presence: { connected: () => false, lastRequestAt: () => null },
               parks: {
                 resume: (office, id, request) =>
-                  r.outcomes?.resumePark(office, id, request) ??
+                  r.resumption?.resumePark(office, id, request) ??
                   Promise.resolve({ kind: "failed", reason: "no outcomes" }),
               },
             });
@@ -137,7 +137,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               { registry: buildRegistry([asks.feature]), confirmed: false },
             );
             expect(reply).toMatchObject({ ok: true, result: { delivered: "on-resume", run } });
-            await r.outcomes?.idle();
+            await r.resumption?.idle();
             await r.control?.idle();
             await r.tempDirs?.settled();
 
