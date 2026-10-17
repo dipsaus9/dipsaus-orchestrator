@@ -40,6 +40,7 @@ import {
   type HostStarter,
   OfficeIngest,
   type PlanLimits,
+  type Resumption,
   RunControl,
   type RunSteering,
   composeRuns,
@@ -119,6 +120,8 @@ export interface Running {
   readonly sent: HostOp[][];
   /** Worker outcomes, when the office was set up with them (DIPO-51). */
   readonly outcomes: RunOutcomes | null;
+  /** Park resume and `work.resume`, built with the outcomes (DIPO-138). */
+  readonly resumption: Resumption | null;
   /** Each ingestion start with the host row's `processed_offset` at that moment. */
   readonly starts: { agent: string; processedOffset: number }[];
   /** The plan-limit schedule, when the office was set up with it (DIPO-61). */
@@ -491,7 +494,7 @@ export async function withRunOffice(
             release: () => undefined,
           }) as unknown as SetupOutcome,
       });
-      const { ingest, permissions, control, outcomes, planLimits, launcher } = composed;
+      const { ingest, permissions, control, outcomes, resumption, planLimits, launcher } = composed;
       const workRun = new WorkRun({
         offices: {
           get: (office) => loaded().manager.get(office),
@@ -543,6 +546,7 @@ export async function withRunOffice(
           control,
           sent,
           outcomes,
+          resumption,
           starts,
           planLimits,
           tmpRoot,

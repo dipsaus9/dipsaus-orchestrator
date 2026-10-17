@@ -290,13 +290,15 @@ export interface RunOutcomesDeps {
   readonly waits?: () => PlanLimitWaits | undefined;
   /** Lifts a park on the story branch (DIPO-75); without it no parked run resumes. */
   readonly unpark?: UnparkWriter;
+  /** Finishes the park resumes a restart interrupted (`Resumption`); the number it finished. */
+  readonly recoverParks?: (office: OfficeId, handle: OfficeHandle) => Promise<number> | number;
   /** Reads the story again at its branch tip after the park was lifted there (DIPO-75). */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
-/** What resuming a parked run asks for (DIPO-75, `RunOutcomes.resumePark`). */
+/** What resuming a parked run asks for (DIPO-75, `Resumption.resumePark`). */
 export interface ResumeParkRequest {
   /** The open park the answer belongs to. */
   readonly parkId: number;
@@ -310,7 +312,7 @@ export interface ResumeParkRequest {
 /** What resuming a parked run did (DIPO-75). */
 export type ResumeParkOutcome =
   /**
-   * The run is active again and the answer recorded; from `resumePark` its next session is
+   * The run is active again and the answer recorded; from `Resumption.resumePark` its next session is
    * starting in the background (a failed start parks or releases the story with its notice).
    */
   | { readonly kind: "started" }
