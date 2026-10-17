@@ -3,12 +3,32 @@
 // branch (`task list` and one `task view` each) and the milestones (`milestone list`). The office
 // configuration comes from the caller.
 
-import { BacklogParseError, parseList, parseView, plainLines } from "../../backlog/plain";
+import {
+  BacklogParseError,
+  parseList,
+  parseView,
+  type PlainTask,
+  plainLines,
+} from "../../backlog/plain";
 import { type BacklogCli, BacklogCommandError, runBacklog } from "../../backlog/runner";
+import { openDependencies } from "../../run/select";
 import { isProvisionalId } from "../../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../../stories/read";
 import { gateStoryFromView, gateTaskFromView } from "../input";
-import type { GateConfig, GateInput } from "../types";
+import type { GateConfig, GateDependency, GateInput } from "../types";
+
+/** The dependencies of `task` that are not Done, with the status the CLI read for each (DIPO-179). */
+export function waitingOnOf(task: PlainTask): GateDependency[] {
+  const open = openDependencies(task);
+  return task.dependencies
+    .filter((dependency) => open.includes(dependency.id))
+    .map((dependency) => ({
+      id: dependency.id,
+      ...(dependency.state === "resolved" && dependency.status !== undefined
+        ? { status: dependency.status }
+        : {}),
+    }));
+}
 
 /** One `  <id>: <name> (<done>/<total> done)` line of `milestone list --plain`. */
 const MILESTONE_LINE = /^ {2}(\S+): (.*?)(?: \(\d+\/\d+ done\))?$/;
@@ -89,10 +109,13 @@ export async function readGateInput(
     (await runBacklog(cli, cwd, ["milestone", "list", "--show-completed", "--plain"])).stdout,
   );
   return {
-    story: gateStoryFromView(
-      target,
-      target.subtasks.map((task) => task.id),
-    ),
+    story: {
+      ...gateStoryFromView(
+        target,
+        target.subtasks.map((task) => task.id),
+      ),
+      waitingOn: waitingOnOf(target),
+    },
     activeTasks,
     milestones,
     config,

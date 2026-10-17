@@ -3085,6 +3085,21 @@
             },
             "required": ["rule", "message"]
           }
+        },
+        "waitingOn": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": ["id"]
+          }
         }
       },
       "required": ["story", "key", "passed", "failures"]
