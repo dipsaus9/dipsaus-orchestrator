@@ -203,6 +203,7 @@ describe("the Claude CLI adapter of one run", () => {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
+      pluginFiles: { read: () => undefined, dirs: () => [] },
       detectSafeChain: (input: unknown) => {
         seen.push(input);
         return found;

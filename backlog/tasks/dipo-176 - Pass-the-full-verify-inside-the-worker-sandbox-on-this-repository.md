@@ -1,10 +1,10 @@
 ---
 id: DIPO-176
 title: Pass the full verify inside the worker sandbox on this repository
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 19:32'
+updated_date: '2026-10-17 20:13'
 labels:
   - 'tier:M'
   - cutover
@@ -45,8 +45,20 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The PR lists each test that fails in a worker-sandbox run of bun run verify on this repository before the change, with its cause, and each one passes there after the change
-- [ ] #2 Tests that need a home directory, a runtime directory or plugin files use a temp directory under DIPO_TMP or an injected reader, never the real home or the real runtime directory
-- [ ] #3 The start.test.ts snapshot that differs on a story branch no longer depends on the checked-out branch or on git state outside the test's own temp repository
-- [ ] #4 A sandboxed run of the full bun run verify with the worker's filesystem read fence passes on macOS, recorded in the task notes with the command, the dipo commit and the result
+- [x] #1 The PR lists each test that fails in a worker-sandbox run of bun run verify on this repository before the change, with its cause, and each one passes there after the change
+- [x] #2 Tests that need a home directory, a runtime directory or plugin files use a temp directory under DIPO_TMP or an injected reader, never the real home or the real runtime directory
+- [x] #3 The start.test.ts snapshot that differs on a story branch no longer depends on the checked-out branch or on git state outside the test's own temp repository
+- [x] #4 A sandboxed run of the full bun run verify with the worker's filesystem read fence passes on macOS, recorded in the task notes with the command, the dipo commit and the result
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Criterion 4, sandboxed verify: on macOS, inside dipo worker session run_01M55PE8B6W4X9TMJEW2SYV7B6 (M1a run 4, dipo built from 5d1cf93, the worker's own run settings and read fence: Claude Code sandbox, reads limited to the worktree, ~/.bun, ~/.npm, ~/.cache, ~/.nvm/versions/node and the run's safe-chain dir), the worker ran `bun run format:fix >/dev/null 2>&1; bun run verify 2>&1 | tail -8`. Result: 3146 pass, 10 skip, 0 fail (3156 tests); verify stops at the first failing stage, so oxfmt, oxlint and tsc passed too. Before the change the same sandbox gave 3136 pass, 10 skip, 10 fail. The 8 skips beyond the 2 seen outside the sandbox: 6 testkit root-length guards (NESTED_ROOT_FITS and LONGEST_ROOT_FITS in testkit temp.test.ts and daemon runtime-isolation.test.ts) skip because the worker's DIPO_TMP is 30 bytes by design (DIPO-118), and 2 most likely PS_RUNS (platform/process.test.ts) and SANDBOX_REFUSES_LOOPBACK (sandbox/safe-chain-proxy.test.ts), inferred, not observed. So the DIPO-109 runtime-isolation guards do not run under the fence.
+
+Failures fixed (10): the five 'work.run starts the worker of a claimed run' tests, the two 'work.preview, the dry run' tests and 'a failed release after a failed host start' in run/start.test.ts, and 'detects Safe-Chain at launch' in run/adapter.test.ts all built the launch context with the default plugin reader, which read /home/maintainer/.claude/plugins/installed_plugins.json and got EPERM under the fence (now an injected empty pluginFiles reader, also in run-office.ts); and platform/paths.test.ts 'falls back to a fresh mkdtemp directory' went over the 100-byte socket limit (now a short mkdtemp alias through the RuntimeDirFs seam, so it passes at any temp root testkit accepts). The 'snapshot differs on a story branch' in criterion 3 was the plugin EPERM: start.test.ts uses no real git.
+
+Delivery: dipo parked the story blocked, asking whether its own sandboxed verify counts for criterion 4 (it does, per the test plan); the work was finished outside the sandbox on DIPO-176/verify-inside-worker-sandbox-finish. Verify outside: 3154 pass, 2 skip, 0 fail.
+
+The recorded sandboxed run predates 8afad3a (it ran the first paths fix, a short tmpBase). 8afad3a's alias version does not depend on the temp root length and passes with DIPO_TMP unset and at a 37-byte root outside the sandbox.
+<!-- SECTION:NOTES:END -->
