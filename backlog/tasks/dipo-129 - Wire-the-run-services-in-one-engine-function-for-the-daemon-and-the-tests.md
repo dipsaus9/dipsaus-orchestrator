@@ -1,10 +1,10 @@
 ---
 id: DIPO-129
 title: Wire the run services in one engine function for the daemon and the tests
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 18:51'
+updated_date: '2026-10-17 19:00'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -40,6 +40,10 @@ test_plan:
       check: "(ci) the full suite and the CI-only run and daemon tests pass"
     - kind: "automated"
       check: "(lint) the DIPO-127 lint exception lists, when merged, do not grow"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "The sandbox denies reading /home/maintainer/.claude/plugins/installed_plugins.json, so the CI-only run and daemon tests and several unit tests fail here before they reach the run wiring. Can you run `DIPO_TEST_CI=1 bun run verify` and the CI-only run and daemon tests outside this sandbox? Criterion 3 stays unconfirmed until those pass."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
