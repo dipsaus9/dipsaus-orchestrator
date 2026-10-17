@@ -1,10 +1,10 @@
 ---
 id: DIPO-121
 title: Keep the stories index refresh CI test under its timeout
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-17 21:48'
+updated_date: '2026-10-17 22:10'
 labels:
   - 'tier:S'
 milestone: m-1
