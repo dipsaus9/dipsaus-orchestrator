@@ -1,10 +1,10 @@
 ---
 id: DIPO-179
 title: List open dependencies in the dipo gate output
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-17 20:16'
 labels:
   - 'tier:S'
   - cutover
