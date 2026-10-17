@@ -1,10 +1,10 @@
 ---
 id: DIPO-138
 title: Move park resume and work.resume out of RunOutcomes into one resume module
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 22:25'
+updated_date: '2026-10-17 22:29'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -48,3 +48,9 @@ test_plan:
 - [x] #3 hooks/park-answers.ts and packages/daemon/src/runs.ts call the new module for a resume, not RunOutcomes
 - [x] #4 Behaviour is unchanged: the existing run, park-answer and plan-limit tests pass without changes to their assertions, and the CI-only run tests pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M55Z0GHGBN2YQ85CM5HMA9MX (Sonnet medium, 71 turns, about $1.41, 7 min) reported done. Park resume and work.resume live in run/resumption.ts (Resumption: resumeWait, resumePark, recoverParkResumes, the work.resume handler); outcome-resumes.ts is gone. PARK_RESUME_POLICY with resumeVia holds the M0 rows (needs-permission through the permission answer, plan-limit through work.resume); any other reason answers story.notPausedOrParked. RunOutcomes reaches park recovery through a recoverParks dependency. Tests moved their construction and calls from outcomes to resumption; assertions unchanged. Left for later: packages/daemon/src/foreground.ts still registers work.resume through runs.planLimits.feature, which delegates to the resumption. Verify outside the sandbox on DIPO-138/move-park-resume-out-of-run-outcomes-finish: 3192 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 run, hooks and daemon 517 pass.
+<!-- SECTION:NOTES:END -->
