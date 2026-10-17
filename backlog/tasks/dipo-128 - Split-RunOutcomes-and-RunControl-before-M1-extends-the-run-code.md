@@ -1,10 +1,10 @@
 ---
 id: DIPO-128
 title: Split RunOutcomes and RunControl before M1 extends the run code
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 16:45'
+updated_date: '2026-10-17 19:32'
 labels:
   - 'tier:M'
 milestone: m-1
