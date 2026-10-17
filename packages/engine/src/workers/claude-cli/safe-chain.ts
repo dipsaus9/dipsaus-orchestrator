@@ -366,7 +366,7 @@ export function zshLoginText(pathExport: string): string {
  */
 export function bashLoginLines(pathExport: string): string[] {
   return [
-    "# dipo (DIPO-107): after the login files (path_helper), the planned PATH goes back.",
+    "# dipo (DIPO-107, DIPO-178): a login shell gets the planned PATH back, in case a profile file ever runs.",
     "if shopt -q login_shell; then",
     `  ${pathExport}`,
     "fi",
