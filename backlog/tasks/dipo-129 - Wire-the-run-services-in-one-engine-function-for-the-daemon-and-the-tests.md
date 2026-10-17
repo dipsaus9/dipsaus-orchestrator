@@ -4,7 +4,7 @@ title: Wire the run services in one engine function for the daemon and the tests
 status: Parked
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 19:00'
+updated_date: '2026-10-17 19:21'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -53,3 +53,9 @@ park:
 - [ ] #2 Every difference found between the two copies is listed in the PR, and each is resolved to the daemon's behaviour or explained
 - [ ] #3 The full suite and the CI-only run and daemon tests pass, and the lint exception lists of DIPO-127 (when merged) do not grow
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Run wirings still built by hand in tests, for DIPO-128 to move onto composeRuns or keep as unit seams: packages/engine/test/run/reattach.test.ts:153-190, reattach.ci.test.ts:65-89 and 303, outcomes.test.ts:117/133, plan-limit.test.ts:133/149, park-resume.test.ts:160/298/354, verify-commit.test.ts:257/561, hooks/park-answers.test.ts:113, run/start.test.ts:256, ingest/command-bodies.test.ts:147. park-resume.ci.test.ts and temp-dirs.ci.test.ts also build their own PermissionAsks for work.answer next to the composed one.
+<!-- SECTION:NOTES:END -->
