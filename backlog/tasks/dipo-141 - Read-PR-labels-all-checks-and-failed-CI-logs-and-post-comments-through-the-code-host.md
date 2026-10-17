@@ -3,10 +3,10 @@ id: DIPO-141
 title: >-
   Read PR labels, all checks and failed CI logs, and post comments, through the
   code host
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 16:42'
+updated_date: '2026-10-17 12:51'
 labels:
   - 'tier:S'
   - 'slice:m1a'

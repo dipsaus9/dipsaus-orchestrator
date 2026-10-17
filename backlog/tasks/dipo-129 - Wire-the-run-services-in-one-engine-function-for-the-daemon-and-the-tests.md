@@ -4,7 +4,7 @@ title: Wire the run services in one engine function for the daemon and the tests
 status: Refined
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-16 14:17'
+updated_date: '2026-10-17 16:44'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -28,6 +28,17 @@ ordinal: 119000
 Outcome: the daemon and the engine's run tests build the run services through one engine function, so the tests exercise the same wiring the daemon runs.
 
 Context: the run wiring exists twice, in packages/daemon/src/runs.ts and in packages/engine/test/run/run-office.ts (about 430 lines), and the copies already differ. A fix to one does not reach the other, so tests can pass against wiring the daemon does not use. This comes before the run code split (DIPO-128), so the split updates one wiring site instead of two; it follows the intent helper (DIPO-126), which changes the same constructors. Found by the 2026-10-16 milestone review, section 1c CC9.
+
+```dipo
+branch: "DIPO-129/one-run-services-wiring"
+unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) the daemon and the engine run tests build the run services through the same engine function"
+    - kind: "automated"
+      check: "(ci) the full suite and the CI-only run and daemon tests pass"
+```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

@@ -1,10 +1,10 @@
 ---
 id: DIPO-138
 title: Move park resume and work.resume out of RunOutcomes into one resume module
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 16:42'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'

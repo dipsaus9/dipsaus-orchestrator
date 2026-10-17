@@ -1,10 +1,10 @@
 ---
 id: DIPO-123
 title: Close the gaps DIPO-119 left in run decisions and permission timeouts
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 11:53'
-updated_date: '2026-10-16 14:17'
+updated_date: '2026-10-17 16:44'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -26,6 +26,19 @@ ordinal: 113000
 Outcome: a stored-intent failure and a failed question close do not leave work stuck until the next office load.
 
 Context: advisory findings from the DIPO-119 review (PR #145). RunControl.act returns false when recordIntent fails, and nothing retries the turn problem it was acting on. PermissionAsks logs a failed timeout close and sends the deny, but the question stays open until the next office load expires it. The findQuestion failure branch in the timeout has no test.
+
+```dipo
+branch: "DIPO-123/retry-failed-act-and-question-close"
+unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) a turn problem whose act fails is retried at the next cap tick, or the run parks with a worker-failed reason"
+    - kind: "automated"
+      check: "(unit) a question whose timeout close fails re-arms its timer and the retry closes it without a second reply"
+    - kind: "automated"
+      check: "(unit) a findQuestion failure in the timeout is covered"
+```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
