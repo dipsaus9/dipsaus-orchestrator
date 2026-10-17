@@ -4,16 +4,44 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { scrubLine } from "../../src/host/scrub";
+import { LineSplitter } from "../../src/host/events";
+import { LineScrubber, scrubLine } from "../../src/host/scrub";
 import { CLAUDE_LINE_SCRUB } from "../../src/workers/claude-cli/adapter";
 import { hostLines } from "../ingest/helpers";
 import { loadRecording, recordingNames } from "../workers/replay";
 
 const THOUGHT = "PRIVATE-THOUGHT the maintainer must never see this";
 const SIGNATURE = "SIGNATURE-EqQBCkYIBxgCKkDopaqueBlob0123456789";
+const MIB = 1024 * 1024;
 
 function line(data: unknown): string {
   return `${JSON.stringify(data)}\n`;
+}
+
+/** `text` cut into pieces the way the host's pump does, each scrubbed, joined as the event file holds them. */
+function pumped(text: string, maxLine?: number): string {
+  const splitter = new LineSplitter();
+  const scrubber = new LineScrubber(CLAUDE_LINE_SCRUB, maxLine);
+  const out: string[] = [];
+  const keep = (piece: string) => {
+    const data = scrubber.push(piece);
+    if (data !== null) out.push(data);
+  };
+  for (const piece of splitter.push(text)) keep(piece);
+  const rest = splitter.flush();
+  if (rest !== null) keep(rest);
+  const tail = scrubber.flush();
+  if (tail !== null) out.push(tail);
+  return out.join("");
+}
+
+/** A thinking block whose text is `size` bytes long, in the fields' order `thinkingFirst` or not. */
+function bigThinking(size: number, thinkingFirst: boolean): string {
+  const text = `${THOUGHT} ${"t".repeat(size)}`;
+  const block = thinkingFirst
+    ? { type: "thinking", thinking: text, signature: SIGNATURE }
+    : { thinking: text, signature: SIGNATURE, type: "thinking" };
+  return line({ type: "assistant", message: { content: [block] }, session_id: "s-1" });
 }
 
 describe("worker host stdout scrub (DIPO-105)", () => {
@@ -132,6 +160,73 @@ describe("worker host stdout scrub (DIPO-105)", () => {
       }
     }
     expect(scrubbed).toBeGreaterThan(0);
+  });
+});
+
+describe("worker host stdout scrub of capped lines (DIPO-175)", () => {
+  it("removes the thinking text of a 5 MiB line whose text spans two pieces", () => {
+    const input = bigThinking(5 * MIB, true);
+    expect(new LineSplitter().push(input).length).toBeGreaterThan(1);
+    const output = pumped(input);
+    expect(output).not.toContain("PRIVATE-THOUGHT");
+    expect(output).not.toContain("tttttttttt");
+    expect(output).not.toContain(SIGNATURE);
+    expect(JSON.parse(output)).toEqual({
+      type: "assistant",
+      message: { content: [{ type: "thinking" }] },
+      session_id: "s-1",
+    });
+  });
+
+  it("removes the thinking text of a 5 MiB line whose block type comes after the text", () => {
+    const input = bigThinking(5 * MIB, false);
+    expect(new LineSplitter().push(input).length).toBeGreaterThan(1);
+    const output = pumped(input);
+    expect(output).not.toContain("PRIVATE-THOUGHT");
+    expect(output).not.toContain("tttttttttt");
+    expect(output).not.toContain(SIGNATURE);
+    expect(JSON.parse(output)).toEqual({
+      message: { content: [{ type: "thinking" }] },
+      session_id: "s-1",
+      type: "assistant",
+    });
+  });
+
+  it("stores a capped line without a thinking block as it came", () => {
+    const input = line({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "a".repeat(5 * MIB) }] },
+    });
+    expect(new LineSplitter().push(input).length).toBeGreaterThan(1);
+    expect(pumped(input)).toBe(input);
+  });
+
+  it("stores a line under the cap as it came, and scrubs its thinking", () => {
+    const plain = line({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } });
+    expect(pumped(plain)).toBe(plain);
+    const thinking = bigThinking(1024, true);
+    const output = pumped(thinking);
+    expect(output).not.toContain("PRIVATE-THOUGHT");
+    expect(output).toBe(scrubLine(thinking, CLAUDE_LINE_SCRUB));
+  });
+
+  it("drops a line over the held cap and keeps the lines after it", () => {
+    const after = line({ type: "system", subtype: "init" });
+    const input = bigThinking(3 * MIB, true);
+    const output = pumped(`${input}${after}`, MIB);
+    expect(output).not.toContain("PRIVATE-THOUGHT");
+    expect(output).toBe(after);
+  });
+
+  it("drops a line that never ends, and holds no more than the cap", () => {
+    const drops: number[] = [];
+    const scrubber = new LineScrubber(CLAUDE_LINE_SCRUB, 10, (held) => drops.push(held));
+    const pieces = ['{"type":"thinking",', '"thinking":"xxxxxxxxxx', "xxxxxxxxxx", "xxxxxxxxxx"];
+    for (const piece of pieces) expect(scrubber.push(piece)).toBeNull();
+    expect(scrubber.push('"}\n')).toBeNull();
+    expect(scrubber.flush()).toBeNull();
+    // One drop, reported once, when the held text first passed the cap.
+    expect(drops).toEqual(['{"type":"thinking",'.length]);
   });
 });
 
