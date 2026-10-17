@@ -219,7 +219,8 @@ export const StoryGateFailure = GateRuleFailure.extend({ text: z.string() });
 export type StoryGateFailure = z.infer<typeof StoryGateFailure>;
 
 // The story's PR on the code host (0019 section 3). Since minor 1 (DIPO-140).
-export const StoryPrState = z.enum(["open", "merged", "closed"]);
+export const KNOWN_STORY_PR_STATES = ["open", "merged", "closed"] as const;
+export const StoryPrState = openEnum(KNOWN_STORY_PR_STATES);
 export type StoryPrState = z.infer<typeof StoryPrState>;
 
 export const StoryPr = z.object({
@@ -275,12 +276,12 @@ export const ReviewOverride = z.object({
 });
 export type ReviewOverride = z.infer<typeof ReviewOverride>;
 
-// One review round as shown on `story.detail` (0019 section 14). `treeKey` is the code tree key
+// One review round as shown on `story.detail` (0019 section 14). `codeTreeKey` is the code tree key
 // the verdict is keyed on (section 6); `carried` is set when an approval moved to a later head.
 export const ReviewVerdict = z.object({
   round: z.int().positive(),
   commit: z.string().min(1),
-  treeKey: z.string().min(1),
+  codeTreeKey: z.string().min(1),
   verdict: z.enum(["approved", "blocked"]),
   criteria: z.array(ReviewCriterionResult),
   findings: z.array(ReviewFinding),

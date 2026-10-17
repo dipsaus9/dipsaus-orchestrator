@@ -11,7 +11,7 @@ import { Progress, ReviewSummary, ReviewVerdict, StoryPr, StoryView } from "./wo
 const reviewVerdict = {
   round: 2,
   commit: "4f2a9c1d",
-  treeKey: "tree_9b1e",
+  codeTreeKey: "tree_9b1e",
   verdict: "blocked" as const,
   criteria: [
     { n: 1, status: "met" as const, evidence: "test/retry.test.ts passes" },
@@ -116,11 +116,11 @@ describe("review verdict (0019 section 14)", () => {
 });
 
 describe("story PR (0019 section 3)", () => {
-  it("parses StoryPr with each state, and rejects an unknown state", () => {
-    for (const state of ["open", "merged", "closed"]) {
+  it("parses StoryPr with each known state, and keeps a later state as an open enum value", () => {
+    for (const state of ["open", "merged", "closed", "draft"]) {
       expect(StoryPr.safeParse({ ...storyPr, state }).success).toBe(true);
     }
-    expect(StoryPr.safeParse({ ...storyPr, state: "draft" }).success).toBe(false);
+    expect(StoryPr.safeParse({ ...storyPr, state: 1 }).success).toBe(false);
   });
 
   it("parses StoryView with pr, and StoryView without it", () => {

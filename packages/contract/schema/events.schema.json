@@ -449,8 +449,15 @@
                   "format": "uri"
                 },
                 "state": {
-                  "type": "string",
-                  "enum": ["open", "merged", "closed"]
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["open", "merged", "closed"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
                 }
               },
               "required": ["number", "url", "state"]
@@ -3231,8 +3238,15 @@
               "format": "uri"
             },
             "state": {
-              "type": "string",
-              "enum": ["open", "merged", "closed"]
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["open", "merged", "closed"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
             }
           },
           "required": ["number", "url", "state"]
