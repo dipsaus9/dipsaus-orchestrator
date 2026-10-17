@@ -338,8 +338,16 @@ export const workOutputRange = defineRead({
   since: 0,
 });
 
+// A dependency of a story that is not Done on the office's base (DIPO-179): its id and its status
+// there. The status is absent when the Backlog CLI could not read the dependency (missing or
+// ambiguous), so the story waits on it but its status is unknown.
+export const GateDependency = z.object({ id: z.string(), status: z.string().optional() });
+export type GateDependency = z.infer<typeof GateDependency>;
+
 // The Ready gate of one story in `ready` mode, evaluated on the office's base and not stored
 // (M0 breakdown decision D3, DIPO-71). It passes only with no failures; failures are in rule order.
+// Since minor 1 (DIPO-179): `waitingOn` lists the dependencies that are not Done, absent when none
+// are open. The verdict does not depend on it: a passing story can still wait before pickup.
 export const storyGate = defineRead({
   name: "story.gate",
   args: z.object({ office: OfficeId, story: StoryRefValue }),
@@ -348,6 +356,7 @@ export const storyGate = defineRead({
     key: StoryKey,
     passed: z.boolean(),
     failures: z.array(GateRuleFailure),
+    waitingOn: z.array(GateDependency).optional(),
   }),
   since: 1,
 });

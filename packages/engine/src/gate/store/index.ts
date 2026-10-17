@@ -11,4 +11,10 @@ export type { GateDecisionRecord, RuleResult, StoreDecision } from "./decisions"
 export { gateConfigOf, GateStore } from "./feature";
 export type { BaseCheckout, GateEvaluation, GateStoreDeps } from "./feature";
 export { gateContent, gateContentHash } from "./hash";
-export { isStoryNotFound, parseMilestones, readGateInput, StoryNotFoundError } from "./read";
+export {
+  isStoryNotFound,
+  parseMilestones,
+  readGateInput,
+  StoryNotFoundError,
+  waitingOnOf,
+} from "./read";
