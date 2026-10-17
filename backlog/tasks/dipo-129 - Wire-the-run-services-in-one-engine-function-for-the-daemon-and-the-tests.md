@@ -1,10 +1,10 @@
 ---
 id: DIPO-129
 title: Wire the run services in one engine function for the daemon and the tests
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 18:00'
+updated_date: '2026-10-17 18:51'
 labels:
   - 'tier:M'
 milestone: m-1
