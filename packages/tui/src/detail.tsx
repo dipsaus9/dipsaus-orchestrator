@@ -43,7 +43,7 @@ import {
   rowCount,
   visibleRows,
 } from "./output";
-import { clockTime, glyphs, healthLabel, officeOptIns, optInLabel } from "./views";
+import { clockTime, glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
 
 // The `now` line is shared with the overview (DIPO-81).
 export { nowLine, shortAge } from "./now";
@@ -397,9 +397,10 @@ export function Detail(props: DetailProps) {
   const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled, display.ascii);
   const feed = shown.feed;
   const tabs = source === "worker" ? "[w]orker* [v]erify" : "[w]orker [v]erify*";
-  // With the opt-in on, tool lines in the worker output carry their commands (0007 section 8).
-  const optIn = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
-  const title = `output (${source}) ${tabs}${optIn ? `  ${optInLabel([COMMAND_BODIES])}` : ""}`;
+  // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
+  // commands (0007 section 8).
+  const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
+  const title = `output (${source}) ${tabs}${stores ? `  ${storedLabel([COMMAND_BODIES])}` : ""}`;
   let status: string;
   if (feed.error !== null) status = feed.error;
   else if (!feed.loaded) status = `reading output${ellipsis}`;
