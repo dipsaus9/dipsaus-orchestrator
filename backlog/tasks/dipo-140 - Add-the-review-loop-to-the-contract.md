@@ -1,10 +1,10 @@
 ---
 id: DIPO-140
 title: Add the review loop to the contract
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 21:14'
+updated_date: '2026-10-17 21:41'
 labels:
   - 'tier:S'
   - 'slice:m1a'
