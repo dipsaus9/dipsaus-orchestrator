@@ -42,19 +42,19 @@
 // ends goes through `endRun` (a park, or the claim release of a start failure).
 //
 // DIPO-128 split the class by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
-// (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-resumes.ts` (plan
-// limit and park resumes), `outcome-restart.ts` (after a restart), `outcome-support.ts` (shared
-// facts) and `deciding.ts` (the one deciding guard). `outcome-types.ts` holds the vocabulary;
-// this file keeps the public class and re-exports all of it.
+// (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-restart.ts` (after
+// a restart), `outcome-support.ts` (shared facts) and `deciding.ts` (the one deciding guard).
+// `outcome-types.ts` holds the vocabulary; this file keeps the public class and re-exports all of
+// it. Resuming a held or parked run is not here: it is `resumption.ts` (DIPO-138), which builds on
+// the `parts` this exposes.
 
-import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../commands/registry";
 import type { TurnProblem } from "../workers/types";
 
 import { ExitOutcomes } from "./outcome-exits";
 import { Redispatch } from "./outcome-restart";
-import { ParkResumes } from "./outcome-resumes";
 import { SessionStarts } from "./outcome-sessions";
 import { OutcomeSupport } from "./outcome-support";
 import { TurnOutcomes } from "./outcome-turns";
@@ -63,8 +63,6 @@ import type {
   HostLostContext,
   PlanLimitHit,
   PlanLimitWarning,
-  ResumeParkOutcome,
-  ResumeParkRequest,
   RunOutcomesDeps,
   RunOutcomesPort,
   RunView,
@@ -72,20 +70,26 @@ import type {
 
 export * from "./outcome-types";
 
+/** The units a resumption shares with worker outcomes: their facts, guard and session starts. */
+export interface OutcomeParts {
+  readonly support: OutcomeSupport;
+  readonly sessions: SessionStarts;
+}
+
 export class RunOutcomes implements RunOutcomesPort {
   readonly #support: OutcomeSupport;
   readonly #turns: TurnOutcomes;
   readonly #exits: ExitOutcomes;
-  readonly #resumes: ParkResumes;
   readonly #restart: Redispatch;
+  readonly parts: OutcomeParts;
 
   constructor(deps: RunOutcomesDeps) {
     this.#support = new OutcomeSupport(deps);
     const sessions = new SessionStarts(this.#support);
     this.#turns = new TurnOutcomes(this.#support);
     this.#exits = new ExitOutcomes(this.#support, sessions, this.#turns);
-    this.#resumes = new ParkResumes(this.#support, sessions);
-    this.#restart = new Redispatch(this.#support, this.#exits, sessions, this.#resumes);
+    this.parts = { support: this.#support, sessions };
+    this.#restart = new Redispatch(this.#support, this.#exits, sessions);
   }
 
   onTurnProblem(view: RunView, problem: TurnProblem): Promise<void> {
@@ -122,11 +126,6 @@ export class RunOutcomes implements RunOutcomesPort {
     return this.#support.guard.busy(runId);
   }
 
-  /** Resolves once every session start of a resumed park this started has finished (DIPO-75). */
-  idle(): Promise<void> {
-    return this.#resumes.idle();
-  }
-
   /** The load step that decides the exits a restart left undecided. */
   get feature(): FeatureModule {
     return this.#restart.feature;
@@ -135,23 +134,5 @@ export class RunOutcomes implements RunOutcomesPort {
   /** Decides the exits a restart left undecided; the number of runs it handled. */
   redispatch(officeId: OfficeId): Promise<number> {
     return this.#restart.redispatch(officeId);
-  }
-
-  /** Resumes a run held by a plan limit (DIPO-61). */
-  resumeWait(
-    officeId: OfficeId,
-    runId: RunId,
-    why: string,
-  ): Promise<"started" | "failed" | "notHeld" | "busy"> {
-    return this.#resumes.resumeWait(officeId, runId, why);
-  }
-
-  /** Resumes the run of a story parked `needs-permission` after its answer (DIPO-75). */
-  resumePark(
-    officeId: OfficeId,
-    runId: RunId,
-    request: ResumeParkRequest,
-  ): Promise<ResumeParkOutcome> {
-    return this.#resumes.resumePark(officeId, runId, request);
   }
 }

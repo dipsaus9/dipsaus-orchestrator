@@ -2,7 +2,7 @@
 // the pinned Backlog CLI and DIPO-44's worker host in this process (DIPO-75). `work.run` claims
 // TASK-1 and its first host replays the live `needs-permission` recording (see
 // `../hooks/needs-permission.ts`): the story parks with the park's permission question. The maintainer's allow goes through the permission wait to the real
-// `RunOutcomes.resumePark`: the park is lifted on the story branch, the same run is active again
+// `Resumption.resumePark`: the park is lifted on the story branch, the same run is active again
 // and its next session starts in a second host (replaying `success-single`) with the allow
 // message. Its done report goes through verify and commit (a fake verify step) to In Review, so
 // the run ends once: one `run_outcomes` row whose minutes leave out the two parked hours, and one
@@ -112,7 +112,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               presence: { connected: () => false, lastRequestAt: () => null },
               parks: {
                 resume: (office, id, request) =>
-                  r.outcomes?.resumePark(office, id, request) ??
+                  r.resumption?.resumePark(office, id, request) ??
                   Promise.resolve({ kind: "failed", reason: "no outcomes" }),
               },
             });
@@ -135,7 +135,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               result: { question: question?.questionId, delivered: "on-resume", run },
             });
             // The reply came once the run reopened; the session starts after it.
-            await r.outcomes?.idle();
+            await r.resumption?.idle();
             await r.control?.idle();
 
             // The park was lifted on the branch, pushed, and resolved; the same run went on.

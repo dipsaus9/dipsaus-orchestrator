@@ -37,13 +37,21 @@ export function officeOptIns(state: OfficeStoreState): readonly string[] {
   return state.offices.find((entry) => entry.office === state.office)?.summary?.optIns ?? [];
 }
 
+/** The stored data each privacy setting names (0007 section 8, DIPO-135). */
+const STORED_WORDS: Readonly<Record<string, string>> = {
+  "privacy.storeCommandBodies": "stores commands",
+  "privacy.storePrompts": "stores prompts",
+  "privacy.keepRawEvents": "keeps raw events",
+};
+
 /**
- * `opt-in storeCommandBodies` while privacy opt-ins are on, so the maintainer sees that more is
- * stored than the default (0007 section 8); "" when none is.
+ * What the privacy settings that are on store, as words such as `stores commands`, so the
+ * maintainer sees what is kept beyond the summary (0007 section 8); "" when none is on. Commands
+ * are stored by default (DIPO-135), so this label shows on a default office.
  */
-export function optInLabel(optIns: readonly string[]): string {
+export function storedLabel(optIns: readonly string[]): string {
   if (optIns.length === 0) return "";
-  return `opt-in ${optIns.map((key) => key.replace(/^privacy\./, "")).join(", ")}`;
+  return optIns.map((key) => STORED_WORDS[key] ?? key.replace(/^privacy\./, "")).join(", ");
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

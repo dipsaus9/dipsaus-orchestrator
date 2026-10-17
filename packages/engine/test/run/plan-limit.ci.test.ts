@@ -66,7 +66,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               clock: r.s.clock,
               offices: { get: () => r.office, config: (office) => r.s.manager.config(office) },
               resume: (office, id, why) =>
-                r.outcomes?.resumeWait(office, id, why) ?? Promise.resolve("notHeld"),
+                r.resumption?.resumeWait(office, id, why) ?? Promise.resolve("notHeld"),
             });
             expect(again.held("claude-cli", null)).toBeNull();
             expect(again.recover(r.officeId, r.office)).toBe(1);
@@ -74,7 +74,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             again.close();
 
             // The reset: the session continues in a second host of the same run.
-            expect(await r.outcomes?.resumeWait(r.officeId, run, "the plan limit reset")).toBe(
+            expect(await r.resumption?.resumeWait(r.officeId, run, "the plan limit reset")).toBe(
               "started",
             );
             await r.control?.idle();

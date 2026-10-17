@@ -510,9 +510,9 @@ describe("opening any board row (DIPO-81)", () => {
     }
   });
 
-  it("says when a privacy opt-in is on, from the office summary (DIPO-83)", async () => {
+  it("names what the privacy settings that are on store, from the office summary (DIPO-83, DIPO-135)", async () => {
     const { ui, session } = await open(120);
-    expect(ui.frame()).not.toContain("opt-in");
+    expect(ui.frame()).not.toContain("stores");
     const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
     session.active("software")?.options.onEvent({
       cursor: { stream: "software", epoch: "e1", seq: 90 },
@@ -520,7 +520,8 @@ describe("opening any board row (DIPO-81)", () => {
       type: "office.summary",
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
     } as Event);
-    const frame = await ui.waitFor("opt-in");
-    expect(frame).toMatch(/ · held \d+ · opt-in storeCommandBodies/);
+    const frame = await ui.waitFor("stores commands");
+    expect(frame).toMatch(/ · held \d+ · stores commands/);
+    expect(frame).not.toContain("opt-in");
   });
 });
