@@ -1,10 +1,10 @@
 ---
 id: DIPO-176
 title: Pass the full verify inside the worker sandbox on this repository
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 19:32'
+updated_date: '2026-10-17 19:47'
 labels:
   - 'tier:M'
   - cutover
