@@ -157,7 +157,7 @@ async function loseHost(composed: ReturnType<typeof compose>): Promise<void> {
   });
   control.onHostLost(f.run, f.agent);
   await control.idle();
-  await composed.outcomes?.idle();
+  await composed.resumption?.idle();
 }
 
 describe("composeRuns", () => {

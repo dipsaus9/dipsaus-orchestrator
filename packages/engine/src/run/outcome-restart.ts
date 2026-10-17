@@ -7,7 +7,6 @@ import type { FeatureModule } from "../commands/registry";
 import { workRefOf } from "../views/work";
 
 import type { ExitOutcomes } from "./outcome-exits";
-import type { ParkResumes } from "./outcome-resumes";
 import type { SessionStarts } from "./outcome-sessions";
 import type { OutcomeSupport } from "./outcome-support";
 import {
@@ -25,19 +24,12 @@ export class Redispatch {
   readonly #guard: OutcomeSupport["guard"];
   readonly #exits: ExitOutcomes;
   readonly #sessions: SessionStarts;
-  readonly #resumes: ParkResumes;
 
-  constructor(
-    support: OutcomeSupport,
-    exits: ExitOutcomes,
-    sessions: SessionStarts,
-    resumes: ParkResumes,
-  ) {
+  constructor(support: OutcomeSupport, exits: ExitOutcomes, sessions: SessionStarts) {
     this.#deps = support.deps;
     this.#guard = support.guard;
     this.#exits = exits;
     this.#sessions = sessions;
-    this.#resumes = resumes;
   }
 
   // ---- after a restart (maintainer decision Q6) ------------------------------------------------
@@ -76,7 +68,7 @@ export class Redispatch {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return 0;
     // Park resumes a restart interrupted (DIPO-75) first: their runs are skipped below.
-    let count = await this.#resumes.recoverParkResumes(officeId, office);
+    let count = (await this.#deps.recoverParks?.(officeId, office)) ?? 0;
     for (const run of activeRuns(office)) {
       // A run decided here, or followed by run control (re-attached, DIPO-57), is decided there.
       const tracked = this.#deps.ender().isTracked?.(run.runId) ?? false;

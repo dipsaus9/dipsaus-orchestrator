@@ -466,6 +466,34 @@ describe("evaluateGate", () => {
   });
 });
 
+describe("open dependencies (DIPO-179)", () => {
+  const open = [
+    { id: "DIPO-3", status: "Ready" },
+    { id: "DIPO-4", status: "Refined" },
+  ];
+
+  it("lists the open dependencies of a passing story without changing its verdict", () => {
+    const result = evaluateGate(input({ waitingOn: open }), "ready");
+    expect(result.passed).toBe(true);
+    expect(result.waitingOn).toEqual(open);
+  });
+
+  it("lists the open dependencies of a failing story next to its failures", () => {
+    const result = evaluateGate(
+      input({ milestone: "m-9", waitingOn: [{ id: "DIPO-3" }] }),
+      "ready",
+    );
+    expect(result.passed).toBe(false);
+    expect(messages(result)).toEqual([`${prefix("R07")}milestone is missing or does not exist`]);
+    expect(result.waitingOn).toEqual([{ id: "DIPO-3" }]);
+  });
+
+  it("leaves waitingOn out when no dependency is open", () => {
+    expect(evaluateGate(input({ waitingOn: [] }), "ready")).not.toHaveProperty("waitingOn");
+    expect(evaluateGate(input(), "ready")).not.toHaveProperty("waitingOn");
+  });
+});
+
 describe("R12 scope paths", () => {
   const bad = [
     "/etc/passwd",
