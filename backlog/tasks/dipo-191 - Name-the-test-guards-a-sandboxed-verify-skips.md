@@ -1,10 +1,10 @@
 ---
 id: DIPO-191
 title: Name the test guards a sandboxed verify skips
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 21:14'
+updated_date: '2026-10-17 22:40'
 labels:
   - 'tier:S'
   - cutover
