@@ -4,7 +4,7 @@ title: 'Let the maintainer approve, reject or override a waiting merge'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -37,7 +37,7 @@ ordinal: 140000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: merge gates open and are decided as ADR 0019 section 11 says, a review-blocked park opens an override gate whose approval needs a note, gate.approve and gate.reject work behind the review flag, dipo approve and dipo reject exist, and a hand merge closes the gate through the Done poll.
+Outcome: merge gates open in front of the merge slot and are decided as ADR 0019 section 11 says, a review-blocked park opens an override gate whose approval needs a note, gate.approve and gate.reject work behind the review flag, dipo approve and dipo reject exist, and a hand merge closes the gate through the Done poll.
 
 Context: implements ADR 0019 section 11 (when a merge waits for the maintainer, the gate, approve, reject, hand merge, approving past a blocked review, CLI; spike answer 3) and the capability flag of section 15; the override value of parks.resolved_how is listed in 0020 section 15. gate.approve and gate.reject are provisional today (0019 fact 8).
 
@@ -48,6 +48,8 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) each waiting condition of section 11 makes the gate wait, and none decides it by rule"
+    - kind: "automated"
+      check: "(unit) a story PR with an approved verdict and green checks stays out of the merge slot until its merge gate is approved"
     - kind: "automated"
       check: "(unit) override: no note answers gate.noteRequired, a note resolves the park as override and returns the story to In Review"
     - kind: "automated"
@@ -61,7 +63,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A merge gate (gate.reached, kind merge) opens when the review approved and the required checks are green on the head; it waits for the maintainer when mergeSlot.autoMerge is false, the story is flagged test-before-merge, a criterion is marked maintainer, the story passed by override, or a hold label is on the PR, and is otherwise decided approved by rule and recorded
+- [ ] #1 A merge gate (gate.reached, kind merge) opens when the review approved and the required checks are green on the head, and from this story a story PR enters the merge slot of DIPO-150 only once that gate is approved, in front of the slot's own entry conditions; the gate waits for the maintainer when mergeSlot.autoMerge is false, the story is flagged test-before-merge, a criterion is marked maintainer, the story passed by override, or a hold label is on the PR, and is otherwise decided approved by rule and recorded
 - [ ] #2 The gate's code-built summary names why it waits; for a flagged story it lists the manual test-plan entries and the worktree path, and the phase is test for a flagged story, merge otherwise
 - [ ] #3 gate.approve decides approved by maintainer and the PR enters the slot; gate.reject (confirmation and note required) decides rejected and starts a fix round with the note; both answer gate.notWaitingOnMaintainer for a gate decided by rule, and gate.approve answers gate.handMergeOnly for a PR labelled autorelease: pending
 - [ ] #4 A review-blocked park opens a merge gate summarising the blocking findings; gate.approve on it without a note answers gate.noteRequired, and with a note records a maintainer override, marks the verdict overridden, resolves the park with resolved_how override (added to the parks check by migration) and returns the story to In Review with no session

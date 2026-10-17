@@ -4,7 +4,7 @@ title: Take a run's caps from its start and its grants
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 12:51'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -30,7 +30,7 @@ ordinal: 132000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: a run's caps are its start snapshot plus its recorded grants, read by one function everywhere, and a tier edit reaches new runs only, so no cap of a parked story changes without a recorded fact.
 
-Context: implements ADR 0020 section 5 (caps come from the run, plus grants; maintainer decision 2) and the run_grants table of section 15. Today a resume reads caps from the office config in force (capsOf(tierOf(office, run)) in packages/daemon/src/runs.ts, 0020 fact 4), and runs stores budget_limit and loop_cap but no turn or minute cap. 0019 story G adds the review loop's cap columns.
+Context: implements ADR 0020 section 5 (caps come from the run, plus grants; maintainer decision 2) and the run_grants table of section 15. Today a resume reads caps from the office config in force (capsOf(tierOf(office, run)) in packages/daemon/src/runs.ts, 0020 fact 4), and runs stores budget_limit and loop_cap but no turn or minute cap. DIPO-146 adds the review loop's cap columns.
 
 ```dipo
 branch: "DIPO-143/run-caps-from-start-and-grants"

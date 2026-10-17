@@ -4,7 +4,7 @@ title: List what waits on the maintainer with dipo desk
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -18,7 +18,6 @@ references:
   - packages/engine/src/reads/
   - packages/cli/src/
   - packages/engine/test/views/
-  - docs/decisions/
 priority: high
 type: feature
 ordinal: 147000
@@ -51,5 +50,5 @@ test_plan:
 - [ ] #2 Items are ordered in the six groups of section 12 (questions with a waiting worker, merge gates, parks by decision then direction then restart, hand actions, proposals, held by you) and within a group by number of dependents, then oldest
 - [ ] #3 A review-blocked story is one PARKED row offering dipo resume --note and dipo approve --note, and a gate held by autorelease: pending offers a hand merge on GitHub and no dipo approve
 - [ ] #4 dipo desk [--office <id>] [--json] prints a count line, one line per item and an indented line with the command, in plain text; --json prints the read's result; an empty desk prints Nothing waits on you.; the exit code is 0
-- [ ] #5 The contract carries office.desk and DeskItem, with the 0005 dated line
+- [ ] #5 The contract carries the office.desk read and the DeskItem shape
 <!-- AC:END -->

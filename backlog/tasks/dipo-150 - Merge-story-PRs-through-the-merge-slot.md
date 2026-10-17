@@ -4,7 +4,7 @@ title: Merge story PRs through the merge slot
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -30,7 +30,7 @@ ordinal: 139000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: approved story PRs merge through a persisted merge slot with close-out, sync, push, required checks, label and head guards and squash merge, and hand changes and PRs closed on the host are handled as ADR 0019 section 9 says.
+Outcome: story PRs whose review verdict holds and whose required checks are green merge through a persisted merge slot with close-out, sync, push, required checks, label and head guards and squash merge, and hand changes and PRs closed on the host are handled as ADR 0019 section 9 says.
 
 Context: implements ADR 0019 section 9 (merging story PRs through the merge slot) and the autorelease guard of section 7 (0016 rules 2 and 12). Today the slot merges backlog PRs only and keeps its occupant and notices in memory, so a daemon restart forgets them (0019 fact 1).
 
@@ -40,7 +40,7 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(integration, real git and a fake host) an approved story PR goes through close-out, sync, push, checks and squash merge with --match-head-commit"
+      check: "(integration, real git and a fake host) a story PR with an approved verdict and green checks goes through close-out, sync, push, checks and squash merge with --match-head-commit"
     - kind: "automated"
       check: "(unit) a daemon restart mid-slot continues with the same occupant and merges once"
     - kind: "automated"
@@ -54,7 +54,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story PR enters the slot when its merge gate is approved, the verdict or an override holds for its head, its required checks were green and no hold label is on it; story and backlog PRs share the one-PR-at-a-time slot, first come first served by eligibility time
+- [ ] #1 A story PR enters the slot when the review verdict, or a maintainer override, holds for its head, its required checks were green on that head and no hold label is on it; story and backlog PRs share the one-PR-at-a-time slot, first come first served by eligibility time (DIPO-151 later puts the merge gate in front of this entry)
 - [ ] #2 The slot runs as office git queue items in the story worktree: close-out commit, merge of the base unless contained (a conflict leaves the slot as a conflict hand-off), one push never forced, required checks (red leaves the slot as a CI fix round), label guard and host head equal to the pushed head, then squash merge with --match-head-commit and the PR title as subject
 - [ ] #3 A host refusal because the base moved goes back to the sync step at most 3 times per stay, then parks conflict with cause slot-refused
 - [ ] #4 A merge_slot table (occupant, phase, pushed head, attempt count; retention tier P) keeps the slot across a daemon restart, its row deleted when the PR merges or leaves the slot, and every step is idempotent when run again

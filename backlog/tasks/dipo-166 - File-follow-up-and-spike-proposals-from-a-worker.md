@@ -4,7 +4,7 @@ title: File follow-up and spike proposals from a worker
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -26,7 +26,6 @@ references:
   - packages/cli/src/
   - packages/engine/test/run/
   - packages/engine/test/db/
-  - docs/decisions/
 priority: high
 type: feature
 ordinal: 155000
@@ -59,5 +58,5 @@ test_plan:
 - [ ] #2 A proposals table (story key, run, kind, title, outcome, why, paths, hash, state, decided by, draft id, times; retention tier S) stores each proposal deduped by a hash of title and paths, emits proposal.filed, and changes nothing about the story's own status
 - [ ] #3 The desk lists open proposals, spike before follow-up, each with dipo propose accept <id> and dipo propose dismiss <id>
 - [ ] #4 proposal.accept creates a Backlog draft through lane b with backlog draft create, carrying the title, the outcome line, the paths as references and the source story in the description; proposal.dismiss closes the proposal; both emit proposal.closed, behind capability flag proposals in reads/hello.ts
-- [ ] #5 dipo propose accept|dismiss <proposal> exists, and the 0005 dated line covers the new commands and events
+- [ ] #5 dipo propose accept|dismiss <proposal> exists in the CLI and sends proposal.accept or proposal.dismiss
 <!-- AC:END -->

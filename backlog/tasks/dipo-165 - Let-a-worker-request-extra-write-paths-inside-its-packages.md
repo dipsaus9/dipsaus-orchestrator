@@ -4,7 +4,7 @@ title: Let a worker request extra write paths inside its packages
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -45,7 +45,7 @@ ordinal: 154000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: a blocked report with a scopeRequest is granted by code inside the story's packages, refused outside them or outside the worktree, asked on the desk for restricted files, and grants reach the task file and the scope check; scope.packages and scope.restricted arrive in the next office config version.
 
-Context: implements ADR 0020 section 11a (extra write paths; maintainer decision a worker can ask for more and spike answer 3), the needs-scope row of the section 2 matrix, and the contract and database changes of sections 14 and 15: QuestionKind becomes open with scope, and the questions.kind SQL check of migration 22 gains scope. Config version after 0020 story 17's worker.web.
+Context: implements ADR 0020 section 11a (extra write paths; maintainer decision a worker can ask for more and spike answer 3), the needs-scope row of the section 2 matrix, and the contract and database changes of sections 14 and 15: QuestionKind becomes open with scope, and the questions.kind SQL check of migration 22 gains scope. Config version after DIPO-164's worker.web.
 
 ```dipo
 branch: "DIPO-165/worker-scope-requests"

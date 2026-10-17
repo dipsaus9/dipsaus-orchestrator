@@ -4,7 +4,7 @@ title: Discard a story's work
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -21,7 +21,6 @@ references:
   - packages/daemon/src/
   - packages/cli/src/
   - packages/engine/test/worktree/
-  - docs/decisions/
 priority: high
 type: feature
 ordinal: 150000
@@ -54,5 +53,5 @@ test_plan:
 - [ ] #2 Discard stops an active run as work.stop does, releases the claim, removes the worktree with --force, deletes the branch locally and remotely, closes open questions, frees the slot, closes the open story PR with a comment naming the discard, resolves an open park as discard and writes Refined in lane b
 - [ ] #3 Discard refuses a story whose PR in story_prs is merged, and a remote branch whose tip the engine did not push is not deleted (a notice) while the other steps go on
 - [ ] #4 Discard also works on the leftovers of a story Done on the base, writing nothing to the backlog, and on a story whose PR head changed outside dipo
-- [ ] #5 work.discard is registered with its since on the waiting command path, and the 0005 dated line covers it
+- [ ] #5 work.discard is registered with its since on the waiting command path
 <!-- AC:END -->

@@ -4,7 +4,7 @@ title: Refine worker research access
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -22,7 +22,7 @@ ordinal: 158000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: a decision and its code set which domains a worker may fetch, a research budget or call cap per story, and which web calls are stored as facts, replacing the open web access of 0020 story 17.
+Outcome: a decision and its code set which domains a worker may fetch, a research budget or call cap per story, and which web calls are stored as facts, replacing the open web access of DIPO-164.
 
 Context: the follow-up ADR 0020 section 11b names (risk accepted for now: no domain allowlist, no separate research budget). Not in slice:m1a; the maintainer sets its slice. The decision needs the maintainer's approval before it lands in docs/decisions/.
 

@@ -4,7 +4,7 @@ title: Post each review round's report on the story PR
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -13,6 +13,7 @@ dependencies:
   - DIPO-141
   - DIPO-144
   - DIPO-146
+  - DIPO-147
 references:
   - packages/engine/src/story-pr/
   - packages/engine/src/review/

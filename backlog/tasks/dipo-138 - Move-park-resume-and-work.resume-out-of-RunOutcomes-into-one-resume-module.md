@@ -4,7 +4,7 @@ title: Move park resume and work.resume out of RunOutcomes into one resume modul
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 12:51'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -27,7 +27,7 @@ ordinal: 127000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: park resume and work.resume live in one module with a per-reason policy table, and RunOutcomes no longer holds them, with behaviour unchanged, so the M1a resume rows and the review loop's reopened runs extend one path.
 
-Context: implements ADR 0020 section 1 (one resume path for every park), last paragraph: work.resume moves out of run/plan-limit.ts and park resume out of RunOutcomes before it grows (2026-10-16 review, CC3). Today a needs-permission park resumes through RunOutcomes.resumePark in run/outcomes.ts, called from hooks/park-answers.ts, and work.resume is registered in run/plan-limit.ts. The ADR allows folding this into DIPO-128; it is filed on its own because 0019 story D (run reopen and session places) depends on it.
+Context: implements ADR 0020 section 1 (one resume path for every park), last paragraph: work.resume moves out of run/plan-limit.ts and park resume out of RunOutcomes before it grows (2026-10-16 review, CC3). Today a needs-permission park resumes through RunOutcomes.resumePark in run/outcomes.ts, called from hooks/park-answers.ts, and work.resume is registered in run/plan-limit.ts. The ADR allows folding this into DIPO-128; it is filed on its own because DIPO-142 (run reopen and session places) depends on it.
 
 ```dipo
 branch: "DIPO-138/move-park-resume-out-of-run-outcomes"

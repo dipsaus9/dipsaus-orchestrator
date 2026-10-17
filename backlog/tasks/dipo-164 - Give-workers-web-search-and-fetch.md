@@ -4,7 +4,7 @@ title: Give workers web search and fetch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -43,7 +43,7 @@ ordinal: 153000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: with worker.web on, the developer role gets WebSearch and WebFetch, every call shows in the worker output and is counted on the run outcome, and a fail-closed PreToolUse hook refuses a URL or query that holds a value from the copied env files, so a worker can look up facts without sending env values off the machine.
 
-Context: implements ADR 0020 section 11b (more input or research: web search and fetch for now; spike answer 4) including the maintainer decision of 2026-10-17 that env values never leave in a web call, and the worker.web config version of section 15 (after 0019 story A). Story 18 of 0020 (Refine worker research access) narrows domains and limits later.
+Context: implements ADR 0020 section 11b (more input or research: web search and fetch for now; spike answer 4) including the maintainer decision of 2026-10-17 that env values never leave in a web call, and the worker.web config version of section 15 (after DIPO-139). DIPO-169 (Refine worker research access) narrows domains and limits later.
 
 ```dipo
 branch: "DIPO-164/worker-web-search-and-fetch"
@@ -63,7 +63,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Office key worker.web (default true) arrives in the next office config version after 0019 story A's with its migration and JSON Schema, and worker.web false restores the M0 developer tool list
+- [ ] #1 Office key worker.web (default true) arrives in the next office config version after DIPO-139's with its migration and JSON Schema, and worker.web false restores the M0 developer tool list
 - [ ] #2 With worker.web true the developer role's --tools gain WebSearch and WebFetch and the run settings allow both, while the Bash sandbox network stays closed and the reviewer gets no web tools
 - [ ] #3 The run settings register a PreToolUse hook with matcher WebFetch|WebSearch; dipo hook PreToolUse relays the URL or query and waits within the relay's 2-second limit; the engine denies, naming the env file and key and never the value, a URL or query that holds a value from the copied env files as written or percent-encoded, else allows; with no answer in time the relay prints a deny
 - [ ] #4 Every web call shows in the worker output with its query or URL, and run_outcomes gains web call counts by tool through a migration

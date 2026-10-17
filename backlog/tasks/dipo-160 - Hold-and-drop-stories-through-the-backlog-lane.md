@@ -4,7 +4,7 @@ title: Hold and drop stories through the backlog lane
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -21,7 +21,8 @@ references:
   - packages/daemon/src/
   - packages/cli/src/
   - packages/engine/test/backlog/
-  - docs/decisions/
+  - packages/engine/src/run/
+  - packages/engine/test/run/
 priority: high
 type: feature
 ordinal: 149000
@@ -57,5 +58,5 @@ test_plan:
 - [ ] #3 work.resume of an on-hold park removes F16 in lane b and sets park.from, and a story returned to Ready goes through the pickup re-check at the next work.run
 - [ ] #4 story.drop (dipo drop <id> [--delete-branch]) on a Draft, Refined, Ready or Parked story releases any claim, archives the story in lane b and emits story.state Removed; it answers story.active for In Progress or In Review, story.hasDependents when another active story depends on it, and story.dirtyWorktree listing the files when the worktree is dirty and --delete-branch is absent
 - [ ] #5 Drop closes an open story PR from story_prs with a comment naming the drop; without --delete-branch it removes the worktree and records the branch as released, with it it removes the worktree with --force and deletes the branch locally and remotely after a typed confirmation, and commands.describe declares irreversibleWhen deleteBranch
-- [ ] #6 story.hold and story.drop are registered with their since on the waiting command path, and the 0005 dated line covers them
+- [ ] #6 story.hold and story.drop are registered with their since on the waiting command path
 <!-- AC:END -->

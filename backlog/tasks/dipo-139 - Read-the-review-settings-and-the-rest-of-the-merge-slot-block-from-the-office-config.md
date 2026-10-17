@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 12:51'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -29,7 +29,7 @@ ordinal: 128000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the office config carries the review block (model, effort, maxRounds, maxTurns, maxMinutes, budgetTokens) and the mergeSlot keys autoMerge, conflictAttempts, ciAttempts, holdLabels and checksWaitMinutes, with their defaults, so the review loop stories read their limits from configuration.
 
-Context: implements ADR 0019 section 16 (configuration), with the defaults decided in sections 2, 4, 6, 7, 8 and 10. The office config version order is DIPO-133 (mergeSlot.requiredChecks), then this story, then 0020 story 17 (worker.web) and 0020 story 13 (scope.packages, scope.restricted), then DIPO-116; each takes the next version with its in-memory migration (0017 amendment of 2026-10-12).
+Context: implements ADR 0019 section 16 (configuration), with the defaults decided in sections 2, 4, 6, 7, 8 and 10. The office config version order is DIPO-133 (mergeSlot.requiredChecks), then this story, then DIPO-164 (worker.web) and DIPO-165 (scope.packages, scope.restricted), then DIPO-116; each takes the next version with its in-memory migration (0017 amendment of 2026-10-12).
 
 ```dipo
 branch: "DIPO-139/review-and-merge-slot-config"

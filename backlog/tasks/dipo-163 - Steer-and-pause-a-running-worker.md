@@ -4,20 +4,21 @@ title: Steer and pause a running worker
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-17 13:10'
 labels:
   - 'tier:M'
   - 'slice:m1a'
 milestone: m-1
 dependencies:
   - DIPO-138
+  - DIPO-142
+  - DIPO-145
 references:
   - packages/contract/src/office.ts
   - packages/engine/src/run/
   - packages/engine/src/prompts/feedback/
   - packages/cli/src/
   - packages/engine/test/run/
-  - docs/decisions/
 priority: high
 type: feature
 ordinal: 152000
@@ -53,5 +54,5 @@ test_plan:
 - [ ] #3 A steer to a story whose live session is its reviewer, or to a follow-only host, answers story.notSteerable
 - [ ] #4 work.pause (dipo pause <id>) stores a pause intent and sends a now-priority message; the run stays In Progress with health paused and keeps its claim, slot and session place; after 10 minutes stdin closes and the process exits, and dipo resume <id> continues it with --resume when allowed
 - [ ] #5 Paused time is left out of the minute cap, and a pause that arrives during an engine verify takes effect before the next worker turn
-- [ ] #6 work.steer and work.pause are registered with their since on the waiting command path, and the 0005 dated line covers them
+- [ ] #6 work.steer and work.pause are registered with their since on the waiting command path
 <!-- AC:END -->
