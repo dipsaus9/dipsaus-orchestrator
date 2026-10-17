@@ -1,10 +1,10 @@
 ---
 id: DIPO-184
 title: Tell the worker to keep DIPO_TMP and the sandbox TMPDIR as set
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-17 20:16'
+updated_date: '2026-10-17 20:55'
 labels:
   - 'tier:S'
   - cutover
@@ -40,6 +40,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 L1 (packages/engine/src/prompts/contract/implement.md) states that DIPO_TMP is set for the run and the sandbox gives a writable TMPDIR, that commands use both as they are and never set either to another path, and that /tmp is not writable in the sandbox, even where project rules name it as a fallback
-- [ ] #2 The new text holds no run-specific path, id or date (the only path it names is /tmp), and the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
+- [x] #1 L1 (packages/engine/src/prompts/contract/implement.md) states that DIPO_TMP is set for the run and the sandbox gives a writable TMPDIR, that commands use both as they are and never set either to another path, and that /tmp is not writable in the sandbox, even where project rules name it as a fallback
+- [x] #2 The new text holds no run-specific path, id or date (the only path it names is /tmp), and the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M55T3N9MN5DFQGCYSAF94KA7 (Haiku low, 12 turns, about $0.01, under a minute) reported done with no denials. L1 gains a Temp files section; the system-file test now allows exactly one path token, /tmp, and a new test pins the rule's sentences; the golden file is updated. Verify outside the sandbox on DIPO-184/worker-keeps-dipo-tmp-finish: 3155 pass, 2 skip, 0 fail. The manual live check of the test plan (a scratch-repo story whose tests write temp files) is left for the maintainer.
+<!-- SECTION:NOTES:END -->

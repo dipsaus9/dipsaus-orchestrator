@@ -21,9 +21,22 @@ describe("system file", () => {
     const text = renderSystemFile("implement", "developer");
     // No digit at all rules out ids (`DIPO-47`, `run-…`), dates, line numbers and counts.
     expect(text).not.toMatch(/[0-9]/);
-    // No path: no token with a slash or a backslash.
-    expect(text.split(/\s+/).filter((token) => /[/\\]/.test(token))).toEqual([]);
+    // No path but /tmp: every token with a slash or a backslash must be that one fixed path.
+    const paths = text
+      .split(/\s+/)
+      .map((token) => token.replace(/[`.,;:()]/g, ""))
+      .filter((token) => /[/\\]/.test(token));
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths.every((path) => path === "/tmp")).toBe(true);
     expect(text).not.toMatch(/\{\{/);
+  });
+
+  it("keeps DIPO_TMP and the sandbox TMPDIR as set and never falls back to /tmp", () => {
+    const text = renderSystemFile("implement", "developer");
+    expect(text).toContain("`DIPO_TMP`");
+    expect(text).toContain("writable `TMPDIR`");
+    expect(text).toContain("Never set `DIPO_TMP` or `TMPDIR` to another path");
+    expect(text).toContain("never fall back to `/tmp`");
   });
 
   it("states the boundary, the precedence and every report field once", () => {
