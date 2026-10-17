@@ -1,32 +1,21 @@
 // Resuming a run that stands still (ADR 0020 section 1, DIPO-138): the one module for every resume
 // of a held or parked run, moved out of `RunOutcomes` (DIPO-61, DIPO-75) and `plan-limit.ts`.
 //
-// - `resumeWait` resumes a run held by a plan limit; `work.resume` (`resumeCommand`) and the
-//   schedule's timers call it.
+// - `resumeWait` resumes a run held by a plan limit; `work.resume` and the schedule's timers call it.
 // - `resumePark` resumes the run of a story parked `needs-permission` after its question is
 //   answered (`work.answer`, `hooks/park-answers.ts`): the park is lifted on the branch, the run
 //   reopened and its next session started. `recoverParkResumes` finishes one a restart interrupted.
-// - `PARK_RESUME_POLICY` says, per reason a run stands still, which command resumes it. The rows of M0
-//   are `needs-permission` (the permission answer) and `plan-limit` (`work.resume` of the held
-//   run). Any other reason answers `story.notPausedOrParked` to `work.resume`; later rows extend
-//   this table, not the run outcomes.
+// - `PARK_RESUME_POLICY` (`resume-policy.ts`) says, per reason a run stands still, which command
+//   resumes it. The rows of M0 are `needs-permission` (the permission answer) and `plan-limit`
+//   (`work.resume` of the held run). `work.resume` itself (`work-resume.ts`) decides through the
+//   table, so any other reason answers `story.notPausedOrParked`; later rows extend the table, not
+//   the run outcomes.
 
-import {
-  type Lifecycle,
-  type OfficeId,
-  type RunId,
-  workResume,
-} from "@dipsaus-orchestrator/contract";
+import { type OfficeId, type RunId, type workResume } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import type { NewEntry } from "../changelog/log";
-import { CommandError } from "../commands/errors";
-import type {
-  AsyncCommandContext,
-  CommandOutcome,
-  FeatureModule,
-  FeatureRegistry,
-} from "../commands/registry";
+import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { parkAnswerMessage } from "../hooks/park-questions";
 import { answeredParkQuestion, findQuestion } from "../hooks/questions";
@@ -46,46 +35,29 @@ import {
   type RunOutcomesDeps,
 } from "./outcome-types";
 import { openPark, PARK_NOTICES, reopenParkedRun } from "./park";
-import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
+import { capsStartedAt, findRun, type StoredRun } from "./records";
+import { resumeVia } from "./resume-policy";
+import { type HeldRunResumer, type ResumeWaitOutcome, WorkResumeCommand } from "./work-resume";
 
-/** `work.resume` on a story with no run it can resume (0005 section 4). */
-export const NOT_PAUSED_OR_PARKED = "story.notPausedOrParked";
-/** `work.resume` while the held worker has not exited (0005 section 10, retryable). */
-export const RUN_HOST_ALIVE = "run.hostAlive";
-
-/** What answers `resumeWait`. */
-export type ResumeWaitOutcome = "started" | "failed" | "notHeld" | "busy";
-
-/** The command that resumes a run standing still for a reason. */
-export type ResumeVia = "permission-answer" | "work.resume";
-
-export interface ResumePolicyRow {
-  readonly via: ResumeVia;
-}
-
-/**
- * The per-reason resume policy. Keyed by the park reason; a run held by a plan limit is not parked
- * and stands under the reason `plan-limit`. A reason with no row cannot be resumed here yet.
- */
-export const PARK_RESUME_POLICY: Readonly<Record<string, ResumePolicyRow>> = {
-  "needs-permission": { via: "permission-answer" },
-  "plan-limit": { via: "work.resume" },
-};
-
-/** The command that resumes a run standing still for `reason`, or null without a row. */
-export function resumeVia(reason: string): ResumeVia | null {
-  return Object.hasOwn(PARK_RESUME_POLICY, reason)
-    ? (PARK_RESUME_POLICY[reason]?.via ?? null)
-    : null;
-}
-
-/** The plan-limit schedule as `work.resume` uses it (`PlanLimits.resumeNow`). */
-export interface HeldRunResumer {
-  resumeNow(office: OfficeId, run: RunId): Promise<ResumeWaitOutcome>;
-}
+export {
+  PARK_RESUME_POLICY,
+  type ResumePolicyRow,
+  type ResumeVia,
+  resumeVia,
+} from "./resume-policy";
+export {
+  type HeldRunResumer,
+  NOT_PAUSED_OR_PARKED,
+  type ResumeWaitOutcome,
+  RUN_HOST_ALIVE,
+  WorkResumeCommand,
+} from "./work-resume";
 
 export interface ResumptionOptions {
-  /** The plan-limit schedule; read when needed, since it is built after this. */
+  /**
+   * The plan-limit schedule; read when needed, since it is built after this. `work.resume` of a
+   * held run needs it and refuses without it.
+   */
   readonly planLimits?: () => HeldRunResumer | undefined;
 }
 
@@ -114,7 +86,7 @@ export class Resumption {
   readonly #deps: RunOutcomesDeps;
   readonly #guard: OutcomeParts["support"]["guard"];
   readonly #sessions: OutcomeParts["sessions"];
-  readonly #options: ResumptionOptions;
+  readonly #command: WorkResumeCommand;
   /** Sessions of resumed parks starting after their answer was replied to (DIPO-75). */
   readonly #inflight = new Set<Promise<unknown>>();
 
@@ -123,7 +95,7 @@ export class Resumption {
     this.#deps = parts.support.deps;
     this.#guard = parts.support.guard;
     this.#sessions = parts.sessions;
-    this.#options = options;
+    this.#command = new WorkResumeCommand(options.planLimits);
   }
 
   /** Resolves once every session start of a resumed park this started has finished (DIPO-75). */
@@ -131,87 +103,14 @@ export class Resumption {
     while (this.#inflight.size > 0) await Promise.allSettled(this.#inflight);
   }
 
-  /** `work.resume` for held runs; read by the plan-limit schedule's feature. */
+  /** `work.resume` for held runs (`WorkResumeCommand`); read by the plan-limit schedule's feature. */
   get feature(): FeatureModule {
-    return {
-      name: "resumption",
-      register: (registry: FeatureRegistry) => {
-        registry.addAsyncOfficeCommand({
-          definition: workResume,
-          handle: (ctx, args) => this.resumeCommand(ctx, args),
-        });
-      },
-    };
+    return this.#command.feature;
   }
 
-  /**
-   * `work.resume { story, note? }`: the policy table decides. A story whose active run holds an
-   * open wait (`plan-limit`) is resumed at once, a `credits` hold on the adapter is lifted, and the
-   * result names the run. A story under any other reason (a park, whose own way back is its row's
-   * command) or with none fails `story.notPausedOrParked`; a held worker that has not exited yet
-   * fails the retryable `run.hostAlive`.
-   */
-  async resumeCommand(
-    ctx: AsyncCommandContext,
-    args: ResumeArgs,
-  ): Promise<CommandOutcome<ResumeResult>> {
-    const handle = ctx.office;
-    const identity = ctx.stories.get(args.story);
-    if (identity === undefined) throw new Error(`${args.story} was not resolved`);
-    const run = activeRuns(handle).find(
-      (candidate) => candidate.kind === "story" && candidate.key === identity.key,
-    );
-    const notHeld = () =>
-      new CommandError(
-        NOT_PAUSED_OR_PARKED,
-        `${identity.story} has no run held by a plan limit; work.resume continues only those for now.`,
-        { story: identity.story },
-      );
-    const reason = run !== undefined && openWait(handle, run.runId) !== null ? "plan-limit" : null;
-    if (run === undefined || reason === null || resumeVia(reason) !== "work.resume") {
-      throw notHeld();
-    }
-    const planLimits = this.#options.planLimits?.();
-    const outcome =
-      planLimits === undefined
-        ? await this.resumeWait(handle.officeId, run.runId, "work.resume of the held run")
-        : await planLimits.resumeNow(handle.officeId, run.runId);
-    switch (outcome) {
-      case "notHeld":
-        throw notHeld();
-      case "busy":
-        throw new CommandError(
-          RUN_HOST_ALIVE,
-          `${identity.story}'s held worker has not exited yet; send work.resume again in a moment.`,
-          { story: identity.story, run: run.runId },
-        );
-      case "started":
-        return {
-          result: {
-            story: identity.story,
-            key: identity.key,
-            to: "In Progress",
-            run: run.runId,
-          },
-        };
-      case "failed":
-        return {
-          result: {
-            story: identity.story,
-            key: identity.key,
-            to: this.#afterFailure(handle, run.runId),
-          },
-        };
-    }
-  }
-
-  /** Where the story is after a resume that did not start: parked, else released to Ready. */
-  #afterFailure(handle: OfficeHandle, runId: RunId): Lifecycle {
-    const parked = handle.get(
-      "select 1 as found from parks where office_id = $office_id and run_id = $run",
-      { run: runId },
-    );
-    return parked === null ? "Ready" : "Parked";
+  /** `work.resume { story, note? }`, decided through the policy table (`WorkResumeCommand.run`). */
+  resumeCommand(ctx: AsyncCommandContext, args: ResumeArgs): Promise<CommandOutcome<ResumeResult>> {
+    return this.#command.run(ctx, args);
   }
 
   /**
