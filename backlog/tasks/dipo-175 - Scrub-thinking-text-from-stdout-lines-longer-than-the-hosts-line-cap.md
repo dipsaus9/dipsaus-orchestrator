@@ -1,10 +1,10 @@
 ---
 id: DIPO-175
 title: Scrub thinking text from stdout lines longer than the host's line cap
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 20:16'
+updated_date: '2026-10-17 20:57'
 labels:
   - 'tier:S'
   - cutover
