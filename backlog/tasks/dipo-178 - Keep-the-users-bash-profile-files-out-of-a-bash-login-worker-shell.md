@@ -1,10 +1,10 @@
 ---
 id: DIPO-178
 title: Keep the user's bash profile files out of a bash login worker shell
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 20:16'
+updated_date: '2026-10-17 21:17'
 labels:
   - 'tier:S'
   - cutover
@@ -37,8 +37,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A bash login shell started through the worker shell wrapper runs none of ~/.bash_profile, ~/.bash_login and ~/.profile of the home directory
-- [ ] #2 In that shell PATH equals the planned PATH, with the demoted entries last, as DIPO-107 asserts for bash today
-- [ ] #3 A bash shell that is not a login shell and every zsh shell behave as before: their existing tests in packages/engine/test/workers/ pass unchanged
-- [ ] #4 A test starts the wrapper as a bash login shell with a temp home whose three profile files each write a marker file, and finds no marker
+- [x] #1 A bash login shell started through the worker shell wrapper runs none of ~/.bash_profile, ~/.bash_login and ~/.profile of the home directory
+- [x] #2 In that shell PATH equals the planned PATH, with the demoted entries last, as DIPO-107 asserts for bash today
+- [x] #3 A bash shell that is not a login shell and every zsh shell behave as before: their existing tests in packages/engine/test/workers/ pass unchanged
+- [x] #4 A test starts the wrapper as a bash login shell with a temp home whose three profile files each write a marker file, and finds no marker
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M55TYYPA6MMJTH6AP0NR3MVK (Haiku low, 17 turns, about $0.02, 6 min) reported done. The Safe-Chain wrapper starts bash with --noprofile, so a bash login shell reads none of ~/.bash_profile, ~/.bash_login and ~/.profile; bashLoginLines still restores the planned PATH for login shells. New CI test test/workers/safe-chain-bash-profile.ci.test.ts runs the real wrapper as a bash login shell with a stand-in home. Verify outside the sandbox on DIPO-178/bash-login-without-user-profiles-finish: 3160 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 bun test packages/engine/test/workers 361 pass, 0 fail. Note: the worker ran on a dipo binary built before DIPO-184, so it still set DIPO_TMP itself and saw sandbox EPERM failures.
+<!-- SECTION:NOTES:END -->
