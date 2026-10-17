@@ -5,9 +5,15 @@
 // `office.immediate`.
 //
 // `sendAsIntent` is the one helper that stores, sends and marks (DIPO-126). Sent with no intent, by
-// design: closeStdin after a report-driven end, nudges and hook replies; the reasons are on
-// `sendAsIntent`. A new intent kind needs a migration (`run_intents.kind` has a CHECK constraint)
-// and a row in `INTENT_OUTCOMES` with its test.
+// design (none of them explains an exit, so no intent would be read):
+// - closeStdin after a turn whose report ended the run: the report explains the exit (section 7's
+//   table), not an engine decision.
+// - 0014 nudges: each answers a pending `PostToolUse` or `SessionStart` hook call (section 5) and is
+//   counted as a prompt part.
+// - `PermissionRequest` hook replies: each answers a pending hook call (section 5) and is recorded
+//   as the permission question's close.
+// More on `sendAsIntent`. A new intent kind needs a migration (`run_intents.kind` has a CHECK
+// constraint) and a row in `INTENT_OUTCOMES` with its test.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
@@ -144,9 +150,15 @@ export interface IntentSent<R> {
  *   on; they are counted as prompt parts (`nudges`) and never explain an exit.
  * - hook replies (`hooks/permissions.ts`): the allow or deny a waiting `PermissionRequest` hook
  *   call gets, recorded as the question's close; it never explains an exit.
- * Record-only sites (stored and marked in one transaction with no send) call `recordIntent` and
- * `markIntentSent` directly: the plan-limit, start-failed and report-feedback-resume intents in
- * `run/outcomes.ts`, and the park-resume answer intent.
+ * Record-only sites send no op to a running worker and call `recordIntent` (and `markIntentSent`
+ * or `resolveIntent`) directly, all in `run/outcomes.ts`:
+ * - the plan-limit `pause`: stored, then resolved `plan-limit` in a second transaction; never
+ *   marked sent.
+ * - the start-failed `stop`: stored, marked sent and resolved `startFailed` in one transaction.
+ * - the report-feedback `steer`: stored and marked sent in one transaction; its text is the first
+ *   message of the resume, and it is resolved `resumed` once that session started.
+ * - the park-resume `answer`: stored before anything changes, marked sent later in the resume's
+ *   own transaction (with the park lift and the answer), then resolved with how the resume went.
  */
 export function sendAsIntent<R = undefined>(
   office: OfficeHandle,

@@ -544,6 +544,9 @@ export class RunControl implements RunEnder {
       });
       return false;
     }
+    // The send started inside `sendAsIntent`, but nothing reached the host yet: the steering's
+    // first await (`hostSocketSteering` looking up the newest host) comes before any effect, so
+    // these synchronous writes land before any op is sent.
     tracked.unstored = null;
     this.#disarm(tracked);
     // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).

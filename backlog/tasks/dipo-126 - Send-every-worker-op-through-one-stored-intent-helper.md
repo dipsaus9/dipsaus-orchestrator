@@ -4,7 +4,7 @@ title: Send every worker op through one stored-intent helper
 status: In Review
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 17:36'
+updated_date: '2026-10-17 17:49'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -51,3 +51,11 @@ test_plan:
 - [x] #2 closeStdin, nudges and hook replies each either go through it or are listed as exceptions with their reason in the intents.ts header; a new intent kind comes with a migration (run_intents.kind has a CHECK constraint) and an outcomeOfIntent test; if an exception changes what 0008 says, a dated 0008 note is proposed in the PR for the maintainer's approval
 - [x] #3 Tests cover a failed store (no op sent), a failed send (intent marked failed) and each exception
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Proposed 0008 note (needs the maintainer's approval, not applied):
+
+- 2026-10-17, DIPO-126 (maintainer): section 6. Three ops are sent with no intent, because none of them explains an exit, so section 7 would never read one: the `closeStdin` after a turn whose report ended the run (report `done`; the exit is read from the report, the first row of the section 7 table, not from an engine decision); a 0014 nudge (it answers a pending `PostToolUse` or `SessionStart` hook call, section 5 and the DIPO-60 notes); and a `PermissionRequest` hook reply (the allow or deny a pending hook call gets under section 5, recorded as the close of the permission question). Every other op the engine sends to a running worker is first stored as a pending intent; the `closeStdin` on a park stays a `park` intent (DIPO-50 note).
+<!-- SECTION:NOTES:END -->
