@@ -1,10 +1,10 @@
 ---
 id: DIPO-176
 title: Pass the full verify inside the worker sandbox on this repository
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 19:47'
+updated_date: '2026-10-17 19:53'
 labels:
   - 'tier:M'
   - cutover
@@ -40,6 +40,10 @@ test_plan:
     - kind: "manual"
       check: "(live) run bun run verify inside a dipo worker session on this repository, or under srt with the worker's run settings"
       expect: "every test passes; 0 fail"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Criterion 4 asks for a recorded srt run with the worker's run settings and the dipo commit. Can the maintainer run it by hand, or should I treat this worker session's green bun run verify as enough?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
