@@ -1,10 +1,10 @@
 ---
 id: DIPO-138
 title: Move park resume and work.resume out of RunOutcomes into one resume module
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 22:17'
+updated_date: '2026-10-17 22:25'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -43,8 +43,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 work.resume for held runs and park resume (lift the park on the branch, reopen the run, start the next session) are implemented in one module under packages/engine/src/run/, and run/outcomes.ts no longer contains park resume code
-- [ ] #2 The module decides through a policy table keyed by park reason; in this story the table holds the M0 rows only (needs-permission through the permission answer, plan-limit holds through work.resume) and every other reason still answers story.notPausedOrParked
-- [ ] #3 hooks/park-answers.ts and packages/daemon/src/runs.ts call the new module for a resume, not RunOutcomes
-- [ ] #4 Behaviour is unchanged: the existing run, park-answer and plan-limit tests pass without changes to their assertions, and the CI-only run tests pass
+- [x] #1 work.resume for held runs and park resume (lift the park on the branch, reopen the run, start the next session) are implemented in one module under packages/engine/src/run/, and run/outcomes.ts no longer contains park resume code
+- [x] #2 The module decides through a policy table keyed by park reason; in this story the table holds the M0 rows only (needs-permission through the permission answer, plan-limit holds through work.resume) and every other reason still answers story.notPausedOrParked
+- [x] #3 hooks/park-answers.ts and packages/daemon/src/runs.ts call the new module for a resume, not RunOutcomes
+- [x] #4 Behaviour is unchanged: the existing run, park-answer and plan-limit tests pass without changes to their assertions, and the CI-only run tests pass
 <!-- AC:END -->
