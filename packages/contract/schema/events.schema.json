@@ -436,6 +436,32 @@
                 "required": ["rule", "message", "text"]
               }
             },
+            "pr": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["open", "merged", "closed"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": ["number", "url", "state"]
+            },
             "evidence": {
               "type": "object",
               "propertyNames": {
@@ -605,6 +631,16 @@
                   "enum": ["none", "passing", "failing"]
                 },
                 "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
@@ -905,6 +941,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "reviewRoundCap": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reviewRoundsFailed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
             }
           },
           "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
@@ -991,6 +1037,16 @@
                   "enum": ["none", "passing", "failing"]
                 },
                 "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
@@ -1280,6 +1336,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "reviewRoundCap": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reviewRoundsFailed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
             }
           },
           "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
@@ -1366,6 +1432,16 @@
                   "enum": ["none", "passing", "failing"]
                 },
                 "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
@@ -1765,6 +1841,16 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
@@ -2131,6 +2217,16 @@
                   "enum": ["none", "passing", "failing"]
                 },
                 "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
@@ -2596,6 +2692,16 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
@@ -2893,6 +2999,39 @@
         },
         "note": {
           "type": "string"
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "round": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "commit": {
+              "type": "string",
+              "minLength": 1
+            },
+            "verdict": {
+              "type": "string",
+              "enum": ["approved", "blocked"]
+            },
+            "blocking": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "advisory": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "commentUrl": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "required": ["round", "commit", "verdict", "blocking", "advisory"]
         }
       },
       "required": ["gate", "decision", "by"]
@@ -3074,6 +3213,46 @@
         }
       },
       "required": ["story", "key", "reason", "detail", "from", "actions"]
+    },
+    "story.pr.data": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "pr": {
+          "type": "object",
+          "properties": {
+            "number": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["open", "merged", "closed"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": ["number", "url", "state"]
+        }
+      },
+      "required": ["story", "key", "pr"]
     },
     "test.started.data": {
       "type": "object",
