@@ -1,10 +1,15 @@
-// The required checks a PR waits for in the merge slot (0016 rule 2): `ci-ok` and `pr-title`, and
-// every other check the base requires. Pure code over what the host reports.
+// The required checks a PR waits for in the merge slot (0016 rule 2): the office's
+// `mergeSlot.requiredChecks` (default `ci-ok` and `pr-title`), and every other check the base
+// requires. Pure code over what the host reports.
 
+import { OFFICE_DEFAULTS } from "../config";
 import type { RequiredCheck } from "../platform/host";
 
-/** The checks every PR waits for in the merge slot (0016 rule 2). */
-export const REQUIRED_CHECKS: readonly string[] = ["ci-ok", "pr-title"];
+/**
+ * The checks every PR waits for in the merge slot when the office sets none (0016 rule 2): the
+ * default of `mergeSlot.requiredChecks` (DIPO-133).
+ */
+export const REQUIRED_CHECKS: readonly string[] = OFFICE_DEFAULTS.mergeSlot.requiredChecks;
 
 export type ChecksVerdict =
   | { readonly state: "passed" }

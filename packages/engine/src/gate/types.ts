@@ -65,6 +65,14 @@ export interface GateStory {
   readonly subtasks: readonly string[];
   /** Extra instructions (F17). */
   readonly implementationPlan?: string;
+  /** The dependencies that are not Done on the base, from `openDependencies` (DIPO-179). */
+  readonly waitingOn?: readonly GateDependency[];
+}
+
+/** A dependency of the story that is not Done: its id, and its status when the CLI read it. */
+export interface GateDependency {
+  readonly id: string;
+  readonly status?: string;
 }
 
 /** One active task of the office (0012: any task `task list --plain` returns). */
@@ -113,4 +121,6 @@ export interface GateResult {
   readonly passed: boolean;
   /** Every failure, in rule order. */
   readonly failures: readonly GateFailure[];
+  /** The open dependencies of the story, absent when none (DIPO-179); they do not change `passed`. */
+  readonly waitingOn?: readonly GateDependency[];
 }

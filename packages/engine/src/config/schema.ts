@@ -5,13 +5,15 @@
 //
 // Version 2 (DIPO-108) adds `worker.plugins` (0008 amendment of 2026-10-12): the plugins a worker
 // session may load, in the `<plugin>@<marketplace>` form Claude Code's `enabledPlugins` uses.
+// Version 3 (DIPO-133) adds `mergeSlot.requiredChecks` (0016 rule 2): the checks the merge slot
+// waits for before it merges a PR of this office.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 2;
+export const OFFICE_CONFIG_VERSION = 3;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -158,7 +160,7 @@ const officeShapeV1 = {
 };
 
 // Version 2: version 1 plus `worker.plugins`.
-const officeShape = {
+const officeShapeV2 = {
   ...officeShapeV1,
   worker: z.strictObject({
     ...workerShapeV1,
@@ -166,6 +168,21 @@ const officeShape = {
       .array(PluginId)
       .describe(
         "Plugins a worker session may load, as <plugin>@<marketplace> (0008 amendment of 2026-10-12). Every other installed plugin is switched off in the run settings, and a session whose system/init lists one refuses to start. A listed plugin brings its hooks, which run outside the sandbox, so listing one is reviewed like code.",
+      ),
+  }),
+};
+
+// Version 3: version 2 plus `mergeSlot.requiredChecks` (DIPO-133). Names are check names as the
+// host reports them, and may contain spaces.
+const officeShape = {
+  ...officeShapeV2,
+  mergeSlot: z.strictObject({
+    requiredChecks: z
+      .array(text())
+      .min(1, "must name at least one check")
+      .refine((names) => new Set(names).size === names.length, "must not name a check twice")
+      .describe(
+        "Checks the merge slot waits for before it merges a PR of this office (0016 rule 2): each must pass, and any failed or cancelled check holds the PR back. Names are the check names the host reports, such as ci-ok and pr-title. A repository whose CI names other checks sets its own names here.",
       ),
   }),
 };
@@ -179,15 +196,24 @@ export const OfficeConfigV1 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 2 (kept to read version 2 files). */
 export const OfficeConfigV2 = z.strictObject({
+  version: z.literal(2),
+  ...officeShapeV2,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV3 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV2>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV3>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -240,6 +266,12 @@ export const OfficeFileV1 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 2: version 1 plus `worker.plugins`. */
 export const OfficeFileV2 = z.strictObject({
+  version: z.literal(2),
+  ...fileShape(officeShapeV2),
+}) as unknown as z.ZodType<OfficeFileOf<2>>;
+
+/** `.dipo/office.yaml`, version 3: version 2 plus `mergeSlot.requiredChecks`. */
+export const OfficeFileV3 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -255,6 +287,15 @@ export const OfficeLocalFileV1 = z.strictObject({
  * version number, so a local file may say 2 as soon as `office.yaml` does.
  */
 export const OfficeLocalFileV2 = z.strictObject({
+  version: z.literal(2),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<2>>;
+
+/**
+ * `.dipo/office.local.yaml`, version 3: the same keys as version 1. The office files share one
+ * version number, so a local file may say 3 as soon as `office.yaml` does.
+ */
+export const OfficeLocalFileV3 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -264,8 +305,13 @@ export const OfficeOverridesV1 = z.strictObject(
   fileShape(officeShapeV1),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 2 keys. */
 export const OfficeOverridesV2 = z.strictObject(
+  fileShape(officeShapeV2),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV3 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
@@ -273,16 +319,19 @@ export const OfficeOverridesV2 = z.strictObject(
 export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeFileV1,
   2: OfficeFileV2,
+  3: OfficeFileV3,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
   2: OfficeLocalFileV2,
+  3: OfficeLocalFileV3,
 };
 
 /**
  * Pure: an office file's document of `version` migrated in memory to the newest version, one
  * step at a time (0017 section 5, "Versioning and migration"). Version 1 to 2 is the identity
- * (0017 amendment of 2026-10-12): `worker.plugins` is new and takes its default. Works for both
+ * (0017 amendment of 2026-10-12): `worker.plugins` is new and takes its default. Version 2 to 3
+ * is the identity too: `mergeSlot.requiredChecks` is new and takes its default. Works for both
  * office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -291,6 +340,7 @@ export function migrateOfficeDocument(
 ): Record<string, unknown> {
   let current: Record<string, unknown> = { ...document, version };
   if (current.version === 1) current = { ...current, version: 2 };
+  if (current.version === 2) current = { ...current, version: 3 };
   return current;
 }
 
@@ -335,6 +385,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   // 0008 sections 2 and 5; `plugins` empty: no plugin in a worker session (0008 amendment of
   // 2026-10-12).
   worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [] },
+  // 0016 rule 2: the checks every backlog PR waits for in the merge slot (DIPO-133).
+  mergeSlot: { requiredChecks: ["ci-ok", "pr-title"] },
   permissions: { ask: "when-present", presentMinutes: 10 },
   // 0008, 0009 and 0013 section 1.
   timeouts: {

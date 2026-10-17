@@ -46,4 +46,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `gate.decided.review`, `StoryView.pr`, `Progress.reviewRoundCap` and `Progress.reviewRoundsFailed`,
 // the event `story.pr` and the office codes `gate.notWaitingOnMaintainer`, `gate.handMergeOnly` and
 // `gate.noteRequired` to the same, still unreleased, minor.
+// DIPO-179 adds the optional `waitingOn` of `story.gate` (the dependencies that are not Done) to the
+// same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
