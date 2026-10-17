@@ -4,7 +4,7 @@ title: Wire the run services in one engine function for the daemon and the tests
 status: Refined
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 16:44'
+updated_date: '2026-10-17 16:45'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -38,6 +38,8 @@ test_plan:
       check: "(unit) the daemon and the engine run tests build the run services through the same engine function"
     - kind: "automated"
       check: "(ci) the full suite and the CI-only run and daemon tests pass"
+    - kind: "automated"
+      check: "(lint) the DIPO-127 lint exception lists, when merged, do not grow"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

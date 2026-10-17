@@ -4,7 +4,7 @@ title: Split RunOutcomes and RunControl before M1 extends the run code
 status: Refined
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 16:44'
+updated_date: '2026-10-17 16:45'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -37,7 +37,9 @@ test_plan:
     - kind: "automated"
       check: "(ci) the CI-only run tests pass"
     - kind: "automated"
-      check: "(lint) no split file is over 600 lines, no class over 400, and the lint exception lists do not grow"
+      check: "(unit) the #deciding guard exists once, as one shared helper with its own test"
+    - kind: "automated"
+      check: "(lint) no split file is over 600 lines, no class over 400, and the DIPO-127 lint exception lists, when merged, shrink by the split files and do not grow"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
