@@ -164,7 +164,9 @@ describe("chooseRuntimeDir", () => {
 
   it("falls back to a fresh mkdtemp directory when the candidates are squatted", async () => {
     await withTempDir((dir) => {
-      const symlinked = join(dir, "symlinked");
+      // Short names: the squatted candidates must fit the 100-byte limit under the longest temp root
+      // testkit accepts, so they are rejected for what they are, not for their length.
+      const symlinked = join(dir, "link");
       mkdirSync(join(dir, "target"), { mode: 0o700 });
       symlinkSync(join(dir, "target"), symlinked);
       const open = join(dir, "open");
@@ -172,9 +174,20 @@ describe("chooseRuntimeDir", () => {
       chmodSync(open, 0o755);
       const file = join(dir, "file");
       writeFileSync(file, "");
-      // Short, so the fresh directory's socket paths stay under the 100-byte limit in a deep temp dir.
-      const tmpBase = join(dir, "b");
+      const tmpBase = join(dir, "base");
       mkdirSync(tmpBase);
+      // The real mkdtemp makes the fresh directory, but chooseRuntimeDir sees it under a short alias,
+      // so its 100-byte check passes however long the temp root is (DIPO_TMP in a worker sandbox).
+      const alias = "/t/dipo-abc123";
+      let fresh = "";
+      const fs: RuntimeDirFs = {
+        lstat: (path) => systemRuntimeDirFs.lstat(path === alias ? fresh : path),
+        mkdir: (path) => systemRuntimeDirFs.mkdir(path),
+        mkdtemp: (prefix) => {
+          fresh = systemRuntimeDirFs.mkdtemp(prefix);
+          return alias;
+        },
+      };
 
       const choice = chooseRuntimeDir({
         candidates: [
@@ -184,10 +197,12 @@ describe("chooseRuntimeDir", () => {
         ],
         uid,
         tmpBase,
+        fs,
       });
       expect(choice.source).toBe("mkdtemp");
-      expect(dirname(choice.path)).toBe(tmpBase);
-      expect(mode(choice.path)).toBe(0o700);
+      expect(choice.path).toBe(alias);
+      expect(dirname(fresh)).toBe(tmpBase);
+      expect(mode(fresh)).toBe(0o700);
       expect(choice.rejected.map((r) => r.reason)).toEqual([
         "it is a symlink",
         "its mode is 0755, not 0700",
