@@ -1,10 +1,10 @@
 ---
 id: DIPO-191
 title: Name the test guards a sandboxed verify skips
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 22:46'
+updated_date: '2026-10-17 22:52'
 labels:
   - 'tier:S'
   - cutover
@@ -49,3 +49,9 @@ test_plan:
 - [x] #3 The limits that NESTED_ROOT_FITS and LONGEST_ROOT_FITS guard (a nested DIPO_TMP is accepted when it fits; a root of exactly MAX_TEMP_ROOT_BYTES is accepted and one byte more is refused) gain a variant that checks them on computed paths without creating the directories, and that variant runs with DIPO_TMP at a 30-byte root
 - [x] #4 The PR lists the skip lines printed by bun test with DIPO_TMP at a 30-byte root
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M560BS046C5R0RT0N6CPBFXM (Haiku low, 21 turns, about $0.04, 4 min) reported done with no denials. testkit gains skipUnless-style guard helper (testkit/src/guard.ts) that writes 'skipped by guard <NAME>: <reason>' to stderr; the four guards use it; the root-length limits gain computed-path variants that run at a 30-byte root. Skip lines (criterion 4): inside the worker sandbox at its 30-byte DIPO_TMP: SANDBOX_REFUSES_LOOPBACK, LONGEST_ROOT_FITS (twice: temp.test.ts and runtime-isolation.test.ts), PS_RUNS, NESTED_ROOT_FITS. Outside the sandbox at a 30-byte DIPO_TMP (/private/tmp/dipo-t-191a0b1c2d): LONGEST_ROOT_FITS twice and NESTED_ROOT_FITS once; 3203 pass, 8 skip, 0 fail. Verify outside with DIPO_TMP unset on DIPO-191/name-skipped-test-guards-finish: 3209 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 testkit, daemon unit, sandbox and platform 338 pass.
+<!-- SECTION:NOTES:END -->
