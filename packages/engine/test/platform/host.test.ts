@@ -4,18 +4,24 @@
 
 import { describe, expect, it } from "bun:test";
 
+import type { ChildExit, ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
+
 import {
+  actionsJobOf,
   checkGhVersion,
   CodeHostError,
   compareVersions,
   GhHost,
   LIST_OPEN_LIMIT,
+  LOG_TAIL_BYTES,
   MIN_GH_VERSION,
   repoOfRemoteUrl,
 } from "../../src/platform/host";
 import { scriptedSpawn, type ScriptedReply } from "../backlog/helpers";
 
 const VERSION = `gh version ${MIN_GH_VERSION} (2024-05-29)\nhttps://github.com/cli/cli/releases/tag/v${MIN_GH_VERSION}\n`;
+
+const JOB_LINK = "https://github.com/o/r/actions/runs/1/job/2";
 
 const PR_JSON = {
   number: 7,
@@ -27,12 +33,34 @@ const PR_JSON = {
   title: "chore(backlog): edit TASK-1",
 };
 
+/**
+ * A `GhHost` on a scripted `gh`: `--version` prints `VERSION`, every other call gets `reply`. A
+ * call spawned with `stdin: "pipe"` gets a stdin that records what is written, in `stdin`.
+ */
 function host(reply: (args: readonly string[]) => ScriptedReply) {
   const stub = scriptedSpawn(
     (args) => (args[0] === "--version" ? { stdout: VERSION } : reply(args)),
     ["gh"],
   );
-  return { host: new GhHost({ spawn: stub.spawn, gh: "gh", env: { HOME: "/home/x" } }), stub };
+  const stdin: { text: string; ended: boolean }[] = [];
+  const spawn: Spawn = (options) => {
+    const child = stub.spawn(options);
+    if (options.stdin !== "pipe") return child;
+    const record = { text: "", ended: false };
+    stdin.push(record);
+    return {
+      ...child,
+      stdin: {
+        write: (chunk) => {
+          record.text += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+        },
+        end: () => {
+          record.ended = true;
+        },
+      },
+    };
+  };
+  return { host: new GhHost({ spawn, gh: "gh", env: { HOME: "/home/x" } }), stub, stdin };
 }
 
 describe("the gh version check", () => {
@@ -241,6 +269,253 @@ describe("gh calls", () => {
     expect((failed as CodeHostError).message).toContain("Could not resolve");
   });
 });
+
+describe("the review reads and comment (DIPO-141)", () => {
+  const checks = [
+    { name: "ci-ok", state: "SUCCESS", bucket: "pass" as const, link: JOB_LINK, workflow: "CI" },
+    { name: "external", state: "FAILURE", bucket: "fail" as const, link: "", workflow: "" },
+  ];
+
+  it("reads the labels of a PR, and every check of its head with link and workflow", async () => {
+    const { host: gh, stub } = host((args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return { stdout: JSON.stringify({ labels: [{ name: "autorelease: pending" }] }) };
+      }
+      return { stdout: JSON.stringify(checks) };
+    });
+    expect(await gh.prLabels("o/r", 7)).toEqual(["autorelease: pending"]);
+    expect(await gh.prChecks("o/r", 7)).toEqual(checks);
+    const calls = stub.calls.map((call) => call.cmd.slice(1));
+    expect(calls[1]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "labels"]);
+    expect(calls[2]).toEqual([
+      "pr",
+      "checks",
+      "7",
+      "--repo",
+      "o/r",
+      "--json",
+      "name,state,bucket,link,workflow",
+    ]);
+  });
+
+  it("reads no checks when the PR has none", async () => {
+    const { host: gh } = host(() => ({
+      stderr: "no checks reported on the 'x' branch",
+      code: 1,
+    }));
+    expect(await gh.prChecks("o/r", 7)).toEqual([]);
+  });
+
+  it("posts a comment with its body on stdin and returns the comment's URL", async () => {
+    const {
+      host: gh,
+      stub,
+      stdin,
+    } = host(() => ({
+      stdout: "https://github.com/o/r/pull/7#issuecomment-123\n",
+    }));
+    const body = "Review: approved\n" + "x".repeat(300 * 1024);
+    expect(await gh.commentPr("o/r", 7, body)).toBe(
+      "https://github.com/o/r/pull/7#issuecomment-123",
+    );
+    expect(stub.calls.at(-1)?.cmd.slice(1)).toEqual([
+      "pr",
+      "comment",
+      "7",
+      "--repo",
+      "o/r",
+      "--body-file",
+      "-",
+    ]);
+    expect(stub.calls.at(-1)?.stdin).toBe("pipe");
+    // The body is never an argument, so no length limit on arguments applies to it.
+    expect(stdin).toEqual([{ text: body, ended: true }]);
+  });
+
+  it("reads the failed-job log of an Actions job link, with the job id", async () => {
+    const { host: gh, stub } = host(() => ({ stdout: "step failed\n" }));
+    expect(await gh.failedJobLog("o/r", JOB_LINK)).toBe("step failed\n");
+    expect(stub.calls.at(-1)?.cmd.slice(1)).toEqual([
+      "run",
+      "view",
+      "--repo",
+      "o/r",
+      "--job",
+      "2",
+      "--log-failed",
+    ]);
+  });
+
+  it("reads no log for a link that is not an Actions job of this repository, and runs nothing", async () => {
+    const { host: gh, stub } = host(() => ({ stdout: "" }));
+    const others = [
+      "https://ci.example.com/build/9",
+      "https://github.com/o/r/actions/runs/1",
+      // Another host with the same path.
+      "https://ci.example.com/o/r/actions/runs/1/job/2",
+      "https://github.com.example.com/o/r/actions/runs/1/job/2",
+      // Not https.
+      "http://github.com/o/r/actions/runs/1/job/2",
+      // A GitHub job link inside a query string.
+      "https://ci.example.com/?next=https://github.com/o/r/actions/runs/1/job/2",
+      "https://github.com/o/r/pull/7?next=https://github.com/o/r/actions/runs/1/job/2",
+      // Another repository's job.
+      "https://github.com/o/other/actions/runs/1/job/2",
+      "https://github.com/x/r/actions/runs/1/job/2",
+      // A longer path in front of the job path.
+      "https://github.com/o/r/x/actions/runs/1/job/2",
+      "https://github.com/o/r/actions/runs/1/job/2x",
+    ];
+    for (const link of others) {
+      expect(actionsJobOf("o/r", link)).toBeNull();
+      expect(await gh.failedJobLog("o/r", link)).toBeNull();
+    }
+    expect(stub.calls).toEqual([]);
+  });
+
+  it("reads the job id of this repository's Actions job link, the repo compared case-insensitively", () => {
+    expect(actionsJobOf("o/r", JOB_LINK)).toBe("2");
+    expect(actionsJobOf("O/R", JOB_LINK)).toBe("2");
+    expect(actionsJobOf("o/r", "https://github.com/O/R/actions/runs/1/job/2")).toBe("2");
+    expect(actionsJobOf("o/r", `  ${JOB_LINK}  `)).toBe("2");
+    for (const end of ["/", "?pr=7", "#step:3:1"]) {
+      expect(actionsJobOf("o/r", `https://github.com/o/r/actions/runs/11/job/22${end}`)).toBe("22");
+    }
+  });
+
+  it("keeps only the last 1 MiB of a failed-job log", async () => {
+    const encoder = new TextEncoder();
+    const parts = [
+      encoder.encode("a".repeat(LOG_TAIL_BYTES + 512 * 1024)),
+      encoder.encode("x".repeat(100 * 1024)),
+      encoder.encode("END"),
+    ];
+    const stub = byteSpawn(parts);
+    const gh = new GhHost({ spawn: stub, env: {} });
+    const log = await gh.failedJobLog("o/r", JOB_LINK);
+    expect(log).toHaveLength(LOG_TAIL_BYTES);
+    expect(log?.endsWith("x".repeat(100 * 1024) + "END")).toBe(true);
+  });
+
+  it("cuts a failed-job log at a whole character when the tail starts inside one", async () => {
+    const encoder = new TextEncoder();
+    // "é" is two bytes; the last LOG_TAIL_BYTES start at its second byte.
+    const tail = "b".repeat(LOG_TAIL_BYTES - 1);
+    const stub = byteSpawn([encoder.encode("a".repeat(10) + "é"), encoder.encode(tail)]);
+    const gh = new GhHost({ spawn: stub, env: {} });
+    const log = await gh.failedJobLog("o/r", JOB_LINK);
+    expect(log?.includes("\uFFFD")).toBe(false);
+    expect(log).toBe(tail);
+    // A cut before a three-byte character keeps it whole.
+    const whole = byteSpawn([
+      encoder.encode("a".repeat(10) + "€" + "c".repeat(LOG_TAIL_BYTES - 3)),
+    ]);
+    const kept = await new GhHost({ spawn: whole, env: {} }).failedJobLog("o/r", JOB_LINK);
+    expect(kept).toBe("€" + "c".repeat(LOG_TAIL_BYTES - 3));
+  });
+
+  it("stops a failed-job log read that runs past its timeout", async () => {
+    const kills: string[] = [];
+    const spawn: Spawn = (options) => {
+      if (options.cmd[1] === "--version") return textChild(VERSION);
+      // Neither output ends nor does the child exit: only the timeout ends this read.
+      return {
+        pid: 4242,
+        stdin: null,
+        stdout: new ReadableStream<Uint8Array>(),
+        stderr: new ReadableStream<Uint8Array>(),
+        exited: new Promise<ChildExit>(() => {}),
+        kill: (signal) => kills.push(signal ?? "SIGTERM"),
+      };
+    };
+    const gh = new GhHost({ spawn, env: {}, logTimeoutMs: 20 });
+    const error = await gh.failedJobLog("o/r", JOB_LINK).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CodeHostError);
+    expect((error as CodeHostError).code).toBe("failed");
+    expect((error as CodeHostError).message).toContain("did not finish within 0.02 seconds");
+    expect(kills).toEqual(["SIGKILL"]);
+  });
+
+  it("never builds a gh command that names deployments or environments, in any method", async () => {
+    const { host: gh, stub } = host((args) => {
+      const [group, command] = args;
+      if (group === "run") return { stdout: "log\n" };
+      if (command === "list") return { stdout: JSON.stringify([PR_JSON]) };
+      if (command === "create") return { stdout: `${PR_JSON.url}\n` };
+      if (command === "comment") return { stdout: `${PR_JSON.url}#issuecomment-1\n` };
+      if (command === "checks") return { stdout: JSON.stringify(checks) };
+      if (command === "view" && args.at(-1) === "labels") {
+        return { stdout: JSON.stringify({ labels: [{ name: "autorelease: pending" }] }) };
+      }
+      if (command === "view") return { stdout: JSON.stringify(PR_JSON) };
+      return { stdout: "" };
+    });
+    const branch = PR_JSON.headRefName;
+    // Every public GhHost method, each of which runs gh. A new method fails the check below
+    // until it is called here too.
+    const methods: Record<string, () => Promise<unknown>> = {
+      checkVersion: () => gh.checkVersion(),
+      findOpenPr: () => gh.findOpenPr("o/r", branch),
+      findMergedPr: () => gh.findMergedPr("o/r", branch),
+      listOpenPrs: () => gh.listOpenPrs("o/r", "dipo/backlog-"),
+      createPr: () => gh.createPr("o/r", { base: "main", head: branch, title: "t", body: "b" }),
+      updatePr: () => gh.updatePr("o/r", 7, { title: "t", body: "b" }),
+      viewPr: () => gh.viewPr("o/r", 7),
+      closePr: () => gh.closePr("o/r", 7, "replaced"),
+      squashMerge: () => gh.squashMerge("o/r", 7, { headSha: "a".repeat(40), subject: "s" }),
+      requiredChecks: () => gh.requiredChecks("o/r", 7),
+      prLabels: () => gh.prLabels("o/r", 7),
+      prChecks: () => gh.prChecks("o/r", 7),
+      failedJobLog: () => gh.failedJobLog("o/r", JOB_LINK),
+      commentPr: () => gh.commentPr("o/r", 7, "Review: approved"),
+    };
+    const publicMethods = Object.getOwnPropertyNames(GhHost.prototype).filter(
+      (name) => name !== "constructor",
+    );
+    expect(Object.keys(methods).toSorted()).toEqual(publicMethods.toSorted());
+    for (const [name, call] of Object.entries(methods)) {
+      const before = stub.calls.length;
+      await call();
+      // Each method ran gh at least once; checkVersion runs first, before its result is cached.
+      expect({ name, ran: stub.calls.length > before }).toEqual({ name, ran: true });
+    }
+    for (const argv of stub.calls.map((c) => c.cmd.slice(1))) {
+      for (const arg of argv) expect(arg).not.toMatch(/deployment|environment/i);
+    }
+  });
+});
+
+/** A child whose stdout yields `parts` as they are, then ends; it exits 0. */
+function byteSpawn(parts: readonly Uint8Array[]): Spawn {
+  return (options) => {
+    if (options.cmd[1] === "--version") return textChild(VERSION);
+    const stdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
+    return {
+      pid: 4242,
+      stdin: null,
+      stdout,
+      stderr: new Response("").body ?? new ReadableStream<Uint8Array>(),
+      exited: Promise.resolve({ code: 0, signal: null }),
+      kill: () => {},
+    };
+  };
+}
+
+function textChild(stdout: string): ChildProcess {
+  return {
+    pid: 4242,
+    stdin: null,
+    stdout: new Response(stdout).body ?? new ReadableStream<Uint8Array>(),
+    stderr: new Response("").body ?? new ReadableStream<Uint8Array>(),
+    exited: Promise.resolve({ code: 0, signal: null }),
+    kill: () => {},
+  };
+}
 
 describe("repoOfRemoteUrl", () => {
   it("reads GitHub remotes in every form and refuses local paths", () => {
