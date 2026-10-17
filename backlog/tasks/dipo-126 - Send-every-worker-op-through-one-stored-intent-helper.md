@@ -1,10 +1,10 @@
 ---
 id: DIPO-126
 title: Send every worker op through one stored-intent helper
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 17:21'
+updated_date: '2026-10-17 17:30'
 labels:
   - 'tier:M'
 milestone: m-1
