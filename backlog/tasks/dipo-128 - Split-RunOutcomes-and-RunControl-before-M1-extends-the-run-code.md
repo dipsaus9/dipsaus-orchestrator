@@ -1,10 +1,10 @@
 ---
 id: DIPO-128
 title: Split RunOutcomes and RunControl before M1 extends the run code
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 20:36'
+updated_date: '2026-10-17 20:41'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -50,3 +50,9 @@ test_plan:
 - [x] #3 The #deciding guard exists once
 - [x] #4 The lint exception lists of DIPO-127 (when merged) shrink by the split files and do not grow
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M55RCY1AT0DGM1CM53BCBJHV (Sonnet medium, 73 turns, about $1.46, 14 min) reported done. outcomes.ts (1724 lines) became outcomes.ts 157 plus outcome-types 342, outcome-support 175, outcome-turns 216, outcome-exits 374, outcome-sessions 197, outcome-resumes 368 and outcome-restart 176; control.ts (1125) became control.ts 482 plus control-types 197, control-endings 479 and control-turns 123. The #deciding set is one DecidingGuard in run/deciding.ts. One timing change: a background park resume releases its guard key before it logs the failure warning. Criterion 4: DIPO-127 is not merged, so there are no lint exception lists yet and .oxlintrc.json is unchanged. The worker's guard test (test/run/deciding.test.ts) was added on the finish branch, from the worker's own draft: its Write was auto-denied because the worker's shell had cd'd into src/run and the Write(./**) allow rule resolved against that directory. Verify outside the sandbox on DIPO-128/split-run-outcomes-and-control-finish: bun run verify 3154 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 bun test packages/engine/test/run packages/daemon 461 pass, 0 fail.
+<!-- SECTION:NOTES:END -->
