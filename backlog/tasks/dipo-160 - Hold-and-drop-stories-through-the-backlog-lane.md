@@ -4,7 +4,7 @@ title: Hold and drop stories through the backlog lane
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-17 13:15'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -13,7 +13,8 @@ dependencies:
   - DIPO-115
   - DIPO-144
 references:
-  - packages/contract/src/office.ts
+  - packages/contract/src/
+  - packages/contract/schema/
   - packages/engine/src/backlog/lane/
   - packages/engine/src/stories/
   - packages/engine/src/worktree/

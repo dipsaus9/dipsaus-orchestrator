@@ -4,7 +4,7 @@ title: List what waits on the maintainer with dipo desk
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-17 13:15'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -14,6 +14,7 @@ dependencies:
   - DIPO-151
 references:
   - packages/contract/src/
+  - packages/contract/schema/
   - packages/engine/src/views/
   - packages/engine/src/reads/
   - packages/cli/src/

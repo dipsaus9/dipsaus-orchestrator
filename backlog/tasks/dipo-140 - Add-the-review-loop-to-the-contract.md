@@ -4,7 +4,7 @@ title: Add the review loop to the contract
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-17 13:15'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -14,6 +14,7 @@ dependencies:
 references:
   - packages/contract/src/
   - packages/contract/test/
+  - packages/contract/schema/
 priority: high
 type: feature
 ordinal: 129000

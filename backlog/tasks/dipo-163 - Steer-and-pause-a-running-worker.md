@@ -4,7 +4,7 @@ title: Steer and pause a running worker
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-17 13:15'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -15,6 +15,7 @@ dependencies:
   - DIPO-145
 references:
   - packages/contract/src/office.ts
+  - packages/contract/schema/
   - packages/engine/src/run/
   - packages/engine/src/prompts/feedback/
   - packages/cli/src/

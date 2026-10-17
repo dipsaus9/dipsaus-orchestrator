@@ -4,7 +4,7 @@ title: Let a worker request extra write paths inside its packages
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-17 13:15'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -18,6 +18,7 @@ dependencies:
   - DIPO-139
 references:
   - packages/contract/src/
+  - packages/contract/schema/
   - packages/engine/src/workers/
   - packages/engine/src/run/
   - packages/engine/src/hooks/
