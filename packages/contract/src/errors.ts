@@ -64,11 +64,18 @@ export const SOFTWARE_ERROR_CODES = [
 // base branch. Since minor 1 (DIPO-48): `run.refused` when an office check refuses `work.run`;
 // `details.check` names it (`adapter`, `statuses` or `verify`; `plan-limit` since DIPO-61).
 // Since minor 1 (DIPO-59): `question.closed` when `work.answer` names a question that is not waiting.
+// Since minor 1 (DIPO-140, 0019 section 15), all not retryable: `gate.notWaitingOnMaintainer` when
+// `gate.approve` or `gate.reject` names a gate that waits for no maintainer, `gate.handMergeOnly`
+// when the gate is a merge the maintainer merges by hand, and `gate.noteRequired` when a decision
+// that needs a note has none.
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
   "run.refused",
   "question.closed",
+  "gate.notWaitingOnMaintainer",
+  "gate.handMergeOnly",
+  "gate.noteRequired",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

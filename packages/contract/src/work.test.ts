@@ -233,6 +233,8 @@ describe("office commands and reads", () => {
     "work.preview": 1,
     "office.switch": 1,
     "work.resume": 1,
+    "gate.approve": 1,
+    "gate.reject": 1,
   };
   const provisional = [
     "work.steer",
@@ -241,8 +243,6 @@ describe("office commands and reads", () => {
     "work.discard",
     "story.hold",
     "story.drop",
-    "gate.approve",
-    "gate.reject",
     "test.start",
     "test.record",
     "office.usage",

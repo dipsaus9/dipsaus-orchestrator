@@ -42,4 +42,8 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // same, still unreleased, minor.
 // DIPO-111 adds the generic code `database.unavailable` (not retryable) and its
 // `DatabaseUnavailableDetails` to the same, still unreleased, minor.
+// DIPO-140 ships the commands `gate.approve` and `gate.reject`, adds `Verdict.review`,
+// `gate.decided.review`, `StoryView.pr`, `Progress.reviewRoundCap` and `Progress.reviewRoundsFailed`,
+// the event `story.pr` and the office codes `gate.notWaitingOnMaintainer`, `gate.handMergeOnly` and
+// `gate.noteRequired` to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

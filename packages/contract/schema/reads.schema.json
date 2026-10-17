@@ -588,6 +588,32 @@
                   "required": ["rule", "message", "text"]
                 }
               },
+              "pr": {
+                "type": "object",
+                "properties": {
+                  "number": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["open", "merged", "closed"]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": ["number", "url", "state"]
+              },
               "evidence": {
                 "type": "object",
                 "propertyNames": {
@@ -686,6 +712,16 @@
                     "enum": ["none", "passing", "failing"]
                   },
                   "reviewRound": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reviewRoundCap": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reviewRoundsFailed": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
@@ -1284,6 +1320,32 @@
                   "required": ["rule", "message", "text"]
                 }
               },
+              "pr": {
+                "type": "object",
+                "properties": {
+                  "number": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["open", "merged", "closed"]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": ["number", "url", "state"]
+              },
               "evidence": {
                 "type": "object",
                 "propertyNames": {
@@ -1382,6 +1444,16 @@
                     "enum": ["none", "passing", "failing"]
                   },
                   "reviewRound": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reviewRoundCap": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reviewRoundsFailed": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
@@ -1971,6 +2043,32 @@
                 "required": ["rule", "message", "text"]
               }
             },
+            "pr": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["open", "merged", "closed"]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": ["number", "url", "state"]
+            },
             "evidence": {
               "type": "object",
               "propertyNames": {
@@ -2066,6 +2164,16 @@
                   "enum": ["none", "passing", "failing"]
                 },
                 "reviewRound": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundCap": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reviewRoundsFailed": {
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
@@ -2421,6 +2529,193 @@
                 "type": "string",
                 "format": "date-time",
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "review": {
+                "type": "object",
+                "properties": {
+                  "round": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "commit": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "codeTreeKey": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "verdict": {
+                    "type": "string",
+                    "enum": ["approved", "blocked"]
+                  },
+                  "criteria": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "n": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["met", "unmet", "maintainer"]
+                        },
+                        "evidence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["n", "status", "evidence"]
+                    }
+                  },
+                  "findings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "severity": {
+                          "type": "string",
+                          "enum": ["blocking", "advisory"]
+                        },
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "scope",
+                                "test",
+                                "correctness",
+                                "security",
+                                "maintainability",
+                                "other"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "criterion": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "testEntry": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "file": {
+                          "type": "string"
+                        },
+                        "line": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "quote": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "unverified": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["severity", "kind", "text"]
+                    }
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "usage": {
+                    "type": "object",
+                    "properties": {
+                      "inputTokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "outputTokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "cacheCreateTokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "cacheReadTokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "turns": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "elapsedMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "estimatedCost": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "inputTokens",
+                      "outputTokens",
+                      "cacheCreateTokens",
+                      "cacheReadTokens",
+                      "turns",
+                      "elapsedMs"
+                    ]
+                  },
+                  "commentUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "carried": {
+                    "type": "boolean"
+                  },
+                  "override": {
+                    "type": "object",
+                    "properties": {
+                      "note": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": ["note", "at"]
+                  }
+                },
+                "required": [
+                  "round",
+                  "commit",
+                  "codeTreeKey",
+                  "verdict",
+                  "criteria",
+                  "findings",
+                  "summary",
+                  "model",
+                  "usage"
+                ]
               }
             },
             "required": ["gate", "kind", "decision", "by", "at"]
