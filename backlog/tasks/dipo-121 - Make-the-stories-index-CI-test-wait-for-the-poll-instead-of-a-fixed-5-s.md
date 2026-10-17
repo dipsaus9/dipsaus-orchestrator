@@ -1,10 +1,10 @@
 ---
 id: DIPO-121
 title: Keep the stories index refresh CI test under its timeout
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-17 22:10'
+updated_date: '2026-10-17 22:11'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -33,6 +33,10 @@ test_plan:
     - kind: "manual"
       check: "(ci) rerun the verify job of the story PR until it has at least 5 runs and read the test times from the logs"
       expect: "the slowest run of each test is under half its timeout; the PR states the times"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Can you run the story PR's verify job at least 5 times and read each run's per-test times for the two new tests? Then state the slowest of each in the PR, to confirm each is under half its 5000 ms default timeout. If a test is over that, I need to know whether to raise its timeout or cut its subprocess calls further."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
