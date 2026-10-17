@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { guardRuns, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   ChildProcesses,
@@ -112,7 +112,11 @@ async function psRuns(): Promise<boolean> {
   }
 }
 
-const PS_RUNS = await psRuns();
+const PS_RUNS = guardRuns(
+  "PS_RUNS",
+  "not macOS, or /bin/ps does not report this process",
+  await psRuns(),
+);
 
 // `/proc/<pid>/stat`: the command name may hold spaces and parentheses.
 const PROC_STAT = (state: string, startTicks: number) =>

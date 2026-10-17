@@ -16,6 +16,14 @@ import {
 } from "./runtime";
 
 /**
+ * Whether a temp root at `root` is accepted: its test directories' socket paths all fit the limit.
+ * Checks the path only, so a computed path can be tested without creating it (DIPO-191).
+ */
+export function tempRootFits(root: string): boolean {
+  return longestTestSocketBytes(join(root, TEMP_DIR_TEMPLATE)) <= RUNTIME_PATH_LIMIT;
+}
+
+/**
  * The directory every testkit temp directory is created in. Creates it, and throws when a test
  * daemon's socket paths under it would pass the Unix socket path limit.
  */
@@ -24,8 +32,8 @@ export function tempRoot(): string {
   const root = configured !== undefined && configured !== "" ? configured : "/tmp";
   mkdirSync(root, { recursive: true });
   const real = realpathSync(root);
-  const bytes = longestTestSocketBytes(join(real, TEMP_DIR_TEMPLATE));
-  if (bytes > RUNTIME_PATH_LIMIT) {
+  if (!tempRootFits(real)) {
+    const bytes = longestTestSocketBytes(join(real, TEMP_DIR_TEMPLATE));
     throw new Error(
       `DIPO_TMP ${root} (${real}) is too long: a test daemon's socket paths under it would be ${bytes} bytes, over the ${RUNTIME_PATH_LIMIT}-byte Unix socket path limit, and the daemon would fall back to the real runtime directory. Set DIPO_TMP to a directory of at most ${MAX_TEMP_ROOT_BYTES} bytes after symlinks, such as /tmp/dt, or leave it unset.`,
     );
