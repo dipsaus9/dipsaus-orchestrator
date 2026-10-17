@@ -97,6 +97,7 @@ const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
       home: "/home/maintainer",
       env: { PATH: "/usr/bin:/bin" },
       dipoCommand: ["/opt/dipo/bin/dipo"],
+      pluginFiles: { read: () => undefined, dirs: () => [] },
     },
     paths,
     config,
