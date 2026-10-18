@@ -31,7 +31,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { executeRead } from "../../src/reads/execute";
-import type { SlotEntry } from "../../src/worktree/slots";
+import { type SlotEntry, SlotTableError } from "../../src/worktree/slots";
 import { GitError } from "../../src/git/runner";
 import { createLogger } from "../../src/log/logger";
 import { OfficeManager } from "../../src/office/manager";
@@ -117,6 +117,8 @@ interface World {
   planLimit: (adapter: string, model: string | null) => string | null;
   /** The live port slot entries (DIPO-197). */
   slots: SlotEntry[];
+  /** Thrown by the slot read instead of returning `slots`, when set. */
+  slotsError: SlotTableError | null;
 }
 
 let dir = "";
@@ -153,6 +155,7 @@ beforeEach(async () => {
     gate: (_key, mode) => passed(mode),
     planLimit: () => null,
     slots: [],
+    slotsError: null,
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
@@ -184,7 +187,10 @@ beforeEach(async () => {
     statuses: async () => w.statuses,
     adapterHeld: (adapter) => holds.adapterHeld(adapter),
     planLimitHeld: (adapter, model) => w.planLimit(adapter, model),
-    liveSlots: () => w.slots,
+    liveSlots: () => {
+      if (w.slotsError !== null) throw w.slotsError;
+      return w.slots;
+    },
     claims: {
       claim: async (_office, request): Promise<ClaimOutcome> => {
         claims.push(request);
@@ -772,5 +778,22 @@ describe("port slots (DIPO-197)", () => {
     if (!dry.ok) throw new Error(dry.error.message);
     expect((dry.result as { refusals: unknown[] }).refusals).toEqual([]);
     expect(resultOf(await run()).started).toHaveLength(1);
+  });
+
+  it("refuses with check slots and the table's reason when the slot table cannot be read", async () => {
+    story("TASK-1", "Ready");
+    const reason = "The port slot table /home/slots.json cannot be read: SyntaxError: bad json";
+    world.slotsError = new SlotTableError(reason);
+
+    const refusal = await codeOf();
+    expect(refusal).toMatchObject({ code: "run.refused", details: { check: "slots" } });
+    expect(refusal.message).toContain(reason);
+    expect(world.claims).toEqual([]);
+
+    const dry = await previewRun();
+    if (!dry.ok) throw new Error(dry.error.message);
+    const result = dry.result as { refusals: { check: string; message: string }[]; story: unknown };
+    expect(result.refusals).toEqual([{ check: "slots", message: reason }]);
+    expect(result.story).toBeNull();
   });
 });

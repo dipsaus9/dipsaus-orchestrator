@@ -51,7 +51,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import { allSlotsHeld, type SlotEntry, slotsTakenMessage } from "../worktree/slots";
+import { allSlotsHeld, type SlotEntry, SlotTableError, slotsTakenMessage } from "../worktree/slots";
 import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
 import { EDIT_KIND } from "../backlog/lane/ops";
@@ -240,15 +240,24 @@ const SLOTS_CHECK = "slots";
 
 /**
  * Why `story` cannot get a port slot, or null: every slot from 1 to `maxSlots` is held by a live
- * worktree and none of them is the story's own (a story that holds a slot keeps it).
+ * worktree and none of them is the story's own (a story that holds a slot keeps it). A slot table
+ * that cannot be read refuses too, with its reason, since setup could not take a slot from it.
  */
 function slotsRefusal(
-  live: readonly SlotEntry[] | undefined,
+  liveSlots: (() => readonly SlotEntry[]) | undefined,
   office: OfficeId,
   story: StoryId,
   maxSlots: number,
 ): string | null {
-  if (live === undefined || !allSlotsHeld(live, maxSlots)) return null;
+  if (liveSlots === undefined) return null;
+  let live: readonly SlotEntry[];
+  try {
+    live = liveSlots();
+  } catch (error) {
+    if (error instanceof SlotTableError) return error.message;
+    throw error;
+  }
+  if (!allSlotsHeld(live, maxSlots)) return null;
   if (live.some((entry) => entry.office === office && entry.story === story)) return null;
   return slotsTakenMessage(live, maxSlots);
 }
@@ -457,12 +466,7 @@ export class WorkRun {
       return "pickupCheckFailed";
     }
     const { view, fields, branch, tier, caps } = checked;
-    const noSlot = slotsRefusal(
-      this.#deps.liveSlots?.(),
-      office,
-      story,
-      c.config.worktree.maxSlots,
-    );
+    const noSlot = slotsRefusal(this.#deps.liveSlots, office, story, c.config.worktree.maxSlots);
     if (noSlot !== null) throw refused(office, SLOTS_CHECK, noSlot);
 
     const runId = RunId.parse(ctx.ids.next("run"));
@@ -814,12 +818,7 @@ export class WorkRun {
 
     const { candidate, startable } = chosen;
     const story = { story: candidate.story, key: candidate.key };
-    const noSlot = slotsRefusal(
-      deps.liveSlots?.(),
-      office,
-      candidate.story,
-      config.worktree.maxSlots,
-    );
+    const noSlot = slotsRefusal(deps.liveSlots, office, candidate.story, config.worktree.maxSlots);
     if (noSlot !== null) {
       refusals.push({ check: SLOTS_CHECK, message: noSlot });
       return { ...info(), story: null, skipped, launch: null, problem: null };
