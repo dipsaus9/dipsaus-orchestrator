@@ -419,14 +419,14 @@ describe("opening any board row (DIPO-81)", () => {
       " dipsaus-orchestrator · daemon running · live",
       ` DIPO-28 Show the merge queue · developer · L · claude-haiku · ${RUN_28}`,
       " run ended · DIPO-28 is In Review",
-      " run      ended 2h ago (completed)   │ output (worker) [w]orker* [v]erify prompt [i]",
+      " run      ended 2h ago (completed)   │ output (worker) [w]orker* [v]erify [i] prompt",
       " role     developer                  │ Reading the story.",
     ]);
     expect(frame).toContain(" model    claude-haiku");
     expect(frame).toContain("│ Done.");
     expect(frame).toContain(" usage    in 12k out 3k");
     expect(shown.at(-1)).toBe(
-      " [w]orker [v]erify prompt [i]  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
+      " [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
     );
     expect(session.reads).toContainEqual({
       name: "story.detail",

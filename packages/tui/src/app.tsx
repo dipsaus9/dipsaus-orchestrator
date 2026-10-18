@@ -821,7 +821,7 @@ function footerKeys(
       }
       if (view === "detail" || view === "ended") {
         hints.push(
-          ["[w]orker [v]erify prompt [i]", 75],
+          ["[w]orker [v]erify [i] prompt", 75],
           ["[k/j PgUp/PgDn] scroll", 35],
           ["[End] follow tail", 45],
         );

@@ -500,7 +500,7 @@ export function Detail(props: DetailProps) {
   const start = Math.max(0, total - paneHeight - scrolled);
   const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled, display.ascii);
   const feed = shown.feed;
-  const tabs = `[w]orker${source === "worker" ? "*" : ""} [v]erify${source === "verify" ? "*" : ""} prompt [i]${source === "prompt" ? "*" : ""}`;
+  const tabs = `[w]orker${source === "worker" ? "*" : ""} [v]erify${source === "verify" ? "*" : ""} [i] prompt${source === "prompt" ? "*" : ""}`;
   // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
   // commands (0007 section 8).
   const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);

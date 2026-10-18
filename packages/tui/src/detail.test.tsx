@@ -79,7 +79,7 @@ describe("live agent detail", () => {
       " dipsaus-orchestrator · daemon running · live",
       " DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
       " now  looping @ · verify · verify: expected 3, received 4",
-      " phase    verify                     │ output (worker) [w]orker* [v]erify prompt [i]",
+      " phase    verify                     │ output (worker) [w]orker* [v]erify [i] prompt",
       " health   looping @                  │ [tool] Read src/retry.ts (step 25)",
       " loop     2/3                        │ [tool] Edit src/verify.ts (step 26)",
       " verify   failing                    │ Step 27: retries now stop at the cap in test/retry.test.ts.",
@@ -98,7 +98,7 @@ describe("live agent detail", () => {
       "                                     │ [tool] Bash",
       "                                     │ [tool] Edit src/retry.ts (live)",
       "                                     │ following the tail",
-      " [w]orker [v]erify prompt [i]  [k/j PgUp/PgDn] scroll  [End] follow tail  [X] stop  [Esc] back  [q] quit",
+      " [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [X] stop  [Esc] back  [q] quit",
     ]);
     // The tail came from work.outputRange reads to the end; the live text came from the stream.
     expect(rangeReads(session).filter((read) => read.source === "worker")).toEqual([
@@ -527,7 +527,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
     } as Event);
     let frame = await ui.waitFor("stores commands");
-    expect(frame).toContain("output (worker) [w]orker* [v]erify prompt [i]  stores commands");
+    expect(frame).toContain("output (worker) [w]orker* [v]erify [i] prompt  stores commands");
     expect(frame).not.toContain("opt-in");
     await ui.press("v");
     frame = await ui.waitFor("[v]erify*");
@@ -545,7 +545,7 @@ describe("the stored prompt in the detail (DIPO-137)", () => {
     ]);
     await ui.press("i");
     const frame = await ui.waitFor("first message");
-    expect(frame).toContain("prompt (stored) [w]orker [v]erify prompt [i]*");
+    expect(frame).toContain("prompt (stored) [w]orker [v]erify [i] prompt*");
     expect(frame).toContain("│ · system file");
     expect(frame).toContain("│ You are the developer.");
     expect(frame).toContain("│ Story DIPO-24: add the verify retry.");
@@ -566,6 +566,29 @@ describe("the stored prompt in the detail (DIPO-137)", () => {
     await ui.press("i");
     const frame = await ui.waitFor("no prompt is stored");
     expect(frame).toContain("privacy.storePrompts is off");
+  });
+
+  it("reads the prompt once while live updates arrive, and keeps it on screen", async () => {
+    const { ui, session } = await openDetail();
+    const agent = golden24().work.agent;
+    session.prompts.set(`${RUN_24}:${agent}`, [
+      { part: "message", text: "Story DIPO-24: add the verify retry." },
+    ]);
+    await ui.press("i");
+    await ui.waitFor("first message");
+    const build: WorkView = { ...golden24(), phase: "build", health: "busy" };
+    session.active(STREAM)?.options.onEvent(
+      event(8, "work.phase", {
+        work: build.work,
+        phase: "build",
+        progress: build.progress,
+        view: build,
+      }),
+    );
+    await ui.waitFor("build");
+    expect(ui.frame()).toContain("│ Story DIPO-24: add the verify retry.");
+    expect(ui.frame()).not.toContain("reading prompt");
+    expect(session.reads.filter((read) => read.name === "work.prompt")).toHaveLength(1);
   });
 });
 
