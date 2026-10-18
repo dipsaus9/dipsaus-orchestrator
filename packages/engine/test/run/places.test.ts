@@ -347,6 +347,45 @@ describe("plan-limit holds pause the places by scope (0019 section 12)", () => {
     expect(paused("haiku").reviewer).toContain("warned");
   });
 
+  /**
+   * Drains the office once with one pending review of `story`, under an office config whose
+   * `review.model` is Sonnet and no `reviewModel` dep (as the daemon wires it): the stories whose
+   * review started.
+   */
+  async function drainSonnetReview(story: string): Promise<readonly string[]> {
+    const review = inReview(story);
+    const config = { ...OFFICE_DEFAULTS, review: { ...OFFICE_DEFAULTS.review, model: "sonnet" } };
+    const started: string[] = [];
+    const places = new Places({
+      clock: w.t.clock,
+      offices: { get: () => w.office, config: () => config },
+      held: (adapter, model) => limits.held(adapter, model),
+      pending: () => [{ kind: START_KINDS.review, runId: review.run, since: now() }],
+      starters: {
+        review: async (_office, run) => {
+          started.push(run.story ?? "");
+          return true;
+        },
+      },
+    });
+    try {
+      await places.drain(officeId());
+      return started;
+    } finally {
+      places.close();
+    }
+  }
+
+  it("takes the reviewer place's model from the office's review.model: an Opus hold leaves a Sonnet reviewer running", async () => {
+    holdRun("model:opus");
+    expect(await drainSonnetReview("DIPO-8")).toEqual(["DIPO-8"]);
+  });
+
+  it("takes the reviewer place's model from the office's review.model: a Sonnet hold pauses a Sonnet reviewer", async () => {
+    holdRun("model:sonnet");
+    expect(await drainSonnetReview("DIPO-8")).toEqual([]);
+  });
+
   it("keeps a waiting story limited, never parked, and starts it once the hold ends", async () => {
     const fix = inReview("DIPO-8");
     write(() => reopenForRound(w.office, findRun(w.office, fix.run)!, "fix", now()));

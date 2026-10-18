@@ -257,7 +257,7 @@ export interface PlacesDeps {
   readonly held?: (adapter: string, model: string | null) => string | null;
   /** False while the daemon schedules no work (`safe`); true by default. */
   readonly scheduling?: () => boolean;
-  /** The reviewer's model in the office; `DEFAULT_REVIEW_MODEL` by default. */
+  /** The reviewer's model in the office; by default the office config's `review.model`. */
   readonly reviewModel?: (office: OfficeId) => string;
   /** Pending reviews of the office, oldest In Review first (0019 story G); none by default. */
   readonly pending?: (office: OfficeHandle) => readonly PlaceStart[];
@@ -296,10 +296,15 @@ export class Places {
     return placeTaken(office, start) ?? this.#paused(officeId, model);
   }
 
-  /** The model the next session of `place` uses for `run`. */
+  /**
+   * The model the next session of `place` uses for `run`: the reviewer's is `reviewModel`, else
+   * the office config's `review.model` in force, else `DEFAULT_REVIEW_MODEL`.
+   */
   modelOf(officeId: OfficeId, place: Place, run: StoredRun): string {
     return place === "reviewer"
-      ? (this.#deps.reviewModel?.(officeId) ?? DEFAULT_REVIEW_MODEL)
+      ? (this.#deps.reviewModel?.(officeId) ??
+          this.#deps.offices.config(officeId)?.review.model ??
+          DEFAULT_REVIEW_MODEL)
       : run.model;
   }
 
