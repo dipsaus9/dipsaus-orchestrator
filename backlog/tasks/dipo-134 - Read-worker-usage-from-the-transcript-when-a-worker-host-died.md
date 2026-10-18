@@ -1,10 +1,10 @@
 ---
 id: DIPO-134
 title: Read worker usage from the transcript when a worker host died
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-18 08:09'
+updated_date: '2026-10-18 08:20'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -50,9 +50,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The hook relay records transcript_path from SessionStart and agent_transcript_path from SubagentStop for the run
-- [ ] #2 When a worker host died without exit.json, the engine reads the session's transcript from the stored byte offset and stores the usage it lacked, once per message id, so restored totals are not counted twice
-- [ ] #3 The transcript parser lives in the Claude adapter behind the worker port, keeps only message id, model and usage, ignores lines it does not understand, and is gated by claude_code_version
-- [ ] #4 Subagent transcripts (agent_transcript_path) are read for the per-subagent detail the stream lacked
-- [ ] #5 Tests replay a scrubbed transcript fixture under packages/engine/test/recordings/: a host that died mid-turn, a line of an unknown shape, an unsupported Claude Code version, and a second pass that adds nothing
+- [x] #1 The hook relay records transcript_path from SessionStart and agent_transcript_path from SubagentStop for the run
+- [x] #2 When a worker host died without exit.json, the engine reads the session's transcript from the stored byte offset and stores the usage it lacked, once per message id, so restored totals are not counted twice
+- [x] #3 The transcript parser lives in the Claude adapter behind the worker port, keeps only message id, model and usage, ignores lines it does not understand, and is gated by claude_code_version
+- [x] #4 Subagent transcripts (agent_transcript_path) are read for the per-subagent detail the stream lacked
+- [x] #5 Tests replay a scrubbed transcript fixture under packages/engine/test/recordings/: a host that died mid-turn, a line of an unknown shape, an unsupported Claude Code version, and a second pass that adds nothing
 <!-- AC:END -->
