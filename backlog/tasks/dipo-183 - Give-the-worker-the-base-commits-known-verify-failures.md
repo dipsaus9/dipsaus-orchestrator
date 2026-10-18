@@ -4,10 +4,11 @@ title: Give the worker the base commit's known verify failures
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-17 17:33'
+updated_date: '2026-10-18 09:32'
 labels:
   - 'tier:M'
   - cutover
+  - on-hold
 milestone: m-1
 dependencies: []
 references:
@@ -63,3 +64,9 @@ test_plan:
 - [ ] #4 The result is stored in an office-scoped table whose migration is registered in packages/engine/src/db/schema.ts, with a TABLE_RETENTION line in packages/engine/src/retention/policy.ts
 - [ ] #5 The PR proposes a dated note for docs/decisions/0014-worker-prompt-assembly.md section 2 that adds the section, for the maintainer's approval
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+On hold (maintainer, 2026-10-18). Main is green, and since DIPO-176 the full verify also passes in the worker sandbox; the false failures seen since came from workers overriding DIPO_TMP (DIPO-194). Pick this story up only if a base commit's verify fails again inside the sandbox while it passes outside; otherwise drop it.
+<!-- SECTION:NOTES:END -->

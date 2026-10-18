@@ -4,7 +4,7 @@ title: Anchor the worker's file permission rules at the absolute worktree path
 status: Refined
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-17 23:16'
+updated_date: '2026-10-18 09:32'
 labels:
   - 'tier:M'
   - cutover
@@ -26,13 +26,14 @@ Outcome: the run settings' Read, Edit and Write rules for the worktree name its 
 
 Context: the M1a run of DIPO-128 (run_01M55RCY1AT0DGM1CM53BCBJHV). After the worker ran `cd packages/engine/src/run`, a Write to packages/engine/test/run/deciding.test.ts needed approval and was denied automatically. The hook event's cwd field showed the subdirectory: Claude Code resolved `./` in Read(./**), Edit(./**) and Write(./**) against the shell's current directory. permissions() in packages/engine/src/workers/claude-cli/plan.ts writes the worktree's deny rules with `./` too: Edit and Write of ./.git, ./.git/**, ./backlog/**, ./.dipo/** and the two ./.claude settings files, and Read(./**/.env*). After a cd those rules likely stop covering the root's files, so an Edit of a root backlog file needs approval instead of being denied, and Read(./**/.env*) no longer covers a root .env file. That part is inferred from the allow rules' behaviour, not observed; the manual entry checks it. The main checkout rules already use the absolute form, `/` followed by the absolute path (`//<main>/**`), and the workdir already passes through ruleSafe in plan(). DIPO-192 adds the L1 line that tells the worker not to cd.
 
-ADR 0008 section 2 says "The worker is started in the worktree, so `./` is the worktree" and lists the `./` rules, so this change needs a dated 0008 amendment that the maintainer approves. This story does not edit docs/decisions/, and it stays open until the unknown below is answered.
+ADR 0008 section 2 says "The worker is started in the worktree, so `./` is the worktree" and lists the `./` rules, so this change needs a dated 0008 amendment that the maintainer approves. The maintainer approved it on 2026-10-18; the note is in docs/decisions/0008-worker-adapter.md (Amendments, 2026-10-18, DIPO-193), and this story does not edit docs/decisions/.
 
 ```dipo
 branch: "DIPO-193/absolute-worktree-rules"
 unknowns:
   - q: "Do you approve a dated amendment of 0008 section 2 that writes the worktree's allow and deny rules with the absolute worktree path (//<worktree>/**, //<worktree>/backlog/** and so on, as the main checkout rules are written) instead of ./, because Claude Code resolves ./ against the shell's current directory (run_01M55RCY1AT0DGM1CM53BCBJHV)?"
-    status: "open"
+    status: "resolved"
+    answer: "Approved by the maintainer on 2026-10-18: the 0008 amendment of 2026-10-18 (DIPO-193) writes the worktree's rules with the absolute worktree path."
 test_plan:
   entries:
     - kind: "automated"
