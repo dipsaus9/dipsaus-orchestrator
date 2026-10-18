@@ -3,10 +3,10 @@ id: DIPO-142
 title: >-
   Reopen the story's run for review and fix rounds, with a worker place and a
   reviewer place
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 09:51'
+updated_date: '2026-10-18 13:35'
 labels:
   - 'tier:L'
   - 'slice:m1a'
