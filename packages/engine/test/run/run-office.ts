@@ -148,6 +148,8 @@ export interface Running {
 
 export interface RunOfficeOptions {
   readonly host: HostMode;
+  /** Runs on the fixture after TASK-1 passes the gate and before the office opens. */
+  readonly prepare?: (repo: TempRepoWithRemote) => Promise<void>;
   /**
    * Wires the run temp directory sweeps (DIPO-102) as the daemon does: after each worker exit is
    * ingested and after each exit decision of worker outcomes (which `outcomes` must ask for).
@@ -215,6 +217,7 @@ export async function withRunOffice(
         "packages/export/",
       ]);
       await publish(repo, "make TASK-1 pass the gate");
+      await options.prepare?.(repo);
 
       let setup: OfficeSetup | undefined;
       const loaded = (): OfficeSetup => {
