@@ -231,7 +231,11 @@ export function defaultDeps(): CliDeps {
   return {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
-    runDaemon: (argv) => runDaemon(argv, { version }),
+    runDaemon: (argv) =>
+      runDaemon(argv, {
+        version,
+        ...(stamp === undefined ? {} : { buildCommit: stamp.commit }),
+      }),
     connectDaemon: (mode) =>
       connectFor(
         mode,
