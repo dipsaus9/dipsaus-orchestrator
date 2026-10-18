@@ -1,10 +1,10 @@
 ---
 id: DIPO-192
 title: Tell the worker to run every command from the worktree root
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-17 23:16'
+updated_date: '2026-10-18 08:09'
 labels:
   - 'tier:S'
   - cutover

@@ -1,10 +1,10 @@
 ---
 id: DIPO-197
 title: Check port slots in the dry run and name what holds them
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-17 23:25'
+updated_date: '2026-10-18 08:13'
 labels:
   - 'tier:M'
   - cutover
@@ -17,6 +17,9 @@ references:
   - packages/engine/test/worktree/slots.test.ts
   - packages/engine/test/worktree/setup.test.ts
   - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/run/run-office.ts
+  - packages/daemon/src/foreground.ts
+  - packages/contract/src/errors.ts
   - packages/cli/src/run-command.ts
   - packages/cli/src/run-command.test.ts
 priority: high
@@ -29,10 +32,10 @@ ordinal: 186000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: when every port slot is taken, `dipo run --dry-run` and `dipo run` both refuse before a claim, and the message lists each held slot with its office, story and worktree, so the maintainer is not told a story would start and then sees setup fail without knowing what holds the slots.
 
-Context: tonight `dipo run DIPO-177` failed at setup with "every port slot from 1 to 20 is taken by another worktree" (SetupFailure in setupWorktree, packages/engine/src/worktree/setup.ts). dipo held 20 locked worktrees and claims for stories that are Done on main through branches finished by hand. Releasing those claims is DIPO-162; this story covers two gaps beyond it:
+Context: on 2026-10-17 `dipo run DIPO-177` failed at setup with "every port slot from 1 to 20 is taken by another worktree" (SetupFailure in setupWorktree, packages/engine/src/worktree/setup.ts). dipo held 20 locked worktrees and claims for stories that are Done on main through branches finished by hand. Releasing those claims is DIPO-162; this story covers two gaps beyond it:
 (a) `dipo run --dry-run` printed "would start DIPO-177" (packages/cli/src/run-command.ts) while the real run failed at setup. work.preview (preview in packages/engine/src/run/work-run.ts) mirrors work.run's refusals, but slots are taken only in setup, after the claim.
 (b) The failure names no holder. The machine-wide slot table (SlotTable, packages/engine/src/worktree/slots.ts) stores office, story and worktree for each slot, and drops an entry whose worktree directory is gone only when it next writes.
-M0 has no command that frees a slot. Naming dipo discard <id> in these messages waits for DIPO-161 and is DIPO-199, split from this story in the review of PR #194, so this story has no dependency. Refusal checks in work.preview are open strings, so a new check needs no contract change.
+M0 has no command that frees a slot. Naming dipo discard <id> in these messages waits for DIPO-161 and is DIPO-199, split from this story in the review of PR #194, so this story has no dependency. Refusal checks in work.preview are open strings, so a new check needs no contract change; the comment in packages/contract/src/errors.ts that lists the run.refused details.check values names the new `slots` check. WorkRun has no slot table today: SlotTable is built in packages/daemon/src/foreground.ts, which also constructs WorkRun. WorkRunDeps gains a reader of the live slot entries and the office's maxSlots, wired in foreground.ts and in the engine test harness packages/engine/test/run/run-office.ts.
 
 ```dipo
 branch: "DIPO-197/port-slots-in-dry-run"
