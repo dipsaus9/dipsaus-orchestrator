@@ -10,4 +10,4 @@ version: 2
 #     toolchainReadPaths: ["~/.nvm/versions/node"]
 #
 # Only the node versions, not nvm's own checkout. Keep npm tokens in ~/.npmrc: a run is refused
-# when an npm config file the sandbox can read, such as a node version's etc/npmrc, holds one.
+# when a node version's etc/npmrc under a read path, or a .npmrc at the root of one, holds one.
