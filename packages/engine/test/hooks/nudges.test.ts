@@ -29,7 +29,7 @@ import {
 } from "../../src/hooks/nudges";
 import type { HookEvent } from "../../src/hooks/types";
 import { promptParts, promptPartsOf, recordPromptParts } from "../../src/prompts/parts";
-import { insertRun, runIntents } from "../../src/run";
+import { insertRun, recordGrant, runIntents } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
 import type { RunSteering } from "../../src/run/control";
 import type { SteerOp, WorkerEvent } from "../../src/workers/types";
@@ -300,6 +300,35 @@ describe("Nudges (DIPO-60)", () => {
         released(4),
       ]);
       expect(nudgeCount(w.office, RUN)).toBe(2);
+    }));
+
+  it("moves the 80% budget threshold by a budget grant (DIPO-143)", () =>
+    withWorld(async (w) => {
+      // The start budget of 1000 plus a grant of 1000: 80% is now 1600 tokens, not 800.
+      w.office.immediate(() =>
+        recordGrant(w.office, RUN, {
+          kind: "budget",
+          amount: { tokens: 1000, turns: 0, minutes: 0 },
+          grantId: "grt_1",
+          note: null,
+          origin: "maintainer",
+          client: null,
+          at: w.t.clock.now(),
+        }),
+      );
+      setUsage(w.office, 800);
+      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Bash" });
+      setUsage(w.office, 1600);
+      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Bash" });
+      expect(w.ops).toEqual([
+        released(1),
+        {
+          kind: "nudge",
+          hook: 2,
+          on: "toolUsed",
+          text: "80% of this story's budget is used; finish the current criterion and report.",
+        },
+      ]);
     }));
 
   it("releases every other call with an empty reply and answers no other hook", () =>

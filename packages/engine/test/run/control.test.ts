@@ -34,6 +34,7 @@ import {
   hostSocketSteering,
   insertRun,
   type ParkBranchRequest,
+  recordGrant,
   RunControl,
   runIntents,
   type RunSteering,
@@ -283,6 +284,34 @@ describe("caps", () => {
     expect(parked?.["lastGoodCommit"]).toBe("a".repeat(40));
     expect(parked?.["actions"]).toEqual([]);
     expect((parked?.["work"] as WorkRef | undefined)?.run).toBe(w.f.run);
+  });
+
+  it("counts a budget grant: the run that parks at its start budget goes on past it (DIPO-143)", async () => {
+    const recording = readRecording(join(RECORDINGS_DIR, "budget-engine-cap"));
+    const budget = recording.meta.testConfig?.["budgetTokens"] as number;
+    track({ ...ROOMY, budgetTokens: budget });
+    w.f.office.immediate(() =>
+      recordGrant(w.f.office, w.f.run, {
+        kind: "budget",
+        amount: { tokens: 100_000_000, turns: 0, minutes: 0 },
+        grantId: "grt_1",
+        note: "more room",
+        origin: "maintainer",
+        client: null,
+        at: w.f.t.clock.now(),
+      }),
+    );
+    await ingestRecording("budget-engine-cap");
+
+    const used = w.f.office.get<{ used: number }>(
+      `select sum(input + output + cache_create) as used from usage_totals
+       where office_id = $office_id and run_id = $run`,
+      { run: w.f.run },
+    );
+    // Past the start budget, within the granted one: no cap fired.
+    expect(used?.used ?? 0).toBeGreaterThanOrEqual(budget);
+    expect(parks().map((p) => p.reason)).not.toContain("budget-exceeded");
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).not.toContain("cap");
   });
 
   it("parks budget-exceeded naming the turn cap when the CLI backstop fires (max-turns), and the later done turn never overrides it", async () => {
