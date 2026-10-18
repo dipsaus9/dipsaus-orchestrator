@@ -6,7 +6,9 @@
 //
 // A grant has a `kind` (`budget`, `loop`, `reviewRound`, `ciAttempt`, `conflictHandoff`,
 // `reviewCap` or `scope`), its `amount` as JSON, who gave it (`origin`, and the `client` when a
-// client sent it) and when. Rows are kept with their run (retention tier S).
+// client sent it) and when. Rows are kept with their run (retention tier S). The amount of a
+// budget grant is `{ tokens, turns, minutes }`, of a reviewer cap grant `{ turns, minutes }`, of a
+// scope grant the list of paths, and of the other kinds a count (`run/grants.ts`).
 
 import type { SqlMigration } from "../migrations";
 

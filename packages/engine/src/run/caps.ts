@@ -87,9 +87,14 @@ export interface RunCaps extends Caps {
 
 /**
  * The caps of a run now (ADR 0020 section 5, DIPO-143): its start snapshot plus the sum of its
- * grants of each kind. The tier of the office is never read for a snapshot, so an edit of the tier
- * reaches new runs only. `legacy` supplies turns and minutes for a run started before they were
- * kept; without it those are unbounded.
+ * grants of each kind. A budget grant raises tokens, turns and minutes; a `loop` grant the loop
+ * cap; a `reviewRound` grant the review round cap. The tier of the office is never read for a
+ * snapshot, so an edit of the tier reaches new runs only. `legacy` supplies turns and minutes for a
+ * run started before they were kept; without it those are unbounded.
+ *
+ * `reviewCap` grants are for the reviewer's own turn and minute caps, which have no cap field yet
+ * (DIPO-146 adds them); they are stored but count toward no cap here. `ciAttempt` and
+ * `conflictHandoff` grants wait for their caps the same way.
  */
 export function runCaps(
   office: OfficeHandle,
@@ -98,11 +103,11 @@ export function runCaps(
 ): RunCaps {
   const grants = grantTotals(office, run.runId);
   return {
-    budgetTokens: run.budgetLimit + (grants.budget ?? 0),
-    maxTurns: run.maxTurns ?? legacy?.maxTurns ?? Number.POSITIVE_INFINITY,
-    maxMinutes: run.maxMinutes ?? legacy?.maxMinutes ?? Number.POSITIVE_INFINITY,
-    loopCap: run.loopCap + (grants.loop ?? 0),
-    reviewRoundCap:
-      run.reviewRoundCap === null ? null : run.reviewRoundCap + (grants.reviewCap ?? 0),
+    budgetTokens: run.budgetLimit + grants.budget.tokens,
+    maxTurns: (run.maxTurns ?? legacy?.maxTurns ?? Number.POSITIVE_INFINITY) + grants.budget.turns,
+    maxMinutes:
+      (run.maxMinutes ?? legacy?.maxMinutes ?? Number.POSITIVE_INFINITY) + grants.budget.minutes,
+    loopCap: run.loopCap + grants.loop,
+    reviewRoundCap: run.reviewRoundCap === null ? null : run.reviewRoundCap + grants.reviewRound,
   };
 }

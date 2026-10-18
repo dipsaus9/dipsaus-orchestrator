@@ -7,7 +7,7 @@ import { RunId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { runCaps } from "../../src/run/caps";
-import { recordGrant } from "../../src/run/grants";
+import { type GrantAmount, recordGrant } from "../../src/run/grants";
 import { findRun, insertRun, type NewRun } from "../../src/run/records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 
@@ -57,8 +57,22 @@ function storedRun(f: IngestFixture, runId: RunId) {
   return run;
 }
 
+/** Records one grant of the run, given by the maintainer at T0. */
+function grant(f: IngestFixture, runId: RunId, grantId: string, amount: GrantAmount): void {
+  f.office.immediate(() =>
+    recordGrant(f.office, runId, {
+      ...amount,
+      grantId,
+      note: null,
+      origin: "maintainer",
+      client: null,
+      at: T0,
+    }),
+  );
+}
+
 describe("runCaps", () => {
-  it("adds the budget, loop and review cap grants to the start snapshot", () =>
+  it("adds the budget, loop and review round grants to the start snapshot", () =>
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       try {
@@ -69,38 +83,62 @@ describe("runCaps", () => {
           maxTurns: 50,
           maxMinutes: 30,
         });
-        const grant = (
-          grantId: string,
-          kind: Parameters<typeof recordGrant>[2]["kind"],
-          amount: unknown,
-        ) =>
-          f.office.immediate(() =>
-            recordGrant(f.office, runId, {
-              grantId,
-              kind,
-              amount,
-              note: null,
-              origin: "maintainer",
-              client: null,
-              at: T0,
-            }),
-          );
-        grant("grt_1", "budget", 500);
-        grant("grt_2", "budget", 250);
-        grant("grt_3", "loop", 2);
-        grant("grt_4", "reviewCap", 1);
-        // Kinds the caps do not count: a review round, a CI attempt and a scope.
-        grant("grt_5", "reviewRound", 4);
-        grant("grt_6", "ciAttempt", 3);
-        grant("grt_7", "scope", ["src/"]);
+        grant(f, runId, "grt_1", {
+          kind: "budget",
+          amount: { tokens: 500, turns: 10, minutes: 6 },
+        });
+        grant(f, runId, "grt_2", { kind: "budget", amount: { tokens: 250, turns: 5, minutes: 3 } });
+        grant(f, runId, "grt_3", { kind: "loop", amount: 2 });
+        grant(f, runId, "grt_4", { kind: "reviewRound", amount: 1 });
+        // Stored, but counted toward no cap here: the reviewer's own turn and minute caps come
+        // with DIPO-146, and the CI attempt cap and the scope have no cap field in `RunCaps`.
+        grant(f, runId, "grt_5", { kind: "reviewCap", amount: { turns: 4, minutes: 4 } });
+        grant(f, runId, "grt_6", { kind: "ciAttempt", amount: 3 });
+        grant(f, runId, "grt_7", { kind: "scope", amount: ["src/"] });
 
         const caps = runCaps(f.office, storedRun(f, runId));
         expect(caps).toEqual({
           budgetTokens: 1750,
-          maxTurns: 50,
-          maxMinutes: 30,
+          maxTurns: 65,
+          maxMinutes: 39,
           loopCap: 5,
           reviewRoundCap: 3,
+        });
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("raises the token, turn and minute caps with one budget grant", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      try {
+        const runId = startRun(f, {
+          budget: 1000,
+          loopCap: 3,
+          reviewRoundCap: null,
+          maxTurns: 50,
+          maxMinutes: 30,
+        });
+        const before = runCaps(f.office, storedRun(f, runId));
+        grant(f, runId, "grt_1", {
+          kind: "budget",
+          amount: { tokens: 500, turns: 25, minutes: 15 },
+        });
+        const after = runCaps(f.office, storedRun(f, runId));
+        expect(before).toMatchObject({ budgetTokens: 1000, maxTurns: 50, maxMinutes: 30 });
+        expect(after).toEqual({
+          budgetTokens: 1500,
+          maxTurns: 75,
+          maxMinutes: 45,
+          loopCap: 3,
+          reviewRoundCap: null,
+        });
+        // The start snapshot itself never changes.
+        expect(storedRun(f, runId)).toMatchObject({
+          budgetLimit: 1000,
+          maxTurns: 50,
+          maxMinutes: 30,
         });
       } finally {
         f.t.state.close();
