@@ -4,7 +4,7 @@ title: Take a run's caps from its start and its grants
 status: Ready
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 09:51'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -16,9 +16,12 @@ references:
   - packages/engine/src/db/schema.ts
   - packages/engine/src/run/
   - packages/engine/src/hooks/nudges.ts
+  - packages/engine/src/ingest/
   - packages/engine/src/retention/
   - packages/daemon/src/runs.ts
   - packages/engine/test/run/
+  - packages/engine/test/hooks/
+  - packages/engine/test/ingest/
   - packages/engine/test/db/
 priority: high
 type: feature

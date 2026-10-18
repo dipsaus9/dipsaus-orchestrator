@@ -4,7 +4,7 @@ title: Keep read-only commands from starting the daemon
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 09:51'
 labels:
   - 'tier:S'
   - cutover
@@ -40,7 +40,7 @@ Outcome: dipo run --dry-run, dipo gate and the other read-only commands never st
 
 Context: seen 2026-10-17. A dry run without the temp DIPO_HOME found no daemon, started one on the maintainer's real state, and that daemon ran recovery and migrated the state database. Every office command connects through withOffice (packages/cli/src/office-commands.ts), which calls withDaemon (packages/cli/src/daemon-commands.ts), and connectDaemon in packages/cli/src/index.ts, which calls connectOrStart (packages/client/src/node/lifecycle/lifecycle.ts): when no daemon answers, it starts one unless daemon.autostart is false. The dry run's own header says "Nothing is claimed, created, stored or started" (packages/cli/src/run-command.ts), which the autostart breaks. The CLI already prints DaemonNotRunningError with START_HINT.
 
-0006 decision 5 and its answered open question 4 say any client command starts the daemon when it is not running. This story changes that for read-only commands, so it needs an 0006 amendment; the maintainer approved it on 2026-10-18 and it is in docs/decisions/0006-daemon-and-ipc.md (Amendments, 2026-10-18, DIPO-187). This story does not edit docs/decisions/. dipo tui keeps its autostart in this proposal, since it is the main client.
+0006 decision 5 and its answered open question 4 say any client command starts the daemon when it is not running. This story changes that for read-only commands, so it needs an 0006 amendment; the maintainer approved it on 2026-10-18 and it is in docs/decisions/0006-daemon-and-ipc.md (Amendments, 2026-10-18, DIPO-187). This story does not edit docs/decisions/. dipo tui and dipo run keep their autostart, since dipo tui it is the main client.
 
 ```dipo
 branch: "DIPO-187/read-only-commands-no-autostart"
@@ -51,7 +51,7 @@ unknowns:
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) with a fake lifecycle and no daemon, dipo gate and dipo run --dry-run print the not-running line with the start hint, exit non-zero and never call start"
+      check: "(unit) with a fake lifecycle and no daemon, dipo gate, dipo run --dry-run, dipo stats and dipo watch print the not-running line with the start hint, exit non-zero and never call start"
     - kind: "automated"
       check: "(unit) dipo run without --dry-run still calls start when no daemon answers and autostart is on"
     - kind: "manual"
@@ -63,7 +63,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 packages/client/src/node/lifecycle/lifecycle.ts exports a connect that never starts the daemon and throws DaemonNotRunningError when none answers; connectOrStart keeps its behaviour
-- [ ] #2 dipo gate and dipo run --dry-run, plus each other command the maintainer's answer names, connect without starting the daemon; with no daemon running they print the not-running line with START_HINT (packages/cli/src/daemon-commands.ts), exit non-zero, and a test shows the lifecycle start was never called
+- [ ] #2 dipo gate, dipo run --dry-run, dipo stats and dipo watch connect without starting the daemon; with no daemon running they print the not-running line with START_HINT (packages/cli/src/daemon-commands.ts), exit non-zero, and a test shows the lifecycle start was never called
 - [ ] #3 dipo run without --dry-run and the commands that change state still start the daemon unless daemon.autostart is false, and their existing autostart tests pass
 - [ ] #4 The HELP text in packages/cli/src/index.ts names the commands that never start the daemon, next to the line that says commands that need the daemon start it
 <!-- AC:END -->

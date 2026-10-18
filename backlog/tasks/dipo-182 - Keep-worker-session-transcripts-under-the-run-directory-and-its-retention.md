@@ -4,7 +4,7 @@ title: Keep worker session transcripts under the run directory and its retention
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 09:51'
 labels:
   - 'tier:S'
   - cutover
@@ -37,7 +37,8 @@ Candidates on the installed CLI (2.1.302): CLAUDE_CONFIG_DIR per run moves the p
 branch: "DIPO-182/transcripts-under-run-dir"
 unknowns:
   - q: "Does the maintainer want to reverse the 2026-10-10 answer to 0008 open question 4 (worker transcripts stay in ~/.claude/projects under Claude Code's 30-day retention)? If yes: which setting of the pinned Claude CLI puts a session's transcript under the run directory without moving its login, plugins or settings (CLAUDE_CONFIG_DIR per run, or another key), or does dipo pass --no-session-persistence and give up native resume for workers?"
-    status: "open"
+    status: "resolved"
+    answer: "No: the 2026-10-10 answer to 0008 open question 4 stays (maintainer, 2026-10-18); the story is dropped."
 test_plan:
   entries:
     - kind: "automated"

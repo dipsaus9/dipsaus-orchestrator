@@ -6,7 +6,7 @@ title: >-
 status: Ready
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 09:51'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -26,6 +26,8 @@ references:
   - packages/engine/test/db/
   - packages/contract/src/
   - packages/contract/schema/
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
 priority: high
 type: feature
 ordinal: 131000
