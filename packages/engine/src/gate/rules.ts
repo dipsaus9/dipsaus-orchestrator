@@ -328,12 +328,16 @@ export const r18: RuleCheck = (context) => {
       );
 };
 
-/** R19: no other active task has the same branch. */
+/**
+ * R19: no other active task has the same branch. The failures follow the task ids, not the order
+ * the tasks were read in, so the Backlog CLI's list and the mirror give the same lines.
+ */
 export const r19: RuleCheck = (context) => {
   const branch = context.fields?.branch;
   if (branch === undefined) return [];
   return context.input.activeTasks
     .filter((task) => task.id !== context.story.id && task.branch === branch)
+    .toSorted((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }))
     .flatMap((task) => fail(context, "R19", `branch "${branch}" is already used by ${task.id}`));
 };
 

@@ -24,11 +24,13 @@ import { CommandError } from "../../commands/errors";
 import type { FeatureModule } from "../../commands/registry";
 import type { OfficeConfig } from "../../config";
 import type { OfficeHandle } from "../../db/office";
-import type { OfficeGit } from "../../git/office";
+import type { GitSession, OfficeGit } from "../../git/office";
+import { indexPass } from "../../stories/index-stories";
 import { findStoryByKey } from "../../stories/keys";
 import { evaluateGate } from "../evaluate";
-import type { GateConfig, GateMode, GateResult } from "../types";
+import type { GateConfig, GateMode, GateResult, GateTask } from "../types";
 
+import { baseSha, cachedGateTasks } from "./cache";
 import { type GateDecisionRecord, storeGateDecision } from "./decisions";
 import { gateContentHash } from "./hash";
 import { readGateInput, StoryNotFoundError } from "./read";
@@ -145,7 +147,10 @@ export class GateStore {
       );
     }
     const base = at ?? (await git.ensureBaseWorktree());
-    const read = () => readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config));
+    const read = async (session?: GitSession) => {
+      const others = await this.#otherTasks(office, git, base.path, session);
+      return readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config), others);
+    };
     let input;
     try {
       // Inside the caller's queue item the `_base` worktree is already where the item put it.
@@ -158,6 +163,29 @@ export class GateStore {
       result: evaluateGate(input, mode),
       contentHash: gateContentHash(input.story),
     };
+  }
+
+  /**
+   * The active tasks as the mirror holds them for the commit `_base` is at (DIPO-180), or
+   * undefined when the caller must read them through the CLI. When the mirror was read at another
+   * commit, the index pass runs first (the caller's `session`, inside its queue item) so a decision
+   * never uses task data older than its base. Without a session no pass can run, and a stale
+   * mirror is not used.
+   */
+  async #otherTasks(
+    office: OfficeId,
+    git: OfficeGit,
+    basePath: string,
+    session: GitSession | undefined,
+  ): Promise<GateTask[] | undefined> {
+    const handle = this.#deps.offices.get(office);
+    const sha = baseSha(git, basePath);
+    if (handle === undefined || sha === null) return undefined;
+    const fresh = cachedGateTasks(handle, sha);
+    if (fresh !== null || session === undefined) return fresh ?? undefined;
+    const { clock, ids, cli } = this.#deps;
+    const pass = await indexPass({ office: handle, git, cli, clock, ids }, session, basePath);
+    return pass.sha === sha ? (cachedGateTasks(handle, sha) ?? undefined) : undefined;
   }
 
   /**

@@ -15,8 +15,9 @@ import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
 import { BacklogParseError, parseList, parseView, plainLines } from "../backlog/plain";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
-import { gateStoryFromView } from "../gate/input";
+import { gateStoryFromView, gateTaskFromView } from "../gate/input";
 import { gateContentHash } from "../gate/store/hash";
+import type { GateTask } from "../gate/types";
 import { openDependencies } from "../run/select";
 
 export type StoryKind = "task" | "draft";
@@ -59,6 +60,13 @@ export interface BacklogStory {
    */
   readonly gateHash?: string;
   /**
+   * What the Ready gate reads of this task when it is one of the other active tasks (DIPO-180):
+   * its dependencies and frozen branch, as read on `_base`. Set for tasks, never for drafts. A view
+   * that did not parse still counts, without dependencies or branch. A claimed story keeps the
+   * base read here although the rest of it is read on its branch.
+   */
+  readonly gateTask?: GateTask;
+  /**
    * Where the story was read (0007 section 6 step 3): the story branch while the story is
    * claimed; absent means the pass's own source, `base`.
    */
@@ -98,6 +106,7 @@ export function storyFromView(
       status: listed.status,
       labels: [],
       contentHash: hash,
+      ...(kind === "task" ? { gateTask: { id: listed.id, dependencies: [] } } : {}),
     };
   }
   const labels = readLabels(view.labels);
@@ -137,6 +146,7 @@ export function storyFromView(
         view.subtasks.map((task) => task.id),
       ),
     ),
+    ...(kind === "task" ? { gateTask: gateTaskFromView(view) } : {}),
   };
 }
 

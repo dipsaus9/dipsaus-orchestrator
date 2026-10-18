@@ -72,18 +72,33 @@ export function readsOnBranch(claim: ClaimRecord): boolean {
  */
 export async function indexStories(deps: IndexDeps): Promise<IndexResult> {
   const base = await deps.git.ensureBaseWorktree();
-  return deps.git.run(async (git) => {
-    // A fetch queued before this item may have moved `_base` since it was ensured.
-    const location = deps.git.worktreeLocation(base.path);
-    const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-    const fromBase = await readBacklog(deps.cli, base.path);
-    const { read, branchUnread } = await overlayClaimed(deps, git, base.path, fromBase);
-    const at = deps.clock.now();
-    return deps.office.immediate(() => {
-      const { stats, entries } = applyIndex(deps.office, deps.ids, read, { at, source: "base" });
-      const cursor = appendEntries(deps.office, entries, { at });
-      return { stats, sha, cursor, read, branchUnread };
+  return deps.git.run((git) => indexPass(deps, git, base.path));
+}
+
+/**
+ * The pass itself, for a caller that already holds the office's git queue item with `git` (the
+ * Ready gate bringing the mirror up to the commit it reads, DIPO-180). Besides each story's view it
+ * stores the dependencies and branch of every task with the commit, for the gate.
+ */
+export async function indexPass(
+  deps: IndexDeps,
+  git: GitSession,
+  basePath: string,
+): Promise<IndexResult> {
+  // A fetch queued before this item may have moved `_base` since it was ensured.
+  const location = deps.git.worktreeLocation(basePath);
+  const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+  const fromBase = await readBacklog(deps.cli, basePath);
+  const { read, branchUnread } = await overlayClaimed(deps, git, basePath, fromBase);
+  const at = deps.clock.now();
+  return deps.office.immediate(() => {
+    const { stats, entries } = applyIndex(deps.office, deps.ids, read, {
+      at,
+      source: "base",
+      sha,
     });
+    const cursor = appendEntries(deps.office, entries, { at });
+    return { stats, sha, cursor, read, branchUnread };
   });
 }
 
@@ -105,11 +120,16 @@ async function overlayClaimed(
     const listed = read[index];
     if (listed === undefined || isProvisionalId(id)) continue;
     try {
-      read[index] = await readOnBranch(deps.git, session, deps.cli, claim, basePath, {
+      const onBranch = await readOnBranch(deps.git, session, deps.cli, claim, basePath, {
         id,
         title: listed.title,
         status: listed.status,
       });
+      // The gate reads every task as it is on `_base`, not as the claimed story's branch has it.
+      read[index] = {
+        ...onBranch,
+        ...(listed.gateTask === undefined ? {} : { gateTask: listed.gateTask }),
+      };
     } catch (error) {
       branchUnread.push({
         key: claim.key,
