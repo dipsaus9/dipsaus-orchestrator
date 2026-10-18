@@ -722,9 +722,10 @@ describe("gateText (DIPO-97)", () => {
   });
 });
 
-// R27 (DIPO-188): a criterion that names a step only the maintainer or the engine can take.
+// R27 (DIPO-188): a criterion that names a step only the maintainer or the engine can take. The
+// text of DIPO-176 criterion 4 as it stood, word for word.
 const DIPO_176_CRITERION_4 =
-  "A sandboxed `bun run verify` is run and its result is recorded in the task notes";
+  "A sandboxed run of the full bun run verify with the worker's filesystem read fence passes on macOS, recorded in the task notes with the command, the dipo commit and the result";
 
 const stepHits = (text: string) =>
   evaluateGate(criterion(text), "ready").failures.filter((failure) => failure.rule === "R27");
