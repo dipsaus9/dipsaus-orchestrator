@@ -1,10 +1,10 @@
 ---
 id: DIPO-137
 title: Store the prompts dipo sends to workers
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 19:43'
-updated_date: '2026-10-18 13:07'
+updated_date: '2026-10-18 13:15'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -76,10 +76,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With privacy.storePrompts on, every worker session stores the prompt text dipo sent, keyed by run and agent: a first session and a handoff store the system file and the first message, a resume stores its first message; with it off, or with no configuration in force, no prompt text is stored
-- [ ] #2 The prompt text sits in a new office-scoped table whose migration is registered in packages/engine/src/db/schema.ts and tested in packages/engine/test/db/, with a TABLE_RETENTION line at tier R in packages/engine/src/retention/policy.ts
-- [ ] #3 The retention pass deletes prompt rows recorded more than retention.shortDays ago
-- [ ] #4 A contract read returns the stored prompt texts of a run and agent, or says none is stored; packages/contract/schema/ is regenerated
-- [ ] #5 The TUI live agent detail shows the stored prompt of the selected agent session on the key i, as an output pane next to [w]orker and [v]erify, says when none is stored, and does not bind p (0009 section 5 keeps it for pause)
-- [ ] #6 privacy.storePrompts defaults to true in OFFICE_DEFAULTS.privacy, `privacy.storePrompts: false` in .dipo/office.local.yaml turns it off, and the config tests assert the new default
+- [x] #1 With privacy.storePrompts on, every worker session stores the prompt text dipo sent, keyed by run and agent: a first session and a handoff store the system file and the first message, a resume stores its first message; with it off, or with no configuration in force, no prompt text is stored
+- [x] #2 The prompt text sits in a new office-scoped table whose migration is registered in packages/engine/src/db/schema.ts and tested in packages/engine/test/db/, with a TABLE_RETENTION line at tier R in packages/engine/src/retention/policy.ts
+- [x] #3 The retention pass deletes prompt rows recorded more than retention.shortDays ago
+- [x] #4 A contract read returns the stored prompt texts of a run and agent, or says none is stored; packages/contract/schema/ is regenerated
+- [x] #5 The TUI live agent detail shows the stored prompt of the selected agent session on the key i, as an output pane next to [w]orker and [v]erify, says when none is stored, and does not bind p (0009 section 5 keeps it for pause)
+- [x] #6 privacy.storePrompts defaults to true in OFFICE_DEFAULTS.privacy, `privacy.storePrompts: false` in .dipo/office.local.yaml turns it off, and the config tests assert the new default
 <!-- AC:END -->
