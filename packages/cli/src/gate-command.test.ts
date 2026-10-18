@@ -3,10 +3,16 @@
 
 import { describe, expect, it } from "bun:test";
 
+import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { type DaemonControl, type DaemonSession, REPLY_TIMEOUT_MS } from "./daemon-commands";
+import {
+  type DaemonControl,
+  type DaemonSession,
+  REPLY_TIMEOUT_MS,
+  START_HINT,
+} from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
 import { GATE_TIMEOUT_MS } from "./gate-command";
 import { main, type CliDeps } from "./index";
@@ -66,6 +72,26 @@ const IN_OFFICE = { repository: { ...REPO, office: OFFICE, backlog: true } };
 const result = (passed: boolean, failures: { rule: string; message: string }[] = []) => ({
   ok: true,
   result: { story: "DIPO-7", key: KEY, passed, failures },
+});
+
+describe("dipo gate without a daemon (DIPO-187)", () => {
+  it("prints the not-running line with the start hint, exits 1 and asks not to start the daemon", async () => {
+    const modes: string[] = [];
+    const ctx = fake(() => result(true), IN_OFFICE);
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        modes.push(mode);
+        throw new DaemonNotRunningError("/state", "nothing answers on /state/dipo.sock");
+      },
+    };
+    expect(await main(["gate", "DIPO-7"], deps)).toBe(1);
+    expect(modes).toEqual(["running"]);
+    expect(ctx.err).toEqual([
+      `dipo: no daemon is running (nothing answers on /state/dipo.sock). ${START_HINT}`,
+    ]);
+    expect(ctx.out).toEqual([]);
+  });
 });
 
 describe("dipo gate", () => {

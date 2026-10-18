@@ -67,5 +67,5 @@ export async function gateCommand(
     }
     return passed ? 0 : 1;
   };
-  return withOffice(deps, options.office, act, undefined, GATE_TIMEOUT_MS);
+  return withOffice(deps, options.office, act, undefined, GATE_TIMEOUT_MS, "running");
 }

@@ -64,6 +64,13 @@ describe("cli", () => {
     expect(HELP).not.toContain("self-check");
   });
 
+  it("names the read-only commands that never start the daemon (DIPO-187)", () => {
+    expect(HELP).toContain("Commands that need the daemon start it");
+    expect(HELP).toContain(
+      "Read-only commands never start it: dipo gate, dipo run\n--dry-run, dipo stats and dipo watch",
+    );
+  });
+
   it("rejects unknown arguments", async () => {
     const { deps, captured } = fakeDeps();
     expect(await main(["--version", "--yaml"], deps)).toBe(2);

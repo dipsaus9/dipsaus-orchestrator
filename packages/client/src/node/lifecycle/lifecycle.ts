@@ -598,6 +598,14 @@ export interface ConnectedDaemon {
 }
 
 /**
+ * Connects for a read-only client command (DIPO-187). It never starts the daemon: when none
+ * answers it throws `DaemonNotRunningError`, so a read cannot run recovery or migrations.
+ */
+export async function connectRunning(deps: LifecycleDeps): Promise<DaemonSession> {
+  return deps.connect();
+}
+
+/**
  * Connects for a client command that needs the daemon, and starts it first when none runs and
  * `daemon.autostart` is not false (0006 decision 5). The configuration is read before the start,
  * and its errors are thrown instead of starting a daemon that would exit 78.

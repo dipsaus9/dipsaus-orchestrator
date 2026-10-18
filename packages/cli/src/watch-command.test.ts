@@ -5,10 +5,11 @@
 import { describe, expect, it } from "bun:test";
 
 import { RECOVERY_POLL_MS, type SubscribeOptions } from "@dipsaus-orchestrator/client";
+import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import type { EngineError, Event, OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import type { DaemonControl, DaemonSession } from "./daemon-commands";
+import { type DaemonControl, type DaemonSession, START_HINT } from "./daemon-commands";
 import { fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
 import { clockTime, mentions } from "./watch-command";
@@ -152,6 +153,26 @@ async function until(check: () => boolean): Promise<void> {
   for (let i = 0; i < 50 && !check(); i++) await tick();
   if (!check()) throw new Error("timed out");
 }
+
+describe("dipo watch without a daemon (DIPO-187)", () => {
+  it("prints the not-running line with the start hint, exits 1 and asks not to start the daemon", async () => {
+    const modes: string[] = [];
+    const ctx = fake({ running: false });
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        modes.push(mode);
+        throw new DaemonNotRunningError("/state", "nothing answers on /state/dipo.sock");
+      },
+    };
+    expect(await main(["watch"], deps)).toBe(1);
+    expect(modes).toEqual(["running"]);
+    expect(ctx.err).toEqual([
+      `dipo: no daemon is running (nothing answers on /state/dipo.sock). ${START_HINT}`,
+    ]);
+    expect(ctx.out).toEqual([]);
+  });
+});
 
 describe("dipo watch", () => {
   it("prints the running story's state, then output, usage, signals, health, notices, parks and the run's end", async () => {
@@ -378,7 +399,7 @@ describe("dipo watch against a daemon held without its state database", () => {
     };
     let refusals = 2;
     const snapshots: string[] = [];
-    const inner = await ctx.deps.connectDaemon();
+    const inner = await ctx.deps.connectDaemon("running");
     const session: DaemonSession = {
       ...inner,
       read: (async (definition: { name: string }) => {

@@ -245,6 +245,7 @@ async function dryRun(
     },
     undefined,
     RUN_TIMEOUT_MS,
+    "running",
   );
 }
 

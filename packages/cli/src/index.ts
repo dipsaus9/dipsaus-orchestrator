@@ -5,6 +5,7 @@
 import {
   autostartReport,
   connectOrStart,
+  connectRunning,
   inspectDaemon,
   installDaemon,
   readSoftwareConfig,
@@ -162,7 +163,8 @@ Usage:
 Office commands use --office, else the office of the current directory.
 
 Commands that need the daemon start it unless daemon.autostart is false in
-<state>/config.yaml.
+<state>/config.yaml. Read-only commands never start it: dipo gate, dipo run
+--dry-run, dipo stats and dipo watch say when no daemon is running.
 
 Options:
   --version         print the version, commit, Bun version and platform
@@ -189,7 +191,14 @@ export function defaultDeps(): CliDeps {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
     runDaemon: (argv) => runDaemon(argv, { version }),
-    connectDaemon: async () => {
+    connectDaemon: async (mode) => {
+      // Read-only commands never start the daemon (DIPO-187).
+      if (mode === "running") {
+        const session = await connectRunning(lifecycle);
+        const hint = versionHint(version, session.hello?.engine);
+        if (hint !== null) process.stderr.write(`dipo: ${hint}\n`);
+        return session;
+      }
       const { session, started } = await connectOrStart(lifecycle);
       if (started !== null) {
         process.stderr.write(

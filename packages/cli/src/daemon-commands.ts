@@ -1,7 +1,8 @@
 // `dipo daemon` client subcommands (0006 decisions 2, 5, 14 and 15). `start`, `stop`, `restart`,
 // `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
 // send one contract command each, starting the daemon first unless `daemon.autostart` is false;
-// `logs` reads the log files directly and never talks to the daemon (DIPO-64).
+// `logs` reads the log files directly and never talks to the daemon (DIPO-64). Read-only commands
+// connect with `ConnectMode` `running` and never start it (DIPO-187).
 
 import type { DipoClient } from "@dipsaus-orchestrator/client";
 import { ClientError, type RecoveringSession, waitForRecovery } from "@dipsaus-orchestrator/client";
@@ -40,10 +41,16 @@ import { type DaemonLogsDeps, logsCommand } from "./logs-command";
 export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
 
 /**
- * Connects to the daemon, starting it first when autostart allows (DIPO-70). Throws
- * `DaemonNotRunningError`, `AutostartOffError`, `SoftwareConfigError` or `DaemonStartError`.
+ * `start` connects and starts the daemon when autostart allows (DIPO-70); `running` connects to a
+ * daemon that is already up and never starts one (read-only commands, DIPO-187).
  */
-export type ConnectDaemon = () => Promise<DaemonSession>;
+export type ConnectMode = "start" | "running";
+
+/**
+ * Connects to the daemon, starting it first when `mode` is `start` and autostart allows (DIPO-70).
+ * Throws `DaemonNotRunningError`, `AutostartOffError`, `SoftwareConfigError` or `DaemonStartError`.
+ */
+export type ConnectDaemon = (mode: ConnectMode) => Promise<DaemonSession>;
 
 /** The lifecycle operations, injectable so the commands are tested without processes. */
 export interface DaemonControl {
@@ -470,10 +477,11 @@ export async function withDaemon(
   deps: DaemonCommandDeps,
   run: (session: DaemonSession) => Promise<number>,
   timeoutMs: number = REPLY_TIMEOUT_MS,
+  mode: ConnectMode = "start",
 ): Promise<number> {
   let session: RecoveringSession;
   try {
-    session = waitForRecovery(await deps.connectDaemon(), {
+    session = waitForRecovery(await deps.connectDaemon(mode), {
       clock: deps.clock,
       onWaiting: () => deps.writeError(`dipo: ${RECOVERY_WAIT}`),
       onSafe: (reason) => deps.writeError(`dipo: ${safeModeLine(reason)}`),
