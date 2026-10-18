@@ -1,10 +1,10 @@
 ---
 id: DIPO-143
 title: Take a run's caps from its start and its grants
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-18 09:32'
 labels:
   - 'tier:S'
   - 'slice:m1a'

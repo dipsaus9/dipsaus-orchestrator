@@ -4,7 +4,7 @@ title: Keep read-only commands from starting the daemon
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:36'
+updated_date: '2026-10-18 09:32'
 labels:
   - 'tier:S'
   - cutover
@@ -40,13 +40,14 @@ Outcome: dipo run --dry-run, dipo gate and the other read-only commands never st
 
 Context: seen 2026-10-17. A dry run without the temp DIPO_HOME found no daemon, started one on the maintainer's real state, and that daemon ran recovery and migrated the state database. Every office command connects through withOffice (packages/cli/src/office-commands.ts), which calls withDaemon (packages/cli/src/daemon-commands.ts), and connectDaemon in packages/cli/src/index.ts, which calls connectOrStart (packages/client/src/node/lifecycle/lifecycle.ts): when no daemon answers, it starts one unless daemon.autostart is false. The dry run's own header says "Nothing is claimed, created, stored or started" (packages/cli/src/run-command.ts), which the autostart breaks. The CLI already prints DaemonNotRunningError with START_HINT.
 
-0006 decision 5 and its answered open question 4 say any client command starts the daemon when it is not running. This story changes that for read-only commands, so it needs an 0006 amendment the maintainer approves; the maintainer writes it, and this story does not edit docs/decisions/. dipo tui keeps its autostart in this proposal, since it is the main client.
+0006 decision 5 and its answered open question 4 say any client command starts the daemon when it is not running. This story changes that for read-only commands, so it needs an 0006 amendment; the maintainer approved it on 2026-10-18 and it is in docs/decisions/0006-daemon-and-ipc.md (Amendments, 2026-10-18, DIPO-187). This story does not edit docs/decisions/. dipo tui keeps its autostart in this proposal, since it is the main client.
 
 ```dipo
 branch: "DIPO-187/read-only-commands-no-autostart"
 unknowns:
   - q: "0006 decision 5 says any client command starts the daemon. Do you approve an amendment that read-only commands never start it, and which commands are read-only: dipo gate and dipo run --dry-run only, or also dipo stats and dipo watch (dipo tui keeps autostart)?"
-    status: "open"
+    status: "resolved"
+    answer: "Approved by the maintainer on 2026-10-18: dipo gate, dipo run --dry-run, dipo stats and dipo watch never start the daemon; dipo tui and dipo run keep the autostart (0006 amendment of 2026-10-18, DIPO-187)."
 test_plan:
   entries:
     - kind: "automated"

@@ -4,7 +4,7 @@ title: Store the prompts dipo sends to workers
 status: Refined
 assignee: []
 created_date: '2026-10-16 19:43'
-updated_date: '2026-10-16 19:48'
+updated_date: '2026-10-18 09:32'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -54,7 +54,8 @@ Slice: M1b. The M1a review-and-park loop needs no stored prompt text, and the TU
 branch: "DIPO-137/store-worker-prompts"
 unknowns:
   - q: "Which key opens the stored prompt in the live agent detail, given the keys 0009 section 6 and the detail already use?"
-    status: "open"
+    status: "resolved"
+    answer: "p (maintainer, 2026-10-18); Esc goes back, as everywhere."
 test_plan:
   entries:
     - kind: "automated"
