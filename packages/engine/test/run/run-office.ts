@@ -75,6 +75,7 @@ import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/wor
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { Caps, HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
+import type { SlotEntry } from "../../src/worktree/slots";
 import type { SetupOutcome } from "../../src/worktree/setup";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
@@ -168,6 +169,8 @@ export interface RunOfficeOptions {
    * for), with the tier caps a held run is resumed with.
    */
   readonly planLimits?: boolean;
+  /** The live port slot entries `work.run` and `work.preview` check (DIPO-197). */
+  readonly liveSlots?: () => readonly SlotEntry[];
   /**
    * Lets worker outcomes resume a parked run (DIPO-75): the real unpark writer on the office git
    * and the tier caps.
@@ -515,6 +518,7 @@ export async function withRunOffice(
         gates,
         lane: (office) => lane.forOffice(office),
         launcher,
+        ...(options.liveSlots === undefined ? {} : { liveSlots: options.liveSlots }),
       });
       const s = await officeSetup(repo.root, {
         features: [

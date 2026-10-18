@@ -62,7 +62,8 @@ export const SOFTWARE_ERROR_CODES = [
 // when the office has no valid configuration, so the command or read cannot run, and
 // `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the office's
 // base branch. Since minor 1 (DIPO-48): `run.refused` when an office check refuses `work.run`;
-// `details.check` names it (`adapter`, `statuses` or `verify`; `plan-limit` since DIPO-61).
+// `details.check` names it (`adapter`, `statuses` or `verify`; `plan-limit` since DIPO-61; `slots` since DIPO-197: every port
+// slot is held by another live worktree, the message lists each holder).
 // Since minor 1 (DIPO-59): `question.closed` when `work.answer` names a question that is not waiting.
 // Since minor 1 (DIPO-140, 0019 section 15), all not retryable: `gate.notWaitingOnMaintainer` when
 // `gate.approve` or `gate.reject` names a gate that waits for no maintainer, `gate.handMergeOnly`
