@@ -63,6 +63,23 @@ describe("the port slot table", () => {
     });
   });
 
+  it("reads the live entries without writing the table", async () => {
+    await withTempDir((dir) => {
+      const gone = new Set<string>();
+      table(dir, gone).take(owner("/w/a"), 20);
+      table(dir, gone).take(owner("/w/b"), 20);
+      gone.add("/w/a");
+      const path = join(dir, SLOTS_FILE);
+      const before = readFileSync(path, "utf8");
+      expect(
+        table(dir, gone)
+          .live()
+          .map((e) => e.worktree),
+      ).toEqual(["/w/b"]);
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
+  });
+
   it("refuses an unreadable table and leaves it as it is", async () => {
     await withTempDir((dir) => {
       const path = join(dir, SLOTS_FILE);

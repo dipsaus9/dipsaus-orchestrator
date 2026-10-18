@@ -45,7 +45,7 @@ import {
 import { type FileStepResult, placeFiles } from "./files";
 import type { ClaimRecord } from "./records";
 import { buildRunEnv } from "./run-env";
-import type { SlotTable } from "./slots";
+import { slotsTakenMessage, type SlotTable } from "./slots";
 
 /** `engine.notice` codes of setup. */
 export const SETUP_NOTICES = {
@@ -141,9 +141,7 @@ export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Pro
       config.worktree.maxSlots,
     );
     if (slot === null) {
-      throw new SetupFailure(
-        `every port slot from 1 to ${config.worktree.maxSlots} is taken by another worktree`,
-      );
+      throw new SetupFailure(slotsTakenMessage(deps.slots.live(), config.worktree.maxSlots));
     }
     log.push(`slot: ${slot} (port offset ${slot * config.worktree.ports.stride})`);
     const env = buildRunEnv({

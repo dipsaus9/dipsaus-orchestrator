@@ -372,7 +372,7 @@ describe("setting up a worktree", () => {
       rmSync(join(claim.worktree, "generated.txt"));
       h.slots.take({ office: "other", story: "X-1", worktree: repo.dir, takenAt: 0 }, 1);
       expect(await failed({ worktree: { ...noFiles, maxSlots: 1 } })).toContain(
-        "every port slot from 1 to 1 is taken",
+        `every port slot from 1 to 1 is taken by another worktree: slot 1: office other, story X-1, worktree ${repo.dir}`,
       );
       // setupWorktree leaves the worktree; the claim's rollback removes it.
       expect(existsSync(claim.worktree)).toBe(true);

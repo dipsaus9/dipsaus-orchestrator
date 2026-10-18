@@ -63,6 +63,14 @@ export class SlotTable {
     return this.#read().toSorted((a, b) => a.slot - b.slot);
   }
 
+  /**
+   * The entries whose worktree directory exists, by slot. Reads only: an entry whose directory is
+   * gone is left in the file until the next write drops it.
+   */
+  live(): SlotEntry[] {
+    return this.entries().filter((entry) => this.#exists(entry.worktree));
+  }
+
   /** The slot held by `worktree`, or null. */
   slotOf(worktree: string): number | null {
     return this.#read().find((entry) => entry.worktree === worktree)?.slot ?? null;
@@ -130,6 +138,24 @@ export class SlotTable {
     writeFileSync(temp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
     renameSync(temp, this.path);
   }
+}
+
+/** Whether every slot from 1 to `maxSlots` is held by one of `live`. */
+export function allSlotsHeld(live: readonly SlotEntry[], maxSlots: number): boolean {
+  const used = new Set(live.map((entry) => entry.slot));
+  for (let slot = MAIN_CHECKOUT_SLOT + 1; slot <= maxSlots; slot += 1) {
+    if (!used.has(slot)) return false;
+  }
+  return true;
+}
+
+/** The message for a full table: each held slot with its office, story and worktree. */
+export function slotsTakenMessage(live: readonly SlotEntry[], maxSlots: number): string {
+  const held = live.map(
+    (entry) =>
+      `slot ${entry.slot}: office ${entry.office}, story ${entry.story}, worktree ${entry.worktree}`,
+  );
+  return `every port slot from 1 to ${maxSlots} is taken by another worktree: ${held.join("; ")}`;
 }
 
 function isSlotFile(value: unknown): value is SlotFile {
