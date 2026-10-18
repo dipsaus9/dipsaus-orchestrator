@@ -1,10 +1,10 @@
 ---
 id: DIPO-170
 title: Keep the Ready gate's vague-phrase rule out of paths and code spans
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-18 11:57'
+updated_date: '2026-10-18 12:00'
 labels:
   - 'tier:S'
   - cutover
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 R10 ignores a banned phrase whose match lies inside a code span or inside a path token, and still fails a criterion where the same phrase also appears outside them, with the message `criterion #<n> contains vague phrase "<phrase>"`
-- [ ] #2 wordMatch gives the same results as today for text without a slash or a backtick: the existing word-match tests in packages/engine/test/gate/ pass unchanged
-- [ ] #3 Unit tests in packages/engine/test/gate/ cover a phrase inside a path token, inside a code span, next to a path but outside it, and an unclosed backtick, with the expected results written out in the test
-- [ ] #4 The behaviour matches the 0012 note of 2026-10-18 (DIPO-170): a banned phrase only inside a path token or a code span passes R10, the same phrase in prose fails it
+- [x] #1 R10 ignores a banned phrase whose match lies inside a code span or inside a path token, and still fails a criterion where the same phrase also appears outside them, with the message `criterion #<n> contains vague phrase "<phrase>"`
+- [x] #2 wordMatch gives the same results as today for text without a slash or a backtick: the existing word-match tests in packages/engine/test/gate/ pass unchanged
+- [x] #3 Unit tests in packages/engine/test/gate/ cover a phrase inside a path token, inside a code span, next to a path but outside it, and an unclosed backtick, with the expected results written out in the test
+- [x] #4 The behaviour matches the 0012 note of 2026-10-18 (DIPO-170): a banned phrase only inside a path token or a code span passes R10, the same phrase in prose fails it
 <!-- AC:END -->
