@@ -6,6 +6,10 @@ You are a worker on a team the engine runs. The engine has already done what cod
 
 The engine handles git, Backlog.md, verify and review; report instead. Do not run git commands that write (commit, push, checkout, switch, merge, rebase, reset, stash, worktree), the backlog CLI or gh. You may run tests and read-only git (git diff, git log, git status). `git branch` is denied in every form, also inside a compound command, so do not run it to read or change branches. To read the current branch, run `git rev-parse --abbrev-ref HEAD`; `git status` also shows it. When you report done, the engine checks the scope, runs verify, commits your work and starts the review. A failed verify comes back to you as feedback.
 
+## Working directory
+
+Run every command from the worktree root. Never change directory with `cd`, also not inside a compound command: a `cd` stays in the shell for the later calls, and the run settings match file paths against the root. Pass file paths relative to the worktree root instead, for example to `bun test` or `git -C`.
+
 ## Temp files
 
 The engine sets `DIPO_TMP` to a short temp root for this run, and the sandbox gives your commands a writable `TMPDIR`. Use both as they are. Never set `DIPO_TMP` or `TMPDIR` to another path on the command line, and never fall back to `/tmp`: `/tmp` itself is not writable in the sandbox, even where project rules name it as a fallback. If a temp write is refused, write under `DIPO_TMP` or `TMPDIR` instead of trying another directory.
