@@ -1,10 +1,10 @@
 ---
 id: DIPO-188
 title: Keep criteria a worker cannot meet by itself out of Ready stories
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 12:35'
+updated_date: '2026-10-18 12:43'
 labels:
   - 'tier:S'
   - cutover
@@ -61,8 +61,16 @@ park:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new Ready gate rule R27, evaluated in both modes after R26, fails a criterion that contains a phrase from story.maintainerStepPhrases (matched as R10 matches), one failure per criterion and phrase, with the message `criterion #<n> names a step the worker cannot take ("<phrase>"); move it to a manual test plan entry`
-- [ ] #2 story.maintainerStepPhrases is office configuration in the next free office config version with its in-memory migration, validated in packages/engine/src/config/schema.ts; its default holds at least `task notes`, `implementation notes`, `by the maintainer` and `backlog task edit`; packages/engine/schema/office.schema.json is regenerated and the tests that pin the config version are updated
-- [ ] #3 A test in packages/engine/test/gate/ runs the gate on the text of DIPO-176 criterion 4 and gets the failure, and on a criterion without a listed phrase gets none
-- [ ] #4 L1 (packages/engine/src/prompts/contract/implement.md) says the report evidence is the record dipo keeps, so a criterion that asks for a command and its result to be recorded is met when the evidence holds them, and that manual test plan entries are the maintainer's steps and never a reason to report blocked; the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated
+- [x] #1 A new Ready gate rule R27, evaluated in both modes after R26, fails a criterion that contains a phrase from story.maintainerStepPhrases (matched as R10 matches), one failure per criterion and phrase, with the message `criterion #<n> names a step the worker cannot take ("<phrase>"); move it to a manual test plan entry`
+- [x] #2 story.maintainerStepPhrases is office configuration in the next free office config version with its in-memory migration, validated in packages/engine/src/config/schema.ts; its default holds at least `task notes`, `implementation notes`, `by the maintainer` and `backlog task edit`; packages/engine/schema/office.schema.json is regenerated and the tests that pin the config version are updated
+- [x] #3 A test in packages/engine/test/gate/ runs the gate on the text of DIPO-176 criterion 4 and gets the failure, and on a criterion without a listed phrase gets none
+- [x] #4 L1 (packages/engine/src/prompts/contract/implement.md) says the report evidence is the record dipo keeps, so a criterion that asks for a command and its result to be recorded is met when the evidence holds them, and that manual test plan entries are the maintainer's steps and never a reason to report blocked; the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57FV2GAP0660HZ1S185XRDB (Haiku low, 65 turns over two results, about $0.12, 5 min) reported done, but dipo parked it budget-exceeded (turn cap reached: 63 of 60 turns) and the work stayed uncommitted in its worktree. The diff was copied onto DIPO-188/flag-maintainer-step-criteria-finish (origin/main merged in). R27 after R26 in both modes, story.maintainerStepPhrases in office config version 6 (identity migration from 5), L1 says the report evidence is the record and manual entries are never a reason to report blocked.
+
+Review blocked once: the test used a paraphrase of DIPO-176 criterion 4; it now uses the exact text. Verify outside the sandbox: 3353 pass, 2 skip, 0 fail; bun scripts/check-ready-gate.ts passes the Ready stories. The reviewer ran the default phrases over the backlog: when promoted, DIPO-165 criterion 4 (backlog task edit, engine behaviour, likely a false positive: put it in a code span) and DIPO-169 criterion 1 (by the maintainer, a real maintainer step) will fail R27. A step written inside a code span passes R27, as it matches as R10 does.
+<!-- SECTION:NOTES:END -->
