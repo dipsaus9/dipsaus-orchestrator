@@ -1,10 +1,10 @@
 ---
 id: DIPO-172
 title: Accept machine-specific toolchain read paths in office.local.yaml
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:23'
+updated_date: '2026-10-18 10:13'
 labels:
   - 'tier:M'
   - cutover
@@ -17,6 +17,7 @@ references:
   - packages/engine/scripts/write-schema.ts
   - packages/engine/src/workers/claude-cli/
   - packages/engine/test/workers/
+  - packages/engine/test/office/
   - .dipo/office.yaml
   - docs/decisions/0017-testing-strategy-and-configuration.md
 priority: medium
@@ -52,11 +53,23 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 .dipo/office.local.yaml accepts sandbox.toolchainReadPaths in the next free office config version with its in-memory migration; its entries are added to the committed list (or the default), each path once; any other sandbox key in the local file stays a validation error that names the key
-- [ ] #2 The worker's sandbox read list and PATH planning in packages/engine/src/workers/claude-cli/ use the merged list, and localOverrideKeys names sandbox.toolchainReadPaths when the local file sets it
-- [ ] #3 ~/.nvm/versions/node is removed from the committed .dipo/office.yaml, and the file's comment shows the office.local.yaml lines that add it on a machine with node under nvm
-- [ ] #4 The PR proposes a dated note in docs/decisions/0017-testing-strategy-and-configuration.md (Amendments, section 5 Precedence): sandbox.toolchainReadPaths is accepted in office.local.yaml and adds to the committed list (maintainer decision 2026-10-17, option A), for the maintainer's approval
-- [ ] #5 A launch check refuses a run when npm's global config file of a node install under a toolchain read path, or a .npmrc at the root of a read path, holds an auth key (_authToken, _auth or _password); the refusal names the file and says to keep tokens in ~/.npmrc, and no token value is logged or stored
-- [ ] #6 packages/engine/schema/office.schema.json is rewritten by bun packages/engine/scripts/write-schema.ts, and the config tests that pin the version and the local keys are updated
-- [ ] #7 The npm-token refusal does not hold the adapter for other offices: a run in an office whose readable npm config files hold no auth key still starts
+- [x] #1 .dipo/office.local.yaml accepts sandbox.toolchainReadPaths in the next free office config version with its in-memory migration; its entries are added to the committed list (or the default), each path once; any other sandbox key in the local file stays a validation error that names the key
+- [x] #2 The worker's sandbox read list and PATH planning in packages/engine/src/workers/claude-cli/ use the merged list, and localOverrideKeys names sandbox.toolchainReadPaths when the local file sets it
+- [x] #3 ~/.nvm/versions/node is removed from the committed .dipo/office.yaml, and the file's comment shows the office.local.yaml lines that add it on a machine with node under nvm
+- [x] #4 The PR proposes a dated note in docs/decisions/0017-testing-strategy-and-configuration.md (Amendments, section 5 Precedence): sandbox.toolchainReadPaths is accepted in office.local.yaml and adds to the committed list (maintainer decision 2026-10-17, option A), for the maintainer's approval
+- [x] #5 A launch check refuses a run when npm's global config file of a node install under a toolchain read path, or a .npmrc at the root of a read path, holds an auth key (_authToken, _auth or _password); the refusal names the file and says to keep tokens in ~/.npmrc, and no token value is logged or stored
+- [x] #6 packages/engine/schema/office.schema.json is rewritten by bun packages/engine/scripts/write-schema.ts, and the config tests that pin the version and the local keys are updated
+- [x] #7 The npm-token refusal does not hold the adapter for other offices: a run in an office whose readable npm config files hold no auth key still starts
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: by hand (the story changes .dipo/office.yaml, which a dipo worker cannot write). Office config version 4, identity migration from 3. office.local.yaml accepts sandbox.toolchainReadPaths; its entries are added to the committed list or the default, each path once; any other local sandbox key fails naming the key, and a version 1 to 3 local file with sandbox says to set version: 4. The merge sits in the config load (localLayer), so plan.ts allowRead and the Safe-Chain PATH planning get the merged list unchanged. New launch check packages/engine/src/workers/claude-cli/npm-token-check.ts: reads key names only (_authToken, _auth, _password, also scoped) in a .npmrc at a read path's root and the etc/npmrc of node installs found under it (the path, its children, versions/node/<v>, .nvm/versions/node/<v>, the prefix of a bin on the worker's PATH); the refusal names file and key and says to keep tokens in ~/.npmrc. It is a PlanError thrown before gateLaunch, so the adapter is not held for other offices; on a resume the run parks as worker-failed with the refusal in its detail.
+
+Scope: packages/engine/test/office/load.test.ts pins the effective config version (3 to 4), so packages/engine/test/office/ was added to the References. The 0017 note (maintainer-approved, 2026-10-18) names the npm config files the check reads; deeper version-manager layouts (asdf, fnm, Volta) are not searched.
+
+Verify outside the sandbox: 3295 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 bun test packages/engine/test/config packages/engine/test/workers: 477 pass. Review passed (advisories left: env-reference values such as ${NPM_TOKEN} also count as a key; dedupe is by exact string).
+
+Maintainer step at merge: .dipo/office.local.yaml in this repository goes to version: 4 with sandbox.toolchainReadPaths: ["~/.nvm/versions/node"], together with the rebuilt dipo binary.
+<!-- SECTION:NOTES:END -->

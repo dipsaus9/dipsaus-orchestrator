@@ -1,5 +1,5 @@
 // `bun packages/engine/scripts/write-schema.ts`: writes packages/engine/schema/office.schema.json
-// from the version 1 zod schema (0017 section 5). The committed file is checked by
+// from the newest version's zod schema (0017 section 5). The committed file is checked by
 // test/config/schema-file.test.ts.
 
 import { mkdirSync, writeFileSync } from "node:fs";

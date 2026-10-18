@@ -7,12 +7,15 @@ import {
   OfficeConfigV1,
   OfficeConfigV2,
   OfficeConfigV3,
+  OfficeConfigV4,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
+  OfficeFileV4,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
+  OfficeLocalFileV4,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -155,7 +158,6 @@ function checks(names: unknown): boolean {
 
 describe("version 3 key paths", () => {
   it("are the version 2 paths plus mergeSlot.requiredChecks", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(3);
     expect(schemaKeyPaths(OfficeConfigV3)).toEqual(VERSION_3_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV3)).toEqual(
       VERSION_3_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -181,29 +183,78 @@ describe("version 3 key paths", () => {
   });
 });
 
+// Version 4 (DIPO-172): the office keys of version 3; office.local.yaml adds
+// sandbox.toolchainReadPaths and no other sandbox key (0017 amendment of 2026-10-18).
+const VERSION_4_KEY_PATHS = VERSION_3_KEY_PATHS;
+const localAllowedV4 = (path: string) =>
+  localAllowed(path) || path === "sandbox.toolchainReadPaths";
+
+/** Whether `.dipo/office.local.yaml` of `version` (3 or 4) accepts `sandbox` as given. */
+function localSandbox(version: 3 | 4, sandbox: unknown): boolean {
+  const schema = version === 4 ? OfficeLocalFileV4 : OfficeLocalFileV3;
+  return schema.safeParse({ version, sandbox }).success;
+}
+
+describe("version 4 key paths", () => {
+  it("are the version 3 paths; office.local.yaml also takes sandbox.toolchainReadPaths", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(4);
+    expect(schemaKeyPaths(OfficeConfigV4)).toEqual(VERSION_4_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV4)).toEqual(
+      VERSION_4_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV4)).toEqual(
+      VERSION_4_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+  });
+
+  it("take only toolchainReadPaths under sandbox in office.local.yaml, as ~/ or absolute paths", () => {
+    expect(localSandbox(4, { toolchainReadPaths: ["~/.nvm/versions/node", "/opt/node"] })).toBe(
+      true,
+    );
+    expect(localSandbox(4, {})).toBe(true);
+    expect(localSandbox(4, { toolchainReadPaths: ["relative/node"] })).toBe(false);
+    for (const key of ["allowRead", "installCachePaths", "registryHosts", "allowLocalBinding"]) {
+      expect(localSandbox(4, { [key]: [] })).toBe(false);
+    }
+  });
+
+  it("keep version 3 office.local.yaml without sandbox", () => {
+    expect(localSandbox(3, { toolchainReadPaths: ["~/.nvm/versions/node"] })).toBe(false);
+    expect(OfficeFileV3.safeParse({ version: 4 }).success).toBe(false);
+    expect(
+      OfficeFileV4.safeParse({ version: 4, mergeSlot: { requiredChecks: ["a"] } }).success,
+    ).toBe(true);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 3 as the identity", () => {
+  it("migrates version 1 to 4 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 3 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 4 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 3 as the identity", () => {
+  it("migrates version 2 to 4 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 3 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 4 });
   });
 
-  it("leaves a version 3 document as it is", () => {
+  it("migrates version 3 to 4 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual(v3);
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 4 });
   });
 
-  it("turns the version 1 defaults into the version 3 defaults but worker.plugins and mergeSlot", () => {
+  it("leaves a version 4 document as it is", () => {
+    const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
+    expect(migrateOfficeDocument(4, v4)).toEqual(v4);
+  });
+
+  it("turns the version 1 defaults into the version 4 defaults but worker.plugins and mergeSlot", () => {
     const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
     const { mergeSlot: _mergeSlot, ...rest } = OFFICE_DEFAULTS;
     const v1 = OfficeConfigV1.parse({ ...rest, version: 1, worker });
     expect(
-      OfficeConfigV3.parse({
+      OfficeConfigV4.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
@@ -213,8 +264,9 @@ describe("migrateOfficeDocument", () => {
 });
 
 describe("defaults", () => {
-  it("are a complete version 3 configuration", () => {
-    expect(OfficeConfigV3.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 4 configuration", () => {
+    expect(OfficeConfigV4.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+    expect(OfficeConfigV3.parse({ ...OFFICE_DEFAULTS, version: 3 }).version).toBe(3);
   });
 
   it("let no plugin into a worker session", () => {
