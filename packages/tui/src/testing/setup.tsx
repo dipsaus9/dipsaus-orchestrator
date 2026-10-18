@@ -11,6 +11,7 @@ import type {
 } from "@dipsaus-orchestrator/contract";
 
 import { App, type RunOutcome, type StopOutcome, type StoryOutcome, type TuiActions } from "../app";
+import type { PromptOutcome } from "../detail";
 import type { Display } from "../options";
 import type { RangeOutcome } from "../output";
 import { FakeSession } from "./fake-session";
@@ -101,6 +102,11 @@ export async function mount(options: MountOptions = {}) {
           ...(request.to === undefined ? {} : { to: request.to }),
         } as never,
       )) as RangeOutcome,
+    readPrompt: async (request) =>
+      (await session.read(
+        { name: "work.prompt" } as never,
+        { office: request.office, run: request.run, agent: request.agent } as never,
+      )) as PromptOutcome,
     readStory: async (request) =>
       (await session.read(
         { name: "story.detail" } as never,

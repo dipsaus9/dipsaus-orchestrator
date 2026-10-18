@@ -666,9 +666,9 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   },
   // M0 review (DIPO-15).
   polling: { prStateSeconds: 60, fetchSeconds: 300 },
-  // 0007 sections 7 and 8; commands are stored by default (DIPO-135, maintainer decision of
-  // 2026-10-16). Prompts wait for DIPO-137, and raw events stay off.
-  privacy: { storePrompts: false, storeCommandBodies: true, keepRawEvents: false },
+  // 0007 sections 7 and 8; commands and prompts are stored by default (DIPO-135 and DIPO-137,
+  // maintainer decision of 2026-10-16), and raw events stay off.
+  privacy: { storePrompts: true, storeCommandBodies: true, keepRawEvents: false },
   retention: { shortDays: 7, stateDays: 365 },
 };
 

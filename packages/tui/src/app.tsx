@@ -35,7 +35,7 @@ import { Box, type Key, Text, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import { useBatchedState } from "./batch";
-import { Detail, type DetailTarget, type ReadOutput, STOP_PROMPT } from "./detail";
+import { Detail, type DetailTarget, type ReadOutput, type ReadPrompt, STOP_PROMPT } from "./detail";
 import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
@@ -106,6 +106,8 @@ export type StopOutcome =
 export interface TuiActions {
   /** `work.outputRange` for the live agent detail (0005 section 7). */
   readOutput: ReadOutput;
+  /** `work.prompt` for the prompt pane of the live agent detail (DIPO-137). */
+  readPrompt: ReadPrompt;
   /** `story.detail`: the runs of a story that is not running, to open its latest (DIPO-81). */
   readStory(request: {
     readonly office: OfficeId;
@@ -714,6 +716,7 @@ export function App(props: AppProps) {
           display={display}
           target={detail.target}
           readOutput={actions.readOutput}
+          readPrompt={actions.readPrompt}
           columns={columns}
           height={height}
           keysActive={mode.kind === "home"}
@@ -818,7 +821,7 @@ function footerKeys(
       }
       if (view === "detail" || view === "ended") {
         hints.push(
-          ["[w]orker [v]erify", 75],
+          ["[w]orker [v]erify prompt [i]", 75],
           ["[k/j PgUp/PgDn] scroll", 35],
           ["[End] follow tail", 45],
         );

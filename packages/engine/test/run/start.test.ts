@@ -33,7 +33,7 @@ import type { GateResult } from "../../src/gate/types";
 import { contextPathsOf, nudgeCount } from "../../src/hooks/nudges";
 import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
-import { promptPartsOf } from "../../src/prompts/parts";
+import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
@@ -507,6 +507,41 @@ describe("work.run starts the worker of a claimed run", () => {
       ["work.output", null],
       ["work.phase", "build"],
     ]);
+  });
+
+  it("stores the system file and the task message of the first session, keyed by run and agent (DIPO-137)", async () => {
+    story("TASK-1", "Ready");
+    const result = resultOf<RunResult>(await run());
+    const runId = result.started[0]?.run as RunId;
+    const [host] = world.hosts;
+    const agent = world.office.get<{ agent_id: string }>(
+      "select agent_id from agents where office_id = $office_id and run_id = $run",
+      { run: runId },
+    );
+    const systemFile = readFileSync(
+      join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md"),
+      "utf8",
+    );
+    const sent = JSON.parse(host?.plan.stdin[0] ?? "").message.content as string;
+    expect(promptTextsOf(world.office, runId, agent?.agent_id ?? "")).toEqual([
+      { part: "system", text: systemFile },
+      { part: "message", text: sent },
+    ]);
+  });
+
+  it("stores no prompt text with storePrompts off (DIPO-137)", async () => {
+    world.config = {
+      ...OFFICE_DEFAULTS,
+      privacy: { ...OFFICE_DEFAULTS.privacy, storePrompts: false },
+    };
+    story("TASK-1", "Ready");
+    const result = resultOf<RunResult>(await run());
+    expect(result.started).toHaveLength(1);
+    expect(world.office.all("select * from prompt_texts where office_id = $office_id")).toEqual([]);
+    // The measurements stay.
+    expect(world.office.all("select * from prompt_parts where office_id = $office_id")).not.toEqual(
+      [],
+    );
   });
 
   it("stores the measured prompt parts of the first session: system, task and each section (DIPO-177)", async () => {

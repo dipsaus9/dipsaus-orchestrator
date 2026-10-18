@@ -271,6 +271,38 @@ describe("retention of run rows", () => {
       ]);
     }));
 
+  it("deletes prompt texts recorded more than shortDays ago and keeps newer ones (DIPO-137)", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      const insert = (agent: string, at: number) =>
+        office.immediate(() =>
+          office.run(
+            `insert into prompt_texts (office_id, run_id, agent_id, part, text, recorded_at)
+             values ($office_id, 'run-1', $agent, 'system', 'You are the developer.', $at)`,
+            { agent, at },
+          ),
+        );
+      insert("agt-old", day(0));
+      insert("agt-new", day(6));
+      t.clock.advanceTo(day(8));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toMatchObject({ prompt_texts: 1 });
+      expect(
+        office
+          .all<{ agent_id: string }>(
+            "select agent_id from prompt_texts where office_id = $office_id",
+          )
+          .map((row) => row.agent_id),
+      ).toEqual(["agt-new"]);
+    }));
+
   it("deletes gate decisions and their decided gates after the state tier (DIPO-71)", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;

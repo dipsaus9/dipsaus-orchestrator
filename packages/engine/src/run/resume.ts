@@ -57,6 +57,7 @@ import {
   measurePart,
   promptParts,
   recordPromptParts,
+  recordPromptTexts,
   TASK_PART,
 } from "../prompts/parts";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
@@ -438,6 +439,21 @@ export class RunResumer implements NextSession {
         run.runId,
         agent,
         resume ? [measurePart(TASK_PART, taskMessage)] : promptParts(systemFile, taskMessage, []),
+        deps.clock,
+      );
+      // The prompt text, with `privacy.storePrompts` on (DIPO-137): a resume stores only its
+      // message, the session keeping the system file it started with.
+      recordPromptTexts(
+        office,
+        run.runId,
+        agent,
+        resume
+          ? [{ part: "message", text: taskMessage }]
+          : [
+              { part: "system", text: systemFile },
+              { part: "message", text: taskMessage },
+            ],
+        config,
         deps.clock,
       );
       const at = deps.clock.now();

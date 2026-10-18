@@ -33,6 +33,7 @@ import { adapterVersion } from "./migrations/0029-adapter-version";
 import { compactions } from "./migrations/0030-compactions";
 import { mirrorGateTask } from "./migrations/0031-mirror-gate-task";
 import { runGrants } from "./migrations/0032-run-grants";
+import { promptTexts } from "./migrations/0033-prompt-texts";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -101,4 +102,5 @@ create table offices (
   compactions,
   mirrorGateTask,
   runGrants,
+  promptTexts,
 ];

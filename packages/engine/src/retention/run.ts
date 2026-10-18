@@ -141,6 +141,7 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   // R: short-tier entries, stored output, per-message usage and cursors of ended runs.
   await log("R", shortCutoff);
   await rows("output_chunks", "at < $cutoff", { cutoff: shortCutoff });
+  await rows("prompt_texts", "recorded_at < $cutoff", { cutoff: shortCutoff });
   await rows("usage_messages", "at < $cutoff", { cutoff: shortCutoff });
   await rows("ingest_cursors", "ended_at < $cutoff", { cutoff: shortCutoff });
   // S: state entries and the rows of runs that ended before the cutoff. Rows that reference an

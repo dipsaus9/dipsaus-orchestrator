@@ -262,10 +262,10 @@ describe("precedence and merge", () => {
     });
   });
 
-  it("stores commands by default and turns it off in office.local.yaml (DIPO-135)", () => {
+  it("stores commands and prompts by default and turns each off in office.local.yaml (DIPO-135, DIPO-137)", () => {
     const none = ok(resolveOfficeConfig({}));
     expect(none.config.privacy).toEqual({
-      storePrompts: false,
+      storePrompts: true,
       storeCommandBodies: true,
       keepRawEvents: false,
     });
@@ -273,6 +273,11 @@ describe("precedence and merge", () => {
       resolveOfficeConfig({ local: "version: 1\nprivacy: { storeCommandBodies: false }\n" }),
     );
     expect(off.config.privacy.storeCommandBodies).toBe(false);
+    const noPrompts = ok(
+      resolveOfficeConfig({ local: "version: 1\nprivacy: { storePrompts: false }\n" }),
+    );
+    expect(noPrompts.config.privacy.storePrompts).toBe(false);
+    expect(noPrompts.config.privacy.storeCommandBodies).toBe(true);
   });
 
   it("takes privacy.* and retention.* from the local file only", () => {
