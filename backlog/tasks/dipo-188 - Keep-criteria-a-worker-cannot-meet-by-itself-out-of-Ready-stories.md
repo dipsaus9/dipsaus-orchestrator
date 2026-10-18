@@ -1,10 +1,10 @@
 ---
 id: DIPO-188
 title: Keep criteria a worker cannot meet by itself out of Ready stories
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 12:30'
+updated_date: '2026-10-18 12:35'
 labels:
   - 'tier:S'
   - cutover
@@ -52,6 +52,10 @@ test_plan:
       check: "(unit) the office config accepts the phrase list, uses the default when it is missing, and refuses a non-string entry"
     - kind: "automated"
       check: "(golden) the rendered system file holds the evidence-is-the-record rule and the manual-entry rule"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap reached: 63 of 60 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
