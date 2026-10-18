@@ -1,10 +1,10 @@
 ---
 id: DIPO-204
 title: Deny git write verbs after git's global options in the worker run settings
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 09:10'
-updated_date: '2026-10-18 11:50'
+updated_date: '2026-10-18 11:54'
 labels:
   - 'tier:S'
   - cutover
@@ -43,6 +43,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The run settings from plan.ts deny every verb in GIT_WRITE_VERBS also after the global options -C <path> and -c <name>=<value>, and a test in packages/engine/test/workers/plan.test.ts asserts the deny rules for git -C . commit, git -C . branch and git -c x=y push, with the rule strings written as literals in the test
-- [ ] #2 No deny rule starts with Bash(git rev-parse), Bash(git -C * rev-parse) or Bash(git -c * rev-parse), and the plan golden files are updated
+- [x] #1 The run settings from plan.ts deny every verb in GIT_WRITE_VERBS also after the global options -C <path> and -c <name>=<value>, and a test in packages/engine/test/workers/plan.test.ts asserts the deny rules for git -C . commit, git -C . branch and git -c x=y push, with the rule strings written as literals in the test
+- [x] #2 No deny rule starts with Bash(git rev-parse), Bash(git -C * rev-parse) or Bash(git -c * rev-parse), and the plan golden files are updated
 <!-- AC:END -->
