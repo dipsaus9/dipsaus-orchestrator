@@ -1,10 +1,10 @@
 ---
 id: DIPO-177
 title: Record the prompt part hashes and sizes of every worker session
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-18 07:07'
+updated_date: '2026-10-18 07:13'
 labels:
   - 'tier:S'
   - cutover
@@ -39,8 +39,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A first session records the system part, the task part and one task.<section> part per section of its task message through recordPromptParts, keyed by run and agent, when its agents row is written
-- [ ] #2 A handoff session records its system and task parts, and a resume records the task part of the first message it sends, each under its own agent
-- [ ] #3 Tests read promptPartsOf after a launch, a handoff and a resume and compare each part with the sha256 and byte count of the text the session got, computed in the test with node:crypto
-- [ ] #4 The nudge pseudo rows in prompt_parts are written and read as before: the existing nudge tests pass unchanged
+- [x] #1 A first session records the system part, the task part and one task.<section> part per section of its task message through recordPromptParts, keyed by run and agent, when its agents row is written
+- [x] #2 A handoff session records its system and task parts, and a resume records the task part of the first message it sends, each under its own agent
+- [x] #3 Tests read promptPartsOf after a launch, a handoff and a resume and compare each part with the sha256 and byte count of the text the session got, computed in the test with node:crypto
+- [x] #4 The nudge pseudo rows in prompt_parts are written and read as before: the existing nudge tests pass unchanged
 <!-- AC:END -->
