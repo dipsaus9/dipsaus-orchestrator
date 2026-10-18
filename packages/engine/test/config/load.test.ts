@@ -790,20 +790,33 @@ describe("office configuration version 5", () => {
     expect(slot?.message).toContain("Version 5 adds mergeSlot.autoMerge: set version: 5 to use it");
   });
 
-  it("refuses maxRounds 0 and names the key", () => {
+  it.each([
+    ["conflictAttempts", "1"],
+    ["ciAttempts", "1"],
+    ["holdLabels", "[hold]"],
+    ["checksWaitMinutes", "1"],
+  ])("refuses mergeSlot.%s in a version 4 file and says version 5 adds it", (key, value) => {
     const [error] = errors(
-      resolveOfficeConfig({ office: "version: 5\nreview: { maxRounds: 0 }\n" }),
+      resolveOfficeConfig({ office: `version: 4\nmergeSlot: { ${key}: ${value} }\n` }),
     );
-    expect(error?.path).toBe("review.maxRounds");
-    expect(error?.message).toContain("review.maxRounds");
+    expect(error?.path).toBe(`mergeSlot.${key}`);
+    expect(error?.message).toContain(`Version 5 adds mergeSlot.${key}: set version: 5 to use it`);
   });
 
-  it("refuses ciAttempts 0 and names the key", () => {
+  it.each([
+    ["review", "maxRounds"],
+    ["review", "maxTurns"],
+    ["review", "maxMinutes"],
+    ["review", "budgetTokens"],
+    ["mergeSlot", "conflictAttempts"],
+    ["mergeSlot", "ciAttempts"],
+    ["mergeSlot", "checksWaitMinutes"],
+  ])("refuses %s.%s 0 and names the key", (block, key) => {
     const [error] = errors(
-      resolveOfficeConfig({ office: "version: 5\nmergeSlot: { ciAttempts: 0 }\n" }),
+      resolveOfficeConfig({ office: `version: 5\n${block}: { ${key}: 0 }\n` }),
     );
-    expect(error?.path).toBe("mergeSlot.ciAttempts");
-    expect(error?.message).toContain("mergeSlot.ciAttempts");
+    expect(error?.path).toBe(`${block}.${key}`);
+    expect(error?.message).toContain(`${block}.${key}`);
   });
 
   it("refuses a duplicate hold label and names the key", () => {
