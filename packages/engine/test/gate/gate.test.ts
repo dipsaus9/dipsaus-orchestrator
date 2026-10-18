@@ -353,6 +353,17 @@ const CASES: readonly Case[] = [
     input: input({ implementationPlan: "i".repeat(11_774) }),
     expected: [`${prefix("R26")}story contract is 12001 characters; the limit is 12000`],
   },
+  {
+    name: "R27 criterion names a maintainer step",
+    input: input({
+      acceptanceCriteria: [
+        { index: 1, checked: false, text: "Writes the record in the task notes" },
+      ],
+    }),
+    expected: [
+      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
+    ],
+  },
 ];
 
 describe("evaluateGate", () => {
@@ -708,5 +719,55 @@ describe("gateText (DIPO-97)", () => {
     expect(gateText("R15", "TASK-1 cannot start: too large")).toBe(
       "TASK-1 cannot start: too large",
     );
+  });
+});
+
+// R27 (DIPO-188): a criterion that names a step only the maintainer or the engine can take.
+const DIPO_176_CRITERION_4 =
+  "A sandboxed `bun run verify` is run and its result is recorded in the task notes";
+
+const stepHits = (text: string) =>
+  evaluateGate(criterion(text), "ready").failures.filter((failure) => failure.rule === "R27");
+
+describe("R27 maintainer steps", () => {
+  it("fails DIPO-176 criterion 4 with the criterion number and the phrase", () => {
+    expect(messages(evaluateGate(criterion(DIPO_176_CRITERION_4), "ready"))).toEqual([
+      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
+    ]);
+  });
+
+  it("passes a criterion without a listed phrase", () => {
+    expect(stepHits("A sandboxed `bun run verify` run passes and its output is kept")).toEqual([]);
+  });
+
+  it("gives one failure per criterion and phrase, in both modes", () => {
+    const story = input({
+      acceptanceCriteria: [
+        { index: 1, checked: false, text: "Writes the task notes by the maintainer" },
+        { index: 2, checked: false, text: "Runs backlog task edit, then records the task notes" },
+      ],
+    });
+    const failures = (mode: GateMode) =>
+      messages(evaluateGate(story, mode)).filter((message) => message.includes(" failed R27: "));
+    expect(failures("ready")).toEqual([
+      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
+      `${prefix("R27")}criterion #1 names a step the worker cannot take ("by the maintainer"); move it to a manual test plan entry`,
+      `${prefix("R27")}criterion #2 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
+      `${prefix("R27")}criterion #2 names a step the worker cannot take ("backlog task edit"); move it to a manual test plan entry`,
+    ]);
+    expect(failures("pickup")).toHaveLength(4);
+  });
+
+  it("reads the phrases from the office configuration", () => {
+    const story = criterion(DIPO_176_CRITERION_4);
+    expect(
+      evaluateGate(
+        { ...story, config: config({ maintainerStepPhrases: ["sandboxed"] }) },
+        "ready",
+      ).failures.filter((failure) => failure.rule === "R27"),
+    ).toHaveLength(1);
+    expect(
+      evaluateGate({ ...story, config: config({ maintainerStepPhrases: [] }) }, "ready").failures,
+    ).toEqual(evaluateGate(story, "ready").failures.filter((failure) => failure.rule !== "R27"));
   });
 });

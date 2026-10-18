@@ -468,7 +468,23 @@ export const r26: RuleCheck = (context) => {
     : fail(context, "R26", `story contract is ${size} characters; the limit is ${max}`);
 };
 
-/** R02 to R26, evaluated in both modes, in rule order. */
+/** R27: no criterion names a step the worker cannot take (`story.maintainerStepPhrases`); one failure per criterion and phrase. */
+export const r27: RuleCheck = (context) => {
+  const phrases = context.input.config.story.maintainerStepPhrases;
+  return context.story.acceptanceCriteria.flatMap((criterion) =>
+    phrases
+      .filter((phrase) => wordMatch(criterion.text, phrase))
+      .flatMap((phrase) =>
+        fail(
+          context,
+          "R27",
+          `criterion #${criterion.index} names a step the worker cannot take ("${phrase}"); move it to a manual test plan entry`,
+        ),
+      ),
+  );
+};
+
+/** R02 to R27, evaluated in both modes, in rule order. */
 export const SHARED_RULES: readonly RuleCheck[] = [
   r02,
   r03,
@@ -495,4 +511,5 @@ export const SHARED_RULES: readonly RuleCheck[] = [
   r24,
   r25,
   r26,
+  r27,
 ];
