@@ -1,10 +1,10 @@
 ---
 id: DIPO-188
 title: Keep criteria a worker cannot meet by itself out of Ready stories
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 11:04'
 labels:
   - 'tier:S'
   - cutover
@@ -12,14 +12,16 @@ milestone: m-1
 dependencies: []
 references:
   - packages/engine/src/gate/rules.ts
-  - packages/engine/src/config/schema.ts
-  - packages/engine/schema/office.schema.json
-  - packages/engine/test/gate/
-  - packages/engine/test/config/
-  - packages/engine/src/prompts/contract/implement.md
-  - packages/engine/test/prompts/
   - packages/engine/src/gate/types.ts
   - packages/engine/src/gate/evaluate.ts
+  - packages/engine/src/config/
+  - packages/engine/schema/office.schema.json
+  - packages/engine/scripts/write-schema.ts
+  - packages/engine/test/gate/
+  - packages/engine/test/config/
+  - packages/engine/test/office/
+  - packages/engine/src/prompts/contract/implement.md
+  - packages/engine/test/prompts/
 priority: medium
 type: enhancement
 ordinal: 177000
@@ -32,7 +34,7 @@ Outcome: a criterion that asks for a step only the maintainer or the engine can 
 
 Context: the fourth M1a run, DIPO-176 (run_01M55PE8B6W4X9TMJEW2SYV7B6). Criterion 4 asked for a sandboxed verify "recorded in the task notes". The worker's own session was that sandboxed run, but a worker cannot write task notes: the run settings deny the backlog CLI (packages/engine/src/workers/claude-cli/plan.ts). It read the criterion as needing a separate recording, parked blocked to ask, and the maintainer finished the story by hand. Manual test plan entries (0012 F14) are already where maintainer steps live, and L1 lists them in the <test_plan> section, but nothing stops a criterion from naming such a step.
 
-DIPO-159 makes a worker question wait for an answer before parking. This story removes the need for the question in this case and does not change the question path, so it does not depend on DIPO-159. DIPO-170 changes how R10 matches phrases in packages/engine/src/gate/rules.ts; whichever lands second rebases on the other. With the R27 option, the rule id list in packages/engine/src/gate/types.ts (it ends at R26) and the rule lists in packages/engine/src/gate/evaluate.ts (R02 to R26) gain R27.
+DIPO-159 makes a worker question wait for an answer before parking. This story removes the need for the question in this case and does not change the question path, so it does not depend on DIPO-159. DIPO-170 changes how R10 matches phrases in packages/engine/src/gate/rules.ts; whichever lands second rebases on the other. R27 joins the rule id list in packages/engine/src/gate/types.ts (it ends at R26) and the rule lists in packages/engine/src/gate/evaluate.ts (R02 to R26), after R26, and is evaluated in both modes. The new office key story.maintainerStepPhrases takes the next free office config version with its in-memory migration (0017 amendment of 2026-10-12), as DIPO-172 did for version 4; DIPO-139 also takes a version, so whichever lands second takes the one after.
 
 The maintainer chose R27 on 2026-10-18; the 0012 note is in docs/decisions/0012-story-standard.md (Amendments, 2026-10-18, DIPO-188), and this story does not edit docs/decisions/. The maintainer also asked whether another worker could take such steps; a worker role with gh and network access would be its own decision, so for now R27 sends them to manual test plan entries.
 
@@ -55,8 +57,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Ready gate fails a criterion that contains a phrase from the chosen list, one failure per criterion and phrase, with a message that names the criterion number and the phrase and says to move the step to a manual test plan entry
-- [ ] #2 The phrase list is office configuration validated in packages/engine/src/config/schema.ts, its default holds at least "task notes", "implementation notes", "by the maintainer" and "backlog task edit", and packages/engine/schema/office.schema.json is regenerated
+- [ ] #1 A new Ready gate rule R27, evaluated in both modes after R26, fails a criterion that contains a phrase from story.maintainerStepPhrases (matched as R10 matches), one failure per criterion and phrase, with the message `criterion #<n> names a step the worker cannot take ("<phrase>"); move it to a manual test plan entry`
+- [ ] #2 story.maintainerStepPhrases is office configuration in the next free office config version with its in-memory migration, validated in packages/engine/src/config/schema.ts; its default holds at least `task notes`, `implementation notes`, `by the maintainer` and `backlog task edit`; packages/engine/schema/office.schema.json is regenerated and the tests that pin the config version are updated
 - [ ] #3 A test in packages/engine/test/gate/ runs the gate on the text of DIPO-176 criterion 4 and gets the failure, and on a criterion without a listed phrase gets none
 - [ ] #4 L1 (packages/engine/src/prompts/contract/implement.md) says the report evidence is the record dipo keeps, so a criterion that asks for a command and its result to be recorded is met when the evidence holds them, and that manual test plan entries are the maintainer's steps and never a reason to report blocked; the golden file packages/engine/test/prompts/golden/system-implement-developer.md is updated
 <!-- AC:END -->
