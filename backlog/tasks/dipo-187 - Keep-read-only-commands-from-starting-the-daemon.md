@@ -1,10 +1,10 @@
 ---
 id: DIPO-187
 title: Keep read-only commands from starting the daemon
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 10:03'
+updated_date: '2026-10-18 12:03'
 labels:
   - 'tier:S'
   - cutover
