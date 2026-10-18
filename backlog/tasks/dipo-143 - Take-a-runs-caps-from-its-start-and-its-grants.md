@@ -1,10 +1,10 @@
 ---
 id: DIPO-143
 title: Take a run's caps from its start and its grants
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 12:19'
+updated_date: '2026-10-18 12:27'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -51,8 +51,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 runs gains max_turns and max_minutes, written at run start next to budget_limit and loop_cap, through a migration registered in db/schema.ts
-- [ ] #2 A new run_grants table (run, grant id, kind budget, loop, reviewRound, ciAttempt, conflictHandoff, reviewCap or scope, amount JSON, note, origin, client, at) exists with retention tier S with its run
-- [ ] #3 One function returns a run's caps as its snapshot plus the sum of its grants of each kind, and run control, the resumer, re-attach and the 80% budget nudge in hooks/nudges.ts read it
-- [ ] #4 A test edits the office tier while a run is parked and shows the resumed run keeps its start caps while a new run gets the edited caps
+- [x] #1 runs gains max_turns and max_minutes, written at run start next to budget_limit and loop_cap, through a migration registered in db/schema.ts
+- [x] #2 A new run_grants table (run, grant id, kind budget, loop, reviewRound, ciAttempt, conflictHandoff, reviewCap or scope, amount JSON, note, origin, client, at) exists with retention tier S with its run
+- [x] #3 One function returns a run's caps as its snapshot plus the sum of its grants of each kind, and run control, the resumer, re-attach and the 80% budget nudge in hooks/nudges.ts read it
+- [x] #4 A test edits the office tier while a run is parked and shows the resumed run keeps its start caps while a new run gets the edited caps
 <!-- AC:END -->
