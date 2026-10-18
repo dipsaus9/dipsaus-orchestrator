@@ -1,10 +1,10 @@
 ---
 id: DIPO-192
 title: Tell the worker to run every command from the worktree root
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 08:55'
+updated_date: '2026-10-18 08:58'
 labels:
   - 'tier:S'
   - cutover
@@ -44,3 +44,9 @@ test_plan:
 - [x] #1 L1 (packages/engine/src/prompts/contract/implement.md) says the worker runs every command from the worktree root, never changes directory with cd, also not inside a compound command, and passes file paths relative to the worktree root instead (for example to bun test or git -C); the new text names no path
 - [x] #2 packages/engine/test/prompts/golden/system-implement-developer.md is updated, and a test in packages/engine/test/prompts/system.test.ts asserts the rendered system file holds the new rule; both tests pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M573EBZ41TM6JXMVKDX23HFC (Haiku low, 10 turns, about $0.01, 2 min) reported done, both criteria, In Review on DIPO-192/run-commands-from-worktree-root, with no denied call. Verify outside the sandbox on DIPO-192/run-commands-from-worktree-root-finish (origin/main merged in): 0 fail. Review passed. Applied on top: the example no longer names git -C, which resolves later paths against another directory and slips past the prefix deny rules for git write verbs (git -C . commit matches no Bash(git commit) rule); it now says to pass paths after -- in a git command. That deny gap is filed as its own story. The live scratch-repo check (no cd, no denied Write or Edit) is left for the maintainer's hand-test session.
+<!-- SECTION:NOTES:END -->
