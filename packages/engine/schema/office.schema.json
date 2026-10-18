@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 4
+      "const": 5
     },
     "tiers": {
       "type": "object",
@@ -787,9 +787,74 @@
             "minLength": 1
           },
           "description": "Checks the merge slot waits for before it merges a PR of this office (0016 rule 2): each must pass, and any failed or cancelled check holds the PR back. Names are the check names the host reports, such as ci-ok and pr-title. A repository whose CI names other checks sets its own names here."
+        },
+        "autoMerge": {
+          "type": "boolean",
+          "description": "Whether the merge slot merges a PR once its checks pass and it is reviewed."
+        },
+        "conflictAttempts": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Attempts to rebase a PR onto a base that moved, before the merge slot gives up on it."
+        },
+        "ciAttempts": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Attempts to fix a PR whose required check failed, before the merge slot gives up on it."
+        },
+        "holdLabels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Labels that hold a PR back from the merge slot while it carries one."
+        },
+        "checksWaitMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Minutes the merge slot waits for the required checks of a PR to finish before it reports them stuck."
         }
       },
       "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maxRounds": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxTurns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "budgetTokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false,
+      "description": "Limits of the review loop (0019 section 16): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review."
     }
   },
   "required": ["version"],

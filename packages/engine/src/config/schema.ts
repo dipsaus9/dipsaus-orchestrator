@@ -10,13 +10,16 @@
 // Version 4 (DIPO-172) adds `sandbox.toolchainReadPaths` to `office.local.yaml` (0017 amendment
 // of 2026-10-18, maintainer decision 2026-10-17, option A): machine-specific toolchain read
 // paths, added to the committed list (or the default), each path once. `office.yaml` gains no key.
+// Version 5 (DIPO-139) adds the `review` block (the review loop's limits, 0019 section 16) and the
+// rest of `mergeSlot`: `autoMerge`, `conflictAttempts`, `ciAttempts`, `holdLabels` and
+// `checksWaitMinutes`. `office.local.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 4;
+export const OFFICE_CONFIG_VERSION = 5;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -178,21 +181,60 @@ const officeShapeV2 = {
 
 // Version 3: version 2 plus `mergeSlot.requiredChecks` (DIPO-133). Names are check names as the
 // host reports them, and may contain spaces.
+const requiredChecks = z
+  .array(text())
+  .min(1, "must name at least one check")
+  .refine((names) => new Set(names).size === names.length, "must not name a check twice")
+  .describe(
+    "Checks the merge slot waits for before it merges a PR of this office (0016 rule 2): each must pass, and any failed or cancelled check holds the PR back. Names are the check names the host reports, such as ci-ok and pr-title. A repository whose CI names other checks sets its own names here.",
+  );
 const officeShapeV3 = {
   ...officeShapeV2,
-  mergeSlot: z.strictObject({
-    requiredChecks: z
-      .array(text())
-      .min(1, "must name at least one check")
-      .refine((names) => new Set(names).size === names.length, "must not name a check twice")
-      .describe(
-        "Checks the merge slot waits for before it merges a PR of this office (0016 rule 2): each must pass, and any failed or cancelled check holds the PR back. Names are the check names the host reports, such as ci-ok and pr-title. A repository whose CI names other checks sets its own names here.",
-      ),
-  }),
+  mergeSlot: z.strictObject({ requiredChecks }),
 };
 
 // Version 4: the office keys of version 3; only `office.local.yaml` gains a key (DIPO-172).
-const officeShape = officeShapeV3;
+const officeShapeV4 = officeShapeV3;
+
+// Version 5 (DIPO-139): the review limits and the rest of `mergeSlot`. A count is at least 1.
+const ReviewV5 = z
+  .strictObject({
+    model: text(),
+    effort: text(),
+    maxRounds: count(),
+    maxTurns: count(),
+    maxMinutes: count(),
+    budgetTokens: count(),
+  })
+  .describe(
+    "Limits of the review loop (0019 section 16): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review.",
+  );
+const MergeSlotV5 = z.strictObject({
+  ...officeShapeV3.mergeSlot.shape,
+  autoMerge: z
+    .boolean()
+    .describe("Whether the merge slot merges a PR once its checks pass and it is reviewed."),
+  conflictAttempts: count().describe(
+    "Attempts to rebase a PR onto a base that moved, before the merge slot gives up on it.",
+  ),
+  ciAttempts: count().describe(
+    "Attempts to fix a PR whose required check failed, before the merge slot gives up on it.",
+  ),
+  holdLabels: z
+    .array(text())
+    .refine((labels) => new Set(labels).size === labels.length, "must not name a label twice")
+    .describe("Labels that hold a PR back from the merge slot while it carries one."),
+  checksWaitMinutes: count().describe(
+    "Minutes the merge slot waits for the required checks of a PR to finish before it reports them stuck.",
+  ),
+});
+
+// Version 5: the office keys of version 4 plus `review` and the rest of `mergeSlot` (DIPO-139).
+const officeShape = {
+  ...officeShapeV4,
+  review: ReviewV5,
+  mergeSlot: MergeSlotV5,
+};
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
 export const OfficeConfigV1 = z.strictObject({
@@ -221,15 +263,24 @@ export const OfficeConfigV3 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 4 (kept to read version 4 files). */
 export const OfficeConfigV4 = z.strictObject({
+  version: z.literal(4),
+  ...officeShapeV4,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV5 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV4>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV5>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -309,6 +360,12 @@ export const OfficeFileV3 = z.strictObject({
  * number, and version 4 adds a key to `office.local.yaml` only.
  */
 export const OfficeFileV4 = z.strictObject({
+  version: z.literal(4),
+  ...fileShape(officeShapeV4),
+}) as unknown as z.ZodType<OfficeFileOf<4>>;
+
+/** `.dipo/office.yaml`, version 5: version 4 plus `review` and the rest of `mergeSlot` (DIPO-139). */
+export const OfficeFileV5 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -342,6 +399,12 @@ export const OfficeLocalFileV3 = z.strictObject({
  * whose entries add to the committed list. Any other sandbox key stays an error.
  */
 export const OfficeLocalFileV4 = z.strictObject({
+  version: z.literal(4),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<4>>;
+
+/** `.dipo/office.local.yaml`, version 5: the same keys as version 4 (DIPO-139 adds none here). */
+export const OfficeLocalFileV5 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -361,8 +424,13 @@ export const OfficeOverridesV3 = z.strictObject(
   fileShape(officeShapeV3),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 4 keys. */
 export const OfficeOverridesV4 = z.strictObject(
+  fileShape(officeShapeV4),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV5 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
@@ -372,12 +440,14 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   2: OfficeFileV2,
   3: OfficeFileV3,
   4: OfficeFileV4,
+  5: OfficeFileV5,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
   2: OfficeLocalFileV2,
   3: OfficeLocalFileV3,
   4: OfficeLocalFileV4,
+  5: OfficeLocalFileV5,
 };
 
 /**
@@ -386,7 +456,8 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
  * (0017 amendment of 2026-10-12): `worker.plugins` is new and takes its default. Version 2 to 3
  * is the identity too: `mergeSlot.requiredChecks` is new and takes its default. Version 3 to 4
  * is the identity: `sandbox.toolchainReadPaths` in `office.local.yaml` is new and adds nothing
- * when absent. Works for both office files; the document must already be valid for its own
+ * when absent. Version 4 to 5 is the identity too: `review` and the new `mergeSlot` keys take
+ * their defaults. Works for both office files; the document must already be valid for its own
  * version.
  */
 export function migrateOfficeDocument(
@@ -397,6 +468,7 @@ export function migrateOfficeDocument(
   if (current.version === 1) current = { ...current, version: 2 };
   if (current.version === 2) current = { ...current, version: 3 };
   if (current.version === 3) current = { ...current, version: 4 };
+  if (current.version === 4) current = { ...current, version: 5 };
   return current;
 }
 
@@ -451,8 +523,24 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   // 0008 sections 2 and 5; `plugins` empty: no plugin in a worker session (0008 amendment of
   // 2026-10-12).
   worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [] },
-  // 0016 rule 2: the checks every backlog PR waits for in the merge slot (DIPO-133).
-  mergeSlot: { requiredChecks: ["ci-ok", "pr-title"] },
+  // 0016 rule 2: the checks every backlog PR waits for in the merge slot (DIPO-133). The rest of
+  // the merge slot block and the review limits are DIPO-139's defaults (ADR 0019 section 16).
+  mergeSlot: {
+    requiredChecks: ["ci-ok", "pr-title"],
+    autoMerge: true,
+    conflictAttempts: 2,
+    ciAttempts: 2,
+    holdLabels: [],
+    checksWaitMinutes: 30,
+  },
+  review: {
+    model: "opus",
+    effort: "high",
+    maxRounds: 3,
+    maxTurns: 60,
+    maxMinutes: 30,
+    budgetTokens: 200_000,
+  },
   permissions: { ask: "when-present", presentMinutes: 10 },
   // 0008, 0009 and 0013 section 1.
   timeouts: {
