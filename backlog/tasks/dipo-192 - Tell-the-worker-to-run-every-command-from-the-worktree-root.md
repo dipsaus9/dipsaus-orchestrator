@@ -1,10 +1,10 @@
 ---
 id: DIPO-192
 title: Tell the worker to run every command from the worktree root
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 08:53'
+updated_date: '2026-10-18 08:55'
 labels:
   - 'tier:S'
   - cutover
@@ -41,6 +41,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 L1 (packages/engine/src/prompts/contract/implement.md) says the worker runs every command from the worktree root, never changes directory with cd, also not inside a compound command, and passes file paths relative to the worktree root instead (for example to bun test or git -C); the new text names no path
-- [ ] #2 packages/engine/test/prompts/golden/system-implement-developer.md is updated, and a test in packages/engine/test/prompts/system.test.ts asserts the rendered system file holds the new rule; both tests pass
+- [x] #1 L1 (packages/engine/src/prompts/contract/implement.md) says the worker runs every command from the worktree root, never changes directory with cd, also not inside a compound command, and passes file paths relative to the worktree root instead (for example to bun test or git -C); the new text names no path
+- [x] #2 packages/engine/test/prompts/golden/system-implement-developer.md is updated, and a test in packages/engine/test/prompts/system.test.ts asserts the rendered system file holds the new rule; both tests pass
 <!-- AC:END -->
