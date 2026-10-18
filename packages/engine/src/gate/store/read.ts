@@ -8,6 +8,7 @@ import {
   BacklogParseError,
   parseList,
   parseView,
+  type PlainListEntry,
   type PlainTask,
   plainLines,
 } from "../../backlog/plain";
@@ -75,23 +76,65 @@ export function isStoryNotFound(error: BacklogCommandError, story: string): bool
   return error.stderr.split("\n").some((text) => line.test(text));
 }
 
-/** Every listed task through its own view: the slow read, one CLI call per task. */
-async function viewActiveTasks(
+/** The active tasks of `task list --plain`, in the order listed. */
+export async function listTasks(cli: BacklogCli, cwd: string): Promise<readonly PlainListEntry[]> {
+  const { stdout } = await runBacklog(cli, cwd, ["task", "list", "--plain"]);
+  return parseList(stdout).entries;
+}
+
+/**
+ * Every listed id through its own view, once each: the slow read, one CLI call per task. The
+ * result is keyed by id in the order listed. A view that does not parse is `undefined`, so the task
+ * still counts as active (`gateTasksOf`). `known` is a view the caller already has, not read again.
+ */
+export async function viewListedTasks(
   cli: BacklogCli,
   cwd: string,
-  target: PlainTask,
-): Promise<GateTask[]> {
-  const listed = parseList((await runBacklog(cli, cwd, ["task", "list", "--plain"])).stdout);
-  return mapLimited(listed.entries, VIEW_CONCURRENCY, async (entry) => {
-    if (entry.id === target.id) return gateTaskFromView(target);
+  ids: readonly string[],
+  known?: PlainTask,
+): Promise<Map<string, PlainTask | undefined>> {
+  const views = await mapLimited(ids, VIEW_CONCURRENCY, async (id) => {
+    if (known !== undefined && id === known.id) return known;
     try {
-      return gateTaskFromView(await view(cli, cwd, entry.id));
+      return await view(cli, cwd, id);
     } catch (error) {
       if (!(error instanceof BacklogParseError)) throw error;
-      // A task whose view does not parse still counts as active, without dependencies or branch.
-      return { id: entry.id, dependencies: [] };
+      return undefined;
     }
   });
+  return new Map(ids.map((id, i) => [id, views[i]]));
+}
+
+/** The views of `viewListedTasks` as GateTask values; a task whose view did not parse has no dependencies or branch. */
+export function gateTasksOf(views: ReadonlyMap<string, PlainTask | undefined>): GateTask[] {
+  return [...views].map(([id, task]) =>
+    task === undefined ? { id, dependencies: [] } : gateTaskFromView(task),
+  );
+}
+
+/**
+ * The gate input of `story`, built from its view, the active tasks as GateTask values (the
+ * story's own entry is replaced by its view), the milestone ids and names and the configuration.
+ * Pure: the caller runs the CLI. Its subtasks are the view's.
+ */
+export function gateInputOf(
+  story: PlainTask,
+  others: readonly GateTask[],
+  milestones: readonly string[],
+  config: GateConfig,
+): GateInput {
+  return {
+    story: {
+      ...gateStoryFromView(
+        story,
+        story.subtasks.map((task) => task.id),
+      ),
+      waitingOn: waitingOnOf(story),
+    },
+    activeTasks: others.map((task) => (task.id === story.id ? gateTaskFromView(story) : task)),
+    milestones: [...milestones],
+    config,
+  };
 }
 
 /**
@@ -119,22 +162,17 @@ export async function readGateInput(
     throw error;
   }
   const activeTasks =
-    others !== undefined
-      ? others.map((task) => (task.id === target.id ? gateTaskFromView(target) : task))
-      : await viewActiveTasks(cli, cwd, target);
+    others ??
+    gateTasksOf(
+      await viewListedTasks(
+        cli,
+        cwd,
+        (await listTasks(cli, cwd)).map((entry) => entry.id),
+        target,
+      ),
+    );
   const milestones = parseMilestones(
     (await runBacklog(cli, cwd, ["milestone", "list", "--show-completed", "--plain"])).stdout,
   );
-  return {
-    story: {
-      ...gateStoryFromView(
-        target,
-        target.subtasks.map((task) => task.id),
-      ),
-      waitingOn: waitingOnOf(target),
-    },
-    activeTasks,
-    milestones,
-    config,
-  };
+  return gateInputOf(target, activeTasks, milestones, config);
 }
