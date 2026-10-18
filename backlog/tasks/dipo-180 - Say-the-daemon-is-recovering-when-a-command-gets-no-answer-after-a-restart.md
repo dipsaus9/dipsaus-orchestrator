@@ -1,10 +1,10 @@
 ---
 id: DIPO-180
 title: Answer dipo gate without one Backlog CLI view per task
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-18 07:28'
+updated_date: '2026-10-18 07:40'
 labels:
   - 'tier:M'
   - cutover
@@ -51,9 +51,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One story.gate read makes a number of Backlog CLI calls that does not grow with the number of tasks, and a test counts the calls for a fixture backlog of 200 tasks
-- [ ] #2 The rule results do not change: on a fixture backlog with a dependency cycle, a dependency that is not an active task and a branch used twice, the new read gives the same R13, R14 and R19 failures as reading every task view
-- [ ] #3 When the stored data of the other tasks was read at a different `_base` commit than the one the gate reads, the gate brings it up to that commit first, so a decision never uses task data older than its base
-- [ ] #4 `dipo gate` waits with a reply timeout sized for the story.gate read, stated in a comment with the measured time, and on this repository it prints its result in under 3 s, measured and stated in the PR
-- [ ] #5 work.preview and work.run use the same read for their gate evaluation, and their existing gate tests pass
+- [x] #1 One story.gate read makes a number of Backlog CLI calls that does not grow with the number of tasks, and a test counts the calls for a fixture backlog of 200 tasks
+- [x] #2 The rule results do not change: on a fixture backlog with a dependency cycle, a dependency that is not an active task and a branch used twice, the new read gives the same R13, R14 and R19 failures as reading every task view
+- [x] #3 When the stored data of the other tasks was read at a different `_base` commit than the one the gate reads, the gate brings it up to that commit first, so a decision never uses task data older than its base
+- [x] #4 `dipo gate` waits with a reply timeout sized for the story.gate read, stated in a comment with the measured time, and on this repository it prints its result in under 3 s, measured and stated in the PR
+- [x] #5 work.preview and work.run use the same read for their gate evaluation, and their existing gate tests pass
 <!-- AC:END -->
