@@ -376,16 +376,32 @@ describe("claude-cli plan", () => {
     expect(settings.includeGitInstructions).toBe(false);
     expect(settings.attribution).toEqual({ commit: "", pr: "" });
     expect(settings.hooks).toBeUndefined();
-    expect(settings.permissions.allow).toEqual(["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"]);
+    const wt = "//home/maintainer/code/shop.worktrees/DIPO-999";
+    expect(settings.permissions.allow).toEqual([
+      `Read(${wt}/**)`,
+      `Edit(${wt}/**)`,
+      `Write(${wt}/**)`,
+      "Bash",
+    ]);
     expect(settings.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
     const deny = settings.permissions.deny;
+    for (const rule of [...settings.permissions.allow, ...deny]) {
+      expect(rule).not.toMatch(/\(\.\//);
+    }
     for (const rule of [
-      "Edit(./.git)",
-      "Write(./.git/**)",
-      "Edit(./backlog/**)",
-      "Write(./.dipo/**)",
-      "Edit(./.claude/settings.local.json)",
-      "Read(./**/.env*)",
+      `Edit(${wt}/.git)`,
+      `Write(${wt}/.git)`,
+      `Edit(${wt}/.git/**)`,
+      `Write(${wt}/.git/**)`,
+      `Edit(${wt}/backlog/**)`,
+      `Write(${wt}/backlog/**)`,
+      `Edit(${wt}/.dipo/**)`,
+      `Write(${wt}/.dipo/**)`,
+      `Edit(${wt}/.claude/settings.json)`,
+      `Write(${wt}/.claude/settings.json)`,
+      `Edit(${wt}/.claude/settings.local.json)`,
+      `Write(${wt}/.claude/settings.local.json)`,
+      `Read(${wt}/**/.env*)`,
       "Read(~/.ssh/**)",
       "Read(~/.netrc)",
       "Bash(git commit *)",

@@ -314,20 +314,22 @@ interface Paths {
 
 function permissions(spec: WorkerSpec, paths: Paths) {
   const fileRules = (tool: "Edit" | "Write") => [
-    `${tool}(./.git)`,
-    `${tool}(./.git/**)`,
-    `${tool}(./backlog/**)`,
-    `${tool}(./.dipo/**)`,
-    `${tool}(./.claude/settings.json)`,
-    `${tool}(./.claude/settings.local.json)`,
-    // `//` anchors at the root, so these name the main checkout absolutely.
+    // `//` anchors at the root. `./` would follow the shell's current directory, so after a `cd`
+    // it would stop covering the worktree root (DIPO-193).
+    `${tool}(/${paths.workdir}/.git)`,
+    `${tool}(/${paths.workdir}/.git/**)`,
+    `${tool}(/${paths.workdir}/backlog/**)`,
+    `${tool}(/${paths.workdir}/.dipo/**)`,
+    `${tool}(/${paths.workdir}/.claude/settings.json)`,
+    `${tool}(/${paths.workdir}/.claude/settings.local.json)`,
+    // These name the main checkout absolutely.
     `${tool}(/${paths.main}/.git/**)`,
     `${tool}(/${paths.main}/**)`,
   ];
   const deny = [
     ...fileRules("Edit"),
     ...fileRules("Write"),
-    "Read(./**/.env*)",
+    `Read(/${paths.workdir}/**/.env*)`,
     "Read(~/.ssh/**)",
     "Read(~/.aws/**)",
     "Read(~/.config/gh/**)",
@@ -343,7 +345,12 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     // every Bash call without one (0008 amendment of 2026-10-12, recording
     // `safety-bash-prompts-none`). The deny rules above, the read block, the sandbox and the
     // backstop stay the boundary.
-    allow: ["Read(./**)", "Edit(./**)", "Write(./**)", "Bash"],
+    allow: [
+      `Read(/${paths.workdir}/**)`,
+      `Edit(/${paths.workdir}/**)`,
+      `Write(/${paths.workdir}/**)`,
+      "Bash",
+    ],
     deny: unique(deny),
     blockReadsOutsideWorkingDirectories: true,
   };
