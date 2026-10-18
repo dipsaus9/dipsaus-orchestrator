@@ -1,10 +1,10 @@
 ---
 id: DIPO-204
 title: Deny git write verbs after git's global options in the worker run settings
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-18 09:10'
-updated_date: '2026-10-18 10:03'
+updated_date: '2026-10-18 11:57'
 labels:
   - 'tier:S'
   - cutover
@@ -43,6 +43,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The run settings from plan.ts deny every verb in GIT_WRITE_VERBS also after the global options -C <path> and -c <name>=<value>, and a test in packages/engine/test/workers/plan.test.ts asserts the deny rules for git -C . commit, git -C . branch and git -c x=y push, with the rule strings written as literals in the test
-- [ ] #2 No deny rule starts with Bash(git rev-parse), Bash(git -C * rev-parse) or Bash(git -c * rev-parse), and the plan golden files are updated
+- [x] #1 The run settings from plan.ts deny every verb in GIT_WRITE_VERBS also after the global options -C <path> and -c <name>=<value>, and a test in packages/engine/test/workers/plan.test.ts asserts the deny rules for git -C . commit, git -C . branch and git -c x=y push, with the rule strings written as literals in the test
+- [x] #2 No deny rule starts with Bash(git rev-parse), Bash(git -C * rev-parse) or Bash(git -c * rev-parse), and the plan golden files are updated
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57DJVKV4ZXF8E62PJ60AVP2 (Haiku low, 14 turns, about $0.01, 2 min) reported done, In Review on DIPO-204/deny-git-global-options, with no denied call; its edits went through under the absolute worktree rules of DIPO-193. Verify outside the sandbox on DIPO-204/deny-git-global-options-finish (origin/main merged in): 3324 pass, 2 skip, 0 fail.
+
+Review passed. Advisories left: the every-verb loop takes GIT_WRITE_VERBS from the code (the goldens pin the literal list); a golden regenerated with DIPO_UPDATE_GOLDEN=1 is not oxfmt-clean until format:fix (already so on main); the -C and -c forms over-deny a read whose later word is a write verb, as the 0008 note accepts.
+<!-- SECTION:NOTES:END -->

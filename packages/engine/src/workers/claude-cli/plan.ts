@@ -303,6 +303,18 @@ function commands(command: string): string[] {
   return [`Bash(${command})`, `Bash(${command} *)`];
 }
 
+// Git global options that can come before the verb (`git -C <path> commit`, DIPO-204). Each
+// takes a value, so the rule writes it as a wildcard.
+const GIT_GLOBAL_OPTIONS = ["-C *", "-c *"];
+
+// Each git write verb, bare and with arguments, plain and after each global option.
+function gitWriteVerbRules(verb: string): string[] {
+  return [
+    ...commands(`git ${verb}`),
+    ...GIT_GLOBAL_OPTIONS.flatMap((option) => commands(`git ${option} ${verb}`)),
+  ];
+}
+
 interface Paths {
   readonly home: string;
   readonly workdir: string;
@@ -335,7 +347,7 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     "Read(~/.config/gh/**)",
     "Read(~/.gnupg/**)",
     "Read(~/.netrc)",
-    ...GIT_WRITE_VERBS.flatMap((verb) => commands(`git ${verb}`)),
+    ...GIT_WRITE_VERBS.flatMap(gitWriteVerbRules),
     ...commands("backlog"),
     ...commands("gh"),
     ...spec.tools.deny,
