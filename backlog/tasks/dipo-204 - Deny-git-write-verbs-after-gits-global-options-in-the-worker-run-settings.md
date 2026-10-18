@@ -4,7 +4,7 @@ title: Deny git write verbs after git's global options in the worker run setting
 status: Refined
 assignee: []
 created_date: '2026-10-18 09:10'
-updated_date: '2026-10-18 09:10'
+updated_date: '2026-10-18 09:14'
 labels:
   - 'tier:S'
   - cutover
@@ -24,7 +24,7 @@ ordinal: 193000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the worker's run settings deny the git write verbs also when a global option such as -C comes before the verb, so `git -C . commit` is denied like `git commit`.
 
-Context: review of DIPO-192 (PR #202). permissions() in packages/engine/src/workers/claude-cli/plan.ts denies each verb in GIT_WRITE_VERBS as `Bash(git <verb>)` and `Bash(git <verb> *)`, and allow holds a bare `Bash`. Those rules match the command text from its start, so `git -C . commit` or `git -C . branch` matches no deny rule and is allowed at the permission layer. The plan.ts comment says these rules guide the model and stop the obvious forms, and that the real boundary is the sandbox denyWrite on <main>/.git and <worktree>/.git plus the closed network; this story does not change that boundary. DIPO-192's L1 line no longer suggests git -C. L1 says (DIPO-189) that git branch is denied in every form, which `git -C . branch` breaks today.
+Context: review of DIPO-192 (PR #201). permissions() in packages/engine/src/workers/claude-cli/plan.ts denies each verb in GIT_WRITE_VERBS as `Bash(git <verb>)` and `Bash(git <verb> *)`, and allow holds a bare `Bash`. Those rules match the command text from its start, so `git -C . commit` or `git -C . branch` matches no deny rule and is allowed at the permission layer. The plan.ts comment says these rules guide the model and stop the obvious forms, and that the real boundary is the sandbox denyWrite on <main>/.git and <worktree>/.git plus the closed network; this story does not change that boundary. DIPO-192's L1 line no longer suggests git -C. L1 says (DIPO-189) that git branch is denied in every form, which `git -C . branch` breaks today.
 
 ADR 0008 section 2 lists the deny rules as "`Bash(git commit *)` and the other git write verbs", so the added forms get a dated 0008 note that the maintainer approves; this story does not edit docs/decisions/.
 
