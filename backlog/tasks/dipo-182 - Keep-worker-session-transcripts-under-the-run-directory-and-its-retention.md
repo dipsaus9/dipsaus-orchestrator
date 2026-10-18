@@ -4,10 +4,11 @@ title: Keep worker session transcripts under the run directory and its retention
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-17 17:23'
+updated_date: '2026-10-18 09:51'
 labels:
   - 'tier:S'
   - cutover
+  - dropped
 milestone: m-1
 dependencies: []
 references:
@@ -36,7 +37,8 @@ Candidates on the installed CLI (2.1.302): CLAUDE_CONFIG_DIR per run moves the p
 branch: "DIPO-182/transcripts-under-run-dir"
 unknowns:
   - q: "Does the maintainer want to reverse the 2026-10-10 answer to 0008 open question 4 (worker transcripts stay in ~/.claude/projects under Claude Code's 30-day retention)? If yes: which setting of the pinned Claude CLI puts a session's transcript under the run directory without moving its login, plugins or settings (CLAUDE_CONFIG_DIR per run, or another key), or does dipo pass --no-session-persistence and give up native resume for workers?"
-    status: "open"
+    status: "resolved"
+    answer: "No: the 2026-10-10 answer to 0008 open question 4 stays (maintainer, 2026-10-18); the story is dropped."
 test_plan:
   entries:
     - kind: "automated"
@@ -57,3 +59,9 @@ test_plan:
 - [ ] #4 The Claude login check and the plugin switch-off of DIPO-108 still pass for a session launched with the new setting
 - [ ] #5 The PR proposes dated notes for docs/decisions/0008-worker-adapter.md (open question 4 and the files table), docs/decisions/0014-worker-prompt-assembly.md section 2 (Privacy) and docs/decisions/0007-state-database.md section 8 where they change, for the maintainer's approval
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed (maintainer, 2026-10-18): the 2026-10-10 answer to 0008 open question 4 stays. Worker transcripts stay in ~/.claude/projects under Claude Code's retention: native resume and the DIPO-134 transcript reads depend on that place, and a per-run CLAUDE_CONFIG_DIR would risk the worker's login, plugins and settings.
+<!-- SECTION:NOTES:END -->

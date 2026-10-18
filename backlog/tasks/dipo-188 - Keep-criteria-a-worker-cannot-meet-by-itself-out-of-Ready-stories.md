@@ -4,7 +4,7 @@ title: Keep criteria a worker cannot meet by itself out of Ready stories
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:36'
+updated_date: '2026-10-18 09:32'
 labels:
   - 'tier:S'
   - cutover
@@ -34,13 +34,14 @@ Context: the fourth M1a run, DIPO-176 (run_01M55PE8B6W4X9TMJEW2SYV7B6). Criterio
 
 DIPO-159 makes a worker question wait for an answer before parking. This story removes the need for the question in this case and does not change the question path, so it does not depend on DIPO-159. DIPO-170 changes how R10 matches phrases in packages/engine/src/gate/rules.ts; whichever lands second rebases on the other. With the R27 option, the rule id list in packages/engine/src/gate/types.ts (it ends at R26) and the rule lists in packages/engine/src/gate/evaluate.ts (R02 to R26) gain R27.
 
-A new Ready gate rule is an 0012 section 3 amendment the maintainer approves; the maintainer writes it, and this story does not edit docs/decisions/.
+The maintainer chose R27 on 2026-10-18; the 0012 note is in docs/decisions/0012-story-standard.md (Amendments, 2026-10-18, DIPO-188), and this story does not edit docs/decisions/. The maintainer also asked whether another worker could take such steps; a worker role with gh and network access would be its own decision, so for now R27 sends them to manual test plan entries.
 
 ```dipo
 branch: "DIPO-188/flag-maintainer-step-criteria"
 unknowns:
   - q: "Is the check a new Ready gate rule R27 with its own office list story.maintainerStepPhrases and the message 'criterion #<n> names a step the worker cannot take (\"<phrase>\"); move it to a manual test plan entry' (an 0012 section 3 amendment you approve), or more phrases in R10's story.bannedPhrases (no ADR change, but the failure then says vague phrase)?"
-    status: "open"
+    status: "resolved"
+    answer: "A new Ready gate rule R27 with the office list story.maintainerStepPhrases and its own message; the maintainer approved the 0012 note of 2026-10-18 (DIPO-188). Not more R10 phrases."
 test_plan:
   entries:
     - kind: "automated"
