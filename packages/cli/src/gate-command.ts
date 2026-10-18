@@ -6,7 +6,16 @@
 import { StoryId, StoryKey, type StoryRefValue, storyGate } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
-import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
+import { type Act, type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
+
+/**
+ * How long `dipo gate` waits for the daemon's reply (DIPO-180). From the mirror, `dipo gate DIPO-123`
+ * on this repository (about 200 tasks) took 0.49 to 0.51 s, measured 2026-10-18. When the mirror
+ * was read at an older `_base` commit, the daemon first runs a stories index pass: every task and
+ * draft view plus the claimed stories on their branches. The per-view read of 169 tasks alone took
+ * 11 to 13 s (about 0.17 s per view, 4 at a time), so the wait covers that read twice over.
+ */
+export const GATE_TIMEOUT_MS = 30_000;
 
 /** A story id as typed (Backlog.md prints ids upper-cased), or a story key as is. */
 function storyRef(text: string): StoryRefValue | null {
@@ -38,7 +47,7 @@ export async function gateCommand(
   if (ref === null) return usage(deps, `gate: ${JSON.stringify(story)} is not a story id`);
   const options = parseOptions(rest, false);
   if (typeof options === "string") return usage(deps, `gate: ${options}`);
-  return withOffice(deps, options.office, async (session, office) => {
+  const act: Act = async (session, office) => {
     const outcome = await session.read(storyGate, { office, story: ref });
     if (!outcome.ok) {
       return outcome.error.code === "office.unknown"
@@ -57,5 +66,6 @@ export async function gateCommand(
       deps.writeLine(`waits on ${list.join(", ")}`);
     }
     return passed ? 0 : 1;
-  });
+  };
+  return withOffice(deps, options.office, act, undefined, GATE_TIMEOUT_MS);
 }

@@ -9,10 +9,10 @@ import { describe, expect, it } from "bun:test";
 import { type OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 
 import { CommandError } from "../../src/commands/errors";
-import { GateStore } from "../../src/gate";
+import { cachedGateTasks, GateStore } from "../../src/gate";
 import { systemSpawn } from "../../src/platform/process";
 import { countRows } from "../commands/helpers";
-import { CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";
+import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";
 
 describe("the Ready gate on the Backlog CLI", () => {
   it("story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes", () =>
@@ -86,6 +86,29 @@ describe("the Ready gate on the Backlog CLI", () => {
         code: "office.refused",
         details: { office: officeId, step: "git.version" },
       });
+
+      // The tasks were mirrored at the base the office loaded. A commit that gives TASK-1 and
+      // TASK-2 one branch moves `_base` on; the gate brings the mirror to that commit first, so
+      // R19 sees the branch TASK-1 has there.
+      const mirrored = (sha: string) => cachedGateTasks(office, sha)?.length;
+      const before = (await repo.git("rev-parse", "HEAD")).trim();
+      expect(mirrored(before)).toBeGreaterThan(0);
+      const shared = '```dipo\nbranch: "TASK-2/shared-branch"\n```';
+      await backlog(repo, ["task", "edit", "TASK-1", "-d", shared]);
+      await backlog(repo, ["task", "edit", "TASK-2", "-d", shared]);
+      const moved = await repo.commitAll("share a branch");
+      await repo.git("push", "--quiet", "origin", "main");
+      await engineGit.forOffice(officeId)?.fetch();
+      expect(mirrored(moved)).toBeUndefined();
+      const shareReply = await read(s, { office: officeId, story: "TASK-2" });
+      if (!shareReply.ok) throw new Error(`${shareReply.error.code}: ${shareReply.error.message}`);
+      expect(
+        (shareReply.result as { failures: { message: string }[] }).failures.map((f) => f.message),
+      ).toContain(
+        failed("TASK-2", "R19", 'branch "TASK-2/shared-branch" is already used by TASK-1').message,
+      );
+      expect(mirrored(moved)).toBeGreaterThan(0);
+      expect(mirrored(before)).toBeUndefined();
 
       // Indexed, then removed on the base with git: the key resolves but the story is not there.
       await repo.git("rm", "--quiet", "-r", "backlog/tasks");

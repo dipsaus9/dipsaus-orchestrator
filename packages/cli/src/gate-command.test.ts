@@ -6,8 +6,9 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import type { DaemonControl, DaemonSession } from "./daemon-commands";
+import { type DaemonControl, type DaemonSession, REPLY_TIMEOUT_MS } from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
+import { GATE_TIMEOUT_MS } from "./gate-command";
 import { main, type CliDeps } from "./index";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
@@ -28,6 +29,7 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
   const out: string[] = [];
   const err: string[] = [];
   const sent: Sent[] = [];
+  const clock = new ManualClock();
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
     writeError: (line) => err.push(line),
@@ -50,13 +52,13 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
       return session;
     },
     daemon: NO_LIFECYCLE,
-    clock: new ManualClock(),
+    clock,
     clientChecks: [],
     stamp: undefined,
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
     workspace: fakeWorkspace({ cwd: "/work/app/src", ...workspace }),
   };
-  return { deps, out, err, sent };
+  return { deps, out, err, sent, clock };
 }
 
 const IN_OFFICE = { repository: { ...REPO, office: OFFICE, backlog: true } };
@@ -153,6 +155,20 @@ describe("dipo gate", () => {
     expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(1);
     expect(ctx.sent).toEqual([]);
     expect(ctx.err).toEqual(["dipo: not an office, run `dipo office open`"]);
+  });
+
+  it("waits for the gate read longer than the default reply deadline, then gives up", async () => {
+    const ctx = fake(() => new Promise(() => {}), IN_OFFICE);
+    const running = main(["gate", "DIPO-7"], ctx.deps);
+    await Bun.sleep(0);
+    ctx.clock.advance(REPLY_TIMEOUT_MS);
+    await Bun.sleep(0);
+    expect(ctx.err).toEqual([]);
+    ctx.clock.advance(GATE_TIMEOUT_MS - REPLY_TIMEOUT_MS);
+    expect(await running).toBe(1);
+    expect(ctx.err).toEqual([
+      `dipo: the daemon did not answer within ${GATE_TIMEOUT_MS / 1000} s.`,
+    ]);
   });
 
   it("refuses a missing or malformed id and unknown arguments", async () => {

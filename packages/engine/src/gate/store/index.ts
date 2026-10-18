@@ -1,5 +1,6 @@
 // Stored Ready gate decisions and the read `story.gate` (DIPO-71).
 
+export { baseSha, cachedGateTasks } from "./cache";
 export {
   findPassingDecision,
   gateDecisionsOf,

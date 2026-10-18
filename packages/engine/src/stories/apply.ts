@@ -31,6 +31,11 @@ export type MirrorSource = "base" | (string & {});
 export interface ApplyOptions {
   readonly at: number;
   readonly source: MirrorSource;
+  /**
+   * The `_base` commit a pass read (DIPO-180): the dependencies and branch of each task are stored
+   * with it for the Ready gate. Absent for a read of one story, which leaves them as they are.
+   */
+  readonly sha?: string;
 }
 
 /** What one pass changed. */
@@ -285,7 +290,7 @@ export function applyIndex(
   // 7. The mirror, and a `story.state` for every story whose view changed.
   const changes: { view: StoryView; from: Lifecycle }[] = [];
   for (const [key, story] of matched) {
-    writeMirror(office, key, story, at, story.source ?? options.source);
+    writeMirror(office, key, story, at, story.source ?? options.source, options.sha);
     const view = storyView(office, key, work);
     if (view === null) continue;
     const previous = before.get(key);
@@ -322,7 +327,9 @@ export function applyIndex(
 
 /**
  * Writes the `backlog_mirror` row of `key` from what was read. A park record keeps the time it
- * was first seen while it stays the same (DIPO-52). Runs inside the caller's transaction.
+ * was first seen while it stays the same (DIPO-52). With `gateSha` and a `gateTask` on the story
+ * it also stores what the Ready gate reads of the task, as of that commit (DIPO-180); otherwise
+ * those columns stay as they are. Runs inside the caller's transaction.
  */
 export function writeMirror(
   office: OfficeHandle,
@@ -330,13 +337,17 @@ export function writeMirror(
   story: BacklogStory,
   at: number,
   source: MirrorSource,
+  gateSha?: string,
 ): void {
+  const gate = gateSha === undefined ? undefined : story.gateTask;
   office.run(
     `insert into backlog_mirror
        (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source,
-        waiting_on, park, park_since, criteria_met, criteria_total, criteria_numbers)
+        waiting_on, park, park_since, criteria_met, criteria_total, criteria_numbers,
+        gate_sha, gate_dependencies, gate_branch)
      values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source,
-        $waiting_on, $park, $park_since, $criteria_met, $criteria_total, $criteria_numbers)
+        $waiting_on, $park, $park_since, $criteria_met, $criteria_total, $criteria_numbers,
+        $gate_sha, $gate_dependencies, $gate_branch)
      on conflict (office_id, key) do update set
        content_hash = excluded.content_hash, kind = excluded.kind, status = excluded.status,
        title = excluded.title, tier = excluded.tier, role = excluded.role,
@@ -347,8 +358,16 @@ export function writeMirror(
          else excluded.park_since end,
        park = excluded.park,
        criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total,
-       criteria_numbers = excluded.criteria_numbers`,
+       criteria_numbers = excluded.criteria_numbers,
+       gate_dependencies = case when excluded.gate_sha is null then backlog_mirror.gate_dependencies
+         else excluded.gate_dependencies end,
+       gate_branch = case when excluded.gate_sha is null then backlog_mirror.gate_branch
+         else excluded.gate_branch end,
+       gate_sha = coalesce(excluded.gate_sha, backlog_mirror.gate_sha)`,
     {
+      gate_sha: gate === undefined ? null : (gateSha ?? null),
+      gate_dependencies: gate === undefined ? null : JSON.stringify(gate.dependencies),
+      gate_branch: gate?.branch ?? null,
       key,
       hash: story.contentHash,
       kind: story.kind,

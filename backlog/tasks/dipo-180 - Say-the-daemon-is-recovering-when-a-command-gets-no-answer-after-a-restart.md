@@ -1,10 +1,10 @@
 ---
 id: DIPO-180
 title: Answer dipo gate without one Backlog CLI view per task
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 21:14'
+updated_date: '2026-10-18 07:45'
 labels:
   - 'tier:M'
   - cutover
@@ -51,9 +51,19 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One story.gate read makes a number of Backlog CLI calls that does not grow with the number of tasks, and a test counts the calls for a fixture backlog of 200 tasks
-- [ ] #2 The rule results do not change: on a fixture backlog with a dependency cycle, a dependency that is not an active task and a branch used twice, the new read gives the same R13, R14 and R19 failures as reading every task view
-- [ ] #3 When the stored data of the other tasks was read at a different `_base` commit than the one the gate reads, the gate brings it up to that commit first, so a decision never uses task data older than its base
-- [ ] #4 `dipo gate` waits with a reply timeout sized for the story.gate read, stated in a comment with the measured time, and on this repository it prints its result in under 3 s, measured and stated in the PR
-- [ ] #5 work.preview and work.run use the same read for their gate evaluation, and their existing gate tests pass
+- [x] #1 One story.gate read makes a number of Backlog CLI calls that does not grow with the number of tasks, and a test counts the calls for a fixture backlog of 200 tasks
+- [x] #2 The rule results do not change: on a fixture backlog with a dependency cycle, a dependency that is not an active task and a branch used twice, the new read gives the same R13, R14 and R19 failures as reading every task view
+- [x] #3 When the stored data of the other tasks was read at a different `_base` commit than the one the gate reads, the gate brings it up to that commit first, so a decision never uses task data older than its base
+- [x] #4 `dipo gate` waits with a reply timeout sized for the story.gate read, stated in a comment with the measured time, and on this repository it prints its result in under 3 s, measured and stated in the PR
+- [x] #5 work.preview and work.run use the same read for their gate evaluation, and their existing gate tests pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M56YJ4A3GWVPK7EY2NG55FM1 (Sonnet medium, 113 turns, about $1.63, 11 min) reported done, all five criteria, In Review on DIPO-180/gate-without-per-task-views; the live timing of criterion 4 was left open in its notes. Verify outside the sandbox on DIPO-180/gate-without-per-task-views-finish (origin/main merged in): 3251 pass, 2 skip, 0 fail.
+
+Criterion 4, live (maintainer side, 2026-10-18, this repository, 199 task files): the main binary at b885cf3 printed `dipo: the daemon did not answer within 10 s.` twice (10.11 s, 10.15 s). A dipo built from this branch, on a copy of the temp DIPO_HOME (the branch adds migration 0031): `dipo gate DIPO-123` 0.49, 0.49, 0.50, 0.51, 0.49 s, no did-not-answer line. The first read right after a daemon restart took 17.04 s including the recovery wait and answered; the next read 0.50 s.
+
+Review passed. Applied on top: the GATE_TIMEOUT_MS comment states the measured time instead of an unmeasured figure, and says the stale-mirror read is a full index pass. Left as follow-ups: the gate's in-session index pass does not notify subscribed clients or update StoryIndex's own state; the work.run claim recheck (a checkout, no session) falls back to the per-view read when the mirror is stale.
+<!-- SECTION:NOTES:END -->
