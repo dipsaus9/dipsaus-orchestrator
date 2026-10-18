@@ -1,10 +1,10 @@
 ---
 id: DIPO-170
 title: Keep the Ready gate's vague-phrase rule out of paths and code spans
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-18 12:00'
+updated_date: '2026-10-18 12:06'
 labels:
   - 'tier:S'
   - cutover
@@ -47,3 +47,11 @@ test_plan:
 - [x] #3 Unit tests in packages/engine/test/gate/ cover a phrase inside a path token, inside a code span, next to a path but outside it, and an unclosed backtick, with the expected results written out in the test
 - [x] #4 The behaviour matches the 0012 note of 2026-10-18 (DIPO-170): a banned phrase only inside a path token or a code span passes R10, the same phrase in prose fails it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57DYHEM7PQQ2CVBPBPKBMA6 (Haiku low, 9 turns, about $0.01, 2 min) reported done, In Review on DIPO-170/r10-skip-paths-and-code-spans, with no denied call. The masking sits in wordMatch (packages/engine/src/gate/text.ts), whose only caller is R10, so DIPO-188's R27 gets it too. Verify outside the sandbox on the finish branch (origin/main merged in): 3327 pass, 2 skip, 0 fail.
+
+Review passed. Fixed on top: code spans and path tokens are now found in the original text (so etc`a/b` is one path token, as the 0012 note defines), and each masked character becomes a non-letter, non-space mark, so works`x`well no longer reads as the phrase works well; a test covers both and fails on the worker's version. Verify after the fix: 3328 pass, 2 skip, 0 fail. Left for the maintainer: the 0012 path token definition also hides slash-joined prose (TBD/later, and/or,etc); narrowing it would be a new 0012 note.
+<!-- SECTION:NOTES:END -->
