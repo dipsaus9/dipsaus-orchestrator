@@ -4,7 +4,7 @@ title: Send every worker op through one stored-intent helper
 status: Done
 assignee: []
 created_date: '2026-10-16 13:06'
-updated_date: '2026-10-17 17:52'
+updated_date: '2026-10-18 06:46'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -62,4 +62,6 @@ Proposed 0008 note (needs the maintainer's approval, not applied):
 Delivered by dipo (M1a run 2, run_01M55EM75CBSWYH0TE2QQPAD7N, Sonnet medium): 66 turns, about $0.87, In Review on DIPO-126/one-stored-intent-helper. The worker saw 23 test failures inside its sandbox and did not check them against the base; verify outside the sandbox passed (3148 tests), so they were sandbox-only.
 
 Maintainer side: review blocked once because the worker's notes claimed a proposed 0008 note that did not exist; fixed on top in DIPO-126/one-stored-intent-helper-review with the proposed note above, an accurate record-only list, reasons in the intents.ts header and a comment in act(). The 0008 note waits for the maintainer's approval.
+
+2026-10-18: the maintainer approved the proposed 0008 note; it is applied as the 2026-10-17 DIPO-126 amendment in docs/decisions/0008-worker-adapter.md.
 <!-- SECTION:NOTES:END -->
