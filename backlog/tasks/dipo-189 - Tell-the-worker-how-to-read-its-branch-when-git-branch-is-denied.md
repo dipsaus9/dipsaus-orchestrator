@@ -1,10 +1,10 @@
 ---
 id: DIPO-189
 title: Tell the worker how to read its branch when git branch is denied
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 07:57'
+updated_date: '2026-10-18 08:00'
 labels:
   - 'tier:S'
   - cutover
@@ -49,3 +49,9 @@ test_plan:
 - [x] #1 L1 (packages/engine/src/prompts/contract/implement.md) says git branch is denied in every form, also inside a compound command, and that git rev-parse --abbrev-ref HEAD or git status shows the current branch; the text names no run's branch, id or path, and packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
 - [x] #2 The run settings from packages/engine/src/workers/claude-cli/plan.ts still deny Bash(git branch) and Bash(git branch *), and hold no deny rule that starts with Bash(git rev-parse); a test in packages/engine/test/workers/plan.test.ts asserts both
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5704NRKJKZDD0DMWXQBCV2N (Haiku low, 13 turns, about $0.01, 2 min) reported done, both criteria, In Review on DIPO-189/worker-reads-its-branch, with no denied call. Verify outside the sandbox on DIPO-189/worker-reads-its-branch-finish (origin/main merged in): 0 fail. Review passed with no changes. The live scratch-repo check of the test plan (a worker names its branch with no denied git branch call) is left for the maintainer's hand-test session.
+<!-- SECTION:NOTES:END -->
