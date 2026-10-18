@@ -1,7 +1,13 @@
 version: 2
-sandbox:
-  # The defaults plus the nvm node installs: oxfmt and oxlint run on node, which lives under
-  # ~/.nvm/versions/node on the maintainer's machine, so without it `bun run verify` cannot pass
-  # inside a worker (DIPO-115). Only the node versions, not nvm's own checkout. A list replaces
-  # the default, so the defaults are repeated.
-  toolchainReadPaths: ["~/.bun", "~/.npm", "~/.cache", "~/.nvm/versions/node"]
+# The worker sandbox reads the default toolchain paths (~/.bun, ~/.npm, ~/.cache). oxfmt and
+# oxlint run on node, so `bun run verify` passes inside a worker only when the sandbox can read
+# node too (DIPO-115). Where node lives is machine-specific, so it is not listed here: on a machine
+# with node under nvm, add these lines to .dipo/office.local.yaml (not committed). Its
+# sandbox.toolchainReadPaths entries are added to this office's list (DIPO-172):
+#
+#   version: 4
+#   sandbox:
+#     toolchainReadPaths: ["~/.nvm/versions/node"]
+#
+# Only the node versions, not nvm's own checkout. Keep npm tokens in ~/.npmrc: a run is refused
+# when a node version's etc/npmrc under a read path, or a .npmrc at the root of one, holds one.
