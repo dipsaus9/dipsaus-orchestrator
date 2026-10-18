@@ -9,10 +9,11 @@ import { engineFailure, usage } from "./daemon-commands";
 import { type Act, type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 /**
- * How long `dipo gate` waits for the daemon's reply (DIPO-180). The read answers from the mirror in
- * under a second. When the mirror was read at an older `_base` commit, the daemon first reads every
- * task through the Backlog CLI to bring it up to date: 11 to 13 s on a backlog of 169 tasks
- * (about 0.17 s per task view, 4 at a time), so the wait covers that read twice over.
+ * How long `dipo gate` waits for the daemon's reply (DIPO-180). From the mirror, `dipo gate DIPO-123`
+ * on this repository (about 200 tasks) took 0.49 to 0.51 s, measured 2026-10-18. When the mirror
+ * was read at an older `_base` commit, the daemon first runs a stories index pass: every task and
+ * draft view plus the claimed stories on their branches. The per-view read of 169 tasks alone took
+ * 11 to 13 s (about 0.17 s per view, 4 at a time), so the wait covers that read twice over.
  */
 export const GATE_TIMEOUT_MS = 30_000;
 
