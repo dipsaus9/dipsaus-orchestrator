@@ -1,10 +1,10 @@
 ---
 id: DIPO-193
 title: Anchor the worker's file permission rules at the absolute worktree path
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 11:30'
+updated_date: '2026-10-18 11:34'
 labels:
   - 'tier:M'
   - cutover
@@ -52,3 +52,11 @@ test_plan:
 - [x] #2 The worktree path in these rules is the one plan() passes through ruleSafe, so a worktree path a rule cannot hold refuses the plan with PlanError, as it does today
 - [x] #3 Tests in packages/engine/test/workers/plan.test.ts assert the rules of #1 for a fixture worktree path and that no rule starts with ./, and packages/engine/test/workers/golden/plan-S.json, plan-M.json and plan-L.json are updated; the tests pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57C6SHF9ZK9TWRK39YDDH5R (Sonnet medium, 15 turns, about $0.20, 2 min) reported done, all three criteria, In Review on DIPO-193/absolute-worktree-rules. One sed -i was auto-denied by the CLI (G7, DIPO-181). Verify outside the sandbox on DIPO-193/absolute-worktree-rules-finish (origin/main merged in): 3301 pass, 2 skip, 0 fail.
+
+Review passed. Fixed on top: plan.test.ts dropped an assertion that could never fail (every rule starts with a tool name); the `(./` regex is the real check. Advisories left: ruleSafe accepts spaces and does not resolve symlinks, so a worktree path with a space or a symlinked part now reaches the allow rules too (the hand test checks a worktree path with a space); packages/engine/src/context/secrets.ts still quotes the old Read(./**/.env*) form in its header comment.
+<!-- SECTION:NOTES:END -->
