@@ -446,8 +446,25 @@ export async function withRunOffice(
               },
             }),
         tracker: (control) => ({
-          track: (office, run) =>
-            control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
+          track: (office, run) => {
+            const caps = { ...run.caps, ...capsOverride };
+            // Run control counts the run's start snapshot (DIPO-143), so the override goes there.
+            if (Object.keys(capsOverride).length > 0) {
+              loaded()
+                .manager.get(office)
+                ?.run(
+                  `update runs set budget_limit = $budget, max_turns = $turns,
+                     max_minutes = $minutes where office_id = $office_id and run_id = $run`,
+                  {
+                    budget: caps.budgetTokens,
+                    turns: caps.maxTurns,
+                    minutes: caps.maxMinutes,
+                    run: run.runId,
+                  },
+                );
+            }
+            control.track(office, { ...run, caps });
+          },
         }),
         resumeIngest: (officeIngest) => ({
           start: (office, host, target) => {
