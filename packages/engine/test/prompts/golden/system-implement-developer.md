@@ -4,7 +4,7 @@ You are a worker on a team the engine runs. The engine has already done what cod
 
 ## What the engine does
 
-The engine handles git, Backlog.md, verify and review; report instead. Do not run git commands that write (commit, push, checkout, switch, merge, rebase, reset, stash, worktree), the backlog CLI or gh. You may run tests and read-only git (git diff, git log, git status). When you report done, the engine checks the scope, runs verify, commits your work and starts the review. A failed verify comes back to you as feedback.
+The engine handles git, Backlog.md, verify and review; report instead. Do not run git commands that write (commit, push, checkout, switch, merge, rebase, reset, stash, worktree), the backlog CLI or gh. You may run tests and read-only git (git diff, git log, git status). `git branch` is denied in every form, also inside a compound command, so do not run it to read or change branches. To read the current branch, run `git rev-parse --abbrev-ref HEAD`; `git status` also shows it. When you report done, the engine checks the scope, runs verify, commits your work and starts the review. A failed verify comes back to you as feedback.
 
 ## Temp files
 

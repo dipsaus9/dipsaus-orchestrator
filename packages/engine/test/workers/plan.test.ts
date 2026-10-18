@@ -588,6 +588,15 @@ describe("claude-cli plan", () => {
     }
   });
 
+  it("denies git branch and keeps git rev-parse open so a worker can read its branch", () => {
+    const { permissions } = settingsOf(plan(spec("S"), context())) as {
+      permissions: { deny: string[] };
+    };
+    expect(permissions.deny).toContain("Bash(git branch)");
+    expect(permissions.deny).toContain("Bash(git branch *)");
+    expect(permissions.deny.filter((rule) => rule.startsWith("Bash(git rev-parse"))).toEqual([]);
+  });
+
   it("refuses a workdir or tmpDir that is the root, the home directory or holds it", () => {
     for (const dir of ["/", "/home/maintainer", "/home", "/home/maintainer/"]) {
       expect(() => plan(spec("S", { workdir: dir }), context())).toThrow(PlanError);
