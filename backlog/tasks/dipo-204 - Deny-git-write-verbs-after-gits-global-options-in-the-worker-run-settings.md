@@ -1,10 +1,10 @@
 ---
 id: DIPO-204
 title: Deny git write verbs after git's global options in the worker run settings
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-18 09:10'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 10:03'
 labels:
   - 'tier:S'
   - cutover

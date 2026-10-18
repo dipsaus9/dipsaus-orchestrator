@@ -1,10 +1,10 @@
 ---
 id: DIPO-170
 title: Keep the Ready gate's vague-phrase rule out of paths and code spans
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 11:04'
 labels:
   - 'tier:S'
   - cutover
@@ -14,7 +14,6 @@ references:
   - packages/engine/src/gate/text.ts
   - packages/engine/src/gate/rules.ts
   - packages/engine/test/gate/
-  - docs/decisions/0012-story-standard.md
 priority: medium
 type: bug
 ordinal: 159000
