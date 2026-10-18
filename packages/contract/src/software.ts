@@ -253,6 +253,15 @@ export const daemonStatus = defineRead({
     keepAwake: z.object({ held: z.boolean(), reason: z.string().optional() }),
     upgradePending: z.boolean(),
     tools: ToolPaths,
+    // Since minor 1 (DIPO-198): the commit the binary was built from, `-dirty` for a dirty tree.
+    // Absent when the daemon runs from source.
+    buildCommit: z.string().min(1).optional(),
+    // Since minor 1 (DIPO-198): per loaded office whose repository holds the build commit, the
+    // base commits after it that change files under `packages/` (0 when the build is current).
+    // Offices without the commit are absent.
+    engineBehind: z
+      .array(z.object({ office: OfficeId, name: z.string().optional(), commits: Count }))
+      .optional(),
   }),
   since: 0,
 });

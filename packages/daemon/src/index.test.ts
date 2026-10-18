@@ -2,10 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 
-import { isolatedDaemonEnv, withDaemonTempDir } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, isolatedDaemonEnv, withDaemonTempDir } from "@dipsaus-orchestrator/testkit";
+import { buildRegistry, type Logger } from "@dipsaus-orchestrator/engine";
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import * as daemon from "./index";
+import { controlFeature, type ControlDeps } from "./control";
 import { noOrphansActive } from "./io";
+import { DaemonLifecycle } from "./lifecycle";
 
 const { runDaemon } = daemon;
 
@@ -124,5 +128,50 @@ describe("noOrphansActive", () => {
     expect(noOrphansActive({ execArgv: [], env: { BUN_FEATURE_FLAG_NO_ORPHANS: "0" } })).toBe(
       false,
     );
+  });
+});
+
+describe("daemon.status build commit (DIPO-198)", () => {
+  const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000001" as OfficeId;
+
+  async function status(extra: Partial<ControlDeps>) {
+    const clock = new ManualClock();
+    const registry = buildRegistry([
+      controlFeature({
+        lifecycle: new DaemonLifecycle(),
+        logger: {} as Logger,
+        clock,
+        startedAt: clock.now(),
+        pid: 1,
+        version: "0.0.0-test",
+        socket: "/s",
+        tools: {},
+        upgradePending: () => false,
+        loadedOffices: () => [OFFICE],
+        requestStop: () => {},
+        ...extra,
+      }),
+    ]);
+    const read = registry.read("daemon.status");
+    if (read === undefined) throw new Error("daemon.status is not registered");
+    return (await (read.handle as (ctx: unknown, args: unknown) => Promise<unknown>)({}, {})) as {
+      buildCommit?: string;
+      engineBehind?: unknown;
+    };
+  }
+
+  it("carries the build commit, dirty suffix included, and the offices behind", async () => {
+    const result = await status({
+      buildCommit: "1a2b3c4d5e6f-dirty",
+      engineBehind: async () => [{ office: OFFICE, name: "repo", commits: 1 }],
+    });
+    expect(result.buildCommit).toBe("1a2b3c4d5e6f-dirty");
+    expect(result.engineBehind).toEqual([{ office: OFFICE, name: "repo", commits: 1 }]);
+  });
+
+  it("has neither field when run from source", async () => {
+    const result = await status({});
+    expect("buildCommit" in result).toBe(false);
+    expect("engineBehind" in result).toBe(false);
   });
 });

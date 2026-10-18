@@ -176,6 +176,14 @@ export function formatRunning(status: DaemonStatusResult): string[] {
     `  offices:    ${status.loadedOffices.length} loaded, ${status.activeRuns} active runs`,
     `  keep-awake: ${keepAwake}`,
   );
+  if (status.buildCommit !== undefined) lines.push(`  commit:     ${status.buildCommit}`);
+  for (const behind of status.engineBehind ?? []) {
+    if (behind.commits === 0) continue;
+    const plural = behind.commits === 1 ? "commit" : "commits";
+    lines.push(
+      `  ${behind.name ?? behind.office}: the base has ${behind.commits} engine ${plural} after this build; rebuild dipo and run \`dipo daemon restart\``,
+    );
+  }
   if (status.upgradePending) {
     lines.push("  upgrade pending: the binary changed on disk; run `dipo daemon restart`");
   }

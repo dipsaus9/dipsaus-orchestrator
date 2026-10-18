@@ -17,6 +17,7 @@ export {
   WORKTREE_ADD_CONFIG,
 } from "./hardened";
 export type { GitLocation } from "./hardened";
+export { buildCommitSha, ENGINE_PATH, engineCommitsAfter } from "./build-commit";
 export { OfficeGit } from "./office";
 export type {
   BaseWorktree,

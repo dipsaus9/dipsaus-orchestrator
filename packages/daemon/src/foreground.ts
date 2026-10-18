@@ -8,7 +8,7 @@
 // or capped. An error no code caught drains it too, and that exit is a crash: exit 1 with the crash
 // marker kept (DIPO-117).
 
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 
 import {
@@ -33,6 +33,7 @@ import {
   currentPlatform,
   detachedEnv,
   EngineGit,
+  engineCommitsAfter,
   engineFeatures,
   engineRegistry,
   ensurePrivateDir,
@@ -104,7 +105,7 @@ import {
   type StateDatabase,
 } from "@dipsaus-orchestrator/engine";
 
-import { controlFeature, emitDaemonStates } from "./control";
+import { controlFeature, type EngineBehind, emitDaemonStates } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
 import { noOrphansActive, type DaemonIo, type UncaughtEvent, type UncaughtSource } from "./io";
@@ -837,6 +838,23 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         startedAt,
         pid: record.pid,
         version: io.version,
+        ...(io.buildCommit === undefined
+          ? {}
+          : {
+              buildCommit: io.buildCommit,
+              engineBehind: async () => {
+                const buildCommit = io.buildCommit as string;
+                const rows: EngineBehind[] = [];
+                for (const office of offices.loadedOffices()) {
+                  const officeGit = engineGit.forOffice(office);
+                  if (officeGit === undefined) continue;
+                  const commits = await engineCommitsAfter(officeGit, buildCommit);
+                  if (commits === null) continue;
+                  rows.push({ office, name: basename(officeGit.mainWorktree), commits });
+                }
+                return rows;
+              },
+            }),
         socket: socketPath,
         tools: tools.paths,
         upgradePending: () => watcher.pending,

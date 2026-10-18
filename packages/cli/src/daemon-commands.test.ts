@@ -152,3 +152,56 @@ describe("dipo daemon log-level and resume-scheduling", () => {
     }
   });
 });
+
+function statusCtx(result: Record<string, unknown>) {
+  const ctx = fake(() => Promise.reject(new Error("must not connect")), {
+    ...NO_LIFECYCLE,
+    inspect: async () => ({ kind: "running", status: result }) as never,
+  });
+  return ctx;
+}
+
+describe("dipo daemon status build commit (DIPO-198)", () => {
+  const status = {
+    state: "running",
+    pid: 4242,
+    version: "0.1.0-dev",
+    uptimeMs: 5000,
+    socket: "/run/dipo/dipo.sock",
+    loadedOffices: ["off_01J9ZK5Q8W3V4X6Y7Z00000001"],
+    activeRuns: 0,
+    keepAwake: { held: false },
+    upgradePending: false,
+    tools: {},
+    buildCommit: "1a2b3c4d5e6f-dirty",
+    engineBehind: [
+      { office: "off_01J9ZK5Q8W3V4X6Y7Z00000001", name: "dipsaus-orchestrator", commits: 1 },
+      { office: "off_01J9ZK5Q8W3V4X6Y7Z00000002", name: "current", commits: 0 },
+    ],
+  };
+
+  it("prints the commit and a rebuild line for an office behind", async () => {
+    const ctx = statusCtx(status);
+    expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
+    expect(ctx.out).toContain("  commit:     1a2b3c4d5e6f-dirty");
+    expect(ctx.out).toContain(
+      "  dipsaus-orchestrator: the base has 1 engine commit after this build; rebuild dipo and run `dipo daemon restart`",
+    );
+    expect(ctx.out.join("\n")).not.toContain("current:");
+  });
+
+  it("prints neither line when run from source", async () => {
+    const { buildCommit: _c, engineBehind: _e, ...source } = status;
+    const ctx = statusCtx(source);
+    expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
+    expect(ctx.out.join("\n")).not.toContain("commit");
+  });
+
+  it("carries both fields in --json", async () => {
+    const ctx = statusCtx(status);
+    expect(await main(["daemon", "status", "--json"], ctx.deps)).toBe(0);
+    const parsed = JSON.parse(ctx.out[0] ?? "{}") as { daemon: typeof status };
+    expect(parsed.daemon.buildCommit).toBe("1a2b3c4d5e6f-dirty");
+    expect(parsed.daemon.engineBehind[0]?.commits).toBe(1);
+  });
+});
