@@ -39,6 +39,13 @@ describe("system file", () => {
     expect(text).toContain("never fall back to `/tmp`");
   });
 
+  it("tells the worker to run every command from the worktree root, never cd", () => {
+    const text = renderSystemFile("implement", "developer");
+    expect(text).toContain("Run every command from the worktree root.");
+    expect(text).toContain("Never change directory with `cd`, also not inside a compound command");
+    expect(text).toContain("Pass file paths relative to the worktree root");
+  });
+
   it("states the boundary, the precedence and every report field once", () => {
     const text = renderSystemFile("implement", "developer");
     expect(text).toContain(
