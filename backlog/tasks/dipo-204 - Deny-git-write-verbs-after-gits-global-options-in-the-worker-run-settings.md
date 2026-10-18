@@ -4,7 +4,7 @@ title: Deny git write verbs after git's global options in the worker run setting
 status: Refined
 assignee: []
 created_date: '2026-10-18 09:10'
-updated_date: '2026-10-18 09:15'
+updated_date: '2026-10-18 09:16'
 labels:
   - 'tier:S'
   - cutover
@@ -43,5 +43,5 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The run settings from plan.ts deny every verb in GIT_WRITE_VERBS also after the global options -C <path> and -c <name>=<value>, and a test in packages/engine/test/workers/plan.test.ts asserts the deny rules for git -C . commit, git -C . branch and git -c x=y push, with the rule strings written as literals in the test
-- [ ] #2 No deny rule starts with Bash(git rev-parse) or Bash(git -C * rev-parse), and the plan golden files are updated
+- [ ] #2 No deny rule starts with Bash(git rev-parse), Bash(git -C * rev-parse) or Bash(git -c * rev-parse), and the plan golden files are updated
 <!-- AC:END -->
