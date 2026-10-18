@@ -1,10 +1,10 @@
 ---
 id: DIPO-193
 title: Anchor the worker's file permission rules at the absolute worktree path
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 11:26'
+updated_date: '2026-10-18 11:30'
 labels:
   - 'tier:M'
   - cutover
@@ -48,7 +48,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 permissions() in packages/engine/src/workers/claude-cli/plan.ts writes the allow rules Read, Edit and Write and the worktree deny rules (.git, .git/**, backlog/**, .dipo/**, .claude/settings.json, .claude/settings.local.json for Edit and Write, and **/.env* for Read) on the absolute worktree path, in the form the main checkout rules use; no permission rule in the run settings starts with ./
-- [ ] #2 The worktree path in these rules is the one plan() passes through ruleSafe, so a worktree path a rule cannot hold refuses the plan with PlanError, as it does today
-- [ ] #3 Tests in packages/engine/test/workers/plan.test.ts assert the rules of #1 for a fixture worktree path and that no rule starts with ./, and packages/engine/test/workers/golden/plan-S.json, plan-M.json and plan-L.json are updated; the tests pass
+- [x] #1 permissions() in packages/engine/src/workers/claude-cli/plan.ts writes the allow rules Read, Edit and Write and the worktree deny rules (.git, .git/**, backlog/**, .dipo/**, .claude/settings.json, .claude/settings.local.json for Edit and Write, and **/.env* for Read) on the absolute worktree path, in the form the main checkout rules use; no permission rule in the run settings starts with ./
+- [x] #2 The worktree path in these rules is the one plan() passes through ruleSafe, so a worktree path a rule cannot hold refuses the plan with PlanError, as it does today
+- [x] #3 Tests in packages/engine/test/workers/plan.test.ts assert the rules of #1 for a fixture worktree path and that no rule starts with ./, and packages/engine/test/workers/golden/plan-S.json, plan-M.json and plan-L.json are updated; the tests pass
 <!-- AC:END -->
