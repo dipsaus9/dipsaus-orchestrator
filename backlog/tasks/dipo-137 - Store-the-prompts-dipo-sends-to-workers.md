@@ -1,10 +1,10 @@
 ---
 id: DIPO-137
 title: Store the prompts dipo sends to workers
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 19:43'
-updated_date: '2026-10-18 11:04'
+updated_date: '2026-10-18 13:07'
 labels:
   - 'tier:M'
   - 'slice:m1b'
