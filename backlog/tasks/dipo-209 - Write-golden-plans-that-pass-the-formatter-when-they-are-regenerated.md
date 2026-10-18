@@ -4,7 +4,7 @@ title: Write golden plans that pass the formatter when they are regenerated
 status: Refined
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-18 14:32'
+updated_date: '2026-10-18 14:46'
 labels:
   - 'tier:S'
   - cutover
@@ -13,6 +13,8 @@ dependencies: []
 references:
   - packages/engine/test/workers/plan.test.ts
   - packages/engine/test/workers/golden/
+  - packages/engine/test/sandbox/policy.test.ts
+  - packages/engine/test/sandbox/golden/
 priority: low
 type: chore
 ordinal: 209000
@@ -21,9 +23,11 @@ ordinal: 209000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: regenerating the plan golden files with DIPO_UPDATE_GOLDEN=1 writes files that `bun run format:check` accepts, so a worker that regenerates them does not fail verify on formatting.
+Outcome: regenerating the golden files with DIPO_UPDATE_GOLDEN=1 writes files that `bun run format:check` accepts, so a worker that regenerates them does not fail verify on formatting.
 
-Context: M1a run of DIPO-204 on 2026-10-18 and its review (PR #210). The golden writer in packages/engine/test/workers/plan.test.ts writes `JSON.stringify(value, null, 2)`, while oxfmt puts short arrays such as denyRead and allowRead on one line, so a regenerated golden fails format:check until format:fix runs. The worker had to reformat them by hand. The comparison reads parsed JSON, so only the written text changes.
+Context: M1a run of DIPO-204 on 2026-10-18 and its review (PR #210). The golden writer in packages/engine/test/workers/plan.test.ts writes `JSON.stringify(value, null, 2)`, while oxfmt puts short arrays such as denyRead and allowRead on one line, so a regenerated golden fails format:check until format:fix runs. The worker had to reformat them by hand. packages/engine/test/sandbox/policy.test.ts (around line 50) has the same writer for packages/engine/test/sandbox/golden/. Both comparisons read parsed JSON, so only the written text changes.
+
+0017 allows test writes only under DIPO_TMP, so the automated check writes the regenerated text there and runs oxfmt --check on it with the repository's oxfmt configuration (.oxfmtrc.json), never in the repository.
 
 ```dipo
 branch: "DIPO-209/formatted-golden-plans"
@@ -31,12 +35,13 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) regenerating the plan goldens leaves no formatting difference: format:check passes on the written files"
+      check: "(unit) the text each golden writer produces, written under DIPO_TMP, passes oxfmt --check with the repository's oxfmt configuration"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The golden writer in packages/engine/test/workers/plan.test.ts writes files in the formatter's own layout, so running the test with DIPO_UPDATE_GOLDEN=1 and then oxfmt --check on packages/engine/test/workers/golden/ reports no change
-- [ ] #2 The committed golden files are unchanged in content, and bun run verify passes
+- [ ] #1 The golden writers in packages/engine/test/workers/plan.test.ts and packages/engine/test/sandbox/policy.test.ts write text in the formatter's own layout, so regenerating with DIPO_UPDATE_GOLDEN=1 leaves packages/engine/test/workers/golden/ and packages/engine/test/sandbox/golden/ with no formatting change
+- [ ] #2 A test writes the text each writer produces for its goldens under DIPO_TMP, runs oxfmt --check there with the repository's .oxfmtrc.json, and expects exit 0
+- [ ] #3 The committed golden files are unchanged in content, and bun run verify passes
 <!-- AC:END -->
