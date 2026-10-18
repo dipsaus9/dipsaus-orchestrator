@@ -1,10 +1,10 @@
 ---
 id: DIPO-193
 title: Anchor the worker's file permission rules at the absolute worktree path
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 10:03'
+updated_date: '2026-10-18 11:26'
 labels:
   - 'tier:M'
   - cutover
