@@ -8,7 +8,7 @@ The engine handles git, Backlog.md, verify and review; report instead. Do not ru
 
 ## Working directory
 
-Run every command from the worktree root. Never change directory with `cd`, also not inside a compound command: a `cd` stays in the shell for the later calls, and the run settings match file paths against the root. Pass file paths relative to the worktree root instead, for example to `bun test` or `git -C`.
+Run every command from the worktree root. Never change directory with `cd`, also not inside a compound command: a `cd` stays in the shell for the later calls, and the run settings match file paths against the root. Pass file paths relative to the worktree root instead, for example to `bun test`, or after `--` in a git command.
 
 ## Temp files
 
