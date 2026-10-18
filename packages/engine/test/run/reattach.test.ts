@@ -1087,6 +1087,66 @@ describe("restart windows of DIPO-51's review", () => {
     expect(seen).toEqual(["2.0.9"]);
   });
 
+  it("gives the CLI the developer's remaining turns, a reviewer's turns left out (DIPO-142)", async () => {
+    beforeRestart("terminated", 0);
+    const before = runTotals(w.f.office, w.f.run, 0, 0);
+    w.f.office.immediate(() => {
+      w.f.office.run(
+        `update agents set ended_at = 1, end_reason = 'exited', session_id = 'session-1'
+          where office_id = $office_id and agent_id = $agent`,
+        { agent: w.f.agent },
+      );
+      // A reviewer of the same run spent 40 turns and 5,000 budget tokens (0019 section 13).
+      w.f.office.run(
+        `insert into agents (office_id, agent_id, run_id, role, model, started_at, ended_at)
+         values ($office_id, 'agt_reviewer', $run, 'reviewer', 'opus', 0, 0)`,
+        { run: w.f.run },
+      );
+      w.f.office.run(
+        `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input, turns,
+           updated_at)
+         values ($office_id, $run, 'agt_reviewer', 'opus', 'reviewer', 'M', 5000, 40, 0)`,
+        { run: w.f.run },
+      );
+    });
+    const used = runTotals(w.f.office, w.f.run, 0, 0);
+    expect(used.turns).toBe(before.turns);
+    expect(used.budgetTokens).toBe(before.budgetTokens + 5000);
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
+    const resumer = realResumer(
+      {
+        start: async (office, options) => {
+          const host = {
+            pid: 4243,
+            startTimeMs: 0,
+            runId: options.runId,
+            agentId: options.agentId,
+            socketPath: join(w.dir, "host.sock"),
+            protocolVersion: 1,
+            runDir,
+            eventFile: join(runDir, "events.ndjson"),
+          };
+          recordWorkerHost(office, host, w.f.t.clock, {
+            ...(options.processedOffset === undefined
+              ? {}
+              : { processedOffset: options.processedOffset }),
+            ...(options.record === undefined ? {} : { record: options.record }),
+          });
+          return host;
+        },
+      },
+      { probe: async () => null },
+    );
+    const outcome = await resumer.next(nextRequest());
+    expect(outcome.kind).toBe("started");
+    const caps = preparedSpecs.at(-1)?.caps;
+    // The tier's turns minus the developer's own; the budget minus every agent's tokens.
+    expect(caps?.maxTurns).toBe(OFFICE_DEFAULTS.tiers.M.maxTurns - before.turns);
+    expect(caps?.budgetTokens).toBe(ROOMY.budgetTokens - used.budgetTokens);
+  });
+
   it("the next session waits for an earlier host of the run, then refuses with run.hostAlive (AC #5)", async () => {
     beforeRestart("terminated", 0);
     let starts = 0;

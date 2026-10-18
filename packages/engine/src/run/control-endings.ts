@@ -26,7 +26,7 @@ import {
 } from "./control-types";
 import { sendAsIntent } from "./intents";
 import type { RunAct } from "./outcome-types";
-import { type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
+import { PARK_CAUSES, type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { activeRuns, findRun, type StoredRun } from "./records";
 
 export class RunEndings {
@@ -129,6 +129,7 @@ export class RunEndings {
       intent: "stop",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "stopped",
+      cause: PARK_CAUSES.maintainer,
       detail: note === undefined || note === "" ? STOPPED_DETAIL : note,
       endKind: "stopped",
     };
@@ -249,6 +250,7 @@ export class RunEndings {
           run,
           ...(work === undefined ? {} : { work }),
           reason: ending.reason,
+          cause: ending.cause,
           detail: ending.detail,
           endKind: ending.endKind,
         },

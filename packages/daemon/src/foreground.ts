@@ -771,11 +771,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "reconcile" }),
     });
-    // Ingestion, the cap ticks of run control (DIPO-50) and the plan-limit timers (DIPO-61) stop
-    // together.
+    // Ingestion, the cap ticks of run control (DIPO-50), the plan-limit timers (DIPO-61) and the
+    // places' tick (DIPO-142) stop together.
     held.ingest = {
       close: () => {
         runs.planLimits.close();
+        runs.places.close();
         runs.control.close();
         runs.permissions.close();
         runs.ingest.close();
@@ -832,6 +833,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       runs.outcomes.feature,
       runs.permissions.feature,
       runs.planLimits.feature,
+      // After the outcomes' load step: what waited for a place starts once exits are decided.
+      runs.places.feature,
       retention.feature,
       reconciler.feature,
       officeFeature(offices),

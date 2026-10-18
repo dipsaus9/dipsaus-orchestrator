@@ -3,6 +3,11 @@
 //
 // A story run is active while it has not ended and its claim is live, so a claim released by
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
+//
+// One story run spans every round of its claim (0019 section 13, DIPO-142): its active period ends
+// at a park and at In Review, and `reopenRun` opens it again for a resume, a review, a fix round or
+// a conflict hand-off, adding the time it stood ended to `parked_ms`. Each end rewrites its
+// provisional `run_outcomes` row; Done writes the final one.
 
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -49,10 +54,17 @@ export interface StoredRun extends NewRun {
   readonly endedAt: number | null;
   readonly endKind: string | null;
   /**
-   * Milliseconds the run stood parked before an answer reopened it (DIPO-75, migration 23); its
-   * caps and minutes count the time it worked, not these. 0 when absent.
+   * Milliseconds the run stood parked before an answer reopened it (DIPO-75, migration 23), and
+   * stood ended or in review between its rounds (DIPO-142); its caps and minutes count the time
+   * its developer worked, not these. 0 when absent.
    */
   readonly parkedMs?: number;
+  /**
+   * What the reopened run waits for its place as (`places.ts`, DIPO-142), with the time it began
+   * waiting; null when its session started or it waits for nothing.
+   */
+  readonly waiting?: string | null;
+  readonly waitingSince?: number | null;
 }
 
 interface RunRow {
@@ -82,12 +94,21 @@ interface RunRow {
   ended_at: number | null;
   end_kind: string | null;
   parked_ms: number;
+  waiting: string | null;
+  waiting_since: number | null;
 }
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, worktree, slot,
   budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, config_hash,
   override_keys,
-  run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms`;
+  run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms, waiting,
+  waiting_since`;
+
+/** The columns a run row is inserted with: those a run starts with. */
+const INSERTED = COLUMNS.replace(
+  /, gate_changes, ended_at, end_kind, parked_ms, waiting,\s+waiting_since$/,
+  "",
+);
 
 function jsonList(text: string | null): string[] | null {
   return text === null ? null : (JSON.parse(text) as string[]);
@@ -121,12 +142,14 @@ function toRecord(row: RunRow): StoredRun {
     endedAt: row.ended_at,
     endKind: row.end_kind,
     parkedMs: row.parked_ms,
+    waiting: row.waiting,
+    waitingSince: row.waiting_since,
   };
 }
 
 export function insertRun(office: OfficeHandle, run: NewRun): void {
   office.run(
-    `insert into runs (office_id, ${COLUMNS.replace(", gate_changes, ended_at, end_kind, parked_ms", "")})
+    `insert into runs (office_id, ${INSERTED})
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
        $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $max_turns,
        $max_minutes, $review_round_cap, $config_hash, $override_keys, $run_profile_id,
@@ -243,7 +266,19 @@ export function hasActiveRun(office: OfficeHandle): boolean {
   return activeRuns(office).length > 0;
 }
 
-export type RunStepKind = "phase" | "loop" | "review";
+/**
+ * The kinds of a run's steps: a phase entered, a verify loop or a review round started, and
+ * (DIPO-142) a review round whose verdict was blocked, a pushed head whose required checks were
+ * red, a conflict hand-off and a maintainer override past a blocked review.
+ */
+export type RunStepKind =
+  | "phase"
+  | "loop"
+  | "review"
+  | "review-failed"
+  | "ci"
+  | "conflict"
+  | "override";
 
 /** Appends one step to the run's append-only history. */
 export function appendRunStep(
@@ -302,9 +337,15 @@ export function currentProfileId(office: OfficeHandle): string | null {
 export const IN_REVIEW_END = "in-review";
 
 /**
+ * The end kind of a run whose story is Done (0019 section 13): the release reason the Done poll's
+ * teardown ends it with (`worktree/teardown.ts`).
+ */
+export const DONE_END = "done";
+
+/**
  * When the run's caps start counting (0008 sections 6 and 9): its first worker host's start, else
- * the run's own, moved later by the time it stood parked (DIPO-75), so the time cap counts only
- * the time it worked.
+ * the run's own, moved later by the time it stood parked (DIPO-75) or ended between its rounds and
+ * in review (DIPO-142), so the time cap counts only the time its developer worked.
  */
 export function capsStartedAt(
   run: StoredRun,
@@ -324,20 +365,22 @@ export const PARKED_OUTCOME = "parked";
  * The one place a run ends (DIPO-49, 0007 amendment of 2026-10-12): the call that ends it also
  * writes its `run_outcomes` row, kept until purge: tier, role, model, the outcome (`parked` when
  * the run parked its story, with the park reasons; else the end kind, such as `in-review` or
- * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes from start
- * to end, the story's criteria count and the declared scope size. A park writes its `parks` row
- * before it ends the run, so its reason is counted. It also makes the usage of every agent whose
- * exit was not ingested final (`finalizeRunAgents`, DIPO-51). True when this call ended the run, false
+ * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes worked, the
+ * story's criteria count and the declared scope size. A park writes its `parks` row before it
+ * ends the run, so its reason is counted. It also makes the usage of every agent whose exit was
+ * not ingested final (`finalizeRunAgents`, DIPO-51). True when this call ended the run, false
  * when it had ended before.
  *
- * One end is not always the last (DIPO-75): a run parked `needs-permission` is reopened when the
- * maintainer answers the park's question (`reopenParkedRun`): `ended_at` is cleared, the
- * `run_outcomes` row removed and the parked time added to `parked_ms`, so the next end writes the
- * row again with every park of the run and the minutes it worked (0007 amendment of 2026-10-15).
+ * One end is not always the last (DIPO-75, DIPO-142): a run is reopened for a resume, a review, a
+ * fix round or a conflict hand-off (`reopenRun`), so each end rewrites the provisional row with
+ * every park and round of the run and the minutes it worked. Done is the final end (0019 section
+ * 13): a `done` end of a run whose last active period already ended (at In Review) sets its end
+ * kind and writes the final row (`finishRun`); a final row is never rewritten.
  */
 export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): boolean {
   const ended = office.run(
-    `update runs set ended_at = $at, end_kind = $kind, backstop_snapshot = null
+    `update runs set ended_at = $at, end_kind = $kind, backstop_snapshot = null,
+       waiting = null, waiting_since = null
      where office_id = $office_id and run_id = $run and ended_at is null`,
     { run: runId, at, kind },
   );
@@ -345,14 +388,96 @@ export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: str
     // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
     // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
     finalizeRunAgents(office, runId, at);
-    writeRunOutcome(office, runId, at, kind);
+    writeRunOutcome(office, runId, kind);
+    return true;
   }
-  return ended.changes > 0;
+  if (kind === DONE_END) finishRun(office, runId);
+  return false;
 }
 
-function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: string): void {
+/**
+ * Done (0019 section 13): the ended run `runId` takes the end kind `done` and its final
+ * `run_outcomes` row is written, with its loops, review rounds and failed rounds, CI attempts,
+ * conflict hand-offs and any override. Its end time stays the end of its last active period, so
+ * its minutes count the time it worked. False when the run is open, unknown or final already.
+ * Inside the caller's transaction.
+ */
+export function finishRun(office: OfficeHandle, runId: RunId): boolean {
   const run = findRun(office, runId);
-  if (run === null) return;
+  if (run === null || run.endedAt === null) return false;
+  const final = office.get<{ final: number }>(
+    "select final from run_outcomes where office_id = $office_id and run_id = $run",
+    { run: runId },
+  );
+  if (final?.final === 1) return false;
+  office.run(`update runs set end_kind = $kind where office_id = $office_id and run_id = $run`, {
+    run: runId,
+    kind: DONE_END,
+  });
+  writeRunOutcome(office, runId, DONE_END);
+  return true;
+}
+
+/**
+ * Opens the ended story run `runId` again for a new active period (0019 section 13, DIPO-75): its
+ * end is cleared and the time since it ended is added to `parked_ms`, so its caps and minutes
+ * count only the time its developer worked; its provisional outcome row goes until its next end.
+ * A run whose story is Done stays ended. True when this call reopened it. Inside the caller's
+ * transaction.
+ */
+export function reopenRun(office: OfficeHandle, runId: RunId, at: number): boolean {
+  const reopened = office.run(
+    `update runs set parked_ms = parked_ms + max(0, $at - coalesce(ended_at, $at)),
+       ended_at = null, end_kind = null
+     where office_id = $office_id and run_id = $run and ended_at is not null
+       and end_kind is not $done`,
+    { run: runId, at, done: DONE_END },
+  );
+  if (reopened.changes === 0) return false;
+  office.run(
+    "delete from run_outcomes where office_id = $office_id and run_id = $run and final = 0",
+    { run: runId },
+  );
+  return true;
+}
+
+/** How many steps of each counted kind the run has (`run_steps`). */
+export interface RunRounds {
+  readonly loops: number;
+  readonly reviewRounds: number;
+  readonly reviewRoundsFailed: number;
+  readonly ciAttempts: number;
+  readonly conflictHandoffs: number;
+  readonly override: boolean;
+}
+
+/** The run's loops, review rounds, failed rounds, CI attempts, hand-offs and override. */
+export function runRoundCounts(office: OfficeHandle, runId: string): RunRounds {
+  const rows = office.all<{ kind: RunStepKind; n: number }>(
+    `select kind, count(*) as n from run_steps where office_id = $office_id and run_id = $run
+      group by kind`,
+    { run: runId },
+  );
+  const n = (kind: RunStepKind): number => rows.find((row) => row.kind === kind)?.n ?? 0;
+  return {
+    loops: n("loop"),
+    reviewRounds: n("review"),
+    reviewRoundsFailed: n("review-failed"),
+    ciAttempts: n("ci"),
+    conflictHandoffs: n("conflict"),
+    override: n("override") > 0,
+  };
+}
+
+/**
+ * Writes the run's `run_outcomes` row as of its end, replacing a provisional one; final for a
+ * `done` end. A final row is never replaced.
+ */
+function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void {
+  const run = findRun(office, runId);
+  if (run === null || run.endedAt === null) return;
+  const at = run.endedAt;
+  const final = kind === DONE_END;
   const parks = office
     .all<{ reason: string }>(
       `select reason from parks where office_id = $office_id and run_id = $run order by park_id`,
@@ -360,14 +485,7 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: s
     )
     .map((row) => row.reason);
   const count = (sql: string): number => office.get<{ n: number }>(sql, { run: runId })?.n ?? 0;
-  const loops = count(
-    `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
-      and kind = 'loop'`,
-  );
-  const reviews = count(
-    `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
-      and kind = 'review'`,
-  );
+  const rounds = runRoundCounts(office, runId);
   const failures = count(
     `select count(*) as n from verify_results where office_id = $office_id and run_id = $run
       and passed = 0`,
@@ -385,32 +503,51 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, at: number, kind: s
           { key: run.key },
         )?.total ?? null);
   office.run(
-    `insert or ignore into run_outcomes (office_id, run_id, story_id, tier, role, model, outcome,
+    `insert into run_outcomes (office_id, run_id, story_id, tier, role, model, outcome,
        park_reasons, loops, review_rounds, verify_failures, budget_tokens, minutes,
-       criteria_count, scope_size, ended_at)
+       criteria_count, scope_size, ended_at, end_kind, final, review_rounds_failed, ci_attempts,
+       conflict_handoffs, override)
      values ($office_id, $run, $story, $tier, $role, $model, $outcome, $parks, $loops, $reviews,
-       $failures, $budget, $minutes, $criteria, $scope, $at)`,
+       $failures, $budget, $minutes, $criteria, $scope, $at, $kind, $final, $failed, $ci,
+       $conflicts, $override)
+     on conflict (office_id, run_id) do update set story_id = excluded.story_id,
+       tier = excluded.tier, role = excluded.role, model = excluded.model,
+       outcome = excluded.outcome, park_reasons = excluded.park_reasons, loops = excluded.loops,
+       review_rounds = excluded.review_rounds, verify_failures = excluded.verify_failures,
+       budget_tokens = excluded.budget_tokens, minutes = excluded.minutes,
+       criteria_count = excluded.criteria_count, scope_size = excluded.scope_size,
+       ended_at = excluded.ended_at, end_kind = excluded.end_kind, final = excluded.final,
+       review_rounds_failed = excluded.review_rounds_failed, ci_attempts = excluded.ci_attempts,
+       conflict_handoffs = excluded.conflict_handoffs, override = excluded.override
+     where run_outcomes.final = 0`,
     {
       run: runId,
       story: run.story,
       tier: run.tier,
       role: run.role,
       model: run.model,
-      outcome: parks.length > 0 ? PARKED_OUTCOME : kind,
+      // Done is the story's outcome, whatever parks the run had on the way.
+      outcome: final ? DONE_END : parks.length > 0 ? PARKED_OUTCOME : kind,
       parks: JSON.stringify(parks),
-      loops,
-      reviews,
+      loops: rounds.loops,
+      reviews: rounds.reviewRounds,
       failures,
       budget,
       minutes: Math.round(((at - run.startedAt - (run.parkedMs ?? 0)) / 60_000) * 100) / 100,
       criteria,
       scope: run.scope === null ? null : run.scope.length,
       at,
+      kind,
+      final: final ? 1 : 0,
+      failed: rounds.reviewRoundsFailed,
+      ci: rounds.ciAttempts,
+      conflicts: rounds.conflictHandoffs,
+      override: rounds.override ? 1 : 0,
     },
   );
 }
 
-/** A run's `run_outcomes` row (DIPO-49). */
+/** A run's `run_outcomes` row (DIPO-49, DIPO-142). */
 export interface RunOutcome {
   readonly runId: string;
   readonly story: string | null;
@@ -427,6 +564,14 @@ export interface RunOutcome {
   readonly criteriaCount: number | null;
   readonly scopeSize: number | null;
   readonly endedAt: number;
+  /** The end kind of the run's end that wrote the row; null on a row written before DIPO-142. */
+  readonly endKind: string | null;
+  /** True once Done wrote the final row. */
+  readonly final: boolean;
+  readonly reviewRoundsFailed: number;
+  readonly ciAttempts: number;
+  readonly conflictHandoffs: number;
+  readonly override: boolean;
 }
 
 export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | null {
@@ -446,6 +591,12 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
     criteria_count: number | null;
     scope_size: number | null;
     ended_at: number;
+    end_kind: string | null;
+    final: number;
+    review_rounds_failed: number;
+    ci_attempts: number;
+    conflict_handoffs: number;
+    override: number;
   }>(`select * from run_outcomes where office_id = $office_id and run_id = $run`, { run: runId });
   return row === null
     ? null
@@ -465,5 +616,11 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
         criteriaCount: row.criteria_count,
         scopeSize: row.scope_size,
         endedAt: row.ended_at,
+        endKind: row.end_kind,
+        final: row.final === 1,
+        reviewRoundsFailed: row.review_rounds_failed,
+        ciAttempts: row.ci_attempts,
+        conflictHandoffs: row.conflict_handoffs,
+        override: row.override === 1,
       };
 }

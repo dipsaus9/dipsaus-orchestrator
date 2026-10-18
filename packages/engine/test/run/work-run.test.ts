@@ -407,6 +407,36 @@ describe("work.run picks and claims one Ready story", () => {
     expect(world.claims).toHaveLength(1);
   });
 
+  it("counts only the worker place: an open session run takes none (DIPO-142)", async () => {
+    story("TASK-1", "Ready");
+    world.office.immediate(() =>
+      insertRun(world.office, {
+        runId: RunId.parse(world.t.ids.next("run")),
+        kind: "session",
+        key: null,
+        story: null,
+        tier: null,
+        role: "developer",
+        model: "haiku",
+        startSha: null,
+        branch: null,
+        worktree: null,
+        slot: null,
+        budgetUnit: "tokens",
+        budgetLimit: 1,
+        loopCap: 1,
+        reviewRoundCap: null,
+        configHash: "h",
+        overrideKeys: null,
+        runProfileId: null,
+        startedAt: world.t.clock.now(),
+      }),
+    );
+    // `office.forget` still sees the session run.
+    expect(hasActiveRun(world.office)).toBe(true);
+    expect(resultOf(await run()).started.map((s) => s.story)).toEqual(["TASK-1"]);
+  });
+
   it("runs only the named stories and skips each by its state", async () => {
     story("TASK-1", "Refined");
     story("TASK-2", "Parked");

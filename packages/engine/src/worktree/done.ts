@@ -5,6 +5,10 @@
 // worktree, branch and slot (0010 section 7, "Teardown"). Each notice is put on the office once per
 // claim and cause, so a dirty worktree is not reported again on every poll.
 //
+// The teardown's release ends the claim's run with `done` (`DONE_END`): the run's last active
+// period ended at In Review, so that end is its final one, and its final `run_outcomes` row is
+// written in the release's transaction (`finishRun`, 0019 section 13, DIPO-142).
+//
 // The load step only arms the poll; it must run after `git.version` (the office's git) and after
 // the claims' load step, so the daemon registers this feature right after `StoryClaims.feature`.
 // Polls of one office run one at a time.

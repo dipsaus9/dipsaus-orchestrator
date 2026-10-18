@@ -18,6 +18,7 @@ import {
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
+import { PARK_CAUSES } from "./park";
 import type { StoredRun } from "./records";
 
 export class SessionStarts {
@@ -49,6 +50,7 @@ export class SessionStarts {
         intent: "park",
         ops: [],
         reason: "worker-failed",
+        cause: PARK_CAUSES.build,
         detail: `${request.why}; dipo cannot start another session of the run`,
         endKind: OUTCOME_ENDS.crashed,
       });
@@ -83,6 +85,7 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "worker-failed",
+          cause: PARK_CAUSES.build,
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.crashed,
         });
@@ -93,6 +96,7 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "worker-failed",
+          cause: PARK_CAUSES.build,
           detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
           endKind: OUTCOME_ENDS.crashed,
         });
@@ -102,6 +106,7 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "interrupted",
+          cause: PARK_CAUSES.build,
           detail: `${request.why}; its session cannot be resumed: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.interrupted,
         });
@@ -146,6 +151,7 @@ export class SessionStarts {
         intentDetail: `${INTENT_TAGS.startFailed} ${detail}`,
         ops: [],
         reason: "worker-failed",
+        cause: PARK_CAUSES.build,
         detail: message,
         endKind: START_FAILED_END,
         notice: {

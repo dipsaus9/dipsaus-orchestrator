@@ -29,6 +29,7 @@ import {
   type RunView,
   type WaitFact,
 } from "./outcome-types";
+import { PARK_CAUSES } from "./park";
 import { findRun, type StoredRun } from "./records";
 import { raiseSignal } from "./signals";
 
@@ -156,6 +157,7 @@ export class ExitOutcomes {
         intent: "park",
         ops: [],
         reason: "interrupted",
+        cause: PARK_CAUSES.build,
         detail: `${HOST_LOST_WHY}${suffix}`,
         endKind: OUTCOME_ENDS.interrupted,
       });
@@ -301,6 +303,7 @@ export class ExitOutcomes {
             await park({
               intent: "cap",
               reason: "budget-exceeded",
+              cause: PARK_CAUSES.build,
               detail: "prompt_too_long: the context is full again after a handoff",
               endKind: OUTCOME_ENDS.capped,
             });
@@ -316,6 +319,7 @@ export class ExitOutcomes {
         await park({
           intent: "cap",
           reason: result.park?.reason ?? "budget-exceeded",
+          cause: PARK_CAUSES.build,
           detail: result.park?.detail ?? "the worker stopped at a cap",
           endKind: OUTCOME_ENDS.capped,
         });
@@ -330,6 +334,7 @@ export class ExitOutcomes {
             await park({
               intent: "park",
               reason: "ambiguous-spec",
+              cause: PARK_CAUSES.noReport,
               detail: `no valid report: ${why}`,
               endKind: OUTCOME_ENDS.noReport,
             });
@@ -362,6 +367,9 @@ export class ExitOutcomes {
         await park({
           intent: "park",
           reason: result.park?.reason ?? "ambiguous-spec",
+          // A permission the worker was denied parks its session; anything else is a question.
+          cause:
+            result.park?.reason === "needs-permission" ? PARK_CAUSES.build : PARK_CAUSES.question,
           detail: result.park?.detail ?? "the worker is blocked",
           endKind: OUTCOME_ENDS.blocked,
           report: result.report,
@@ -390,6 +398,7 @@ export class ExitOutcomes {
         intent: "park",
         ops: [],
         reason: "worker-failed",
+        cause: PARK_CAUSES.build,
         detail: `${detail}${refused}`,
         endKind: OUTCOME_ENDS.crashed,
       });

@@ -52,4 +52,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // unreleased, minor.
 // DIPO-137 adds the read `work.prompt` (the stored prompt text of an agent's session) to the same,
 // still unreleased, minor.
+// DIPO-142 adds the optional `cause` of `story.parked` (0020 section 2) to the same, still
+// unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

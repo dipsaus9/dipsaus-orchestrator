@@ -41,11 +41,15 @@ export {
   capsStartedAt,
   appendRunStep,
   currentProfileId,
+  DONE_END,
   endRun,
+  finishRun,
   IN_REVIEW_END,
   PARKED_OUTCOME,
   recordGateChanges,
+  reopenRun,
   runOutcome,
+  runRoundCounts,
   findRun,
   hasActiveRun,
   insertRun,
@@ -53,7 +57,38 @@ export {
   storeBackstopSnapshot,
   runSteps,
 } from "./records";
-export type { NewRun, RunKind, RunOutcome, StoredRun, StoredRunStep, RunStepKind } from "./records";
+export type {
+  NewRun,
+  RunKind,
+  RunOutcome,
+  RunRounds,
+  StoredRun,
+  StoredRunStep,
+  RunStepKind,
+} from "./records";
+// The office's worker and reviewer places and the run across review rounds (DIPO-142).
+export {
+  claimPlace,
+  DEFAULT_REVIEW_MODEL,
+  pausedPlaces,
+  PLACE_NOTICES,
+  PLACE_TICK_MS,
+  placeHolders,
+  placeOfRole,
+  placeOfRun,
+  placeOfStart,
+  Places,
+  PLACES,
+  PLACES_STEP,
+  placeTaken,
+  START_KINDS,
+  startOrder,
+  waitForPlace,
+  waitingStarts,
+} from "./places";
+export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./places";
+export { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
+export type { RoundKind } from "./rounds";
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export {
   afterRunExits,
@@ -102,7 +137,7 @@ export type {
   RunSteering,
   TrackedRun,
 } from "./control";
-export { firedCap, runCaps, runTotals } from "./caps";
+export { firedCap, REVIEWER_ROLE, runCaps, runTotals } from "./caps";
 export type { CapName, FiredCap, RunCaps, RunTotals } from "./caps";
 export { GRANT_KINDS, grantTotals, recordGrant } from "./grants";
 export type {
@@ -127,6 +162,7 @@ export {
   gitParkWriter,
   gitUnparkWriter,
   openPark,
+  PARK_CAUSES,
   PARK_NOTICES,
   parkActions,
   parkStory,
@@ -135,6 +171,7 @@ export {
 export type {
   BranchPark,
   ParkBranchRequest,
+  ParkCause,
   ParkDeps,
   ParkOutcome,
   ParkRequest,

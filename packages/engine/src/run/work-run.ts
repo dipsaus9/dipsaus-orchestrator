@@ -17,8 +17,10 @@
 // 3. Without `stories`, the candidates are the Ready stories on the base in pickup order; with
 //    `stories`, only those, in the order given.
 // 4. Each candidate not started is a skip: its status (`notReady`, `parked`, `notRunnable`), a
-//    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), the one
-//    active run per office (`capacity`), a model-family plan limit on the story's tier model
+//    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), the
+//    office's worker place held by a developer session or owed to a waiting resume, fix round or
+//    conflict hand-off first (`capacity`, 0019 section 12, DIPO-142; a reviewer or a session run
+//    takes no worker place), a model-family plan limit on the story's tier model
 //    (`capacity`, DIPO-61), a dependency not Done (`dependency`), or a failed pickup
 //    check (`pickupCheckFailed`).
 // 5. Before the claim the story contract is assembled (DIPO-47); `prompt.contractTooLarge` moves
@@ -91,13 +93,8 @@ import { recordRunCriteria } from "./criteria";
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
 import { markPhase } from "./markers";
 
-import {
-  activeRuns,
-  currentProfileId,
-  hasActiveRun,
-  insertRun,
-  recordConfigSnapshot,
-} from "./records";
+import { placeTaken, START_KINDS } from "./places";
+import { currentProfileId, hasActiveRun, insertRun, recordConfigSnapshot } from "./records";
 import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "./select";
 
 /** The role every M0 run starts with (0012 F12). */
@@ -223,6 +220,14 @@ interface Startable {
 interface Candidate {
   readonly story: StoryId;
   readonly key: StoryKey;
+}
+
+/**
+ * True when a new pickup cannot take the office's worker place (0019 section 12): a developer
+ * session holds it, or a resume, fix round or conflict hand-off waits for it and goes first.
+ */
+function workerPlaceTaken(office: OfficeHandle): boolean {
+  return placeTaken(office, { kind: START_KINDS.pickup, runId: null, since: 0 }) !== null;
 }
 
 /** `git.fetchFailed` and other git refusals as command errors; anything else as it is. */
@@ -365,7 +370,7 @@ export class WorkRun {
 
     const started: Started[] = [];
     const skipped: Skipped[] = [];
-    const busy = activeRuns(handle).length > 0;
+    const busy = workerPlaceTaken(handle);
     for (const candidate of candidates) {
       const reason = await this.#tryStart(ctx, {
         candidate,
@@ -780,7 +785,7 @@ export class WorkRun {
 
     const skipped: Preview["skipped"] = [];
     let chosen: { readonly candidate: Candidate; readonly startable: Startable } | null = null;
-    const busy = activeRuns(handle).length > 0;
+    const busy = workerPlaceTaken(handle);
     for (const candidate of candidates) {
       const checked = this.#precheck(handle, {
         candidate,

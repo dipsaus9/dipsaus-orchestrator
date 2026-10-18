@@ -16,7 +16,7 @@ import type { ClaimRecord } from "../worktree/records";
 import type { BackstopSnapshot } from "./backstop";
 import type { RunEnding, RunSteering } from "./control-types";
 import { type IntentKind, runIntents } from "./intents";
-import type { ParkOutcome, UnparkWriter } from "./park";
+import { PARK_CAUSES, type ParkOutcome, type UnparkWriter } from "./park";
 import type { StoredRun } from "./records";
 import type { NextSession } from "./resume";
 import { activeSignals } from "./signals";
@@ -252,6 +252,7 @@ export function initRejectedEnding(story: string, reason: string): RunEnding {
       { signal: "SIGKILL", afterMs: INIT_REJECTED_SIGKILL_AFTER_MS },
     ],
     reason: "worker-failed",
+    cause: PARK_CAUSES.build,
     detail: `the worker failed its start checks: ${reason}`,
     endKind: OUTCOME_ENDS.initRejected,
     notice: {
@@ -319,9 +320,10 @@ export interface ResumeParkRequest {
 export type ResumeParkOutcome =
   /**
    * The run is active again and the answer recorded; from `Resumption.resumePark` its next session is
-   * starting in the background (a failed start parks or releases the story with its notice).
+   * starting in the background (a failed start parks or releases the story with its notice), or,
+   * `queued`, waits for the office's worker place and starts when it frees (DIPO-142).
    */
-  | { readonly kind: "started" }
+  | { readonly kind: "started"; readonly queued?: boolean }
   /** The park was lifted but the next session did not start; the story parked or released again. */
   | { readonly kind: "notStarted" }
   /** The run has no open park `parkId`, or it was not this run's. */

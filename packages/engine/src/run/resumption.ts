@@ -5,6 +5,9 @@
 // - `resumePark` resumes the run of a story parked `needs-permission` after its question is
 //   answered (`work.answer`, `hooks/park-answers.ts`): the park is lifted on the branch, the run
 //   reopened and its next session started. `recoverParkResumes` finishes one a restart interrupted.
+//   A resume whose worker place is taken, or paused by a plan limit, is still accepted: the run
+//   waits for the place (`places.ts`, 0020 section 1, DIPO-142) and `startQueued` starts its
+//   session when the place frees; maintainer resumes go first in the place.
 // - `PARK_RESUME_POLICY` (`resume-policy.ts`) says, per reason a run stands still, which command
 //   resumes it. The rows of M0 are `needs-permission` (the permission answer) and `plan-limit`
 //   (`work.resume` of the held run). `work.resume` itself (`work-resume.ts`) decides through the
@@ -35,6 +38,7 @@ import {
   type RunOutcomesDeps,
 } from "./outcome-types";
 import { openPark, PARK_NOTICES, reopenParkedRun } from "./park";
+import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { capsStartedAt, findRun, type StoredRun } from "./records";
 import { resumeVia } from "./resume-policy";
 import { type HeldRunResumer, type ResumeWaitOutcome, WorkResumeCommand } from "./work-resume";
@@ -59,6 +63,11 @@ export interface ResumptionOptions {
    * held run needs it and refuses without it.
    */
   readonly planLimits?: () => HeldRunResumer | undefined;
+  /**
+   * The office's session places (DIPO-142); read when needed, since they are built after this. A
+   * resume whose place is blocked waits for it; without them a resume starts at once.
+   */
+  readonly places?: () => Places | undefined;
 }
 
 type ResumeArgs = z.output<typeof workResume.args>;
@@ -87,6 +96,7 @@ export class Resumption {
   readonly #guard: OutcomeParts["support"]["guard"];
   readonly #sessions: OutcomeParts["sessions"];
   readonly #command: WorkResumeCommand;
+  readonly #places: () => Places | undefined;
   /** Sessions of resumed parks starting after their answer was replied to (DIPO-75). */
   readonly #inflight = new Set<Promise<unknown>>();
 
@@ -96,6 +106,7 @@ export class Resumption {
     this.#guard = parts.support.guard;
     this.#sessions = parts.sessions;
     this.#command = new WorkResumeCommand(options.planLimits);
+    this.#places = options.places ?? (() => undefined);
   }
 
   /** Resolves once every session start of a resumed park this started has finished (DIPO-75). */
@@ -293,7 +304,10 @@ export class Resumption {
               },
             ];
       // The park resolved, the run active again, the answer recorded (an allow is in place before
-      // the session's first call) and the intent sent: one transaction.
+      // the session's first call) and the intent sent: one transaction. A worker place that is
+      // taken, or paused by a plan limit, leaves the run waiting for it (0020 section 1).
+      const places = this.#places();
+      const place: { queued: string | null } = { queued: null };
       this.#s.write(office, () => {
         const reopenedEntries = reopenParkedRun(office, park, run, to, at);
         const answered = answeredParkQuestion(
@@ -304,7 +318,26 @@ export class Resumption {
           at,
         );
         markIntentSent(office, runId, intentId, at, null);
-        return [...reopenedEntries, ...answered, ...pushNotice];
+        const queued =
+          places?.blocked(
+            officeId,
+            { kind: START_KINDS.resume, runId, since: at },
+            places.modelOf(officeId, "worker", run),
+          ) ?? null;
+        place.queued = queued;
+        if (queued === null) return [...reopenedEntries, ...answered, ...pushNotice];
+        waitForPlace(office, runId, START_KINDS.resume, at);
+        const waits: NewEntry = {
+          type: "engine.notice",
+          key: work.key,
+          run: runId,
+          delta: {
+            level: "info",
+            code: PLACE_NOTICES.queued,
+            text: `${run.story}: resumed; its session starts when the office's worker place frees (${queued}).`,
+          },
+        };
+        return [...reopenedEntries, ...answered, ...pushNotice, waits];
       });
       await this.#deps.refreshStory?.(officeId, work.key).catch((error: unknown) => {
         this.#deps.warn?.("reading the resumed story again failed", {
@@ -312,6 +345,16 @@ export class Resumption {
           reason: messageOf(error),
         });
       });
+      if (place.queued !== null) {
+        // Started by the places when the worker place frees; a drain now arms their tick.
+        void places?.drain(officeId).catch((error: unknown) => {
+          this.#deps.warn?.("starting a queued resume failed", {
+            run: runId,
+            reason: messageOf(error),
+          });
+        });
+        return { kind: "started", queued: true };
+      }
     }
     // The run's caps count the time it worked, not the time it stood parked (`parked_ms`).
     const fresh = findRun(office, runId) ?? run;
@@ -359,6 +402,34 @@ export class Resumption {
     this.#inflight.add(job);
     void job.finally(() => this.#inflight.delete(job));
     return { kind: "started" };
+  }
+
+  /**
+   * The starter of a maintainer resume that waited for the worker place (`Places`, DIPO-142): the
+   * run's park-resume intent, sent and not resolved, starts its session as `resumePark` would have.
+   * False when the run has no such intent or the session did not start.
+   */
+  async startQueued(officeId: OfficeId, run: StoredRun): Promise<boolean> {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return false;
+    const row = office.get<{ intent_id: number; detail: string }>(
+      `select intent_id, detail from run_intents
+        where office_id = $office_id and run_id = $run and kind = 'answer' and state = 'sent'
+          and resolved_at is null and detail like $tag
+        order by intent_id desc limit 1`,
+      { run: run.runId, tag: `${INTENT_TAGS.parkResume} %` },
+    );
+    if (row === null || this.#guard.busy(run.runId)) return false;
+    let request: ResumeParkRequest;
+    try {
+      request = JSON.parse(intentRest(row.detail)) as ResumeParkRequest;
+    } catch {
+      return false;
+    }
+    const outcome = await this.#guard.within(`${run.runId} place-start`, () =>
+      this.#finishParkResume(office, run, request, row.intent_id, true, false),
+    );
+    return outcome.kind === "started";
   }
 
   /**
@@ -423,6 +494,8 @@ export class Resumption {
           resolve("resumed");
           return 0;
         }
+        // Waiting for its place: the places start it when the place frees (DIPO-142).
+        if (finishing.waiting != null) return 0;
         await this.#finishParkResume(office, finishing, request, row.intent_id, true, false);
         return 1;
       });
