@@ -8,14 +8,17 @@ import {
   OfficeConfigV2,
   OfficeConfigV3,
   OfficeConfigV4,
+  OfficeConfigV5,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
   OfficeFileV4,
+  OfficeFileV5,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
   OfficeLocalFileV4,
+  OfficeLocalFileV5,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -197,7 +200,6 @@ function localSandbox(version: 3 | 4, sandbox: unknown): boolean {
 
 describe("version 4 key paths", () => {
   it("are the version 3 paths; office.local.yaml also takes sandbox.toolchainReadPaths", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(4);
     expect(schemaKeyPaths(OfficeConfigV4)).toEqual(VERSION_4_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV4)).toEqual(
       VERSION_4_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -227,46 +229,114 @@ describe("version 4 key paths", () => {
   });
 });
 
+// Version 5 (DIPO-139): the review block and the rest of mergeSlot.
+const VERSION_5_KEY_PATHS = [
+  ...VERSION_4_KEY_PATHS,
+  "review.model",
+  "review.effort",
+  "review.maxRounds",
+  "review.maxTurns",
+  "review.maxMinutes",
+  "review.budgetTokens",
+  "mergeSlot.autoMerge",
+  "mergeSlot.conflictAttempts",
+  "mergeSlot.ciAttempts",
+  "mergeSlot.holdLabels",
+  "mergeSlot.checksWaitMinutes",
+];
+
+/** Whether `.dipo/office.yaml` version 5 accepts `body` as given. */
+function officeFileV5(body: object): boolean {
+  return OfficeFileV5.safeParse({ version: 5, ...body }).success;
+}
+
+describe("version 5 key paths", () => {
+  it("are the version 4 paths plus review and the rest of mergeSlot", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(5);
+    expect(schemaKeyPaths(OfficeConfigV5)).toEqual(VERSION_5_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV5)).toEqual(
+      VERSION_5_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV5)).toEqual(
+      VERSION_5_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+  });
+
+  it("refuse a count below 1 and a duplicate hold label", () => {
+    expect(officeFileV5({ review: { maxRounds: 0 } })).toBe(false);
+    expect(officeFileV5({ mergeSlot: { ciAttempts: 0 } })).toBe(false);
+    expect(officeFileV5({ mergeSlot: { holdLabels: ["hold", "hold"] } })).toBe(false);
+    expect(officeFileV5({ mergeSlot: { holdLabels: ["hold", "wip"] } })).toBe(true);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 4 as the identity", () => {
+  it("migrates version 1 to 5 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 4 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 5 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 4 as the identity", () => {
+  it("migrates version 2 to 5 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 4 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 5 });
   });
 
-  it("migrates version 3 to 4 as the identity", () => {
+  it("migrates version 3 to 5 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 4 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 5 });
   });
 
-  it("leaves a version 4 document as it is", () => {
+  it("migrates version 4 to 5 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual(v4);
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 5 });
   });
 
-  it("turns the version 1 defaults into the version 4 defaults but worker.plugins and mergeSlot", () => {
+  it("leaves a version 5 document as it is", () => {
+    const v5 = { version: 5, review: { maxRounds: 2 } };
+    expect(migrateOfficeDocument(5, v5)).toEqual(v5);
+  });
+
+  it("turns the version 1 defaults into the version 5 defaults but worker.plugins, mergeSlot and review", () => {
     const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
-    const { mergeSlot: _mergeSlot, ...rest } = OFFICE_DEFAULTS;
+    const { mergeSlot: _mergeSlot, review: _review, ...rest } = OFFICE_DEFAULTS;
     const v1 = OfficeConfigV1.parse({ ...rest, version: 1, worker });
     expect(
-      OfficeConfigV4.parse({
+      OfficeConfigV5.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
+        review: OFFICE_DEFAULTS.review,
       }),
     ).toEqual(OFFICE_DEFAULTS);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 4 configuration", () => {
-    expect(OfficeConfigV4.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
-    expect(OfficeConfigV3.parse({ ...OFFICE_DEFAULTS, version: 3 }).version).toBe(3);
+  it("are a complete version 5 configuration", () => {
+    expect(OfficeConfigV5.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("give the review loop opus, high effort and the ADR 0019 limits", () => {
+    expect(OFFICE_DEFAULTS.review).toEqual({
+      model: "opus",
+      effort: "high",
+      maxRounds: 3,
+      maxTurns: 60,
+      maxMinutes: 30,
+      budgetTokens: 200_000,
+    });
+  });
+
+  it("give the merge slot its ADR 0019 keys", () => {
+    expect(OFFICE_DEFAULTS.mergeSlot).toEqual({
+      requiredChecks: ["ci-ok", "pr-title"],
+      autoMerge: true,
+      conflictAttempts: 2,
+      ciAttempts: 2,
+      holdLabels: [],
+      checksWaitMinutes: 30,
+    });
   });
 
   it("let no plugin into a worker session", () => {
