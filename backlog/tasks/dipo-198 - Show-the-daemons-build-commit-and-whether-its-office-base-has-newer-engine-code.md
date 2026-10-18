@@ -3,10 +3,10 @@ id: DIPO-198
 title: >-
   Show the daemon's build commit and whether its office base has newer engine
   code
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 11:04'
+updated_date: '2026-10-18 12:44'
 labels:
   - 'tier:M'
   - cutover
