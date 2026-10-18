@@ -613,6 +613,28 @@ describe("claude-cli plan", () => {
     expect(permissions.deny.filter((rule) => rule.startsWith("Bash(git rev-parse"))).toEqual([]);
   });
 
+  it("denies the git write verbs after the global options -C and -c (DIPO-204)", () => {
+    const { permissions } = settingsOf(plan(spec("S"), context())) as {
+      permissions: { deny: string[] };
+    };
+    expect(permissions.deny).toContain("Bash(git -C * commit)");
+    expect(permissions.deny).toContain("Bash(git -C * commit *)");
+    expect(permissions.deny).toContain("Bash(git -C * branch)");
+    expect(permissions.deny).toContain("Bash(git -C * branch *)");
+    expect(permissions.deny).toContain("Bash(git -c * push)");
+    expect(permissions.deny).toContain("Bash(git -c * push *)");
+    for (const verb of GIT_WRITE_VERBS) {
+      for (const option of ["-C *", "-c *"]) {
+        expect(permissions.deny).toContain(`Bash(git ${option} ${verb})`);
+        expect(permissions.deny).toContain(`Bash(git ${option} ${verb} *)`);
+      }
+    }
+    const readRules = permissions.deny.filter((rule) =>
+      /^Bash\(git (-[Cc] \* )?rev-parse/.test(rule),
+    );
+    expect(readRules).toEqual([]);
+  });
+
   it("refuses a workdir or tmpDir that is the root, the home directory or holds it", () => {
     for (const dir of ["/", "/home/maintainer", "/home", "/home/maintainer/"]) {
       expect(() => plan(spec("S", { workdir: dir }), context())).toThrow(PlanError);
