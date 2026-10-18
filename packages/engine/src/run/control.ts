@@ -46,7 +46,7 @@ import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { background } from "../platform/background";
 import type { WorkerEvent } from "../workers/types";
 
-import { type CapName, type FiredCap, firedCap, runTotals } from "./caps";
+import { type CapName, type FiredCap, firedCap, runCaps, type RunCaps, runTotals } from "./caps";
 import { RunEndings } from "./control-endings";
 import { ReconcileStops } from "./control-reconcile";
 import {
@@ -68,7 +68,7 @@ import { AfterTurns } from "./control-turns";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import type { ParkOutcome } from "./park";
-import type { StoredRun } from "./records";
+import { findRun, type StoredRun } from "./records";
 
 export {
   CAP_TICK_MS,
@@ -221,8 +221,10 @@ export class RunControl implements RunEnder {
     if (tracked === undefined || tracked.ending !== null) return;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return;
+    const caps = this.#capsOf(office, tracked);
+    if (caps === null) return;
     const fired = firedCap(
-      tracked.caps,
+      caps,
       runTotals(office, tracked.runId, tracked.startedAt, this.#deps.clock.now()),
     );
     if (fired !== null) this.#crossings.set(event, fired);
@@ -464,13 +466,21 @@ export class RunControl implements RunEnder {
   #checkCaps(tracked: Tracked): boolean {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return false;
+    const caps = this.#capsOf(office, tracked);
+    if (caps === null) return false;
     const fired = firedCap(
-      tracked.caps,
+      caps,
       runTotals(office, tracked.runId, tracked.startedAt, this.#deps.clock.now()),
     );
     if (fired === null) return false;
     this.#cap(tracked, fired.cap, fired.detail);
     return true;
+  }
+
+  /** The caps the run counts against now (DIPO-143); the tracked caps serve for a legacy run. */
+  #capsOf(office: OfficeHandle, tracked: Tracked): RunCaps | null {
+    const run = findRun(office, tracked.runId);
+    return run === null ? null : runCaps(office, run, tracked.caps);
   }
 
   #cap(tracked: Tracked, cap: CapName, detail: string): void {

@@ -35,7 +35,7 @@ import scopeTemplate from "../prompts/feedback/nudge-scope.md" with { type: "tex
 import { measurePart } from "../prompts/parts";
 import { renderTemplate } from "../prompts/templates";
 import type { RunSteering } from "../run/control";
-import { runTotals } from "../run/caps";
+import { runCaps, runTotals } from "../run/caps";
 import { findRun, type StoredRun } from "../run/records";
 import { DEFAULT_LOCKFILES, scopeCovers } from "../run/verify-commit";
 import type { HostOp, NudgeOp, SteerOp, WorkerEvent } from "../workers/types";
@@ -459,7 +459,7 @@ export class Nudges {
         const now = this.#deps.clock.now();
         const budget = budgetFact(
           runTotals(office, stored.runId, stored.startedAt, now).budgetTokens,
-          stored.budgetLimit,
+          runCaps(office, stored).budgetTokens,
         );
         if (budget !== null) facts.push(budget);
       }

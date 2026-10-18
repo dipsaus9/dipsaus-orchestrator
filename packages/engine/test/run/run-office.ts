@@ -148,6 +148,8 @@ export interface Running {
 
 export interface RunOfficeOptions {
   readonly host: HostMode;
+  /** Runs on the fixture after TASK-1 passes the gate and before the office opens. */
+  readonly prepare?: (repo: TempRepoWithRemote) => Promise<void>;
   /**
    * Wires the run temp directory sweeps (DIPO-102) as the daemon does: after each worker exit is
    * ingested and after each exit decision of worker outcomes (which `outcomes` must ask for).
@@ -215,6 +217,7 @@ export async function withRunOffice(
         "packages/export/",
       ]);
       await publish(repo, "make TASK-1 pass the gate");
+      await options.prepare?.(repo);
 
       let setup: OfficeSetup | undefined;
       const loaded = (): OfficeSetup => {
@@ -443,8 +446,25 @@ export async function withRunOffice(
               },
             }),
         tracker: (control) => ({
-          track: (office, run) =>
-            control.track(office, { ...run, caps: { ...run.caps, ...capsOverride } }),
+          track: (office, run) => {
+            const caps = { ...run.caps, ...capsOverride };
+            // Run control counts the run's start snapshot (DIPO-143), so the override goes there.
+            if (Object.keys(capsOverride).length > 0) {
+              loaded()
+                .manager.get(office)
+                ?.run(
+                  `update runs set budget_limit = $budget, max_turns = $turns,
+                     max_minutes = $minutes where office_id = $office_id and run_id = $run`,
+                  {
+                    budget: caps.budgetTokens,
+                    turns: caps.maxTurns,
+                    minutes: caps.maxMinutes,
+                    run: run.runId,
+                  },
+                );
+            }
+            control.track(office, { ...run, caps });
+          },
         }),
         resumeIngest: (officeIngest) => ({
           start: (office, host, target) => {

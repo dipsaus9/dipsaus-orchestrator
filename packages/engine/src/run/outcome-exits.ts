@@ -7,6 +7,7 @@ import { recoverLostUsage } from "../ingest/transcript";
 import { finalizeAgentUsage } from "../ingest/usage";
 import type { HostOp } from "../workers/types";
 
+import { runCaps } from "./caps";
 import type { RunEnding } from "./control-types";
 import { markIntentSent, recordIntent, resolveIntent, type StoredIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
@@ -123,6 +124,8 @@ export class ExitOutcomes {
    * usage, never the decision.
    */
   #readTranscripts(office: OfficeHandle, view: RunView, agent: string, at: number): void {
+    // The usage share counts against the run's start budget plus its grants (DIPO-143).
+    const run = findRun(office, view.runId);
     recoverLostUsage({
       office,
       scope: {
@@ -130,7 +133,7 @@ export class ExitOutcomes {
         agent,
         role: view.work.role,
         tier: view.work.tier,
-        budgetLimit: view.caps.budgetTokens,
+        budgetLimit: run === null ? view.caps.budgetTokens : runCaps(office, run).budgetTokens,
       },
       read: this.#deps.worker.readTranscript,
       pricing: this.#deps.pricing?.() ?? null,

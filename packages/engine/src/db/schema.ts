@@ -32,6 +32,7 @@ import { nudgeSources } from "./migrations/0028-nudge-sources";
 import { adapterVersion } from "./migrations/0029-adapter-version";
 import { compactions } from "./migrations/0030-compactions";
 import { mirrorGateTask } from "./migrations/0031-mirror-gate-task";
+import { runGrants } from "./migrations/0032-run-grants";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -99,4 +100,5 @@ create table offices (
   adapterVersion,
   compactions,
   mirrorGateTask,
+  runGrants,
 ];
