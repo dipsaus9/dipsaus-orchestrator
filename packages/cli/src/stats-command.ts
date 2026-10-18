@@ -55,14 +55,21 @@ export async function statsCommand(
 ): Promise<number> {
   const options = parseOptions(args, false);
   if (typeof options === "string") return usage(deps, `stats: ${options}`);
-  return withOffice(deps, options.office, async (session, office) => {
-    const outcome = await session.read(officeStats, { office });
-    if (!outcome.ok) {
-      return outcome.error.code === "office.unknown"
-        ? "unknown"
-        : engineFailure(deps, outcome.error);
-    }
-    for (const line of formatStats(office, outcome.result.tables)) deps.writeLine(line);
-    return 0;
-  });
+  return withOffice(
+    deps,
+    options.office,
+    async (session, office) => {
+      const outcome = await session.read(officeStats, { office });
+      if (!outcome.ok) {
+        return outcome.error.code === "office.unknown"
+          ? "unknown"
+          : engineFailure(deps, outcome.error);
+      }
+      for (const line of formatStats(office, outcome.result.tables)) deps.writeLine(line);
+      return 0;
+    },
+    undefined,
+    undefined,
+    "running",
+  );
 }

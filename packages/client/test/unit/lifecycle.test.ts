@@ -15,6 +15,7 @@ import { ClientError } from "../../src/index";
 import {
   AutostartOffError,
   connectOrStart,
+  connectRunning,
   DaemonNotRunningError,
   daemonEnv,
   type DaemonSession,
@@ -371,6 +372,25 @@ describe("startDaemon and autostart", () => {
       const connected = await connectOrStart(w.deps);
       expect(connected.started).toEqual({ pid: 999, version: "0.0.0-dev" });
       expect(w.spawns).toHaveLength(1);
+    }));
+
+  it("connectRunning never starts the daemon: no daemon throws DaemonNotRunningError and spawns nothing", () =>
+    withTempDir(async (dir) => {
+      const w = world(dir, {
+        connect: async () => {
+          throw new DaemonNotRunningError("/s", "nothing answers");
+        },
+      });
+      const error = await connectRunning(w.deps).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(DaemonNotRunningError);
+      expect(w.spawns).toEqual([]);
+    }));
+
+  it("connectRunning returns the session of a daemon that answers", () =>
+    withTempDir(async (dir) => {
+      const w = world(dir, { connect: async () => session({ pid: 999 }) });
+      expect(await connectRunning(w.deps)).toBeDefined();
+      expect(w.spawns).toEqual([]);
     }));
 });
 

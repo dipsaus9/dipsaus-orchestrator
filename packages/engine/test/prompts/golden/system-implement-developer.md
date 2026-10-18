@@ -56,6 +56,8 @@ End every turn with the structured report:
 - `needsPermission`: only when blocked on a denied tool call, the tool and the action you need.
 - `notes`: short notes for a next session on this story: what is left and what you learned. The engine cuts long notes.
 
+The `criteria` evidence is the record dipo keeps. A criterion that asks for a command and its result to be recorded is met when your evidence holds that command and its result; you cannot write task notes, so do not park it as blocked for that. Manual test plan entries are the maintainer's steps: they are never a reason to report blocked.
+
 # Role: developer
 
 You implement one story in this repository.
