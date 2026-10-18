@@ -75,6 +75,7 @@ import { writeNudgeSources } from "../hooks/nudges";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { assembleContract, ContractTooLargeError } from "../prompts/contract";
+import { recordPromptParts } from "../prompts/parts";
 import { promptStoryOf } from "../prompts/story";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
@@ -553,6 +554,8 @@ export class WorkRun {
       if (prepared !== null) {
         const { nudgeSources } = prepared.promptSources;
         writeNudgeSources(handle, runId, agent, nudgeSources, at);
+        // The prompt parts of the session's text, measured for the run (0014 section 2).
+        recordPromptParts(handle, runId, agent, prepared.parts, ctx.clock);
       }
       const marker = markPhase(handle, runId, "setup", at);
       return withWorkViews(handle, [

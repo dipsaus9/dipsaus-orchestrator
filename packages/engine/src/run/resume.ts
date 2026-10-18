@@ -52,7 +52,13 @@ import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
-import { CHARS_PER_TOKEN } from "../prompts/parts";
+import {
+  CHARS_PER_TOKEN,
+  measurePart,
+  promptParts,
+  recordPromptParts,
+  TASK_PART,
+} from "../prompts/parts";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
@@ -423,6 +429,16 @@ export class RunResumer implements NextSession {
           hash: resume ? previous.systemHash : systemHash,
           at: deps.clock.now(),
         },
+      );
+      // The prompt parts this session sent (0014 section 2): a handoff sends the system file and
+      // the task message; a resume sends only its task message, the system file being the
+      // session's own.
+      recordPromptParts(
+        office,
+        run.runId,
+        agent,
+        resume ? [measurePart(TASK_PART, taskMessage)] : promptParts(systemFile, taskMessage, []),
+        deps.clock,
       );
       const at = deps.clock.now();
       // The context pack and input paths this session's nudges check (DIPO-99): the pack gathered

@@ -43,6 +43,7 @@ import { hostSocketPath } from "../host/protocol";
 import type { IngestAdapter, IngestTarget } from "../ingest/ingestor";
 import { officeDirectory } from "../office/marker";
 import { ensurePrivateDir } from "../platform/paths";
+import { type PromptPart, promptParts } from "../prompts/parts";
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
@@ -195,6 +196,8 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly systemHash: string;
   /** The context pack and input paths of the first session, stored for the nudges (DIPO-60). */
   readonly promptSources: Pick<RunPrompts, "nudgeSources">;
+  /** The measured prompt parts of the first session: system, task and each task section. */
+  readonly parts: readonly PromptPart[];
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -343,6 +346,7 @@ export class RunLauncher {
     let spec: WorkerSpec;
     let systemHash: string;
     let promptSources: PreparedRun["promptSources"];
+    let parts: PromptPart[];
     try {
       const dependencies = await this.#deps.dependencies(
         facts.office,
@@ -363,6 +367,7 @@ export class RunLauncher {
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
       promptSources = { nudgeSources: prompts.nudgeSources };
+      parts = promptParts(prompts.systemFile, prompts.taskMessage, prompts.sections);
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
@@ -398,6 +403,7 @@ export class RunLauncher {
       officeDir: paths.officeDir,
       systemHash,
       promptSources,
+      parts,
       release: () => {
         setup.release();
         cleanup();

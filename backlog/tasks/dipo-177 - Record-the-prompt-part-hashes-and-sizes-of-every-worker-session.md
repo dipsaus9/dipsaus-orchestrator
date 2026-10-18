@@ -1,10 +1,10 @@
 ---
 id: DIPO-177
 title: Record the prompt part hashes and sizes of every worker session
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 21:14'
+updated_date: '2026-10-18 07:19'
 labels:
   - 'tier:S'
   - cutover
@@ -39,8 +39,18 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A first session records the system part, the task part and one task.<section> part per section of its task message through recordPromptParts, keyed by run and agent, when its agents row is written
-- [ ] #2 A handoff session records its system and task parts, and a resume records the task part of the first message it sends, each under its own agent
-- [ ] #3 Tests read promptPartsOf after a launch, a handoff and a resume and compare each part with the sha256 and byte count of the text the session got, computed in the test with node:crypto
-- [ ] #4 The nudge pseudo rows in prompt_parts are written and read as before: the existing nudge tests pass unchanged
+- [x] #1 A first session records the system part, the task part and one task.<section> part per section of its task message through recordPromptParts, keyed by run and agent, when its agents row is written
+- [x] #2 A handoff session records its system and task parts, and a resume records the task part of the first message it sends, each under its own agent
+- [x] #3 Tests read promptPartsOf after a launch, a handoff and a resume and compare each part with the sha256 and byte count of the text the session got, computed in the test with node:crypto
+- [x] #4 The nudge pseudo rows in prompt_parts are written and read as before: the existing nudge tests pass unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M56XARR1738NKJV46MBH3JE8 (Haiku low, 24 turns, about $0.04, 5 min) reported done, all four criteria, In Review on DIPO-177/record-prompt-parts. Verify outside the sandbox on DIPO-177/record-prompt-parts-finish: 3248 pass, 2 skip, 0 fail.
+
+Maintainer side: review blocked once on criterion 3: the first session's task.<section> parts were not compared with the sent text (the expected names came from the stored parts). Fixed on top: start.test.ts lists the five section names as literals and compares each `<name>` block of the sent stdin text by sha256 (node:crypto) and byte count; a mutation adding a newline to the measured section text in prompts/parts.ts fails the test. reattach.test.ts: preparedSpecs is cleared per test, and the realResumer doc comment is back above its function.
+
+Left as is: a handoff records no task.<section> parts (the criterion asks for system and task only). WorkRun was already over 400 lines on main; this story adds 3.
+<!-- SECTION:NOTES:END -->
