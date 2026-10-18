@@ -1,10 +1,10 @@
 ---
 id: DIPO-187
 title: Keep read-only commands from starting the daemon
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 10:03'
+updated_date: '2026-10-18 12:19'
 labels:
   - 'tier:S'
   - cutover
@@ -62,8 +62,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/client/src/node/lifecycle/lifecycle.ts exports a connect that never starts the daemon and throws DaemonNotRunningError when none answers; connectOrStart keeps its behaviour
-- [ ] #2 dipo gate, dipo run --dry-run, dipo stats and dipo watch connect without starting the daemon; with no daemon running they print the not-running line with START_HINT (packages/cli/src/daemon-commands.ts), exit non-zero, and a test shows the lifecycle start was never called
-- [ ] #3 dipo run without --dry-run and the commands that change state still start the daemon unless daemon.autostart is false, and their existing autostart tests pass
-- [ ] #4 The HELP text in packages/cli/src/index.ts names the commands that never start the daemon, next to the line that says commands that need the daemon start it
+- [x] #1 packages/client/src/node/lifecycle/lifecycle.ts exports a connect that never starts the daemon and throws DaemonNotRunningError when none answers; connectOrStart keeps its behaviour
+- [x] #2 dipo gate, dipo run --dry-run, dipo stats and dipo watch connect without starting the daemon; with no daemon running they print the not-running line with START_HINT (packages/cli/src/daemon-commands.ts), exit non-zero, and a test shows the lifecycle start was never called
+- [x] #3 dipo run without --dry-run and the commands that change state still start the daemon unless daemon.autostart is false, and their existing autostart tests pass
+- [x] #4 The HELP text in packages/cli/src/index.ts names the commands that never start the daemon, next to the line that says commands that need the daemon start it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57E9ZESNNWKK5PT1JZVEH58 (Haiku low, 56 turns, about $0.05, 6 min) reported done, In Review on DIPO-187/read-only-commands-no-autostart, with no denied call. The worker set DIPO_TMP=$TMPDIR itself once, which broke the daemon tests in its sandbox (G29, DIPO-194). connectRunning in the client lifecycle never spawns; gate, run --dry-run, stats and watch pass ConnectMode running. Verify outside the sandbox (origin/main merged in): 3332 pass, 2 skip, 0 fail.
+
+Review blocked once, on a case the worker named itself: in a project that is not a registered office, a yes to "Open ... as an office now?" connected with start, so a read-only command could start the daemon. Fixed on top: withOffice passes the mode to that open too, with a test (fails without the fix). Also after review: the mode branch of defaultDeps is now connectFor in packages/cli/src/index.ts, tested for both modes. Verify after the fixes: 3335 pass, 2 skip, 0 fail. Re-review passed.
+<!-- SECTION:NOTES:END -->

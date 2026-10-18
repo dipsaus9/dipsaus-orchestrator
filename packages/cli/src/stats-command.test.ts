@@ -3,10 +3,12 @@
 
 import { describe, expect, it } from "bun:test";
 
+import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
+import { START_HINT } from "./daemon-commands";
 import { fakeWorkspace, type FakeWorkspaceOptions } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
 import { formatBytes, formatStats } from "./stats-command";
@@ -65,6 +67,28 @@ const TABLES = [
   { table: "change_log", rows: 12_400, bytes: 7_900_000 },
   { table: "stories", rows: 0, bytes: 0 },
 ];
+
+describe("dipo stats without a daemon (DIPO-187)", () => {
+  it("prints the not-running line with the start hint, exits 1 and asks not to start the daemon", async () => {
+    const modes: string[] = [];
+    const ctx = fake(() => ({ ok: true, result: { tables: TABLES } }), {
+      repository: { ...REPO, office: OFFICE, backlog: true },
+    });
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        modes.push(mode);
+        throw new DaemonNotRunningError("/state", "nothing answers on /state/dipo.sock");
+      },
+    };
+    expect(await main(["stats"], deps)).toBe(1);
+    expect(modes).toEqual(["running"]);
+    expect(ctx.err).toEqual([
+      `dipo: no daemon is running (nothing answers on /state/dipo.sock). ${START_HINT}`,
+    ]);
+    expect(ctx.out).toEqual([]);
+  });
+});
 
 describe("dipo stats", () => {
   it("reads office.stats for --office and prints the tables largest first", async () => {

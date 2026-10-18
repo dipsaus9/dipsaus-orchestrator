@@ -592,5 +592,6 @@ export async function watchCommand(
     },
     undefined,
     Number.POSITIVE_INFINITY,
+    "running",
   );
 }

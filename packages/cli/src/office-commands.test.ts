@@ -269,8 +269,8 @@ describe("dipo office rescan", () => {
     const inner = ctx.deps.connectDaemon;
     const deps: CliDeps = {
       ...ctx.deps,
-      connectDaemon: async () => {
-        const session = await inner();
+      connectDaemon: async (mode) => {
+        const session = await inner(mode);
         return {
           ...session,
           command: (async (definition: unknown, args: unknown, options: unknown) => {
@@ -556,8 +556,8 @@ describe("a command against a recovering daemon", () => {
     let polls = 0;
     const deps: CliDeps = {
       ...ctx.deps,
-      connectDaemon: async () => {
-        const session = await ctx.deps.connectDaemon();
+      connectDaemon: async (mode) => {
+        const session = await ctx.deps.connectDaemon(mode);
         return {
           ...session,
           command: ((definition: never, args: never, options: { requestId?: unknown }) => {

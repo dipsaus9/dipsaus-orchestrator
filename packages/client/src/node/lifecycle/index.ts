@@ -3,6 +3,7 @@
 export {
   AutostartOffError,
   connectOrStart,
+  connectRunning,
   DaemonStartError,
   describeStartFailure,
   inspectDaemon,

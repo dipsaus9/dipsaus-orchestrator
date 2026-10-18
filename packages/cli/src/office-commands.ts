@@ -22,6 +22,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import {
+  type ConnectMode,
   type DaemonCommandDeps,
   type DaemonSession,
   engineFailure,
@@ -124,6 +125,9 @@ function printOpened(
 /**
  * Resolves the office and runs `act`. A Backlog.md project that is not a registered office gets
  * "not an office, run `dipo office open`" and, at a terminal, one question whether to open it.
+ * `mode` is how the daemon is reached; read-only commands pass `running` (DIPO-187), also for the
+ * open after the question, so a read-only command never starts the daemon: with none running the
+ * answer gets the not-running line.
  */
 export async function withOffice(
   deps: OfficeCommandDeps,
@@ -131,6 +135,7 @@ export async function withOffice(
   act: Act,
   confirm: Confirm = async () => true,
   timeoutMs: number = REPLY_TIMEOUT_MS,
+  mode: ConnectMode = "start",
 ): Promise<number> {
   const target = await resolveTarget(deps, flag);
   if (target.kind === "exit") return target.code;
@@ -152,6 +157,7 @@ export async function withOffice(
         return 1;
       },
       timeoutMs,
+      mode,
     );
     if (!unregistered || target.main === null) return code;
     main = target.main;
@@ -174,6 +180,7 @@ export async function withOffice(
       return outcome === "unknown" ? 1 : outcome;
     },
     timeoutMs,
+    mode,
   );
 }
 

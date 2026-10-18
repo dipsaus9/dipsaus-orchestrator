@@ -6,9 +6,10 @@ import { describe, expect, it } from "bun:test";
 
 import type { Event, OfficeId } from "@dipsaus-orchestrator/contract";
 import type { SubscribeOptions } from "@dipsaus-orchestrator/client";
+import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import type { DaemonControl, DaemonSession } from "./daemon-commands";
+import { type DaemonControl, type DaemonSession, START_HINT } from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
 import { EXPLAIN_WAIT_MS } from "./run-command";
@@ -265,6 +266,50 @@ const LAUNCH = {
   systemFile: { path: "/work/app/.git/dipo/runs/<run-id>/system.md", text: "You implement.\n" },
   taskMessage: "<story>\nDIPO-7 Add a greeting\n</story>\n",
 };
+
+describe("dipo run without a daemon (DIPO-187)", () => {
+  it("--dry-run prints the not-running line with the start hint and never asks to start the daemon", async () => {
+    const modes: string[] = [];
+    const ctx = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => {
+        throw new Error("work.preview must not be sent");
+      },
+    );
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        modes.push(mode);
+        throw new DaemonNotRunningError("/state", "nothing answers on /state/dipo.sock");
+      },
+    };
+    expect(await main(["run", "--dry-run"], deps)).toBe(1);
+    expect(modes).toEqual(["running"]);
+    expect(ctx.err).toEqual([
+      `dipo: no daemon is running (nothing answers on /state/dipo.sock). ${START_HINT}`,
+    ]);
+    expect(ctx.out).toEqual([]);
+  });
+
+  it("a run without --dry-run still asks for a connection that may start the daemon", async () => {
+    const modes: string[] = [];
+    const ctx = fake(() => {
+      throw new Error("work.run must not be sent");
+    }, IN_OFFICE);
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        modes.push(mode);
+        throw new DaemonNotRunningError("/state", "nothing answers on /state/dipo.sock");
+      },
+    };
+    expect(await main(["run"], deps)).toBe(1);
+    expect(modes).toEqual(["start"]);
+  });
+});
 
 describe("dipo run --dry-run", () => {
   it("reads work.preview and prints each part of the launch under its own header", async () => {
