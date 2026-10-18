@@ -510,7 +510,8 @@ export class RunResumer implements NextSession {
       agent,
       role: run.role,
       tier: run.tier ?? "",
-      budgetLimit: run.budgetLimit,
+      // The usage share counts against the start budget plus its grants (DIPO-143).
+      budgetLimit: runCaps(office, run).budgetTokens,
       model: tier.model,
       work,
       adapter: adapter as IngestAdapter,

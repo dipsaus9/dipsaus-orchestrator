@@ -65,6 +65,7 @@ import {
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
+import { runCaps } from "./caps";
 import { CAP_TICK_MS, type RunEnding, type RunSteering, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
 import { runIntents, sendAsIntent } from "./intents";
@@ -340,7 +341,7 @@ export class RunReattacher {
       agent: agentId,
       role: run.role,
       tier: run.tier ?? "",
-      budgetLimit: run.budgetLimit,
+      budgetLimit: runCaps(office, run).budgetTokens,
       model,
       ...(work === null ? {} : { work }),
       adapter,
@@ -460,12 +461,14 @@ export class RunReattacher {
       return null;
     }
     this.#catchUpOffset(office, hosts, host, agent);
+    // The run's start snapshot plus its grants (DIPO-143), for the usage share and the caps.
+    const caps = runCaps(office, run);
     const target: IngestTarget = {
       run: run.runId,
       agent: host.agentId,
       role: run.role,
       tier: run.tier ?? "",
-      budgetLimit: run.budgetLimit,
+      budgetLimit: caps.budgetTokens,
       model: work.model,
       work,
       adapter,
@@ -475,9 +478,9 @@ export class RunReattacher {
       runId: run.runId,
       work,
       caps: deps.caps(office.officeId, run) ?? {
-        budgetTokens: run.budgetLimit,
-        maxTurns: Number.POSITIVE_INFINITY,
-        maxMinutes: Number.POSITIVE_INFINITY,
+        budgetTokens: caps.budgetTokens,
+        maxTurns: caps.maxTurns,
+        maxMinutes: caps.maxMinutes,
       },
       // The run's caps count from its first host, as worker outcomes count them.
       startedAt: capsStartedAt(run, hosts[0]?.startedAt),
