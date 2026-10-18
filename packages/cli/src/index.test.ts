@@ -3,7 +3,15 @@ import { describe, expect, it } from "bun:test";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { fakeWorkspace } from "./fake-workspace";
-import { HELP, main, packageName, type CliDeps, type ClientCheck } from "./index";
+import {
+  connectFor,
+  type ConnectWays,
+  HELP,
+  main,
+  packageName,
+  type CliDeps,
+  type ClientCheck,
+} from "./index";
 
 type Captured = { out: string[]; err: string[]; daemonCalls: string[][] };
 
@@ -146,5 +154,44 @@ describe("cli", () => {
     });
     expect(await main(["self-check"], deps)).toBe(1);
     expect(inkRan).toBe(false);
+  });
+});
+
+describe("connectFor (DIPO-187)", () => {
+  type Session = { readonly hello: { readonly engine: string } | null };
+  function ways(started: { pid: number; version: string } | null) {
+    const calls: string[] = [];
+    const session: Session = { hello: { engine: "0.0.0-dev" } };
+    const value: ConnectWays<Session> = {
+      running: async () => {
+        calls.push("running");
+        return session;
+      },
+      orStart: async () => {
+        calls.push("orStart");
+        return { session, started };
+      },
+    };
+    return { calls, value, session };
+  }
+
+  it("reaches only a running daemon for a read-only command and never the start path", async () => {
+    const w = ways({ pid: 42, version: "0.0.0-dev" });
+    const err: string[] = [];
+    expect(await connectFor("running", w.value, "0.0.0-dev", (line) => err.push(line))).toBe(
+      w.session,
+    );
+    expect(w.calls).toEqual(["running"]);
+    expect(err).toEqual([]);
+  });
+
+  it("may start the daemon for any other command and says so", async () => {
+    const w = ways({ pid: 42, version: "0.0.0-dev" });
+    const err: string[] = [];
+    expect(await connectFor("start", w.value, "0.0.0-dev", (line) => err.push(line))).toBe(
+      w.session,
+    );
+    expect(w.calls).toEqual(["orStart"]);
+    expect(err).toEqual(["dipo: started the daemon (pid 42, version 0.0.0-dev)"]);
   });
 });

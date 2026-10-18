@@ -23,7 +23,12 @@ import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { answerCommand } from "./answer-command";
-import { type ConnectDaemon, DAEMON_SUBCOMMANDS, type DaemonControl } from "./daemon-commands";
+import {
+  type ConnectDaemon,
+  type ConnectMode,
+  DAEMON_SUBCOMMANDS,
+  type DaemonControl,
+} from "./daemon-commands";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
@@ -181,6 +186,42 @@ export const DAEMON_FORMS: ReadonlySet<string> = new Set([
   "safe-chain-gate",
 ]);
 
+/** The two ways to reach the daemon: only a running one, or one started when none runs. */
+export interface ConnectWays<S extends { readonly hello?: { readonly engine: string } | null }> {
+  readonly running: () => Promise<S>;
+  readonly orStart: () => Promise<{
+    readonly session: S;
+    readonly started: { readonly pid: number; readonly version: string } | null;
+  }>;
+}
+
+/**
+ * Connects the way `mode` asks: read-only commands (`running`) never start the daemon (DIPO-187);
+ * every other command may start it, and says so. Both print the version hint.
+ */
+export async function connectFor<S extends { readonly hello?: { readonly engine: string } | null }>(
+  mode: ConnectMode,
+  ways: ConnectWays<S>,
+  version: string,
+  writeError: (line: string) => void,
+): Promise<S> {
+  let session: S;
+  if (mode === "running") {
+    session = await ways.running();
+  } else {
+    const connected = await ways.orStart();
+    session = connected.session;
+    if (connected.started !== null) {
+      writeError(
+        `dipo: started the daemon (pid ${connected.started.pid}, version ${connected.started.version})`,
+      );
+    }
+  }
+  const hint = versionHint(version, session.hello?.engine);
+  if (hint !== null) writeError(`dipo: ${hint}`);
+  return session;
+}
+
 export function defaultDeps(): CliDeps {
   const stamp = compiledStamp();
   const runtime = currentRuntime();
@@ -191,24 +232,13 @@ export function defaultDeps(): CliDeps {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
     runDaemon: (argv) => runDaemon(argv, { version }),
-    connectDaemon: async (mode) => {
-      // Read-only commands never start the daemon (DIPO-187).
-      if (mode === "running") {
-        const session = await connectRunning(lifecycle);
-        const hint = versionHint(version, session.hello?.engine);
-        if (hint !== null) process.stderr.write(`dipo: ${hint}\n`);
-        return session;
-      }
-      const { session, started } = await connectOrStart(lifecycle);
-      if (started !== null) {
-        process.stderr.write(
-          `dipo: started the daemon (pid ${started.pid}, version ${started.version})\n`,
-        );
-      }
-      const hint = versionHint(version, session.hello?.engine);
-      if (hint !== null) process.stderr.write(`dipo: ${hint}\n`);
-      return session;
-    },
+    connectDaemon: (mode) =>
+      connectFor(
+        mode,
+        { running: () => connectRunning(lifecycle), orStart: () => connectOrStart(lifecycle) },
+        version,
+        (line) => process.stderr.write(`${line}\n`),
+      ),
     daemon: {
       inspect: () => inspectDaemon(lifecycle),
       start: (options) => startDaemon(lifecycle, options),
