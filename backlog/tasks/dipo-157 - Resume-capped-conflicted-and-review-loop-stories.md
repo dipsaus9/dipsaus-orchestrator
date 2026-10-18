@@ -4,7 +4,7 @@ title: 'Resume capped, conflicted and review-loop stories'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -32,6 +32,8 @@ ordinal: 146000
 Outcome: resuming verify-failing (loops, ci), conflict (merge in progress, unwritable path, push rejected, slot refused), review-blocked, stopped with causes pr-closed and review, and worker-failed with causes review and review-cap follows the ADR 0020 matrix, each noted resume adding one round as a grant.
 
 Context: implements the cap, conflict and review-loop rows of the ADR 0020 section 2 matrix and its rule that every resume with a note adds exactly one round of the limit that fired (spike answer 6b), for the parks 0019 causes (0019 sections 4, 8, 9 and 10).
+
+DIPO-142 built the worker place and the reviewer place (packages/engine/src/run/places.ts) and wired only the resume starter (packages/engine/src/run/compose.ts). A resume that finds its place taken is queued (Resumption returns queued: true and a run.queued notice), but the work.answer reply does not say so yet; the resume replies of this story say when a resume was queued. The review-resume starter registers for the reviewer place.
 
 ```dipo
 branch: "DIPO-157/resume-review-loop-and-cap-parks"

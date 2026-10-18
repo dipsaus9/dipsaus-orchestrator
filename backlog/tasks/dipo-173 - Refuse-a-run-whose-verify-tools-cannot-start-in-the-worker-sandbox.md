@@ -1,10 +1,10 @@
 ---
 id: DIPO-173
 title: Refuse a run whose verify tools cannot start in the worker sandbox
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:M'
   - cutover

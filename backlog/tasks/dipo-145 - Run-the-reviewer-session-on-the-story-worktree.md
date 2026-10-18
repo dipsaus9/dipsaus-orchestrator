@@ -1,10 +1,10 @@
 ---
 id: DIPO-145
 title: Run the reviewer session on the story worktree
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -30,6 +30,8 @@ ordinal: 134000
 Outcome: the Claude adapter plans the review kind with a read-only tool set and sandbox, a self-test variant, no plugins, skills or MCP servers and its own report schema, with a golden-tested L1 and reviewer role and the review task message, and live recordings exist.
 
 Context: implements ADR 0019 section 4 (the reviewer session: who, tools, hygiene, what it receives) and the report schema of section 5, with the 0008 amendment of 2026-10-16 (DIPO-131). Today KNOWN_WORKER_KINDS holds review but the adapter plans only implement, one report schema exists, and prompts/ has only the implement contract and the developer role (0019 fact 9).
+
+DIPO-142 built the worker place and the reviewer place (packages/engine/src/run/places.ts) and wired only the resume starter (packages/engine/src/run/compose.ts). The reviewer session registers the review starter for the reviewer place and feeds pending reviews through PlacesDeps.pending; the reviewer place already takes its model from review.model. A waiting start whose kind has no starter blocks its place, so the starter and the waiting row land together.
 
 ```dipo
 branch: "DIPO-145/reviewer-session-review-kind"

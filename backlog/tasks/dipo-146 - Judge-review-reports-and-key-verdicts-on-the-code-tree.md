@@ -4,7 +4,7 @@ title: Judge review reports and key verdicts on the code tree
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -35,6 +35,8 @@ ordinal: 135000
 Outcome: code validates each reviewer report, computes the verdict and stores it keyed on the code tree, skips the re-reviews ADR 0019 section 6 allows, adds the review allowance per round, parks review-blocked after the third failed round and handles reviewer failures, with the review loop's caps snapshot on the run at its start.
 
 Context: implements ADR 0019 section 5 (validation and verdict), section 6 (rounds, review keyed on the commit, when re-review is skipped), the failure table and caps of section 4, and the review_verdicts table and runs columns of section 16; 0020 section 5 fixes every cap at run start. Today runs.review_round_cap is written as null and nothing writes a review step (0019 fact 6), and review_verdicts has no migration (fact 7).
+
+DIPO-142 built the worker place and the reviewer place (packages/engine/src/run/places.ts) and wired only the resume starter (packages/engine/src/run/compose.ts). A reopened review waits from the time passed to reopenForRound (packages/engine/src/run/rounds.ts), while 0019 section 12 orders pending reviews by oldest In Review, so the caller passes the In Review time. A failed review round appends the review-failed run_steps kind that the final run_outcomes row counts, and the review-resume starter registers for the reviewer place.
 
 ```dipo
 branch: "DIPO-146/judge-review-reports-and-verdicts"

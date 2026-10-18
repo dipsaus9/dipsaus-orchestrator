@@ -1,10 +1,10 @@
 ---
 id: DIPO-164
 title: Give workers web search and fetch
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:M'
   - 'slice:m1a'
