@@ -1,6 +1,7 @@
 // The launch checks and the adapter hold (DIPO-43 AC #5 to #7, 0008 sections 2 and 7): a refusal
 // is `startFailed`, holds the adapter for every office and emits an `engine.notice`; a later pass
-// lifts it; the checks run before a launch and before a resume.
+// lifts it; the checks run before a launch and before a resume. An npm auth key the sandbox can
+// read refuses one run without a hold (DIPO-172).
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import { join } from "node:path";
 import type { Event, Spawn } from "@dipsaus-orchestrator/contract";
 import { type FakeProcess, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { OFFICE_DEFAULTS } from "../../src/config";
 import { SoftwareStream } from "../../src/software-stream/stream";
 import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID } from "../../src/workers/claude-cli/plan";
@@ -19,6 +21,7 @@ import {
   HOLD_NOTICE_CODE,
   RELEASE_NOTICE_CODE,
 } from "../../src/workers/hold";
+import { PlanError } from "../../src/workers/types";
 import {
   ADMIN_DIR,
   BLOCKED_RESULTS,
@@ -527,5 +530,82 @@ describe("(engine) plugins in the self-test session (DIPO-108)", () => {
       : undefined;
     expect(JSON.parse(settings ?? "{}").enabledPlugins).toEqual({ [WARP]: false });
     expect(sessions).toHaveLength(1);
+  });
+});
+
+// Not a real token; the refusal must never show it.
+const NPM_SECRET = "npm_FAKEfakeFAKEfake0123456789";
+
+/** A directory of node installs for `office` under `root`, one install whose etc/npmrc is `npmrc`. */
+function nodeInstalls(root: string, office: string, npmrc: string): string {
+  const etc = join(root, office, "node", "v22.11.0", "etc");
+  mkdirSync(etc, { recursive: true });
+  writeFileSync(join(etc, "npmrc"), npmrc);
+  return join(root, office, "node");
+}
+
+/** The default sandbox with `dir` added to the toolchain read paths. */
+function sandboxWith(dir: string) {
+  return {
+    ...OFFICE_DEFAULTS.sandbox,
+    toolchainReadPaths: [...OFFICE_DEFAULTS.sandbox.toolchainReadPaths, dir],
+  };
+}
+
+describe("(engine) npm auth keys the worker sandbox can read (DIPO-172)", () => {
+  it("refuses one office's run naming the file without a hold; another office's run still starts", async () => {
+    await withTempDir(async (root) => {
+      const withToken = nodeInstalls(root, "a", `//registry.npmjs.org/:_authToken=${NPM_SECRET}\n`);
+      const clean = nodeInstalls(root, "b", "registry=https://registry.npmjs.org/\n");
+      const { clock, holds, notices } = setup();
+      const deps = (fs: MemoryFs) => {
+        const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
+        return {
+          fake,
+          deps: {
+            spawn: fake.spawn,
+            clock,
+            selfTestSessionId: SELF_TEST_SESSION,
+            platform: "darwin" as const,
+            runStep: credentialSteps().runStep,
+            uid: 501,
+            allowProjectSettings: [],
+            readText: async () => undefined,
+            fs,
+          },
+        };
+      };
+
+      const a = deps(new MemoryFs());
+      const refused = await prepareLaunch(
+        spec(),
+        context({ sandbox: sandboxWith(withToken) }),
+        holds,
+        a.deps,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(refused).toBeInstanceOf(PlanError);
+      const message = (refused as PlanError).message;
+      expect(message).toContain(join(withToken, "v22.11.0", "etc", "npmrc"));
+      expect(message).toContain("_authToken");
+      expect(message).toContain("~/.npmrc");
+      expect(message).not.toContain(NPM_SECRET);
+      // Refused before any check: no probe, no session, no hold and no hold notice.
+      expect(a.fake.calls).toEqual([]);
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+      expect(notices).toEqual([]);
+
+      const b = deps(new MemoryFs());
+      const started = await prepareLaunch(
+        spec(),
+        context({ sandbox: sandboxWith(clean) }),
+        holds,
+        b.deps,
+      );
+      expect(started.ok).toBe(true);
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+    });
   });
 });

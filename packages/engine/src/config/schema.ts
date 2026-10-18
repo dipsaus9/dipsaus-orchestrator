@@ -7,13 +7,16 @@
 // session may load, in the `<plugin>@<marketplace>` form Claude Code's `enabledPlugins` uses.
 // Version 3 (DIPO-133) adds `mergeSlot.requiredChecks` (0016 rule 2): the checks the merge slot
 // waits for before it merges a PR of this office.
+// Version 4 (DIPO-172) adds `sandbox.toolchainReadPaths` to `office.local.yaml` (0017 amendment
+// of 2026-10-18, maintainer decision 2026-10-17, option A): machine-specific toolchain read
+// paths, added to the committed list (or the default), each path once. `office.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 3;
+export const OFFICE_CONFIG_VERSION = 4;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -62,6 +65,11 @@ const PromptBudgets = z
 // 0008 section 2: a toolchain read path or install cache is absolute or starts at the home
 // directory (`~/`). The sandbox stories (DIPO-37, DIPO-40) expand `~` against the injected home.
 const ToolchainPath = text().regex(/^(?:~\/|\/)/, "must start with ~/ or /");
+const ToolchainReadPaths = z
+  .array(ToolchainPath)
+  .describe(
+    "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too. .dipo/office.local.yaml may add machine-specific paths to this list (version 4).",
+  );
 
 // 0010 section 8.
 const WorktreeFile = z.strictObject({
@@ -138,11 +146,7 @@ const officeShapeV1 = {
     contractMax: count(),
   }),
   sandbox: z.strictObject({
-    toolchainReadPaths: z
-      .array(ToolchainPath)
-      .describe(
-        "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too.",
-      ),
+    toolchainReadPaths: ToolchainReadPaths,
     installCachePaths: z
       .array(ToolchainPath)
       .describe(
@@ -174,7 +178,7 @@ const officeShapeV2 = {
 
 // Version 3: version 2 plus `mergeSlot.requiredChecks` (DIPO-133). Names are check names as the
 // host reports them, and may contain spaces.
-const officeShape = {
+const officeShapeV3 = {
   ...officeShapeV2,
   mergeSlot: z.strictObject({
     requiredChecks: z
@@ -186,6 +190,9 @@ const officeShape = {
       ),
   }),
 };
+
+// Version 4: the office keys of version 3; only `office.local.yaml` gains a key (DIPO-172).
+const officeShape = officeShapeV3;
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
 export const OfficeConfigV1 = z.strictObject({
@@ -205,15 +212,24 @@ export const OfficeConfigV2 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 3 (kept to read version 3 files). */
 export const OfficeConfigV3 = z.strictObject({
+  version: z.literal(3),
+  ...officeShapeV3,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV4 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV3>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV4>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -250,12 +266,24 @@ export type OfficeLocalFileOf<V extends OfficeConfigVersion> = DeepPartial<
 > & {
   version: V;
 };
-export type OfficeLocalFile = OfficeLocalFileOf<typeof OFFICE_CONFIG_VERSION>;
+export type OfficeLocalFile = OfficeLocalFileOf<typeof OFFICE_CONFIG_VERSION> &
+  DeepPartial<{ sandbox: Pick<OfficeConfig["sandbox"], "toolchainReadPaths"> }>;
 
-const localShape = {
+const localShapeV1 = {
   timeouts: officeShapeV1.timeouts,
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
+};
+
+// Version 4 (DIPO-172): `sandbox.toolchainReadPaths` and no other sandbox key. Its entries are
+// added to the list below it instead of replacing it (`resolveOfficeConfig`).
+const localShape = {
+  ...localShapeV1,
+  sandbox: z
+    .strictObject({ toolchainReadPaths: ToolchainReadPaths })
+    .describe(
+      "Only toolchainReadPaths: machine-specific paths added to the committed list (or the default), each path once (0017 amendment of 2026-10-18).",
+    ),
 };
 
 /** `.dipo/office.yaml`, version 1. `privacy` and `retention` are not accepted here. */
@@ -272,6 +300,15 @@ export const OfficeFileV2 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 3: version 2 plus `mergeSlot.requiredChecks`. */
 export const OfficeFileV3 = z.strictObject({
+  version: z.literal(3),
+  ...fileShape(officeShapeV3),
+}) as unknown as z.ZodType<OfficeFileOf<3>>;
+
+/**
+ * `.dipo/office.yaml`, version 4: the same keys as version 3. The office files share one version
+ * number, and version 4 adds a key to `office.local.yaml` only.
+ */
+export const OfficeFileV4 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -279,7 +316,7 @@ export const OfficeFileV3 = z.strictObject({
 /** `.dipo/office.local.yaml`, version 1: only `timeouts`, `privacy` and `retention`. */
 export const OfficeLocalFileV1 = z.strictObject({
   version: z.literal(1),
-  ...fileShape(localShape),
+  ...fileShape(localShapeV1),
 }) as unknown as z.ZodType<OfficeLocalFileOf<1>>;
 
 /**
@@ -288,7 +325,7 @@ export const OfficeLocalFileV1 = z.strictObject({
  */
 export const OfficeLocalFileV2 = z.strictObject({
   version: z.literal(2),
-  ...fileShape(localShape),
+  ...fileShape(localShapeV1),
 }) as unknown as z.ZodType<OfficeLocalFileOf<2>>;
 
 /**
@@ -296,6 +333,15 @@ export const OfficeLocalFileV2 = z.strictObject({
  * version number, so a local file may say 3 as soon as `office.yaml` does.
  */
 export const OfficeLocalFileV3 = z.strictObject({
+  version: z.literal(3),
+  ...fileShape(localShapeV1),
+}) as unknown as z.ZodType<OfficeLocalFileOf<3>>;
+
+/**
+ * `.dipo/office.local.yaml`, version 4: version 3 plus `sandbox.toolchainReadPaths` (DIPO-172),
+ * whose entries add to the committed list. Any other sandbox key stays an error.
+ */
+export const OfficeLocalFileV4 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -310,8 +356,13 @@ export const OfficeOverridesV2 = z.strictObject(
   fileShape(officeShapeV2),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 3 keys. */
 export const OfficeOverridesV3 = z.strictObject(
+  fileShape(officeShapeV3),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV4 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
@@ -320,19 +371,23 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   1: OfficeFileV1,
   2: OfficeFileV2,
   3: OfficeFileV3,
+  4: OfficeFileV4,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
   2: OfficeLocalFileV2,
   3: OfficeLocalFileV3,
+  4: OfficeLocalFileV4,
 };
 
 /**
  * Pure: an office file's document of `version` migrated in memory to the newest version, one
  * step at a time (0017 section 5, "Versioning and migration"). Version 1 to 2 is the identity
  * (0017 amendment of 2026-10-12): `worker.plugins` is new and takes its default. Version 2 to 3
- * is the identity too: `mergeSlot.requiredChecks` is new and takes its default. Works for both
- * office files; the document must already be valid for its own version.
+ * is the identity too: `mergeSlot.requiredChecks` is new and takes its default. Version 3 to 4
+ * is the identity: `sandbox.toolchainReadPaths` in `office.local.yaml` is new and adds nothing
+ * when absent. Works for both office files; the document must already be valid for its own
+ * version.
  */
 export function migrateOfficeDocument(
   version: OfficeConfigVersion,
@@ -341,13 +396,24 @@ export function migrateOfficeDocument(
   let current: Record<string, unknown> = { ...document, version };
   if (current.version === 1) current = { ...current, version: 2 };
   if (current.version === 2) current = { ...current, version: 3 };
+  if (current.version === 3) current = { ...current, version: 4 };
   return current;
 }
 
 /** Keys that live only in `.dipo/office.local.yaml`. */
 export const LOCAL_ONLY_KEYS = ["privacy", "retention"] as const;
-/** Top-level keys `.dipo/office.local.yaml` accepts besides `version`. */
-export const LOCAL_ALLOWED_KEYS = ["timeouts", "privacy", "retention"] as const;
+/** Top-level keys `.dipo/office.local.yaml` accepts besides `version`, in the newest version. */
+export const LOCAL_ALLOWED_KEYS = ["timeouts", "privacy", "retention", "sandbox"] as const;
+/**
+ * What `.dipo/office.local.yaml` accepts besides `version`, as key paths, in the newest version:
+ * `sandbox` only with `toolchainReadPaths` (version 4, DIPO-172).
+ */
+export const LOCAL_ALLOWED_KEY_PATHS = [
+  "timeouts.*",
+  "privacy.*",
+  "retention.*",
+  "sandbox.toolchainReadPaths",
+] as const;
 
 const bySize = (S: number, M: number, L: number, XL: number) => ({ S, M, L, XL });
 const sameSize = (value: number) => bySize(value, value, value, value);

@@ -1,7 +1,8 @@
 // Loads an office's configuration (0017 section 5): parse each file as one YAML document, check
 // its version, validate it strictly against that version's schema, migrate it in memory to the
 // newest version (`migrateOfficeDocument`), merge defaults < `.dipo/office.yaml` < allowed keys of
-// `.dipo/office.local.yaml` < command flags, and hash the result. Errors are values, never thrown,
+// `.dipo/office.local.yaml` < command flags, and hash the result. A local
+// `sandbox.toolchainReadPaths` adds to the list below it instead of replacing it (DIPO-172). Errors are values, never thrown,
 // so the office (DIPO-27) can keep its previous configuration.
 
 import { readFile } from "node:fs/promises";
@@ -16,18 +17,18 @@ import {
 import type { z } from "zod";
 
 import { parseYamlDocument } from "../platform/yaml";
-import { valueKeyPaths } from "./keys";
+import { valueAt, valueKeyPaths } from "./keys";
 import { configHash, mergeLayer } from "./merge";
 import {
-  LOCAL_ALLOWED_KEYS,
+  LOCAL_ALLOWED_KEY_PATHS,
   LOCAL_ONLY_KEYS,
   migrateOfficeDocument,
   OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
   OFFICE_FILE_SCHEMAS,
   OFFICE_LOCAL_FILE_SCHEMAS,
-  OfficeConfigV3,
-  OfficeOverridesV3,
+  OfficeConfigV4,
+  OfficeOverridesV4,
   type OfficeConfig,
   type OfficeConfigVersion,
 } from "./schema";
@@ -68,9 +69,39 @@ const KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = {
   mergeSlot: 3,
 };
 
-// The contract's wording, except for an unknown top-level key in `office.local.yaml`, which
-// names the keys that file accepts, and a key of `KEY_ADDED_IN` in an office file older than
-// that key, which says the version that adds it.
+// The same for `office.local.yaml`: version 4 lets it set `sandbox.toolchainReadPaths` (DIPO-172).
+const LOCAL_SANDBOX_KEY = "sandbox.toolchainReadPaths";
+const LOCAL_KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = { sandbox: 4 };
+// What the hint says the version adds, for a key path whose name alone does not say it.
+const ADDS: Readonly<Record<string, string>> = {
+  sandbox: `${LOCAL_SANDBOX_KEY} to ${OFFICE_LOCAL_FILE}`,
+};
+
+// What `office.local.yaml` of `version` accepts besides `version`, as key paths.
+function localAcceptedPaths(version: OfficeConfigVersion): readonly string[] {
+  return version >= 4
+    ? LOCAL_ALLOWED_KEY_PATHS
+    : LOCAL_ALLOWED_KEY_PATHS.filter((path) => path !== LOCAL_SANDBOX_KEY);
+}
+
+// The wording of an unknown key in `office.local.yaml`: at the top level it names the keys the
+// file accepts, and under `sandbox` that only `toolchainReadPaths` is accepted there.
+function localUnknownKeyProblem(
+  parent: readonly PropertyKey[],
+  version: OfficeConfigVersion,
+): string | undefined {
+  if (parent.length === 0) {
+    return `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${localAcceptedPaths(version).join(", ")}`;
+  }
+  if (parent.length === 1 && parent[0] === "sandbox") {
+    return `unknown key; ${OFFICE_LOCAL_FILE} accepts only ${LOCAL_SANDBOX_KEY} of the sandbox keys; set any other sandbox key in ${OFFICE_FILE}`;
+  }
+  return undefined;
+}
+
+// The contract's wording, except for an unknown key in `office.local.yaml`
+// (`localUnknownKeyProblem`), and a key of `KEY_ADDED_IN` (or `LOCAL_KEY_ADDED_IN`) in a file
+// older than that key, which says the version that adds it.
 function issueErrors(
   file: string,
   schema: z.ZodType,
@@ -78,22 +109,20 @@ function issueErrors(
   issues: readonly z.core.$ZodIssue[],
   version: OfficeConfigVersion = OFFICE_CONFIG_VERSION,
 ): ConfigError[] {
+  const local = file === OFFICE_LOCAL_FILE;
   const errors = configIssueErrors(file, schema, input, issues, {
-    unknownKeyProblem: (parent) =>
-      file === OFFICE_LOCAL_FILE && parent.length === 0
-        ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${LOCAL_ALLOWED_KEYS.map((k) => `${k}.*`).join(", ")}`
-        : undefined,
+    unknownKeyProblem: (parent) => (local ? localUnknownKeyProblem(parent, version) : undefined),
   });
-  // `office.local.yaml` accepts none of these keys in any version, so it gets no hint.
-  if (file === OFFICE_LOCAL_FILE) return errors;
+  const addedIn = local ? LOCAL_KEY_ADDED_IN : KEY_ADDED_IN;
   return errors.map((error) => {
-    const added = KEY_ADDED_IN[error.path];
+    const added = addedIn[error.path];
     if (added === undefined || version >= added) return error;
+    const adds = ADDS[error.path] ?? error.path;
     return configError(
       file,
       error.path,
       error.expected,
-      `unknown key in version ${version}; expected ${error.expected}. Version ${added} adds ${error.path}: set version: ${added} to use it`,
+      `unknown key in version ${version}; expected ${error.expected}. Version ${added} adds ${adds}: set version: ${added} to use it`,
     );
   });
 }
@@ -158,10 +187,33 @@ function withoutVersion(value: Record<string, unknown>): Record<string, unknown>
   return rest;
 }
 
+// One layer of the merge: the configuration below it in, the configuration with it on top out.
+type Layer = (base: unknown) => unknown;
+
+// A layer whose mappings merge per key and whose lists and scalars replace (`mergeLayer`).
+function over(value: Record<string, unknown>): Layer {
+  return (base) => mergeLayer(base, value);
+}
+
+// The `office.local.yaml` layer: as `over`, except that `sandbox.toolchainReadPaths` adds its
+// entries to the list below it (the committed list or the default), each path once, instead of
+// replacing it (0017 amendment of 2026-10-18, maintainer decision 2026-10-17, option A).
+function localLayer(local: Record<string, unknown>): Layer {
+  const added = valueAt(local, ["sandbox", "toolchainReadPaths"]);
+  if (!Array.isArray(added)) return over(local);
+  const { sandbox: _sandbox, ...rest } = local;
+  return (base) => {
+    const merged = mergeLayer(base, rest);
+    const below = valueAt(merged, ["sandbox", "toolchainReadPaths"]);
+    const paths = [...new Set([...(Array.isArray(below) ? below : []), ...added])];
+    return mergeLayer(merged, { sandbox: { toolchainReadPaths: paths } });
+  };
+}
+
 /** Validates and merges configuration sources. Pure; never throws for bad input. */
 export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigResult {
   const errors: ConfigError[] = [];
-  const layers: unknown[] = [];
+  const layers: Layer[] = [];
 
   if (sources.office !== undefined) {
     const read = readDocument(OFFICE_FILE, sources.office);
@@ -171,7 +223,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
       const { rest, errors: localOnly } = splitLocalOnly(read.value);
       errors.push(...localOnly);
       const checked = validate(OFFICE_FILE, OFFICE_FILE_SCHEMAS[read.version], rest, read.version);
-      if (checked.ok) layers.push(migrated(read.version, checked.value));
+      if (checked.ok) layers.push(over(migrated(read.version, checked.value)));
       else errors.push(...checked.errors);
     }
   }
@@ -190,7 +242,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
       );
       if (checked.ok) {
         const local = migrated(read.version, checked.value);
-        layers.push(local);
+        layers.push(localLayer(local));
         localKeys = valueKeyPaths(local).toSorted();
       } else {
         errors.push(...checked.errors);
@@ -199,15 +251,15 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   }
 
   if (sources.flags !== undefined) {
-    const checked = validate(FLAGS_SOURCE, OfficeOverridesV3, sources.flags);
-    if (checked.ok) layers.push(checked.value);
+    const checked = validate(FLAGS_SOURCE, OfficeOverridesV4, sources.flags);
+    if (checked.ok) layers.push(over(checked.value));
     else errors.push(...checked.errors);
   }
 
   if (errors.length > 0) return { ok: false, errors };
 
-  const merged = layers.reduce<unknown>((base, layer) => mergeLayer(base, layer), OFFICE_DEFAULTS);
-  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV3, merged);
+  const merged = layers.reduce<unknown>((base, layer) => layer(base), OFFICE_DEFAULTS);
+  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV4, merged);
   if (!effective.ok) return { ok: false, errors: effective.errors };
   const config = effective.value as OfficeConfig;
   return { ok: true, config, configHash: configHash(config), localOverrideKeys: localKeys };
