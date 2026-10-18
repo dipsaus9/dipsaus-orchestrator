@@ -583,6 +583,13 @@ describe("R10 word matches", () => {
     expect(hits("Writes `etc after the rows")).toEqual(['"etc"']);
     expect(hits("Writes `/etc/zprofile after the rows etc")).toEqual(['"etc"']);
   });
+
+  it("masks code spans and path tokens in the original text (DIPO-170)", () => {
+    // A masked span does not join the words around it into a phrase.
+    expect(hits("The export works`x`well today")).toEqual([]);
+    // The slash inside the code span still makes the whole run a path token.
+    expect(hits("Writes etc`a/b` to the rows")).toEqual([]);
+  });
 });
 
 describe("characters", () => {

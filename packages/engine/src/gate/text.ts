@@ -21,9 +21,24 @@ const CODE_SPAN = /`[^`\n]*`/g;
 /** A path token: a run of non-whitespace characters that contains a slash. */
 const PATH_TOKEN = /\S*\/\S*/g;
 
-/** The text with every code span and path token blanked out, so no match can lie inside one. */
+/**
+ * Marks a masked character: neither a letter, a digit nor whitespace, so it ends a word (a match may
+ * sit next to it) but cannot stand in for the space inside a phrase such as `works well`.
+ */
+const MASK = "\u0000";
+
+/**
+ * The text with every code span and path token masked out, so no match can lie inside one. Both
+ * are found in the original text, so a slash inside a code span still makes its run a path token.
+ */
 function outsideCodeAndPaths(text: string): string {
-  return text.replace(CODE_SPAN, " ").replace(PATH_TOKEN, " ");
+  const units = text.split("");
+  for (const pattern of [CODE_SPAN, PATH_TOKEN]) {
+    for (const match of text.matchAll(pattern)) {
+      units.fill(MASK, match.index, match.index + match[0].length);
+    }
+  }
+  return units.join("");
 }
 
 /**
