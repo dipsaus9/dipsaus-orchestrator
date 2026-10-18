@@ -1,10 +1,10 @@
 ---
 id: DIPO-134
 title: Read worker usage from the transcript when a worker host died
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 14:39'
-updated_date: '2026-10-18 08:20'
+updated_date: '2026-10-18 08:36'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -56,3 +56,13 @@ test_plan:
 - [x] #4 Subagent transcripts (agent_transcript_path) are read for the per-subagent detail the stream lacked
 - [x] #5 Tests replay a scrubbed transcript fixture under packages/engine/test/recordings/: a host that died mid-turn, a line of an unknown shape, an unsupported Claude Code version, and a second pass that adds nothing
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M570X9YW0B5JZVWKZ8G20QPJ (Sonnet medium, 118 turns, about $2.48, 9 min) reported done, all five criteria, In Review on DIPO-134/transcript-usage-tailer. 10 permission denials: a cd into a recordings folder narrowed its Edit rules (G22, DIPO-192 and DIPO-193), and seven cd compound commands were denied. It wrote packages/engine/src/retention/ outside its References, then used the existing ingest_cursors and usage_messages storage instead; the final diff has no retention change. Verify outside the sandbox on DIPO-134/transcript-usage-tailer-finish (origin/main merged in): 3264 pass, 2 skip, 0 fail.
+
+Maintainer side: review blocked once on criterion 2. (a) A resumed session names the same transcript file, so its cursor read the earlier agent's messages again; recordTranscriptUsage now skips a message id another agent of the same run stored (fixture recordings/transcripts/resumed/, test 'a resumed session'). (b) RunReattacher.#closeFollowed ended a followed host that died without exit.json without reading the transcript; the lost-mode recovery moved into recoverLostUsage (ingest/transcript.ts), used by ExitOutcomes and #closeFollowed (new reattach test). Each fix fails its new test when broken. Verify after the fix: 3266 pass, 2 skip, 0 fail. Re-review passed.
+
+Left open (follow-ups): when a host dies mid-turn after an earlier turn ended, messages the stream already counted in that turn get no output restored; the parser accepts every 2.1.x from 2.1.296 while only a 2.1.296 recording covers it; the Ingestor class was already over 400 lines and grows by 14. Question for the maintainer: whether 0008 gets a note naming the optional readTranscript on the worker port and the per-subagent detail in ingest_cursors.parse_state.
+<!-- SECTION:NOTES:END -->
