@@ -356,6 +356,31 @@
               "pattern": "^\\/"
             }
           }
+        },
+        "buildCommit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "engineBehind": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "office": {
+                "type": "string",
+                "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "commits": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["office", "commits"]
+          }
         }
       },
       "required": [

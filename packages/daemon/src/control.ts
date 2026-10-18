@@ -18,6 +18,13 @@ import type { FeatureModule, Logger, SoftwareStream } from "@dipsaus-orchestrato
 import type { DrainRequest } from "./drain";
 import type { DaemonLifecycle } from "./lifecycle";
 
+/** One office's count of base commits after the build commit that change engine code. */
+export interface EngineBehind {
+  readonly office: OfficeId;
+  readonly name?: string;
+  readonly commits: number;
+}
+
 export interface ControlDeps {
   readonly lifecycle: DaemonLifecycle;
   readonly logger: Logger;
@@ -26,6 +33,13 @@ export interface ControlDeps {
   readonly startedAt: number;
   readonly pid: number;
   readonly version: string;
+  /** The commit the binary was built from; absent when run from source (DIPO-198). */
+  readonly buildCommit?: string;
+  /**
+   * Per loaded office whose repository holds the build commit, its engine commits behind, as last
+   * read in the background: synchronous, so `daemon.status` never waits on git.
+   */
+  readonly engineBehind?: () => readonly EngineBehind[];
   readonly socket: string;
   /** The absolute tool paths resolved from the daemon's `PATH` at start (DIPO-70). */
   readonly tools: ToolPaths;
@@ -63,6 +77,12 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
           keepAwake: { ...(deps.keepAwake?.() ?? { held: false }) },
           upgradePending: deps.upgradePending(),
           tools: { ...deps.tools },
+          ...(deps.buildCommit === undefined
+            ? {}
+            : {
+                buildCommit: deps.buildCommit,
+                engineBehind: [...(deps.engineBehind?.() ?? [])],
+              }),
         }),
       });
 

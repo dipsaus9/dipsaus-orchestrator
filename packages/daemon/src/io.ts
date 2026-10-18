@@ -20,6 +20,8 @@ export type DaemonIo = {
   readonly execArgv: readonly string[];
   /** The binary version, recorded in `dipo.pid`, `runtime.json` and the database. */
   readonly version: string;
+  /** The commit the binary was built from, `-dirty` for a dirty tree; absent from source (DIPO-198). */
+  readonly buildCommit?: string;
   /** Calls `handler` once on SIGTERM or SIGINT; returns a function that removes the handler. */
   readonly onShutdownSignal: (handler: (signal: string) => void) => () => void;
   /** Time and timers for the daemon: the drain cap, the minute lock check, the crash counter. */

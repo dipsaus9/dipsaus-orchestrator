@@ -17,6 +17,14 @@ export {
   WORKTREE_ADD_CONFIG,
 } from "./hardened";
 export type { GitLocation } from "./hardened";
+export {
+  buildCommitSha,
+  ENGINE_PATH,
+  ENGINE_READ_TIMEOUT_MS,
+  engineCommitsAfter,
+  readEngineCommitsAfter,
+} from "./build-commit";
+export type { EngineCommitsOptions, EngineCommitsRead } from "./build-commit";
 export { OfficeGit } from "./office";
 export type {
   BaseWorktree,

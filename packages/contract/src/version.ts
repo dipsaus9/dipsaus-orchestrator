@@ -48,6 +48,8 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `gate.noteRequired` to the same, still unreleased, minor.
 // DIPO-179 adds the optional `waitingOn` of `story.gate` (the dependencies that are not Done) to the
 // same, still unreleased, minor.
+// DIPO-198 adds the optional `buildCommit` and `engineBehind` of `daemon.status` to the same, still
+// unreleased, minor.
 // DIPO-137 adds the read `work.prompt` (the stored prompt text of an agent's session) to the same,
 // still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
