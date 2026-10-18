@@ -1,10 +1,10 @@
 ---
 id: DIPO-188
 title: Keep criteria a worker cannot meet by itself out of Ready stories
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 10:03'
 labels:
   - 'tier:S'
   - cutover

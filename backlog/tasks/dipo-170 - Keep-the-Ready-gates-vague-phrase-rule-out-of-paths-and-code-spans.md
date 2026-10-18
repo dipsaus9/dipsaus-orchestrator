@@ -1,10 +1,10 @@
 ---
 id: DIPO-170
 title: Keep the Ready gate's vague-phrase rule out of paths and code spans
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 16:59'
-updated_date: '2026-10-18 09:32'
+updated_date: '2026-10-18 10:03'
 labels:
   - 'tier:S'
   - cutover

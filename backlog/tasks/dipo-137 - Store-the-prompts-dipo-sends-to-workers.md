@@ -1,10 +1,10 @@
 ---
 id: DIPO-137
 title: Store the prompts dipo sends to workers
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 19:43'
-updated_date: '2026-10-18 09:51'
+updated_date: '2026-10-18 10:03'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -70,6 +70,7 @@ test_plan:
       check: "(unit) an office with no privacy keys resolves storePrompts to true, and office.local.yaml with storePrompts: false turns it off"
     - kind: "manual"
       check: "(live) on the scratch repo with no .dipo/office.local.yaml, run a story, open its detail and read the system file and task message the worker started with; set storePrompts: false in office.local.yaml, run another story and see that none is stored"
+      expect: "the first story's detail shows the system file and task message on the key i; the second story's detail says no prompt is stored"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
