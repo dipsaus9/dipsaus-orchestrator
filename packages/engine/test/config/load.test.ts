@@ -144,13 +144,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 4\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 5\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 4\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 5\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -473,10 +473,10 @@ function fixture(name: string): string {
 }
 
 describe("office configuration version 2", () => {
-  it("loads a version 1 file migrated to version 3, the same as its version 2 form", () => {
+  it("loads a version 1 file migrated to version 4, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(3);
+    expect(v1.config.version).toBe(4);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -521,7 +521,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(3);
+      expect(result.config.version).toBe(4);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -608,5 +608,151 @@ describe("the version 1 hint for worker.plugins", () => {
     expect(error?.path).toBe("mergeSlot");
     expect(error?.message).toContain("accepts only version");
     expect(error?.message).not.toContain("Version 3");
+  });
+});
+
+// Version 4 (DIPO-172, 0017 amendment of 2026-10-18): office.local.yaml may set
+// sandbox.toolchainReadPaths, whose entries add to the committed list (or the default).
+const NVM = "~/.nvm/versions/node";
+
+describe("office configuration version 4: local toolchain read paths", () => {
+  it("adds the local entries to the committed list, each path once", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 3\nsandbox: { toolchainReadPaths: [~/.bun, /opt/tools] }\n",
+        local: `version: 4\nsandbox: { toolchainReadPaths: [/opt/tools, ${NVM}, ${NVM}] }\n`,
+      }),
+    );
+    expect(result.config.sandbox.toolchainReadPaths).toEqual(["~/.bun", "/opt/tools", NVM]);
+    // The rest of sandbox keeps the layers below.
+    expect(result.config.sandbox.installCachePaths).toEqual(
+      OFFICE_DEFAULTS.sandbox.installCachePaths,
+    );
+  });
+
+  it("adds the local entries to the default when office.yaml sets no list", () => {
+    for (const office of [undefined, "version: 2\n"]) {
+      const result = ok(
+        resolveOfficeConfig({
+          office,
+          local: `version: 4\nsandbox: { toolchainReadPaths: [~/.npm, ${NVM}] }\n`,
+        }),
+      );
+      expect(result.config.sandbox.toolchainReadPaths).toEqual([
+        ...OFFICE_DEFAULTS.sandbox.toolchainReadPaths,
+        NVM,
+      ]);
+    }
+  });
+
+  it("names sandbox.toolchainReadPaths in localOverrideKeys when the local file sets it", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        local: `version: 4\ntimeouts: { workerQuietMinutes: 4 }\nsandbox: { toolchainReadPaths: [${NVM}] }\n`,
+      }),
+    );
+    expect(result.localOverrideKeys).toEqual([
+      "sandbox.toolchainReadPaths",
+      "timeouts.workerQuietMinutes",
+    ]);
+    const without = ok(resolveOfficeConfig({ local: "version: 4\nsandbox: {}\n" }));
+    expect(without.localOverrideKeys).toEqual([]);
+    expect(without.config.sandbox).toEqual(OFFICE_DEFAULTS.sandbox);
+  });
+
+  it("lets a command flag replace the merged list, as flags replace lists", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        local: `version: 4\nsandbox: { toolchainReadPaths: [${NVM}] }\n`,
+        flags: { sandbox: { toolchainReadPaths: ["/opt/only"] } },
+      }),
+    );
+    expect(result.config.sandbox.toolchainReadPaths).toEqual(["/opt/only"]);
+  });
+
+  it("refuses any other sandbox key in the local file and names the key", () => {
+    for (const key of ["allowRead", "installCachePaths", "allowLocalBinding"]) {
+      const value = key === "allowLocalBinding" ? "true" : "[~/.ssh]";
+      const [error, ...rest] = errors(
+        resolveOfficeConfig({ local: `version: 4\nsandbox: { ${key}: ${value} }\n` }),
+      );
+      expect(rest).toEqual([]);
+      expect(error?.file).toBe(".dipo/office.local.yaml");
+      expect(error?.path).toBe(`sandbox.${key}`);
+      expect(error?.message).toBe(
+        `.dipo/office.local.yaml: sandbox.${key}: unknown key; .dipo/office.local.yaml accepts only sandbox.toolchainReadPaths of the sandbox keys; set any other sandbox key in .dipo/office.yaml`,
+      );
+    }
+  });
+
+  it("refuses a local entry that is neither absolute nor under ~/", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ local: "version: 4\nsandbox: { toolchainReadPaths: [node] }\n" }),
+    );
+    expect(error?.path).toBe("sandbox.toolchainReadPaths.0");
+    expect(error?.message).toContain("must start with ~/ or /");
+  });
+
+  it("names sandbox.toolchainReadPaths among the local keys of version 4 only", () => {
+    const [v4] = errors(resolveOfficeConfig({ local: "version: 4\ntiers: {}\n" }));
+    expect(v4?.message).toBe(
+      ".dipo/office.local.yaml: tiers: unknown key; .dipo/office.local.yaml accepts only version, timeouts.*, privacy.*, retention.*, sandbox.toolchainReadPaths",
+    );
+    const [v3] = errors(resolveOfficeConfig({ local: "version: 3\ntiers: {}\n" }));
+    expect(v3?.message).toBe(
+      ".dipo/office.local.yaml: tiers: unknown key; .dipo/office.local.yaml accepts only version, timeouts.*, privacy.*, retention.*",
+    );
+  });
+
+  it("refuses sandbox in an older local file and says version 4 adds it", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ local: `version: 3\nsandbox: { toolchainReadPaths: [${NVM}] }\n` }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.path).toBe("sandbox");
+    expect(error?.message).toContain("unknown key in version 3");
+    expect(error?.message).toContain(
+      "Version 4 adds sandbox.toolchainReadPaths to .dipo/office.local.yaml: set version: 4 to use it",
+    );
+  });
+
+  it("reads a version 4 office.yaml as its version 3 form", () => {
+    const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
+    const v4 = ok(
+      resolveOfficeConfig({
+        office: fixture("office-v3.yaml").replace("version: 3", "version: 4"),
+      }),
+    );
+    expect(v4.config).toEqual(v3.config);
+    expect(v4.config.version).toBe(4);
+  });
+});
+
+// The repository's own office file (DIPO-172 AC #3): no machine-specific node path, and the
+// office.local.yaml lines its comment shows are valid and add the nvm node installs.
+describe("this repository's .dipo/office.yaml", () => {
+  const office = readFileSync(
+    join(import.meta.dir, "..", "..", "..", "..", ".dipo", "office.yaml"),
+    "utf8",
+  );
+
+  it("does not list ~/.nvm/versions/node", () => {
+    const result = ok(resolveOfficeConfig({ office }));
+    expect(result.config.sandbox.toolchainReadPaths).not.toContain(NVM);
+  });
+
+  it("shows office.local.yaml lines that add ~/.nvm/versions/node", () => {
+    const shown = office
+      .split("\n")
+      .filter((line) => line.startsWith("#   "))
+      .map((line) => line.slice(4))
+      .join("\n");
+    expect(shown).toContain("toolchainReadPaths");
+    const result = ok(resolveOfficeConfig({ office, local: `${shown}\n` }));
+    expect(result.config.sandbox.toolchainReadPaths).toEqual([
+      ...ok(resolveOfficeConfig({ office })).config.sandbox.toolchainReadPaths,
+      NVM,
+    ]);
+    expect(result.localOverrideKeys).toEqual(["sandbox.toolchainReadPaths"]);
   });
 });

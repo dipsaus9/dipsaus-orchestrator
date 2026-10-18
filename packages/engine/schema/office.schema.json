@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 3
+      "const": 4
     },
     "tiers": {
       "type": "object",
@@ -722,7 +722,7 @@
             "minLength": 1,
             "pattern": "^(?:~\\/|\\/)"
           },
-          "description": "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too."
+          "description": "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too. .dipo/office.local.yaml may add machine-specific paths to this list (version 4)."
         },
         "installCachePaths": {
           "type": "array",
