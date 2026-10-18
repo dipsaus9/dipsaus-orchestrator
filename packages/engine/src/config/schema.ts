@@ -13,13 +13,16 @@
 // Version 5 (DIPO-139) adds the `review` block (the review loop's limits, 0019 section 16) and the
 // rest of `mergeSlot`: `autoMerge`, `conflictAttempts`, `ciAttempts`, `holdLabels` and
 // `checksWaitMinutes`. `office.local.yaml` gains no key.
+// Version 6 (DIPO-188) adds `story.maintainerStepPhrases` (0012 section 3, R27): the phrases of a
+// criterion that names a step only the maintainer or the engine can take. `office.local.yaml`
+// gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 5;
+export const OFFICE_CONFIG_VERSION = 6;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -230,10 +233,23 @@ const MergeSlotV5 = z.strictObject({
 });
 
 // Version 5: the office keys of version 4 plus `review` and the rest of `mergeSlot` (DIPO-139).
-const officeShape = {
+const officeShapeV5 = {
   ...officeShapeV4,
   review: ReviewV5,
   mergeSlot: MergeSlotV5,
+};
+
+// Version 6: the office keys of version 5 plus `story.maintainerStepPhrases` (DIPO-188).
+const officeShape = {
+  ...officeShapeV5,
+  story: z.strictObject({
+    ...officeShapeV1.story.shape,
+    maintainerStepPhrases: z
+      .array(text())
+      .describe(
+        "Phrases that name a step only the maintainer or the engine can take, such as writing task notes. A criterion that contains one fails the Ready gate (R27) and moves that step to a manual test plan entry (0012 section 3, DIPO-188).",
+      ),
+  }),
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -272,15 +288,24 @@ export const OfficeConfigV4 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 5 (kept to read version 5 files). */
 export const OfficeConfigV5 = z.strictObject({
+  version: z.literal(5),
+  ...officeShapeV5,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV6 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV5>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV6>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -366,6 +391,12 @@ export const OfficeFileV4 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 5: version 4 plus `review` and the rest of `mergeSlot` (DIPO-139). */
 export const OfficeFileV5 = z.strictObject({
+  version: z.literal(5),
+  ...fileShape(officeShapeV5),
+}) as unknown as z.ZodType<OfficeFileOf<5>>;
+
+/** `.dipo/office.yaml`, version 6: version 5 plus `story.maintainerStepPhrases` (DIPO-188). */
+export const OfficeFileV6 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -405,6 +436,12 @@ export const OfficeLocalFileV4 = z.strictObject({
 
 /** `.dipo/office.local.yaml`, version 5: the same keys as version 4 (DIPO-139 adds none here). */
 export const OfficeLocalFileV5 = z.strictObject({
+  version: z.literal(5),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<5>>;
+
+/** `.dipo/office.local.yaml`, version 6: the same keys as version 5 (DIPO-188 adds none here). */
+export const OfficeLocalFileV6 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -429,8 +466,13 @@ export const OfficeOverridesV4 = z.strictObject(
   fileShape(officeShapeV4),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 5 keys. */
 export const OfficeOverridesV5 = z.strictObject(
+  fileShape(officeShapeV5),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV6 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
@@ -441,6 +483,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   3: OfficeFileV3,
   4: OfficeFileV4,
   5: OfficeFileV5,
+  6: OfficeFileV6,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -448,6 +491,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   3: OfficeLocalFileV3,
   4: OfficeLocalFileV4,
   5: OfficeLocalFileV5,
+  6: OfficeLocalFileV6,
 };
 
 /**
@@ -469,6 +513,7 @@ export function migrateOfficeDocument(
   if (current.version === 2) current = { ...current, version: 3 };
   if (current.version === 3) current = { ...current, version: 4 };
   if (current.version === 4) current = { ...current, version: 5 };
+  if (current.version === 5) current = { ...current, version: 6 };
   return current;
 }
 
@@ -575,6 +620,13 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
       "and so on",
       "if possible",
       "should be fine",
+    ],
+    // 0012 section 3 (R27, DIPO-188): steps the worker cannot take; they go to a manual test plan.
+    maintainerStepPhrases: [
+      "task notes",
+      "implementation notes",
+      "by the maintainer",
+      "backlog task edit",
     ],
     titleMax: 100,
     outcomeMin: 20,

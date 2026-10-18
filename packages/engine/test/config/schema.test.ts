@@ -9,16 +9,19 @@ import {
   OfficeConfigV3,
   OfficeConfigV4,
   OfficeConfigV5,
+  OfficeConfigV6,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
   OfficeFileV4,
   OfficeFileV5,
+  OfficeFileV6,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
   OfficeLocalFileV4,
   OfficeLocalFileV5,
+  OfficeLocalFileV6,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -252,7 +255,6 @@ function officeFileV5(body: object): boolean {
 
 describe("version 5 key paths", () => {
   it("are the version 4 paths plus review and the rest of mergeSlot", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(5);
     expect(schemaKeyPaths(OfficeConfigV5)).toEqual(VERSION_5_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV5)).toEqual(
       VERSION_5_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -270,51 +272,100 @@ describe("version 5 key paths", () => {
   });
 });
 
+// Version 6 (DIPO-188): story.maintainerStepPhrases, the phrases of R27.
+const VERSION_6_KEY_PATHS = [...VERSION_5_KEY_PATHS, "story.maintainerStepPhrases"];
+
+/** Whether `.dipo/office.yaml` version 6 accepts `body` as given. */
+function officeFileV6(body: object): boolean {
+  return OfficeFileV6.safeParse({ version: 6, ...body }).success;
+}
+
+describe("version 6 key paths", () => {
+  it("are the version 5 paths plus story.maintainerStepPhrases", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(6);
+    expect(schemaKeyPaths(OfficeConfigV6)).toEqual(VERSION_6_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV6)).toEqual(
+      VERSION_6_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV6)).toEqual(
+      VERSION_6_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+  });
+
+  it("accept a list of phrases and refuse a non-string or empty entry", () => {
+    expect(officeFileV6({ story: { maintainerStepPhrases: ["task notes"] } })).toBe(true);
+    expect(officeFileV6({ story: { maintainerStepPhrases: [3] } })).toBe(false);
+    expect(officeFileV6({ story: { maintainerStepPhrases: [""] } })).toBe(false);
+  });
+
+  it("keep version 5 without story.maintainerStepPhrases", () => {
+    expect(
+      OfficeFileV5.safeParse({ version: 5, story: { maintainerStepPhrases: [] } }).success,
+    ).toBe(false);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 5 as the identity", () => {
+  it("migrates version 1 to 6 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 5 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 6 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 5 as the identity", () => {
+  it("migrates version 2 to 6 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 5 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 6 });
   });
 
-  it("migrates version 3 to 5 as the identity", () => {
+  it("migrates version 3 to 6 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 5 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 6 });
   });
 
-  it("migrates version 4 to 5 as the identity", () => {
+  it("migrates version 4 to 6 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 5 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 6 });
   });
 
-  it("leaves a version 5 document as it is", () => {
+  it("migrates version 5 to 6 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual(v5);
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 6 });
   });
 
-  it("turns the version 1 defaults into the version 5 defaults but worker.plugins, mergeSlot and review", () => {
+  it("leaves a version 6 document as it is", () => {
+    const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
+    expect(migrateOfficeDocument(6, v6)).toEqual(v6);
+  });
+
+  it("turns the version 1 defaults into the version 6 defaults but worker.plugins, mergeSlot, review and the step phrases", () => {
     const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
+    const { maintainerStepPhrases: _phrases, ...story } = OFFICE_DEFAULTS.story;
     const { mergeSlot: _mergeSlot, review: _review, ...rest } = OFFICE_DEFAULTS;
-    const v1 = OfficeConfigV1.parse({ ...rest, version: 1, worker });
+    const v1 = OfficeConfigV1.parse({ ...rest, story, version: 1, worker });
     expect(
-      OfficeConfigV5.parse({
+      OfficeConfigV6.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
         review: OFFICE_DEFAULTS.review,
+        story: OFFICE_DEFAULTS.story,
       }),
     ).toEqual(OFFICE_DEFAULTS);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 5 configuration", () => {
-    expect(OfficeConfigV5.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 6 configuration", () => {
+    expect(OfficeConfigV6.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("give the story the step phrases that R27 refuses", () => {
+    expect(OFFICE_DEFAULTS.story.maintainerStepPhrases).toEqual([
+      "task notes",
+      "implementation notes",
+      "by the maintainer",
+      "backlog task edit",
+    ]);
   });
 
   it("give the review loop opus, high effort and the ADR 0019 limits", () => {
