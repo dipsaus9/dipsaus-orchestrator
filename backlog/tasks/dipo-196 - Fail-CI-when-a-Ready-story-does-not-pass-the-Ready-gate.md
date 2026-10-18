@@ -1,10 +1,10 @@
 ---
 id: DIPO-196
 title: Fail CI when a Ready story does not pass the Ready gate
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 08:13'
+updated_date: '2026-10-18 09:15'
 labels:
   - 'tier:S'
   - cutover
