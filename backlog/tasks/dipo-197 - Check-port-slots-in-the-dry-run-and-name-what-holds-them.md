@@ -1,10 +1,10 @@
 ---
 id: DIPO-197
 title: Check port slots in the dry run and name what holds them
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 10:05'
+updated_date: '2026-10-18 10:10'
 labels:
   - 'tier:M'
   - cutover
@@ -58,8 +58,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SlotTable (packages/engine/src/worktree/slots.ts) has a read-only method that returns the live entries, those whose worktree directory exists, without writing the table; a test in packages/engine/test/worktree/slots.test.ts shows it skips an entry whose directory is gone and leaves the file unchanged
-- [ ] #2 work.preview and work.run (packages/engine/src/run/work-run.ts) refuse with check slots, before any claim, when every slot from 1 to worktree.maxSlots is held by a live worktree other than the chosen story's own; a story whose worktree already holds a slot is not refused; tests in packages/engine/test/run/work-run.test.ts show both
-- [ ] #3 The slots refusal and the setup failure in setupWorktree (packages/engine/src/worktree/setup.ts) list each held slot with its number, office, story and worktree path; a test in packages/engine/test/worktree/setup.test.ts checks the setup message
-- [ ] #4 dipo run --dry-run prints the slots refusal and not would start when it is refused; a test in packages/cli/src/run-command.test.ts shows it
+- [x] #1 SlotTable (packages/engine/src/worktree/slots.ts) has a read-only method that returns the live entries, those whose worktree directory exists, without writing the table; a test in packages/engine/test/worktree/slots.test.ts shows it skips an entry whose directory is gone and leaves the file unchanged
+- [x] #2 work.preview and work.run (packages/engine/src/run/work-run.ts) refuse with check slots, before any claim, when every slot from 1 to worktree.maxSlots is held by a live worktree other than the chosen story's own; a story whose worktree already holds a slot is not refused; tests in packages/engine/test/run/work-run.test.ts show both
+- [x] #3 The slots refusal and the setup failure in setupWorktree (packages/engine/src/worktree/setup.ts) list each held slot with its number, office, story and worktree path; a test in packages/engine/test/worktree/setup.test.ts checks the setup message
+- [x] #4 dipo run --dry-run prints the slots refusal and not would start when it is refused; a test in packages/cli/src/run-command.test.ts shows it
 <!-- AC:END -->
