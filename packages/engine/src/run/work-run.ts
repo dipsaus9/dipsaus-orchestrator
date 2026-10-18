@@ -554,6 +554,8 @@ export class WorkRun {
         budgetUnit: "tokens",
         budgetLimit: caps.budgetTokens,
         loopCap: caps.loops,
+        maxTurns: caps.maxTurns,
+        maxMinutes: caps.maxMinutes,
         reviewRoundCap: null,
         configHash: c.configHash,
         overrideKeys: null,

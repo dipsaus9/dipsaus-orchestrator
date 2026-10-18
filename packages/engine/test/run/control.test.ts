@@ -193,6 +193,11 @@ afterEach(() => {
 });
 
 function track(caps: Caps = ROOMY): void {
+  // The run's start snapshot holds the caps under test: a run counts its own budget (DIPO-143).
+  w.f.office.run(
+    "update runs set budget_limit = $budget where office_id = $office_id and run_id = $run",
+    { budget: caps.budgetTokens, run: w.f.run },
+  );
   w.control.track(w.f.office.officeId, {
     runId: w.f.run,
     work: w.work,
@@ -265,7 +270,7 @@ describe("caps", () => {
     const run = findRun(w.f.office, w.f.run);
     expect(run?.endKind).toBe("capped");
     expect(run?.endedAt).not.toBeNull();
-    expect(run?.budgetLimit).toBe(ROOMY.budgetTokens);
+    expect(run?.budgetLimit).toBe(budget);
     expect(w.writes.map((r) => [r.reason, r.story, r.branch])).toEqual([
       ["budget-exceeded", "DIPO-1", "DIPO-1/add-a-greeting"],
     ]);

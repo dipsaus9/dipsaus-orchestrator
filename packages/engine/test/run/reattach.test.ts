@@ -311,6 +311,14 @@ function beforeRestart(name: string, before: number, upTo?: number): void {
   appendLines(w.f.eventFile, lines.slice(before, upTo ?? lines.length));
 }
 
+/** Sets the run's start budget: its caps count from the snapshot, not from the tier (DIPO-143). */
+function startBudget(budgetTokens: number): void {
+  w.f.office.run(
+    "update runs set budget_limit = $budget where office_id = $office_id and run_id = $run",
+    { budget: budgetTokens, run: w.f.run },
+  );
+}
+
 function writeExitFile(exit: Partial<HostExitFile> = {}): void {
   const record: HostExitFile = {
     run: w.f.run,
@@ -444,6 +452,7 @@ describe("re-attach (0006 decision 8)", () => {
     // Over its caps after the catch-up: the run parks while the follow-only host keeps running.
     w.answers = false;
     w.caps = { ...ROOMY, budgetTokens: 10 };
+    startBudget(10);
     beforeRestart("success-single", 6, 20);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
@@ -470,6 +479,7 @@ describe("re-attach (0006 decision 8)", () => {
   it("ingests what a followed host of a parked run wrote after the last poll before closing it out", async () => {
     w.answers = false;
     w.caps = { ...ROOMY, budgetTokens: 10 };
+    startBudget(10);
     beforeRestart("success-single", 6, 20);
     // The liveness check comes before the next 1 s ingestion poll.
     const d = daemon({ followCheckMs: 500 });
@@ -691,6 +701,7 @@ describe("re-attach (0006 decision 8)", () => {
 
   it("never starts a session next to a living host, and checks the caps after the catch-up (AC #5, AC #6)", async () => {
     w.caps = { ...ROOMY, budgetTokens: 10 };
+    startBudget(10);
     beforeRestart("success-single", 6, 20);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);

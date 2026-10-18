@@ -8,6 +8,9 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import type { Caps } from "../workers/types";
 
+import { grantTotals } from "./grants";
+import type { StoredRun } from "./records";
+
 /** The cap that fired, as the park detail and the `cap` intent name it. */
 export type CapName = "budgetTokens" | "maxTurns" | "maxMinutes";
 
@@ -73,5 +76,33 @@ export function runTotals(
     budgetTokens: row?.budget ?? 0,
     turns: row?.turns ?? 0,
     elapsedMs: Math.max(0, now - startedAt),
+  };
+}
+
+/** The caps a run counts against: the `Caps` the workers get, plus the loop and review caps. */
+export interface RunCaps extends Caps {
+  readonly loopCap: number;
+  readonly reviewRoundCap: number | null;
+}
+
+/**
+ * The caps of a run now (ADR 0020 section 5, DIPO-143): its start snapshot plus the sum of its
+ * grants of each kind. The tier of the office is never read for a snapshot, so an edit of the tier
+ * reaches new runs only. `legacy` supplies turns and minutes for a run started before they were
+ * kept; without it those are unbounded.
+ */
+export function runCaps(
+  office: OfficeHandle,
+  run: StoredRun,
+  legacy?: Pick<Caps, "maxTurns" | "maxMinutes">,
+): RunCaps {
+  const grants = grantTotals(office, run.runId);
+  return {
+    budgetTokens: run.budgetLimit + (grants.budget ?? 0),
+    maxTurns: run.maxTurns ?? legacy?.maxTurns ?? Number.POSITIVE_INFINITY,
+    maxMinutes: run.maxMinutes ?? legacy?.maxMinutes ?? Number.POSITIVE_INFINITY,
+    loopCap: run.loopCap + (grants.loop ?? 0),
+    reviewRoundCap:
+      run.reviewRoundCap === null ? null : run.reviewRoundCap + (grants.reviewCap ?? 0),
   };
 }

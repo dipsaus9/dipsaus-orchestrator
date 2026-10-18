@@ -102,8 +102,10 @@ export type {
   RunSteering,
   TrackedRun,
 } from "./control";
-export { firedCap, runTotals } from "./caps";
-export type { CapName, FiredCap, RunTotals } from "./caps";
+export { firedCap, runCaps, runTotals } from "./caps";
+export type { CapName, FiredCap, RunCaps, RunTotals } from "./caps";
+export { GRANT_KINDS, grantTotals, recordGrant } from "./grants";
+export type { GrantKind, NewGrant } from "./grants";
 export {
   markIntentSent,
   outcomeOfIntent,

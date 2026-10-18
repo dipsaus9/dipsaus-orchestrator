@@ -70,7 +70,7 @@ import { findClaim } from "../worktree/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 
 import type { BackstopSnapshot } from "./backstop";
-import { runTotals } from "./caps";
+import { runCaps, runTotals } from "./caps";
 import {
   capsOf,
   runLaunchPaths,
@@ -363,7 +363,7 @@ export class RunResumer implements NextSession {
       paths,
       taskMessage,
       session,
-      this.#remaining(office, run.runId, tier, request),
+      this.#remaining(office, run, tier, request),
     );
     try {
       ensurePrivateDir(paths.runDir);
@@ -567,12 +567,12 @@ export class RunResumer implements NextSession {
   /** What remains of the run's caps for the CLI's own caps; at least one of each. */
   #remaining(
     office: OfficeHandle,
-    runId: RunId,
+    run: StoredRun,
     tier: TierCaps,
     request: NextSessionRequest,
   ): Caps {
-    const caps = capsOf(tier);
-    const used = runTotals(office, runId, request.startedAt, this.#deps.clock.now());
+    const caps = runCaps(office, run, capsOf(tier));
+    const used = runTotals(office, run.runId, request.startedAt, this.#deps.clock.now());
     return {
       budgetTokens: Math.max(1, caps.budgetTokens - used.budgetTokens),
       maxTurns: Math.max(1, caps.maxTurns - used.turns),
