@@ -1,10 +1,10 @@
 ---
 id: DIPO-197
 title: Check port slots in the dry run and name what holds them
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 08:13'
+updated_date: '2026-10-18 10:05'
 labels:
   - 'tier:M'
   - cutover
