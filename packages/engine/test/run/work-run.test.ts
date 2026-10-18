@@ -30,6 +30,8 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
+import { executeRead } from "../../src/reads/execute";
+import type { SlotEntry } from "../../src/worktree/slots";
 import { GitError } from "../../src/git/runner";
 import { createLogger } from "../../src/log/logger";
 import { OfficeManager } from "../../src/office/manager";
@@ -113,6 +115,8 @@ interface World {
   gate: (key: StoryKey, mode: GateMode) => GateResult;
   /** The plan-limit hold (DIPO-61): why a run on the model must wait, or null. */
   planLimit: (adapter: string, model: string | null) => string | null;
+  /** The live port slot entries (DIPO-197). */
+  slots: SlotEntry[];
 }
 
 let dir = "";
@@ -148,6 +152,7 @@ beforeEach(async () => {
     fetchError: null,
     gate: (_key, mode) => passed(mode),
     planLimit: () => null,
+    slots: [],
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
@@ -179,6 +184,7 @@ beforeEach(async () => {
     statuses: async () => w.statuses,
     adapterHeld: (adapter) => holds.adapterHeld(adapter),
     planLimitHeld: (adapter, model) => w.planLimit(adapter, model),
+    liveSlots: () => w.slots,
     claims: {
       claim: async (_office, request): Promise<ClaimOutcome> => {
         claims.push(request);
@@ -696,5 +702,75 @@ describe("the runs table", () => {
         }),
       ),
     ).toThrow();
+  });
+});
+
+const heldSlot = (slot: number, owner: string, office = "off_other"): SlotEntry => ({
+  slot,
+  office,
+  story: owner,
+  worktree: `/trees/${owner}`,
+  takenAt: 1,
+});
+
+function twoSlots(): void {
+  world.config = { ...OFFICE_DEFAULTS, worktree: { ...OFFICE_DEFAULTS.worktree, maxSlots: 2 } };
+}
+
+function previewRun(): Promise<Awaited<ReturnType<typeof executeRead>>> {
+  return executeRead(
+    { registry: world.registry, offices: world.deps.offices, clock: world.t.clock },
+    {
+      requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z00009999"),
+      name: "work.preview",
+      args: { office: world.officeId },
+    },
+  );
+}
+
+describe("port slots (DIPO-197)", () => {
+  it("refuses work.run and work.preview with check slots when every slot is held by other worktrees", async () => {
+    twoSlots();
+    story("TASK-1", "Ready");
+    world.slots = [heldSlot(1, "TASK-8"), heldSlot(2, "TASK-9")];
+
+    const refusal = await codeOf();
+    expect(refusal).toMatchObject({ code: "run.refused", details: { check: "slots" } });
+    expect(refusal.message).toContain(
+      "slot 1: office off_other, story TASK-8, worktree /trees/TASK-8",
+    );
+    expect(refusal.message).toContain(
+      "slot 2: office off_other, story TASK-9, worktree /trees/TASK-9",
+    );
+    expect(world.claims).toEqual([]);
+
+    const dry = await previewRun();
+    if (!dry.ok) throw new Error(dry.error.message);
+    const result = dry.result as { refusals: { check: string; message: string }[]; story: unknown };
+    expect(result.refusals.map((r) => r.check)).toEqual(["slots"]);
+    expect(result.refusals[0]?.message).toBe(refusal.message);
+    expect(result.story).toBeNull();
+  });
+
+  it("does not refuse with one slot free, and names the story the preview would start", async () => {
+    twoSlots();
+    story("TASK-1", "Ready");
+    world.slots = [heldSlot(1, "TASK-8")];
+    const dry = await previewRun();
+    if (!dry.ok) throw new Error(dry.error.message);
+    const result = dry.result as { refusals: unknown[]; story: { story: string } | null };
+    expect(result.refusals).toEqual([]);
+    expect(result.story?.story).toBe("TASK-1");
+    expect(resultOf(await run()).started).toHaveLength(1);
+  });
+
+  it("does not refuse a story whose own worktree already holds a slot", async () => {
+    twoSlots();
+    story("TASK-1", "Ready");
+    world.slots = [heldSlot(1, "TASK-8"), heldSlot(2, "TASK-1", world.officeId)];
+    const dry = await previewRun();
+    if (!dry.ok) throw new Error(dry.error.message);
+    expect((dry.result as { refusals: unknown[] }).refusals).toEqual([]);
+    expect(resultOf(await run()).started).toHaveLength(1);
   });
 });

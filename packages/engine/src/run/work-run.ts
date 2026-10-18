@@ -51,6 +51,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
+import { allSlotsHeld, type SlotEntry, slotsTakenMessage } from "../worktree/slots";
 import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
 import { EDIT_KIND } from "../backlog/lane/ops";
@@ -194,6 +195,11 @@ export interface WorkRunDeps {
    * it a claimed run stops at the `setup` phase with no worker, as DIPO-48 left it.
    */
   readonly launcher?: RunLauncher;
+  /**
+   * The live entries of the machine-wide port slot table (`SlotTable.live`, DIPO-197), read without
+   * writing. Without it no slots refusal is made; setup still fails when every slot is taken.
+   */
+  readonly liveSlots?: () => readonly SlotEntry[];
 }
 
 type Args = z.output<typeof workRun.args>;
@@ -227,6 +233,24 @@ function commandErrorOf(error: unknown): unknown {
 
 function refused(office: OfficeId, check: string, message: string): CommandError {
   return new CommandError(RUN_REFUSED, message, { office, check });
+}
+
+/** The check name of the slots refusal. */
+const SLOTS_CHECK = "slots";
+
+/**
+ * Why `story` cannot get a port slot, or null: every slot from 1 to `maxSlots` is held by a live
+ * worktree and none of them is the story's own (a story that holds a slot keeps it).
+ */
+function slotsRefusal(
+  live: readonly SlotEntry[] | undefined,
+  office: OfficeId,
+  story: StoryId,
+  maxSlots: number,
+): string | null {
+  if (live === undefined || !allSlotsHeld(live, maxSlots)) return null;
+  if (live.some((entry) => entry.office === office && entry.story === story)) return null;
+  return slotsTakenMessage(live, maxSlots);
 }
 
 export class WorkRun {
@@ -433,6 +457,13 @@ export class WorkRun {
       return "pickupCheckFailed";
     }
     const { view, fields, branch, tier, caps } = checked;
+    const noSlot = slotsRefusal(
+      this.#deps.liveSlots?.(),
+      office,
+      story,
+      c.config.worktree.maxSlots,
+    );
+    if (noSlot !== null) throw refused(office, SLOTS_CHECK, noSlot);
 
     const runId = RunId.parse(ctx.ids.next("run"));
     const agent = ctx.ids.next("agt") as AgentId;
@@ -783,6 +814,16 @@ export class WorkRun {
 
     const { candidate, startable } = chosen;
     const story = { story: candidate.story, key: candidate.key };
+    const noSlot = slotsRefusal(
+      deps.liveSlots?.(),
+      office,
+      candidate.story,
+      config.worktree.maxSlots,
+    );
+    if (noSlot !== null) {
+      refusals.push({ check: SLOTS_CHECK, message: noSlot });
+      return { ...info(), story: null, skipped, launch: null, problem: null };
+    }
     const launcher = deps.launcher;
     if (launcher === undefined) {
       return { ...info(), story, skipped, launch: null, problem: "this daemon starts no workers" };

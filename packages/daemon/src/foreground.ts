@@ -777,6 +777,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       gates,
       lane: (office) => lane.forOffice(office),
       launcher: runs.launcher,
+      liveSlots: () => slots.live(),
     });
     // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
     // loaded, with the `retention.*` periods of the configuration in force.

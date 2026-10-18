@@ -342,4 +342,30 @@ describe("dipo run --dry-run", () => {
     );
     expect(out).not.toContain("== Worker launch");
   });
+
+  it("prints the slots refusal with each holder and not would start", async () => {
+    const message =
+      "every port slot from 1 to 1 is taken by another worktree: slot 1: office off_a, story DIPO-3, worktree /work/app.worktrees/DIPO-3";
+    const ctx = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [{ check: "slots", message }],
+          story: null,
+          skipped: [],
+          launch: null,
+          problem: null,
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run"], ctx.deps)).toBe(1);
+    const out = ctx.out.join("\n");
+    expect(out).toContain(`refused (slots): ${message}`);
+    expect(out).toContain("no story would start");
+    expect(out).not.toContain("would start DIPO");
+  });
 });
