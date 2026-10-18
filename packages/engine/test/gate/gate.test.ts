@@ -561,6 +561,35 @@ describe("R10 word matches", () => {
     expect(hits("Writes_etc_ after the rows")).toEqual(['"etc"']);
     expect(hits("The export WORKS WELL today")).toEqual(['"works well"']);
   });
+
+  it("ignores a phrase inside a path token (DIPO-170)", () => {
+    expect(hits("Writes the file /etc/zprofile")).toEqual([]);
+    expect(hits("Writes the file at /etc/zprofile, then the rows")).toEqual([]);
+    expect(hits("Writes the file at etc/zprofile")).toEqual([]);
+  });
+
+  it("ignores a phrase inside a code span (DIPO-170)", () => {
+    expect(hits("Writes the file at `/etc/zprofile`")).toEqual([]);
+    expect(hits("Writes `etc` and `works well` as named")).toEqual([]);
+  });
+
+  it("still matches a phrase next to a path but outside it (DIPO-170)", () => {
+    expect(hits("Writes /etc/zprofile, etc after the rows")).toEqual(['"etc"']);
+    expect(hits("Writes `/etc/zprofile` and etc after the rows")).toEqual(['"etc"']);
+    expect(hits("Writes /etc/zprofile and the rows properly")).toEqual(['"properly"']);
+  });
+
+  it("matches a phrase after an unclosed backtick (DIPO-170)", () => {
+    expect(hits("Writes `etc after the rows")).toEqual(['"etc"']);
+    expect(hits("Writes `/etc/zprofile after the rows etc")).toEqual(['"etc"']);
+  });
+
+  it("masks code spans and path tokens in the original text (DIPO-170)", () => {
+    // A masked span does not join the words around it into a phrase.
+    expect(hits("The export works`x`well today")).toEqual([]);
+    // The slash inside the code span still makes the whole run a path token.
+    expect(hits("Writes etc`a/b` to the rows")).toEqual([]);
+  });
 });
 
 describe("characters", () => {
