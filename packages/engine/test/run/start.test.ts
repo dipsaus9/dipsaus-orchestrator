@@ -528,11 +528,19 @@ describe("work.run starts the worker of a claimed run", () => {
     const taskPart = parts.find((part) => part.name === "task");
     expect(system).toMatchObject({ sha256: sha(systemFile), bytes: systemFile.length });
     expect(taskPart).toMatchObject({ sha256: sha(sent), bytes: Buffer.byteLength(sent) });
-    const sections = parts.filter((part) => part.name.startsWith("task."));
-    expect(sections.length).toBeGreaterThan(0);
+    // The test story's message has these five sections, each a `<name>` block of the sent text.
+    const names = ["context", "story", "outcome", "criteria", "scope"];
     expect(parts.map((part) => part.name)).toEqual(
-      ["system", "task", ...sections.map((part) => part.name)].toSorted(),
+      ["system", "task", ...names.map((name) => `task.${name}`)].toSorted(),
     );
+    for (const name of names) {
+      const text = new RegExp(`^<${name}>\\n[\\s\\S]*?\\n</${name}>$`, "m").exec(sent)?.[0] ?? "";
+      expect(text).not.toBe("");
+      expect(parts.find((part) => part.name === `task.${name}`)).toMatchObject({
+        sha256: sha(text),
+        bytes: Buffer.byteLength(text),
+      });
+    }
   });
 
   it("stores the backstop snapshot with the run before the host starts (DIPO-93 AC #4)", async () => {

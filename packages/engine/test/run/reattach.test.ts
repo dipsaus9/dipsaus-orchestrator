@@ -220,6 +220,7 @@ function daemon(
 }
 
 beforeEach(async () => {
+  preparedSpecs.length = 0;
   const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "reattach-"));
   const f = await ingestFixture(dir);
   const { office, run } = f;
@@ -756,10 +757,10 @@ function countDaily(): number {
   );
 }
 
-/** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
 /** The specs the resumer's worker prepared, the last one being the session it started. */
 const preparedSpecs: { readonly taskMessage: string; readonly systemFile: string }[] = [];
 
+/** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
 function realResumer(
   hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
   extra: Partial<
