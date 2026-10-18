@@ -36,6 +36,7 @@ import { expandHome } from "../../sandbox/policy";
 import { SAFE_CHAIN_SHELL_DIR, type SafeChainInput, type SafeChainLaunch } from "./safe-chain";
 import { checkResume } from "./resume-check";
 import { result } from "./result";
+import { readTranscript } from "./transcript";
 
 export interface ClaudeCliAdapterDeps {
   readonly spawn: Spawn;
@@ -115,6 +116,7 @@ export function claudeCliAdapter(
     // Transcript, version, prompt hash, context share and re-read cost (DIPO-51).
     canResume: (ref: SessionRef, _spec: WorkerSpec, facts: ResumeFacts): ResumeCheck =>
       checkResume(ref, { ...facts, home: ctx.home }),
+    readTranscript,
   };
 }
 
@@ -242,6 +244,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
     encode,
     result: (state, exit) => result(state as unknown as ClaudeParseState, exit),
     sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
+    readTranscript,
   };
 }
 

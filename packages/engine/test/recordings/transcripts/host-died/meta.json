@@ -1,0 +1,9 @@
+{
+  "scenario": "host-died",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "The usage of a session whose worker host died mid-turn: one usage per message id, lines of unknown shape ignored, a partial last line left for later.",
+  "derivedFrom": "claude-cli/success-tools-subagent",
+  "transform": "Scrubbed: prompt, text and paths replaced by placeholders; msg-1 repeated for its second content block; an unknown-shape line, a non-JSON line, a synthetic message and a partial last line added; the subagent file holds msg-s1 and msg-s2 (the subagent messages of the recording)."
+}

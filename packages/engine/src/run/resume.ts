@@ -246,7 +246,7 @@ function previousAgent(office: OfficeHandle, runId: string, agent: string): Prev
   );
   const cursor = office.get<{ parse_state: string; updated_at: number }>(
     `select parse_state, updated_at from ingest_cursors
-      where office_id = $office_id and run_id = $run and agent_id = $agent`,
+      where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
     { run: runId, agent },
   );
   return {

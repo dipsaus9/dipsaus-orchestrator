@@ -107,6 +107,83 @@ export function recordUsageMessage(
   return true;
 }
 
+/**
+ * One assistant message of a worker transcript (0008 section 4, DIPO-134), counted once per
+ * message id. A message the stream did not carry is counted whole, output included: a host that
+ * died sent no turn end to take output from. A message the stream already counted keeps its
+ * numbers, except its output when `outputOpen` (no turn end replaced the live numbers yet, so
+ * none of its output is in the totals): a higher output in the transcript replaces the stored one,
+ * and the totals' output is the sum of the stored messages'. Returns whether anything changed; a
+ * second read of the same message changes nothing. A message another agent of the run counted is
+ * never counted again: a resumed session (`--resume`) is a new agent whose transcript is the file
+ * of the session it resumed, with that session's messages in it.
+ */
+export function recordTranscriptUsage(
+  office: OfficeHandle,
+  scope: UsageScope,
+  message: Parameters<typeof recordUsageMessage>[2],
+  outputOpen: boolean,
+  at: number,
+): boolean {
+  const earlier = office.get(
+    `select 1 as found from usage_messages
+     where office_id = $office_id and message_id = $message and agent_id <> $agent
+       and agent_id in (select agent_id from agents where office_id = $office_id and run_id = $run)`,
+    { agent: scope.agent, message: message.messageId, run: scope.run },
+  );
+  if (earlier !== null) return false;
+  const counted = office.get<{ model: string; output: number }>(
+    `select model, output from usage_messages
+     where office_id = $office_id and agent_id = $agent and message_id = $message`,
+    { agent: scope.agent, message: message.messageId },
+  );
+  const model = counted?.model ?? message.model;
+  if (counted === null) {
+    recordUsageMessage(office, scope, message, at);
+    if (!outputOpen) {
+      office.run(
+        `update usage_totals set output = output + $output, updated_at = $at
+         where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+        { output: message.output, at, run: scope.run, agent: scope.agent, model },
+      );
+      setBudget(office, scope);
+      return true;
+    }
+  } else if (!outputOpen) {
+    return false;
+  }
+  const before = totalOutput(office, scope, model);
+  if (counted !== null && message.output > counted.output) {
+    office.run(
+      `update usage_messages set output = $output
+       where office_id = $office_id and agent_id = $agent and message_id = $message`,
+      { output: message.output, agent: scope.agent, message: message.messageId },
+    );
+  }
+  // With no turn end yet, the totals hold none of the stored messages' output: it is their sum,
+  // which reading the same messages again leaves as it is.
+  office.run(
+    `update usage_totals set updated_at = $at, output = (
+       select coalesce(sum(m.output), 0) from usage_messages m
+       where m.office_id = usage_totals.office_id and m.agent_id = usage_totals.agent_id
+         and m.model = usage_totals.model)
+     where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+    { at, run: scope.run, agent: scope.agent, model },
+  );
+  setBudget(office, scope);
+  return counted === null || totalOutput(office, scope, model) !== before;
+}
+
+function totalOutput(office: OfficeHandle, scope: UsageScope, model: string): number | null {
+  return (
+    office.get<{ output: number }>(
+      `select output from usage_totals
+       where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+      { run: scope.run, agent: scope.agent, model },
+    )?.output ?? null
+  );
+}
+
 function setBudget(office: OfficeHandle, scope: UsageScope): void {
   office.run(
     `update usage_totals set ${BUDGET_UPDATE}
@@ -484,7 +561,7 @@ export function finalizeRunAgents(office: OfficeHandle, run: string, at: number)
       where t.office_id = $office_id and t.run_id = $run and t.final = 0
         and not exists (select 1 from ingest_cursors c
           where c.office_id = t.office_id and c.run_id = t.run_id and c.agent_id = t.agent_id
-            and c.ended_at is not null)
+            and c.source_kind = 'host-events' and c.ended_at is not null)
       order by t.agent_id`,
     { run },
   );

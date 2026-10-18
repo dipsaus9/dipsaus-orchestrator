@@ -6,6 +6,7 @@ import type { Clock, OfficeId, RunId, StoryKey, WorkRef } from "@dipsaus-orchest
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
+import type { PriceBook } from "../pricing/estimate";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
@@ -266,8 +267,13 @@ export interface RunOutcomesDeps {
   readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
   readonly steering: RunSteering;
   readonly encode: (op: SteerOp) => HostOp[];
-  /** The worker port's id and pure `result`. */
-  readonly worker: Pick<WorkerPort, "id" | "result">;
+  /** The worker port's id, pure `result` and transcript parser. */
+  readonly worker: Pick<WorkerPort, "id" | "result" | "readTranscript">;
+  /**
+   * The pricing catalog (`StateDatabase.pricing`), to estimate the usage read from a transcript
+   * (DIPO-134); without it that usage keeps no estimated cost.
+   */
+  readonly pricing?: () => PriceBook | null;
   /** Run control; read when needed, since it is built with this as its outcomes. */
   readonly ender: () => RunEnder;
   /** Starts the run's next session; without it every crash parks `worker-failed`. */
