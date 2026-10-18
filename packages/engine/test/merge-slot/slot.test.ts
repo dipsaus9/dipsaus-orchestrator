@@ -168,7 +168,10 @@ describe("the merge slot", () => {
     await withTempDir(async (dir) => {
       const s = await slotSetup(dir);
       await openBacklogPr(s);
-      s.config = { ...OFFICE_DEFAULTS, mergeSlot: { requiredChecks: ["build"] } };
+      s.config = {
+        ...OFFICE_DEFAULTS,
+        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["build"] },
+      };
 
       // `build` is the only required check here, so the slot waits for it.
       s.host.checks = [{ name: "build", state: "IN_PROGRESS", bucket: "pending" }];
@@ -187,7 +190,10 @@ describe("the merge slot", () => {
     await withTempDir(async (dir) => {
       const s = await slotSetup(dir);
       await openBacklogPr(s);
-      s.config = { ...OFFICE_DEFAULTS, mergeSlot: { requiredChecks: ["build", "pr-title"] } };
+      s.config = {
+        ...OFFICE_DEFAULTS,
+        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["build", "pr-title"] },
+      };
       s.host.checks = [
         { name: "build", state: "FAILURE", bucket: "fail" },
         { name: "ci-ok", state: "SUCCESS", bucket: "pass" },
