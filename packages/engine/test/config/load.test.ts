@@ -144,13 +144,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 6\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 7\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 6\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 7\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -476,7 +476,7 @@ describe("office configuration version 2", () => {
   it("loads a version 1 file migrated to version 5, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(5);
+    expect(v1.config.version).toBe(6);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -521,7 +521,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(5);
+      expect(result.config.version).toBe(6);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -724,7 +724,41 @@ describe("office configuration version 4: local toolchain read paths", () => {
       }),
     );
     expect(v4.config).toEqual(v3.config);
-    expect(v4.config.version).toBe(5);
+    expect(v4.config.version).toBe(6);
+  });
+});
+
+// Version 6 (DIPO-188): story.maintainerStepPhrases, with its default when the file does not set it.
+describe("office configuration version 6", () => {
+  it("gives a version 5 file the default step phrases", () => {
+    const v5 = ok(resolveOfficeConfig({ office: "version: 5\n" }));
+    expect(v5.config.version).toBe(6);
+    expect(v5.config.story.maintainerStepPhrases).toEqual(
+      OFFICE_DEFAULTS.story.maintainerStepPhrases,
+    );
+  });
+
+  it("takes the step phrases of a version 6 file", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 6\nstory: { maintainerStepPhrases: [write the report] }\n",
+      }),
+    );
+    expect(result.config.story.maintainerStepPhrases).toEqual(["write the report"]);
+  });
+
+  it("refuses the step phrases in a version 5 file, and a non-string phrase", () => {
+    const old = resolveOfficeConfig({
+      office: "version: 5\nstory: { maintainerStepPhrases: [write] }\n",
+    });
+    expect(old.ok).toBe(false);
+    const message = errors(old)[0]?.message ?? "";
+    expect(message).toContain(
+      "Version 6 adds story.maintainerStepPhrases: set version: 6 to use it",
+    );
+    expect(
+      resolveOfficeConfig({ office: "version: 6\nstory: { maintainerStepPhrases: [3] }\n" }).ok,
+    ).toBe(false);
   });
 });
 
@@ -732,7 +766,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
 describe("office configuration version 5", () => {
   it("migrates a version 3 file to version 5 and gives the new keys their defaults", () => {
     const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
-    expect(v3.config.version).toBe(5);
+    expect(v3.config.version).toBe(6);
     expect(v3.config.review).toEqual({
       model: "opus",
       effort: "high",
