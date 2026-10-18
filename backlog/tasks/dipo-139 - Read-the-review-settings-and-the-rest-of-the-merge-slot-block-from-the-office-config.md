@@ -3,10 +3,10 @@ id: DIPO-139
 title: >-
   Read the review settings and the rest of the merge slot block from the office
   config
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 11:18'
+updated_date: '2026-10-18 11:23'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -40,6 +40,10 @@ test_plan:
       check: "(unit) the config migration from DIPO-133's version adds the review block and the new mergeSlot keys with their defaults"
     - kind: "automated"
       check: "(unit) validation refuses maxRounds 0, ciAttempts 0 and a duplicate hold label, naming the key"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "May I add packages/engine/test/merge-slot/slot.test.ts to the scope? The fix is to write `mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: [\"build\"] }` (and `[\"build\", \"pr-title\"]`) at lines 171 and 190, so tsc -b passes. Without it, verify fails on those two lines."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
