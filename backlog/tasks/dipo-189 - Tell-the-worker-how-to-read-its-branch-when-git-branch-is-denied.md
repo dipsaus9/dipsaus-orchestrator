@@ -1,10 +1,10 @@
 ---
 id: DIPO-189
 title: Tell the worker how to read its branch when git branch is denied
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-18 07:55'
+updated_date: '2026-10-18 07:57'
 labels:
   - 'tier:S'
   - cutover
@@ -46,6 +46,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 L1 (packages/engine/src/prompts/contract/implement.md) says git branch is denied in every form, also inside a compound command, and that git rev-parse --abbrev-ref HEAD or git status shows the current branch; the text names no run's branch, id or path, and packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
-- [ ] #2 The run settings from packages/engine/src/workers/claude-cli/plan.ts still deny Bash(git branch) and Bash(git branch *), and hold no deny rule that starts with Bash(git rev-parse); a test in packages/engine/test/workers/plan.test.ts asserts both
+- [x] #1 L1 (packages/engine/src/prompts/contract/implement.md) says git branch is denied in every form, also inside a compound command, and that git rev-parse --abbrev-ref HEAD or git status shows the current branch; the text names no run's branch, id or path, and packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
+- [x] #2 The run settings from packages/engine/src/workers/claude-cli/plan.ts still deny Bash(git branch) and Bash(git branch *), and hold no deny rule that starts with Bash(git rev-parse); a test in packages/engine/test/workers/plan.test.ts asserts both
 <!-- AC:END -->
