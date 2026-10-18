@@ -62,6 +62,7 @@ import {
   interpret,
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
+import { readTranscript } from "../../src/workers/claude-cli/transcript";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import type { WorkerPort } from "../../src/workers/port";
@@ -177,6 +178,7 @@ function daemon(
     worker: {
       id: "claude-cli",
       result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
+      readTranscript,
     },
     ender: () => control,
     resumer: {
@@ -568,6 +570,54 @@ describe("re-attach (0006 decision 8)", () => {
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
   });
 
+  it("a dead host's usage the stream lacked is read from its transcript, once, before it is final (DIPO-134)", async () => {
+    w.alive = false;
+    beforeRestart("success-single", 6, 20);
+    const transcript = join(w.dir, "session.jsonl");
+    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
+    appendLines(w.f.eventFile, [
+      {
+        t: 9_000,
+        ch: "hook",
+        data: JSON.stringify({
+          hook_event_name: "SessionStart",
+          source: "startup",
+          transcript_path: transcript,
+        }),
+      },
+    ]);
+    const stored = () =>
+      w.f.office.get<{ input: number; output: number; messages: number; final: number }>(
+        `select sum(t.input) as input, sum(t.output) as output, min(t.final) as final,
+           (select count(*) from usage_messages m where m.office_id = t.office_id
+              and m.message_id like 'msg-lost%') as messages
+         from usage_totals t where t.office_id = $office_id and t.agent_id = $agent`,
+        { agent: w.f.agent },
+      );
+    const d = daemon();
+    await d.reattacher.reattach(w.f.office.officeId);
+    await d.control.idle();
+    expect(agentRow()?.end_reason).toBe("host-lost");
+    const after = stored();
+    expect(after?.messages).toBe(2);
+    expect(after?.final).toBe(1);
+    // The transcript's two messages are in the totals: their input and their output.
+    const rows = w.f.office.get<{ input: number; output: number }>(
+      `select sum(input) as input, sum(output) as output from usage_messages
+       where office_id = $office_id and agent_id = $agent`,
+      { agent: w.f.agent },
+    );
+    expect(after?.input).toBe(rows?.input ?? -1);
+    expect(after?.output).toBeGreaterThanOrEqual(13);
+
+    // A second restart reads the same transcript and adds nothing.
+    const again = daemon();
+    await again.reattacher.reattach(w.f.office.officeId);
+    await again.control.idle();
+    expect(stored()?.input).toBe(after?.input ?? -1);
+    expect(stored()?.output).toBe(after?.output ?? -1);
+  });
+
   it("a dead host's leftover output is stored and sent as work.output, once (host-lost)", async () => {
     w.alive = false;
     beforeRestart("interrupt", 18, 28);
@@ -748,6 +798,22 @@ function expectOutputSentOnce(): void {
   for (let i = 1; i < sent.length; i += 1) expect(sent[i]?.from).toBe(sent[i - 1]?.to);
   expect(sent.at(-1)?.to).toBe(chunks.at(-1)?.to_offset);
 }
+
+/** One assistant line of a worker transcript. */
+const message = (id: string, input: number, output: number): string =>
+  JSON.stringify({
+    type: "assistant",
+    message: {
+      id,
+      model: "claude-haiku-5-5",
+      usage: {
+        input_tokens: input,
+        output_tokens: output,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+  });
 
 function countDaily(): number {
   return (

@@ -780,7 +780,7 @@ export class RunReattacher {
     if (previous === undefined) return this.#deps.initialState({ ...base, resume: false });
     const cursor = office.get<{ parse_state: string }>(
       `select parse_state from ingest_cursors
-        where office_id = $office_id and run_id = $run and agent_id = $agent`,
+        where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
       { run: host.runId, agent: previous.agentId },
     );
     const session = office.get<{ session_id: string | null }>(
@@ -867,7 +867,7 @@ export class RunReattacher {
       );
       const cursor = office.get<{ parse_state: string }>(
         `select parse_state from ingest_cursors
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
         { run: runId, agent },
       );
       return cursor === null ? {} : (JSON.parse(cursor.parse_state) as ParseState);

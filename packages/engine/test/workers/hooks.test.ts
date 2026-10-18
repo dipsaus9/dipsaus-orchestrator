@@ -34,7 +34,15 @@ const COMMON = {
 
 /** One fixture payload per registered hook (Claude Code hooks reference), and its neutral event. */
 const FIXTURES: Record<(typeof REGISTERED_HOOKS)[number], [Record<string, unknown>, HookEvent]> = {
-  SessionStart: [{ source: "startup" }, { kind: "sessionStarted", id: 640, source: "startup" }],
+  SessionStart: [
+    { source: "startup" },
+    {
+      kind: "sessionStarted",
+      id: 640,
+      source: "startup",
+      transcriptPath: "/home/maintainer/.claude/projects/x/session-1.jsonl",
+    },
+  ],
   PermissionRequest: [
     { tool_name: "Bash", tool_input: { command: "docker compose up", description: "start" } },
     {
@@ -58,8 +66,16 @@ const FIXTURES: Record<(typeof REGISTERED_HOOKS)[number], [Record<string, unknow
     { kind: "subagentStarted", agentId: "agent-7" },
   ],
   SubagentStop: [
-    { agent_id: "agent-7", stop_hook_active: false },
-    { kind: "subagentStopped", agentId: "agent-7" },
+    {
+      agent_id: "agent-7",
+      stop_hook_active: false,
+      agent_transcript_path: "/home/maintainer/.claude/projects/x/session-1/agent-7.jsonl",
+    },
+    {
+      kind: "subagentStopped",
+      agentId: "agent-7",
+      transcriptPath: "/home/maintainer/.claude/projects/x/session-1/agent-7.jsonl",
+    },
   ],
   Stop: [{ stop_hook_active: false, last_assistant_message: "done" }, { kind: "stopped" }],
   StopFailure: [{ error: "server_error" }, { kind: "stopFailed", error: "server_error" }],
@@ -135,7 +151,7 @@ describe("hook payloads to neutral hook events (DIPO-59)", () => {
       expect(neutral).toEqual([{ t: "hook", hook: expected }]);
       for (const event of events)
         expect(ClaudeWorkerEventSchema.safeParse(event).success).toBe(true);
-      expect(hookEventOf({ hook_event_name: name, ...fields }, 640)).toEqual(expected);
+      expect(hookEventOf({ ...COMMON, hook_event_name: name, ...fields }, 640)).toEqual(expected);
     });
   }
 

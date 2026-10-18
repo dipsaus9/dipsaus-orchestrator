@@ -246,6 +246,7 @@ function buildOutcomes(
       steering: ports.steering,
       encode: (op) => ports.worker.encode(op),
       worker: ports.worker,
+      pricing: ports.ingest.pricing,
       ender: () => control,
       resumer,
       release: ports.release,

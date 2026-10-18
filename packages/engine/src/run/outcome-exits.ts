@@ -3,6 +3,7 @@
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
+import { recoverTranscriptUsage } from "../ingest/transcript";
 import { finalizeAgentUsage } from "../ingest/usage";
 import type { HostOp } from "../workers/types";
 
@@ -71,6 +72,7 @@ export class ExitOutcomes {
     if (office === undefined) return;
     const intent = this.#s.explaining(office, view.runId);
     const at = this.#deps.clock.now();
+    this.#readTranscripts(office, view, agent, at);
     // The agent ends with the signal in one transaction: a restart before the decision below
     // finds `host-lost` and decides it again.
     this.#s.write(office, () => {
@@ -113,6 +115,45 @@ export class ExitOutcomes {
       return;
     }
     await this.hostLost(office, run, view, agent);
+  }
+
+  /**
+   * The usage a dead host never wrote to `exit.json` is read from the worker's transcript
+   * (0008 section 4, DIPO-134), once per message id. A transcript that cannot be read costs the
+   * usage, never the decision.
+   */
+  #readTranscripts(office: OfficeHandle, view: RunView, agent: string, at: number): void {
+    const read = this.#deps.worker.readTranscript;
+    if (read === undefined) return;
+    try {
+      const pass = recoverTranscriptUsage({
+        office,
+        scope: {
+          run: view.runId,
+          agent,
+          role: view.work.role,
+          tier: view.work.tier,
+          budgetLimit: view.caps.budgetTokens,
+        },
+        read,
+        pricing: this.#deps.pricing?.() ?? null,
+        mode: "lost",
+        at,
+      });
+      if (pass.refused !== null) {
+        this.#deps.warn?.("the worker transcript was not read", {
+          run: view.runId,
+          agent,
+          reason: pass.refused,
+        });
+      }
+    } catch (error) {
+      this.#deps.warn?.("reading the worker transcript failed", {
+        run: view.runId,
+        agent,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** The decision on an agent that ended `host-lost`: one resume, else park `interrupted`. */

@@ -344,6 +344,23 @@ export interface ExitRecord {
   readonly signalInferred?: boolean;
 }
 
+/** The usage of one assistant message as a worker's transcript holds it (DIPO-134). */
+export interface TranscriptMessage {
+  readonly messageId: string;
+  readonly model: string;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheCreate: number;
+  readonly cacheCreate5m: number;
+  readonly cacheCreate1h: number;
+  readonly cacheRead: number;
+}
+
+/** What the adapter's transcript parser makes of lines: the usage messages, or a refusal. */
+export type TranscriptRead =
+  | { readonly ok: true; readonly messages: readonly TranscriptMessage[] }
+  | { readonly ok: false; readonly reason: string };
+
 /** The native session a resume would continue. */
 export interface SessionRef {
   readonly id: string;
@@ -400,6 +417,11 @@ export interface WorkerAdapter {
    * (0008 section 8, 0014 section 6).
    */
   canResume(ref: SessionRef, spec: WorkerSpec, facts: ResumeFacts): ResumeCheck;
+  /**
+   * Pure: the usage messages of a transcript's lines (0008 section 4, DIPO-134); refused for a
+   * version whose transcript format is not covered. Absent for an adapter without a transcript.
+   */
+  readTranscript?(lines: readonly string[], version: string | null): TranscriptRead;
 }
 
 /** What a refused path is about, when `plan` refused a path (DIPO-74 AC #7). */

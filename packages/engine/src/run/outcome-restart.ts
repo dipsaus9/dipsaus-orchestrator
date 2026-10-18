@@ -104,7 +104,7 @@ export class Redispatch {
       if (openWait(office, run.runId) !== null) continue;
       const cursor = office.get<{ parse_state: string }>(
         `select parse_state from ingest_cursors
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
         { run: run.runId, agent: agent.agent_id },
       );
       const host = office.get<{
