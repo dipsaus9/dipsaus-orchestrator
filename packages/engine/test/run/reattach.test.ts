@@ -7,11 +7,13 @@
 // restart-window test of `RunResumer`.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   truncateSync,
@@ -50,6 +52,7 @@ import {
 } from "../../src/run";
 import { markIntentSent, recordIntent } from "../../src/run/intents";
 import { activeSignals, raiseSignal } from "../../src/run/signals";
+import { promptPartsOf } from "../../src/prompts/parts";
 import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -754,6 +757,9 @@ function countDaily(): number {
 }
 
 /** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
+/** The specs the resumer's worker prepared, the last one being the session it started. */
+const preparedSpecs: { readonly taskMessage: string; readonly systemFile: string }[] = [];
+
 function realResumer(
   hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
   extra: Partial<
@@ -775,10 +781,10 @@ function realResumer(
         canResume,
         interpret: claude.interpret,
       }) as unknown as WorkerAdapter,
-    prepare: async () => ({
-      ok: true,
-      plan: { argv: ["/bin/true"], env: {}, cwd: "/", files: [], stdin: [] },
-    }),
+    prepare: async (spec) => {
+      preparedSpecs.push(spec);
+      return { ok: true, plan: { argv: ["/bin/true"], env: {}, cwd: "/", files: [], stdin: [] } };
+    },
     initialState: () => ({}),
     encode,
     result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
@@ -1454,6 +1460,70 @@ describe("the next session's nudge sources (DIPO-99)", () => {
     expect(sources((outcome as { agent: string }).agent)).toEqual([
       "context:src/old.ts",
       "input:docs/old.md",
+    ]);
+  });
+});
+
+/** The task message the session it started was sent. */
+const sentText = (): string => preparedSpecs.at(-1)?.taskMessage ?? "";
+const sha = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
+const storyOf = () => {
+  const view = plainTask({ id: "DIPO-1", dependencies: [], references: ["src/new.ts"] });
+  return {
+    view,
+    fields: parseFieldBlock(view.description).fields,
+    taskFile: "backlog/tasks/dipo-1 - Story.md",
+    dependencies: [],
+  };
+};
+const handoff = async () => ({
+  commits: "",
+  diffstat: "",
+  untracked: [],
+  criteria: null,
+  verify: null,
+  feedback: [],
+  notes: null,
+});
+const workspace = () => memoryWorkspace({ "src/new.ts": "export const fresh = 1;\n" });
+
+describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
+  it("a resume records the task message it sent, under the resumed session's agent", async () => {
+    firstSession();
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: true });
+    const agent = (outcome as { agent: string }).agent;
+    const text = sentText();
+    expect(promptPartsOf(w.f.office, w.f.run, agent)).toMatchObject([
+      { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
+    ]);
+    expect(promptPartsOf(w.f.office, w.f.run, w.f.agent)).toEqual([]);
+  });
+
+  it("a handoff records its system file and its task message, under the new agent", async () => {
+    firstSession();
+    const outcome = await realResumer(
+      hosts,
+      {
+        probe: async () => null,
+        story: async () => storyOf(),
+        handoff,
+        workspace,
+      },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const agent = (outcome as { agent: string }).agent;
+    const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
+    const text = sentText();
+    expect(promptPartsOf(w.f.office, w.f.run, agent)).toMatchObject([
+      { name: "system", sha256: sha(system), bytes: Buffer.byteLength(system) },
+      { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
     ]);
   });
 });

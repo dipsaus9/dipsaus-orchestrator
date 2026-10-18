@@ -5,6 +5,7 @@
 // real git, the pinned Backlog CLI and a FakeProcess replay is in start.ci.test.ts.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -32,6 +33,7 @@ import type { GateResult } from "../../src/gate/types";
 import { contextPathsOf, nudgeCount } from "../../src/hooks/nudges";
 import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
+import { promptPartsOf } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
@@ -434,6 +436,7 @@ function entries(): { type: string; delta: Record<string, unknown> }[] {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 
 describe("work.run starts the worker of a claimed run", () => {
   it("starts the host with the tier's model, effort and caps and the stored session id, ingests it and emits work.phase build", async () => {
@@ -504,6 +507,32 @@ describe("work.run starts the worker of a claimed run", () => {
       ["work.output", null],
       ["work.phase", "build"],
     ]);
+  });
+
+  it("stores the measured prompt parts of the first session: system, task and each section (DIPO-177)", async () => {
+    story("TASK-1", "Ready");
+    const result = resultOf<RunResult>(await run());
+    const runId = result.started[0]?.run as RunId;
+    const [host] = world.hosts;
+    const agent = world.office.get<{ agent_id: string }>(
+      "select agent_id from agents where office_id = $office_id and run_id = $run",
+      { run: runId },
+    );
+    const systemFile = readFileSync(
+      join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md"),
+    );
+    // The task message is the content of the first stdin line (stream-json user message).
+    const sent = JSON.parse(host?.plan.stdin[0] ?? "").message.content as string;
+    const parts = promptPartsOf(world.office, runId, agent?.agent_id ?? "");
+    const system = parts.find((part) => part.name === "system");
+    const taskPart = parts.find((part) => part.name === "task");
+    expect(system).toMatchObject({ sha256: sha(systemFile), bytes: systemFile.length });
+    expect(taskPart).toMatchObject({ sha256: sha(sent), bytes: Buffer.byteLength(sent) });
+    const sections = parts.filter((part) => part.name.startsWith("task."));
+    expect(sections.length).toBeGreaterThan(0);
+    expect(parts.map((part) => part.name)).toEqual(
+      ["system", "task", ...sections.map((part) => part.name)].toSorted(),
+    );
   });
 
   it("stores the backstop snapshot with the run before the host starts (DIPO-93 AC #4)", async () => {

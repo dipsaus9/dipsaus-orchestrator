@@ -16,6 +16,7 @@ import { sizeClassOfWorkspace } from "../context/size";
 import type { ContextPack, Workspace } from "../context/types";
 import type { NudgeSources } from "../hooks/nudges";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
+import type { Section } from "../prompts/contract";
 import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
 import { renderSystemFile } from "../prompts/system";
@@ -46,6 +47,8 @@ export interface RunPrompts {
   readonly taskMessage: string;
   /** The context pack and input paths the context and input nudges check (DIPO-60). */
   readonly nudgeSources: NudgeSources;
+  /** The task message's sections in message order, measured per section (0014 section 2). */
+  readonly sections: readonly Section[];
 }
 
 /** The nudge sources of a context pack: its item paths and the story's input paths. */
@@ -101,6 +104,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
   return {
     systemFile: renderSystemFile("implement", "developer"),
     taskMessage: task.text,
+    sections: task.sections,
     ...nudgeSourcesOf(pack, story.inputs),
   };
 }
