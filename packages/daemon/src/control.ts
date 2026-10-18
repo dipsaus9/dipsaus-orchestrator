@@ -35,8 +35,11 @@ export interface ControlDeps {
   readonly version: string;
   /** The commit the binary was built from; absent when run from source (DIPO-198). */
   readonly buildCommit?: string;
-  /** Per loaded office whose repository holds the build commit, its engine commits behind. */
-  readonly engineBehind?: () => Promise<readonly EngineBehind[]>;
+  /**
+   * Per loaded office whose repository holds the build commit, its engine commits behind, as last
+   * read in the background: synchronous, so `daemon.status` never waits on git.
+   */
+  readonly engineBehind?: () => readonly EngineBehind[];
   readonly socket: string;
   /** The absolute tool paths resolved from the daemon's `PATH` at start (DIPO-70). */
   readonly tools: ToolPaths;
@@ -59,9 +62,9 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
   return {
     name: "daemon/control",
     register(registry) {
-      registry.addAsyncRead({
+      registry.addRead({
         definition: daemonStatus,
-        handle: async () => ({
+        handle: () => ({
           state: lifecycle.state,
           stateReason: lifecycle.reason,
           pid: deps.pid,
@@ -78,7 +81,7 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
             ? {}
             : {
                 buildCommit: deps.buildCommit,
-                engineBehind: [...((await deps.engineBehind?.()) ?? [])],
+                engineBehind: [...(deps.engineBehind?.() ?? [])],
               }),
         }),
       });

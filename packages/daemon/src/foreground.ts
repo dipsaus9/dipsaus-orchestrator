@@ -8,7 +8,7 @@
 // or capped. An error no code caught drains it too, and that exit is a crash: exit 1 with the crash
 // marker kept (DIPO-117).
 
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import {
@@ -33,7 +33,6 @@ import {
   currentPlatform,
   detachedEnv,
   EngineGit,
-  engineCommitsAfter,
   engineFeatures,
   engineRegistry,
   ensurePrivateDir,
@@ -62,6 +61,7 @@ import {
   openLogFile,
   openStateDatabase,
   passwdHome,
+  readEngineCommitsAfter,
   readRuntimeRecord,
   readWorkActivity,
   removeSocketFile,
@@ -105,9 +105,10 @@ import {
   type StateDatabase,
 } from "@dipsaus-orchestrator/engine";
 
-import { controlFeature, type EngineBehind, emitDaemonStates } from "./control";
+import { controlFeature, emitDaemonStates } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
+import { EngineBehindCache } from "./engine-behind";
 import { noOrphansActive, type DaemonIo, type UncaughtEvent, type UncaughtSource } from "./io";
 import { DATABASE_UNAVAILABLE, DaemonLifecycle } from "./lifecycle";
 import {
@@ -438,6 +439,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
     ingest: { close(): void } | null;
+    engineBehind: EngineBehindCache | null;
     contract: ContractServer | null;
   } = {
     socket: null,
@@ -451,6 +453,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     retention: null,
     maintenance: null,
     ingest: null,
+    engineBehind: null,
     contract: null,
   };
   let lockLost = false;
@@ -565,6 +568,26 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       spawn: systemSpawn,
       ...(tools.paths.git === undefined ? {} : { git: tools.paths.git }),
     });
+    // The engine commits each office base has after the build commit (DIPO-198), read in the
+    // background so `daemon.status` answers from memory.
+    const buildCommit = io.buildCommit;
+    const engineBehind =
+      buildCommit === undefined
+        ? null
+        : new EngineBehindCache({
+            clock,
+            logger: logger.child({ component: "engine-behind" }),
+            loadedOffices: () => offices.loadedOffices(),
+            source: (office) => {
+              const officeGit = engineGit.forOffice(office);
+              if (officeGit === undefined) return undefined;
+              return {
+                mainWorktree: officeGit.mainWorktree,
+                read: () => readEngineCommitsAfter(officeGit, buildCommit),
+              };
+            },
+          });
+    held.engineBehind = engineBehind;
     // The planning lane (DIPO-34): its replay load step needs the office git, so it follows
     // engineGit.feature. The `backlog` on the daemon PATH, as for the version check.
     // Story claims (DIPO-38): their load step pins live claims' worktree snapshots on the office
@@ -842,18 +865,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
           ? {}
           : {
               buildCommit: io.buildCommit,
-              engineBehind: async () => {
-                const buildCommit = io.buildCommit as string;
-                const rows: EngineBehind[] = [];
-                for (const office of offices.loadedOffices()) {
-                  const officeGit = engineGit.forOffice(office);
-                  if (officeGit === undefined) continue;
-                  const commits = await engineCommitsAfter(officeGit, buildCommit);
-                  if (commits === null) continue;
-                  rows.push({ office, name: basename(officeGit.mainWorktree), commits });
-                }
-                return rows;
-              },
+              engineBehind: () => engineBehind?.rows() ?? [],
             }),
         socket: socketPath,
         tools: tools.paths,
@@ -1046,6 +1058,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       ]);
       if (first.kind === "failed") throw first.error;
     }
+    // Recovery loaded the registered offices: read their engine commits behind now, then on the
+    // refresh interval; offices loaded later are read when status first sees them (DIPO-198).
+    if (stops.requested === null) engineBehind?.start();
 
     if (lifecycle.state === "running" || lifecycle.state === "safe") {
       held.stableTimer = clock.setTimeout(() => {
@@ -1104,6 +1119,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     if (held.lockTimer !== null) clock.clearTimeout(held.lockTimer);
     if (held.stableTimer !== null) clock.clearTimeout(held.stableTimer);
     upgrade?.stop();
+    held.engineBehind?.stop();
     await keepAwake.stop();
     held.storyIndex?.stop();
     held.teardown?.stop();
