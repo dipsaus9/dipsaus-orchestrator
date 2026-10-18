@@ -3,6 +3,7 @@
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
+import { recoverLostUsage } from "../ingest/transcript";
 import { finalizeAgentUsage } from "../ingest/usage";
 import type { HostOp } from "../workers/types";
 
@@ -71,6 +72,7 @@ export class ExitOutcomes {
     if (office === undefined) return;
     const intent = this.#s.explaining(office, view.runId);
     const at = this.#deps.clock.now();
+    this.#readTranscripts(office, view, agent, at);
     // The agent ends with the signal in one transaction: a restart before the decision below
     // finds `host-lost` and decides it again.
     this.#s.write(office, () => {
@@ -113,6 +115,28 @@ export class ExitOutcomes {
       return;
     }
     await this.hostLost(office, run, view, agent);
+  }
+
+  /**
+   * The usage a dead host never wrote to `exit.json` is read from the worker's transcript
+   * (0008 section 4, DIPO-134), once per message id. A transcript that cannot be read costs the
+   * usage, never the decision.
+   */
+  #readTranscripts(office: OfficeHandle, view: RunView, agent: string, at: number): void {
+    recoverLostUsage({
+      office,
+      scope: {
+        run: view.runId,
+        agent,
+        role: view.work.role,
+        tier: view.work.tier,
+        budgetLimit: view.caps.budgetTokens,
+      },
+      read: this.#deps.worker.readTranscript,
+      pricing: this.#deps.pricing?.() ?? null,
+      at,
+      warn: this.#deps.warn,
+    });
   }
 
   /** The decision on an agent that ended `host-lost`: one resume, else park `interrupted`. */

@@ -20,6 +20,8 @@ export type HookEvent =
       readonly source?: string;
       /** True when the session continues an earlier one (a resume). */
       readonly resumed?: true;
+      /** The session's transcript file, as the worker named it (DIPO-134). */
+      readonly transcriptPath?: string;
     } & HookCall)
   | ({
       readonly kind: "permissionRequest";
@@ -41,7 +43,12 @@ export type HookEvent =
     } & HookCall)
   | { readonly kind: "notification"; readonly type?: string }
   | { readonly kind: "subagentStarted"; readonly agentId?: string }
-  | { readonly kind: "subagentStopped"; readonly agentId?: string }
+  | {
+      readonly kind: "subagentStopped";
+      readonly agentId?: string;
+      /** The subagent's own transcript file, as the worker named it (DIPO-134). */
+      readonly transcriptPath?: string;
+    }
   | { readonly kind: "stopped" }
   | { readonly kind: "stopFailed"; readonly error?: string }
   | { readonly kind: "compacted"; readonly trigger?: string }

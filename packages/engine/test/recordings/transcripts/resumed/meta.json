@@ -1,0 +1,9 @@
+{
+  "scenario": "resumed",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "A session resumed with --resume keeps writing to the transcript of the session it resumed: the first 4 lines are the earlier session (msg-1, msg-2), the last 4 the resumed one (msg-r1, msg-r2). The earlier session's messages are counted once across the run's agents.",
+  "derivedFrom": "transcripts/host-died",
+  "transform": "Scrubbed as host-died; msg-1 kept with its last content block only; a second queue operation, prompt and two assistant messages appended for the resumed session."
+}

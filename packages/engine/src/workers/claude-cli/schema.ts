@@ -175,6 +175,7 @@ const HookEventSchema = z.discriminatedUnion("kind", [
     id: z.int().nonnegative().nullable(),
     source: z.string().exactOptional(),
     resumed: z.literal(true).exactOptional(),
+    transcriptPath: z.string().min(1).exactOptional(),
   }),
   z.strictObject({
     kind: z.literal("permissionRequest"),
@@ -191,7 +192,11 @@ const HookEventSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({ kind: z.literal("notification"), type: z.string().exactOptional() }),
   z.strictObject({ kind: z.literal("subagentStarted"), agentId: z.string().exactOptional() }),
-  z.strictObject({ kind: z.literal("subagentStopped"), agentId: z.string().exactOptional() }),
+  z.strictObject({
+    kind: z.literal("subagentStopped"),
+    agentId: z.string().exactOptional(),
+    transcriptPath: z.string().min(1).exactOptional(),
+  }),
   z.strictObject({ kind: z.literal("stopped") }),
   z.strictObject({ kind: z.literal("stopFailed"), error: z.string().exactOptional() }),
   z.strictObject({ kind: z.literal("compacted"), trigger: z.string().exactOptional() }),

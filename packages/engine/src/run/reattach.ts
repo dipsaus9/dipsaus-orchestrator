@@ -49,8 +49,10 @@ import type { OfficeHandle } from "../db/office";
 import { connectHost, type ConnectHostResult } from "../host/client";
 import type { HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
+import { recoverLostUsage } from "../ingest/transcript";
 import { finalizeAgentUsage } from "../ingest/usage";
 import type { ProcessProbe } from "../platform/process";
+import type { PriceBook } from "../pricing/estimate";
 import {
   exitFileOf,
   hostAlive,
@@ -175,6 +177,8 @@ export interface RunReattacherDeps {
   }) => ParseState;
   /** The run's caps by its tier; the run's budget alone when null. */
   readonly caps: (office: OfficeId, run: StoredRun) => Caps | null;
+  /** The pricing catalog, to estimate the usage read from a dead host's transcript (DIPO-134). */
+  readonly pricing?: () => PriceBook | null;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** How often a followed host's liveness is checked; `FOLLOW_CHECK_MS` by default. */
@@ -604,8 +608,8 @@ export class RunReattacher {
    * A followed host that died after its run or its agent ended: nothing is decided any more, so
    * the host row, the agent and its cursor end, its pending output is sent, and the run's
    * `follow-only` signal is cleared while this is the run's newest host. The exit is the host's
-   * own `exit.json` when there is one; without it the agent ends `host-lost` unless an end reason
-   * (the park's) is already recorded.
+   * own `exit.json` when there is one; without it the usage the stream lacked is read from the
+   * transcript, and the agent ends `host-lost` unless an end reason (the park's) is already recorded.
    */
   #closeFollowed(
     office: OfficeHandle,
@@ -642,6 +646,17 @@ export class RunReattacher {
         ? own
         : null;
     const at = deps.clock.now();
+    // A host dead without `exit.json` never wrote its usage; its transcript has it (DIPO-134).
+    if (!agentEnded && exit === null) {
+      recoverLostUsage({
+        office,
+        scope: target,
+        read: target.adapter.readTranscript,
+        pricing: deps.pricing?.() ?? null,
+        at,
+        warn: deps.warn,
+      });
+    }
     const newest = workerHostsOf(office, run.runId).at(-1)?.agentId === host.agentId;
     // The exit as `exit.json` says (its own transaction), then the rest of the close-out.
     if (exit !== null) recordHostExit(office, host.agentId, exit);
@@ -780,7 +795,7 @@ export class RunReattacher {
     if (previous === undefined) return this.#deps.initialState({ ...base, resume: false });
     const cursor = office.get<{ parse_state: string }>(
       `select parse_state from ingest_cursors
-        where office_id = $office_id and run_id = $run and agent_id = $agent`,
+        where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
       { run: host.runId, agent: previous.agentId },
     );
     const session = office.get<{ session_id: string | null }>(
@@ -867,7 +882,7 @@ export class RunReattacher {
       );
       const cursor = office.get<{ parse_state: string }>(
         `select parse_state from ingest_cursors
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
+          where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
         { run: runId, agent },
       );
       return cursor === null ? {} : (JSON.parse(cursor.parse_state) as ParseState);

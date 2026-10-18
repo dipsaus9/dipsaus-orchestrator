@@ -170,11 +170,13 @@ export function hookEventOf(
   switch (name) {
     case "SessionStart": {
       const source = text(payload["source"]);
+      const transcriptPath = text(payload["transcript_path"]);
       return {
         kind: "sessionStarted",
         id: call,
         ...(source === undefined ? {} : { source }),
         ...(source === "resume" ? { resumed: true as const } : {}),
+        ...(transcriptPath === undefined ? {} : { transcriptPath }),
       };
     }
     case "PermissionRequest": {
@@ -198,8 +200,14 @@ export function hookEventOf(
     }
     case "SubagentStart":
       return { kind: "subagentStarted", ...(agentId === undefined ? {} : { agentId }) };
-    case "SubagentStop":
-      return { kind: "subagentStopped", ...(agentId === undefined ? {} : { agentId }) };
+    case "SubagentStop": {
+      const transcriptPath = text(payload["agent_transcript_path"]);
+      return {
+        kind: "subagentStopped",
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(transcriptPath === undefined ? {} : { transcriptPath }),
+      };
+    }
     case "Stop":
       return { kind: "stopped" };
     case "StopFailure": {

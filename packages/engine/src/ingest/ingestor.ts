@@ -30,6 +30,7 @@ import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/t
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
 import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
+import { recordTranscriptPath, recoverTranscriptUsage, type TranscriptReader } from "./transcript";
 import {
   applyTurnTotals,
   feedFinalChanges,
@@ -66,6 +67,11 @@ export interface IngestAdapter {
     line: HostLine,
     state: ParseState,
   ): { readonly events: readonly WorkerEvent[]; readonly state: ParseState };
+  /**
+   * The adapter's transcript parser (DIPO-134). With it, an agent's end also stores the
+   * per-subagent usage its subagents' transcripts hold.
+   */
+  readonly readTranscript?: TranscriptReader;
 }
 
 /** One run and agent to ingest; its `worker_hosts` row names the event file and offset. */
@@ -496,6 +502,9 @@ export class Ingestor {
               // The adapter emits one event per compaction; no preTokens when it had no count.
               recordCompaction(this.#office, target, event.preTokens ?? null, now);
               break;
+            case "hook":
+              recordTranscriptPath(this.#office, target, event.hook, now);
+              break;
             case "initRejected":
               rejected.push(event.reason);
               this.#office.run(
@@ -607,6 +616,17 @@ export class Ingestor {
         endState = state;
         // The finished agent's models whose estimate drifts from the CLI cost (DIPO-89).
         if (this.#pricing !== null) drifts = agentCostDrifts(this.#office, run, agent);
+        if (target.adapter.readTranscript !== undefined) {
+          // The subagents' transcripts give the per-subagent detail the stream lacked (DIPO-134).
+          recoverTranscriptUsage({
+            office: this.#office,
+            scope: target,
+            read: target.adapter.readTranscript,
+            pricing: this.#pricing,
+            mode: "detail",
+            at: now,
+          });
+        }
         finalizeAgentUsage(this.#office, run, agent, now);
         this.#office.run(
           `update agents set ended_at = $now, end_reason = coalesce(end_reason, 'exited')
