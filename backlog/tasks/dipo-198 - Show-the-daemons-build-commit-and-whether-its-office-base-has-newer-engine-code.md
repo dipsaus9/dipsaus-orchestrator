@@ -3,10 +3,10 @@ id: DIPO-198
 title: >-
   Show the daemon's build commit and whether its office base has newer engine
   code
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 12:49'
+updated_date: '2026-10-18 13:10'
 labels:
   - 'tier:M'
   - cutover
@@ -29,6 +29,8 @@ references:
   - packages/daemon/src/io.ts
   - packages/daemon/src/index.ts
   - packages/contract/src/version.ts
+  - packages/daemon/src/engine-behind.ts
+  - packages/daemon/src/engine-behind.test.ts
 priority: low
 type: enhancement
 ordinal: 187000
@@ -70,3 +72,13 @@ test_plan:
 - [x] #3 dipo daemon status (formatRunning in packages/cli/src/daemon-commands.ts) prints a commit line, and for an office with a count above 0 a line naming the office and the count and saying to rebuild dipo and run dipo daemon restart; --json carries both fields; tests in packages/cli/src/daemon-commands.test.ts show both
 - [x] #4 A test in packages/engine/test/git/build-commit.test.ts with a real git fixture shows a base two commits past the build commit, one changing packages/ and one changing only docs/, gives a count of 1, and an office whose repository lacks the commit gets no count
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57GN5Z2QXZ7JZE90H6W0SDP (Sonnet medium, 31 turns, about $0.61, 3 min) reported done, In Review on DIPO-198/daemon-build-commit-and-stale-base. One sed -i was auto-denied (G7). daemon.status gains buildCommit (compiledStamp through runDaemon and DaemonIo) and engineBehind per office ({office, name, commits}; name is the main checkout's basename, a worker choice the review accepted as additive); the count is rev-list <build>..<remote>/<base> -- packages/ on the base as last fetched.
+
+Review found a latency regression: every daemon.status call ran 3 to 4 git spawns per office through the office's serial GitQueue, which a fetch can hold for up to 60 s, while the client lifecycle gives status about 1 s. Fixed on top: daemon.status is synchronous again and reads EngineBehindCache (packages/daemon/src/engine-behind.ts, new, so it and its test were added to the References), which reads in the background after recovery and every 60 s, one read per office in flight, each git step bounded at 10 s, keeping the last count on a failed read. Tests now show the count reads the fetched ref and not HEAD, and none without the remote ref. Mutation checks: each of ten mutations fails a test. Verify: 3378 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on daemon, cli, engine/test/git and contract: 824 pass. Re-review passed apart from the scope, fixed here.
+
+Not run: the manual live check (a binary built from an older commit shows the rebuild line); it goes into the maintainer's hand-test session.
+<!-- SECTION:NOTES:END -->
