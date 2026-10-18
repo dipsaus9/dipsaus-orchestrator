@@ -42,11 +42,13 @@ import {
   type NextSessionOutcome,
   type NextSessionRequest,
   OfficeIngest,
+  recordGrant,
   RunControl,
   RunOutcomes,
   RunReattacher,
   RunResumer,
   runIntents,
+  runTotals,
   storeBackstopSnapshot,
   STOP_AGAIN_DETAIL,
 } from "../../src/run";
@@ -311,6 +313,14 @@ function beforeRestart(name: string, before: number, upTo?: number): void {
   appendLines(w.f.eventFile, lines.slice(before, upTo ?? lines.length));
 }
 
+/** Sets the run's start budget: its caps count from the snapshot, not from the tier (DIPO-143). */
+function startBudget(budgetTokens: number): void {
+  w.f.office.run(
+    "update runs set budget_limit = $budget where office_id = $office_id and run_id = $run",
+    { budget: budgetTokens, run: w.f.run },
+  );
+}
+
 function writeExitFile(exit: Partial<HostExitFile> = {}): void {
   const record: HostExitFile = {
     run: w.f.run,
@@ -444,6 +454,7 @@ describe("re-attach (0006 decision 8)", () => {
     // Over its caps after the catch-up: the run parks while the follow-only host keeps running.
     w.answers = false;
     w.caps = { ...ROOMY, budgetTokens: 10 };
+    startBudget(10);
     beforeRestart("success-single", 6, 20);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
@@ -470,6 +481,7 @@ describe("re-attach (0006 decision 8)", () => {
   it("ingests what a followed host of a parked run wrote after the last poll before closing it out", async () => {
     w.answers = false;
     w.caps = { ...ROOMY, budgetTokens: 10 };
+    startBudget(10);
     beforeRestart("success-single", 6, 20);
     // The liveness check comes before the next 1 s ingestion poll.
     const d = daemon({ followCheckMs: 500 });
@@ -691,6 +703,7 @@ describe("re-attach (0006 decision 8)", () => {
 
   it("never starts a session next to a living host, and checks the caps after the catch-up (AC #5, AC #6)", async () => {
     w.caps = { ...ROOMY, budgetTokens: 10 };
+    startBudget(10);
     beforeRestart("success-single", 6, 20);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
@@ -827,7 +840,11 @@ function countDaily(): number {
 }
 
 /** The specs the resumer's worker prepared, the last one being the session it started. */
-const preparedSpecs: { readonly taskMessage: string; readonly systemFile: string }[] = [];
+const preparedSpecs: {
+  readonly taskMessage: string;
+  readonly systemFile: string;
+  readonly caps: Caps;
+}[] = [];
 
 /** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
 function realResumer(
@@ -1595,6 +1612,42 @@ describe("the next session's nudge sources (DIPO-99)", () => {
       "context:src/old.ts",
       "input:docs/old.md",
     ]);
+  });
+});
+
+describe("the next session's caps (DIPO-143)", () => {
+  it("counts a budget grant in what remains of the run's tokens, turns and minutes", async () => {
+    firstSession();
+    const { office, run } = w.f;
+    const now = w.f.t.clock.now();
+    office.immediate(() => {
+      office.run(
+        `update runs set budget_limit = 1000, max_turns = 50, max_minutes = 30
+          where office_id = $office_id and run_id = $run`,
+        { run },
+      );
+      recordGrant(office, run, {
+        kind: "budget",
+        amount: { tokens: 500, turns: 25, minutes: 15 },
+        grantId: "grt_1",
+        note: "more room",
+        origin: "maintainer",
+        client: null,
+        at: now,
+      });
+    });
+    const used = runTotals(office, run, now, now);
+    const outcome = await realResumer(hosts, { probe: async () => null }).next({
+      ...nextRequest(),
+      startedAt: now,
+    });
+    expect(outcome).toMatchObject({ kind: "started" });
+    // The start snapshot plus the grant, less what the run used; never the tier's caps.
+    expect(preparedSpecs.at(-1)?.caps).toEqual({
+      budgetTokens: 1500 - used.budgetTokens,
+      maxTurns: 75 - used.turns,
+      maxMinutes: 45,
+    });
   });
 });
 

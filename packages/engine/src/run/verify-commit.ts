@@ -73,6 +73,7 @@ import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
 import { endRunMarked, markPhase } from "./markers";
+import { runCaps } from "./caps";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import type { StoryGit } from "./story-git";
 import {
@@ -450,11 +451,12 @@ export class VerifyCommit implements RunFinisher {
         },
         { root: worktree, itemMax: feedbackItemMax(config, run.tier) },
       );
-      if (loop + 1 >= run.loopCap) {
+      const loopCap = runCaps(ctx.office, run).loopCap;
+      if (loop + 1 >= loopCap) {
         return {
           kind: "park",
           reason: "verify-failing",
-          detail: `verify failed ${loop + 1} of ${run.loopCap} times (the tier loop cap). ${item.text}`,
+          detail: `verify failed ${loop + 1} of ${loopCap} times (the tier loop cap). ${item.text}`,
           endKind: "verify-failing",
         };
       }

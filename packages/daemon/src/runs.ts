@@ -42,6 +42,7 @@ import {
   RunOutcomes,
   RunTempDirs,
   RunReattacher,
+  runCaps,
   runLaunchPaths,
   runSandboxedStep,
   runWorkerSpec,
@@ -295,7 +296,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   };
   const capsFor = (office: OfficeId, run: StoredRun) => {
     const tier = tierOf(office, run);
-    return tier === undefined ? null : capsOf(tier);
+    const handle = options.offices.get(office);
+    return tier === undefined || handle === undefined ? null : runCaps(handle, run, capsOf(tier));
   };
   const refreshStory = options.stories;
   // One steering for every run service: it keeps no state between sends.

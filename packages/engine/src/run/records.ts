@@ -30,6 +30,9 @@ export interface NewRun {
   readonly budgetUnit: string;
   readonly budgetLimit: number;
   readonly loopCap: number;
+  /** The turn and minute caps at the start (DIPO-143); null for a run started before they were kept. */
+  readonly maxTurns?: number | null;
+  readonly maxMinutes?: number | null;
   readonly reviewRoundCap: number | null;
   readonly configHash: string;
   readonly overrideKeys: readonly string[] | null;
@@ -67,6 +70,8 @@ interface RunRow {
   budget_unit: string;
   budget_limit: number;
   loop_cap: number;
+  max_turns: number | null;
+  max_minutes: number | null;
   review_round_cap: number | null;
   config_hash: string;
   override_keys: string | null;
@@ -80,7 +85,8 @@ interface RunRow {
 }
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, worktree, slot,
-  budget_unit, budget_limit, loop_cap, review_round_cap, config_hash, override_keys,
+  budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, config_hash,
+  override_keys,
   run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms`;
 
 function jsonList(text: string | null): string[] | null {
@@ -103,6 +109,8 @@ function toRecord(row: RunRow): StoredRun {
     budgetUnit: row.budget_unit,
     budgetLimit: row.budget_limit,
     loopCap: row.loop_cap,
+    maxTurns: row.max_turns,
+    maxMinutes: row.max_minutes,
     reviewRoundCap: row.review_round_cap,
     configHash: row.config_hash,
     overrideKeys: row.override_keys === null ? null : (JSON.parse(row.override_keys) as string[]),
@@ -120,8 +128,9 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
   office.run(
     `insert into runs (office_id, ${COLUMNS.replace(", gate_changes, ended_at, end_kind, parked_ms", "")})
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
-       $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $review_round_cap,
-       $config_hash, $override_keys, $run_profile_id, $started_at, $scope)`,
+       $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $max_turns,
+       $max_minutes, $review_round_cap, $config_hash, $override_keys, $run_profile_id,
+       $started_at, $scope)`,
     {
       run_id: run.runId,
       kind: run.kind,
@@ -137,6 +146,8 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
       budget_unit: run.budgetUnit,
       budget_limit: run.budgetLimit,
       loop_cap: run.loopCap,
+      max_turns: run.maxTurns ?? null,
+      max_minutes: run.maxMinutes ?? null,
       review_round_cap: run.reviewRoundCap,
       config_hash: run.configHash,
       override_keys: run.overrideKeys === null ? null : JSON.stringify(run.overrideKeys),
