@@ -6,7 +6,7 @@ title: >-
 status: Ready
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-18 10:03'
+updated_date: '2026-10-18 11:04'
 labels:
   - 'tier:M'
   - cutover
@@ -26,6 +26,9 @@ references:
   - packages/contract/schema/
   - packages/engine/src/git/
   - packages/engine/test/git/
+  - packages/daemon/src/io.ts
+  - packages/daemon/src/index.ts
+  - packages/contract/src/version.ts
 priority: low
 type: enhancement
 ordinal: 187000
@@ -62,7 +65,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 daemon.status (packages/contract/src/software.ts) gains an optional build commit, filled from compiledStamp (packages/cli/src/version.ts) through runDaemon (packages/cli/src/index.ts) into controlFeature (packages/daemon/src/control.ts), with the -dirty suffix kept and the field absent when running from source; packages/contract/src/fixtures.ts and the JSON Schema under packages/contract/schema/ (bun run contract:schema) are updated
+- [ ] #1 daemon.status (packages/contract/src/software.ts) gains an optional build commit, filled from compiledStamp (packages/cli/src/version.ts) through runDaemon (packages/cli/src/index.ts) into controlFeature (packages/daemon/src/control.ts), with the -dirty suffix kept and the field absent when running from source; packages/contract/src/fixtures.ts and the JSON Schema under packages/contract/schema/ (bun run contract:schema) are updated; packages/contract/src/version.ts notes the minor addition
 - [ ] #2 daemon.status gains, for each loaded office whose repository holds the build commit, the number of commits on the office's base branch as last fetched after the build commit that change files under packages/; offices without the commit, and a daemon run from source, get none; the git reads go through packages/engine/src/git/
 - [ ] #3 dipo daemon status (formatRunning in packages/cli/src/daemon-commands.ts) prints a commit line, and for an office with a count above 0 a line naming the office and the count and saying to rebuild dipo and run dipo daemon restart; --json carries both fields; tests in packages/cli/src/daemon-commands.test.ts show both
 - [ ] #4 A test in packages/engine/test/git/build-commit.test.ts with a real git fixture shows a base two commits past the build commit, one changing packages/ and one changing only docs/, gives a count of 1, and an office whose repository lacks the commit gets no count
