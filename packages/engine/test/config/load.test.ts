@@ -144,13 +144,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 5\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 6\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 5\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 6\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -473,10 +473,10 @@ function fixture(name: string): string {
 }
 
 describe("office configuration version 2", () => {
-  it("loads a version 1 file migrated to version 4, the same as its version 2 form", () => {
+  it("loads a version 1 file migrated to version 5, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(4);
+    expect(v1.config.version).toBe(5);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -521,7 +521,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(4);
+      expect(result.config.version).toBe(5);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -724,7 +724,113 @@ describe("office configuration version 4: local toolchain read paths", () => {
       }),
     );
     expect(v4.config).toEqual(v3.config);
-    expect(v4.config.version).toBe(4);
+    expect(v4.config.version).toBe(5);
+  });
+});
+
+// Version 5 (DIPO-139): the review block and the rest of mergeSlot, with their defaults.
+describe("office configuration version 5", () => {
+  it("migrates a version 3 file to version 5 and gives the new keys their defaults", () => {
+    const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
+    expect(v3.config.version).toBe(5);
+    expect(v3.config.review).toEqual({
+      model: "opus",
+      effort: "high",
+      maxRounds: 3,
+      maxTurns: 60,
+      maxMinutes: 30,
+      budgetTokens: 200_000,
+    });
+    expect(v3.config.mergeSlot).toEqual({
+      requiredChecks: ["build", "Lint (ubuntu)"],
+      autoMerge: true,
+      conflictAttempts: 2,
+      ciAttempts: 2,
+      holdLabels: [],
+      checksWaitMinutes: 30,
+    });
+  });
+
+  it("gives an office without the new keys the defaults, as its version 4 form", () => {
+    const v4 = ok(resolveOfficeConfig({ office: "version: 4\n" }));
+    expect(v4.config.review.model).toBe("opus");
+    expect(v4.config.mergeSlot.holdLabels).toEqual([]);
+    expect(v4.config).toEqual(ok(resolveOfficeConfig({ office: "version: 5\n" })).config);
+  });
+
+  it("takes the review block and the mergeSlot keys from a version 5 file", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: [
+          "version: 5",
+          "review: { model: sonnet, maxRounds: 1 }",
+          "mergeSlot: { autoMerge: false, holdLabels: [hold, wip], checksWaitMinutes: 5 }",
+          "",
+        ].join("\n"),
+      }),
+    );
+    expect(result.config.review).toMatchObject({ model: "sonnet", effort: "high", maxRounds: 1 });
+    expect(result.config.mergeSlot).toMatchObject({
+      autoMerge: false,
+      holdLabels: ["hold", "wip"],
+      checksWaitMinutes: 5,
+    });
+  });
+
+  it("refuses a review or mergeSlot key in a version 4 file and says version 5 adds it", () => {
+    const [review] = errors(
+      resolveOfficeConfig({ office: "version: 4\nreview: { maxRounds: 2 }\n" }),
+    );
+    expect(review?.path).toBe("review");
+    expect(review?.message).toContain("Version 5 adds review: set version: 5 to use it");
+    const [slot] = errors(
+      resolveOfficeConfig({ office: "version: 4\nmergeSlot: { autoMerge: false }\n" }),
+    );
+    expect(slot?.path).toBe("mergeSlot.autoMerge");
+    expect(slot?.message).toContain("Version 5 adds mergeSlot.autoMerge: set version: 5 to use it");
+  });
+
+  it.each([
+    ["conflictAttempts", "1"],
+    ["ciAttempts", "1"],
+    ["holdLabels", "[hold]"],
+    ["checksWaitMinutes", "1"],
+  ])("refuses mergeSlot.%s in a version 4 file and says version 5 adds it", (key, value) => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: `version: 4\nmergeSlot: { ${key}: ${value} }\n` }),
+    );
+    expect(error?.path).toBe(`mergeSlot.${key}`);
+    expect(error?.message).toContain(`Version 5 adds mergeSlot.${key}: set version: 5 to use it`);
+  });
+
+  it.each([
+    ["review", "maxRounds"],
+    ["review", "maxTurns"],
+    ["review", "maxMinutes"],
+    ["review", "budgetTokens"],
+    ["mergeSlot", "conflictAttempts"],
+    ["mergeSlot", "ciAttempts"],
+    ["mergeSlot", "checksWaitMinutes"],
+  ])("refuses %s.%s 0 and names the key", (block, key) => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: `version: 5\n${block}: { ${key}: 0 }\n` }),
+    );
+    expect(error?.path).toBe(`${block}.${key}`);
+    expect(error?.message).toContain(`${block}.${key}`);
+  });
+
+  it("refuses a duplicate hold label and names the key", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 5\nmergeSlot: { holdLabels: [hold, hold] }\n" }),
+    );
+    expect(error?.path).toBe("mergeSlot.holdLabels");
+    expect(error?.message).toContain("mergeSlot.holdLabels");
+  });
+
+  it("takes review.model as a command flag override", () => {
+    const result = ok(resolveOfficeConfig({ flags: { review: { model: "haiku" } } }));
+    expect(result.config.review.model).toBe("haiku");
+    expect(result.config.review.maxTurns).toBe(60);
   });
 });
 

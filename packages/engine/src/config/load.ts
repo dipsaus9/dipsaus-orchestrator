@@ -27,8 +27,8 @@ import {
   OFFICE_DEFAULTS,
   OFFICE_FILE_SCHEMAS,
   OFFICE_LOCAL_FILE_SCHEMAS,
-  OfficeConfigV4,
-  OfficeOverridesV4,
+  OfficeConfigV5,
+  OfficeOverridesV5,
   type OfficeConfig,
   type OfficeConfigVersion,
 } from "./schema";
@@ -67,6 +67,12 @@ export interface OfficeConfigSources {
 const KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = {
   "worker.plugins": 2,
   mergeSlot: 3,
+  review: 5,
+  "mergeSlot.autoMerge": 5,
+  "mergeSlot.conflictAttempts": 5,
+  "mergeSlot.ciAttempts": 5,
+  "mergeSlot.holdLabels": 5,
+  "mergeSlot.checksWaitMinutes": 5,
 };
 
 // The same for `office.local.yaml`: version 4 lets it set `sandbox.toolchainReadPaths` (DIPO-172).
@@ -251,7 +257,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   }
 
   if (sources.flags !== undefined) {
-    const checked = validate(FLAGS_SOURCE, OfficeOverridesV4, sources.flags);
+    const checked = validate(FLAGS_SOURCE, OfficeOverridesV5, sources.flags);
     if (checked.ok) layers.push(over(checked.value));
     else errors.push(...checked.errors);
   }
@@ -259,7 +265,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   if (errors.length > 0) return { ok: false, errors };
 
   const merged = layers.reduce<unknown>((base, layer) => layer(base), OFFICE_DEFAULTS);
-  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV4, merged);
+  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV5, merged);
   if (!effective.ok) return { ok: false, errors: effective.errors };
   const config = effective.value as OfficeConfig;
   return { ok: true, config, configHash: configHash(config), localOverrideKeys: localKeys };
