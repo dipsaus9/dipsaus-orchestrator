@@ -5,10 +5,11 @@
 // message id, model and usage; this file stores what it returns.
 //
 // The tailer runs only when it is needed: a worker host died without `exit.json` (`mode: "lost"`:
-// the session's and the subagents' usage the stream lacked is counted, once per message id), or at
-// a healthy end for the per-subagent detail the stream lacked (`mode: "detail"`: subagent usage is
-// stored as detail only, the totals already hold it). Both are idempotent: a second pass reads from
-// the stored offset and counts nothing twice.
+// the session's and the subagents' usage the stream lacked is counted, once per message id across
+// the run's agents, so a resumed session that names its earlier session's file counts that
+// session's messages no second time), or at a healthy end for the per-subagent detail the stream
+// lacked (`mode: "detail"`: subagent usage is stored as detail only, the totals already hold it).
+// Both are idempotent: a second pass reads from the stored offset and counts nothing twice.
 
 import type { OfficeHandle } from "../db/office";
 import type { HookEvent } from "../hooks/types";
@@ -245,6 +246,37 @@ export function recoverTranscriptUsage(options: RecoverTranscriptOptions): Trans
     if (counted > 0) feedFinalChanges(office, scope.run, scope.agent, finalBefore, at);
     return { counted, detailed, refused };
   });
+}
+
+export interface LostUsageOptions extends Omit<RecoverTranscriptOptions, "read" | "mode"> {
+  /** The adapter's transcript parser; nothing is read without one. */
+  readonly read: TranscriptReader | undefined;
+  readonly warn?:
+    | ((message: string, fields: Readonly<Record<string, unknown>>) => void)
+    | undefined;
+}
+
+/**
+ * The usage a dead host never wrote to `exit.json`, read from the worker's transcripts in `lost`
+ * mode (0008 section 4, DIPO-134), once per message id, in its own transaction. A transcript that
+ * cannot be read costs the usage, never the caller's decision: a refusal or a failure is warned,
+ * never thrown.
+ */
+export function recoverLostUsage(options: LostUsageOptions): void {
+  const { read, warn, ...rest } = options;
+  if (read === undefined) return;
+  const fields = { run: rest.scope.run, agent: rest.scope.agent };
+  try {
+    const pass = recoverTranscriptUsage({ ...rest, read, mode: "lost" });
+    if (pass.refused !== null) {
+      warn?.("the worker transcript was not read", { ...fields, reason: pass.refused });
+    }
+  } catch (error) {
+    warn?.("reading the worker transcript failed", {
+      ...fields,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function storedOf(message: TranscriptMessage): StoredMessage {

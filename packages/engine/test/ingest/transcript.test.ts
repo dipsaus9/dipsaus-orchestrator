@@ -2,10 +2,11 @@
 // transcript under test/recordings/transcripts/host-died is replayed over a session whose host
 // stopped mid-turn: the usage the stream lacked is stored once per message id, a second pass adds
 // nothing, an unsupported Claude Code version is refused, and subagent transcripts give the
-// per-subagent detail.
+// per-subagent detail. A resumed session's transcript (test/recordings/transcripts/resumed) holds
+// the earlier session's messages too; they are counted once across the run's agents.
 
 import { describe, expect, it } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { withTempDir, type Recording } from "@dipsaus-orchestrator/testkit";
@@ -13,6 +14,7 @@ import { withTempDir, type Recording } from "@dipsaus-orchestrator/testkit";
 import { Ingestor, type IngestAdapter } from "../../src/ingest/ingestor";
 import {
   readSubagentUsage,
+  recordTranscriptPath,
   recoverTranscriptUsage,
   TRANSCRIPT_SOURCE,
 } from "../../src/ingest/transcript";
@@ -258,6 +260,74 @@ describe("a worker host that died mid-turn (DIPO-134)", () => {
       dyingSession(f, false);
       expect(recover(f, "lost")).toEqual({ counted: 0, detailed: 0, refused: null });
       expect(messageIds(f)).toEqual(["msg-1"]);
+    }),
+  );
+});
+
+describe("a resumed session (DIPO-134)", () => {
+  const RESUMED_FILE = join(FIXTURES, "..", "resumed", "transcript.jsonl");
+
+  it(
+    "counts the earlier session's messages in the shared transcript no second time",
+    withIngest((f, dir) => {
+      // The earlier session's host died with the first 4 lines written (msg-1, msg-2).
+      const lines = readFileSync(RESUMED_FILE, "utf8").split("\n");
+      const file = join(dir, "resumed.jsonl");
+      writeFileSync(file, `${lines.slice(0, 4).join("\n")}\n`);
+      dyingSessionAt(f, file);
+      expect(recover(f, "lost").counted).toBe(2);
+
+      // The resumed session is a new agent of the run that names the same file, now whole.
+      const resumed = f.t.ids.next("agt");
+      const at = f.t.clock.now();
+      f.office.immediate(() => {
+        f.office.run(
+          `insert into agents (office_id, agent_id, run_id, role, model, adapter_version, started_at)
+           values ($office_id, $agent, $run, 'developer', 'haiku', '2.1.296', $at)`,
+          { agent: resumed, run: f.run, at },
+        );
+        recordTranscriptPath(
+          f.office,
+          { run: f.run, agent: resumed },
+          {
+            kind: "sessionStarted",
+            id: null,
+            source: "resume",
+            resumed: true,
+            transcriptPath: file,
+          },
+          at,
+        );
+      });
+      writeFileSync(file, readFileSync(RESUMED_FILE));
+      const pass = recoverTranscriptUsage({
+        office: f.office,
+        scope: { ...scopeOf(f), agent: resumed },
+        read: readTranscript,
+        pricing: f.t.state.pricing,
+        mode: "lost",
+        at,
+      });
+
+      // Only msg-r1 and msg-r2 are the resumed agent's.
+      expect(pass).toEqual({ counted: 2, detailed: 0, refused: null });
+      const owned = f.office
+        .all<{ message_id: string }>(
+          `select message_id from usage_messages where office_id = $office_id and agent_id = $agent
+           order by message_id`,
+          { agent: resumed },
+        )
+        .map((row) => row.message_id);
+      expect(owned).toEqual(["msg-r1", "msg-r2"]);
+      expect(messageIds(f)).toEqual(["msg-1", "msg-2", "msg-r1", "msg-r2"]);
+      // msg-1 and msg-2 once, then msg-r1 and msg-r2.
+      expect(totalsOf(f)).toEqual({
+        input: 2 + 2 + 3 + 1,
+        output: 16 + 7 + 20 + 5,
+        cache_create: 7839 + 660 + 500 + 40,
+        cache_read: 7839 + 8499 + 8999,
+        budget_used: 2 + 2 + 3 + 1 + (16 + 7 + 20 + 5) + (7839 + 660 + 500 + 40),
+      });
     }),
   );
 });

@@ -142,7 +142,10 @@ const fakeClient = (): HostClient => ({
 /** A daemon (re)started on the shared database. */
 function daemon(
   options: Partial<
-    Pick<ConstructorParameters<typeof RunReattacher>[0], "followCheckMs" | "proxyGone" | "steering">
+    Pick<
+      ConstructorParameters<typeof RunReattacher>[0],
+      "followCheckMs" | "proxyGone" | "steering" | "adapter"
+    >
   > = {},
 ): Daemon {
   const { f } = w;
@@ -1276,6 +1279,70 @@ describe("re-attach gaps (DIPO-93)", () => {
     expect(hostRow().endedAt).not.toBeNull();
     expect(agentRow()?.end_reason).toBe("host-lost");
     expect(w.next).toEqual([]);
+  });
+
+  it("reads the transcript of a followed host of an ended run that died without exit.json, once (DIPO-134)", async () => {
+    beforeRestart("success-single", 6, 20);
+    const transcript = join(w.dir, "session.jsonl");
+    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
+    appendLines(w.f.eventFile, [
+      {
+        t: 9_000,
+        ch: "hook",
+        data: JSON.stringify({
+          hook_event_name: "SessionStart",
+          source: "startup",
+          transcript_path: transcript,
+        }),
+      },
+    ]);
+    endRunByHand();
+    w.alive = false;
+    const d = daemon({ adapter: () => ({ ...claude, readTranscript }) });
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "closedOut" },
+    ]);
+    expect(agentRow()?.end_reason).toBe("host-lost");
+    // The stream lacked both messages: each is stored once, with the transcript's numbers.
+    const lost = w.f.office.all<{ message_id: string; input: number; output: number }>(
+      `select message_id, input, output from usage_messages
+        where office_id = $office_id and agent_id = $agent and message_id like 'msg-lost%'
+        order by message_id`,
+      { agent: w.f.agent },
+    );
+    expect(lost).toEqual([
+      { message_id: "msg-lost", input: 9, output: 11 },
+      { message_id: "msg-lost-2", input: 1, output: 2 },
+    ]);
+    const streamed =
+      w.f.office.get<{ input: number }>(
+        `select coalesce(sum(input), 0) as input from usage_messages
+          where office_id = $office_id and agent_id = $agent and message_id not like 'msg-lost%'`,
+        { agent: w.f.agent },
+      )?.input ?? -1;
+    const totals = w.f.office.get<{ input: number; final: number }>(
+      `select sum(input) as input, min(final) as final from usage_totals
+        where office_id = $office_id and agent_id = $agent`,
+      { agent: w.f.agent },
+    );
+    expect(totals).toEqual({ input: streamed + 9 + 1, final: 1 });
+    // The daily rollup holds it once too.
+    const daily = w.f.office.get<{ input: number }>(
+      "select sum(input) as input from usage_daily where office_id = $office_id",
+    );
+    expect(daily?.input).toBe(streamed + 9 + 1);
+    // Closed for good: a later restart reads nothing again.
+    stopDaemon(d);
+    expect(
+      await daemon({ adapter: () => ({ ...claude, readTranscript }) }).reattacher.reattach(
+        w.f.office.officeId,
+      ),
+    ).toEqual([]);
+    expect(
+      w.f.office.get<{ input: number }>(
+        "select sum(input) as input from usage_daily where office_id = $office_id",
+      )?.input,
+    ).toBe(streamed + 9 + 1);
   });
 
   it("follows a living host of an ended run across restarts until it exits, then closes it out (AC #2)", async () => {

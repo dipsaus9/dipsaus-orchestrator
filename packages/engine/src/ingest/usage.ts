@@ -114,7 +114,9 @@ export function recordUsageMessage(
  * numbers, except its output when `outputOpen` (no turn end replaced the live numbers yet, so
  * none of its output is in the totals): a higher output in the transcript replaces the stored one,
  * and the totals' output is the sum of the stored messages'. Returns whether anything changed; a
- * second read of the same message changes nothing.
+ * second read of the same message changes nothing. A message another agent of the run counted is
+ * never counted again: a resumed session (`--resume`) is a new agent whose transcript is the file
+ * of the session it resumed, with that session's messages in it.
  */
 export function recordTranscriptUsage(
   office: OfficeHandle,
@@ -123,6 +125,13 @@ export function recordTranscriptUsage(
   outputOpen: boolean,
   at: number,
 ): boolean {
+  const earlier = office.get(
+    `select 1 as found from usage_messages
+     where office_id = $office_id and message_id = $message and agent_id <> $agent
+       and agent_id in (select agent_id from agents where office_id = $office_id and run_id = $run)`,
+    { agent: scope.agent, message: message.messageId, run: scope.run },
+  );
+  if (earlier !== null) return false;
   const counted = office.get<{ model: string; output: number }>(
     `select model, output from usage_messages
      where office_id = $office_id and agent_id = $agent and message_id = $message`,

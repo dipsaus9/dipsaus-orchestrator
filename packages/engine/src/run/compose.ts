@@ -73,7 +73,7 @@ export interface RunPorts {
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
     RunReattacherDeps,
-    "clock" | "offices" | "ingest" | "control" | "outcomes" | "onChanged" | "warn"
+    "clock" | "offices" | "ingest" | "control" | "outcomes" | "onChanged" | "warn" | "pricing"
   >;
 }
 
@@ -284,6 +284,7 @@ function buildReattacher(
     offices: ports.offices,
     ingest,
     control,
+    pricing: ports.ingest.pricing,
     ...given("outcomes", outcomes ?? undefined),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
