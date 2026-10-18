@@ -125,8 +125,9 @@ function printOpened(
 /**
  * Resolves the office and runs `act`. A Backlog.md project that is not a registered office gets
  * "not an office, run `dipo office open`" and, at a terminal, one question whether to open it.
- * `mode` is how the daemon is reached; read-only commands pass `running` (DIPO-187). Opening an
- * office after the question is a write, so it always connects with `start`.
+ * `mode` is how the daemon is reached; read-only commands pass `running` (DIPO-187), also for the
+ * open after the question, so a read-only command never starts the daemon: with none running the
+ * answer gets the not-running line.
  */
 export async function withOffice(
   deps: OfficeCommandDeps,
@@ -179,6 +180,7 @@ export async function withOffice(
       return outcome === "unknown" ? 1 : outcome;
     },
     timeoutMs,
+    mode,
   );
 }
 

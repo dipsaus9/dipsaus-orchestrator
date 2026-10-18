@@ -92,6 +92,29 @@ describe("dipo gate without a daemon (DIPO-187)", () => {
     ]);
     expect(ctx.out).toEqual([]);
   });
+
+  it("does not start the daemon after a yes to opening an unregistered project", async () => {
+    const modes: string[] = [];
+    const ctx = fake(() => result(true), {
+      repository: { ...REPO, backlog: true },
+      interactive: true,
+      answers: ["y"],
+    });
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        modes.push(mode);
+        throw new DaemonNotRunningError("/state", "nothing answers on /state/dipo.sock");
+      },
+    };
+    expect(await main(["gate", "DIPO-7"], deps)).toBe(1);
+    expect(modes).toEqual(["running"]);
+    expect(ctx.err).toEqual([
+      "dipo: not an office, run `dipo office open`",
+      `dipo: no daemon is running (nothing answers on /state/dipo.sock). ${START_HINT}`,
+    ]);
+    expect(ctx.out).toEqual([]);
+  });
 });
 
 describe("dipo gate", () => {
