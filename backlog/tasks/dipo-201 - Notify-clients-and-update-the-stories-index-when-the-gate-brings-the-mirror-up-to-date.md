@@ -6,18 +6,24 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-18 08:55'
+updated_date: '2026-10-18 09:10'
 labels:
   - 'tier:M'
   - cutover
 milestone: m-1
-dependencies: []
+dependencies:
+  - DIPO-200
 references:
   - packages/engine/src/gate/store/feature.ts
   - packages/engine/src/stories/feature.ts
   - packages/engine/src/stories/index-stories.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/src/worktree/claim.ts
+  - packages/daemon/src/foreground.ts
   - packages/engine/test/gate/
   - packages/engine/test/stories/
+  - packages/engine/test/run/
+  - packages/engine/test/reconcile/helpers.ts
 priority: medium
 type: bug
 ordinal: 190000
@@ -28,7 +34,7 @@ ordinal: 190000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: when a gate read brings the stories index mirror up to the gate's base commit, subscribed clients are told about the changes and the stories index does not read the same commit again.
 
-Context: review of DIPO-180 (PR #197). When the mirror was read at an older `_base` commit, GateStore (packages/engine/src/gate/store/feature.ts, #otherTasks) runs indexPass directly inside the caller's git queue item. That pass writes story.state change-log entries, but nothing calls onOfficeChanged, StoryIndex's own state (its last sha and last pass, packages/engine/src/stories/feature.ts) is not updated, and the pass's branchUnread warnings are dropped. StoryIndex then runs another full pass at the same commit, finds no change, and also notifies nobody, so a TUI or office.summary client misses the changes until something else changes. A second, smaller gap from the same review: the work.run claim recheck reads with a checkout and no session, so a stale mirror there falls back to one Backlog CLI view per task instead of a pass.
+Context: review of DIPO-180 (PR #197). When the mirror was read at an older `_base` commit, GateStore (packages/engine/src/gate/store/feature.ts, #otherTasks) runs indexPass directly inside the caller's git queue item. That pass writes story.state change-log entries, but nothing calls onOfficeChanged, StoryIndex's own state (its last sha and last pass, packages/engine/src/stories/feature.ts) is not updated, and the pass's branchUnread warnings are dropped. StoryIndex then runs another full pass at the same commit, finds no change, and also notifies nobody, so a TUI or office.summary client misses the changes until something else changes. A second, smaller gap from the same review: the work.run claim recheck reads with a checkout and no session, so a stale mirror there falls back to one Backlog CLI view per task instead of a pass. GateStore has no StoryIndex dependency today; both are built in packages/daemon/src/foreground.ts, and the engine harnesses packages/engine/test/run/run-office.ts, packages/engine/test/run/work-run.ci.test.ts and packages/engine/test/reconcile/helpers.ts build them too. The claim recheck is the recheck closure in packages/engine/src/run/work-run.ts, with its signature in packages/engine/src/worktree/claim.ts. DIPO-200 also changes claim.ts, so this story follows it.
 
 ```dipo
 branch: "DIPO-201/gate-pass-notifies-clients"
