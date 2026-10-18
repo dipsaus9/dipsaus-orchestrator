@@ -410,6 +410,7 @@ const officeEventFixtures: Record<string, unknown> = {
     key: ids.storyKey,
     work: workRef,
     reason: "needs-permission",
+    cause: "build",
     detail: "Bash(docker compose up)",
     from: "In Progress",
     lastGoodCommit: "4f2a9c1",

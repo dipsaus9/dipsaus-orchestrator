@@ -3,10 +3,10 @@ id: DIPO-142
 title: >-
   Reopen the story's run for review and fix rounds, with a worker place and a
   reviewer place
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 09:51'
+updated_date: '2026-10-18 14:18'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -62,11 +62,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story run ends its active period at In Review and reopens on the same run for a review round, a fix round or a conflict hand-off, adding the idle time to the run's parked total so the developer's minute cap counts developer working time only
-- [ ] #2 Each office has a worker place and a reviewer place; story capacity counts open story runs with a live or starting session per place from the agent's role and leaves session runs out, while activeRuns and hasActiveRun still count session runs; work.run keeps refusing maxAgents above 1
-- [ ] #3 The worker place starts maintainer resumes first, then conflict hand-offs and fix rounds, then new pickups; the reviewer place starts maintainer resumes of a review first, then pending reviews oldest In Review first; a resume that finds its place taken is accepted and starts when the place frees
-- [ ] #4 Plan-limit holds pause places by scope: a session or weekly hold pauses both places in every office, a model-family hold pauses the place whose session uses that family, allowed_warning stops new sessions of that scope; a waiting story shows health limited and never parks
-- [ ] #5 Reviewer turns and minutes are kept out of the developer's turn and minute caps and the CLI --max-turns remainder, while the run's usage and story budget include the reviewer agent's tokens
-- [ ] #6 Each end rewrites the provisional run_outcomes row, and Done writes the final row (end kind done) with new columns for loops, review rounds, failed review rounds, CI attempts, conflict hand-offs and override, through a migration
-- [ ] #7 parks gains a cause column through a migration, every park the engine writes records its cause (an open string, from the causes of ADR 0020 section 2), and the story.parked event carries cause in the contract and its generated schema
+- [x] #1 A story run ends its active period at In Review and reopens on the same run for a review round, a fix round or a conflict hand-off, adding the idle time to the run's parked total so the developer's minute cap counts developer working time only
+- [x] #2 Each office has a worker place and a reviewer place; story capacity counts open story runs with a live or starting session per place from the agent's role and leaves session runs out, while activeRuns and hasActiveRun still count session runs; work.run keeps refusing maxAgents above 1
+- [x] #3 The worker place starts maintainer resumes first, then conflict hand-offs and fix rounds, then new pickups; the reviewer place starts maintainer resumes of a review first, then pending reviews oldest In Review first; a resume that finds its place taken is accepted and starts when the place frees
+- [x] #4 Plan-limit holds pause places by scope: a session or weekly hold pauses both places in every office, a model-family hold pauses the place whose session uses that family, allowed_warning stops new sessions of that scope; a waiting story shows health limited and never parks
+- [x] #5 Reviewer turns and minutes are kept out of the developer's turn and minute caps and the CLI --max-turns remainder, while the run's usage and story budget include the reviewer agent's tokens
+- [x] #6 Each end rewrites the provisional run_outcomes row, and Done writes the final row (end kind done) with new columns for loops, review rounds, failed review rounds, CI attempts, conflict hand-offs and override, through a migration
+- [x] #7 parks gains a cause column through a migration, every park the engine writes records its cause (an open string, from the causes of ADR 0020 section 2), and the story.parked event carries cause in the contract and its generated schema
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57KHTYMHD7HZTEMGEWCS2B4 (Opus high, 173 turns, about $13.90, 25 min) reported done, In Review on the story branch. One sed -i was auto-denied (G7). In its sandbox two CI-only worktree tests failed with EPERM on mkdtemp under /tmp (sandbox-exec inside the worker sandbox, the DIPO-200 family); outside they pass. Migration 34 (run outcome counts, runs.waiting, parks.cause, run_steps rebuild); a worker place and a reviewer place per office from the database; queued resumes start first when the place frees; plan-limit holds pause the places by scope; reviewer turns leave the developer's turn cap; a final run_outcomes row at Done; parks.cause on every park and on story.parked.
+
+Review passed on all seven criteria. Fixed on top: a test opens a database at version 33 with runs, run_steps, parks and run_outcomes rows and shows migration 34 keeps them (fails without the copy step); the reviewer place takes its model from the office's review.model (fails without the change). Verify: 3425 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on run and db: 367 pass; on run, worktree, db, views, daemon and contract before the fixes: 1000 pass.
+
+For the stories that use this (review advisories): DIPO-145/146 (review and review-resume), DIPO-148 (fix), DIPO-149 (conflict) and DIPO-157 each register their Places starter and append the run_steps kinds the final outcome counts (review-failed, ci, conflict, override); a waiting start whose kind has no starter blocks its place; work.run checks workerPlaceTaken before its claim while Places.drain is not serialized with it (narrow race); a reopened review waits from the reopen time, so DIPO-146 passes the In Review time; the work.answer reply does not yet say a resume was queued (DIPO-155/157).
+<!-- SECTION:NOTES:END -->

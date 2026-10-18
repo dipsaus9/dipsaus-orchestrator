@@ -226,13 +226,23 @@ async function ingestRecording(name: string): Promise<void> {
 
 function parks(): {
   reason: string;
+  cause: string | null;
   from_state: string;
   detail: string;
   last_good_commit: string;
 }[] {
   return w.f.office.all(
-    "select reason, from_state, detail, last_good_commit from parks where office_id = $office_id",
+    `select reason, cause, from_state, detail, last_good_commit from parks
+      where office_id = $office_id`,
   );
+}
+
+/** The cause of each park, as `parks` records it and `story.parked` carries it (DIPO-142). */
+function causes(): { readonly stored: (string | null)[]; readonly emitted: unknown[] } {
+  return {
+    stored: parks().map((park) => park.cause),
+    emitted: parkedEvents().map((event) => event["cause"]),
+  };
 }
 
 function parkedEvents(): Record<string, unknown>[] {
@@ -284,6 +294,8 @@ describe("caps", () => {
     expect(parked?.["lastGoodCommit"]).toBe("a".repeat(40));
     expect(parked?.["actions"]).toEqual([]);
     expect((parked?.["work"] as WorkRef | undefined)?.run).toBe(w.f.run);
+    // The developer's own cap: cause `build` (0020 section 2), stored and emitted.
+    expect(causes()).toEqual({ stored: ["build"], emitted: ["build"] });
   });
 
   it("counts a budget grant: the run that parks at its start budget goes on past it (DIPO-143)", async () => {
@@ -451,6 +463,7 @@ describe("reports", () => {
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.outcome])).toEqual([
       ["park", "blocked"],
     ]);
+    expect(causes()).toEqual({ stored: ["question"], emitted: ["question"] });
   });
 
   it("parks needs-permission with the tool and action, keeping worktree, branch, claim and session", async () => {
@@ -464,8 +477,8 @@ describe("reports", () => {
     );
     w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-permission"] as WorkerEvent[]);
     await w.control.idle();
-    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["needs-permission", "Bash: bun add left-pad"],
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["needs-permission", "build", "Bash: bun add left-pad"],
     ]);
     const claim = w.f.office.get<{ released_at: number | null }>(
       "select released_at from claims where office_id = $office_id and run_id = $run",
@@ -489,6 +502,8 @@ describe("a tampered worktree", () => {
     await w.control.idle();
     const [park] = parks();
     expect(park?.reason).toBe("scope-violation");
+    expect(park?.cause).toBe("tampered");
+    expect(parkedEvents()[0]?.["cause"]).toBe("tampered");
     expect(park?.detail).toContain("dipo runs no git in that worktree");
     expect(park?.detail).toContain("parking it as ambiguous-spec");
     // One write attempt; nothing else ran in the worktree.
@@ -568,9 +583,10 @@ describe("work.stop", () => {
     w.f.t.clock.advance(10_000);
     expect(child.signals).toEqual(["SIGTERM"]);
 
-    expect(parks().map((p) => [p.reason, p.from_state, p.detail])).toEqual([
-      ["stopped", "In Progress", "Wrong approach; I will rewrite the story."],
+    expect(parks().map((p) => [p.reason, p.cause, p.from_state, p.detail])).toEqual([
+      ["stopped", "maintainer", "In Progress", "Wrong approach; I will rewrite the story."],
     ]);
+    expect(parkedEvents().map((event) => event["cause"])).toEqual(["maintainer"]);
     const run = findRun(w.f.office, w.f.run);
     expect(run?.endKind).toBe("stopped");
     expect(run?.endedAt).not.toBeNull();
@@ -766,8 +782,8 @@ describe("story views and reconcile (DIPO-56)", () => {
       text: "DIPO-1 changed by hand",
     });
     expect(w.writes).toEqual([]);
-    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["scope-violation", "Changed by hand: the worktree is gone."],
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["scope-violation", "hand-change", "Changed by hand: the worktree is gone."],
     ]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
     // Nothing is read on a branch that cannot be trusted.

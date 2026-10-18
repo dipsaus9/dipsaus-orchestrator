@@ -11,10 +11,9 @@ import { TABLE_RETENTION } from "../../src/retention/policy";
 import { localMounts, memoryLogger } from "./helpers";
 
 describe("migration 33: prompt texts", () => {
-  it("is registered last and adds the prompt_texts table with tier R", () =>
+  it("is registered as version 33 and adds the prompt_texts table with tier R", () =>
     withTempDir(async (dir) => {
-      expect(MIGRATIONS.at(-1)?.name).toBe("prompt texts");
-      expect(MIGRATIONS.at(-1)?.version).toBe(33);
+      expect(MIGRATIONS.find((migration) => migration.version === 33)?.name).toBe("prompt texts");
       const state = await openStateDatabase({
         stateDir: join(dir, "state"),
         logger: memoryLogger(),

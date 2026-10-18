@@ -10,7 +10,9 @@
 //   `work.resume` on the held run lifts it.
 // - While a fact is open, scheduling is held: scopes `session`, `weekly` and `unknown` hold new runs
 //   in every office, `model:<family>` holds only runs whose model is of that family, `credits`
-//   holds new runs on the run's adapter in every office (`held`).
+//   holds new runs on the run's adapter in every office (`held`). The office's session places
+//   (`places.ts`, DIPO-142) ask `held` with the model of the session a place would start, so a
+//   hold pauses the worker place, the reviewer place or both by its scope.
 // - An `allowed_warning` (`warned`) lets its run go on and holds new runs on its scope the same way
 //   until `resetsAt`, or for an hour without one, with an `engine.notice` when the hold begins. Like
 //   a rejected wait it holds every adapter. It is stored in `plan_limit_warnings` with its scope,

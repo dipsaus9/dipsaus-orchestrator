@@ -142,6 +142,8 @@ export interface RunEnding {
   readonly intentDetail?: string;
   readonly ops: readonly HostOp[];
   readonly reason: ParkReason;
+  /** Which of the reason's causes parks it (`PARK_CAUSES`, 0020 section 2). */
+  readonly cause: string;
   readonly detail: string;
   readonly endKind: string;
   /** The report that led to the end, when a turn decided it. */

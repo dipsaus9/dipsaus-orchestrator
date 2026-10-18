@@ -67,7 +67,7 @@ import {
 import { AfterTurns } from "./control-turns";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
-import type { ParkOutcome } from "./park";
+import { PARK_CAUSES, type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "./records";
 
 export {
@@ -137,6 +137,7 @@ export class RunControl implements RunEnder {
       intent: "stop",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "interrupted",
+      cause: PARK_CAUSES.build,
       detail: EVENT_FILE_CHANGED,
       endKind: INTERRUPTED_END,
     };
@@ -292,6 +293,7 @@ export class RunControl implements RunEnder {
             intent: "park",
             ops: [{ closeStdin: true }],
             reason,
+            cause: permission === undefined ? PARK_CAUSES.question : PARK_CAUSES.build,
             detail,
             endKind: "blocked",
           });
@@ -488,6 +490,7 @@ export class RunControl implements RunEnder {
       intent: "cap",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "budget-exceeded",
+      cause: PARK_CAUSES.build,
       detail: cap === "maxTurns" && !detail.startsWith("turn cap") ? `turn cap: ${detail}` : detail,
       endKind: "capped",
     });

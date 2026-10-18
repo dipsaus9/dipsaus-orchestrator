@@ -633,7 +633,8 @@ export const questionClosed = defineEvent({
 
 // Sent with `story.state` to Parked. `work` is absent for `on-hold`, where `detail` is the hold
 // note. `actions` lists the commands a client may offer, such as `work.resume`, `work.discard`
-// and `story.drop`.
+// and `story.drop`. `cause` (since minor 1, DIPO-142) says which of a reason's causes parked it
+// (0020 section 2), an open string such as `loops` or `review`.
 export const storyParked = defineEvent({
   type: "story.parked",
   stream: "office",
@@ -643,6 +644,7 @@ export const storyParked = defineEvent({
     key: StoryKey,
     work: WorkRef.optional(),
     reason: ParkReason,
+    cause: z.string().optional(),
     detail: z.string(),
     from: Lifecycle,
     lastGoodCommit: z.string().optional(),

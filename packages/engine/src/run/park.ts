@@ -5,14 +5,18 @@
 // worktree, inside the office's git queue, the Backlog CLI writes the F16 `park` block
 // (`{reason, from, note}`) through the single field write path and sets status `Parked`; only the
 // task file is committed, as `<ID>: status Parked`, and the branch is pushed without force. Then,
-// in one transaction, it records the park in `parks` (reason, the lifecycle it left, detail, last
-// good commit, time), ends the run with its end kind and emits `story.state` to Parked and
-// `story.parked` with the actions the engine implements.
+// in one transaction, it records the park in `parks` (reason, cause, the lifecycle it left, detail,
+// last good commit, time), ends the run with its end kind and emits `story.state` to Parked and
+// `story.parked` with the cause and the actions the engine implements.
+//
+// Every park names its cause (0020 section 2, DIPO-142), one of `PARK_CAUSES`: the trigger where
+// 0020 splits a reason into causes that resume differently, else the session that parked (`build`
+// for the developer's, `review` for the reviewer's). Code reads the cause, never the detail.
 //
 // A `git.worktreeTampered` refusal (the worktree's git links changed since the claim) parks the
-// story `scope-violation` instead, with the refusal as detail, and nothing more runs in that
-// worktree: the office git keeps the claim's pin, so every later engine git call there is refused.
-// A park that could not be written on the branch, or a push that failed, is still recorded and
+// story `scope-violation` with cause `tampered` instead, with the refusal as detail, and nothing
+// more runs in that worktree: the office git keeps the claim's pin, so every later engine git call
+// there is refused. A park that could not be written on the branch, or a push that failed, is still recorded and
 // emitted, with an `engine.notice` saying what is missing.
 
 import {
@@ -40,10 +44,59 @@ import { repoPath } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
-import type { StoredRun } from "./records";
+import { reopenRun, type StoredRun } from "./records";
 
 /** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
 export const WORKTREE_TAMPERED = "git.worktreeTampered";
+
+/**
+ * The causes a park records (0020 section 2 and its interface with 0019), an open string in
+ * `parks.cause` and `story.parked.cause`.
+ */
+export const PARK_CAUSES = {
+  /** `ambiguous-spec`: the worker asked a question. */
+  question: "question",
+  /** `ambiguous-spec`: no valid report after the report feedback turn. */
+  noReport: "no-report",
+  /** `ambiguous-spec`: the project rules conflict with the contract. */
+  ruleConflict: "rule-conflict",
+  /** `verify-failing`: local verify red at the tier's loop cap. */
+  loops: "loops",
+  /** `verify-failing`: required checks red `mergeSlot.ciAttempts` times (0019 section 8). */
+  ci: "ci",
+  /** `verify-failing`: verify could not run. */
+  refused: "refused",
+  /** `conflict`: the second failed conflict hand-off, the merge left in progress (0019). */
+  mergeInProgress: "merge-in-progress",
+  /** `conflict`: a conflict in a path the worker cannot write (0019). */
+  unwritablePath: "unwritable-path",
+  /** `conflict`: a non-fast-forward push. */
+  pushRejected: "push-rejected",
+  /** `conflict`: the host refused the merge three times because the base moved (0019). */
+  slotRefused: "slot-refused",
+  /** `scope-violation`: written outside scope at `done`. */
+  paths: "paths",
+  /** `scope-violation`: the worktree's git links changed (`git.worktreeTampered`). */
+  tampered: "tampered",
+  /** `scope-violation`: the backstop saw HEAD, branch, stash, `backlog/` or `.dipo/` change. */
+  backstop: "backstop",
+  /** `scope-violation`: reconcile found the worktree or branch changed by hand. */
+  handChange: "hand-change",
+  /** `review-blocked`: the third failed review round (0019). */
+  rounds: "rounds",
+  /** A developer session parked: its caps, a crash, a permission, an interruption. */
+  build: "build",
+  /** A reviewer session parked: the budget, two crashes, or a stop during a review (0019). */
+  review: "review",
+  /** `worker-failed`: the reviewer hit its own turn or minute cap (0019). */
+  reviewCap: "review-cap",
+  /** `stopped`: the maintainer stopped a developer session. */
+  maintainer: "maintainer",
+  /** `stopped`: the story PR was closed on the host (0019). */
+  prClosed: "pr-closed",
+} as const;
+
+export type ParkCause = (typeof PARK_CAUSES)[keyof typeof PARK_CAUSES];
 
 /** `engine.notice` codes of a park. */
 export const PARK_NOTICES = {
@@ -222,10 +275,10 @@ export function gitUnparkWriter(deps: {
 
 /**
  * Inside the caller's transaction (DIPO-75): the park `parkId` is resolved `resume` and its run is
- * active again, so the resumed session continues the same run with what remains of its budget
- * (0008 section 8). The run's outcome row goes, since the run has not ended; its next end writes
- * it again with every park of the run. The time since the run ended at the park is added to
- * `runs.parked_ms`, so its caps and minutes count only the time it worked. Returns the
+ * active again (`reopenRun`), so the resumed session continues the same run with what remains of
+ * its budget (0008 section 8). The run's outcome row goes, since the run has not ended; its next
+ * end writes it again with every park of the run. The time since the run ended at the park is
+ * added to `runs.parked_ms`, so its caps and minutes count only the time it worked. Returns the
  * `story.state` entry back to `to`.
  */
 export function reopenParkedRun(
@@ -240,15 +293,7 @@ export function reopenParkedRun(
      where office_id = $office_id and park_id = $park and resolved_at is null`,
     { at, park: park.parkId },
   );
-  office.run(
-    `update runs set parked_ms = parked_ms + max(0, $at - coalesce(ended_at, $at)),
-       ended_at = null, end_kind = null
-     where office_id = $office_id and run_id = $run and ended_at is not null`,
-    { run: run.runId, at },
-  );
-  office.run(`delete from run_outcomes where office_id = $office_id and run_id = $run`, {
-    run: run.runId,
-  });
+  reopenRun(office, run.runId, at);
   const key = run.key;
   const story = run.story;
   if (key === null || story === null) return [];
@@ -342,6 +387,8 @@ export interface ParkRequest {
   readonly run: StoredRun;
   readonly work?: WorkRef;
   readonly reason: ParkReason;
+  /** Which of the reason's causes parked it (`PARK_CAUSES`, 0020 section 2). */
+  readonly cause: string;
   readonly detail: string;
   /** How the run ends (`runs.end_kind`), for example `stopped` or `capped`. */
   readonly endKind: string;
@@ -349,6 +396,7 @@ export interface ParkRequest {
 
 export interface ParkOutcome {
   readonly reason: ParkReason;
+  readonly cause: string;
   readonly detail: string;
   readonly from: Lifecycle;
   /** The park commit on the story branch, or null when none was written. */
@@ -385,6 +433,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     throw new Error(`${run.runId} is not a story run; only a story parks.`);
   }
   let reason = request.reason;
+  let cause = request.cause;
   let detail = request.detail;
   let branch: BranchPark | null = null;
   const notices: NewEntry[] = [];
@@ -408,6 +457,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
         detail = `${error.message} ${detail}`;
       }
       reason = "scope-violation";
+      cause = PARK_CAUSES.tampered;
       notice(
         PARK_NOTICES.notWritten,
         `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: dipo runs no git in ${run.worktree ?? "its worktree"} since its git links changed.`,
@@ -431,11 +481,12 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   deps.write(() => {
     const office = deps.office;
     office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         last_good_commit, at)
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
+         detail, last_good_commit, at)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $from, $detail, $commit, $at)`,
-      { key, story, run: run.runId, reason, from, detail, commit: lastGoodCommit, at },
+         where office_id = $office_id), $key, $story, $run, $reason, $cause, $from, $detail,
+         $commit, $at)`,
+      { key, story, run: run.runId, reason, cause, from, detail, commit: lastGoodCommit, at },
     );
     endRunMarked(office, run.runId, at, request.endKind);
     // The agent ends when its exit is ingested; the reason it ended is known now.
@@ -472,6 +523,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
           key,
           ...(request.work === undefined ? {} : { work: request.work }),
           reason,
+          cause,
           detail,
           from,
           ...(lastGoodCommit === null ? {} : { lastGoodCommit }),
@@ -483,6 +535,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   });
   return {
     reason,
+    cause,
     detail,
     from,
     commit: branch?.commit ?? null,
@@ -498,6 +551,8 @@ export function openPark(
 ): {
   readonly parkId: number;
   readonly reason: string;
+  /** Null on a park written before causes were kept, or one recorded from a hand-written record. */
+  readonly cause: string | null;
   readonly from: string;
   readonly detail: string;
   readonly runId: string | null;
@@ -507,13 +562,14 @@ export function openPark(
   const row = office.get<{
     park_id: number;
     reason: string;
+    cause: string | null;
     from_state: string;
     detail: string;
     run_id: string | null;
     last_good_commit: string | null;
     at: number;
   }>(
-    `select park_id, reason, from_state, detail, run_id, last_good_commit, at from parks
+    `select park_id, reason, cause, from_state, detail, run_id, last_good_commit, at from parks
      where office_id = $office_id and key = $key and resolved_at is null
      order by park_id desc limit 1`,
     { key },
@@ -523,6 +579,7 @@ export function openPark(
     : {
         parkId: row.park_id,
         reason: row.reason,
+        cause: row.cause,
         from: row.from_state,
         detail: row.detail,
         runId: row.run_id,

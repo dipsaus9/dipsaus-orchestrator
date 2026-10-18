@@ -56,9 +56,15 @@ export function firedCap(caps: Caps, totals: RunTotals): FiredCap | null {
   return null;
 }
 
+/** The role of a run's reviewer agents (0019 section 4); its turns and minutes are its own. */
+export const REVIEWER_ROLE = "reviewer";
+
 /**
  * The run's totals from the stored usage, and the wall-clock time from `startedAt` (when its worker
- * host started) to `now`.
+ * host started, moved by the time it stood parked, ended or in review) to `now`. The budget counts
+ * every agent of the run, the reviewer's too, since the story's budget pays for its review; the
+ * turns count only the developer's agents, since a reviewer's turns count only toward its own
+ * session cap (0019 sections 4 and 13).
  */
 export function runTotals(
   office: OfficeHandle,
@@ -67,10 +73,13 @@ export function runTotals(
   now: number,
 ): RunTotals {
   const row = office.get<{ budget: number; turns: number }>(
-    `select coalesce(sum(input + output + cache_create), 0) as budget,
-       coalesce(sum(turns), 0) as turns
-     from usage_totals where office_id = $office_id and run_id = $run`,
-    { run: runId },
+    `select coalesce(sum(t.input + t.output + t.cache_create), 0) as budget,
+       coalesce(sum(case when coalesce(a.role, t.role) = $reviewer then 0 else t.turns end), 0)
+         as turns
+     from usage_totals t
+     left join agents a on a.office_id = t.office_id and a.agent_id = t.agent_id
+     where t.office_id = $office_id and t.run_id = $run`,
+    { run: runId, reviewer: REVIEWER_ROLE },
   );
   return {
     budgetTokens: row?.budget ?? 0,

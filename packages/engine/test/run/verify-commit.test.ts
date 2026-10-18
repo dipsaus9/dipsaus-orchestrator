@@ -362,8 +362,8 @@ function events(type: string): Record<string, unknown>[] {
     .map((event) => event.data as Record<string, unknown>);
 }
 
-function parks(): { reason: string; detail: string }[] {
-  return w.f.office.all("select reason, detail from parks where office_id = $office_id");
+function parks(): { reason: string; cause: string | null; detail: string }[] {
+  return w.f.office.all("select reason, cause, detail from parks where office_id = $office_id");
 }
 
 describe("review fixes", () => {
@@ -498,7 +498,7 @@ describe("verify and commit", () => {
     expect([progress["loop"], progress["verify"]]).toEqual([1, "failing"]);
 
     await play();
-    expect(parks().map((p) => p.reason)).toEqual(["verify-failing"]);
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "loops"]]);
     expect(parks()[0]?.detail).toContain("verify failed 2 of 2 times");
     expect(parks()[0]?.detail).toContain("test/greet.test.ts:7:15");
     expect(w.calls).toEqual([]);
@@ -515,7 +515,7 @@ describe("verify and commit", () => {
   it("parks scope-violation with the paths outside scope at done", async () => {
     w.changed = ["src/greet.ts", "README.md", "package.json"];
     await play();
-    expect(parks().map((p) => p.reason)).toEqual(["scope-violation"]);
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "paths"]]);
     expect(parks()[0]?.detail).toBe(
       "Paths written outside the declared scope: README.md, package.json. Declared scope: src/, test/.",
     );
@@ -526,7 +526,7 @@ describe("verify and commit", () => {
   it("parks scope-violation when a turn moved HEAD, whatever the report", async () => {
     w.snapshot = { ...SNAP, head: "9".repeat(40) };
     await play(null);
-    expect(parks().map((p) => p.reason)).toEqual(["scope-violation"]);
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "backstop"]]);
     expect(parks()[0]?.detail).toContain(`HEAD moved from ${"c".repeat(40)} to ${"9".repeat(40)}`);
   });
 
@@ -544,15 +544,15 @@ describe("verify and commit", () => {
   it("never runs verify unsandboxed: a refused sandbox parks verify-failing", async () => {
     w.startFailed = "sandbox unavailable: rg not found";
     await play();
-    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["verify-failing", "verify could not run: sandbox unavailable: rg not found"],
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["verify-failing", "refused", "verify could not run: sandbox unavailable: rg not found"],
     ]);
   });
 
   it("parks conflict when the push is rejected as non-fast-forward", async () => {
     w.pushRejected = true;
     await play();
-    expect(parks().map((p) => p.reason)).toEqual(["conflict"]);
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["conflict", "push-rejected"]]);
     expect(events("story.state").map((e) => e["to"])).toEqual(["Parked"]);
   });
 

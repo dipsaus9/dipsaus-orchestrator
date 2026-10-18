@@ -1,6 +1,6 @@
 // The one wiring of the run services (DIPO-129): ingestion with the permission wait and the
-// nudges, run control, worker outcomes, the resumer, the plan-limit schedule, the launcher and
-// re-attach, built from injected ports. The daemon and the engine's run tests both build them
+// nudges, run control, worker outcomes, the resumer, the plan-limit schedule, the office's session
+// places (DIPO-142), the launcher and re-attach, built from injected ports. The daemon and the engine's run tests both build them
 // here, so a test exercises the wiring the daemon runs. What differs between them is only which
 // ports are injected.
 
@@ -14,6 +14,7 @@ import { RunControl, type RunControlDeps, type RunSteering } from "./control";
 import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "./hosts";
 import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
 import type { RunOutcomes, RunOutcomesDeps, RunOutcomesPort } from "./outcomes";
+import { Places, type PlacesDeps } from "./places";
 import { PlanLimits, type PlanLimitsDeps } from "./plan-limit";
 import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
@@ -64,6 +65,8 @@ export interface RunPorts {
   };
   /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
+  /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
+  readonly places?: Pick<PlacesDeps, "reviewModel" | "pending">;
   /** Replaces run control as the resumer's and the launcher's tracker (a test's caps override). */
   readonly tracker?: (control: RunControl) => NonNullable<RunLauncherDeps["control"]>;
   /** Replaces ingestion as the resumer's (a test recording each start). */
@@ -89,6 +92,8 @@ export interface ComposedRuns {
   readonly resumption: Resumption | null;
   readonly resumer: RunResumer | null;
   readonly planLimits: PlanLimits | null;
+  /** The worker and reviewer places with their start orders (DIPO-142); needs `outcomes`. */
+  readonly places: Places | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
 }
@@ -105,6 +110,7 @@ interface Late {
   resumption: Resumption | null;
   exitPort: RunOutcomesPort | null;
   planLimits: PlanLimits | null;
+  places: Places | null;
 }
 
 function buildControl(ports: RunPorts, late: Late): RunControl | null {
@@ -210,9 +216,13 @@ interface Outcomes {
   readonly outcomes: RunOutcomes;
   readonly resumption: Resumption;
   readonly planLimits: PlanLimits | null;
+  readonly places: Places;
 }
 
-/** The resumer, worker outcomes and the plan-limit schedule; null without control or outcomes. */
+/**
+ * The resumer, worker outcomes, the plan-limit schedule and the places; null without control or
+ * outcomes.
+ */
 function buildOutcomes(
   ports: RunPorts,
   control: RunControl | null,
@@ -254,7 +264,7 @@ function buildOutcomes(
       ...given("onChanged", ports.onChanged),
       ...given("warn", ports.warn),
     },
-    { planLimits: () => late.planLimits ?? undefined },
+    { planLimits: () => late.planLimits ?? undefined, places: () => late.places ?? undefined },
   );
   const planLimits =
     ports.planLimits === undefined
@@ -268,7 +278,20 @@ function buildOutcomes(
           ...given("scheduling", ports.scheduling),
           ...given("warn", ports.warn),
         });
-  return { resumer, outcomes, resumption, planLimits };
+  // The places pause by the plan-limit holds and start a queued resume through the resumption.
+  const places = new Places({
+    ...ports.places,
+    clock: ports.clock,
+    offices: ports.offices,
+    ...(planLimits === null
+      ? {}
+      : { held: (adapter: string, model: string | null) => planLimits.held(adapter, model) }),
+    starters: { resume: (office, run) => resumption.startQueued(office, run) },
+    ...given("scheduling", ports.scheduling),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+  return { resumer, outcomes, resumption, planLimits, places };
 }
 
 function buildReattacher(
@@ -331,6 +354,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     resumption: null,
     exitPort: null,
     planLimits: null,
+    places: null,
   };
   const control = buildControl(ports, late);
   const { permissions, nudges, hookEvents } = buildHookListeners(ports, control, late);
@@ -341,10 +365,19 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   late.outcomes = outcomes;
   late.resumption = built?.resumption ?? null;
   late.planLimits = built?.planLimits ?? null;
-  // Each exit decision of worker outcomes, then `afterExit` (the run temp directory sweep).
+  late.places = built?.places ?? null;
+  // Each exit decision of worker outcomes, then the places (a session ended, so its place may be
+  // free) and `afterExit` (the run temp directory sweep).
   if (outcomes !== null) {
+    const places = late.places;
+    const afterExit = ports.afterExit;
     late.exitPort =
-      ports.afterExit === undefined ? outcomes : afterRunExits(outcomes, ports.afterExit);
+      places === null && afterExit === undefined
+        ? outcomes
+        : afterRunExits(outcomes, () => {
+            places?.drainAll();
+            afterExit?.();
+          });
   }
   const reattacher = buildReattacher(ports, control, ingest, outcomes);
   const launcher = buildLauncher(ports, control, ingest);
@@ -357,6 +390,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     resumption: late.resumption,
     resumer: built?.resumer ?? null,
     planLimits: late.planLimits,
+    places: late.places,
     launcher,
     reattacher,
   };

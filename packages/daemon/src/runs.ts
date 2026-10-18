@@ -32,6 +32,7 @@ import {
   OfficeIngest,
   type OfficeManager,
   PermissionAsks,
+  type Places,
   type Presence,
   PlanLimits,
   type Resumption,
@@ -140,6 +141,11 @@ export interface DaemonRuns {
    * runs after the reset, recovers waits at load and implements `work.resume` for held runs.
    */
   readonly planLimits: PlanLimits;
+  /**
+   * The office's worker and reviewer places (DIPO-142): a resume whose place is taken waits and
+   * starts when it frees; its feature starts what waited across a restart at load.
+   */
+  readonly places: Places;
   /**
    * The Safe-Chain checking proxies of the runs (DIPO-84): one per run while its worker session
    * runs, on a machine with Safe-Chain. `stopAll` at shutdown.
@@ -438,6 +444,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     nudges,
     reattacher,
     planLimits,
+    places,
     launcher,
   } = composed;
   if (
@@ -445,7 +452,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     outcomes === null ||
     resumption === null ||
     reattacher === null ||
-    planLimits === null
+    planLimits === null ||
+    places === null
   ) {
     throw new Error("the daemon's run services are not all wired");
   }
@@ -459,6 +467,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     nudges,
     reattacher,
     planLimits,
+    places,
     safeChainProxies,
     tempDirs,
   };

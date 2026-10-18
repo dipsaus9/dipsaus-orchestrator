@@ -73,6 +73,8 @@ export class Redispatch {
       // A run decided here, or followed by run control (re-attached, DIPO-57), is decided there.
       const tracked = this.#deps.ender().isTracked?.(run.runId) ?? false;
       if (run.kind !== "story" || this.#guard.busy(run.runId) || tracked) continue;
+      // A run reopened and waiting for its place has no exit to decide (DIPO-142).
+      if (run.waiting != null) continue;
       const agent = office.get<{
         agent_id: string;
         end_reason: string | null;

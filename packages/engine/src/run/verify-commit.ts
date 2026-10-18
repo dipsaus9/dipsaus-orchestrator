@@ -74,6 +74,7 @@ import { buildRunEnv } from "../worktree/run-env";
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
 import { endRunMarked, markPhase } from "./markers";
 import { runCaps } from "./caps";
+import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import type { StoryGit } from "./story-git";
 import {
@@ -281,6 +282,8 @@ export type TurnDecision =
   | {
       readonly kind: "park";
       readonly reason: ParkReason;
+      /** Which of the reason's causes parks it (`PARK_CAUSES`, 0020 section 2). */
+      readonly cause: string;
       readonly detail: string;
       readonly endKind: string;
     }
@@ -376,10 +379,10 @@ export class VerifyCommit implements RunFinisher {
       try {
         const now = await this.#deps.story.snapshot(officeId, worktree);
         const evidence = backstopEvidence(ctx.snapshot, now);
-        if (evidence.length > 0) return scopePark(backstopDetail(evidence));
+        if (evidence.length > 0) return scopePark(PARK_CAUSES.backstop, backstopDetail(evidence));
       } catch (error) {
         if (error instanceof GitError && error.code === "git.worktreeTampered") {
-          return scopePark(error.message);
+          return scopePark(PARK_CAUSES.tampered, error.message);
         }
         throw error;
       }
@@ -408,7 +411,9 @@ export class VerifyCommit implements RunFinisher {
           ? (base?.toolchain.workspaces.map((ws) => ws.dir) ?? [])
           : workspaceDirsOf(base, scanned.profile),
     });
-    if (checked.outside.length > 0) return scopePark(scopeDetail(checked.outside, scope));
+    if (checked.outside.length > 0) {
+      return scopePark(PARK_CAUSES.paths, scopeDetail(checked.outside, scope));
+    }
     if (!ctx.live()) return { kind: "continue" };
 
     // 3. Verify.
@@ -433,6 +438,7 @@ export class VerifyCommit implements RunFinisher {
       return {
         kind: "park",
         reason: "verify-failing",
+        cause: PARK_CAUSES.refused,
         detail: `verify could not run: ${pass.refused}`,
         endKind: "verify-failing",
       };
@@ -456,6 +462,7 @@ export class VerifyCommit implements RunFinisher {
         return {
           kind: "park",
           reason: "verify-failing",
+          cause: PARK_CAUSES.loops,
           detail: `verify failed ${loop + 1} of ${loopCap} times (the tier loop cap). ${item.text}`,
           endKind: "verify-failing",
         };
@@ -664,6 +671,7 @@ export class VerifyCommit implements RunFinisher {
       return {
         kind: "park",
         reason: "interrupted",
+        cause: PARK_CAUSES.build,
         detail: `dipo could not commit the verified work: ${messageOf(error)}`,
         endKind: "interrupted",
       };
@@ -675,6 +683,7 @@ export class VerifyCommit implements RunFinisher {
       return {
         kind: "park",
         reason: "conflict",
+        cause: PARK_CAUSES.pushRejected,
         detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
         endKind: "conflict",
       };
@@ -747,8 +756,8 @@ export function feedbackItemMax(config: Pick<OfficeConfig, "prompt">, tier: stri
   return (tier === null ? undefined : budgets[tier]) ?? config.prompt.budgets.feedbackItem.M;
 }
 
-function scopePark(detail: string): TurnDecision {
-  return { kind: "park", reason: "scope-violation", detail, endKind: "scope-violation" };
+function scopePark(cause: string, detail: string): TurnDecision {
+  return { kind: "park", reason: "scope-violation", cause, detail, endKind: "scope-violation" };
 }
 
 function devPortOf(profile: RunProfile | null): number | null {

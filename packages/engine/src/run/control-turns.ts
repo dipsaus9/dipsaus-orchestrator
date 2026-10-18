@@ -94,6 +94,7 @@ export class AfterTurns {
               intent: "park",
               ops: [{ closeStdin: true }],
               reason: decision.reason,
+              cause: decision.cause,
               detail: decision.detail,
               endKind: decision.endKind,
               report,

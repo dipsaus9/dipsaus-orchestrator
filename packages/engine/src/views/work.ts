@@ -3,7 +3,9 @@
 // Derived from facts (`runs`, `agents`, `run_steps`, `run_signals`, usage, stored output and the
 // mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
 // whenever it is needed, and written as the `view` of each work change-log entry; never stored as
-// truth.
+// truth. A run reopened for a round shows its newest agent, a reviewer with its own role, and a
+// run waiting for its place is not lost: it shows `limited` while a plan limit pauses the place
+// (DIPO-142).
 
 import {
   AgentId,
@@ -22,8 +24,9 @@ import {
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { readUsage } from "../ingest/usage";
+import { runCaps } from "../run/caps";
 import { runCriteriaMet } from "../run/criteria";
-import { activeRuns, findRun, type StoredRun } from "../run/records";
+import { activeRuns, findRun, runRoundCounts, type StoredRun } from "../run/records";
 import { activeSignals } from "../run/signals";
 
 /** The phase a run is in before any phase step is recorded. */
@@ -61,6 +64,7 @@ export function deriveHealth(facts: HealthFacts): Health {
 
 interface AgentRow {
   agent_id: string;
+  role: string;
   model: string;
   ended_at: number | null;
 }
@@ -68,7 +72,8 @@ interface AgentRow {
 /** The run's newest agent: the one working now, or the last one that did. */
 function latestAgent(office: OfficeHandle, runId: string): AgentRow | null {
   return office.get<AgentRow>(
-    `select agent_id, model, ended_at from agents where office_id = $office_id and run_id = $run
+    `select agent_id, role, model, ended_at from agents
+      where office_id = $office_id and run_id = $run
       order by started_at desc, rowid desc limit 1`,
     { run: runId },
   );
@@ -81,7 +86,8 @@ function refOf(run: StoredRun, agent: AgentRow): WorkRef | null {
     key: StoryKey.parse(run.key),
     run: RunId.parse(run.runId),
     agent: AgentId.parse(agent.agent_id),
-    role: RoleId.parse(run.role),
+    // The agent's own role: a reviewer of the run is no developer (0019 section 4).
+    role: RoleId.parse(agent.role),
     tier: run.tier ?? "",
     model: agent.model,
   };
@@ -123,6 +129,15 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
   const own = runCriteriaMet(office, run.runId, current);
   const total = criteria?.total ?? own?.known ?? 0;
   const met = Math.max(criteria?.met ?? 0, own?.met ?? 0);
+  // The review round cap with its grants and the failed rounds, once the run has a cap (0019).
+  const reviewRoundCap = runCaps(office, run).reviewRoundCap;
+  const review =
+    reviewRoundCap === null
+      ? {}
+      : {
+          reviewRoundCap,
+          reviewRoundsFailed: runRoundCounts(office, run.runId).reviewRoundsFailed,
+        };
   return {
     criteriaMet: total > 0 ? Math.min(met, total) : met,
     criteriaTotal: total,
@@ -130,6 +145,7 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
     loopCap: run.loopCap,
     verify: verifyStateOf(office, run.runId),
     reviewRound: steps.filter((step) => step.kind === "review").length,
+    ...review,
   };
 }
 
@@ -177,8 +193,9 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   const progress = progressOf(office, run);
   const signals = activeSignals(office, run.runId);
   // A run held for a plan limit (DIPO-51) has an exited worker on purpose: it waits for the
-  // reset, so it shows `limited`, not `lost`.
-  const waiting = signals.some((signal) => signal.signal === "plan-limit");
+  // reset, so it shows `limited`, not `lost`. A run reopened for a round waits for its place
+  // with the last session's agent ended (DIPO-142): not lost either.
+  const waiting = signals.some((signal) => signal.signal === "plan-limit") || run.waiting != null;
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
     exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,
