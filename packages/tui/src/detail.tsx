@@ -8,6 +8,9 @@
 // columns they stack.
 //
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
+// The key `i` swaps it for the prompt dipo sent the selected agent's session (`work.prompt`,
+// DIPO-137): the system file and the first message, read from the top with the same scroll keys,
+// or a line saying none is stored. `p` stays pause (0009 section 5).
 // The engine's phase markers in the worker output read `── 12:04:31 phase: verify ──` (DIPO-83).
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
 // `work.outputRange`, and End returns to following. The text lives in an `OutputFeed` outside
@@ -17,9 +20,12 @@
 
 import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type {
+  AgentId,
   Clock,
+  EngineError,
   OfficeId,
   OutputSource,
+  PromptPart,
   QuestionView,
   RunId,
   RunRecord,
@@ -42,6 +48,7 @@ import {
   type RangeOutcome,
   rowCount,
   visibleRows,
+  wrapLines,
 } from "./output";
 import { clockTime, glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
 
@@ -66,6 +73,48 @@ export interface OutputRequest {
 
 /** `work.outputRange` as the detail calls it. */
 export type ReadOutput = (request: OutputRequest) => Promise<RangeOutcome>;
+
+/** What `work.prompt` answered for the detail's agent (DIPO-137). */
+export type PromptOutcome =
+  | {
+      readonly ok: true;
+      readonly result: { readonly texts: readonly { part: PromptPart; text: string }[] };
+    }
+  | { readonly ok: false; readonly error: EngineError };
+
+/** `work.prompt` as the detail calls it. */
+export type ReadPrompt = (request: {
+  readonly office: OfficeId;
+  readonly run: RunId;
+  readonly agent: AgentId;
+}) => Promise<PromptOutcome>;
+
+/** The prompt pane's state: read from the engine when the key `i` is pressed. */
+type PromptState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "error"; readonly message: string }
+  | { readonly kind: "loaded"; readonly texts: readonly { part: PromptPart; text: string }[] };
+
+/** Said when the engine holds no prompt text for the session (DIPO-137). */
+export const NO_PROMPT_STORED =
+  "no prompt is stored for this session (privacy.storePrompts is off, or retention removed it)";
+
+const PROMPT_TITLES: Readonly<Record<PromptPart, string>> = {
+  system: "system file",
+  message: "first message",
+};
+
+/** The prompt texts as lines, each under a header naming its part. */
+export function promptLines(
+  texts: readonly { part: PromptPart; text: string }[],
+  dot: string,
+): string[] {
+  return texts.flatMap(({ part, text }, i) => [
+    ...(i === 0 ? [] : [""]),
+    `${dot} ${PROMPT_TITLES[part]}`,
+    ...text.replace(/\n+$/, "").split("\n"),
+  ]);
+}
 
 /** At this width and wider, facts and output sit side by side. */
 export const SIDE_BY_SIDE_COLUMNS = 100;
@@ -249,6 +298,7 @@ export interface DetailProps {
   readonly display: Display;
   readonly target: DetailTarget;
   readonly readOutput: ReadOutput;
+  readonly readPrompt: ReadPrompt;
   readonly columns: number;
   /** Rows for the detail, from its header to the end of the output pane. */
   readonly height: number;
@@ -269,7 +319,10 @@ export function Detail(props: DetailProps) {
   const { state, store, clock, display, target, columns, height } = props;
   const { dot, ellipsis } = glyphs(display.ascii);
   const view = useRunView(state, target);
-  const [source, setSource] = useState<"worker" | "verify">("worker");
+  const [source, setSource] = useState<"worker" | "verify" | "prompt">("worker");
+  // The prompt pane reads from its top; rows scrolled off the top.
+  const [promptTop, setPromptTop] = useState(0);
+  const [prompt, setPrompt] = useState<PromptState>({ kind: "loading" });
   // Rows from the bottom; 0 follows the tail.
   const [offset, setOffset] = useState(0);
   const [, setTick] = useState(0);
@@ -284,7 +337,8 @@ export function Detail(props: DetailProps) {
   };
   const worker = useFeed({ ...feedOptions, source: "worker" });
   const verify = useFeed({ ...feedOptions, source: "verify" });
-  const shown = source === "worker" ? worker : verify;
+  // The prompt pane keeps the worker feed running underneath, so the `now` line stays current.
+  const shown = source === "verify" ? verify : worker;
 
   // The age on the `now` line moves on without events.
   useEffect(() => {
@@ -294,6 +348,39 @@ export function Detail(props: DetailProps) {
     }, 1_000);
     return () => clock.clearTimeout(handle);
   }, [clock]);
+
+  // The session the prompt pane shows: the live agent, or the last agent of a stored run.
+  const promptAgent: AgentId | undefined =
+    props.state.work.find((candidate) => candidate.work.run === target.run)?.work.agent ??
+    target.record?.agents.at(-1);
+  const promptOffice = state.office;
+  useEffect(() => {
+    if (source !== "prompt") return;
+    if (promptAgent === undefined || promptOffice === null) {
+      setPrompt({ kind: "loaded", texts: [] });
+      return;
+    }
+    let current = true;
+    setPrompt({ kind: "loading" });
+    props
+      .readPrompt({ office: promptOffice, run: target.run, agent: promptAgent })
+      .then(
+        (outcome): PromptState =>
+          outcome.ok
+            ? { kind: "loaded", texts: outcome.result.texts }
+            : { kind: "error", message: `${outcome.error.code}: ${outcome.error.message}` },
+        (error): PromptState => ({
+          kind: "error",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
+      .then((next) => {
+        if (current) setPrompt(next);
+      });
+    return () => {
+      current = false;
+    };
+  }, [source, promptAgent, promptOffice, target.run, state.snapshots, props.readPrompt]);
 
   const side = columns >= SIDE_BY_SIDE_COLUMNS;
   const evidence = evidenceEnabled(state);
@@ -326,6 +413,15 @@ export function Detail(props: DetailProps) {
     () => rowCount(shown.feed.lines, paneWidth, display.ascii),
     [shown.feed, shown.version, paneWidth, display.ascii],
   );
+  const promptRows = useMemo(
+    () =>
+      prompt.kind === "loaded" && prompt.texts.length > 0
+        ? wrapLines(promptLines(prompt.texts, dot), paneWidth)
+        : [],
+    [prompt, paneWidth, dot],
+  );
+  const promptMax = Math.max(0, promptRows.length - paneHeight);
+  const promptAt = Math.min(promptTop, promptMax);
   const maxOffset = Math.max(0, total - paneHeight);
   const scrolled = Math.min(offset, maxOffset);
 
@@ -353,12 +449,20 @@ export function Detail(props: DetailProps) {
 
   useInput(
     (input, key) => {
-      if (input === "w" || input === "v") {
-        const next = input === "w" ? "worker" : "verify";
+      if (input === "w" || input === "v" || input === "i") {
+        const next = input === "w" ? "worker" : input === "v" ? "verify" : "prompt";
         if (next !== source) {
           setSource(next);
           setOffset(0);
+          setPromptTop(0);
         }
+      } else if (source === "prompt") {
+        const page = Math.max(1, paneHeight - 1);
+        if (key.upArrow || input === "k") setPromptTop(Math.max(0, promptAt - 1));
+        else if (key.downArrow || input === "j") setPromptTop(Math.min(promptMax, promptAt + 1));
+        else if (key.pageUp) setPromptTop(Math.max(0, promptAt - page));
+        else if (key.pageDown) setPromptTop(Math.min(promptMax, promptAt + page));
+        else if (key.end || input === "G") setPromptTop(promptMax);
       } else if (key.upArrow || input === "k") {
         setOffset(Math.min(maxOffset, scrolled + 1));
       } else if (key.downArrow || input === "j") {
@@ -396,11 +500,11 @@ export function Detail(props: DetailProps) {
   const start = Math.max(0, total - paneHeight - scrolled);
   const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled, display.ascii);
   const feed = shown.feed;
-  const tabs = source === "worker" ? "[w]orker* [v]erify" : "[w]orker [v]erify*";
+  const tabs = `[w]orker${source === "worker" ? "*" : ""} [v]erify${source === "verify" ? "*" : ""} [i] prompt${source === "prompt" ? "*" : ""}`;
   // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
   // commands (0007 section 8).
   const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
-  const title = `output (${source}) ${tabs}${stores ? `  ${storedLabel([COMMAND_BODIES])}` : ""}`;
+  const title = `${source === "prompt" ? "prompt (stored)" : `output (${source})`} ${tabs}${stores ? `  ${storedLabel([COMMAND_BODIES])}` : ""}`;
   let status: string;
   if (feed.error !== null) status = feed.error;
   else if (!feed.loaded) status = `reading output${ellipsis}`;
@@ -420,13 +524,26 @@ export function Detail(props: DetailProps) {
             : noOutputLine(record?.endedAt, clock.now(), retentionDays),
         ]
       : [];
+  let rows: string[] = [...empty, ...visible];
+  if (source === "prompt") {
+    if (prompt.kind === "loading") status = `reading prompt${ellipsis}`;
+    else if (prompt.kind === "error") status = prompt.message;
+    else if (promptRows.length === 0) status = "Esc back";
+    else {
+      status = `rows ${promptAt + 1}-${Math.min(promptRows.length, promptAt + paneHeight)} of ${promptRows.length} ${dot} [k/j PgUp/PgDn] scroll`;
+    }
+    rows =
+      prompt.kind === "loaded" && promptRows.length === 0
+        ? [NO_PROMPT_STORED]
+        : promptRows.slice(promptAt, promptAt + paneHeight);
+  }
   const pane = (
     <Box flexDirection="column" width={side ? paneWidth + 1 : columns}>
       <Text wrap="truncate-end">{` ${truncate(title, paneWidth, ellipsis)}`}</Text>
-      {[...empty, ...visible].map((row, i) => (
+      {rows.map((row, i) => (
         <Text key={i} wrap="truncate-end">{` ${row}`}</Text>
       ))}
-      {Array.from({ length: Math.max(0, paneHeight - visible.length - empty.length) }, (_, i) => (
+      {Array.from({ length: Math.max(0, paneHeight - rows.length) }, (_, i) => (
         <Text key={`pad${i}`}> </Text>
       ))}
       <Text wrap="truncate-end">{` ${truncate(status, paneWidth, ellipsis)}`}</Text>

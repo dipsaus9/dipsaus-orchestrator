@@ -42,6 +42,7 @@ export {
   outputRange,
   snapshot,
   storyRuns,
+  storedPrompt,
   storyVerdicts,
   viewsFeature,
 } from "./feature";

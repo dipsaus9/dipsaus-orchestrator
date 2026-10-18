@@ -115,6 +115,9 @@ export class FakeSession implements TuiSession {
   /** `story.detail` runs by story key (oldest first); a story not listed has run never (DIPO-81). */
   readonly runs = new Map<string, RunRecord[]>();
 
+  /** Stored prompt texts by `<run>:<agent>` for `work.prompt` (DIPO-137); none when absent. */
+  readonly prompts = new Map<string, { part: "system" | "message"; text: string }[]>();
+
   /** The most bytes one `work.outputRange` returns, as the engine's cap. */
   rangeMax = 1024 * 1024;
 
@@ -124,6 +127,7 @@ export class FakeSession implements TuiSession {
       office?: string;
       run?: string;
       source?: string;
+      agent?: string;
       from?: number;
       to?: number;
       story?: string;
@@ -145,6 +149,16 @@ export class FakeSession implements TuiSession {
       return {
         ok: true,
         result: { view, runs: this.runs.get(args.story ?? "") ?? [], verdicts: [] },
+      };
+    }
+    if (definition.name === "work.prompt") {
+      return {
+        ok: true,
+        result: {
+          run: args.run,
+          agent: args.agent,
+          texts: this.prompts.get(`${args.run}:${args.agent}`) ?? [],
+        },
       };
     }
     if (definition.name === "work.outputRange") {

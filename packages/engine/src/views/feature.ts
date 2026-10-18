@@ -17,6 +17,7 @@ import {
   storyDetail,
   type Verdict,
   workOutputRange,
+  workPrompt,
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
@@ -25,6 +26,7 @@ import type { FeatureModule, ReadContext } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openQuestionViews, storyQuestionViews } from "../hooks/questions";
 import { readUsage } from "../ingest/usage";
+import { promptTextsOf } from "../prompts/parts";
 import { storedMarker } from "../run/markers";
 
 import { activeStoryViews, storyView } from "./story";
@@ -237,6 +239,18 @@ export function outputRange(
   };
 }
 
+/**
+ * The prompt text stored for `run` and `agent` (DIPO-137): the system file and the first message,
+ * or an empty list when none is stored.
+ */
+export function storedPrompt(
+  office: OfficeHandle,
+  run: RunId,
+  agent: AgentId,
+): z.input<typeof workPrompt.result> {
+  return { run, agent, texts: promptTextsOf(office, run, agent) };
+}
+
 /** The view reads, listed in `features.ts`. */
 export const viewsFeature: FeatureModule = {
   name: "views",
@@ -257,6 +271,10 @@ export const viewsFeature: FeatureModule = {
     registry.addRead({
       definition: workOutputRange,
       handle: (ctx, args) => outputRange(officeOf(ctx), args.run, args.source, args.from, args.to),
+    });
+    registry.addRead({
+      definition: workPrompt,
+      handle: (ctx, args) => storedPrompt(officeOf(ctx), args.run, args.agent),
     });
   },
 };

@@ -1,10 +1,10 @@
 ---
 id: DIPO-137
 title: Store the prompts dipo sends to workers
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-16 19:43'
-updated_date: '2026-10-18 11:04'
+updated_date: '2026-10-18 13:24'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -76,10 +76,20 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With privacy.storePrompts on, every worker session stores the prompt text dipo sent, keyed by run and agent: a first session and a handoff store the system file and the first message, a resume stores its first message; with it off, or with no configuration in force, no prompt text is stored
-- [ ] #2 The prompt text sits in a new office-scoped table whose migration is registered in packages/engine/src/db/schema.ts and tested in packages/engine/test/db/, with a TABLE_RETENTION line at tier R in packages/engine/src/retention/policy.ts
-- [ ] #3 The retention pass deletes prompt rows recorded more than retention.shortDays ago
-- [ ] #4 A contract read returns the stored prompt texts of a run and agent, or says none is stored; packages/contract/schema/ is regenerated
-- [ ] #5 The TUI live agent detail shows the stored prompt of the selected agent session on the key i, as an output pane next to [w]orker and [v]erify, says when none is stored, and does not bind p (0009 section 5 keeps it for pause)
-- [ ] #6 privacy.storePrompts defaults to true in OFFICE_DEFAULTS.privacy, `privacy.storePrompts: false` in .dipo/office.local.yaml turns it off, and the config tests assert the new default
+- [x] #1 With privacy.storePrompts on, every worker session stores the prompt text dipo sent, keyed by run and agent: a first session and a handoff store the system file and the first message, a resume stores its first message; with it off, or with no configuration in force, no prompt text is stored
+- [x] #2 The prompt text sits in a new office-scoped table whose migration is registered in packages/engine/src/db/schema.ts and tested in packages/engine/test/db/, with a TABLE_RETENTION line at tier R in packages/engine/src/retention/policy.ts
+- [x] #3 The retention pass deletes prompt rows recorded more than retention.shortDays ago
+- [x] #4 A contract read returns the stored prompt texts of a run and agent, or says none is stored; packages/contract/schema/ is regenerated
+- [x] #5 The TUI live agent detail shows the stored prompt of the selected agent session on the key i, as an output pane next to [w]orker and [v]erify, says when none is stored, and does not bind p (0009 section 5 keeps it for pause)
+- [x] #6 privacy.storePrompts defaults to true in OFFICE_DEFAULTS.privacy, `privacy.storePrompts: false` in .dipo/office.local.yaml turns it off, and the config tests assert the new default
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M57HZD8RMEKNZNC5E4DY4HN9 (Sonnet medium, 70 turns, about $1.29, 6 min) reported done, In Review on the story branch. Five compound or sed -i/python3 commands were auto-denied (G7, DIPO-181). privacy.storePrompts defaults on; migration 0033 adds prompt_texts (tier R, deleted after shortDays); a first session and a handoff store the system file and first message, a resume its first message; work.prompt { office, run, agent } returns them; the TUI detail shows them on i and leaves p unbound.
+
+Review passed. Done on top: merged origin/main (a comment-only conflict with DIPO-198 in packages/contract/src/version.ts, both lines kept; the regenerated schema had no diff); the pane key reads [i] prompt as in 0009's footer style; a test shows a live update does not read the prompt again. The reviewer's flicker concern did not hold: the pane re-reads on state.snapshots, which counts office snapshot re-reads (open, switch, reconnect), not live events. Verify: 3401 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on db, retention, prompts, run, config, views, tui and contract: 1003 pass before the merge.
+
+Not run: the live check on the scratch repo (the detail shows the prompt on i; storePrompts: false stores none); it goes into the maintainer's hand-test session.
+<!-- SECTION:NOTES:END -->

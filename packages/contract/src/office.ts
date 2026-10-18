@@ -338,6 +338,24 @@ export const workOutputRange = defineRead({
   since: 0,
 });
 
+// The prompt text dipo sent a worker session (DIPO-137, `privacy.storePrompts`): the system file
+// (`system`) and the first message (`message`) of one agent, in that order. `texts` is empty when
+// none is stored: the opt-in is off, retention removed it, or the session was never started. A
+// resume stores only its message, because the session keeps the system file it started with.
+export const PromptPart = z.enum(["system", "message"]);
+export type PromptPart = z.infer<typeof PromptPart>;
+
+export const workPrompt = defineRead({
+  name: "work.prompt",
+  args: z.object({ office: OfficeId, run: RunId, agent: AgentId }),
+  result: z.object({
+    run: RunId,
+    agent: AgentId,
+    texts: z.array(z.object({ part: PromptPart, text: z.string() })),
+  }),
+  since: 1,
+});
+
 // A dependency of a story that is not Done on the office's base (DIPO-179): its id and its status
 // there. The status is absent when the Backlog CLI could not read the dependency (missing or
 // ambiguous), so the story waits on it but its status is unknown.
@@ -688,6 +706,7 @@ export const officeReads = [
   storyGate,
   officeStats,
   workPreview,
+  workPrompt,
 ] as const;
 
 export const officeEvents = [

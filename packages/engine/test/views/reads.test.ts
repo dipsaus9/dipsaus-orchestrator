@@ -5,6 +5,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  AgentId,
   type Cursor,
   type OfficeSnapshot,
   RequestId,
@@ -20,9 +21,15 @@ import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import { storeGateDecision } from "../../src/gate/store/decisions";
+import { recordPromptTexts } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import { endRun } from "../../src/run/records";
-import { OUTPUT_RANGE_MAX_BYTES, outputRange, viewsFeature } from "../../src/views/feature";
+import {
+  OUTPUT_RANGE_MAX_BYTES,
+  outputRange,
+  storedPrompt,
+  viewsFeature,
+} from "../../src/views/feature";
 import { withWorkViews } from "../../src/views/work";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
@@ -244,5 +251,54 @@ describe("work.outputRange", () => {
       });
       expect(outputRange(office, started.run, "verify", 0).text).toBe("");
       expect(OUTPUT_RANGE_MAX_BYTES).toBe(1024 * 1024);
+    }));
+});
+
+describe("work.prompt (DIPO-137)", () => {
+  it("returns the stored texts of a run's agent, system file first, and none for an agent without rows", () =>
+    withRun(async (t, office, started) => {
+      recordPromptTexts(
+        office,
+        started.run,
+        started.agent,
+        [
+          { part: "message", text: "Story DIPO-1" },
+          { part: "system", text: "You are the developer." },
+        ],
+        { privacy: { storePrompts: true } },
+        t.clock,
+      );
+      const args = { office: office.officeId, run: started.run, agent: started.agent };
+      expect(await read<Record<string, unknown>>(t, office, "work.prompt", args)).toEqual({
+        run: started.run,
+        agent: started.agent,
+        texts: [
+          { part: "system", text: "You are the developer." },
+          { part: "message", text: "Story DIPO-1" },
+        ],
+      });
+      const other = AgentId.parse(t.ids.next("agt"));
+      expect(
+        await read<Record<string, unknown>>(t, office, "work.prompt", { ...args, agent: other }),
+      ).toEqual({
+        run: started.run,
+        agent: other,
+        texts: [],
+      });
+    }));
+
+  it("stores nothing with storePrompts off or without a configuration", () =>
+    withRun(async (t, office, started) => {
+      const texts = [{ part: "system" as const, text: "x" }];
+      recordPromptTexts(
+        office,
+        started.run,
+        started.agent,
+        texts,
+        { privacy: { storePrompts: false } },
+        t.clock,
+      );
+      recordPromptTexts(office, started.run, started.agent, texts, undefined, t.clock);
+      expect(storedPrompt(office, started.run, started.agent).texts).toEqual([]);
     }));
 });

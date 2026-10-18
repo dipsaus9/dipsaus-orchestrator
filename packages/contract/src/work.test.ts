@@ -231,6 +231,7 @@ describe("office commands and reads", () => {
     "office.stats": 1,
     "story.gate": 1,
     "work.preview": 1,
+    "work.prompt": 1,
     "office.switch": 1,
     "work.resume": 1,
     "gate.approve": 1,
@@ -279,6 +280,7 @@ describe("office commands and reads", () => {
         "story.gate",
         "office.stats",
         "work.preview",
+        "work.prompt",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);

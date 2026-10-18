@@ -100,3 +100,50 @@ export function promptPartsOf(office: OfficeHandle, run: string, agent: string):
       estTokens: row.est_tokens,
     }));
 }
+
+/** The part names of stored prompt text (`prompt_texts`): the system file and the first message. */
+export type PromptTextPart = "system" | "message";
+
+export interface PromptText {
+  readonly part: PromptTextPart;
+  readonly text: string;
+}
+
+/**
+ * Stores the prompt text a session started with for `run` and `agent` (DIPO-137), when the
+ * configuration in force turns `privacy.storePrompts` on. With it off, or with no configuration,
+ * nothing is stored. A handoff or first session stores `system` and `message`; a resume only its
+ * `message`.
+ */
+export function recordPromptTexts(
+  office: OfficeHandle,
+  run: string,
+  agent: string,
+  texts: readonly PromptText[],
+  config: { readonly privacy: { readonly storePrompts: boolean } } | undefined,
+  clock: Clock,
+): void {
+  if (config === undefined || !config.privacy.storePrompts) return;
+  const at = clock.now();
+  office.immediate(() => {
+    for (const { part, text } of texts) {
+      office.run(
+        `insert into prompt_texts (office_id, run_id, agent_id, part, text, recorded_at)
+         values ($office_id, $run, $agent, $part, $text, $at)
+         on conflict (office_id, run_id, agent_id, part) do update set
+           text = excluded.text, recorded_at = excluded.recorded_at`,
+        { run, agent, part, text, at },
+      );
+    }
+  });
+}
+
+/** The stored prompt texts of `run` and `agent`, the system file first; empty when none. */
+export function promptTextsOf(office: OfficeHandle, run: string, agent: string): PromptText[] {
+  return office.all<PromptText>(
+    `select part, text from prompt_texts
+      where office_id = $office_id and run_id = $run and agent_id = $agent
+      order by case part when 'system' then 0 else 1 end`,
+    { run, agent },
+  );
+}

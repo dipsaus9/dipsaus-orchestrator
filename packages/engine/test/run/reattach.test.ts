@@ -25,7 +25,7 @@ import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/cont
 import { readRecording } from "@dipsaus-orchestrator/testkit";
 
 import { parseFieldBlock } from "../../src/backlog/fields/block";
-import { OFFICE_DEFAULTS } from "../../src/config/schema";
+import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import { writeNudgeSources } from "../../src/hooks/nudges";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
@@ -54,7 +54,7 @@ import {
 } from "../../src/run";
 import { markIntentSent, recordIntent } from "../../src/run/intents";
 import { activeSignals, raiseSignal } from "../../src/run/signals";
-import { promptPartsOf } from "../../src/prompts/parts";
+import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -856,6 +856,7 @@ function realResumer(
     >
   > = {},
   canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
+  config: OfficeConfig = OFFICE_DEFAULTS,
 ): RunResumer {
   const worker: WorkerPort = {
     id: "claude-cli",
@@ -882,7 +883,7 @@ function realResumer(
     ids: w.f.t.ids,
     offices: {
       get: () => w.f.office,
-      config: () => OFFICE_DEFAULTS,
+      config: () => config,
     },
     worker,
     git: () =>
@@ -1712,5 +1713,49 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
       { name: "system", sha256: sha(system), bytes: Buffer.byteLength(system) },
       { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
     ]);
+  });
+});
+
+describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
+  const noPrompts: OfficeConfig = {
+    ...OFFICE_DEFAULTS,
+    privacy: { ...OFFICE_DEFAULTS.privacy, storePrompts: false },
+  };
+  const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
+
+  it("a resume stores only its first message, under the resumed session's agent", async () => {
+    firstSession();
+    const outcome = await realResumer(hosts, facts).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: true });
+    const agent = (outcome as { agent: string }).agent;
+    expect(promptTextsOf(w.f.office, w.f.run, agent)).toEqual([
+      { part: "message", text: sentText() },
+    ]);
+    expect(promptTextsOf(w.f.office, w.f.run, w.f.agent)).toEqual([]);
+  });
+
+  it("a handoff stores its system file and its handoff message, under the new agent", async () => {
+    firstSession();
+    const outcome = await realResumer(hosts, facts, () => ({
+      ok: false,
+      reason: "the context is too full",
+    })).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const agent = (outcome as { agent: string }).agent;
+    expect(promptTextsOf(w.f.office, w.f.run, agent)).toEqual([
+      { part: "system", text: readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8") },
+      { part: "message", text: sentText() },
+    ]);
+  });
+
+  it("stores nothing with storePrompts off", async () => {
+    firstSession();
+    const resumed = await realResumer(hosts, facts, undefined, noPrompts).next(nextRequest());
+    expect(resumed).toMatchObject({ kind: "started" });
+    expect(w.f.office.all("select * from prompt_texts where office_id = $office_id")).toEqual([]);
+    // The measurement is not the text: the parts are still recorded.
+    expect(promptPartsOf(w.f.office, w.f.run, (resumed as { agent: string }).agent)).not.toEqual(
+      [],
+    );
   });
 });

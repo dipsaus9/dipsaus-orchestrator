@@ -43,6 +43,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "S",
     rule: "recorded more than stateDays ago, once no agent of the run is running",
   },
+  prompt_texts: { tier: "R", rule: "recorded more than shortDays ago" },
   nudge_sources: {
     tier: "S",
     rule: "recorded more than stateDays ago, once no agent of the run is running",

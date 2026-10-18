@@ -3406,6 +3406,54 @@
         }
       },
       "required": ["refusals", "story", "skipped", "launch", "problem"]
+    },
+    "work.prompt.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "agent": {
+          "type": "string",
+          "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["office", "run", "agent"]
+    },
+    "work.prompt.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "agent": {
+          "type": "string",
+          "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "texts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "part": {
+                "type": "string",
+                "enum": ["system", "message"]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": ["part", "text"]
+          }
+        }
+      },
+      "required": ["run", "agent", "texts"]
     }
   }
 }

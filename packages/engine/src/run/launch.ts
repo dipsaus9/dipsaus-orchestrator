@@ -43,7 +43,7 @@ import { hostSocketPath } from "../host/protocol";
 import type { IngestAdapter, IngestTarget } from "../ingest/ingestor";
 import { officeDirectory } from "../office/marker";
 import { ensurePrivateDir } from "../platform/paths";
-import { type PromptPart, promptParts } from "../prompts/parts";
+import { type PromptPart, type PromptText, promptParts } from "../prompts/parts";
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
@@ -198,6 +198,8 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly promptSources: Pick<RunPrompts, "nudgeSources">;
   /** The measured prompt parts of the first session: system, task and each task section. */
   readonly parts: readonly PromptPart[];
+  /** The system file and task message texts, stored when `privacy.storePrompts` is on (DIPO-137). */
+  readonly texts: readonly PromptText[];
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -347,6 +349,7 @@ export class RunLauncher {
     let systemHash: string;
     let promptSources: PreparedRun["promptSources"];
     let parts: PromptPart[];
+    let texts: PromptText[];
     try {
       const dependencies = await this.#deps.dependencies(
         facts.office,
@@ -368,6 +371,10 @@ export class RunLauncher {
       systemHash = systemHashOf(prompts.systemFile);
       promptSources = { nudgeSources: prompts.nudgeSources };
       parts = promptParts(prompts.systemFile, prompts.taskMessage, prompts.sections);
+      texts = [
+        { part: "system", text: prompts.systemFile },
+        { part: "message", text: prompts.taskMessage },
+      ];
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
@@ -404,6 +411,7 @@ export class RunLauncher {
       systemHash,
       promptSources,
       parts,
+      texts,
       release: () => {
         setup.release();
         cleanup();

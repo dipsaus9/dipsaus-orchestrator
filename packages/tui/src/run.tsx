@@ -18,6 +18,7 @@ import {
   officeOpen,
   storyDetail,
   workOutputRange,
+  workPrompt,
   workRun,
   workStop,
 } from "@dipsaus-orchestrator/contract";
@@ -180,6 +181,21 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
             source: request.source,
             from: request.from,
             ...(request.to === undefined ? {} : { to: request.to }),
+          });
+          return outcome.ok ? { ok: true, result: outcome.result } : outcome;
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readPrompt: async (request) => {
+        try {
+          const outcome = await connected.read(workPrompt, {
+            office: request.office,
+            run: request.run,
+            agent: request.agent,
           });
           return outcome.ok ? { ok: true, result: outcome.result } : outcome;
         } catch (error) {

@@ -266,6 +266,17 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
     args: { office: ids.office, run: ids.run, source: "verify", from: 0, to: 64 },
     result: { run: ids.run, source: "verify", from: 0, to: 64, text: "FAIL test/retry.test.ts" },
   },
+  "work.prompt": {
+    args: { office: ids.office, run: ids.run, agent: ids.agent },
+    result: {
+      run: ids.run,
+      agent: ids.agent,
+      texts: [
+        { part: "system", text: "You are the developer." },
+        { part: "message", text: "Story DIPO-21: retry the lookup." },
+      ],
+    },
+  },
   "story.gate": {
     args: { office: ids.office, story: "DIPO-21" },
     result: {
