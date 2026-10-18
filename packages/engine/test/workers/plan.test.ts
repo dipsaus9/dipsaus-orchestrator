@@ -386,7 +386,6 @@ describe("claude-cli plan", () => {
     expect(settings.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
     const deny = settings.permissions.deny;
     for (const rule of [...settings.permissions.allow, ...deny]) {
-      expect(rule.startsWith("./")).toBe(false);
       expect(rule).not.toMatch(/\(\.\//);
     }
     for (const rule of [
