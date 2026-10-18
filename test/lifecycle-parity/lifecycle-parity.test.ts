@@ -75,6 +75,37 @@ const COMMANDS = [
   "/usr/local/bin/dipo --foreground daemon",
 ];
 
+/**
+ * A child that writes its `ready` line from its own program, so its command line is final when this
+ * returns. Linux shows an empty command line until the exec, so a probe read straight after
+ * `Bun.spawn` can see nothing (DIPO-171).
+ */
+async function spawnReady(): Promise<Bun.Subprocess<"pipe", "pipe", "ignore">> {
+  const child = Bun.spawn({
+    cmd: ["/bin/sh", "-c", "echo ready; read line"],
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (!text.includes("ready\n")) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`the ready child exited before its ready line: ${text}`);
+      text += decoder.decode(value);
+    }
+  } catch (error) {
+    // No child is left behind when the ready line does not come.
+    child.kill("SIGKILL");
+    await child.exited;
+    throw error;
+  }
+  reader.releaseLock();
+  return child;
+}
+
 /** The value `fn` returns or the message it throws, so two copies compare on both. */
 function outcome(fn: () => unknown): { value: unknown } | { error: string } {
   try {
@@ -138,7 +169,7 @@ describe("client lifecycle and engine agree", () => {
 
   it("probe this process and a child the same way", async () => {
     const platform = process.platform === "linux" ? "linux" : "darwin";
-    const child = Bun.spawn({ cmd: ["/bin/sleep", "30"], stdout: "ignore", stderr: "ignore" });
+    const child = await spawnReady();
     try {
       for (const pid of [process.pid, child.pid]) {
         const fromClient = await clientProcess.systemProcessProbe(platform)(pid);
