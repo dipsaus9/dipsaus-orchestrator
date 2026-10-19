@@ -1,10 +1,12 @@
 ---
 id: DIPO-209
-title: Write golden plans that pass the formatter when they are regenerated
+title: >-
+  Write golden files and derived recordings that pass the formatter when they
+  are regenerated
 status: Refined
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-19 15:00'
+updated_date: '2026-10-19 15:03'
 labels:
   - 'tier:S'
   - cutover
@@ -25,7 +27,7 @@ ordinal: 209000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: regenerating the golden files with DIPO_UPDATE_GOLDEN=1 writes files that `bun run format:check` accepts, so a worker that regenerates them does not fail verify on formatting.
+Outcome: regenerating the golden files (DIPO_UPDATE_GOLDEN=1) or the derived recordings (bun run recordings:derive) writes files that `bun run format:check` accepts, so a worker that regenerates them does not fail verify on formatting.
 
 Context: M1a run of DIPO-204 on 2026-10-18 and its review (PR #210). The golden writer in packages/engine/test/workers/plan.test.ts writes `JSON.stringify(value, null, 2)`, while oxfmt puts short arrays such as denyRead and allowRead on one line, so a regenerated golden fails format:check until format:fix runs. The worker had to reformat them by hand. packages/engine/test/sandbox/policy.test.ts (around line 50) has the same writer for packages/engine/test/sandbox/golden/. Both comparisons read parsed JSON, so only the written text changes.
 
