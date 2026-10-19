@@ -4,14 +4,14 @@ title: 'Resume capped, conflicted and review-loop stories'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 07:01'
+updated_date: '2026-10-19 21:06'
 labels:
   - 'tier:M'
   - 'slice:m1a'
 milestone: m-1
 dependencies:
   - DIPO-155
-  - DIPO-146
+  - DIPO-219
   - DIPO-149
   - DIPO-150
   - DIPO-151

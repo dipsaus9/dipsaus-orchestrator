@@ -4,7 +4,7 @@ title: Check for conflicts before In Review and let the worker resolve them
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-18 14:29'
+updated_date: '2026-10-19 21:18'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -21,6 +21,7 @@ references:
   - packages/engine/src/prompts/feedback/
   - packages/engine/test/run/
   - packages/engine/test/worktree/
+  - packages/engine/src/run/
 priority: high
 type: feature
 ordinal: 138000
@@ -41,6 +42,8 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
+      check: "(integration, real git under DIPO_TMP) an approved head plus a clean base merge this story's sync made and a task-file commit carries the approval to the new head with no review round, and a base merge the engine did not record starts a round"
+    - kind: "automated"
       check: "(integration, real git under DIPO_TMP) a conflicting base leaves the merge in progress and the derived merge state reads the same after a simulated restart"
     - kind: "automated"
       check: "(integration) a task-file conflict is resolved by the engine and a .dipo/ conflict parks unwritable-path"
@@ -59,4 +62,5 @@ test_plan:
 - [ ] #4 Other conflicts go as one conflict item (paths and hunks within budget, signed over base commit and sorted paths) to the developer session; at done the conflicted paths must hold no conflict marker lines (one feedback turn otherwise), the scope check counts them in scope, verify runs, and the engine commits the merge with git commit --no-edit --no-verify
 - [ ] #5 A blocked report, or markers or unmerged paths left after the feedback turn, is a failed hand-off counted against conflict_cap; the failed hand-off that reaches mergeSlot.conflictAttempts parks conflict with cause merge-in-progress and the paths, with the merge left in progress; a re-claim of a kept branch uses the same hand-off
 - [ ] #6 A conflict found by a fetch while a story is In Review raises a notice and shows on the story detail, and is handled at the story's next In Review or merge-slot sync
+- [ ] #7 When the engine makes a clean base merge in the story worktree, it writes a carried review_verdicts row (carried from the approved head) through DIPO-146's verdict store, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
 <!-- AC:END -->

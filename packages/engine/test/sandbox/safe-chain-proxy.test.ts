@@ -23,7 +23,11 @@ import { handleGateConnection } from "../../src/platform/safe-chain-gate";
 import {
   endQuietly,
   ensureProxyRoot,
+  PROXY_CHECK_ALLOWED_URL,
+  PROXY_CHECK_BLOCKED_URL,
+  PROXY_CHECK_REFUSED_URL,
   proxyCheckProblem,
+  runProxyCheck,
   sweepSafeChainProxies,
 } from "../../src/platform/safe-chain-proxy";
 import { SafeChainProxies, type SafeChainProxyHandle } from "../../src/sandbox/safe-chain-proxies";
@@ -239,22 +243,126 @@ describe("(unit) the worker's variables", () => {
 
 describe("(unit) the proxy check's verdict", () => {
   it("passes only when the package downloads, the test malware is refused and the gate refuses", () => {
-    expect(proxyCheckProblem({ allowed: 200, blocked: 403, refused: 403 })).toBeNull();
-    expect(proxyCheckProblem({ allowed: 502, blocked: 403, refused: 403 })).toContain(
+    expect(proxyCheckProblem({ allowed: 200, attempts: 1, blocked: 403, refused: 403 })).toBeNull();
+    expect(proxyCheckProblem({ allowed: 502, attempts: 1, blocked: 403, refused: 403 })).toContain(
       "is-number@7.0.0",
     );
-    expect(proxyCheckProblem({ allowed: "timed out", blocked: 403, refused: 403 })).toContain(
-      "timed out",
-    );
-    expect(proxyCheckProblem({ allowed: 200, blocked: 200, refused: 403 })).toContain(
+    expect(
+      proxyCheckProblem({ allowed: "timed out", attempts: 1, blocked: 403, refused: 403 }),
+    ).toContain("timed out");
+    expect(proxyCheckProblem({ allowed: 200, attempts: 1, blocked: 200, refused: 403 })).toContain(
       "would not be checked",
     );
-    expect(proxyCheckProblem({ allowed: 200, blocked: 403, refused: 200 })).toContain(
+    expect(proxyCheckProblem({ allowed: 200, attempts: 1, blocked: 403, refused: 200 })).toContain(
       "did not refuse",
     );
-    expect(proxyCheckProblem({ allowed: 200, blocked: 403, refused: "socket closed" })).toContain(
-      "did not refuse",
+    expect(
+      proxyCheckProblem({ allowed: 200, attempts: 1, blocked: 403, refused: "socket closed" }),
+    ).toContain("did not refuse");
+  });
+
+  it("says how many attempts the allowed download got and keeps the last cause", () => {
+    expect(
+      proxyCheckProblem({ allowed: "socket hang up", attempts: 3, blocked: 403, refused: 403 }),
+    ).toBe(
+      "downloading is-number@7.0.0 through the proxy did not work after 3 attempts (socket hang up)",
     );
+  });
+});
+
+/**
+ * A fake download: `outcome` gives a status, an error or "hang" (never settles) for each call, by
+ * the URL and the number of times that URL was asked for so far.
+ */
+function fakeDownload(outcome: (url: string, call: number) => number | Error | "hang") {
+  const calls: string[] = [];
+  const download = (url: string): Promise<number> => {
+    calls.push(url);
+    const result = outcome(url, calls.filter((called) => called === url).length);
+    if (result === "hang") return new Promise<number>(() => {});
+    return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
+  };
+  return { calls, download };
+}
+
+/** Lets the fakes' promise callbacks run; the clock's timers are not real ones. */
+async function flush(): Promise<void> {
+  for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+}
+
+describe("(unit) the proxy check's retries (DIPO-211)", () => {
+  it("passes when the allowed download fails once, after a 2 s wait on the clock", async () => {
+    const clock = new ManualClock();
+    const fake = fakeDownload((url, call) => {
+      if (url === PROXY_CHECK_ALLOWED_URL) return call === 1 ? new Error("socket hang up") : 200;
+      return 403;
+    });
+    const verdict = runProxyCheck(clock, fake.download);
+
+    await flush();
+    expect(fake.calls).toEqual([PROXY_CHECK_ALLOWED_URL]);
+    clock.advance(1_999);
+    await flush();
+    expect(fake.calls).toEqual([PROXY_CHECK_ALLOWED_URL]);
+    clock.advance(1);
+    expect(await verdict).toBeNull();
+    expect(fake.calls).toEqual([
+      PROXY_CHECK_ALLOWED_URL,
+      PROXY_CHECK_ALLOWED_URL,
+      PROXY_CHECK_BLOCKED_URL,
+      PROXY_CHECK_REFUSED_URL,
+    ]);
+    expect(clock.pendingTimers).toBe(0);
+  });
+
+  it("fails after 3 attempts, with the last cause, when every allowed download fails", async () => {
+    const clock = new ManualClock();
+    const fake = fakeDownload((url, call) => {
+      if (url === PROXY_CHECK_ALLOWED_URL) return new Error(`cause ${call}`);
+      return 403;
+    });
+    const verdict = runProxyCheck(clock, fake.download);
+
+    await flush();
+    clock.advance(2_000);
+    await flush();
+    clock.advance(2_000);
+    const problem = await verdict;
+    expect(problem).toContain("did not work after 3 attempts (cause 3)");
+    expect(fake.calls.filter((url) => url === PROXY_CHECK_ALLOWED_URL)).toHaveLength(3);
+  });
+
+  it("retries an allowed download that times out, after the 30 s timeout and the 2 s wait", async () => {
+    const clock = new ManualClock();
+    const fake = fakeDownload((url, call) => {
+      if (url === PROXY_CHECK_ALLOWED_URL) return call === 1 ? "hang" : 200;
+      return 403;
+    });
+    const verdict = runProxyCheck(clock, fake.download);
+
+    await flush();
+    clock.advance(30_000);
+    await flush();
+    expect(fake.calls).toEqual([PROXY_CHECK_ALLOWED_URL]);
+    clock.advance(2_000);
+    expect(await verdict).toBeNull();
+    expect(fake.calls.filter((url) => url === PROXY_CHECK_ALLOWED_URL)).toHaveLength(2);
+    expect(clock.pendingTimers).toBe(0);
+  });
+
+  it("fails a blocked or refused download that gets through at once, with no retry", async () => {
+    for (const passing of [PROXY_CHECK_BLOCKED_URL, PROXY_CHECK_REFUSED_URL]) {
+      const clock = new ManualClock();
+      const fake = fakeDownload((url) => {
+        if (url === PROXY_CHECK_ALLOWED_URL) return 200;
+        return url === passing ? 200 : 403;
+      });
+      const problem = await runProxyCheck(clock, fake.download);
+      expect(problem).not.toBeNull();
+      expect(fake.calls.filter((url) => url === PROXY_CHECK_ALLOWED_URL)).toHaveLength(1);
+      expect(fake.calls.filter((url) => url === passing)).toHaveLength(1);
+      expect(clock.pendingTimers).toBe(0);
+    }
   });
 });
 

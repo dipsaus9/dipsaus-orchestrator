@@ -4,15 +4,16 @@ title: Top up a budget-exceeded story
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 06:58'
+updated_date: '2026-10-19 21:06'
 labels:
   - 'tier:M'
   - 'slice:m1a'
 milestone: m-1
 dependencies:
   - DIPO-155
-  - DIPO-146
+  - DIPO-219
   - DIPO-205
+  - DIPO-148
 references:
   - packages/contract/src/
   - packages/contract/schema/

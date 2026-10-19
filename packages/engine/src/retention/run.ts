@@ -249,6 +249,8 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   });
   // Backlog PRs merged or closed, and blocks a later backlog PR cleared (DIPO-35).
   await rows("backlog_prs", "closed_at < $cutoff", { cutoff: stateCutoff });
+  // Story PRs merged or closed (DIPO-144); an open PR has no close time and is kept.
+  await rows("story_prs", "closed_at < $cutoff", { cutoff: stateCutoff });
   await rows("backlog_pr_blocks", "cleared_at < $cutoff", { cutoff: stateCutoff });
 
   let eventFiles = 0;
