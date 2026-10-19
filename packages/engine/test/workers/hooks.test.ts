@@ -353,7 +353,7 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
       string,
       [{ hooks: [{ command: string; timeout: number }] }]
     >;
-    for (const name of REGISTERED_HOOKS.filter((hook) => hook !== "PreToolUse")) {
+    for (const name of REGISTERED_HOOKS.filter((registered) => registered !== "PreToolUse")) {
       const entry = hooks[name]?.[0].hooks[0];
       if (entry === undefined) throw new Error(`no ${name} hook`);
       const nudged = (NUDGE_HOOKS as readonly string[]).includes(name);

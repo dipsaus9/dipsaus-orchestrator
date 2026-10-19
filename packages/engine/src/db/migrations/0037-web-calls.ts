@@ -10,7 +10,7 @@ import type { SqlMigration } from "../migrations";
 
 export const webCalls: SqlMigration = {
   version: 37,
-  name: "web calls",
+  name: "web call counts",
   sql: `
 alter table runs add column web_searches integer not null default 0;
 alter table runs add column web_fetches integer not null default 0;

@@ -33,6 +33,14 @@ function io(env: Record<string, string>, input: string | null, out: string[]): D
   };
 }
 
+/** A PreToolUse payload of a WebFetch call for `url` (DIPO-164). */
+const PAYLOAD = (url: string) =>
+  JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "WebFetch",
+    tool_input: { url, prompt: "summarise" },
+  });
+
 /** A host that answers the handshake with version 2 and every hook op with `output`. */
 function fakeHost(path: string, output: string, frames: unknown[]) {
   return listenLineSocket(path, (connection) => ({
@@ -226,12 +234,6 @@ describe("dipo hook --nudge (DIPO-60 AC #3)", () => {
 });
 
 describe("dipo hook --gate (DIPO-164; 0020 section 11b)", () => {
-  const PAYLOAD = (url: string) =>
-    JSON.stringify({
-      hook_event_name: "PreToolUse",
-      tool_name: "WebFetch",
-      tool_input: { url, prompt: "summarise" },
-    });
   const DENY_NO_ANSWER = gateDenyOutput(GATE_NO_ANSWER_REASON);
 
   it("parses --gate without a value", () => {

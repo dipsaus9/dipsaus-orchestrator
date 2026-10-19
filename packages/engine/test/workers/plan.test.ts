@@ -1056,7 +1056,7 @@ describe("web tools (DIPO-164)", () => {
       hookRelay: true,
       tools: { allow: web ? [...M0_TOOLS, ...WEB] : M0_TOOLS, deny: [] },
     });
-  const webContext = () => context({ hookCommand: ["/opt/dipo"] });
+  const WEB_CONTEXT = context({ hookCommand: ["/opt/dipo"] });
   interface Settings {
     permissions: { allow: string[] };
     sandbox: { network: { allowedDomains: string[] } };
@@ -1064,7 +1064,7 @@ describe("web tools (DIPO-164)", () => {
   }
 
   it("adds the tools and their allow rules, and registers the PreToolUse gate", () => {
-    const launch = plan(webSpec(true), webContext());
+    const launch = plan(webSpec(true), WEB_CONTEXT);
     expect(flag(launch, "--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash,WebSearch,WebFetch");
     const settings = settingsOf(launch) as unknown as Settings;
     expect(settings.permissions.allow).toEqual(expect.arrayContaining(WEB));
@@ -1074,12 +1074,12 @@ describe("web tools (DIPO-164)", () => {
   });
 
   it("keeps the Bash sandbox network closed", () => {
-    const settings = settingsOf(plan(webSpec(true), webContext())) as unknown as Settings;
+    const settings = settingsOf(plan(webSpec(true), WEB_CONTEXT)) as unknown as Settings;
     expect(settings.sandbox.network.allowedDomains).toEqual([]);
   });
 
   it("restores the M0 tool list without web: no tool, no allow rule, no gate", () => {
-    const launch = plan(webSpec(false), webContext());
+    const launch = plan(webSpec(false), WEB_CONTEXT);
     expect(flag(launch, "--tools")).toBe(M0_TOOLS.join(","));
     const settings = settingsOf(launch) as unknown as Settings;
     for (const tool of WEB) expect(settings.permissions.allow).not.toContain(tool);
@@ -1095,7 +1095,7 @@ describe("web tools (DIPO-164)", () => {
         reportSchema: REVIEW_REPORT_JSON_SCHEMA,
         hookRelay: true,
       }),
-      webContext(),
+      WEB_CONTEXT,
     );
     expect(flag(launch, "--tools")).toBe("Read,Glob,Grep,Bash");
     const settings = settingsOf(launch) as unknown as Settings;

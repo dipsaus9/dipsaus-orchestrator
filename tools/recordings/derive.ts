@@ -4,13 +4,7 @@
 // live run showed (for example `startup_failure_reason`) are marked in `meta.cites`.
 
 import { refusalText } from "../../packages/engine/src/index";
-import {
-  WEB_ENV_FILE,
-  WEB_ENV_KEY,
-  WEB_QUERY,
-  WEB_REFUSED_URL,
-  WEB_URL,
-} from "./scenarios";
+import { WEB_ENV_FILE, WEB_ENV_KEY, WEB_QUERY, WEB_REFUSED_URL, WEB_URL } from "./scenarios";
 
 import type { Envelope, Meta, Recording } from "./format";
 import { isRecord, readRecording, serializeMeta, serializeStream, writeRecording } from "./format";
@@ -366,7 +360,6 @@ const WEB_INIT_TOOLS = [
   "WebSearch",
   "Write",
 ];
-
 
 const CITE_WEB_INIT =
   "system/init tools lists WebFetch and WebSearch besides the six of the developer role; no live run with worker.web showed them (0020 section 11b)";
