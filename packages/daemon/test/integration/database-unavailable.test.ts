@@ -8,6 +8,7 @@
 // then `dipo restore` with the named backup bring it back. State, runtime directory and temp files
 // stay under the test's temp directory, and every daemon is stopped in a `finally`.
 
+import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { closeSync, copyFileSync, existsSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -183,6 +184,43 @@ function checks(dir: string): string[] {
     .map((line) => line.because ?? "");
 }
 
+/**
+ * Overwrites the root page of every table and index in `path` with 0xff, so `PRAGMA quick_check`
+ * reports each one, and returns those page numbers. The pages come from `sqlite_schema.rootpage`
+ * and `PRAGMA page_size`, not from a layout the test assumes: which pages hold which table moves
+ * as migrations add tables and rows. Root pages of other b-trees are never pages of the schema
+ * b-tree, so the schema read at open still succeeds and only quick_check finds the damage. The
+ * write-ahead log is folded into the file first, so no newer copy of a page in it hides the damage.
+ */
+function damageRootPages(path: string): number[] {
+  const db = new Database(path, { readwrite: true, strict: true });
+  let pageSize: number;
+  let roots: number[];
+  try {
+    db.run("pragma wal_checkpoint(TRUNCATE)");
+    pageSize = (db.query("pragma page_size").get() as { page_size: number }).page_size;
+    roots = (
+      db
+        .query(
+          "select rootpage from sqlite_schema where type in ('table', 'index') and rootpage > 1 order by rootpage",
+        )
+        .all() as { rootpage: number }[]
+    ).map((row) => row.rootpage);
+  } finally {
+    db.close();
+  }
+  expect(roots.length).toBeGreaterThan(0);
+  const fd = openSync(path, "r+");
+  try {
+    for (const page of roots) {
+      writeSync(fd, Buffer.alloc(pageSize, 0xff), 0, pageSize, (page - 1) * pageSize);
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return roots;
+}
+
 function crashFile(dir: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(dir, "state", "crashes.json"), "utf8")) as Record<
     string,
@@ -334,16 +372,9 @@ describe("dipo daemon --foreground with an unavailable state database", () => {
           await kill(killed);
         }
 
-        // Damage b-tree pages after the first; page 1 (the schema) stays readable, so only
+        // Damage the root page of every table and index; the schema b-tree stays readable, so only
         // quick_check notices.
-        const fd = openSync(live, "r+");
-        try {
-          for (let page = 3; page <= 10; page++) {
-            writeSync(fd, Buffer.alloc(1024, 0xff), 0, 1024, (page - 1) * 4096 + 100);
-          }
-        } finally {
-          closeSync(fd);
-        }
+        damageRootPages(live);
 
         const damaged = start(env);
         try {
