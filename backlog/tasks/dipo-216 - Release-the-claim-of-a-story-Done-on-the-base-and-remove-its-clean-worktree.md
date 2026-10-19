@@ -1,10 +1,10 @@
 ---
 id: DIPO-216
 title: Release the claim of a story Done on the base and remove its clean worktree
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 21:37'
+updated_date: '2026-10-19 21:50'
 labels:
   - 'tier:M'
   - cutover
@@ -56,3 +56,9 @@ test_plan:
 - [x] #6 A test in packages/engine/test/reconcile/ with a real git repository and remote replays the 2026-10-19 case: two claims of stories Done on the base through another branch, one clean and one with an untracked file; the clean claim is released with reason done, its worktree directory is gone and its slot is free, and the dirty claim keeps its worktree, claim and slot with one notice that lists the untracked file
 - [x] #7 A live claim with teardown_started_at set whose worktree is already gone (a crash between the removal and the release) is released on the next reconcile pass with the same transaction and slot release as the second criterion, without git; a claim whose run was reopened before the git queue item keeps its worktree, lock and claim; tests cover both
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B15QFCEHCR2613XFTG15BM (Sonnet, 30 turns, about $0.75, 5 min) reported done, In Review; one sed -i was auto-denied (G7, known) and the worker used Edit. No write outside the References. Reconcile step 1b (releaseDoneOnBase) releases a live claim with a claim commit whose run has ended and whose story is Done on _base: inside the office git queue item it checks again that the run has ended and that _base HEAD is still the pass's commit, records teardown_started_at, removes the worktree without --force, then in one transaction releases the claim as done (keepBranch false), resolves an open park as reconcile, forgets worker_notes and context_packs and writes an info notice, and frees the port slot. A dirty or foreign-locked worktree keeps its claim, slot and lock with a warn notice; a claim with a recorded start whose worktree is gone is released without git. No branch is touched. Fixed on top after review: a foreign lock now also clears a teardown start an earlier crash left behind (new test, shown failing without the fix), and the gone-worktree test proves no git queue item runs while the claim is live. Not done: the moved-base skip is silent until the next rescan (reconcile has no logger). Behaviour change for DIPO-162 to handle: an own-branch teardown that crashed after removing its worktree is now released here as done and its branch is left behind instead of deleted by the Done poll. Verify outside the sandbox: 3708 tests, 0 fail; DIPO_TEST_CI=1 worktree, reconcile and daemon tests pass. Review and re-review passed.
+<!-- SECTION:NOTES:END -->
