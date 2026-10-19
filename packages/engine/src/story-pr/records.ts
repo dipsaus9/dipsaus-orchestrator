@@ -114,6 +114,32 @@ export function updateStoryPr(
   );
 }
 
+/**
+ * Records the PR's state on the host and when the engine saw it close or merge (null while it is
+ * open).
+ */
+export function setStoryPrState(
+  office: OfficeHandle,
+  runId: RunId,
+  change: { state: StoryPrState; closedAt: number | null },
+): void {
+  office.run(
+    `update story_prs set state = $state, closed_at = $closed
+      where office_id = $office_id and run_id = $run`,
+    { run: runId, state: change.state, closed: change.closedAt },
+  );
+}
+
+/** The PRs that were open when the engine last looked, oldest first. */
+export function openStoryPrs(office: OfficeHandle): StoryPrRecord[] {
+  return office
+    .all<PrRow>(
+      `select ${COLUMNS} from story_prs where office_id = $office_id and state = 'open'
+        order by opened_at, rowid`,
+    )
+    .map(toRecord);
+}
+
 /** Runs of stories at In Review whose PR is not open yet, oldest first. */
 export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryKey }[] {
   return office

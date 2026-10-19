@@ -1,6 +1,6 @@
 // The story PR flow (DIPO-144 test plan) with a fake code host and a fake story git on a migrated
-// state database: open, reuse after a crash, update only on change, the failed-create notice and
-// its retry, StoryView.pr and the story.pr events.
+// state database: open, reuse after a crash, update only on change, a PR merged or closed on the
+// host, the failed-create notice and its retry, StoryView.pr and the story.pr events.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -9,7 +9,13 @@ import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { CodeHostError, type CodeHost, type HostPr, type NewPr } from "../../src/platform/host";
+import {
+  CodeHostError,
+  type CodeHost,
+  type HostPr,
+  type NewPr,
+  type PrState,
+} from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import { endRun, IN_REVIEW_END, insertRun } from "../../src/run";
 import {
@@ -52,8 +58,12 @@ class FakeHost implements CodeHost {
   ): Promise<void> {
     this.updates.push({ number, ...change });
   }
-  async viewPr(): Promise<HostPr> {
-    throw new Error("not used");
+  /** The state `viewPr` reports, and the PR numbers it was asked for. */
+  hostState: PrState = "open";
+  readonly views: number[] = [];
+  async viewPr(_repo: string, number: number): Promise<HostPr> {
+    this.views.push(number);
+    return { ...hostPr(number, { base: "main", head: BRANCH, title: "t" }), state: this.hostState };
   }
   async closePr(): Promise<void> {}
   async squashMerge(): Promise<void> {}
@@ -227,6 +237,46 @@ describe("the story PR", () => {
       expect(storyPrEvents(w.office)).toHaveLength(2);
     });
   });
+
+  for (const closed of ["merged", "closed"] as const) {
+    it(`writes the state and close time of a PR ${closed} on the host and says story.pr once`, async () => {
+      await inWorld(async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        expect(storyPrEvents(w.office)).toHaveLength(1);
+        // Still open on the host: nothing changes.
+        await w.prs.retry(id);
+        expect(w.host.views).toEqual([7]);
+        expect(findStoryPr(w.office, w.run)).toMatchObject({ state: "open", closedAt: null });
+        expect(storyPrEvents(w.office)).toHaveLength(1);
+
+        w.host.hostState = closed;
+        w.t.clock.advance(60_000);
+        await w.prs.retry(id);
+        expect(findStoryPr(w.office, w.run)).toMatchObject({
+          state: closed,
+          closedAt: w.t.clock.now(),
+        });
+        expect(storyView(w.office, w.key)?.pr).toEqual({
+          number: 7,
+          url: `https://github.com/${REPO}/pull/7`,
+          state: closed,
+        });
+        const events = storyPrEvents(w.office);
+        expect(events).toHaveLength(2);
+        expect(events[1]?.data).toEqual({
+          story: "DIPO-1",
+          key: w.key,
+          pr: { number: 7, url: `https://github.com/${REPO}/pull/7`, state: closed },
+        });
+
+        // A second poll sees no change: no host read of a PR that is no longer open, no event.
+        await w.prs.retry(id);
+        expect(w.host.views).toEqual([7, 7]);
+        expect(storyPrEvents(w.office)).toHaveLength(2);
+      });
+    });
+  }
 
   it("keeps the story In Review on a failed create, notices once and creates on the retry poll", async () => {
     await inWorld(async (w) => {

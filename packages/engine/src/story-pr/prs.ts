@@ -6,9 +6,11 @@
 // `story.pr` is emitted when it opens, changes state or gets a new head.
 //
 // A failed create is a `pr.openFailed` notice, put once per cause; the story stays In Review. The
-// retry poll runs every `polling.prStateSeconds` of the office configuration in force and syncs
-// each In Review run that has no PR yet. Work for one office runs one piece at a time, and `sync`
-// never throws: whatever went wrong is the notice.
+// PR poll runs every `polling.prStateSeconds` of the office configuration in force: it reads each
+// PR still open on the host (`viewPr`), writes the state and close time of one merged or closed
+// there and emits `story.pr` with the new state, then syncs each In Review run that has no PR yet.
+// Work for one office runs one piece at a time, and `sync` never throws: whatever went wrong is
+// the notice.
 
 import type { Clock, OfficeId, RunId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -19,14 +21,18 @@ import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import { type CodeHost, CodeHostError, type HostPr, repoOfRemoteUrl } from "../platform/host";
 import { findRun } from "../run/records";
+import { findStoryByKey } from "../stories/keys";
 
 import { storyPrBodyHash, storyPrBody } from "./body";
 import type { StoryPrGit } from "./git";
 import {
   findStoryPr,
   insertStoryPr,
+  openStoryPrs,
   runsWithoutPr,
+  setStoryPrState,
   type StoryPrRecord,
+  type StoryPrState,
   updateStoryPr,
 } from "./records";
 import { storyPrTitle } from "./title";
@@ -114,10 +120,14 @@ export class StoryPrs {
     return this.#serial(state, () => this.#sync(officeId, state, runId));
   }
 
-  /** One retry pass: syncs each In Review run that has no PR yet. Returns the runs tried. */
+  /**
+   * One pass of the PR poll: reads the state of each PR still open on the host, then syncs each In
+   * Review run that has no PR yet. Returns the runs whose PR it tried to open.
+   */
   retry(officeId: OfficeId): Promise<RunId[]> {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
+      for (const stored of openStoryPrs(state.office)) await this.#poll(officeId, state, stored);
       const tried: RunId[] = [];
       for (const { runId } of runsWithoutPr(state.office)) {
         tried.push(runId);
@@ -277,6 +287,42 @@ export class StoryPrs {
     });
   }
 
+  /**
+   * Reads one open PR on the host (`viewPr`). A PR merged or closed there gets its state and close
+   * time written and one `story.pr` with the new state; an open PR changes nothing. A failed read is
+   * logged and the next poll reads again.
+   */
+  async #poll(officeId: OfficeId, state: Polled, stored: StoryPrRecord): Promise<void> {
+    const repo = repoOfPrUrl(stored.url);
+    if (repo === null) {
+      this.#deps.logger?.warn("the story PR URL names no repository", {
+        office: officeId,
+        run: stored.runId,
+        url: stored.url,
+      });
+      return;
+    }
+    let hostState: StoryPrState;
+    try {
+      hostState = (await this.#deps.host.viewPr(repo, stored.number)).state;
+    } catch (error) {
+      this.#deps.logger?.warn("reading the story PR failed", {
+        office: officeId,
+        run: stored.runId,
+        reason: messageOf(error),
+      });
+      return;
+    }
+    if (hostState === stored.state) return;
+    const closedAt = hostState === "open" ? null : this.#deps.clock.now();
+    const next: StoryPrRecord = { ...stored, state: hostState, closedAt };
+    const story = findStoryByKey(state.office, stored.key)?.story;
+    this.#write(officeId, state, () => {
+      setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
+      return story === undefined ? [] : [prEntry(next, story)];
+    });
+  }
+
   #failed(officeId: OfficeId, state: Polled, runId: RunId, key: StoryKey, error: unknown): void {
     const reason =
       error instanceof CodeHostError ? `${error.code}: ${error.message}` : messageOf(error);
@@ -350,6 +396,14 @@ export class StoryPrs {
     if (state.timer !== null) state.clock.clearTimeout(state.timer);
     state.timer = null;
   }
+}
+
+/** The `[HOST/]OWNER/REPO` of a PR URL (`https://github.com/o/r/pull/7`), or null. */
+function repoOfPrUrl(url: string): string | null {
+  const at = url.lastIndexOf("/pull/");
+  return at <= 0 || !/^\/pull\/\d+\/?$/.test(url.slice(at))
+    ? null
+    : repoOfRemoteUrl(url.slice(0, at));
 }
 
 function prEntry(record: StoryPrRecord, story: string): NewEntry {

@@ -6,6 +6,12 @@ export { gitStoryPrOps } from "./git";
 export type { StoryPrFacts, PrStory, StoryPrGit } from "./git";
 export { STORY_PR_NOTICES, STORY_PR_STEP, StoryPrs } from "./prs";
 export type { StoryPrsDeps } from "./prs";
-export { findStoryPr, latestStoryPr, runsWithoutPr } from "./records";
+export {
+  findStoryPr,
+  latestStoryPr,
+  openStoryPrs,
+  runsWithoutPr,
+  setStoryPrState,
+} from "./records";
 export type { StoryPrRecord } from "./records";
 export { storyPrCommitType, STORY_PR_MAX_SUBJECT, storyPrSubject, storyPrTitle } from "./title";
