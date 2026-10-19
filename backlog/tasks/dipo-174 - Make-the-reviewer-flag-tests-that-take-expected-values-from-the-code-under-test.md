@@ -3,10 +3,10 @@ id: DIPO-174
 title: >-
   Make the reviewer flag tests that take expected values from the code under
   test
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-19 22:45'
+updated_date: '2026-10-19 22:53'
 labels:
   - 'tier:S'
   - cutover
@@ -46,3 +46,9 @@ test_plan:
 - [x] #1 The reviewer role (L2) tells the reviewer to check each test the diff adds or changes for expected values read from the code under test (a constant, list or function of the module it tests) instead of written out in the test, and to report such a test as a blocking finding of kind test with the number of the automated test-plan entry it does not really check
 - [x] #2 The reviewer role's golden file is updated and its golden test passes; docs/decisions/0019-review-loop.md is not changed
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B59E8CT8WFTHZKTG3ND6SP (Haiku, 12 turns, about $0.01, under 1 min) reported done, In Review, with no denied call and no write outside the References. The reviewer role prompt (prompts/roles/reviewer.md) now tells the reviewer to check each added or changed test for expected values read from the code under test and to report one as a blocking finding of kind test naming the automated test plan entry it does not really check; the golden and a test that the rendered system file holds it are updated. Review passed. Advisory for a later 0019 amendment (not changed here): 0019 describes a blocking test finding as a missing automated test-plan entry; the reviewer now also uses it for an entry whose test checks nothing. The live check on the scratch repo stays a manual test. Verify outside the sandbox: 3746 tests, 0 fail.
+<!-- SECTION:NOTES:END -->
