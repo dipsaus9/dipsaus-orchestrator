@@ -1,10 +1,10 @@
 ---
 id: DIPO-214
 title: Follow more script runners when checking the verify tools
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-19 21:24'
 labels:
   - 'tier:S'
   - cutover
