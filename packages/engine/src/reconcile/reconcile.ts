@@ -7,6 +7,9 @@
 //    daemon stopped between the claim and the worker start) is released as `orphaned`, its branch
 //    kept for the next claim, and the stories are indexed again. One whose run directory holds a
 //    launch file may have a host that started without its row: it only gets a notice.
+// 1b. A live claim whose run has ended and whose story is Done on `_base` (finished through another
+//    branch) is released as `done` and its clean worktree removed; a dirty one is kept with a notice
+//    (`done-on-base.ts`). No branch is touched. The stories are indexed again after a release.
 // 2. Git: `git worktree list` and the claimed branches. A running story whose worktree or branch
 //    changed by hand parks `scope-violation` with the evidence; a claimed story that is not running
 //    gets a notice. Prunable worktrees get a notice; `git worktree prune` runs only after the
@@ -43,7 +46,9 @@ import type { IndexResult } from "../stories/index-stories";
 import { readsOnBranch } from "../stories/index-stories";
 import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
+import type { SlotTable } from "../worktree/slots";
 
+import { releaseDoneOnBase } from "./done-on-base";
 import { clearCommands, goneWorktrees, readGitFacts } from "./git-facts";
 
 /** The launch file a run's worker host is started with (DIPO-44), in its run directory. */
@@ -104,6 +109,8 @@ export interface ReconcileDeps {
   readonly runs?: ReconcileRuns;
   /** Releases an orphaned claim (`StoryClaims.releaseUnstarted`); without it none is released. */
   readonly releaseClaim?: (claim: ClaimRecord, reason: string) => Promise<void>;
+  /** The machine-wide port slot table; the slot of a released Done claim is freed there. */
+  readonly slots?: SlotTable;
 }
 
 export interface ReconcileInput {
@@ -234,6 +241,9 @@ export async function reconcileOffice(
     }
     if (released > 0) pass = await input.reindex();
   }
+
+  // 1b. Claims of stories Done on `_base` (DIPO-216), at start and on every rescan.
+  if ((await releaseDoneOnBase(deps, pass, record)) > 0) pass = await input.reindex();
 
   // 2. Git facts of the live claims.
   const claims = liveClaims(office).filter(readsOnBranch);

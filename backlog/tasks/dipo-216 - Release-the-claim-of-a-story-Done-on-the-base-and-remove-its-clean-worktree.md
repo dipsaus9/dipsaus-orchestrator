@@ -1,10 +1,10 @@
 ---
 id: DIPO-216
 title: Release the claim of a story Done on the base and remove its clean worktree
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 20:58'
+updated_date: '2026-10-19 21:50'
 labels:
   - 'tier:M'
   - cutover
@@ -48,11 +48,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The index pass in packages/engine/src/stories/index-stories.ts keeps, for each claimed story it reads on its branch, the status that story has on _base, and the IndexResult carries it for reconcile; a test in packages/engine/test/stories/ shows a claimed story In Progress on its branch and Done on _base with both statuses
-- [ ] #2 Reconcile, at daemon start and on office.rescan, finds each live claim with a claim commit whose story is Done on _base and whose run has ended; for each, in one item of the office git queue that checks again there that the run has ended and the story is Done on _base, it records claims.teardown_started_at as tearDown in packages/engine/src/worktree/teardown.ts does, unlocks the claim's own worktree lock, removes the worktree with git worktree remove without --force, then in one transaction releases the claim through releaseClaim in packages/engine/src/worktree/records.ts with release_reason done and keepBranch false, resolves an open park of the run with resolved_how reconcile, deletes the worktree's worker_notes and context_packs rows and writes an info engine.notice naming the story and the base, and then frees the worktree's port slot
-- [ ] #3 A worktree that git refuses to remove (modified or untracked files) or one locked by anyone else is kept: the claim stays live, the slot stays held, the lock is restored, claims.teardown_started_at is cleared, and a warn engine.notice names the worktree path and the files git status lists
-- [ ] #4 Neither branch is changed: the release runs no git update-ref -d, git branch -D or git push --delete, and a test shows the local and the remote story branch at the same commit before and after the release
-- [ ] #5 A claim whose run has not ended, a claimed story that is not Done on _base, and a claim without a claim commit are left alone by this step, and after any release reconcile runs one more index pass so the story is read on _base
-- [ ] #6 A test in packages/engine/test/reconcile/ with a real git repository and remote replays the 2026-10-19 case: two claims of stories Done on the base through another branch, one clean and one with an untracked file; the clean claim is released with reason done, its worktree directory is gone and its slot is free, and the dirty claim keeps its worktree, claim and slot with one notice that lists the untracked file
-- [ ] #7 A live claim with teardown_started_at set whose worktree is already gone (a crash between the removal and the release) is released on the next reconcile pass with the same transaction and slot release as the second criterion, without git; a claim whose run was reopened before the git queue item keeps its worktree, lock and claim; tests cover both
+- [x] #1 The index pass in packages/engine/src/stories/index-stories.ts keeps, for each claimed story it reads on its branch, the status that story has on _base, and the IndexResult carries it for reconcile; a test in packages/engine/test/stories/ shows a claimed story In Progress on its branch and Done on _base with both statuses
+- [x] #2 Reconcile, at daemon start and on office.rescan, finds each live claim with a claim commit whose story is Done on _base and whose run has ended; for each, in one item of the office git queue that checks again there that the run has ended and the story is Done on _base, it records claims.teardown_started_at as tearDown in packages/engine/src/worktree/teardown.ts does, unlocks the claim's own worktree lock, removes the worktree with git worktree remove without --force, then in one transaction releases the claim through releaseClaim in packages/engine/src/worktree/records.ts with release_reason done and keepBranch false, resolves an open park of the run with resolved_how reconcile, deletes the worktree's worker_notes and context_packs rows and writes an info engine.notice naming the story and the base, and then frees the worktree's port slot
+- [x] #3 A worktree that git refuses to remove (modified or untracked files) or one locked by anyone else is kept: the claim stays live, the slot stays held, the lock is restored, claims.teardown_started_at is cleared, and a warn engine.notice names the worktree path and the files git status lists
+- [x] #4 Neither branch is changed: the release runs no git update-ref -d, git branch -D or git push --delete, and a test shows the local and the remote story branch at the same commit before and after the release
+- [x] #5 A claim whose run has not ended, a claimed story that is not Done on _base, and a claim without a claim commit are left alone by this step, and after any release reconcile runs one more index pass so the story is read on _base
+- [x] #6 A test in packages/engine/test/reconcile/ with a real git repository and remote replays the 2026-10-19 case: two claims of stories Done on the base through another branch, one clean and one with an untracked file; the clean claim is released with reason done, its worktree directory is gone and its slot is free, and the dirty claim keeps its worktree, claim and slot with one notice that lists the untracked file
+- [x] #7 A live claim with teardown_started_at set whose worktree is already gone (a crash between the removal and the release) is released on the next reconcile pass with the same transaction and slot release as the second criterion, without git; a claim whose run was reopened before the git queue item keeps its worktree, lock and claim; tests cover both
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B15QFCEHCR2613XFTG15BM (Sonnet, 30 turns, about $0.75, 5 min) reported done, In Review; one sed -i was auto-denied (G7, known) and the worker used Edit. No write outside the References. Reconcile step 1b (releaseDoneOnBase) releases a live claim with a claim commit whose run has ended and whose story is Done on _base: inside the office git queue item it checks again that the run has ended and that _base HEAD is still the pass's commit, records teardown_started_at, removes the worktree without --force, then in one transaction releases the claim as done (keepBranch false), resolves an open park as reconcile, forgets worker_notes and context_packs and writes an info notice, and frees the port slot. A dirty or foreign-locked worktree keeps its claim, slot and lock with a warn notice; a claim with a recorded start whose worktree is gone is released without git. No branch is touched. Fixed on top after review: a foreign lock now also clears a teardown start an earlier crash left behind (new test, shown failing without the fix), and the gone-worktree test proves no git queue item runs while the claim is live. Not done: the moved-base skip is silent until the next rescan (reconcile has no logger). Behaviour change for DIPO-162 to handle: an own-branch teardown that crashed after removing its worktree is now released here as done and its branch is left behind instead of deleted by the Done poll. Verify outside the sandbox: 3708 tests, 0 fail; DIPO_TEST_CI=1 worktree, reconcile and daemon tests pass. Review and re-review passed.
+<!-- SECTION:NOTES:END -->

@@ -84,3 +84,22 @@ describe("claimed stories read on their branch", () => {
       expect(mirrorSource(o, key)).toBe("base");
     }));
 });
+
+describe("the base status of a claimed story (DIPO-216)", () => {
+  it("is kept next to the branch read: In Progress on the branch, Done on _base", () =>
+    withReconcileOffice({ base: [{ id: "TASK-1", status: "Done" }] }, async (o) => {
+      const key = keyOf(o.office, "TASK-1");
+      await claim(o, o.office, "TASK-1", key, { task: { id: "TASK-1", status: "In Progress" } });
+
+      const pass = await o.index.indexStories(o.officeId);
+
+      expect(pass.read.find((story) => story.story === "TASK-1")?.status).toBe("In Progress");
+      expect(pass.baseStatus.get(key)).toBe("Done");
+    }));
+
+  it("has no entry for a story that is not claimed", () =>
+    withReconcileOffice({}, async (o) => {
+      const pass = await o.index.indexStories(o.officeId);
+      expect(pass.baseStatus.size).toBe(0);
+    }));
+});
