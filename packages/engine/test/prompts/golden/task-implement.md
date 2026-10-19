@@ -2,8 +2,7 @@
 <item path="src/greet.ts" about="scope file">
 export const greeting = (name: string) => `Hi ${name}`;
 </item>
-<item path="src/greet.test.ts" about="new scope path, 3 of 3 entries of src">
-src/
+<item path="src/greet.test.ts" about="new scope path, 2 files in src, 2 changed most recently on the base">
 src/cli.ts
 src/greet.ts
 </item>

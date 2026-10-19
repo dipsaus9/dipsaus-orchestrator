@@ -1,10 +1,10 @@
 ---
 id: DIPO-217
 title: Slim the context pack with directory summaries
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 20:58'
+updated_date: '2026-10-19 21:59'
 labels:
   - 'tier:M'
   - cutover
@@ -45,10 +45,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A scope directory item, and the parent listing of a new scope path, holds the number of files under the directory and at most 15 of them (a DIRECTORY_RECENT_MAX constant in packages/engine/src/context/size.ts), the ones whose last change on the request's baseSha is newest, newest first, ties and files with no commit on the base in name order; it no longer lists every entry
-- [ ] #2 The Workspace in packages/engine/src/context/types.ts gains an optional method that orders files by their last commit on a given sha; gitWorkspace implements it with one git log call over the directory, and a workspace without it gives the files in name order
-- [ ] #3 A scope directory that is docs/decisions or packages/engine/test/recordings, or lies under one of them, gets no context item unless the outcome or a criterion names a path inside it; then it gets the summary of the first criterion, and in both cases the scope section still names it. Every other directory, tools/recordings/ among them, gets the summary of the first criterion
-- [ ] #4 A scope file stays in full up to CONTEXT_ITEM_MAX (4,000 characters) and is otherwise its head with the 0014 cut marker, and a test with a 10,000-character scope file shows the head and the marker
-- [ ] #5 aboutItem in packages/engine/src/prompts/assemble.ts renders a directory item as scope directory, <n> files, <k> changed most recently on the base; DEFAULT_PROVIDER_VERSION becomes 2 and the golden task message in packages/engine/test/prompts/golden/ is updated
-- [ ] #6 A test in packages/engine/test/context/ builds a fixture checkout with a 120-file scope directory, an unnamed docs/decisions/ with 20 files, an unnamed packages/engine/test/recordings/claude-cli/ with 60 files, a tools/recordings/ with 14 files and a 10,000-character scope file, shows tools/recordings/ as a summary item and the two unnamed directories with no item, and asserts the pack's usedChars equals one pinned number, so any growth of the pack fails it
+- [x] #1 A scope directory item, and the parent listing of a new scope path, holds the number of files under the directory and at most 15 of them (a DIRECTORY_RECENT_MAX constant in packages/engine/src/context/size.ts), the ones whose last change on the request's baseSha is newest, newest first, ties and files with no commit on the base in name order; it no longer lists every entry
+- [x] #2 The Workspace in packages/engine/src/context/types.ts gains an optional method that orders files by their last commit on a given sha; gitWorkspace implements it with one git log call over the directory, and a workspace without it gives the files in name order
+- [x] #3 A scope directory that is docs/decisions or packages/engine/test/recordings, or lies under one of them, gets no context item unless the outcome or a criterion names a path inside it; then it gets the summary of the first criterion, and in both cases the scope section still names it. Every other directory, tools/recordings/ among them, gets the summary of the first criterion
+- [x] #4 A scope file stays in full up to CONTEXT_ITEM_MAX (4,000 characters) and is otherwise its head with the 0014 cut marker, and a test with a 10,000-character scope file shows the head and the marker
+- [x] #5 aboutItem in packages/engine/src/prompts/assemble.ts renders a directory item as scope directory, <n> files, <k> changed most recently on the base; DEFAULT_PROVIDER_VERSION becomes 2 and the golden task message in packages/engine/test/prompts/golden/ is updated
+- [x] #6 A test in packages/engine/test/context/ builds a fixture checkout with a 120-file scope directory, an unnamed docs/decisions/ with 20 files, an unnamed packages/engine/test/recordings/claude-cli/ with 60 files, a tools/recordings/ with 14 files and a 10,000-character scope file, shows tools/recordings/ as a summary item and the two unnamed directories with no item, and asserts the pack's usedChars equals one pinned number, so any growth of the pack fails it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B1XQAH3NBB12C79VT0F6B0 (Sonnet, 31 turns, about $0.60, 5 min) reported done, In Review. Three calls were denied: a `cd . ; grep` compound and a sed -i (G7, known), and a throwaway `git init` repo under TMPDIR (git writes are refused by design). No write outside the References. A scope directory and the parent of a new scope path are now summaries: the file count plus the 15 files changed most recently on the base (one git log per directory), the rest in name order. docs/decisions/ and packages/engine/test/recordings/ give no item unless the story names a path in them; tools/recordings/ keeps its summary (0014 amendment of 2026-10-19). DEFAULT_PROVIDER_VERSION is 2; the AC6 fixture pins usedChars at 4,831. Fixed on top after review: a git error in the commit-order lookup keeps the name order and now adds a provenance note instead of passing silently, with a test. Not done (advisory): a pinned cut line for the 10,000-character head test, and a test of the scope-dir about text. Verify outside the sandbox: 3706 tests, 0 fail; DIPO_TEST_CI=1 context and prompts tests pass.
+<!-- SECTION:NOTES:END -->

@@ -1,8 +1,9 @@
 // The default context provider (0014 section 9, M0): no external tool, no model.
 //
 // 1. Scope: an existing file in full when under the per-item cap, else its head with a marker; a
-//    directory as a breadth-first list of at most 200 entries; a path that does not exist yet is
-//    marked new, with the entry list of its parent directory.
+//    directory as its file count and the 15 files changed most recently on the base sha (none at
+//    all for the recording data and the decision records unless the story names a path in them);
+//    a path that does not exist yet is marked new, with that summary of its parent directory.
 // 2. Inputs: every declared input listed; files pre-fetched within the `inputs` budget; URLs
 //    listed only.
 // 3. Component map, when `.dipo/components.yaml` exists: the components whose globs match the
@@ -27,6 +28,7 @@ import {
   COMPONENT_FILES_MAX,
   CONTEXT_ITEM_MAX,
   DIRECTORY_ENTRIES_MAX,
+  DIRECTORY_RECENT_MAX,
   INPUT_FILE_MAX,
 } from "./size";
 import { isSecretPath } from "./secrets";
@@ -43,7 +45,7 @@ import type {
 
 export const DEFAULT_PROVIDER_ID = "default";
 /** Changes whenever the default provider's output for the same inputs changes. */
-export const DEFAULT_PROVIDER_VERSION = "1";
+export const DEFAULT_PROVIDER_VERSION = "2";
 
 const URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 
@@ -83,24 +85,47 @@ function indexDirectories(files: readonly string[]): DirectoryIndex {
   return new Map([...entries].map(([dir, set]) => [dir, [...set].toSorted()]));
 }
 
-/** Every entry under `dir`, level by level, each level sorted. */
-function breadthFirst(index: DirectoryIndex, dir: string): string[] {
-  const out: string[] = [];
-  const queue = [dir];
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    for (const entry of index.get(next) ?? []) {
-      out.push(entry);
-      if (entry.endsWith("/")) queue.push(entry.slice(0, -1));
-    }
-  }
-  return out;
-}
-
 /** Files under `dir` (all files for the root), sorted. */
 function filesUnder(files: readonly string[], dir: string): string[] {
   if (dir === "") return [...files];
   const prefix = `${dir}/`;
   return files.filter((file) => file.startsWith(prefix));
+}
+
+/** Directories whose files are data, not code: no item unless the story names a path in them. */
+const HIDDEN_DIRECTORIES = ["docs/decisions", "packages/engine/test/recordings"] as const;
+
+const isHidden = (dir: string): boolean =>
+  HIDDEN_DIRECTORIES.some((hidden) => dir === hidden || dir.startsWith(`${hidden}/`));
+
+/** True when the outcome or a criterion names a path inside `dir`. */
+function namesPathIn(req: ContextRequest, dir: string): boolean {
+  const pattern = new RegExp(`(^|[^\\w./-])${escapeRegExp(dir)}/[^\\s]`);
+  return [req.outcome, ...req.criteria].some((text) => pattern.test(text));
+}
+
+/**
+ * The files of `dir` changed most recently on `baseSha` first, the rest in name order. A git
+ * error (an unknown sha, a timeout) leaves the name order and adds a provenance note.
+ */
+async function filesByRecentChange(
+  ws: Workspace,
+  baseSha: string,
+  dir: string,
+  files: readonly string[],
+  notes: string[],
+): Promise<string[]> {
+  const present = new Set(files);
+  const ordered = await ws.filesByLastCommit?.(baseSha, dir).catch((error: unknown) => {
+    const why = error instanceof Error ? error.message : String(error);
+    notes.push(
+      `scope directory ${dir === "" ? "./" : `${dir}/`}: no commit order on ${baseSha} (${why}), files in name order`,
+    );
+    return [];
+  });
+  const first = [...new Set(ordered ?? [])].filter((file) => present.has(file));
+  const done = new Set(first);
+  return [...first, ...files.filter((file) => !done.has(file)).toSorted()];
 }
 
 function classify(
@@ -226,25 +251,24 @@ async function gatherDefault(
         full: file.text,
       });
     } else if (entry.kind === "dir") {
+      if (isHidden(entry.path) && !namesPathIn(req, entry.path)) continue;
       const label = entry.path === "" ? "./" : `${entry.path}/`;
-      const list = listing(
-        breadthFirst(index, entry.path),
-        DIRECTORY_ENTRIES_MAX,
-        CONTEXT_ITEM_MAX,
-        label,
-      );
+      const recent = await filesByRecentChange(ws, req.baseSha, entry.path, entry.files, notes);
+      const list = listing(recent, DIRECTORY_RECENT_MAX, CONTEXT_ITEM_MAX, label);
       candidates.push({
         item: {
           path: label,
           text: list.text,
-          reason: { kind: "scope-dir", scope: label, shown: list.shown, total: list.total },
+          reason: { kind: "scope-dir", scope: label, shown: list.shown, total: entry.files.length },
         },
       });
     } else {
       let parent = parentOf(entry.path);
       while (parent !== "" && !index.has(parent)) parent = parentOf(parent);
       const label = parent === "" ? "./" : `${parent}/`;
-      const list = listing(index.get(parent) ?? [], DIRECTORY_ENTRIES_MAX, CONTEXT_ITEM_MAX, label);
+      const under = filesUnder(sortedFiles, parent);
+      const recent = await filesByRecentChange(ws, req.baseSha, parent, under, notes);
+      const list = listing(recent, DIRECTORY_RECENT_MAX, CONTEXT_ITEM_MAX, label);
       candidates.push({
         item: {
           path: entry.path,
@@ -254,7 +278,7 @@ async function gatherDefault(
             scope: entry.path,
             parent: label,
             shown: list.shown,
-            total: list.total,
+            total: under.length,
           },
         },
       });
