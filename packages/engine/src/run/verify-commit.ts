@@ -29,7 +29,8 @@
 //    story id; the code tree key is recorded on the green results; the Backlog CLI checks off the
 //    criteria the report marks met and sets In Review, committed alone as `<ID>: status In Review`;
 //    the branch is pushed without force. Then, in one transaction, the run ends at In Review with
-//    its outcome row (`endRun`) and summary, and `story.state` moves the story to In Review. A
+//    its outcome row (`endRun`) and summary, a push that reached the remote is recorded on the
+//    claim at the run's end (`claims.pushed_at`), and `story.state` moves the story to In Review. A
 //    non-fast-forward push rejection parks `conflict` (0010); any other push failure is a notice and
 //    the story stays In Review with the branch local. A failure in the commit steps parks
 //    `interrupted` with the error. A commit that holds dependency files (manifests, lockfiles,
@@ -71,7 +72,7 @@ import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress } from "../views/work";
 import type { WorkerReport } from "../workers/types";
-import { findClaim } from "../worktree/records";
+import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
@@ -702,6 +703,8 @@ export class VerifyCommit implements RunFinisher {
       const office = ctx.office;
       const at = this.#deps.clock.now();
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
+      // The In Review push on the remote, at the run's end: the PR poll retries only such a run.
+      if (push.pushed) updateClaim(office, run.runId, { pushedAt: at });
       endRunMarked(office, run.runId, at, IN_REVIEW_END);
       const key = run.key as StoryKey;
       const current = storyView(office, key);

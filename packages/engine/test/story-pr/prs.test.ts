@@ -17,7 +17,7 @@ import {
   type PrState,
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
-import { endRun, IN_REVIEW_END, insertRun } from "../../src/run";
+import { endRun, findRun, IN_REVIEW_END, insertRun } from "../../src/run";
 import {
   findStoryPr,
   type StoryPrFacts,
@@ -27,6 +27,7 @@ import {
   STORY_PR_STEP,
 } from "../../src/story-pr";
 import { storyView } from "../../src/views";
+import { insertClaim, updateClaim } from "../../src/worktree/records";
 import type { TestState } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";
 import { pass, task, withOffice } from "../stories/helpers";
@@ -111,9 +112,19 @@ const FACTS: StoryPrFacts = {
   base: "main",
 };
 
-async function inWorld(fn: (w: World) => Promise<void>): Promise<void> {
+interface WorldSetup {
+  /** The story's Backlog.md status; In Review by default. */
+  readonly status?: string;
+  /**
+   * The last push of the claim: the In Review push at the run's end (the default), only the claim
+   * push before it, or none.
+   */
+  readonly pushed?: "in-review" | "claim" | "none";
+}
+
+async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}): Promise<void> {
   await withOffice(async (t, office) => {
-    pass(t, office, [task("DIPO-1", { status: "In Review" })]);
+    pass(t, office, [task("DIPO-1", { status: setup.status ?? "In Review" })]);
     const key = office.get<{ key: string }>("select key from stories where office_id = $office_id")
       ?.key as StoryKey;
     const run = RunId.parse(t.ids.next("run"));
@@ -140,6 +151,26 @@ async function inWorld(fn: (w: World) => Promise<void>): Promise<void> {
         startedAt: t.clock.now(),
         scope: ["packages/engine/src/story-pr/"],
       });
+      insertClaim(office, {
+        runId: run,
+        key,
+        story: "DIPO-1",
+        branch: BRANCH,
+        worktree: join("/wt", "DIPO-1"),
+        base: "main",
+        baseSha: "b".repeat(40),
+        startSha: "b".repeat(40),
+        claimSha: "c".repeat(40),
+        reused: false,
+        snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
+        firstFeedback: null,
+        claimedAt: t.clock.now(),
+      });
+      const pushed = setup.pushed ?? "in-review";
+      if (pushed === "claim") updateClaim(office, run, { pushedAt: t.clock.now() });
+      t.clock.advance(60_000);
+      // The In Review push is recorded in the transaction that ends the run, at the same time.
+      if (pushed === "in-review") updateClaim(office, run, { pushedAt: t.clock.now() });
       endRun(office, run, t.clock.now(), IN_REVIEW_END);
     });
     const host = new FakeHost();
@@ -277,6 +308,54 @@ describe("the story PR", () => {
       });
     });
   }
+
+  it("retries no run of a story that is Done, though its run still ended at In Review", async () => {
+    // A run from before DIPO-142 keeps the end kind in-review after Done.
+    await inWorld(
+      async (w) => {
+        expect(findRun(w.office, w.run)?.endKind).toBe(IN_REVIEW_END);
+        expect(storyView(w.office, w.key)?.lifecycle).toBe("Done");
+        expect(await w.prs.retry(w.office.officeId)).toEqual([]);
+        expect(w.host.creates).toHaveLength(0);
+        expect(findStoryPr(w.office, w.run)).toBeNull();
+        expect(storyPrEvents(w.office)).toHaveLength(0);
+      },
+      { status: "Done" },
+    );
+  });
+
+  for (const pushed of ["none", "claim"] as const) {
+    it(`retries no In Review run whose In Review push never reached the remote (last push: ${pushed})`, async () => {
+      await inWorld(
+        async (w) => {
+          expect(storyView(w.office, w.key)?.lifecycle).toBe("In Review");
+          expect(await w.prs.retry(w.office.officeId)).toEqual([]);
+          expect(w.host.creates).toHaveLength(0);
+          expect(findStoryPr(w.office, w.run)).toBeNull();
+        },
+        { pushed },
+      );
+    });
+  }
+
+  it("retries no run whose claim was released", async () => {
+    await inWorld(async (w) => {
+      w.office.run(
+        `update claims set released_at = $at, release_reason = 'dropped'
+          where office_id = $office_id and run_id = $run`,
+        { at: w.t.clock.now(), run: w.run },
+      );
+      expect(await w.prs.retry(w.office.officeId)).toEqual([]);
+      expect(w.host.creates).toHaveLength(0);
+    });
+  });
+
+  it("retries an In Review run whose In Review push reached the remote", async () => {
+    await inWorld(async (w) => {
+      expect(await w.prs.retry(w.office.officeId)).toEqual([w.run]);
+      expect(w.host.creates).toHaveLength(1);
+    });
+  });
 
   it("keeps the story In Review on a failed create, notices once and creates on the retry poll", async () => {
     await inWorld(async (w) => {

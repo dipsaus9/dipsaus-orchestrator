@@ -140,7 +140,18 @@ export function openStoryPrs(office: OfficeHandle): StoryPrRecord[] {
     .map(toRecord);
 }
 
-/** Runs of stories at In Review whose PR is not open yet, oldest first. */
+/** The Backlog.md status of a story at In Review (0012). */
+const IN_REVIEW_STATUS = "In Review";
+
+/**
+ * Runs whose PR is still to open, oldest first: a story run that ended at In Review and has no
+ * `story_prs` row, whose story is In Review now (not removed, a task at status In Review) and
+ * whose claim is live with its In Review push on the remote. The In Review push records
+ * `claims.pushed_at` in the transaction that ends the run (`run/verify-commit.ts`), so a push at
+ * or after the run's end is that push; an earlier one is the claim push. Not one: a run of a story
+ * that is Done (a run from before DIPO-142 keeps the end kind `in-review` after Done), whose claim
+ * was released, or whose In Review push never reached the remote.
+ */
 export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryKey }[] {
   return office
     .all<{ run_id: string; key: string }>(
@@ -149,8 +160,15 @@ export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryK
           and r.key is not null and r.branch is not null and r.worktree is not null
           and not exists (select 1 from story_prs p
             where p.office_id = r.office_id and p.run_id = r.run_id)
+          and exists (select 1 from stories s
+            join backlog_mirror m on m.office_id = s.office_id and m.key = s.key
+            where s.office_id = r.office_id and s.key = r.key and s.removed_at is null
+              and m.kind = 'task' and m.status = $status)
+          and exists (select 1 from claims c
+            where c.office_id = r.office_id and c.run_id = r.run_id and c.released_at is null
+              and c.pushed_at is not null and c.pushed_at >= r.ended_at)
         order by r.ended_at, r.run_id`,
-      { end: IN_REVIEW_END },
+      { end: IN_REVIEW_END, status: IN_REVIEW_STATUS },
     )
     .map((row) => ({ runId: row.run_id as RunId, key: row.key as StoryKey }));
 }
