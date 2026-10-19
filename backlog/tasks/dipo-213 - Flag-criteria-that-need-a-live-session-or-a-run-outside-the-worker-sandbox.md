@@ -1,10 +1,10 @@
 ---
 id: DIPO-213
 title: Flag criteria that need a live session or a run outside the worker sandbox
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 15:03'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:S'
   - cutover

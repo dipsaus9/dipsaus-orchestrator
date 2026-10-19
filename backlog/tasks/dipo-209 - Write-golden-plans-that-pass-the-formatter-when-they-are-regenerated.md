@@ -3,10 +3,10 @@ id: DIPO-209
 title: >-
   Write golden files and derived recordings that pass the formatter when they
   are regenerated
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-19 15:03'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:S'
   - cutover
