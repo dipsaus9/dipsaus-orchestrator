@@ -16,13 +16,16 @@
 // Version 6 (DIPO-188) adds `story.maintainerStepPhrases` (0012 section 3, R27): the phrases of a
 // criterion that names a step only the maintainer or the engine can take. `office.local.yaml`
 // gains no key.
+// Version 7 (DIPO-210) adds `storyPr.open` (0019 amendment of 2026-10-19): whether the engine opens
+// and keeps the story PR for this office. `office.local.yaml` gains no key, so the switch is
+// committed with the repository.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 6;
+export const OFFICE_CONFIG_VERSION = 7;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -240,7 +243,7 @@ const officeShapeV5 = {
 };
 
 // Version 6: the office keys of version 5 plus `story.maintainerStepPhrases` (DIPO-188).
-const officeShape = {
+const officeShapeV6 = {
   ...officeShapeV5,
   story: z.strictObject({
     ...officeShapeV1.story.shape,
@@ -250,6 +253,20 @@ const officeShape = {
         "Phrases that name a step only the maintainer or the engine can take, such as writing task notes. A criterion that contains one fails the Ready gate (R27) and moves that step to a manual test plan entry (0012 section 3, DIPO-188).",
       ),
   }),
+};
+
+// Version 7: the office keys of version 6 plus `storyPr.open` (DIPO-210).
+const officeShape = {
+  ...officeShapeV6,
+  storyPr: z
+    .strictObject({
+      open: z
+        .boolean()
+        .describe(
+          "Whether the engine opens the story PR at the first In Review push and keeps it updated (0019 section 3). With false it opens, updates, polls and retries no story PR for this office and raises no pr.openFailed notice; the story stays In Review.",
+        ),
+    })
+    .describe("The story PR of this office (0019 section 3, amendment of 2026-10-19)."),
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -297,15 +314,24 @@ export const OfficeConfigV5 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 6 (kept to read version 6 files). */
 export const OfficeConfigV6 = z.strictObject({
+  version: z.literal(6),
+  ...officeShapeV6,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV7 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV6>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV7>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -397,6 +423,12 @@ export const OfficeFileV5 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 6: version 5 plus `story.maintainerStepPhrases` (DIPO-188). */
 export const OfficeFileV6 = z.strictObject({
+  version: z.literal(6),
+  ...fileShape(officeShapeV6),
+}) as unknown as z.ZodType<OfficeFileOf<6>>;
+
+/** `.dipo/office.yaml`, version 7: version 6 plus `storyPr.open` (DIPO-210). */
+export const OfficeFileV7 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -442,6 +474,15 @@ export const OfficeLocalFileV5 = z.strictObject({
 
 /** `.dipo/office.local.yaml`, version 6: the same keys as version 5 (DIPO-188 adds none here). */
 export const OfficeLocalFileV6 = z.strictObject({
+  version: z.literal(6),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<6>>;
+
+/**
+ * `.dipo/office.local.yaml`, version 7: the same keys as version 6. DIPO-210 adds none here, so
+ * `storyPr.open` is committed with the repository.
+ */
+export const OfficeLocalFileV7 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -471,8 +512,13 @@ export const OfficeOverridesV5 = z.strictObject(
   fileShape(officeShapeV5),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 6 keys. */
 export const OfficeOverridesV6 = z.strictObject(
+  fileShape(officeShapeV6),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV7 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
@@ -484,6 +530,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   4: OfficeFileV4,
   5: OfficeFileV5,
   6: OfficeFileV6,
+  7: OfficeFileV7,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -492,6 +539,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   4: OfficeLocalFileV4,
   5: OfficeLocalFileV5,
   6: OfficeLocalFileV6,
+  7: OfficeLocalFileV7,
 };
 
 /**
@@ -501,8 +549,9 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
  * is the identity too: `mergeSlot.requiredChecks` is new and takes its default. Version 3 to 4
  * is the identity: `sandbox.toolchainReadPaths` in `office.local.yaml` is new and adds nothing
  * when absent. Version 4 to 5 is the identity too: `review` and the new `mergeSlot` keys take
- * their defaults. Works for both office files; the document must already be valid for its own
- * version.
+ * their defaults. Version 5 to 6 is the identity: `story.maintainerStepPhrases` takes its
+ * default. Version 6 to 7 is the identity too: `storyPr.open` takes its default, true (DIPO-210).
+ * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
   version: OfficeConfigVersion,
@@ -514,6 +563,7 @@ export function migrateOfficeDocument(
   if (current.version === 3) current = { ...current, version: 4 };
   if (current.version === 4) current = { ...current, version: 5 };
   if (current.version === 5) current = { ...current, version: 6 };
+  if (current.version === 6) current = { ...current, version: 7 };
   return current;
 }
 
@@ -578,6 +628,9 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     holdLabels: [],
     checksWaitMinutes: 30,
   },
+  // 0019 section 3: the story PR opens at the first In Review push unless the office switches it
+  // off (amendment of 2026-10-19, DIPO-210).
+  storyPr: { open: true },
   review: {
     model: "opus",
     effort: "high",

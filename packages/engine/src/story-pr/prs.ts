@@ -11,6 +11,11 @@
 // there and emits `story.pr` with the new state, then syncs each In Review run that has no PR yet.
 // Work for one office runs one piece at a time, and `sync` never throws: whatever went wrong is
 // the notice.
+//
+// An office whose configuration in force sets `storyPr.open: false` (DIPO-210, 0019 amendment of
+// 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
+// no PR is opened, updated, polled or retried and no `pr.openFailed` is raised. The poll timer
+// stays armed, so an office that turns the key back on is picked up at the next interval.
 
 import type { Clock, OfficeId, RunId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -127,6 +132,7 @@ export class StoryPrs {
   retry(officeId: OfficeId): Promise<RunId[]> {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
+      if (!this.#opensPrs(officeId)) return [];
       for (const stored of openStoryPrs(state.office)) await this.#poll(officeId, state, stored);
       const tried: RunId[] = [];
       for (const { runId } of runsWithoutPr(state.office)) {
@@ -137,7 +143,13 @@ export class StoryPrs {
     });
   }
 
+  /** Whether the office's configuration in force lets the engine open story PRs (DIPO-210). */
+  #opensPrs(officeId: OfficeId): boolean {
+    return (this.#deps.offices.config(officeId) ?? OFFICE_DEFAULTS).storyPr.open;
+  }
+
   async #sync(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
+    if (!this.#opensPrs(officeId)) return;
     const office = state.office;
     const run = findRun(office, runId);
     if (run === null || run.key === null || run.worktree === null || run.branch === null) return;

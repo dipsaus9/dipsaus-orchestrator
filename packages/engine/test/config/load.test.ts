@@ -144,13 +144,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 7\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 8\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 7\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 8\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -481,7 +481,7 @@ describe("office configuration version 2", () => {
   it("loads a version 1 file migrated to version 5, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(6);
+    expect(v1.config.version).toBe(7);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -526,7 +526,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(6);
+      expect(result.config.version).toBe(7);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -729,7 +729,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
       }),
     );
     expect(v4.config).toEqual(v3.config);
-    expect(v4.config.version).toBe(6);
+    expect(v4.config.version).toBe(7);
   });
 });
 
@@ -737,7 +737,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
 describe("office configuration version 6", () => {
   it("gives a version 5 file the default step phrases", () => {
     const v5 = ok(resolveOfficeConfig({ office: "version: 5\n" }));
-    expect(v5.config.version).toBe(6);
+    expect(v5.config.version).toBe(7);
     expect(v5.config.story.maintainerStepPhrases).toEqual(
       OFFICE_DEFAULTS.story.maintainerStepPhrases,
     );
@@ -767,11 +767,93 @@ describe("office configuration version 6", () => {
   });
 });
 
+// Version 7 (DIPO-210): storyPr.open, the office switch for the story PR (0019 amendment of
+// 2026-10-19). It is committed with the repository: office.local.yaml does not take it.
+describe("office configuration version 7", () => {
+  it("migrates a version 6 file in memory and opens the story PR by default", () => {
+    const v6 = ok(resolveOfficeConfig({ office: "version: 6\n" }));
+    expect(v6.config.version).toBe(7);
+    expect(v6.config.storyPr).toEqual({ open: true });
+    expect(ok(resolveOfficeConfig({})).config.storyPr.open).toBe(true);
+  });
+
+  it("reads storyPr.open false from a version 7 file", () => {
+    const result = ok(resolveOfficeConfig({ office: "version: 7\nstoryPr: { open: false }\n" }));
+    expect(result.config.storyPr.open).toBe(false);
+  });
+
+  it("refuses storyPr in a version 6 file and says version 7 adds it", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ office: "version: 6\nstoryPr: { open: false }\n" }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.path).toBe("storyPr");
+    expect(error?.message).toContain("unknown key in version 6");
+    expect(error?.message).toContain("Version 7 adds storyPr: set version: 7 to use it");
+  });
+
+  it("refuses a storyPr.open that is not a boolean", () => {
+    const [error] = errors(resolveOfficeConfig({ office: "version: 7\nstoryPr: { open: no }\n" }));
+    expect(error?.path).toBe("storyPr.open");
+  });
+
+  it("refuses storyPr in office.local.yaml", () => {
+    for (const version of [6, 7]) {
+      const [error, ...rest] = errors(
+        resolveOfficeConfig({
+          office: "version: 7\n",
+          local: `version: ${version}\nstoryPr: { open: false }\n`,
+        }),
+      );
+      expect(rest).toEqual([]);
+      expect(error?.file).toBe(".dipo/office.local.yaml");
+      expect(error?.path).toBe("storyPr");
+      expect(error?.message).toBe(
+        ".dipo/office.local.yaml: storyPr: unknown key; .dipo/office.local.yaml accepts only version, timeouts.*, privacy.*, retention.*, sandbox.toolchainReadPaths",
+      );
+    }
+  });
+
+  it("loads a version 4 office.local.yaml next to a version 7 office.yaml", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 7\nstoryPr: { open: false }\n",
+        local: fixture("office-local-v4.yaml"),
+      }),
+    );
+    expect(result.config.version).toBe(7);
+    expect(result.config.storyPr.open).toBe(false);
+    expect(result.config.timeouts.workerStallMinutes).toBe(25);
+    expect(result.config.privacy.keepRawEvents).toBe(true);
+    expect(result.config.retention.shortDays).toBe(3);
+    expect(result.config.sandbox.toolchainReadPaths).toEqual([
+      ...OFFICE_DEFAULTS.sandbox.toolchainReadPaths,
+      NVM,
+    ]);
+    expect(result.localOverrideKeys).toEqual([
+      "privacy.keepRawEvents",
+      "retention.shortDays",
+      "sandbox.toolchainReadPaths",
+      "timeouts.workerStallMinutes",
+    ]);
+  });
+
+  it("takes storyPr.open as a command flag override", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 7\nstoryPr: { open: false }\n",
+        flags: { storyPr: { open: true } },
+      }),
+    );
+    expect(result.config.storyPr.open).toBe(true);
+  });
+});
+
 // Version 5 (DIPO-139): the review block and the rest of mergeSlot, with their defaults.
 describe("office configuration version 5", () => {
   it("migrates a version 3 file to version 5 and gives the new keys their defaults", () => {
     const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
-    expect(v3.config.version).toBe(6);
+    expect(v3.config.version).toBe(7);
     expect(v3.config.review).toEqual({
       model: "opus",
       effort: "high",
@@ -880,6 +962,15 @@ describe("this repository's .dipo/office.yaml", () => {
     join(import.meta.dir, "..", "..", "..", "..", ".dipo", "office.yaml"),
     "utf8",
   );
+
+  // DIPO-210 AC #4: dipo opens no story PR here while the maintainer side merges its own
+  // finish-branch PRs.
+  it("is version 7 and switches story PRs off", () => {
+    const result = ok(resolveOfficeConfig({ office }));
+    expect(office.startsWith("version: 7\n")).toBe(true);
+    expect(result.config.storyPr.open).toBe(false);
+    expect(office).toContain("finish-branch PRs");
+  });
 
   it("does not list ~/.nvm/versions/node", () => {
     const result = ok(resolveOfficeConfig({ office }));
