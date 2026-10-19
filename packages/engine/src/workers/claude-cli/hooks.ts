@@ -5,7 +5,9 @@
 // neutral shapes.
 
 import type { HookEvent, HookReply } from "../../hooks/types";
-import type { NudgeOp } from "../types";
+import { type NudgeOp, WEB_TOOLS } from "../types";
+
+export { WEB_TOOLS };
 
 /** The hooks the run settings file registers (0008 section 5), each `dipo hook <event>`. */
 export const REGISTERED_HOOKS = [
@@ -28,11 +30,10 @@ export type RegisteredHook = (typeof REGISTERED_HOOKS)[number];
 export const WAITING_HOOK: RegisteredHook = "PermissionRequest";
 
 /**
- * The web tools (0020 section 11b, DIPO-164). The developer role gets them with `worker.web`; the
- * `PreToolUse` hook matches exactly these and `dipo hook PreToolUse --gate` fails closed.
+ * The `PreToolUse` matcher of the web tools (0020 section 11b, DIPO-164): exactly `WEB_TOOLS`, in
+ * name order, so `dipo hook PreToolUse --gate` checks every one of them and nothing else.
  */
-export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
-export const WEB_HOOK_MATCHER = "WebFetch|WebSearch";
+export const WEB_HOOK_MATCHER = WEB_TOOLS.toSorted().join("|");
 /** The hook that is registered only for a session with web tools, and fails closed. */
 export const GATE_HOOK: RegisteredHook = "PreToolUse";
 

@@ -14,6 +14,13 @@ export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
 /** The kinds with a report schema of their own (0008 amendment of 2026-10-16, DIPO-131). */
 export type ReportKind = "implement" | "review";
 
+/**
+ * The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164). The one list:
+ * the run spec's tools, the adapter's run settings, its `PreToolUse` matcher and its output lines
+ * all read it.
+ */
+export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
+
 /** Caps per run, from the tier (0008 section 9). Loops stay in the engine. */
 export interface Caps {
   /** Input plus output plus cache-creation tokens (0008 section 4). */

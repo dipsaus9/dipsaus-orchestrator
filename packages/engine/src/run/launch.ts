@@ -48,7 +48,13 @@ import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
 import type { RunLaunchPaths, VerifyCommands, WorkerPort } from "../workers/port";
-import { PlanError, type Caps, type LaunchPlan, type WorkerSpec } from "../workers/types";
+import {
+  PlanError,
+  WEB_TOOLS,
+  type Caps,
+  type LaunchPlan,
+  type WorkerSpec,
+} from "../workers/types";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
@@ -69,9 +75,6 @@ import {
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
-
-/** The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164). */
-export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
 
 /** The tools of the reviewer role (0019 section 4, option B): read-only, no web tools. */
 export const REVIEWER_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "Bash"];

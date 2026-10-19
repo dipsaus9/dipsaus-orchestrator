@@ -23,6 +23,8 @@ import {
   preToolUseDenyOutput,
   preToolUseOutput,
   REGISTERED_HOOKS,
+  WEB_HOOK_MATCHER,
+  WEB_TOOLS,
 } from "../../src/workers/claude-cli/hooks";
 import {
   type ClaudeParseState,
@@ -30,7 +32,11 @@ import {
   interpret,
 } from "../../src/workers/claude-cli/interpret";
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
-import type { HostLine, WorkerEvent } from "../../src/workers/types";
+import {
+  type HostLine,
+  WEB_TOOLS as SPEC_WEB_TOOLS,
+  type WorkerEvent,
+} from "../../src/workers/types";
 
 const COMMON = {
   session_id: "session-1",
@@ -381,6 +387,12 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
       true,
     );
     expect(entry?.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
+  });
+
+  it("takes the matcher and the web tools from the one list the run spec uses (DIPO-164 review)", () => {
+    expect(WEB_TOOLS).toBe(SPEC_WEB_TOOLS);
+    expect(WEB_HOOK_MATCHER.split("|").toSorted()).toEqual([...SPEC_WEB_TOOLS].toSorted());
+    expect(WEB_HOOK_MATCHER).toBe("WebFetch|WebSearch");
   });
 
   it("maps a WebSearch to its whole query, and checks a malformed web call whole", () => {
