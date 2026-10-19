@@ -1,10 +1,10 @@
 ---
 id: DIPO-173
 title: Refuse a run whose verify tools cannot start in the worker sandbox
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-19 07:23'
+updated_date: '2026-10-19 07:39'
 labels:
   - 'tier:M'
   - cutover
@@ -54,3 +54,11 @@ test_plan:
 - [x] #4 `dipo run --dry-run` shows the same failure lines for the story it would pick
 - [x] #5 Tests cover a verify chain whose node_modules/.bin program needs node outside the read paths (refused, message names the key), the same with node's directory added to sandbox.toolchainReadPaths (passes), and a verify that runs no node_modules/.bin program (passes)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M59G59YGEMBMC0MZC4KPXQZX (Sonnet medium, 64 turns, about $0.95, 7 min) reported done, In Review on the story branch. Two compound commands were auto-denied (G7, DIPO-181). verify-tools.ts follows the office's verify (the stored run profile) through bun run and npm run scripts, reads each node_modules/.bin program's interpreter and refuses the launch with a PlanError before gateLaunch (no adapter hold) when the planned PATH cannot reach it inside the read paths, naming the programs, the interpreter, the directory and sandbox.toolchainReadPaths in .dipo/office.local.yaml. The dry run checks the main checkout.
+
+Review passed. Fixed on top: every session the resumer starts (resume, handoff, review and fix rounds) runs the same check; PATH entries and interpreters are judged on their realpath, so a node symlink or shim into an unreadable directory is refused; a test shows the dry run's problem is the launch's planRefused text. Each new test fails without its fix. Verify outside the sandbox: 3438 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on workers and run: 725 pass. Left as follow-up: only bun run and npm run are followed (not pnpm, yarn, npx or bun's shorthand); a checkout without node_modules passes the dry run.
+<!-- SECTION:NOTES:END -->
