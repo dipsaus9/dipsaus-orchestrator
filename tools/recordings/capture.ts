@@ -15,14 +15,18 @@ import { join, relative } from "node:path";
 
 import {
   encodeClaudeOp,
+  findSecret,
   HOOK_PROTOCOL_VERSIONS,
   listenLineSocket,
   OFFICE_DEFAULTS,
   planClaudeLaunch,
+  readEnvSecrets,
   readInstalledPlugins,
+  refusalText,
   REPORT_JSON_SCHEMAS,
   SETTINGS_FILE,
   systemClock,
+  UNCHECKED_TEXT,
 } from "../../packages/engine/src/index";
 import type { LaunchPlan, LineServer, WorkerSpec } from "../../packages/engine/src/index";
 import { withTempRepo } from "../../packages/testkit/src/index";
@@ -35,9 +39,9 @@ import {
   serializeStream,
   writeRecording,
 } from "./format";
-import { findScenario, SCENARIOS, SYSTEM_PROMPT, turnText } from "./scenarios";
+import { findScenario, SCENARIOS, SYSTEM_PROMPT, turnText, WEB_ENV_FILE } from "./scenarios";
 import type { CapturePaths, Scenario } from "./scenarios";
-import { Scrubber } from "./scrub";
+import { Scrubber, WEB_INPUT_FIELDS } from "./scrub";
 import type { PathRoot } from "./scrub";
 import { guardSecrets, machineNeedles } from "./secrets";
 import type { Needle } from "./secrets";
@@ -235,13 +239,15 @@ async function runProcess(
 /**
  * A fixture worker host for the hook relay (0008 section 5, DIPO-59): it speaks the host
  * protocol's handshake and `hook` op, hands every relayed payload to `onHook`, answers a call that
- * does not wait with no output, and never answers a waiting call, so the `PermissionRequest` hook
- * gives no decision once its wait has passed (0017 `permission-wait`: a fixture that never answers).
+ * does not wait with no output, and answers a waiting call only with what `answer` gives for it.
+ * Without `answer`, or when it gives null, a waiting call is never answered, so the
+ * `PermissionRequest` hook gives no decision once its wait has passed (0017 `permission-wait`: a
+ * fixture that never answers).
  */
-function fixtureHost(
+export function fixtureHost(
   path: string,
   onHook: (payload: unknown) => void,
-  answer?: (payload: unknown) => string,
+  answer?: (payload: unknown) => string | null,
 ): LineServer {
   return listenLineSocket(path, (connection) => {
     let version: number | null = null;
@@ -285,13 +291,60 @@ function fixtureHost(
         onHook(payload);
         if (typeof frame.waitMs !== "number") {
           send({ kind: "reply", id: frame.id, ok: true, result: { output: "" } });
-        } else if (answer !== undefined) {
-          send({ kind: "reply", id: frame.id, ok: true, result: { output: answer(payload) } });
+          return;
         }
+        const output = answer?.(payload) ?? null;
+        if (output !== null) send({ kind: "reply", id: frame.id, ok: true, result: { output } });
       },
       closed: () => undefined,
     };
   });
+}
+
+/** The engine's answer to a waiting `PreToolUse` gate call, as the adapter encodes it. */
+function gateOutputOf(reason: string | undefined): string {
+  const reply =
+    reason === undefined
+      ? { hook: 0, decision: null }
+      : { hook: 0, decision: "deny" as const, reason };
+  const [op] = encodeClaudeOp({ kind: "toolGate", reply });
+  return op !== undefined && "output" in op ? op.output : "";
+}
+
+/**
+ * The fixture host's answer to a waiting call of the `web` scenario (`Scenario.webGate`), as the
+ * engine answers it (0020 section 11b): a `PreToolUse` call of a web tool whose query or URL holds
+ * a value of the workdir's env file gets Claude's deny naming the file and key, any other web call
+ * the adapter's explicit allow, and a call whose env file cannot be read a deny. Any other call
+ * (a `PermissionRequest`) is not answered: null.
+ */
+export function webGateAnswer(workdir: string, payload: unknown): string | null {
+  if (!isRecord(payload) || payload.hook_event_name !== "PreToolUse") return null;
+  const tool = typeof payload.tool_name === "string" ? payload.tool_name : "";
+  const field = WEB_INPUT_FIELDS[tool];
+  if (field === undefined) return null;
+  const input = isRecord(payload.tool_input) ? payload.tool_input : {};
+  const value = input[field];
+  const target = typeof value === "string" ? value : JSON.stringify(payload.tool_input ?? {});
+  let secrets;
+  try {
+    secrets = readEnvSecrets(workdir, [{ path: WEB_ENV_FILE, mode: "copy", required: false }]);
+  } catch {
+    return gateOutputOf(UNCHECKED_TEXT);
+  }
+  const hit = findSecret(target, secrets);
+  return gateOutputOf(hit === null ? undefined : refusalText(tool, hit));
+}
+
+/**
+ * How the capture's fixture host answers a waiting call of `scenario`: as the engine answers the
+ * web gate when `webGate` is set (0020 section 11b), else never.
+ */
+export function hostAnswer(
+  scenario: Scenario,
+  workdir: string,
+): ((payload: unknown) => string | null) | undefined {
+  return scenario.webGate === true ? (payload) => webGateAnswer(workdir, payload) : undefined;
 }
 
 /** Adds a diagnostic scenario's extra allow rules to the run settings file. */
@@ -428,12 +481,15 @@ export async function capture(scenario: Scenario): Promise<string> {
       const host =
         scenario.hookRelay === undefined
           ? null
-          : fixtureHost(hostSocket, (payload) =>
-              run.lines.push({
-                t: Math.round(performance.now() - start),
-                ch: "hook",
-                data: payload,
-              }),
+          : fixtureHost(
+              hostSocket,
+              (payload) =>
+                run.lines.push({
+                  t: Math.round(performance.now() - start),
+                  ch: "hook",
+                  data: payload,
+                }),
+              hostAnswer(scenario, workdir),
             );
       try {
         for (const [launch, processTurns, resume] of launches) {
