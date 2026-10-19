@@ -37,7 +37,12 @@ export const WAITING_HOOK: RegisteredHook = "PermissionRequest";
  * name order, so `dipo hook PreToolUse --gate` checks every one of them and nothing else.
  */
 export const WEB_HOOK_MATCHER = WEB_TOOLS.toSorted().join("|");
-/** The hook that is registered only for a session with web tools, and fails closed. */
+/**
+ * The `PreToolUse` matcher of Bash (0008 amendment of 2026-10-19, DIPO-194): `dipo hook PreToolUse
+ * --bash` decides the command in its own process and fails open.
+ */
+export const BASH_HOOK_MATCHER = "Bash";
+/** The hook of the web gate (fails closed, only with web tools) and of the Bash check. */
 export const GATE_HOOK: RegisteredHook = "PreToolUse";
 
 /** Told to the worker when the gate command itself failed (exit 2 shows stderr to Claude). */
@@ -105,8 +110,8 @@ export function hookCommandLine(command: readonly [string, ...string[]], runDir:
  * The run settings file's `hooks` block: one command hook per registered event, running
  * `<dipo> hook <event>` with the binary's own path from the run directory. `PermissionRequest`
  * asks the host to hold the call `waitSeconds` plus a margin (see `HOST_WAIT_MARGIN_SECONDS`);
- * the `NUDGE_HOOKS` pass `--nudge`. With `web`, `PreToolUse` is registered for the web tools and
- * passes `--gate`; without it the hook is not registered, since no session tool needs it.
+ * the `NUDGE_HOOKS` pass `--nudge`. `PreToolUse` is registered for Bash with `--bash` always, and
+ * with `web` also for the web tools with `--gate`, first.
  */
 export function hookSettings(
   command: readonly [string, ...string[]],
@@ -118,20 +123,33 @@ export function hookSettings(
   const hooks: Record<string, unknown> = {};
   for (const event of REGISTERED_HOOKS) {
     if (event === GATE_HOOK) {
-      if (web) {
-        hooks[event] = [
-          {
-            matcher: WEB_HOOK_MATCHER,
-            hooks: [
+      hooks[event] = [
+        ...(web
+          ? [
               {
-                type: "command",
-                command: `${prefix} hook ${event} --gate${GATE_CRASH_EXIT}`,
-                timeout: HOOK_TIMEOUT_SECONDS,
+                matcher: WEB_HOOK_MATCHER,
+                hooks: [
+                  {
+                    type: "command",
+                    command: `${prefix} hook ${event} --gate${GATE_CRASH_EXIT}`,
+                    timeout: HOOK_TIMEOUT_SECONDS,
+                  },
+                ],
               },
-            ],
-          },
-        ];
-      }
+            ]
+          : []),
+        // No exit-2 fallback: the Bash check fails open, so a broken check never blocks Bash.
+        {
+          matcher: BASH_HOOK_MATCHER,
+          hooks: [
+            {
+              type: "command",
+              command: `${prefix} hook ${event} --bash`,
+              timeout: HOOK_TIMEOUT_SECONDS,
+            },
+          ],
+        },
+      ];
       continue;
     }
     const waits = event === WAITING_HOOK;

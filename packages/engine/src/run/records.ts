@@ -269,7 +269,8 @@ export function hasActiveRun(office: OfficeHandle): boolean {
 /**
  * The kinds of a run's steps: a phase entered, a verify loop or a review round started, and
  * (DIPO-142) a review round whose verdict was blocked, a pushed head whose required checks were
- * red, a conflict hand-off and a maintainer override past a blocked review.
+ * red, a conflict hand-off and a maintainer override past a blocked review, and (DIPO-205) the cap
+ * a done report's turn crossed.
  */
 export type RunStepKind =
   | "phase"
@@ -278,7 +279,8 @@ export type RunStepKind =
   | "review-failed"
   | "ci"
   | "conflict"
-  | "override";
+  | "override"
+  | "cap";
 
 /** Appends one step to the run's append-only history. */
 export function appendRunStep(

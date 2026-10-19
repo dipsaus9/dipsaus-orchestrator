@@ -28,10 +28,12 @@ import {
   recordIntent,
   reopenForRound,
   type RunEnder,
+  RunControl,
   runIntents,
   START_KINDS,
   startOrder,
   type UnparkWriter,
+  waitForPlace,
   waitingStarts,
 } from "../../src/run";
 import type { NextSessionRequest } from "../../src/run/resume";
@@ -41,6 +43,7 @@ import { countRows } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";
 import {
   addAgent,
+  addUsage,
   endAgent,
   MINUTE,
   type RoundsWorld,
@@ -418,5 +421,101 @@ describe("plan-limit holds pause the places by scope (0019 section 12)", () => {
     expect(workView(w.office, fix.run)?.health).not.toBe("limited");
     expect(countRows(w.office, "parks")).toBe(0);
     places.close();
+  });
+});
+
+/** A story run that used `turns` of its 100 turns, waiting for the worker place as `kind`. */
+function waitingAs(story: string, kind: "fix" | "conflict", turns: number): StoryRun {
+  const s = storyRun(w, { story });
+  const agent = addAgent(w, s.run, "developer", false);
+  addUsage(w, s.run, agent, "developer", { turns, tokens: 10 });
+  write(() => waitForPlace(w.office, s.run, kind, now()));
+  return s;
+}
+
+function world() {
+  const started: string[] = [];
+  const control = new RunControl({
+    clock: w.t.clock,
+    offices: { get: () => w.office },
+    writer: {
+      write: async () => ({
+        commit: "c".repeat(40),
+        lastGoodCommit: "a".repeat(40),
+        from: "In Progress",
+        pushed: true,
+        pushError: null,
+      }),
+    },
+    steering: { send: async () => ({ ok: true }) },
+    encode,
+  });
+  const places = new Places({
+    clock: w.t.clock,
+    offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+    park: (office, run, work, ending) => control.park(office, run, work, ending),
+    starters: {
+      fix: async (_office, run) => {
+        started.push(`fix ${run.story}`);
+        return true;
+      },
+      conflict: async (_office, run) => {
+        started.push(`conflict ${run.story}`);
+        return true;
+      },
+    },
+  });
+  return { started, places, close: () => (places.close(), control.close()) };
+}
+
+const parksOf = () =>
+  w.office.all<{ story_id: string; reason: string; cause: string; detail: string }>(
+    "select story_id, reason, cause, detail from parks where office_id = $office_id order by park_id",
+  );
+
+describe("the pre-start cap check (DIPO-205)", () => {
+  it("parks a capped run's fix wait and conflict wait budget-exceeded and never calls the starter", async () => {
+    const fix = waitingAs("DIPO-8", "fix", 100);
+    w.t.clock.advance(1);
+    const conflict = waitingAs("DIPO-9", "conflict", 100);
+    const x = world();
+    try {
+      expect(await x.places.drain(officeId())).toBe(0);
+      expect(await x.places.drain(officeId())).toBe(0);
+      expect(x.started).toEqual([]);
+      expect(parksOf()).toEqual([
+        {
+          story_id: "DIPO-8",
+          reason: "budget-exceeded",
+          cause: "build",
+          detail: "turn cap reached: 100 of 100 turns",
+        },
+        {
+          story_id: "DIPO-9",
+          reason: "budget-exceeded",
+          cause: "build",
+          detail: "turn cap reached: 100 of 100 turns",
+        },
+      ]);
+      expect(findRun(w.office, fix.run)).toMatchObject({ endKind: "capped" });
+      expect(findRun(w.office, conflict.run)).toMatchObject({ endKind: "capped" });
+      expect(runIntents(w.office, fix.run).map((i) => [i.kind, i.state])).toEqual([
+        ["cap", "resolved"],
+      ]);
+    } finally {
+      x.close();
+    }
+  });
+
+  it("starts a run under its caps through its starter", async () => {
+    waitingAs("DIPO-8", "fix", 99);
+    const x = world();
+    try {
+      expect(await x.places.drain(officeId())).toBe(1);
+      expect(x.started).toEqual(["fix DIPO-8"]);
+      expect(parksOf()).toEqual([]);
+    } finally {
+      x.close();
+    }
   });
 });

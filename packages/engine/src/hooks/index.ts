@@ -71,6 +71,7 @@ export {
   type NudgesDeps,
   type NudgeSources,
 } from "./nudges";
+export { GUARDED_TEMP_VARIABLES, refusedTempVariable, tempVariableRefusal } from "./temp-guard";
 export {
   findSecret,
   MIN_SECRET_CHARS,

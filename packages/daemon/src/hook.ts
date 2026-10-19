@@ -12,7 +12,13 @@
 // permission rules decide it; every failure, an empty answer and no answer within the limit print
 // Claude's deny, and a gate that cannot print exits 2, so the call never proceeds unchecked.
 
-import { claudeGateOutput, encodeClaudeOp, relayHookPayload } from "@dipsaus-orchestrator/engine";
+import {
+  claudeGateOutput,
+  encodeClaudeOp,
+  refusedTempVariable,
+  relayHookPayload,
+  tempVariableRefusal,
+} from "@dipsaus-orchestrator/engine";
 
 import { type DaemonIo, readProcessInput } from "./io";
 
@@ -50,6 +56,8 @@ export interface HookArgs {
   readonly nudge?: true;
   /** True for a fail-closed call that waits within `HOOK_DEADLINE_MS` for the engine's check. */
   readonly gate?: true;
+  /** True for the Bash check, decided in this process without the worker host (DIPO-194). */
+  readonly bash?: true;
 }
 
 /** The longest string field a call that does not wait keeps; a longer one is cut to this. */
@@ -109,13 +117,14 @@ export function trimPayload(payload: string, waits: boolean, gate = false): stri
   return JSON.stringify(kept);
 }
 
-/** `<event> [--wait <seconds> | --nudge | --gate]`; null when the arguments do not match. */
+/** `<event> [--wait <seconds> | --nudge | --gate | --bash]`; null when the arguments do not match. */
 export function parseHookArgs(args: readonly string[]): HookArgs | null {
   const [event, flag, seconds, ...rest] = args;
   if (event === undefined || !EVENT_NAME.test(event) || rest.length > 0) return null;
   if (flag === undefined) return { event };
   if (flag === "--nudge") return seconds === undefined ? { event, nudge: true } : null;
   if (flag === "--gate") return seconds === undefined ? { event, gate: true } : null;
+  if (flag === "--bash") return seconds === undefined ? { event, bash: true } : null;
   if (flag !== "--wait" || seconds === undefined || !/^[1-9]\d*$/.test(seconds)) return null;
   const value = Number(seconds);
   if (value > MAX_HOOK_WAIT_SECONDS) return null;
@@ -126,9 +135,14 @@ export function parseHookArgs(args: readonly string[]): HookArgs | null {
  * Runs the relay. Resolves to 0, so a failure never blocks or breaks the worker, except for a gate
  * call that could not print its decision (see `runGate`).
  */
-export async function runHookForm(args: readonly string[], io: DaemonIo): Promise<number> {
+export async function runHookForm(
+  args: readonly string[],
+  io: DaemonIo,
+  bashCheck: (command: string) => string | null = refusedTempVariable,
+): Promise<number> {
   const parsed = parseHookArgs(args);
   const write = io.write ?? ((text: string) => process.stdout.write(text));
+  if (parsed?.bash === true) return runBash(io, write, bashCheck);
   // A gate call fails closed even when its arguments do not parse.
   if (parsed?.gate === true || args.includes("--gate")) return runGate(parsed, io, write);
   let output: string | null = null;
@@ -143,6 +157,33 @@ export async function runHookForm(args: readonly string[], io: DaemonIo): Promis
     } catch {
       // The worker sees no output either way.
     }
+  }
+  return 0;
+}
+
+/**
+ * A `--bash` call (DIPO-194; 0008 amendment of 2026-10-19): decides the command in this process,
+ * never contacting the worker host. A command that sets or clears DIPO_TMP or TMPDIR prints
+ * Claude's deny with the reason; anything else, a payload that does not parse and a check that
+ * throws print nothing. It always exits 0 (fails open), so a broken check never blocks Bash.
+ */
+async function runBash(
+  io: DaemonIo,
+  write: (text: string) => void,
+  check: (command: string) => string | null,
+): Promise<number> {
+  try {
+    const readInput = io.readInput ?? ((max, ms) => readProcessInput(io.clock, max, ms));
+    const payload = await readInput(MAX_HOOK_STDIN, HOOK_STDIN_MS);
+    if (payload === null) return 0;
+    const input = (JSON.parse(payload) as { tool_input?: { command?: unknown } } | null)
+      ?.tool_input;
+    const command = input?.command;
+    if (typeof command !== "string") return 0;
+    const variable = check(command);
+    if (variable !== null) write(gateDenyOutput(tempVariableRefusal(variable)));
+  } catch {
+    // Fails open: no output means no decision.
   }
   return 0;
 }

@@ -504,7 +504,7 @@ describe("claude-cli plan", () => {
     );
     const file = launch.files.find((f) => f.name === SETTINGS_FILE);
     const hooks = (JSON.parse(file?.content ?? "{}") as { hooks: Record<string, unknown> }).hooks;
-    expect(Object.keys(hooks)).toEqual(REGISTERED_HOOKS.filter((name) => name !== "PreToolUse"));
+    expect(Object.keys(hooks)).toEqual([...REGISTERED_HOOKS]);
     const quoted = `cd '${context().runDir}' && '/opt/dipo'\\''s tools/bin/dipo'`;
     expect(hooks["Stop"]).toEqual([
       { hooks: [{ type: "command", command: `${quoted} hook Stop`, timeout: 5 }] },
@@ -1077,6 +1077,9 @@ describe("web tools (DIPO-164)", () => {
     expect(gate?.hooks[0]?.command.endsWith(` hook PreToolUse --gate${GATE_CRASH_EXIT}`)).toBe(
       true,
     );
+    const bash = settings.hooks["PreToolUse"]?.[1];
+    expect(bash?.matcher).toBe("Bash");
+    expect(bash?.hooks[0]?.command.endsWith(" hook PreToolUse --bash")).toBe(true);
   });
 
   it("keeps the Bash sandbox network closed", () => {
@@ -1084,12 +1087,12 @@ describe("web tools (DIPO-164)", () => {
     expect(settings.sandbox.network.allowedDomains).toEqual([]);
   });
 
-  it("restores the M0 tool list without web: no tool, no allow rule, no gate", () => {
+  it("restores the M0 tool list without web: no tool, no allow rule, no web gate, the Bash check stays", () => {
     const launch = plan(webSpec(false), WEB_CONTEXT);
     expect(flag(launch, "--tools")).toBe(M0_TOOLS.join(","));
     const settings = settingsOf(launch) as unknown as Settings;
     for (const tool of WEB) expect(settings.permissions.allow).not.toContain(tool);
-    expect(settings.hooks["PreToolUse"]).toBeUndefined();
+    expect(settings.hooks["PreToolUse"]?.map((entry) => entry.matcher)).toEqual(["Bash"]);
     expect(JSON.stringify(settings)).not.toContain("WebFetch");
   });
 
@@ -1106,7 +1109,7 @@ describe("web tools (DIPO-164)", () => {
     expect(flag(launch, "--tools")).toBe("Read,Glob,Grep,Bash");
     const settings = settingsOf(launch) as unknown as Settings;
     for (const tool of WEB) expect(settings.permissions.allow).not.toContain(tool);
-    expect(settings.hooks["PreToolUse"]).toBeUndefined();
+    expect(settings.hooks["PreToolUse"]?.map((entry) => entry.matcher)).toEqual(["Bash"]);
   });
 
   it("refuses web tools without the hook relay that checks them", () => {
