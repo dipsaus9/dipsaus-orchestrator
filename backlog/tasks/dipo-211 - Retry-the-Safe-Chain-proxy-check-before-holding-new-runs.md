@@ -1,10 +1,10 @@
 ---
 id: DIPO-211
 title: Retry the Safe-Chain proxy check before holding new runs
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 21:12'
+updated_date: '2026-10-19 21:21'
 labels:
   - 'tier:S'
   - cutover
@@ -43,3 +43,9 @@ test_plan:
 - [x] #2 When every attempt fails, the problem text says how many attempts were made and keeps the cause of the last one
 - [x] #3 The blocked and refused requests are not retried: a proxy that lets a blocked or refused download through fails the check on the first attempt, as today
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5AZXYEJK6DC7HHD7FP8JZ1X (Haiku, 19 turns, about $0.02, 1 min) reported done, In Review, with no denied call and no write outside the References. runProxyCheck now tries the allowed download up to 3 times, 2 s apart on the injected clock; the blocked and refused downloads are tried once. The refusal text says how many attempts the allowed download got and keeps the last cause. Fixed on top after review: the retry tests use the story's 2 s and 30 s as literals, each failed attempt has its own cause so the last one is shown to be kept, and a new test covers an allowed download that hangs past the 30 s timeout and then passes on the retry. Verify outside the sandbox: 3700 tests, 2 skip, 0 fail; DIPO_TEST_CI=1 sandbox tests 105 pass. Review passed.
+<!-- SECTION:NOTES:END -->
