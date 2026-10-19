@@ -546,8 +546,18 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
       "control",
     );
   }
-  if (evidence.installMustFail === true && lines.get("install")?.kind !== "exit") {
-    return cannotRun("no result for the install check", "install");
+  if (evidence.installMustFail === true) {
+    const install = lines.get("install");
+    if (install?.kind !== "exit") return cannotRun("no result for the install check", "install");
+    // The shell's own codes: bun was not found (127) or could not be executed (126). The install
+    // never reached the network, so its failure proves nothing about a closed network.
+    const missing = INSTALL_CANNOT_RUN[install.code];
+    if (missing !== undefined) {
+      return cannotRun(
+        `\`${SAFE_CHAIN_PROBE} add\` exited ${install.code} inside the reviewer sandbox: ${missing}, so the failed install does not show that the network is closed`,
+        "install",
+      );
+    }
   }
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
@@ -572,6 +582,12 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   }
   return { ok: true };
 }
+
+/** Exit codes of the review install that mean `bun` never ran, so the install proves nothing. */
+const INSTALL_CANNOT_RUN: Readonly<Record<number, string>> = {
+  126: `${SAFE_CHAIN_PROBE} was found on the reviewer's PATH but could not be executed`,
+  127: `${SAFE_CHAIN_PROBE} was not found on the reviewer's PATH`,
+};
 
 /** The verdict of a review self-test whose install got through the sandbox (0019 section 4). */
 function installSucceeded(): SelfTestVerdict {
@@ -1266,6 +1282,8 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
           ? `Claude Code loaded skills although the plan passed ${DISABLE_SLASH_COMMANDS}. Check that this Claude Code version still honours the flag (\`claude --version\`; its system/init should list skills: []), then start a run again.`
           : verdict.probe === "safe-chain"
             ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
-            : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
+            : verdict.probe === "install"
+              ? `Put a real ${SAFE_CHAIN_PROBE} on the daemon's PATH, outside directories a worker can write: a reviewer runs with that PATH, and its self-test needs ${SAFE_CHAIN_PROBE} to show that an install fails on the closed network. Then start the review again.`
+              : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
   };
 }

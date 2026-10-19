@@ -844,9 +844,47 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
 
   it("passes only when the worktree write is refused and the install failed", () => {
     expect(judgeSelfTest(reviewEvidence({}))).toEqual({ ok: true });
-    // A bun that is not there also fails to install.
+  });
+
+  const INSTALL_FIX =
+    "Put a real bun on the daemon's PATH, outside directories a worker can write: a reviewer runs with that PATH, and its self-test needs bun to show that an install fails on the closed network. Then start the review again.";
+
+  it("cannot run when bun was not found (exit 127): the install proves nothing", () => {
     const missing = REVIEW_BLOCKED_RESULTS.replace("install exit 1", "install exit 127");
-    expect(judgeSelfTest(reviewEvidence({ results: missing }))).toEqual({ ok: true });
+    const verdict = judgeSelfTest(reviewEvidence({ results: missing }));
+    expect(verdict).toEqual({
+      ok: false,
+      unsafe: false,
+      probe: "install",
+      reason:
+        "the sandbox self-test could not run: `bun add` exited 127 inside the reviewer sandbox: bun was not found on the reviewer's PATH, so the failed install does not show that the network is closed",
+    });
+    expect(selfTestFailure({ verdict, evidence: null, plugins: null, targets: [] })).toEqual({
+      check: "self-test",
+      detail:
+        "the sandbox self-test could not run: `bun add` exited 127 inside the reviewer sandbox: bun was not found on the reviewer's PATH, so the failed install does not show that the network is closed",
+      key: "install",
+      fix: INSTALL_FIX,
+    });
+  });
+
+  it("cannot run when bun could not be executed (exit 126): the install proves nothing", () => {
+    const denied = REVIEW_BLOCKED_RESULTS.replace("install exit 1", "install exit 126");
+    const verdict = judgeSelfTest(reviewEvidence({ results: denied }));
+    expect(verdict).toEqual({
+      ok: false,
+      unsafe: false,
+      probe: "install",
+      reason:
+        "the sandbox self-test could not run: `bun add` exited 126 inside the reviewer sandbox: bun was found on the reviewer's PATH but could not be executed, so the failed install does not show that the network is closed",
+    });
+    expect(selfTestFailure({ verdict, evidence: null, plugins: null, targets: [] })).toEqual({
+      check: "self-test",
+      detail:
+        "the sandbox self-test could not run: `bun add` exited 126 inside the reviewer sandbox: bun was found on the reviewer's PATH but could not be executed, so the failed install does not show that the network is closed",
+      key: "install",
+      fix: INSTALL_FIX,
+    });
   });
 
   it("refuses as unsafe when the install succeeded, by its exit code or on disk", () => {
