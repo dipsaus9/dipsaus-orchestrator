@@ -763,6 +763,19 @@ describe("R27 maintainer steps", () => {
     expect(stepHits("Write the task notes/x.md")).toEqual([]);
   });
 
+  it.each([
+    ["live recording", "Captures a live recording of the session"],
+    ["live capture", "Keeps the live capture of the worker"],
+    ["run outside the sandbox", "Passes the macOS check in a run outside the sandbox"],
+    ["the PR states", "The PR states the cause of the failure"],
+    ["the PR description", "Names the change in the PR description"],
+  ])("fails a criterion that asks for the phrase %s (DIPO-213)", (phrase, text) => {
+    expect(messages(evaluateGate(criterion(text), "ready"))).toEqual([
+      `${prefix("R27")}criterion #1 names a step the worker cannot take ("${phrase}"); move it to a manual test plan entry`,
+    ]);
+    expect(stepHits(`Checks it in the code span \`${phrase}\` only`)).toEqual([]);
+  });
+
   it("gives one failure per criterion and phrase, in both modes", () => {
     const story = input({
       acceptanceCriteria: [

@@ -453,6 +453,11 @@ describe("defaults", () => {
       "implementation notes",
       "by the maintainer",
       "backlog task edit",
+      "live recording",
+      "live capture",
+      "run outside the sandbox",
+      "the PR states",
+      "the PR description",
     ]);
   });
 
