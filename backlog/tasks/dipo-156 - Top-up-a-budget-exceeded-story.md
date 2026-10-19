@@ -4,7 +4,7 @@ title: Top up a budget-exceeded story
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 06:56'
+updated_date: '2026-10-19 06:58'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -41,6 +41,8 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
+      check: "(engine) a top-up resume of a budget-exceeded/build park that a reopened fix round hit before any worker session sends that round's stored feedback_items first, then feedback/topup.md"
+    - kind: "automated"
       check: "(unit) +50% on a tier S run adds 150,000 tokens and grows turns and minutes by half, recorded as one grant"
     - kind: "automated"
       check: "(unit) a plain resume answers resume.topUpRequired and a too small top-up answers resume.topUpTooSmall with the smallest share"
@@ -58,5 +60,5 @@ test_plan:
 - [ ] #3 commands.describe gains confirmWhen and work.resume declares it for budget; the CLI shows the caps before and after and asks yes or no unless --yes is given
 - [ ] #4 Cause build resumes the developer session (native when the 0014 section 6 checks pass, else a handoff) with feedback/topup.md first; cause review starts a fresh reviewer session on the same head in the reviewer place, and that round is not counted as failed
 - [ ] #5 The CLI --max-turns backstop of the resumed session gets the remaining turns of the raised cap
-- [ ] #6 A top-up resume of a budget-exceeded park that a reopened round hit before any worker session (DIPO-205) sends that round's undelivered feedback first, then feedback/topup.md
+- [ ] #6 A top-up resume of a budget-exceeded park that a reopened round hit before any worker session (DIPO-205) sends that round's undelivered feedback first, read from the run's feedback_items rows that no delivered intent carried, then feedback/topup.md
 <!-- AC:END -->
