@@ -776,6 +776,11 @@ describe("R27 maintainer steps", () => {
     expect(stepHits(`Checks it in the code span \`${phrase}\` only`)).toEqual([]);
   });
 
+  it("allows the bare phrase outside the sandbox, which sandbox checks use (DIPO-213 answer)", () => {
+    expect(stepHits("A write outside the sandbox is refused")).toEqual([]);
+    expect(stepHits("A path outside the worker sandbox stays unreadable")).toEqual([]);
+  });
+
   it("gives one failure per criterion and phrase, in both modes", () => {
     const story = input({
       acceptanceCriteria: [
