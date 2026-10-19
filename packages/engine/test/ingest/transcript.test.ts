@@ -18,7 +18,7 @@ import {
   recoverTranscriptUsage,
   TRANSCRIPT_SOURCE,
 } from "../../src/ingest/transcript";
-import type { UsageScope } from "../../src/ingest/usage";
+import { applyTurnTotals, recordUsageMessage, type UsageScope } from "../../src/ingest/usage";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import { readTranscript } from "../../src/workers/claude-cli/transcript";
 import type { HostLine, ParseState } from "../../src/workers/types";
@@ -260,6 +260,62 @@ describe("a worker host that died mid-turn (DIPO-134)", () => {
       dyingSession(f, false);
       expect(recover(f, "lost")).toEqual({ counted: 0, detailed: 0, refused: null });
       expect(messageIds(f)).toEqual(["msg-1"]);
+    }),
+  );
+});
+
+describe("a worker host that died in a later turn (DIPO-202)", () => {
+  const SECOND_TURN = join(FIXTURES, "..", "second-turn", "transcript.jsonl");
+
+  it(
+    "restores the output of a message the stream counted after the last turn end, once",
+    withIngest((f) => {
+      dyingSessionAt(f, SECOND_TURN);
+      const model =
+        f.office.get<{ model: string }>(
+          "select model from usage_messages where office_id = $office_id and message_id = 'msg-1'",
+        )?.model ?? "";
+      const at = f.t.clock.now();
+      f.office.immediate(() => {
+        // Turn 1 ended: its totals hold msg-1's output (16). Then the stream counted msg-2 of
+        // turn 2 with a placeholder output, and the host died before that turn's result.
+        applyTurnTotals(
+          f.office,
+          scopeOf(f),
+          { [model]: { input: 2, output: 16, cacheCreate: 7839, cacheRead: 0 } },
+          { model, count: 1 },
+          at,
+        );
+        recordUsageMessage(
+          f.office,
+          scopeOf(f),
+          {
+            messageId: "msg-2",
+            model,
+            input: 2,
+            output: 1,
+            cacheCreate: 660,
+            cacheCreate5m: 660,
+            cacheCreate1h: 0,
+            cacheRead: 7839,
+          },
+          at,
+        );
+      });
+      expect(totalsOf(f).output).toBe(16);
+
+      expect(recover(f, "lost").counted).toBe(2);
+      // msg-1 (16, in the turn totals, not added again), msg-2 (7, restored) and msg-3 (40).
+      expect(totalsOf(f).output).toBe(16 + 7 + 40);
+      expect(messageIds(f)).toEqual(["msg-1", "msg-2", "msg-3"]);
+
+      const before = totalsOf(f);
+      f.office.run(
+        "update ingest_cursors set read_offset = 0 where office_id = $office_id and source_kind = $kind",
+        { kind: TRANSCRIPT_SOURCE },
+      );
+      expect(recover(f, "lost").counted).toBe(0);
+      expect(totalsOf(f)).toEqual(before);
     }),
   );
 });

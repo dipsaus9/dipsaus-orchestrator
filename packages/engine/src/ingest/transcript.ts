@@ -193,14 +193,6 @@ export function recoverTranscriptUsage(options: RecoverTranscriptOptions): Trans
         { agent: scope.agent },
       )?.adapter_version ?? null;
     const finalBefore = finalRows(office, scope.run, scope.agent);
-    // No turn end replaced the live numbers yet: the output of every counted message is missing.
-    const turns =
-      office.get<{ turns: number }>(
-        `select coalesce(sum(turns), 0) as turns from usage_totals
-         where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { run: scope.run, agent: scope.agent },
-      )?.turns ?? 0;
-    const outputOpen = turns === 0;
     const state = stateOf(row);
     let counted = 0;
     let detailed = 0;
@@ -213,7 +205,7 @@ export function recoverTranscriptUsage(options: RecoverTranscriptOptions): Trans
         const parsed = read(fresh.lines, version);
         if (parsed.ok) {
           for (const message of parsed.messages) {
-            if (recordTranscriptUsage(office, scope, message, outputOpen, at)) counted++;
+            if (recordTranscriptUsage(office, scope, message, at)) counted++;
           }
           offset = fresh.end;
         } else {
@@ -234,7 +226,7 @@ export function recoverTranscriptUsage(options: RecoverTranscriptOptions): Trans
         if (sub.messages[message.messageId] === undefined) detailed++;
         sub.messages[message.messageId] = storedOf(message);
         // The stream carries a subagent's usage in the totals; only a lost host lacks it.
-        if (mode === "lost" && recordTranscriptUsage(office, scope, message, outputOpen, at)) {
+        if (mode === "lost" && recordTranscriptUsage(office, scope, message, at)) {
           counted++;
         }
       }

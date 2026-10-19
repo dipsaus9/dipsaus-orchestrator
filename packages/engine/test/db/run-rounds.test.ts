@@ -73,7 +73,9 @@ describe("migration 34 on a database at version 33", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(db.get<{ user_version: number }>("pragma user_version")?.user_version).toBe(34);
+        expect(db.get<{ user_version: number }>("pragma user_version")?.user_version).toBe(
+          MIGRATIONS.at(-1)?.version,
+        );
         expect(
           db.all(
             `select office_id, run_id, step, kind, value, at from run_steps
