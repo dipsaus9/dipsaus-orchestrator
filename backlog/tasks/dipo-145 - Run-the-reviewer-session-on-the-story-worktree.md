@@ -1,10 +1,10 @@
 ---
 id: DIPO-145
 title: Run the reviewer session on the story worktree
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 08:56'
 labels:
   - 'tier:L'
   - 'slice:m1a'
