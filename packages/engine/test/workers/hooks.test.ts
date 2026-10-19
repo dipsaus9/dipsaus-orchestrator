@@ -374,19 +374,27 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
     }
   });
 
-  it("registers PreToolUse for the web tools with --gate only with web (DIPO-164)", () => {
+  it("registers PreToolUse for the web tools with --gate only with web, and for Bash with --bash always (DIPO-164, DIPO-194)", () => {
     type Registered = Record<
       string,
-      [{ matcher?: string; hooks: [{ command: string; timeout: number }] }]
+      Array<{ matcher?: string; hooks: [{ command: string; timeout: number }] }>
     >;
-    expect("PreToolUse" in hookSettings(["/opt/dipo"], 300, "/run/dir")).toBe(false);
+    const bashOnly = hookSettings(["/opt/dipo"], 300, "/run/dir") as Registered;
+    expect(bashOnly["PreToolUse"]).toHaveLength(1);
+    const bash = bashOnly["PreToolUse"]?.[0];
+    expect(bash?.matcher).toBe("Bash");
+    expect(bash?.hooks[0].command.endsWith(" hook PreToolUse --bash")).toBe(true);
+    expect(bash?.hooks[0].command).not.toContain(GATE_CRASH_EXIT);
+    expect(bash?.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
     const hooks = hookSettings(["/opt/dipo"], 300, "/run/dir", true) as Registered;
+    expect(hooks["PreToolUse"]).toHaveLength(2);
     const entry = hooks["PreToolUse"]?.[0];
     expect(entry?.matcher).toBe("WebFetch|WebSearch");
     expect(entry?.hooks[0].command.endsWith(` hook PreToolUse --gate${GATE_CRASH_EXIT}`)).toBe(
       true,
     );
     expect(entry?.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
+    expect(hooks["PreToolUse"]?.[1]).toEqual(bash);
   });
 
   it("takes the matcher and the web tools from the one list the run spec uses (DIPO-164 review)", () => {
@@ -488,5 +496,24 @@ describe("the gate's command line fails closed when dipo itself fails (DIPO-164 
     const ran = runGate("/usr/bin/true");
     expect(ran.code).toBe(0);
     expect(ran.stderr).toBe("");
+  });
+});
+
+describe("the Bash check's command line fails open when dipo itself fails (DIPO-194)", () => {
+  type Registered = Record<string, Array<{ matcher?: string; hooks: [{ command: string }] }>>;
+
+  function runBash(program: string): { code: number | null; stdout: string } {
+    const hooks = hookSettings([program], 300, "/") as Registered;
+    const command = hooks["PreToolUse"]?.find((e) => e.matcher === "Bash")?.hooks[0].command ?? "";
+    const done = spawnSync("sh", ["-c", command], { input: "{}", encoding: "utf8" });
+    return { code: done.status, stdout: done.stdout };
+  }
+
+  it("never exits 2 and prints nothing when the binary crashes or is missing", () => {
+    for (const program of ["/usr/bin/false", "/nonexistent/dipo"]) {
+      const ran = runBash(program);
+      expect(ran.code).not.toBe(2);
+      expect(ran.stdout).toBe("");
+    }
   });
 });
