@@ -352,6 +352,7 @@ describe("retention of run rows", () => {
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       insertStoryPr(office, "run-old", day(0));
+      insertStoryPr(office, "run-old-unmerged", day(0), "closed");
       insertStoryPr(office, "run-recent", day(300));
       insertStoryPr(office, "run-open", null);
       t.clock.advanceTo(day(400));
@@ -363,7 +364,7 @@ describe("retention of run rows", () => {
         pause: noPause,
       });
 
-      expect(report.deleted).toEqual({ story_prs: 1 });
+      expect(report.deleted).toEqual({ story_prs: 2 });
       expect(
         office
           .all<{ id: string }>(

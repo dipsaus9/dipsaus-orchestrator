@@ -177,8 +177,13 @@ export function insertReleasedBranch(
   );
 }
 
-/** A story PR of `run`: open while `closedAt` is null, otherwise merged at that time. */
-export function insertStoryPr(office: OfficeHandle, run: string, closedAt: number | null): void {
+/** A story PR of `run`: open while `closedAt` is null, otherwise `closedState` at that time. */
+export function insertStoryPr(
+  office: OfficeHandle,
+  run: string,
+  closedAt: number | null,
+  closedState: "merged" | "closed" = "merged",
+): void {
   office.immediate(() =>
     office.run(
       `insert into story_prs (office_id, run_id, key, pr_number, url, branch, base, head_sha, state,
@@ -189,7 +194,7 @@ export function insertStoryPr(office: OfficeHandle, run: string, closedAt: numbe
         run,
         key: `sto-${run}`,
         branch: `DIPO-1/${run}`,
-        state: closedAt === null ? "open" : "merged",
+        state: closedAt === null ? "open" : closedState,
         closed: closedAt,
       },
     ),
