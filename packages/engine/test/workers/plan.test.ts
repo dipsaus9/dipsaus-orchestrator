@@ -18,7 +18,11 @@ import {
   SETTINGS_FILE,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
-import { HOOK_BUNFIG_FILE, REGISTERED_HOOKS } from "../../src/workers/claude-cli/hooks";
+import {
+  GATE_CRASH_EXIT,
+  HOOK_BUNFIG_FILE,
+  REGISTERED_HOOKS,
+} from "../../src/workers/claude-cli/hooks";
 import {
   REVIEW_REPORT_JSON_SCHEMA,
   WORKER_REPORT_JSON_SCHEMA,
@@ -1070,7 +1074,9 @@ describe("web tools (DIPO-164)", () => {
     expect(settings.permissions.allow).toEqual(expect.arrayContaining(WEB));
     const gate = settings.hooks["PreToolUse"]?.[0];
     expect(gate?.matcher).toBe("WebFetch|WebSearch");
-    expect(gate?.hooks[0]?.command.endsWith(" hook PreToolUse --gate")).toBe(true);
+    expect(gate?.hooks[0]?.command.endsWith(` hook PreToolUse --gate${GATE_CRASH_EXIT}`)).toBe(
+      true,
+    );
   });
 
   it("keeps the Bash sandbox network closed", () => {
