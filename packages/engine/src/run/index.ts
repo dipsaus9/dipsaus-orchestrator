@@ -139,6 +139,7 @@ export type {
 } from "./control";
 export { firedCap, REVIEWER_ROLE, runCaps, runTotals } from "./caps";
 export type { CapName, FiredCap, RunCaps, RunTotals } from "./caps";
+export { preStartEnding, reachedCaps } from "./pre-start-caps";
 export { GRANT_KINDS, grantTotals, recordGrant } from "./grants";
 export type {
   BudgetGrant,

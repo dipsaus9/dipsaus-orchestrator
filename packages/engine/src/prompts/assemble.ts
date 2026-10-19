@@ -108,12 +108,12 @@ function aboutItem(item: ContextItem, stale: ReadonlySet<string>): string {
     }
     case "scope-dir":
       parts.push(
-        `scope directory, ${formatCount(reason.shown)} of ${formatCount(reason.total)} entries`,
+        `scope directory, ${formatCount(reason.total)} files, ${formatCount(reason.shown)} changed most recently on the base`,
       );
       break;
     case "scope-new":
       parts.push(
-        `new scope path, ${formatCount(reason.shown)} of ${formatCount(reason.total)} entries of ${reason.parent === "" ? "the repository root" : reason.parent}`,
+        `new scope path, ${formatCount(reason.total)} files in ${reason.parent === "" ? "the repository root" : reason.parent}, ${formatCount(reason.shown)} changed most recently on the base`,
       );
       break;
     case "component": {

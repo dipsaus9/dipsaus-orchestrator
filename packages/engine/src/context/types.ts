@@ -21,6 +21,12 @@ export interface Workspace {
    * leaves the work tree).
    */
   readFile(path: string): Promise<Uint8Array | FileRefusal | undefined>;
+  /**
+   * The files under `dir` (`""` is the root) that have a commit reachable from `sha`, ordered by
+   * the commit that last changed them there, newest first, files of one commit in name order.
+   * Files with no such commit are left out. Optional: without it the files are in name order.
+   */
+  filesByLastCommit?(sha: string, dir: string): Promise<readonly string[]>;
 }
 
 /** Why a workspace refused to read a file. */
@@ -74,14 +80,17 @@ export type ContextReason =
       /** Why the workspace would not read it; set only when `content` is `refused`. */
       readonly refusal?: string;
     }
-  /** A scope directory: `text` is its breadth-first entry list, one path per line. */
+  /**
+   * A scope directory: `text` lists the `shown` files changed most recently on the base sha, one
+   * path per line; `total` is the number of files under it.
+   */
   | {
       readonly kind: "scope-dir";
       readonly scope: string;
       readonly shown: number;
       readonly total: number;
     }
-  /** A scope path that does not exist yet: `text` lists the entries of `parent`. */
+  /** A scope path that does not exist yet: `text` summarises `parent` like a scope directory. */
   | {
       readonly kind: "scope-new";
       readonly scope: string;

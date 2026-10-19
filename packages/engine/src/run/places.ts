@@ -19,6 +19,9 @@
 //   `allowed_warning` stops new sessions of its scope. The hold is `PlanLimits.held` asked with the
 //   model of the session the place would start. A run waiting under a hold carries the `plan-limit`
 //   signal, so it shows health `limited`; it never parks.
+// - Caps. A fix round or conflict hand-off whose run already reached its caps (a done path that
+//   crossed one, DIPO-205) is not started: `Places.drain` parks the story `budget-exceeded`
+//   (`pre-start-caps.ts`) before the starter is called.
 // - `Places.drain` starts the first waiting session of each free, unpaused place through the
 //   starter of its kind, after claiming the place in one transaction (`claimPlace`). It runs after
 //   each worker exit decision, at office load, and every minute while anything waits.
@@ -33,7 +36,9 @@ import { background } from "../platform/background";
 import { withWorkViews, workRefOf } from "../views/work";
 
 import { REVIEWER_ROLE } from "./caps";
+import type { RunEnding } from "./control-types";
 import { openWait } from "./outcome-types";
+import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
 import { activeRuns, findRun, type StoredRun } from "./records";
 import { clearSignals, raiseSignal, type StoredSignal } from "./signals";
 
@@ -261,6 +266,16 @@ export interface PlacesDeps {
   readonly reviewModel?: (office: OfficeId) => string;
   /** Pending reviews of the office, oldest In Review first (0019 story G); none by default. */
   readonly pending?: (office: OfficeHandle) => readonly PlaceStart[];
+  /**
+   * Parks a waiting run before its session starts (`RunControl.park`); without it the pre-start
+   * cap check of a fix or conflict wait is skipped.
+   */
+  readonly park?: (
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef | undefined,
+    ending: RunEnding,
+  ) => Promise<unknown>;
   /** The session start of each kind; a kind with none waits until one is given. */
   readonly starters: Partial<Record<StartKind, PlaceStarter>>;
   readonly onChanged?: (office: OfficeId) => void;
@@ -396,6 +411,7 @@ export class Places {
       if (run === null) continue;
       const starter = this.#deps.starters[first.kind];
       if (starter === undefined) continue;
+      if (await this.#parkedForCaps(office, run, first)) continue;
       const paused = this.#paused(officeId, this.modelOf(officeId, place, run));
       if (paused !== null) {
         this.#limited(office, run, paused);
@@ -426,6 +442,29 @@ export class Places {
     if (waiting) this.#arm(officeId, state);
     else this.#disarm(state);
     return started;
+  }
+
+  /**
+   * The shared pre-start cap check (DIPO-205): a fix or conflict wait whose run reached its caps
+   * parks `budget-exceeded` and starts nothing; true when it parked.
+   */
+  async #parkedForCaps(office: OfficeHandle, run: StoredRun, start: PlaceStart): Promise<boolean> {
+    const park = this.#deps.park;
+    if (park === undefined) return false;
+    if (start.kind !== START_KINDS.fix && start.kind !== START_KINDS.conflict) return false;
+    const fired = reachedCaps(office, run, this.#deps.clock.now());
+    if (fired === null) return false;
+    try {
+      await park(office, run, workRefOf(office, run.runId) ?? undefined, preStartEnding(fired));
+      resolvePreStartIntent(office, run, this.#deps.clock.now());
+    } catch (error) {
+      this.#deps.warn?.("parking a run that reached its caps before its session failed", {
+        run: run.runId,
+        kind: start.kind,
+        reason: messageOf(error),
+      });
+    }
+    return true;
   }
 
   /**

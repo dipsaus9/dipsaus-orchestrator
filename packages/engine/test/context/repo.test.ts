@@ -92,7 +92,7 @@ describe("default provider on a repository", () => {
           ],
           inputs: ["docs/notes.md"],
         });
-        const pack = await provider.gather(req, 12_000);
+        const pack = await provider.gather({ ...req, baseSha: head }, 12_000);
 
         expect(pack.provenance.notes).toEqual([
           'component "docs": glob "site/**" matches no tracked file',
@@ -145,10 +145,10 @@ describe("default provider on a repository", () => {
         ]);
         expect(pack.items[0]?.text).toBe(
           [
-            "packages/engine/src/context/draft.ts",
-            "packages/engine/src/context/link.ts",
             "packages/engine/src/context/old.test.ts",
             "packages/engine/src/context/old.ts",
+            "packages/engine/src/context/draft.ts",
+            "packages/engine/src/context/link.ts",
           ].join("\n"),
         );
         expect(pack.items[1]?.text).toBe("");
@@ -169,10 +169,58 @@ describe("default provider on a repository", () => {
         );
 
         // Determinism: a second run over the same checkout gives the same bytes.
-        const again = await createDefaultProvider({ workspace: ws }).gather(req, 12_000);
+        const again = await createDefaultProvider({ workspace: ws }).gather(
+          { ...req, baseSha: head },
+          12_000,
+        );
         expect(encodePack(again)).toBe(encodePack(pack));
       },
       { fixture: FIXTURE },
+    ));
+
+  it("orders a directory's files by their last commit on the base sha", () =>
+    withTempRepo(
+      async (repo) => {
+        await repo.commitAll("first");
+        writeFileSync(join(repo.dir, "src/b.ts"), "b2\n");
+        writeFileSync(join(repo.dir, "src/sub/d.ts"), "d2\n");
+        writeFileSync(join(repo.dir, "src/a.ts"), "a2\n");
+        const second = await repo.commitAll("second");
+        writeFileSync(join(repo.dir, "src/c.ts"), "c2\n");
+        await repo.commitAll("third");
+        // Later than the base sha: not seen when the base is `second`.
+        const ws = workspaceOf(repo);
+        expect(await ws.filesByLastCommit?.(second, "src")).toEqual([
+          "src/a.ts",
+          "src/b.ts",
+          "src/sub/d.ts",
+          "src/c.ts",
+        ]);
+        expect(await ws.filesByLastCommit?.("HEAD", "src")).toEqual([
+          "src/c.ts",
+          "src/a.ts",
+          "src/b.ts",
+          "src/sub/d.ts",
+        ]);
+        expect(await ws.filesByLastCommit?.("HEAD", "src/sub")).toEqual(["src/sub/d.ts"]);
+        expect((await ws.filesByLastCommit?.("HEAD", ""))?.[0]).toBe("src/c.ts");
+        writeFileSync(join(repo.dir, "src/new.ts"), "new\n");
+        const pack = await createDefaultProvider({ workspace: ws }).gather(
+          request({ scope: ["src/"], baseSha: second }),
+          12_000,
+        );
+        expect(pack.items[0]?.text).toBe(
+          ["src/a.ts", "src/b.ts", "src/sub/d.ts", "src/c.ts", "src/new.ts"].join("\n"),
+        );
+      },
+      {
+        fixture: {
+          "src/a.ts": "a\n",
+          "src/b.ts": "b\n",
+          "src/c.ts": "c\n",
+          "src/sub/d.ts": "d\n",
+        },
+      },
     ));
 
   it("reports an invalid map with a cycle and gives no components", () =>

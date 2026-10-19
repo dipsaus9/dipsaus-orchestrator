@@ -116,13 +116,13 @@ export function fixturePack(extra: readonly ContextItem[] = []): ContextPack {
       scopeFile,
       {
         path: "src/greet.test.ts",
-        text: "src/\nsrc/cli.ts\nsrc/greet.ts\n",
+        text: "src/cli.ts\nsrc/greet.ts\n",
         reason: {
           kind: "scope-new",
           scope: "src/greet.test.ts",
           parent: "src",
-          shown: 3,
-          total: 3,
+          shown: 2,
+          total: 2,
         },
       },
       {
@@ -143,7 +143,7 @@ export function fixturePack(extra: readonly ContextItem[] = []): ContextPack {
     truncated: false,
     provenance: {
       provider: "default",
-      version: "1",
+      version: "2",
       indexState: "ready",
       staleFiles: [],
       notes: [],
