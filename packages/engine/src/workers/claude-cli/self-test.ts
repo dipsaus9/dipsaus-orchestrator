@@ -54,7 +54,7 @@ import {
   SRT_DEFAULT_WRITE_PATHS,
 } from "../../sandbox/policy";
 import type { LaunchCheckFailure } from "../hold";
-import type { LaunchFile, WorkerOutcome, WorkerSpec } from "../types";
+import type { LaunchFile, ReportKind, WorkerOutcome, WorkerSpec } from "../types";
 import { initialState, interpret, type ClaudeParseState } from "./interpret";
 import { kindContext, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
 import { pluginRefusal, refusedPlugins } from "./plugins";
@@ -399,6 +399,8 @@ export interface SelfTestEvidence {
   readonly safeChain?: { readonly root: string };
   /** A review self-test (0019 section 4): an install ran and must have failed. */
   readonly installMustFail?: boolean;
+  /** The kind of the run the self-test ran for: a `review` session loads no plugin at all. */
+  readonly kind?: ReportKind;
   /** Plugins the session's `system/init` listed that `worker.plugins` does not (DIPO-108). */
   readonly refusedPlugins?: readonly string[];
   /** Skills the session's `system/init` listed, although the plan disabled them (DIPO-130). */
@@ -500,7 +502,7 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   if (evidence.installMustFail === true && disk.installed === true) return installSucceeded();
   // A plugin the run settings did not switch off (DIPO-108): the session was stopped at init.
   const plugins = evidence.refusedPlugins ?? [];
-  if (plugins.length > 0) return cannotRun(pluginRefusal(plugins), "plugins");
+  if (plugins.length > 0) return cannotRun(pluginRefusal(plugins, evidence.kind), "plugins");
   // A skill although the plan passed `--disable-slash-commands` (DIPO-130): stopped at init too.
   const skills = evidence.refusedSkills ?? [];
   if (skills.length > 0) return cannotRun(skillRefusal(skills), "skills");
@@ -1237,6 +1239,7 @@ export async function runSelfTest(
       ? {}
       : { safeChain: { root: ctx.safeChain.root } }),
     ...(review ? { installMustFail: true } : {}),
+    kind: review ? "review" : "implement",
     ...(typeof session === "string" ? {} : initRefusals(session.state, ctx.plugins)),
   };
   return {
@@ -1272,18 +1275,33 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
     detail: verdict.reason,
     ...(target === undefined ? {} : { file: target.path }),
     ...(verdict.probe === undefined ? {} : { key: verdict.probe }),
-    fix: verdict.unsafe
-      ? verdict.probe === "install"
-        ? "Do not run reviews on this machine until the sandbox closes the network for them; check the Claude Code version and the sandbox network settings, then start the review again."
-        : "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings."
-      : verdict.probe === "plugins"
-        ? "Claude Code loaded a plugin the run settings did not switch off. Remove or disable the plugin for this machine, or, when its hooks are safe to run outside the sandbox for an unattended worker, add it to worker.plugins in .dipo/office.yaml (reviewed like code); then start a run again."
-        : verdict.probe === "skills"
-          ? `Claude Code loaded skills although the plan passed ${DISABLE_SLASH_COMMANDS}. Check that this Claude Code version still honours the flag (\`claude --version\`; its system/init should list skills: []), then start a run again.`
-          : verdict.probe === "safe-chain"
-            ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
-            : verdict.probe === "install"
-              ? `Put a real ${SAFE_CHAIN_PROBE} on the daemon's PATH, outside directories a worker can write: a reviewer runs with that PATH, and its self-test needs ${SAFE_CHAIN_PROBE} to show that an install fails on the closed network. Then start the review again.`
-              : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
+    fix: selfTestFix(verdict, report.evidence?.kind),
   };
+}
+
+/** What the maintainer does about a refused self-test, by probe and by the run's kind. */
+function selfTestFix(
+  verdict: Extract<SelfTestVerdict, { ok: false }>,
+  kind: ReportKind | undefined,
+): string {
+  if (verdict.unsafe) {
+    return verdict.probe === "install"
+      ? "Do not run reviews on this machine until the sandbox closes the network for them; check the Claude Code version and the sandbox network settings, then start the review again."
+      : "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings.";
+  }
+  switch (verdict.probe) {
+    case "plugins":
+      // A reviewer loads no plugin whatever worker.plugins says (0019 section 4).
+      return kind === "review"
+        ? "Claude Code loaded a plugin the run settings did not switch off. A reviewer session loads no plugins (0019 section 4), so worker.plugins does not apply to it; the plugin comes from the user scope or the project. Remove or disable it for this machine or this project, then start the review again."
+        : "Claude Code loaded a plugin the run settings did not switch off. Remove or disable the plugin for this machine, or, when its hooks are safe to run outside the sandbox for an unattended worker, add it to worker.plugins in .dipo/office.yaml (reviewed like code); then start a run again.";
+    case "skills":
+      return `Claude Code loaded skills although the plan passed ${DISABLE_SLASH_COMMANDS}. Check that this Claude Code version still honours the flag (\`claude --version\`; its system/init should list skills: []), then start a run again.`;
+    case "safe-chain":
+      return "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again.";
+    case "install":
+      return `Put a real ${SAFE_CHAIN_PROBE} on the daemon's PATH, outside directories a worker can write: a reviewer runs with that PATH, and its self-test needs ${SAFE_CHAIN_PROBE} to show that an install fails on the closed network. Then start the review again.`;
+    default:
+      return "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.";
+  }
 }

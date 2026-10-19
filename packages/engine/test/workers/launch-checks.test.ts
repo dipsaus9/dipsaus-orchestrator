@@ -278,6 +278,31 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
     expect(notices.at(-1)?.data).toMatchObject({ level: "error", code: HOLD_NOTICE_CODE });
   });
 
+  it("holds with a reviewer's reason and fix when the review self-test lists a plugin", async () => {
+    const { clock, holds } = setup();
+    const warp = "warp@claude-code-warp";
+    const fs = new MemoryFs();
+    const fake = scriptedClaude(clock, {
+      session: withInitPlugins(selfTestSession([REVIEW_LAYOUT.command]), [warp]),
+      onSession: () => {
+        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
+        fs.files.set(REVIEW_LAYOUT.controlFile, "");
+      },
+    });
+    const { deps } = reviewDeps(clock, fs, REVIEW_BLOCKED_RESULTS);
+    // worker.plugins names the plugin, which a reviewer does not load all the same.
+    const ctx = context({ plugins: { installed: [warp], allowed: [warp] } });
+    const result = await prepareLaunch(reviewSpec(), ctx, holds, { ...deps, spawn: fake.spawn });
+    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.failures[0]).toEqual({
+      check: "self-test",
+      detail:
+        "the sandbox self-test could not run: system/init lists plugin warp@claude-code-warp, but a reviewer session loads no plugin: a plugin's hooks run outside the sandbox, so the session refuses to run (0019 section 4)",
+      key: "plugins",
+      fix: "Claude Code loaded a plugin the run settings did not switch off. A reviewer session loads no plugins (0019 section 4), so worker.plugins does not apply to it; the plugin comes from the user scope or the project. Remove or disable it for this machine or this project, then start the review again.",
+    });
+  });
+
   it("holds the adapter when the worktree took the self-test's write", async () => {
     const { clock, holds } = setup();
     const written = REVIEW_BLOCKED_RESULTS.replace(
