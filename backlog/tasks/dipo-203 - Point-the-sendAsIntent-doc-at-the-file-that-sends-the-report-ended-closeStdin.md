@@ -1,10 +1,10 @@
 ---
 id: DIPO-203
 title: Point the sendAsIntent doc at the file that sends the report-ended closeStdin
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 06:55'
+updated_date: '2026-10-19 06:58'
 labels:
   - 'tier:S'
   - cutover
@@ -34,5 +34,5 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The sendAsIntent doc comment in packages/engine/src/run/intents.ts names run/control-turns.ts for the report-ended closeStdin, and every other file it names still holds what it says; bun run verify passes
+- [x] #1 The sendAsIntent doc comment in packages/engine/src/run/intents.ts names run/control-turns.ts for the report-ended closeStdin, and every other file it names still holds what it says; bun run verify passes
 <!-- AC:END -->
