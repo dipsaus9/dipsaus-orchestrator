@@ -963,6 +963,15 @@ describe("this repository's .dipo/office.yaml", () => {
     "utf8",
   );
 
+  // DIPO-210 AC #4: dipo opens no story PR here while the maintainer side merges its own
+  // finish-branch PRs.
+  it("is version 7 and switches story PRs off", () => {
+    const result = ok(resolveOfficeConfig({ office }));
+    expect(office.startsWith("version: 7\n")).toBe(true);
+    expect(result.config.storyPr.open).toBe(false);
+    expect(office).toContain("finish-branch PRs");
+  });
+
   it("does not list ~/.nvm/versions/node", () => {
     const result = ok(resolveOfficeConfig({ office }));
     expect(result.config.sandbox.toolchainReadPaths).not.toContain(NVM);
