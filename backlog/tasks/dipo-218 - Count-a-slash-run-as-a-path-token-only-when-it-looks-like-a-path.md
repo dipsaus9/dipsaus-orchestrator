@@ -1,10 +1,10 @@
 ---
 id: DIPO-218
 title: Count a slash run as a path token only when it looks like a path
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 21:38'
+updated_date: '2026-10-19 21:43'
 labels:
   - 'tier:S'
   - cutover
@@ -39,8 +39,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/src/gate/text.ts a path token is a run of non-whitespace characters that contains a slash and either starts with /, ~, ./ or ../, or ends with /, or has a file extension (a dot followed by letters or digits) at the end of its last segment; brackets and quotes around the token and sentence punctuation at its end (. , ; : ! ? and a closing bracket) are not part of it for this check
-- [ ] #2 outsideCodeAndPaths masks only such path tokens and code spans, so a banned phrase in a slash run that does not look like a path is matched by R10 and R27
-- [ ] #3 Tests in packages/engine/test/gate/ show R10 failing for `Writes TBD/later etc`, `Writes and/or,etc` and `Writes etc/zprofile`, and passing for `/etc/zprofile`, `/etc/zprofile,` (with a comma), `~/etc/x`, `./etc/x`, `../etc/x`, `packages/etc/`, `src/etc.ts` and `(src/etc.ts)`; the DIPO-170 tests for `Writes the file at etc/zprofile` and for a code span written right after a word now expect an R10 failure
-- [ ] #4 A test shows R27 matching `task notes` in `Write the task notes/later` and not in `Write the task notes/x.md`, where `notes/x.md` is a path token
+- [x] #1 In packages/engine/src/gate/text.ts a path token is a run of non-whitespace characters that contains a slash and either starts with /, ~, ./ or ../, or ends with /, or has a file extension (a dot followed by letters or digits) at the end of its last segment; brackets and quotes around the token and sentence punctuation at its end (. , ; : ! ? and a closing bracket) are not part of it for this check
+- [x] #2 outsideCodeAndPaths masks only such path tokens and code spans, so a banned phrase in a slash run that does not look like a path is matched by R10 and R27
+- [x] #3 Tests in packages/engine/test/gate/ show R10 failing for `Writes TBD/later etc`, `Writes and/or,etc` and `Writes etc/zprofile`, and passing for `/etc/zprofile`, `/etc/zprofile,` (with a comma), `~/etc/x`, `./etc/x`, `../etc/x`, `packages/etc/`, `src/etc.ts` and `(src/etc.ts)`; the DIPO-170 tests for `Writes the file at etc/zprofile` and for a code span written right after a word now expect an R10 failure
+- [x] #4 A test shows R27 matching `task notes` in `Write the task notes/later` and not in `Write the task notes/x.md`, where `notes/x.md` is a path token
 <!-- AC:END -->
