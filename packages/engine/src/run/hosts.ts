@@ -89,6 +89,11 @@ export interface OfficeIngestOptions {
    * Without it, or for an office without a configuration, nothing beyond the default is stored.
    */
   readonly privacy?: (office: OfficeId) => OutputPrivacy;
+  /**
+   * Rewrites a pass's output text before it is stored (`IngestorOptions.redactOutput`): the web
+   * check redacts env values from web lines (0020 section 11b, DIPO-164).
+   */
+  readonly redactOutput?: (office: OfficeHandle, run: string, text: string) => string;
 }
 
 /** Hears a run's worker events and its exit together with the run's office (DIPO-59). */
@@ -117,12 +122,16 @@ export class OfficeIngest implements RunIngest {
     let ingestor = this.#ingestors.get(office.officeId);
     if (ingestor === undefined) {
       const privacyOf = this.#options.privacy;
+      const redact = this.#options.redactOutput;
       ingestor = new Ingestor({
         office,
         clock: this.#options.clock,
         pricing: this.#options.pricing(),
         hooks: this.#hooksFor(office),
         costDrift: this.#costDrift,
+        ...(redact === undefined
+          ? {}
+          : { redactOutput: (run: string, text: string) => redact(office, run, text) }),
         ...(privacyOf === undefined ? {} : { privacy: () => privacyOf(office.officeId) }),
         ...(this.#options.warn === undefined ? {} : { warn: this.#options.warn }),
       });

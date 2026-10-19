@@ -190,6 +190,12 @@ const HookEventSchema = z.discriminatedUnion("kind", [
     tool: z.string().min(1),
     wrote: z.string().min(1).exactOptional(),
   }),
+  z.strictObject({
+    kind: z.literal("webCall"),
+    id: z.int().nonnegative().nullable(),
+    tool: z.string().min(1),
+    target: z.string(),
+  }),
   z.strictObject({ kind: z.literal("notification"), type: z.string().exactOptional() }),
   z.strictObject({ kind: z.literal("subagentStarted"), agentId: z.string().exactOptional() }),
   z.strictObject({

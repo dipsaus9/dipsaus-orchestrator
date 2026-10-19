@@ -8,6 +8,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
+import { WebGuard } from "../hooks/web-guard";
 import type { WorkerPort } from "../workers/port";
 import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
@@ -135,6 +136,7 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
 interface HookListeners {
   readonly permissions: PermissionAsks;
   readonly nudges: Nudges;
+  readonly webGuard: WebGuard;
   readonly hookEvents: OfficeRunListener;
 }
 
@@ -171,11 +173,19 @@ function buildHookListeners(
     ending,
     ...given("warn", ports.warn),
   });
+  const webGuard = new WebGuard({
+    clock: ports.clock,
+    offices: ports.offices,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    ...given("warn", ports.warn),
+  });
   const onEnded = ports.ingest.onEnded;
   const hookEvents: OfficeRunListener = {
     onWorkerEvents: (office, run, agent, events) => {
       permissions.onWorkerEvents(office, run, agent, events);
       nudges.onWorkerEvents(office, run, agent, events);
+      webGuard.onWorkerEvents(office, run, agent, events);
     },
     onEnded: (office, run) => {
       permissions.onEnded(office, run);
@@ -183,19 +193,22 @@ function buildHookListeners(
       onEnded?.(office, run);
     },
   };
-  return { permissions, nudges, hookEvents };
+  return { permissions, nudges, webGuard, hookEvents };
 }
 
 function buildIngest(
   ports: RunPorts,
   control: RunControl | null,
-  hookEvents: OfficeRunListener,
+  listeners: Pick<HookListeners, "hookEvents" | "webGuard">,
 ): OfficeIngest {
+  const { hookEvents, webGuard } = listeners;
   return new OfficeIngest({
     clock: ports.clock,
     pricing: ports.ingest.pricing,
     ...(control === null ? {} : { hooks: control.hooks }),
     hookEvents,
+    // No env value of the worktree reaches the stored web lines (0020 section 11b, DIPO-164).
+    redactOutput: (office, run, text) => webGuard.redactOutput(office, run, text),
     ...given("watchdog", ports.ingest.watchdog),
     ...given("onAppended", ports.onChanged),
     // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
@@ -357,8 +370,9 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     places: null,
   };
   const control = buildControl(ports, late);
-  const { permissions, nudges, hookEvents } = buildHookListeners(ports, control, late);
-  const ingest = buildIngest(ports, control, hookEvents);
+  const listeners = buildHookListeners(ports, control, late);
+  const { permissions, nudges } = listeners;
+  const ingest = buildIngest(ports, control, listeners);
   late.ingest = ingest;
   const built = buildOutcomes(ports, control, ingest, late);
   const outcomes = built?.outcomes ?? null;

@@ -41,6 +41,13 @@ export type HookEvent =
       /** The file the tool wrote, as the worker named it (absolute, or relative to its worktree). */
       readonly wrote?: string;
     } & HookCall)
+  | ({
+      readonly kind: "webCall";
+      /** `WebSearch` or `WebFetch`. */
+      readonly tool: string;
+      /** The call's whole query or URL, untouched; the engine checks it for env values. */
+      readonly target: string;
+    } & HookCall)
   | { readonly kind: "notification"; readonly type?: string }
   | { readonly kind: "subagentStarted"; readonly agentId?: string }
   | {
@@ -60,7 +67,10 @@ export type HookEventKind = HookEvent["kind"];
 /** The engine's decision on a waiting permission request; null returns no decision (a deny). */
 export type PermissionDecision = "allow" | "deny" | null;
 
-/** The engine's reply to a waiting hook call, adapter-neutral. */
+/**
+ * The engine's reply to a waiting hook call, adapter-neutral. For a `webCall` a deny refuses the
+ * call and anything else lets it proceed.
+ */
 export interface HookReply {
   /** The hook call (`HookCall.id`). */
   readonly hook: number;

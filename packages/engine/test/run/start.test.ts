@@ -465,7 +465,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(flag("--model")).toBe(caps.model);
     expect(flag("--effort")).toBe(caps.effort);
     expect(flag("--max-turns")).toBe(String(caps.maxTurns));
-    expect(flag("--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash");
+    // worker.web is on by default (DIPO-164): the developer also has the web tools.
+    expect(flag("--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash,WebSearch,WebFetch");
     expect(host?.plan.cwd).toBe(join(world.worktreeRoot, "TASK-1"));
 
     // The session id is engine-made, stored on the run's agent and passed to the worker.
@@ -536,6 +537,21 @@ describe("work.run starts the worker of a claimed run", () => {
       { part: "system", text: systemFile },
       { part: "message", text: sent },
     ]);
+  });
+
+  it("plans the M0 developer tools and no PreToolUse hook with worker.web false (DIPO-164)", async () => {
+    world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
+    story("TASK-1", "Ready");
+    expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
+    const [host] = world.hosts;
+    const argv: readonly string[] = host?.plan.argv ?? [];
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit,Write,Glob,Grep,Bash");
+    const settings = JSON.parse(
+      host?.plan.files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
+    ) as { hooks: Record<string, unknown>; permissions: { allow: string[] } };
+    expect(Object.keys(settings.hooks)).not.toContain("PreToolUse");
+    expect(Object.keys(settings.hooks)).toContain("PermissionRequest");
+    expect(settings.permissions.allow.filter((rule) => rule.startsWith("Web"))).toEqual([]);
   });
 
   it("stores no prompt text with storePrompts off (DIPO-137)", async () => {

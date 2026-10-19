@@ -71,3 +71,16 @@ export {
   type NudgesDeps,
   type NudgeSources,
 } from "./nudges";
+export {
+  findSecret,
+  MIN_SECRET_CHARS,
+  parseEnvText,
+  readEnvSecrets,
+  refusalText,
+  UNCHECKED_TEXT,
+  WebGuard,
+  webCallCounts,
+  type EnvSecret,
+  type SecretHit,
+  type WebGuardDeps,
+} from "./web-guard";

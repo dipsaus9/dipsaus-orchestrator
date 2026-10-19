@@ -3,13 +3,19 @@
 // `HookEvent`, and how the engine's neutral `HookReply` becomes Claude's `PermissionRequest`
 // output. Everything Claude-specific about hooks lives here; `engine/src/hooks` sees only the
 // neutral shapes.
+//
+// Residual risk of the web gate: Claude Code treats a hook past its 5 s timeout as a non-blocking
+// error and runs the call, so a gate process that is very slow to start is not covered.
 
 import type { HookEvent, HookReply } from "../../hooks/types";
-import type { NudgeOp } from "../types";
+import { type NudgeOp, WEB_TOOLS } from "../types";
+
+export { WEB_TOOLS };
 
 /** The hooks the run settings file registers (0008 section 5), each `dipo hook <event>`. */
 export const REGISTERED_HOOKS = [
   "SessionStart",
+  "PreToolUse",
   "PermissionRequest",
   "PostToolUse",
   "Notification",
@@ -25,6 +31,25 @@ export type RegisteredHook = (typeof REGISTERED_HOOKS)[number];
 
 /** The hook whose call waits for the engine's decision. */
 export const WAITING_HOOK: RegisteredHook = "PermissionRequest";
+
+/**
+ * The `PreToolUse` matcher of the web tools (0020 section 11b, DIPO-164): exactly `WEB_TOOLS`, in
+ * name order, so `dipo hook PreToolUse --gate` checks every one of them and nothing else.
+ */
+export const WEB_HOOK_MATCHER = WEB_TOOLS.toSorted().join("|");
+/** The hook that is registered only for a session with web tools, and fails closed. */
+export const GATE_HOOK: RegisteredHook = "PreToolUse";
+
+/** Told to the worker when the gate command itself failed (exit 2 shows stderr to Claude). */
+export const GATE_CRASH_REASON = "dipo could not check this web call, so it was refused.";
+
+/**
+ * The end of the gate's command line: when `cd` or `dipo hook PreToolUse --gate` fails in any way
+ * (a crash exits 1, which Claude Code treats as a non-blocking error and runs the call), the shell
+ * exits 2 instead, which blocks a `PreToolUse` call and shows stderr to Claude (hooks reference,
+ * exit code 2). A gate that ran prints its own decision and exits 0.
+ */
+export const GATE_CRASH_EXIT = ` || { echo ${shellQuote(GATE_CRASH_REASON)} >&2; exit 2; }`;
 
 /**
  * The hooks whose call may get a 0014 section 8 nudge (DIPO-60): `dipo hook <event> --nudge` waits
@@ -80,16 +105,35 @@ export function hookCommandLine(command: readonly [string, ...string[]], runDir:
  * The run settings file's `hooks` block: one command hook per registered event, running
  * `<dipo> hook <event>` with the binary's own path from the run directory. `PermissionRequest`
  * asks the host to hold the call `waitSeconds` plus a margin (see `HOST_WAIT_MARGIN_SECONDS`);
- * the `NUDGE_HOOKS` pass `--nudge`.
+ * the `NUDGE_HOOKS` pass `--nudge`. With `web`, `PreToolUse` is registered for the web tools and
+ * passes `--gate`; without it the hook is not registered, since no session tool needs it.
  */
 export function hookSettings(
   command: readonly [string, ...string[]],
   waitSeconds: number,
   runDir: string,
+  web = false,
 ): Record<string, unknown> {
   const prefix = hookCommandLine(command, runDir);
   const hooks: Record<string, unknown> = {};
   for (const event of REGISTERED_HOOKS) {
+    if (event === GATE_HOOK) {
+      if (web) {
+        hooks[event] = [
+          {
+            matcher: WEB_HOOK_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `${prefix} hook ${event} --gate${GATE_CRASH_EXIT}`,
+                timeout: HOOK_TIMEOUT_SECONDS,
+              },
+            ],
+          },
+        ];
+      }
+      continue;
+    }
     const waits = event === WAITING_HOOK;
     const flag = waits
       ? ` --wait ${waitSeconds + HOST_WAIT_MARGIN_SECONDS}`
@@ -157,6 +201,19 @@ export function exactAction(input: unknown): string | null {
 }
 
 /**
+ * The query of a WebSearch or the URL of a WebFetch, whole. A call whose input lacks it is checked
+ * as its whole input, so a malformed call cannot slip a value past the check.
+ */
+export function webTarget(tool: string, input: unknown): string {
+  const field = tool === "WebSearch" ? "query" : "url";
+  if (isRecord(input)) {
+    const value = input[field];
+    if (typeof value === "string") return value;
+  }
+  return JSON.stringify(input ?? {});
+}
+
+/**
  * Pure: the neutral hook event of one Claude hook payload, or null for an event the relay does not
  * register. `call` is the call's id (the hook line's end offset), when known: a permission request
  * waits on it, and a tool use or session start may get a nudge under it.
@@ -188,6 +245,12 @@ export function hookEventOf(
         input: inputSummary(payload["tool_input"]),
         ...(exact === null ? {} : { exact }),
       };
+    }
+    case "PreToolUse": {
+      // Only the web tools are matched; any other tool is not relayed as an event.
+      const tool = text(payload["tool_name"]);
+      if (tool === undefined || !WEB_TOOLS.includes(tool)) return null;
+      return { kind: "webCall", id: call, tool, target: webTarget(tool, payload["tool_input"]) };
     }
     case "PostToolUse": {
       const tool = text(payload["tool_name"]) ?? "unknown";
@@ -255,6 +318,71 @@ export function permissionOutput(reply: HookReply): string {
   return JSON.stringify({
     hookSpecificOutput: { hookEventName: "PermissionRequest", decision },
   });
+}
+
+/**
+ * Pure: what `dipo hook PreToolUse --gate` prints for a deny: Claude's `PreToolUse` refusal, with
+ * `reason` told to the worker.
+ */
+export function preToolUseDenyOutput(reason: string): string {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason.trim() === "" ? DEFAULT_DENY_MESSAGE : reason,
+    },
+  });
+}
+
+/**
+ * The engine's answer to a gate call it let through: a marker that carries no decision. It is never
+ * empty, so the relay tells the engine's pass apart from the worker host's empty answer (no engine
+ * watching, the wait passed, the host stopped), which refuses the call (0020 section 11b). The
+ * relay prints nothing for exactly this marker (`gateOutput`), so Claude applies its own permission
+ * rules: the run settings' allow rules let the web tool through, and a deny rule there (a WebFetch
+ * domain rule) still holds, which an explicit `permissionDecision: "allow"` would bypass (hooks
+ * reference). Were the marker ever printed as is, it would still decide nothing.
+ */
+export const PRE_TOOL_USE_NO_DECISION_MARKER = JSON.stringify({
+  hookSpecificOutput: { hookEventName: "PreToolUse" },
+});
+
+/**
+ * Pure: the engine's answer to a gate call for its reply: a deny, else the marker that carries no
+ * decision.
+ */
+export function preToolUseOutput(reply: HookReply): string {
+  return reply.decision === "deny"
+    ? preToolUseDenyOutput(reply.reason ?? "")
+    : PRE_TOOL_USE_NO_DECISION_MARKER;
+}
+
+/** True when `output` is exactly a `PreToolUse` deny as `preToolUseDenyOutput` prints it. */
+function isPreToolUseDeny(output: string): boolean {
+  let value: unknown;
+  try {
+    value = JSON.parse(output);
+  } catch {
+    return false;
+  }
+  if (!isRecord(value)) return false;
+  const reason = isRecord(value["hookSpecificOutput"])
+    ? value["hookSpecificOutput"]["permissionDecisionReason"]
+    : undefined;
+  return typeof reason === "string" && output === preToolUseDenyOutput(reason);
+}
+
+/**
+ * Pure: what the fail-closed `dipo hook PreToolUse --gate` prints for the worker host's answer
+ * (0020 section 11b). Exactly the engine's `PRE_TOOL_USE_NO_DECISION_MARKER` prints nothing, so
+ * Claude's own permission rules decide the call; the engine's deny is printed as it is; anything
+ * else (no answer, the host's empty answer, an explicit allow, any other text) prints a deny with
+ * `noAnswerReason`.
+ */
+export function gateOutput(answer: string | null, noAnswerReason: string): string {
+  if (answer === PRE_TOOL_USE_NO_DECISION_MARKER) return "";
+  if (answer !== null && isPreToolUseDeny(answer)) return answer;
+  return preToolUseDenyOutput(noAnswerReason);
 }
 
 /** Claude's name of the hook a neutral nudge answers. */

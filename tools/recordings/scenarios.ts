@@ -89,11 +89,31 @@ export interface Scenario {
    */
   readonly hookRelay?: { readonly waitSeconds: number };
   /**
+   * The fixture host answers a waiting `PreToolUse` call as the engine does (0020 section 11b): a
+   * URL or query holding a value of the workdir's `.env` (written by `prepare`) gets Claude's deny
+   * naming the file and key, any other web call the adapter's marker without a decision
+   * (`webGateAnswer` in `capture.ts`). A `PermissionRequest` call, and every waiting call without
+   * it, is never answered.
+   */
+  readonly webGate?: true;
+  /**
    * `review` for a reviewer session (0019 section 4): the plan of the review kind, its report
    * schema, every installed plugin switched off, and `kind` in `meta.json`.
    */
   readonly kind?: "review";
 }
+
+/**
+ * The `web` scenario's fixed text (0020 section 11b, DIPO-164): a query, a URL, and a URL holding a
+ * value of the fixture's `.env`. The value is synthetic. `derive.ts` builds the `web-calls`
+ * recording from the same text.
+ */
+export const WEB_QUERY = "bun test runner documentation";
+export const WEB_URL = "https://bun.sh/docs/cli/test";
+export const WEB_ENV_FILE = ".env";
+export const WEB_ENV_KEY = "FIXTURE_API_KEY";
+export const WEB_ENV_VALUE = "fixture-env-value-7f3a9c";
+export const WEB_REFUSED_URL = `https://example.com/lookup?token=${WEB_ENV_VALUE}`;
 
 export const SYSTEM_PROMPT = [
   "You are a worker in a synthetic fixture repository used to record Claude Code output.",
@@ -324,6 +344,25 @@ const SCENARIOS_BASE: readonly Scenario[] = [
     expected:
       "With the hook relay registered, the write outside the worktree reaches the PermissionRequest hook, whose payload is a ch: hook line. The fixture host never answers, so after timeouts.permissionWaitSeconds (10 s here) the call is denied and the worker continues: with the maintainer present the engine emits question.asked (kind permission) and work.observed input-wait first.",
     timeoutMs: 240_000,
+  },
+  {
+    name: "web",
+    fixture: "greeter",
+    model: "haiku",
+    effort: "low",
+    maxTurns: 8,
+    tools: ["Read", "WebSearch", "WebFetch"],
+    turns: [
+      `Use the WebSearch tool to search for "${WEB_QUERY}". Then use the WebFetch tool on ${WEB_URL} with the prompt "one line summary". Then use the WebFetch tool on ${WEB_REFUSED_URL} with the prompt "read". If a call is denied, do not retry it or work around it. ` +
+        report("done", "Made the web calls.", "chore: record web calls"),
+    ],
+    prepare: (paths) =>
+      writeFileSync(join(paths.workdir, WEB_ENV_FILE), `${WEB_ENV_KEY}=${WEB_ENV_VALUE}\n`),
+    hookRelay: { waitSeconds: 10 },
+    webGate: true,
+    expected:
+      "With worker.web the run settings allow WebSearch and WebFetch and register the PreToolUse hook for them. The WebSearch and the first WebFetch are let through (the gate prints nothing, so the run settings' allow rules decide) and show with their query and URL; the second WebFetch, whose URL holds the value of the workdir's .env, is denied by the hook with a reason naming .env and FIXTURE_API_KEY and not the value. Each PreToolUse payload is a ch: hook line.",
+    timeoutMs: 300_000,
   },
   {
     name: "interrupt",

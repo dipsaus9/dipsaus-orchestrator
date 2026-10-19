@@ -23,11 +23,16 @@ export interface OutputPrivacy {
 
 export const DEFAULT_OUTPUT_PRIVACY: OutputPrivacy = { storeCommandBodies: false };
 
+/** `input` as one line, whole: every run of whitespace or control characters is one space. */
+export function flatInput(input: string): string {
+  // Line breaks, tabs and escapes all become one space.
+  // oxlint-disable-next-line no-control-regex
+  return input.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+}
+
 /** `input` as one line of at most `INPUT_MAX_CHARS` characters, cut with a marker. */
 export function oneLineInput(input: string): string {
-  // Every run of whitespace or control characters (line breaks, tabs, escapes) is one space.
-  // oxlint-disable-next-line no-control-regex
-  const line = input.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+  const line = flatInput(input);
   const chars = Array.from(line);
   if (chars.length <= INPUT_MAX_CHARS) return line;
   const cut = chars.length - INPUT_MAX_CHARS;

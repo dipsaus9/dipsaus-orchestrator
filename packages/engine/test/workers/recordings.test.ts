@@ -66,6 +66,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "success-single": ["done", null],
   "success-tools-subagent": ["done", null],
   terminated: ["crashed", "worker-failed"],
+  // DIPO-164: derived from the first turn of success-tools-subagent, whose report says blocked.
+  "web-calls": ["blocked", "ambiguous-spec"],
   "worker-park-ambiguous": ["blocked", "ambiguous-spec"],
 };
 

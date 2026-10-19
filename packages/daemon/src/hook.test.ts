@@ -3,12 +3,27 @@
 // every failure. A small line-socket server stands in for the worker host.
 
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { listenLineSocket, systemClock } from "@dipsaus-orchestrator/engine";
+import type { ChildExit, ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
+import {
+  CLAUDE_GATE_NO_DECISION_MARKER,
+  connectHost,
+  hostSocketPath,
+  LAUNCH_FILE,
+  listenLineSocket,
+  systemClock,
+  WorkerHost,
+  type HostClient,
+  type HostLaunch,
+} from "@dipsaus-orchestrator/engine";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  GATE_FAILED_REASON,
+  GATE_NO_ANSWER_REASON,
+  gateDenyOutput,
   HOOK_DEADLINE_MS,
   NUDGE_REPLY_MARGIN_MS,
   parseHookArgs,
@@ -30,6 +45,14 @@ function io(env: Record<string, string>, input: string | null, out: string[]): D
     readInput: async () => input,
   };
 }
+
+/** A PreToolUse payload of a WebFetch call for `url` (DIPO-164). */
+const PAYLOAD = (url: string) =>
+  JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "WebFetch",
+    tool_input: { url, prompt: "summarise" },
+  });
 
 /** A host that answers the handshake with version 2 and every hook op with `output`. */
 function fakeHost(path: string, output: string, frames: unknown[]) {
@@ -219,6 +242,270 @@ describe("dipo hook --nudge (DIPO-60 AC #3)", () => {
         expect(out).toEqual([]);
       } finally {
         await server.stop();
+      }
+    }));
+});
+
+describe("dipo hook --gate (DIPO-164; 0020 section 11b)", () => {
+  const DENY_NO_ANSWER = gateDenyOutput(GATE_NO_ANSWER_REASON);
+
+  it("parses --gate without a value", () => {
+    expect(parseHookArgs(["PreToolUse", "--gate"])).toEqual({ event: "PreToolUse", gate: true });
+    expect(parseHookArgs(["PreToolUse", "--gate", "5"])).toBeNull();
+  });
+
+  it("keeps a URL or query whole, never cut, and drops the rest of the tool input", () => {
+    const url = `https://x.test/?q=${"a".repeat(5000)}`;
+    const kept = JSON.parse(trimPayload(PAYLOAD(url), false, true)) as {
+      tool_input: Record<string, unknown>;
+    };
+    expect(kept.tool_input).toEqual({ url });
+    const search = JSON.stringify({ tool_name: "WebSearch", tool_input: { query: "q", x: "y" } });
+    expect(JSON.parse(trimPayload(search, false, true))).toEqual({
+      tool_name: "WebSearch",
+      tool_input: { query: "q" },
+    });
+  });
+
+  it("prints the engine's deny as is, nothing for the engine's pass marker, and a deny for an empty or any other answer", () =>
+    withTempDir(async (dir) => {
+      const deny = gateDenyOutput("The URL contains a value from .env (KEY); never send it.");
+      const cases = [
+        [deny, [deny]],
+        // The pass carries no decision: empty stdout and exit 0, so Claude's own permission rules
+        // (the run settings' allow, and any deny rule) decide the call.
+        [CLAUDE_GATE_NO_DECISION_MARKER, []],
+        // The worker host's own answer when nobody decided: never an allow (0020 section 11b).
+        ["", [DENY_NO_ANSWER]],
+        // An explicit allow would bypass Claude's permission rules: only the marker passes.
+        [
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}',
+          [DENY_NO_ANSWER],
+        ],
+        [
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}',
+          [DENY_NO_ANSWER],
+        ],
+        [`${CLAUDE_GATE_NO_DECISION_MARKER}\n`, [DENY_NO_ANSWER]],
+        ["allow", [DENY_NO_ANSWER]],
+      ] as const;
+      for (const [index, [answer, printed]] of cases.entries()) {
+        const socket = join(dir, `g${index}.sock`);
+        const frames: Record<string, unknown>[] = [];
+        const server = slowHost(socket, answer, frames, 20);
+        try {
+          const out: string[] = [];
+          const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+          const code = await runHookForm(
+            ["PreToolUse", "--gate"],
+            io(env, PAYLOAD("https://x.test"), out),
+          );
+          expect({ code, out }).toEqual({ code: 0, out: [...printed] });
+          const op = frames.find((frame) => frame["op"] === "hook");
+          expect(op?.["waitMs"]).toBeGreaterThan(0);
+          expect(op?.["waitMs"]).toBeLessThanOrEqual(HOOK_DEADLINE_MS - NUDGE_REPLY_MARGIN_MS);
+          expect(String(op?.["payload"])).toContain("https://x.test");
+        } finally {
+          await server.stop();
+        }
+      }
+    }));
+
+  it("prints a deny within 2 s when the engine does not answer", () =>
+    withTempDir(async (dir) => {
+      const socket = join(dir, "never.sock");
+      const server = slowHost(socket, "late", [], null);
+      try {
+        const out: string[] = [];
+        const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+        const started = systemClock.now();
+        const code = await runHookForm(
+          ["PreToolUse", "--gate"],
+          io(env, PAYLOAD("https://x.test"), out),
+        );
+        expect(code).toBe(0);
+        expect(systemClock.now() - started).toBeLessThan(2_000);
+        expect(out).toEqual([DENY_NO_ANSWER]);
+        expect(JSON.parse(DENY_NO_ANSWER)).toEqual({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: GATE_NO_ANSWER_REASON,
+          },
+        });
+      } finally {
+        await server.stop();
+      }
+    }));
+
+  it("fails closed on every other failure: no socket, an unreachable host, no payload", () =>
+    withTempDir(async (dir) => {
+      const env = { DIPO_HOST_SOCKET: join(dir, "none.sock"), DIPO_RUN: RUN };
+      for (const [e, input] of [
+        [{}, PAYLOAD("https://x.test")],
+        [env, PAYLOAD("https://x.test")],
+        [env, null],
+      ] as const) {
+        const out: string[] = [];
+        expect(await runHookForm(["PreToolUse", "--gate"], io(e, input, out))).toBe(0);
+        expect(out).toEqual([DENY_NO_ANSWER]);
+      }
+      // Arguments that do not parse still fail closed.
+      const out: string[] = [];
+      expect(await runHookForm(["PreToolUse", "--gate", "x"], io(env, "{}", out))).toBe(0);
+      expect(out).toEqual([DENY_NO_ANSWER]);
+    }));
+
+  it("exits 2 with the reason on stderr when it cannot print its decision", async () => {
+    const errors: string[] = [];
+    const failing: DaemonIo = {
+      ...io({}, PAYLOAD("https://x.test"), []),
+      write: () => {
+        throw new Error("EPIPE");
+      },
+      writeError: (line) => errors.push(line),
+    };
+    expect(await runHookForm(["PreToolUse", "--gate"], failing)).toBe(2);
+    expect(errors).toEqual([GATE_FAILED_REASON]);
+    // Not even stderr: still 2.
+    const silent: DaemonIo = {
+      ...failing,
+      writeError: () => {
+        throw new Error("EPIPE");
+      },
+    };
+    expect(await runHookForm(["PreToolUse", "--gate"], silent)).toBe(2);
+  });
+});
+
+/** A worker that runs until `end` is called (as in the engine's host tests). */
+function heldWorker(): { spawn: Spawn; end: () => void } {
+  let end!: () => void;
+  const exited = new Promise<ChildExit>((resolve) => {
+    end = () => resolve({ code: 0, signal: null });
+  });
+  const closed = () =>
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await exited;
+        controller.close();
+      },
+    });
+  const child: ChildProcess = {
+    pid: 4242,
+    stdin: { write: () => 0, end: () => undefined } as unknown as ChildProcess["stdin"],
+    stdout: closed(),
+    stderr: closed(),
+    exited,
+    kill: () => undefined,
+  };
+  return { spawn: () => child, end };
+}
+
+/** A real `WorkerHost` in this process on a held worker, for the relay to reach. */
+async function withWorkerHost(
+  fn: (ctx: { host: WorkerHost; socket: string }) => Promise<void>,
+): Promise<void> {
+  await withTempDir(async (dir) => {
+    const runDir = join(dir, "run");
+    mkdirSync(runDir, { recursive: true });
+    const socket = hostSocketPath(join(dir, "rt"), RUN);
+    const launch: HostLaunch = {
+      version: 1,
+      run: RUN,
+      agent: "agt_01JZ0000000000000000000009",
+      socket,
+      plan: { argv: ["/usr/local/bin/claude", "-p"], env: {}, cwd: dir, files: [], stdin: [] },
+    };
+    writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(launch), { mode: 0o600 });
+    const worker = heldWorker();
+    const host = WorkerHost.start({
+      runId: RUN,
+      runDir,
+      clock: systemClock,
+      spawn: worker.spawn,
+      killGroup: () => undefined,
+      pid: 777,
+    });
+    try {
+      await fn({ host, socket });
+    } finally {
+      worker.end();
+      await host.done;
+    }
+  });
+}
+
+async function watchingEngine(socket: string): Promise<HostClient> {
+  const connected = await connectHost(socket, { runId: RUN, clock: systemClock, timeoutMs: 2000 });
+  if (!connected.ok) throw new Error(`cannot connect: ${connected.reason}`);
+  await connected.client.watch(() => undefined);
+  return connected.client;
+}
+
+/** One `dipo hook PreToolUse --gate` call for a WebFetch, relayed to `socket`. */
+async function gate(socket: string): Promise<{ code: number; out: string[] }> {
+  const out: string[] = [];
+  const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+  const code = await runHookForm(["PreToolUse", "--gate"], io(env, PAYLOAD("https://x.test"), out));
+  return { code, out };
+}
+
+describe("dipo hook --gate against the real worker host (DIPO-164 review)", () => {
+  const DENY_NO_ANSWER = gateDenyOutput(GATE_NO_ANSWER_REASON);
+
+  it("denies when no engine watches the host (the daemon is down or restarting)", () =>
+    withWorkerHost(async ({ socket }) => {
+      expect(await gate(socket)).toEqual({ code: 0, out: [DENY_NO_ANSWER] });
+    }));
+
+  it("denies when the engine watches but its answer does not come before the host's wait passes", () =>
+    withWorkerHost(async ({ host, socket }) => {
+      const client = await watchingEngine(socket);
+      try {
+        const started = systemClock.now();
+        const call = gate(socket);
+        for (let i = 0; i < 200 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+        // The host held the call, then answered it empty once its wait passed.
+        expect(host.pendingHooks).toHaveLength(1);
+        expect(await call).toEqual({ code: 0, out: [DENY_NO_ANSWER] });
+        expect(systemClock.now() - started).toBeLessThan(2_000);
+      } finally {
+        client.close();
+      }
+    }));
+
+  it("denies when the host cannot relay the call (relayHook returns null)", () =>
+    withWorkerHost(async ({ host, socket }) => {
+      const client = await watchingEngine(socket);
+      try {
+        host.relayHook = () => null;
+        expect(await gate(socket)).toEqual({ code: 0, out: [DENY_NO_ANSWER] });
+      } finally {
+        client.close();
+      }
+    }));
+
+  it("lets the call on to Claude's permission rules only on the engine's pass marker", () =>
+    withWorkerHost(async ({ host, socket }) => {
+      const client = await watchingEngine(socket);
+      try {
+        for (const [reply, printed] of [
+          ["", [DENY_NO_ANSWER]],
+          [
+            '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}',
+            [DENY_NO_ANSWER],
+          ],
+          [CLAUDE_GATE_NO_DECISION_MARKER, []],
+        ] as const) {
+          const call = gate(socket);
+          for (let i = 0; i < 200 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+          const [hook] = host.pendingHooks;
+          await client.request({ op: "hookReply", hook: hook ?? 0, output: reply });
+          expect(await call).toEqual({ code: 0, out: [...printed] });
+        }
+      } finally {
+        client.close();
       }
     }));
 });

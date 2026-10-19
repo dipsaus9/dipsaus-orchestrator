@@ -3,9 +3,12 @@
 // unit test can check that the committed copies are current. Field values the docs name but no
 // live run showed (for example `startup_failure_reason`) are marked in `meta.cites`.
 
+import { refusalText } from "../../packages/engine/src/index";
+import { WEB_ENV_FILE, WEB_ENV_KEY, WEB_QUERY, WEB_REFUSED_URL, WEB_URL } from "./scenarios";
+
 import type { Envelope, Meta, Recording } from "./format";
 import { isRecord, readRecording, serializeMeta, serializeStream, writeRecording } from "./format";
-import { redact } from "./scrub";
+import { redact, WEB_INPUT_FIELDS } from "./scrub";
 import { guardSecrets, machineNeedles } from "./secrets";
 import { budgetTokens, stdoutOf, usageChecksum } from "./usage";
 
@@ -339,6 +342,204 @@ function workerReport(lines: readonly Envelope[]): unknown {
   return result.structured_output;
 }
 
+// The web tools (0020 section 11b, DIPO-164). The worker sandbox that built this has no network, so
+// no live run with a WebSearch, a WebFetch or the PreToolUse hook exists yet; the maintainer
+// captures the `web` scenario. Until then the web recording is the live `success-tools-subagent`
+// session cut to its first turn: its init, three tool calls built on its Read call, and its
+// report turn.
+
+/** The tools a developer's system/init lists with `worker.web`. */
+const WEB_INIT_TOOLS = [
+  "Bash",
+  "Edit",
+  "Glob",
+  "Grep",
+  "Read",
+  "StructuredOutput",
+  "WebFetch",
+  "WebSearch",
+  "Write",
+];
+
+const CITE_WEB_INIT =
+  "system/init tools lists WebFetch and WebSearch besides the six of the developer role; no live run with worker.web showed them (0020 section 11b)";
+const CITE_WEB_CALLS =
+  "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source; no live run called a web tool";
+const CITE_WEB_HOOK =
+  "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query), with tool_input cut to the url or query as dipo hook PreToolUse --gate relays it; no live run registered the hook";
+const CITE_WEB_DENY =
+  "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny. A live capture keeps the error result of a web call through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the successful results are redacted here as a live capture redacts them";
+const CITE_WEB_PLAIN =
+  "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them";
+const CITE_WEB_COUNTERS =
+  "the result's usage.server_tool_use (web_search_requests 1, web_fetch_requests 2) and modelUsage webSearchRequests 1 count the three calls, the refused fetch included; no live run showed how Claude Code counts a WebFetch or a call a PreToolUse hook refused [unverified]";
+const CITE_WEB_DENIALS =
+  "the result's permission_denials holds the refused WebFetch (tool_input redacted, as a live capture redacts it), on the reading that Claude Code reports a PreToolUse deny there as it reports a permission deny (recording permission-denied); no live run showed it [unverified]";
+const CITE_WEB_REPORT =
+  "the report turn (thinking, the StructuredOutput call, num_turns, durations and usage totals, and the report with status blocked and a question about the source's background subagent) is the source's live first turn, kept as captured on purpose so the report and usage stay live data; the source's subagent_stats is dropped, as this session starts no subagent";
+
+/** The prompt of the refused WebFetch; a live capture redacts it. */
+const WEB_REFUSED_PROMPT = "Read the page.";
+
+/** One web call: the assistant tool_use, the PreToolUse hook payload and the tool result. */
+function webCall(
+  read: { readonly assistant: Envelope; readonly user: Envelope },
+  call: {
+    readonly n: number;
+    readonly t: number;
+    readonly tool: "WebSearch" | "WebFetch";
+    /** The query or URL, kept by the web rules. */
+    readonly target: string;
+    /** A WebFetch's prompt, redacted as a live capture redacts it. */
+    readonly prompt?: string;
+    /** The tool result: redacted unless the call was refused (an error result is kept). */
+    readonly result: string;
+    readonly refused?: boolean;
+  },
+): Envelope[] {
+  const id = `toolu-w${call.n}`;
+  const field = WEB_INPUT_FIELDS[call.tool] ?? "url";
+  const input: Data = {
+    [field]: call.target,
+    ...(call.prompt === undefined ? {} : { prompt: redact(call.prompt) }),
+  };
+  const assistant = clone(read.assistant.data as Data);
+  const message = clone(assistant.message as Data);
+  assistant.message = {
+    ...message,
+    id: `msg-w${call.n}`,
+    content: [{ type: "tool_use", id, name: call.tool, input, caller: { type: "direct" } }],
+  };
+  assistant.wire_tool_inputs = { [id]: input };
+  assistant.uuid = `uuid-w${call.n}a`;
+  assistant.request_id = `req-w${call.n}`;
+  const user = clone(read.user.data as Data);
+  user.message = {
+    role: "user",
+    content: [
+      {
+        tool_use_id: id,
+        type: "tool_result",
+        content: call.refused === true ? call.result : redact(call.result),
+        ...(call.refused === true ? { is_error: true } : {}),
+      },
+    ],
+  };
+  user.uuid = `uuid-w${call.n}b`;
+  delete user.tool_use_result;
+  delete user.tool_result_meta;
+  return [
+    { t: call.t, ch: "stdout", data: assistant },
+    {
+      t: call.t + 4,
+      ch: "hook",
+      data: {
+        session_id: "session-1",
+        transcript_path: "${TRANSCRIPT}",
+        cwd: "${WORKDIR}",
+        permission_mode: "default",
+        hook_event_name: "PreToolUse",
+        tool_name: call.tool,
+        // `dipo hook PreToolUse --gate` relays only the query or URL of the tool input.
+        tool_input: { [field]: call.target },
+        tool_use_id: id,
+      },
+    },
+    { t: call.t + 600, ch: "stdout", data: user },
+  ];
+}
+
+/**
+ * The source's first turn as a developer's with web tools: its init header, a WebSearch, a WebFetch
+ * and a WebFetch the PreToolUse hook refused, then its report turn from the first thinking
+ * block; the second turn is dropped.
+ */
+function withWebCalls(lines: readonly Envelope[]): Envelope[] {
+  const firstResult = indexOf(lines, (line) => isType(line, "result"));
+  const readCall = indexOf(lines, (line) => isType(line, "assistant"));
+  const read = {
+    assistant: at(lines, readCall),
+    user: at(
+      lines,
+      indexOf(lines, (line) => isType(line, "user"), readCall),
+    ),
+  };
+  const header = lines.slice(0, indexOf(lines, isInit) + 2).map(clone);
+  // The report turn starts after the source's last background task change (its subagent ended).
+  const first =
+    lastIndexOf(
+      lines.slice(0, firstResult),
+      (line) =>
+        isType(line, "system") && (line.data as Data).subtype === "background_tasks_changed",
+    ) + 1;
+  const t0 = at(lines, first).t;
+  const calls = [
+    webCall(read, {
+      n: 1,
+      t: t0,
+      tool: "WebSearch",
+      target: WEB_QUERY,
+      result: `Web search results for "${WEB_QUERY}": 1 result.`,
+    }),
+    webCall(read, {
+      n: 2,
+      t: t0 + 1_000,
+      tool: "WebFetch",
+      target: WEB_URL,
+      prompt: "Summarise how to run a single test file.",
+      result: "bun test runs files matching *.test.ts; pass a path to run one file.",
+    }),
+    webCall(read, {
+      n: 3,
+      t: t0 + 2_000,
+      tool: "WebFetch",
+      target: WEB_REFUSED_URL,
+      prompt: WEB_REFUSED_PROMPT,
+      result: refusalText("WebFetch", { file: WEB_ENV_FILE, key: WEB_ENV_KEY }),
+      refused: true,
+    }),
+  ].flat();
+  const shift = 2_000 + 1_200 - (at(lines, first).t - t0);
+  const tail = lines
+    .slice(first, firstResult + 1)
+    .map((line) => ({ ...clone(line), t: line.t + shift }));
+  const last = tail.at(-1)?.t ?? t0;
+  return [
+    ...header.map((line) => (isInit(line) ? withInitTools(line) : line)),
+    ...calls,
+    ...tail.map((line) => (isType(line, "result") ? withWebResult(line) : line)),
+    exit(last + 60, 0),
+  ];
+}
+
+function withInitTools(line: Envelope): Envelope {
+  return { ...line, data: { ...clone(line.data as Data), tools: WEB_INIT_TOOLS } };
+}
+
+/**
+ * The source's first result with the web calls counted and its subagent leftovers dropped: the
+ * server tool counters (1 search, 2 fetches) in `usage` and `modelUsage`, the refused fetch in
+ * `permission_denials` (its input redacted, as a live capture redacts it), and no
+ * `subagent_stats`, as this session started no subagent.
+ */
+function withWebResult(line: Envelope): Envelope {
+  const result = clone(line.data as Data);
+  const usage = result.usage as Data;
+  usage.server_tool_use = { web_search_requests: 1, web_fetch_requests: 2 };
+  for (const entry of Object.values(result.modelUsage as Record<string, Data>)) {
+    entry.webSearchRequests = 1;
+  }
+  result.permission_denials = [
+    {
+      tool_name: "WebFetch",
+      tool_use_id: "toolu-w3",
+      tool_input: { url: redact(WEB_REFUSED_URL), prompt: redact(WEB_REFUSED_PROMPT) },
+    },
+  ];
+  delete result.subagent_stats;
+  return { ...line, data: result };
+}
+
 export const TRANSFORMS: readonly Transform[] = [
   {
     name: "terminated",
@@ -574,6 +775,25 @@ export const TRANSFORMS: readonly Transform[] = [
       "The engine sees budget tokens (input + output + cache creation) pass the tier's budgetTokens, stops the worker and parks budget-exceeded; never raises the budget.",
     apply: (lines) => lines.map(clone),
     testConfig: (lines) => ({ budgetTokens: Math.floor(budgetTokens(lines) / 2) }),
+  },
+  {
+    name: "web-calls",
+    from: "success-tools-subagent",
+    transform:
+      "The first turn only; system/init lists WebFetch and WebSearch; a WebSearch, a WebFetch and a WebFetch whose URL holds a fixture env value, each with its PreToolUse hook line and tool result (the third refused, its result naming the env file and key and not the value); then the source's report turn.",
+    expected:
+      "Each web call shows in the worker output with its query or URL, and the calls are counted by tool: 1 WebSearch and 2 WebFetch. The PreToolUse hook lines relay the whole query or URL; the engine denies the third, whose URL holds a value from the fixture env file, naming the file and key and never the value (0020 section 11b).",
+    cites: [
+      CITE_WEB_INIT,
+      CITE_WEB_CALLS,
+      CITE_WEB_HOOK,
+      CITE_WEB_DENY,
+      CITE_WEB_PLAIN,
+      CITE_WEB_COUNTERS,
+      CITE_WEB_DENIALS,
+      CITE_WEB_REPORT,
+    ],
+    apply: withWebCalls,
   },
   {
     name: "review-approved",

@@ -11,9 +11,10 @@ import {
   scrubCapture,
   STDOUT_RULES,
   valuesAt,
+  WEB_INPUT_FIELDS,
 } from "./scrub";
 import { guardSecrets, SecretFoundError } from "./secrets";
-import { serializeStream } from "./format";
+import { readRecording, serializeStream } from "./format";
 import { stdoutOf, usageChecksum } from "./usage";
 
 const ROOTS = [
@@ -407,5 +408,130 @@ describe("normaliser on keys", () => {
     }) as Record<string, any>;
     expect(assistant.message.content[0].id).toBe("toolu-1");
     expect(Object.keys(assistant.wire_tool_inputs)).toEqual(["toolu-1"]);
+  });
+});
+
+function assistantCall(id: string, name: string, input: Record<string, unknown>) {
+  return {
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id, name, input }] },
+    wire_tool_inputs: { [id]: input },
+  };
+}
+
+function toolResult(id: string, content: unknown, isError?: true) {
+  return {
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: id, content, ...(isError ? { is_error: true } : {}) },
+      ],
+    },
+  };
+}
+
+/** The web text of a recording: PreToolUse inputs, web tool_use and wire inputs, tool results. */
+function webText(lines: readonly Envelope[]): unknown[] {
+  return lines.flatMap((line) => {
+    const data = line.data as Record<string, any>;
+    if (line.ch === "hook") {
+      const field = WEB_INPUT_FIELDS[data.tool_name];
+      return data.hook_event_name === "PreToolUse" && field !== undefined ? [data.tool_input] : [];
+    }
+    if (line.ch !== "stdout" || !Array.isArray(data.message?.content)) return [];
+    return (data.message.content as Record<string, any>[]).flatMap((block) => {
+      if (block.type === "tool_use" && WEB_INPUT_FIELDS[block.name] !== undefined) {
+        return [block.input, data.wire_tool_inputs];
+      }
+      return block.type === "tool_result" ? [block.content] : [];
+    });
+  });
+}
+
+/** Ids normalised again and redaction markers redacted again read alike; plain text stays. */
+function plain(values: readonly unknown[]): string[] {
+  return values.map((value) =>
+    JSON.stringify(value)
+      .replaceAll(/\[redacted sha256:[0-9a-f]{12} len:\d+\]/g, "[redacted]")
+      .replaceAll(/toolu-w\d|id-\d+/g, "<id>"),
+  );
+}
+
+describe("web rules (DIPO-164 review)", () => {
+  const URL = "https://example.com/lookup?token=fixture-env-value-7f3a9c";
+  const REFUSAL = "The URL contains a value from .env (FIXTURE_API_KEY); never send env values.";
+
+  it("keeps a web tool's query or URL on its tool_use, wire input and PreToolUse line, and nothing else", () => {
+    const scrubber = new Scrubber(ROOTS);
+    const fetch = scrubber.stdout(
+      assistantCall("toolu_01WEBabcdefghij", "WebFetch", { url: URL, prompt: "read it" }),
+    ) as Record<string, any>;
+    expect(fetch.message.content[0].input.url).toBe(URL);
+    expect(isRedacted(fetch.message.content[0].input.prompt)).toBe(true);
+    expect(fetch.wire_tool_inputs["toolu-1"].url).toBe(URL);
+    const search = scrubber.stdout(
+      assistantCall("toolu_01WEBsearchabcd", "WebSearch", { query: "bun test docs" }),
+    ) as Record<string, any>;
+    expect(search.message.content[0].input.query).toBe("bun test docs");
+    // Another tool's `url` or `query` stays redacted.
+    const other = scrubber.stdout(
+      assistantCall("toolu_01OTHERabcdefgh", "ToolSearch", { query: "q", url: URL }),
+    ) as Record<string, any>;
+    expect(isRedacted(other.message.content[0].input.query)).toBe(true);
+    expect(isRedacted(other.message.content[0].input.url)).toBe(true);
+
+    const hook = (tool: string, input: Record<string, unknown>) =>
+      scrubber.hook({
+        hook_event_name: "PreToolUse",
+        tool_name: tool,
+        tool_input: input,
+      }) as Record<string, any>;
+    expect(hook("WebFetch", { url: URL }).tool_input.url).toBe(URL);
+    expect(hook("WebSearch", { query: "bun test docs" }).tool_input.query).toBe("bun test docs");
+    expect(isRedacted(hook("Bash", { url: URL }).tool_input.url)).toBe(true);
+    const post = scrubber.hook({
+      hook_event_name: "PostToolUse",
+      tool_name: "WebFetch",
+      tool_input: { url: URL },
+    }) as Record<string, any>;
+    expect(isRedacted(post.tool_input.url)).toBe(true);
+  });
+
+  it("keeps the error result of a web call (the hook's refusal) and redacts a fetched page", () => {
+    const scrubber = new Scrubber(ROOTS);
+    scrubber.stdout(assistantCall("toolu_01WEBabcdefghij", "WebFetch", { url: URL }));
+    scrubber.stdout(assistantCall("toolu_01READabcdefgh", "Read", { file_path: "/x" }));
+    const refused = scrubber.stdout(toolResult("toolu_01WEBabcdefghij", REFUSAL, true)) as Record<
+      string,
+      any
+    >;
+    expect(refused.message.content[0].content).toBe(REFUSAL);
+    const blocks = scrubber.stdout(
+      toolResult("toolu_01WEBabcdefghij", [{ type: "text", text: REFUSAL }], true),
+    ) as Record<string, any>;
+    expect(blocks.message.content[0].content[0].text).toBe(REFUSAL);
+    const page = scrubber.stdout(toolResult("toolu_01WEBabcdefghij", "page text")) as Record<
+      string,
+      any
+    >;
+    expect(isRedacted(page.message.content[0].content)).toBe(true);
+    const read = scrubber.stdout(toolResult("toolu_01READabcdefgh", "error text", true)) as Record<
+      string,
+      any
+    >;
+    expect(isRedacted(read.message.content[0].content)).toBe(true);
+  });
+
+  it("keep through a capture exactly the web text the derived web-calls recording shows (its cites)", () => {
+    const recording = readRecording("web-calls");
+    const scrubber = new Scrubber(ROOTS);
+    const captured = recording.lines.map((line) => scrubber.envelope(line));
+    const kept = webText(recording.lines);
+    // The three hook lines, three tool_use inputs and wire inputs, and the four results.
+    expect(kept).toHaveLength(13);
+    expect(plain(webText(captured))).toEqual(plain(kept));
+    expect(plain(kept).filter((text) => text.includes("fixture-env-value"))).toHaveLength(3);
+    expect(plain(kept).some((text) => text.includes(".env (FIXTURE_API_KEY)"))).toBe(true);
   });
 });
