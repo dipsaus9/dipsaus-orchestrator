@@ -11,7 +11,6 @@ import {
   gatherContext,
   gitBlobId,
   isSecretPath,
-  listingTruncationMarker,
   packDigest,
   truncationMarker,
 } from "../../src/context";
@@ -45,7 +44,7 @@ describe("default provider: scope", () => {
     expect(gitBlobId(new Uint8Array())).toBe("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
     expect(pack.provenance).toEqual({
       provider: "default",
-      version: "1",
+      version: "2",
       indexState: "ready",
       staleFiles: [],
       notes: [],
@@ -71,27 +70,98 @@ describe("default provider: scope", () => {
     expect(pack.truncated).toBe(true);
   });
 
-  it("lists a directory breadth first, at most 200 entries", async () => {
+  it("summarises a directory: its file count and 15 files, in name order without history", async () => {
     const files: Record<string, string> = { "pkg/z.ts": "", "pkg/a/deep/x.ts": "", "pkg/b.ts": "" };
-    for (let i = 0; i < 250; i += 1) files[`pkg/many/f${String(i).padStart(3, "0")}.ts`] = "";
+    for (let i = 0; i < 120; i += 1) files[`pkg/many/f${String(i).padStart(3, "0")}.ts`] = "";
     const pack = await gather(files, { scope: ["pkg/"] }, 1_000_000);
     const [item] = pack.items;
-    const entries = item?.text.split("\n") ?? [];
     expect(item?.path).toBe("pkg/");
-    expect(item?.reason).toEqual({ kind: "scope-dir", scope: "pkg/", shown: 200, total: 256 });
-    // Level 1, then level 2 (a/deep/, many/f000..), never a file's contents.
-    expect(entries.slice(0, 7)).toEqual([
-      "pkg/a/",
+    expect(item?.reason).toEqual({ kind: "scope-dir", scope: "pkg/", shown: 15, total: 123 });
+    expect(item?.text.split("\n")).toEqual([
+      "pkg/a/deep/x.ts",
       "pkg/b.ts",
-      "pkg/many/",
-      "pkg/z.ts",
-      "pkg/a/deep/",
-      "pkg/many/f000.ts",
-      "pkg/many/f001.ts",
+      ...Array.from({ length: 13 }, (_, i) => `pkg/many/f${String(i).padStart(3, "0")}.ts`),
     ]);
   });
 
-  it("marks a missing path new and lists its nearest existing parent", async () => {
+  it("orders a directory by the workspace's last commits, newest first, the rest by name", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 20; i += 1) files[`pkg/f${String(i).padStart(2, "0")}.ts`] = "";
+    const base = memoryWorkspace(files);
+    const seen: unknown[] = [];
+    const workspace = {
+      ...base,
+      filesByLastCommit: async (sha: string, dir: string) => {
+        seen.push([sha, dir]);
+        return ["pkg/f19.ts", "pkg/f03.ts", "pkg/gone.ts", "pkg/f07.ts"];
+      },
+    };
+    const pack = await createDefaultProvider({ workspace }).gather(
+      request({ scope: ["pkg/"], baseSha: "c".repeat(40) }),
+      12_000,
+    );
+    expect(seen).toEqual([["c".repeat(40), "pkg"]]);
+    expect(pack.items[0]?.text.split("\n")).toEqual([
+      "pkg/f19.ts",
+      "pkg/f03.ts",
+      "pkg/f07.ts",
+      ...Array.from({ length: 14 }, (_, i) => `pkg/f${String(i).padStart(2, "0")}.ts`).filter(
+        (f) => f !== "pkg/f03.ts" && f !== "pkg/f07.ts",
+      ),
+    ]);
+    expect(pack.items[0]?.reason).toMatchObject({ shown: 15, total: 20 });
+  });
+
+  it("gives no item for the decision records and recording data unless the story names a path in them", async () => {
+    const files: Record<string, string> = {
+      "docs/decisions/0001-a.md": "",
+      "docs/decisions/0002-b.md": "",
+      "packages/engine/test/recordings/claude-cli/r1.json": "",
+      "tools/recordings/a.ts": "",
+      "tools/recordings/b.ts": "",
+    };
+    const scope = [
+      "docs/decisions/",
+      "packages/engine/test/recordings/claude-cli/",
+      "tools/recordings/",
+    ];
+    const unnamed = await gather(files, { scope });
+    expect(kinds(unnamed.items)).toEqual(["scope-dir tools/recordings/"]);
+    expect(unnamed.items[0]?.reason).toEqual({
+      kind: "scope-dir",
+      scope: "tools/recordings/",
+      shown: 2,
+      total: 2,
+    });
+    const named = await gather(files, {
+      scope,
+      outcome: "Record the change in docs/decisions/0002-b.md.",
+      criteria: ["Read packages/engine/test/recordings/claude-cli/r1.json."],
+    });
+    expect(kinds(named.items)).toEqual([
+      "scope-dir docs/decisions/",
+      "scope-dir packages/engine/test/recordings/claude-cli/",
+      "scope-dir tools/recordings/",
+    ]);
+    // Naming the directory itself is not naming a path inside it.
+    const bare = await gather(files, { scope, outcome: "Slim docs/decisions/ down." });
+    expect(kinds(bare.items)).toEqual(["scope-dir tools/recordings/"]);
+  });
+
+  it("shows a 10,000-character scope file as its head with the cut marker", async () => {
+    const big = lines(250); // 10,000 characters
+    const pack = await gather({ "src/big.ts": big }, { scope: ["src/big.ts"] });
+    const [item] = pack.items;
+    const to = item?.range?.to ?? 0;
+    expect(to).toBeGreaterThan(0);
+    expect(item?.text.length).toBeLessThanOrEqual(4_000);
+    expect(item?.text).toBe(
+      big.slice(0, to * 40) + truncationMarker(to * 40, 10_000, "src/big.ts", to + 1),
+    );
+    expect(item?.reason).toMatchObject({ kind: "scope-file", truncated: true });
+  });
+
+  it("marks a missing path new and summarises its nearest existing parent", async () => {
     const pack = await gather(
       { "src/x.ts": "", "src/sub/y.ts": "", "README.md": "" },
       { scope: ["src/context/new/file.ts"] },
@@ -99,7 +169,7 @@ describe("default provider: scope", () => {
     expect(pack.items).toEqual([
       {
         path: "src/context/new/file.ts",
-        text: "src/sub/\nsrc/x.ts",
+        text: "src/sub/y.ts\nsrc/x.ts",
         reason: {
           kind: "scope-new",
           scope: "src/context/new/file.ts",
@@ -411,29 +481,7 @@ describe("default provider: secret files", () => {
   });
 });
 
-describe("default provider: listing truncation", () => {
-  it("cuts a long directory listing with the listing marker, no file line", async () => {
-    const files: Record<string, string> = {};
-    for (let i = 0; i < 150; i += 1) {
-      files[`pkg/${"n".repeat(40)}${String(i).padStart(3, "0")}.ts`] = "";
-    }
-    const pack = await gather(files, { scope: ["pkg/"] }, 1_000_000);
-    const [item] = pack.items;
-    const reason = item?.reason;
-    if (reason?.kind !== "scope-dir") throw new Error("expected a scope-dir item");
-    const shownLines = (item?.text.split("\n") ?? []).slice(0, -1);
-    expect(reason.total).toBe(150);
-    expect(reason.shown).toBe(shownLines.length);
-    expect(reason.shown).toBeLessThan(150);
-    const full = Object.keys(files).toSorted().join("\n");
-    const shownChars = shownLines.join("\n").length + 1;
-    expect(item?.text).toBe(
-      `${shownLines.join("\n")}\n${listingTruncationMarker(shownChars, full.length, "pkg/")}`,
-    );
-    expect(item?.text.includes("from line")).toBe(false);
-    expect(item?.text.length).toBeLessThanOrEqual(4_000);
-  });
-
+describe("default provider: component listing truncation", () => {
   it("cuts a long component file list with the listing marker", async () => {
     const files: Record<string, string> = {
       ".dipo/components.yaml": 'components:\n  engine: { paths: ["engine/**"] }\n',
