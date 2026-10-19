@@ -51,6 +51,11 @@ export interface IndexResult {
   readonly read: readonly BacklogStory[];
   /** Claimed stories whose branch could not be read. */
   readonly branchUnread: readonly BranchUnread[];
+  /**
+   * The status each claimed story read on its branch has on `_base`, by story key (DIPO-216):
+   * `read` holds the branch's status, reconcile needs this one to see a story Done on the base.
+   */
+  readonly baseStatus: ReadonlyMap<StoryKey, string>;
 }
 
 function messageOf(error: unknown): string {
@@ -89,7 +94,7 @@ export async function indexPass(
   const location = deps.git.worktreeLocation(basePath);
   const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
   const fromBase = await readBacklog(deps.cli, basePath);
-  const { read, branchUnread } = await overlayClaimed(deps, git, basePath, fromBase);
+  const { read, branchUnread, baseStatus } = await overlayClaimed(deps, git, basePath, fromBase);
   const at = deps.clock.now();
   return deps.office.immediate(() => {
     const { stats, entries } = applyIndex(deps.office, deps.ids, read, {
@@ -98,7 +103,7 @@ export async function indexPass(
       sha,
     });
     const cursor = appendEntries(deps.office, entries, { at });
-    return { stats, sha, cursor, read, branchUnread };
+    return { stats, sha, cursor, read, branchUnread, baseStatus };
   });
 }
 
@@ -108,9 +113,14 @@ async function overlayClaimed(
   session: GitSession,
   basePath: string,
   fromBase: readonly BacklogStory[],
-): Promise<{ read: BacklogStory[]; branchUnread: BranchUnread[] }> {
+): Promise<{
+  read: BacklogStory[];
+  branchUnread: BranchUnread[];
+  baseStatus: Map<StoryKey, string>;
+}> {
   const read = [...fromBase];
   const branchUnread: BranchUnread[] = [];
+  const baseStatus = new Map<StoryKey, string>();
   for (const claim of liveClaims(deps.office)) {
     if (!readsOnBranch(claim)) continue;
     // The story's id as the engine knows it now; a story renumbered by hand meanwhile is matched
@@ -130,6 +140,7 @@ async function overlayClaimed(
         ...onBranch,
         ...(listed.gateTask === undefined ? {} : { gateTask: listed.gateTask }),
       };
+      baseStatus.set(claim.key, listed.status);
     } catch (error) {
       branchUnread.push({
         key: claim.key,
@@ -140,7 +151,7 @@ async function overlayClaimed(
       });
     }
   }
-  return { read, branchUnread };
+  return { read, branchUnread, baseStatus };
 }
 
 export interface RefreshOptions {

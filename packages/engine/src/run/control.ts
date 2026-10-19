@@ -8,7 +8,10 @@
 //   (`caps.ts`). After the pass commits, the engine acts at the first event that decides. At
 //   100% of one it records a `cap` intent, sends the stop sequence and parks the story
 //   `budget-exceeded` naming the cap and the total at the crossing. A turn that ended at the adapter's own turn cap (the CLI backstop, `error_max_turns`)
-//   does the same at that turn, so a later turn of a queued message never overrides it.
+//   does the same at that turn, so a later turn of a queued message never overrides it. A crossing
+//   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
+//   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
+//   no cap ends the run while that path runs.
 // - Reports. A turn whose report is `blocked` parks the story: `needs-permission` with the tool and
 //   action as detail when it carries `needsPermission` (a call `--permission-prompts none` denied,
 //   0008 section 5), else `ambiguous-spec` with the question. The engine records a `park` intent
@@ -44,7 +47,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { background } from "../platform/background";
-import type { WorkerEvent } from "../workers/types";
+import type { WorkerEvent, WorkerReport } from "../workers/types";
 
 import { type CapName, type FiredCap, firedCap, runCaps, type RunCaps, runTotals } from "./caps";
 import { RunEndings } from "./control-endings";
@@ -60,6 +63,7 @@ import {
   type RunEnding,
   type StopArgs,
   type StopResult,
+  messageOf,
   type Tracked,
   type TrackedRun,
   viewOf,
@@ -68,7 +72,7 @@ import { AfterTurns } from "./control-turns";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkOutcome } from "./park";
-import { findRun, type StoredRun } from "./records";
+import { appendRunStep, findRun, type StoredRun } from "./records";
 
 export {
   CAP_TICK_MS,
@@ -149,7 +153,7 @@ export class RunControl implements RunEnder {
    */
   checkCaps(run: string): boolean {
     const tracked = this.#tracked.get(run);
-    if (tracked === undefined || tracked.ending !== null) return false;
+    if (tracked === undefined || tracked.ending !== null || tracked.capped !== null) return false;
     return this.#checkCaps(tracked);
   }
 
@@ -189,6 +193,7 @@ export class RunControl implements RunEnder {
       unstored: null,
       turns: Promise.resolve(),
       lastReport: null,
+      capped: null,
     };
     this.#tracked.set(run.runId, tracked);
     this.#arm(tracked);
@@ -219,7 +224,7 @@ export class RunControl implements RunEnder {
    */
   onEventApplied(run: string, event: WorkerEvent): void {
     const tracked = this.#tracked.get(run);
-    if (tracked === undefined || tracked.ending !== null) return;
+    if (tracked === undefined || tracked.ending !== null || tracked.capped !== null) return;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return;
     const caps = this.#capsOf(office, tracked);
@@ -236,7 +241,9 @@ export class RunControl implements RunEnder {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined || tracked.ending !== null) return;
     const outcomes = this.#deps.outcomes?.();
-    for (const event of events) {
+    // A crossing at a usage event that a done turn of the same pass follows belongs to that turn.
+    let pending: FiredCap | null = null;
+    for (const [index, event] of events.entries()) {
       if (tracked.ending !== null) return;
       if (event.t === "initRejected") {
         // 0008 section 2: stop the worker before it does anything (DIPO-51).
@@ -269,7 +276,21 @@ export class RunControl implements RunEnder {
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
       if (event.t === "turn") {
-        if (event.capped !== undefined) {
+        // A done report on the turn that crosses a cap takes the done path (0008 amendment of
+        // 2026-10-19, DIPO-205); without a finisher nothing could commit it, so the cap parks.
+        const crossed =
+          tracked.capped !== null || this.#deps.finisher === undefined
+            ? null
+            : event.capped !== undefined
+              ? { cap: "maxTurns" as const, detail: capDetail("maxTurns", event.capped) }
+              : (this.#crossings.get(event) ?? pending);
+        if (event.report?.status === "done" && crossed !== null) {
+          tracked.lastReport = event.report;
+          outcomes?.answered(viewOf(tracked));
+          this.#cappedDone(tracked, event.report, crossed);
+          continue;
+        }
+        if (event.capped !== undefined && tracked.capped === null) {
           this.#cap(tracked, "maxTurns", event.capped);
           return;
         }
@@ -307,12 +328,53 @@ export class RunControl implements RunEnder {
         }
       }
       // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
-      const fired = this.#crossings.get(event);
+      const fired = tracked.capped === null ? this.#crossings.get(event) : undefined;
       if (fired !== undefined) {
+        if (event.t !== "turn" && this.#doneTurnAhead(events, index)) {
+          pending = fired;
+          continue;
+        }
         this.#cap(tracked, fired.cap, fired.detail);
         return;
       }
     }
+  }
+
+  /** True when the first turn after `index` in the pass carries a done report a finisher handles. */
+  #doneTurnAhead(events: readonly WorkerEvent[], index: number): boolean {
+    if (this.#deps.finisher === undefined) return false;
+    const next = events.slice(index + 1).find((event) => event.t === "turn");
+    return next?.t === "turn" && next.report?.status === "done";
+  }
+
+  /**
+   * A done report arrived on the turn that crossed `crossed`: the run takes the normal done path
+   * (verify, commit, In Review) and no cap ends it meanwhile. The step keeps the crossed cap; a
+   * red verify parks `verify-failing` with cause `capped` (`verify-commit.ts`).
+   */
+  #cappedDone(tracked: Tracked, report: WorkerReport, crossed: FiredCap): void {
+    tracked.capped = crossed;
+    disarm(this.#deps.clock, tracked);
+    const office = this.#deps.offices.get(tracked.office);
+    if (office !== undefined) {
+      try {
+        office.immediate(() =>
+          appendRunStep(
+            office,
+            tracked.runId,
+            "cap",
+            `${crossed.cap}: ${crossed.detail}`,
+            this.#deps.clock.now(),
+          ),
+        );
+      } catch (error) {
+        this.#deps.warn?.("recording the cap a done turn crossed failed", {
+          run: tracked.runId,
+          reason: messageOf(error),
+        });
+      }
+    }
+    this.#turns.queue(tracked, report, undefined, crossed);
   }
 
   /**
@@ -466,6 +528,7 @@ export class RunControl implements RunEnder {
 
   /** Compares the run's totals with its caps; true when one fired and the run is ending. */
   #checkCaps(tracked: Tracked): boolean {
+    if (tracked.capped !== null) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return false;
     const caps = this.#capsOf(office, tracked);
@@ -491,8 +554,13 @@ export class RunControl implements RunEnder {
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "budget-exceeded",
       cause: PARK_CAUSES.build,
-      detail: cap === "maxTurns" && !detail.startsWith("turn cap") ? `turn cap: ${detail}` : detail,
+      detail: capDetail(cap, detail),
       endKind: "capped",
     });
   }
+}
+
+/** The detail a cap is named with; the CLI backstop's own detail gets the turn cap prefix. */
+function capDetail(cap: CapName, detail: string): string {
+  return cap === "maxTurns" && !detail.startsWith("turn cap") ? `turn cap: ${detail}` : detail;
 }

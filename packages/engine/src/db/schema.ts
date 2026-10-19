@@ -38,6 +38,7 @@ import { runRounds } from "./migrations/0034-run-rounds";
 import { usageOutputState } from "./migrations/0035-usage-output-state";
 import { storyPrs } from "./migrations/0036-story-prs";
 import { webCalls } from "./migrations/0037-web-calls";
+import { runStepCap } from "./migrations/0038-run-step-cap";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -111,4 +112,5 @@ create table offices (
   usageOutputState,
   storyPrs,
   webCalls,
+  runStepCap,
 ];

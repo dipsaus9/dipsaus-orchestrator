@@ -19,6 +19,7 @@ import type { OfficeHandle } from "../db/office";
 import type { Caps, HostOp, SteerOp, WorkerReport } from "../workers/types";
 
 import type { BackstopSnapshot } from "./backstop";
+import type { FiredCap } from "./caps";
 import type { IntentKind } from "./intents";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
@@ -133,6 +134,11 @@ export interface Tracked extends TrackedRun {
   turns: Promise<void>;
   /** The newest worker report, for the run summary. */
   lastReport: WorkerReport | null;
+  /**
+   * The cap crossed by a turn that carried a done report (DIPO-205): the run takes the done path,
+   * and no cap ends it while verify and commit run.
+   */
+  capped: FiredCap | null;
 }
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */

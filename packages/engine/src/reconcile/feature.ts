@@ -24,6 +24,7 @@ import type { Logger } from "../log/logger";
 import { readMarker } from "../office/marker";
 import type { IndexResult } from "../stories/index-stories";
 import type { ClaimRecord } from "../worktree/records";
+import type { SlotTable } from "../worktree/slots";
 
 import {
   RECONCILE_NOTICES,
@@ -55,6 +56,8 @@ export interface ReconcilerDeps {
   readonly adoptBacklogPr?: (office: OfficeId) => Promise<unknown>;
   /** Refuses a loaded office whose marker names another office (`OfficeManager.refuse`). */
   readonly refuse?: (office: OfficeId, text: string) => void;
+  /** The machine-wide port slot table; the slot of a claim released as Done on the base is freed. */
+  readonly slots?: SlotTable;
   /** Reconcile appended entries outside a command; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
@@ -165,6 +168,7 @@ export class Reconciler {
           git,
           clock: state.clock,
           ...(this.#deps.runs === undefined ? {} : { runs: this.#deps.runs }),
+          ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
           ...(releaseClaim === undefined
             ? {}
             : { releaseClaim: (claim, reason) => releaseClaim(office, claim, reason) }),

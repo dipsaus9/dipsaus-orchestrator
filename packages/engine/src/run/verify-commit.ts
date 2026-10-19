@@ -22,7 +22,9 @@
 // 4. Red. A verify feedback item (DIPO-47) with the failing command, exit code, output tail and
 //    parsed `file:line` locations is returned for run control to send as the next user message; a
 //    loop step is recorded, so `Progress.loop` increases and `verify` shows `failing`. When the red
-//    verifies of the run reach the tier loop cap, the story parks `verify-failing` instead. A verify
+//    verifies of the run reach the tier loop cap, the story parks `verify-failing` instead. A done
+//    turn that crossed a run cap (DIPO-205) has no turn left for feedback: its red verify parks
+//    `verify-failing` with cause `capped` and the failure as detail, also at the loop cap. A verify
 //    that could not start in the sandbox parks `verify-failing` at once: it never runs unsandboxed.
 // 5. Green. The run claims its end (a cap or `work.stop` after this waits for it). Exactly the
 //    scope paths and paired lockfiles are staged and committed with the worker's subject plus the
@@ -77,7 +79,7 @@ import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
 import { endRunMarked, markPhase } from "./markers";
-import { runCaps } from "./caps";
+import { type FiredCap, runCaps } from "./caps";
 import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import type { StoryGit } from "./story-git";
@@ -301,6 +303,11 @@ export interface TurnContext {
   readonly run: StoredRun;
   readonly work: WorkRef;
   readonly report: WorkerReport | null;
+  /**
+   * The cap this turn crossed while it carried a done report (DIPO-205): no turn is left for
+   * verify feedback, so a red verify parks `verify-failing` with cause `capped`.
+   */
+  readonly capped?: FiredCap | null;
   readonly snapshot: BackstopSnapshot | null;
   /** True while no other decision (a cap, a stop) ended the run. */
   readonly live: () => boolean;
@@ -466,6 +473,16 @@ export class VerifyCommit implements RunFinisher {
         },
         { root: worktree, itemMax: feedbackItemMax(config, run.tier) },
       );
+      // A done turn that crossed a cap has no turn left for feedback; `capped` wins over `loops`.
+      if (ctx.capped != null) {
+        return {
+          kind: "park",
+          reason: "verify-failing",
+          cause: PARK_CAUSES.capped,
+          detail: item.text,
+          endKind: "verify-failing",
+        };
+      }
       const loopCap = runCaps(ctx.office, run).loopCap;
       if (loop + 1 >= loopCap) {
         return {

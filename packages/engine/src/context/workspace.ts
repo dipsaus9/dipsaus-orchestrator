@@ -112,5 +112,43 @@ export function gitWorkspace(options: GitWorkspaceOptions): Workspace {
       return [...new Set(splitZ(out))].toSorted();
     },
     readFile: (path) => readInside(root, path),
+    async filesByLastCommit(sha, dir) {
+      // `-z` ends every name with NUL; each commit starts with a \x01 marker so its names can be
+      // told apart from the next commit's. Newest first, so the first sighting is the last change.
+      const out = await run([
+        "log",
+        sha,
+        "--no-renames",
+        "--name-only",
+        "-z",
+        "--format=%x01%H",
+        "--",
+        dir === "" ? "." : dir,
+      ]);
+      const seen = new Set<string>();
+      const ordered: string[] = [];
+      let commit: string[] = [];
+      const flush = () => {
+        for (const file of commit.toSorted()) {
+          if (!seen.has(file)) {
+            seen.add(file);
+            ordered.push(file);
+          }
+        }
+        commit = [];
+      };
+      for (const token of out.split("\0")) {
+        let name = token;
+        if (name.startsWith("\x01")) {
+          flush();
+          const newline = name.indexOf("\n");
+          name = newline === -1 ? "" : name.slice(newline + 1);
+        }
+        name = name.replace(/^\n+/, "");
+        if (name !== "") commit.push(name);
+      }
+      flush();
+      return ordered;
+    },
   };
 }
