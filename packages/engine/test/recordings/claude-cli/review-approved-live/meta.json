@@ -1,0 +1,75 @@
+{
+  "scenario": "review-approved-live",
+  "source": "live",
+  "claude_code_version": "2.1.302",
+  "captured_at": "2026-10-19",
+  "expected": "A reviewer's session (0019 section 4) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no installed plugin; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
+  "usage_checksum": "6570e9d3a6b711c2b3a176f02cac70cc429d4ed478c8db187d15ef8af0da7d44",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "12",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,Glob,Grep,Bash",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "${RUN}/mcp-empty.json",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--disable-slash-commands",
+    "--json-schema",
+    "<report schema sha256:6aa999968c56>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 5688,
+  "prompt_sha256": "f363fc4797aefcf07bfb1dc92815aeccf9aa7d4dc5fe2666789f322aa73b3a2b",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 1078
+    },
+    {
+      "t": 10795,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "kind": "review",
+  "checks": {
+    "worktreeClean": true,
+    "tools": ["Bash", "Glob", "Grep", "Read", "StructuredOutput"],
+    "skills": 0,
+    "plugins": 3
+  }
+}

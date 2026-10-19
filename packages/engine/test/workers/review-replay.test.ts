@@ -1,9 +1,10 @@
 // The reviewer's recordings replayed (DIPO-145; 0019 sections 4 and 5, 0017 section 2): every
-// committed recording of the review kind, derived now and live once the maintainer captured the
-// `review-*-live` scenarios, parses into the review report schema or gives its error, through the
-// adapter's parser as a review run starts it.
+// committed recording of the review kind, derived and live (the `review-*-live` scenarios), parses
+// into the review report schema or gives its error, through the adapter's parser as a review run
+// starts it.
 
 import { describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 
 import type { Recording } from "@dipsaus-orchestrator/testkit";
 
@@ -30,6 +31,43 @@ function lastResult(recording: Recording): Json {
     .at(-1);
   if (result === undefined) throw new Error(`${recording.name}: no result`);
   return result;
+}
+
+/** The input of each StructuredOutput tool use of the recording's assistant messages. */
+function structuredOutputInputs(recording: Recording): unknown[] {
+  return stdout(recording)
+    .filter((message) => message["type"] === "assistant")
+    .flatMap((message) => (message["message"] as Json)["content"] as Json[])
+    .filter((block) => block["type"] === "tool_use" && block["name"] === "StructuredOutput")
+    .map((block) => block["input"]);
+}
+
+/** The partial_json of each streamed input_json_delta, in order. */
+function partialJson(recording: Recording): string[] {
+  return stdout(recording)
+    .map((message) => (message["type"] === "stream_event" ? message["event"] : undefined))
+    .map((event) => (event as Json | undefined)?.["delta"] as Json | undefined)
+    .filter((delta) => delta?.["type"] === "input_json_delta")
+    .map((delta) => String(delta?.["partial_json"]));
+}
+
+/** The redaction marker of tools/recordings/scrub.ts. */
+const REDACTED = /^\[redacted sha256:[0-9a-f]{12} len:\d+\]$/;
+
+/** Every string redacted as a live capture redacts it; a string already redacted stays. */
+function redactStrings(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (REDACTED.test(value)) return value;
+    const hash = createHash("sha256").update(value).digest("hex").slice(0, 12);
+    return `[redacted sha256:${hash} len:${value.length}]`;
+  }
+  if (Array.isArray(value)) return value.map(redactStrings);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, redactStrings(entry)]),
+    );
+  }
+  return value;
 }
 
 async function reviewOf(name: string): Promise<ReviewReport | undefined> {
@@ -76,23 +114,24 @@ describe("review recordings", () => {
         expect(run.result.resumable).toBe(false);
       });
 
-      it("carries the result's report in the StructuredOutput tool use and its streamed deltas", () => {
-        const report = lastResult(recording)["structured_output"];
-        const messages = stdout(recording);
-        const inputs = messages
-          .filter((message) => message["type"] === "assistant")
-          .flatMap((message) => (message["message"] as Json)["content"] as Json[])
-          .filter((block) => block["type"] === "tool_use" && block["name"] === "StructuredOutput")
-          .map((block) => block["input"]);
-        expect(inputs).toEqual([report]);
-        const streamed = messages
-          .map((message) => (message["type"] === "stream_event" ? message["event"] : undefined))
-          .map((event) => (event as Json | undefined)?.["delta"] as Json | undefined)
-          .filter((delta) => delta?.["type"] === "input_json_delta")
-          .map((delta) => delta?.["partial_json"])
-          .join("");
-        expect(JSON.parse(streamed)).toEqual(report);
-      });
+      if (recording.meta.source === "live") {
+        // A live capture keeps the decision fields of structured_output only (0017 section 2):
+        // the tool use input and the streamed deltas are redacted, with the same hashes.
+        it("carries the result's report, redacted, in the StructuredOutput tool use and its streamed deltas", () => {
+          const report = lastResult(recording)["structured_output"];
+          expect(structuredOutputInputs(recording)).toEqual([redactStrings(report)]);
+          const deltas = partialJson(recording);
+          expect(deltas.length).toBeGreaterThan(0);
+          for (const delta of deltas) expect(delta).toMatch(REDACTED);
+          expect(deltas.some((delta) => !delta.endsWith(" len:0]"))).toBe(true);
+        });
+      } else {
+        it("carries the result's report in the StructuredOutput tool use and its streamed deltas", () => {
+          const report = lastResult(recording)["structured_output"];
+          expect(structuredOutputInputs(recording)).toEqual([report]);
+          expect(JSON.parse(partialJson(recording).join(""))).toEqual(report);
+        });
+      }
 
       it("ran with the reviewer's tools and no skill", () => {
         const init = stdout(recording).find(
@@ -144,6 +183,31 @@ describe("the derived review reports", () => {
     expect(lastResult(loadRecording("review-invalid"))["structured_output"]).toMatchObject({
       status: "done",
     });
+  });
+});
+
+describe("the live review reports (Claude Code 2.1.302, Haiku)", () => {
+  it("review-approved-live: every criterion met and no finding", async () => {
+    const review = await reviewOf("review-approved-live");
+    expect(review?.criteria.length).toBeGreaterThan(0);
+    expect(review?.criteria.every((criterion) => criterion.status === "met")).toBe(true);
+    expect(review?.findings).toEqual([]);
+  });
+
+  it("review-blocked-live: unmet criteria and a blocking correctness finding with a file and line", async () => {
+    const review = await reviewOf("review-blocked-live");
+    expect(review?.criteria.some((criterion) => criterion.status === "unmet")).toBe(true);
+    const correctness = review?.findings.find(
+      (finding) => finding.severity === "blocking" && finding.kind === "correctness",
+    );
+    expect(correctness?.file).toMatch(REDACTED);
+    expect(correctness?.line).toBeGreaterThan(0);
+  });
+
+  it("review-invalid-live: asked not to report, the reviewer returned a valid approval", async () => {
+    const review = await reviewOf("review-invalid-live");
+    expect(review?.criteria.every((criterion) => criterion.status === "met")).toBe(true);
+    expect(review?.findings).toEqual([]);
   });
 });
 

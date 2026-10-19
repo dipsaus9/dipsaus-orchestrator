@@ -41,13 +41,14 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "report-invalid": ["blocked", "ambiguous-spec"],
   "report-invalid-missing": ["blocked", "ambiguous-spec"],
   resume: ["done", null],
-  // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived until the live ones are captured.
+  // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived and live.
   "review-approved": ["done", null],
   "review-blocked": ["done", null],
   "review-invalid": ["blocked", "worker-failed"],
   "review-approved-live": ["done", null],
   "review-blocked-live": ["done", null],
-  "review-invalid-live": ["blocked", "worker-failed"],
+  // Asked not to report, Haiku returned a valid approval anyway; review-invalid covers the case.
+  "review-invalid-live": ["done", null],
   "safety-bash-prompts-none": ["blocked", "needs-permission"],
   "safety-gh-token": ["done", null],
   "safety-gitdir-write": ["done", null],
@@ -66,6 +67,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "success-single": ["done", null],
   "success-tools-subagent": ["done", null],
   terminated: ["crashed", "worker-failed"],
+  // DIPO-164: the third call is refused and the worker reports blocked without needsPermission.
+  web: ["blocked", "ambiguous-spec"],
   // DIPO-164: derived from the first turn of success-tools-subagent, whose report says blocked.
   "web-calls": ["blocked", "ambiguous-spec"],
   "worker-park-ambiguous": ["blocked", "ambiguous-spec"],
@@ -77,7 +80,6 @@ const RETRY: Readonly<Record<string, string>> = {
   "report-invalid": "report-feedback",
   "report-invalid-missing": "report-feedback",
   "review-invalid": "report-feedback",
-  "review-invalid-live": "report-feedback",
 };
 
 /**
@@ -88,10 +90,6 @@ const AWAITING_CAPTURE = new Set([
   "safety-gh-token",
   "safety-gitdir-write",
   "safety-pointer-write",
-  // DIPO-145: the review scenarios of `bun run recordings:capture`.
-  "review-approved-live",
-  "review-blocked-live",
-  "review-invalid-live",
 ]);
 
 /** Scenarios whose park in `meta.expected` the engine decides from its own caps, not the adapter. */

@@ -1,0 +1,75 @@
+{
+  "scenario": "review-invalid-live",
+  "source": "live",
+  "claude_code_version": "2.1.302",
+  "captured_at": "2026-10-19",
+  "expected": "A reviewer's session (0019 section 4) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
+  "usage_checksum": "1eebd4ad3cca7d414a34ef1a2dc3ffffe242942a2085f85bf3f1693b7ca5dca8",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "12",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,Glob,Grep,Bash",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "${RUN}/mcp-empty.json",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--disable-slash-commands",
+    "--json-schema",
+    "<report schema sha256:6aa999968c56>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 5810,
+  "prompt_sha256": "6db9fb11ad36ba62b98a79072e748fdd8f8427765f154ab425a43e7ee6119b35",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 2,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 2,
+      "op": "user",
+      "bytes": 1202
+    },
+    {
+      "t": 12413,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "kind": "review",
+  "checks": {
+    "worktreeClean": true,
+    "tools": ["Bash", "Glob", "Grep", "Read", "StructuredOutput"],
+    "skills": 0,
+    "plugins": 3
+  }
+}
