@@ -4,7 +4,7 @@ title: 'Resume capped, conflicted and review-loop stories'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 06:34'
+updated_date: '2026-10-19 06:53'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -15,6 +15,7 @@ dependencies:
   - DIPO-149
   - DIPO-150
   - DIPO-151
+  - DIPO-205
 references:
   - packages/engine/src/run/
   - packages/engine/src/merge-slot/
@@ -33,7 +34,7 @@ Outcome: resuming verify-failing (loops, ci), conflict (merge in progress, unwri
 
 Context: implements the cap, conflict and review-loop rows of the ADR 0020 section 2 matrix and its rule that every resume with a note adds exactly one round of the limit that fired (spike answer 6b), for the parks 0019 causes (0019 sections 4, 8, 9 and 10).
 
-DIPO-205 adds the park verify-failing with cause capped: a run whose cap-crossing turn carried a done report took the done path, and its verify failed with no turn left. Its resume (0020 Amendments, 2026-10-19, DIPO-205) needs a note, like the other verify-failing causes, raises the crossed cap by the default +50% top-up recorded as a budget grant with who and why, and sends the verify failure from feedback_items as the first message, then the note; without a note it answers resume.noteRequired.
+DIPO-205 adds the park verify-failing with cause capped: a run whose cap-crossing turn carried a done report took the done path, and its verify failed with no turn left. Its resume (0020 Amendments, 2026-10-19, DIPO-205) needs a note, like the loops and ci causes, and grants the section 4 top-up: all three caps grow by 50% of the starting caps as one budget grant recorded with who and why. Writing the note is the explicit act, so no further confirmation is asked; the reply names the grant. The first message is the verify failure from the park detail (nothing stores it in feedback_items, since no feedback turn was sent), then the note; without a note it answers resume.noteRequired.
 
 ```dipo
 branch: "DIPO-157/resume-review-loop-and-cap-parks"
@@ -59,5 +60,5 @@ test_plan:
 - [ ] #4 review-blocked/rounds with a note returns to In Review and then In Progress as a fix round with the blocking findings first, recording one reviewRound grant
 - [ ] #5 stopped/pr-closed returns to In Review and opens a new story PR for the same head whose body names the closed one; stopped/review and worker-failed/review start a fresh reviewer session of the same round on the same head; worker-failed/review-cap does the same and grows the cap that fired by 50% as a reviewCap grant
 - [ ] #6 No resume raises a cap without a recorded grant, shown by a test that checks every cap change against a grant row
-- [ ] #7 verify-failing/capped (DIPO-205) resumes only with a note, raises the crossed cap by +50% as a budget grant recorded with who and why, and starts with the verify failure from feedback_items, then the note; a resume without a note answers resume.noteRequired
+- [ ] #7 verify-failing/capped (DIPO-205) resumes only with a note, grows all three caps by 50% of the starting caps as one budget grant recorded with who and why, with no confirmation beyond the note, and starts with the verify failure from the park detail, then the note; a resume without a note answers resume.noteRequired
 <!-- AC:END -->
