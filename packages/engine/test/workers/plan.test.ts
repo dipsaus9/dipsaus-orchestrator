@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { getDefaultWritePaths } from "@anthropic-ai/sandbox-runtime";
+import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../src/sandbox/policy";
@@ -106,9 +107,36 @@ function flag(launch: LaunchPlan, name: string): string | undefined {
   return index === -1 ? undefined : launch.argv[index + 1];
 }
 
+const REPO_ROOT = join(import.meta.dir, "../../../..");
+const OXFMT = join(REPO_ROOT, "node_modules/.bin/oxfmt");
+const OXFMT_CONFIG = join(REPO_ROOT, ".oxfmtrc.json");
+
+/** The golden text: JSON in the layout oxfmt gives it, so a regenerated golden passes format:check (DIPO-209). */
+function goldenText(value: unknown, name: string): string {
+  const result = Bun.spawnSync([OXFMT, `--stdin-filepath=${name}`, "-c", OXFMT_CONFIG], {
+    stdin: Buffer.from(`${JSON.stringify(value, null, 2)}\n`),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0)
+    throw new Error(`oxfmt failed on ${name}: ${result.stderr.toString()}`);
+  return result.stdout.toString();
+}
+
+function tierGolden(tier: TierName): Record<string, unknown> {
+  const launch = plan(spec(tier), context());
+  return {
+    argv: launch.argv,
+    env: launch.env,
+    cwd: launch.cwd,
+    settings: settingsOf(launch),
+    stdin: launch.stdin,
+  };
+}
+
 async function matchGolden(name: string, value: unknown): Promise<void> {
   const path = join(GOLDEN_DIR, name);
-  const text = `${JSON.stringify(value, null, 2)}\n`;
+  const text = goldenText(value, name);
   if (process.env.DIPO_UPDATE_GOLDEN === "1") await writeFile(path, text);
   expect(JSON.parse(text)).toEqual(JSON.parse(await readFile(path, "utf8")));
 }
@@ -116,18 +144,29 @@ async function matchGolden(name: string, value: unknown): Promise<void> {
 describe("claude-cli plan", () => {
   for (const tier of ["S", "M", "L"] as const) {
     it(`matches the golden argv, environment and settings file for tier ${tier}`, async () => {
+      await matchGolden(`plan-${tier}.json`, tierGolden(tier));
       const launch = plan(spec(tier), context());
-      await matchGolden(`plan-${tier}.json`, {
-        argv: launch.argv,
-        env: launch.env,
-        cwd: launch.cwd,
-        settings: settingsOf(launch),
-        stdin: launch.stdin,
-      });
       const caps = OFFICE_DEFAULTS.tiers[tier];
       expect(flag(launch, "--model")).toBe(caps.model);
       expect(flag(launch, "--effort")).toBe(caps.effort);
       expect(flag(launch, "--max-turns")).toBe(String(caps.maxTurns));
+    });
+  }
+
+  for (const tier of ["S", "M", "L"] as const) {
+    it(`writes the tier ${tier} golden in the formatter's layout (DIPO-209)`, async () => {
+      const dir = makeTempDir();
+      try {
+        const file = join(dir, `plan-${tier}.json`);
+        await writeFile(file, goldenText(tierGolden(tier), `plan-${tier}.json`));
+        const check = Bun.spawnSync([OXFMT, "--check", "-c", OXFMT_CONFIG, file], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        expect(check.exitCode).toBe(0);
+      } finally {
+        removeTempDir(dir);
+      }
     });
   }
 
