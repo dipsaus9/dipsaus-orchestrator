@@ -4,15 +4,16 @@ title: Release a claim when a story is Done on the base through another branch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-19 15:12'
 labels:
   - 'tier:M'
   - 'slice:m1a'
 milestone: m-1
 dependencies:
-  - DIPO-161
-  - DIPO-158
   - DIPO-144
+  - DIPO-158
+  - DIPO-161
+  - DIPO-216
 references:
   - packages/engine/src/worktree/
   - packages/engine/src/reconcile/
@@ -33,7 +34,7 @@ ordinal: 151000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the Done poll and reconcile release a parked or idle claim whose story is Done on the base, flag one with a live worker, and put kept leftovers on the desk, so a story finished outside dipo no longer holds a claim, worktree and branch.
 
-Context: implements ADR 0020 section 10 (a story finished outside dipo; spike answer 5). Today Done detection looks only at the story's own branch and reconcile reads a claimed story's status on its branch (0020 fact 9), so DIPO-105, finished by hand on another branch, kept its claim, worktree and branch.
+Context: implements ADR 0020 section 10 (a story finished outside dipo; spike answer 5). Today Done detection looks only at the story's own branch and reconcile reads a claimed story's status on its branch (0020 fact 9), so DIPO-105, finished by hand on another branch, kept its claim, worktree and branch. The minimal release now lives in DIPO-216: reconcile releases the claim of a story Done on the base with reason done and removes its clean worktree, keeping both branches; this story builds on it and keeps the rest (the Done poll check, done-elsewhere, the live-worker desk item, the story PR, branch handling, leftovers and discard).
 
 ```dipo
 branch: "DIPO-162/release-claim-done-elsewhere"
