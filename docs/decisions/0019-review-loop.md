@@ -389,3 +389,7 @@ All in milestone `m-1`, label `slice:m1a`, after the cutover (DIPO-115, a hard g
 | M | Prove the review loop end to end in an engine test | One engine-layer test file with a scripted worker and reviewer, a fake host and real git covers approve, blocked then fixed, a security finding, red CI, conflict, a maintainer gate, an override, a review next to a running worker and a daemon restart in the slot | `packages/engine/test/engine/` | L, N | M |
 
 0020 story 6 resumes the parks caused here (causes `review`, `review-cap`, `rounds`, `backstop` during review, `merge-in-progress`, `unwritable-path`, `slot-refused`, `ci`, `pr-closed`) and depends on G, J, K and L (the `override` value); 0020 story 12 (`dipo desk`) depends on L; 0020 story 1 comes before D.
+
+## Amendments
+
+- 2026-10-19, DIPO-210 (maintainer): section 3. The office key `storyPr.open` (default `true`, office configuration version 7) lets the maintainer switch story PRs off for an office: with `false` the engine opens, updates, polls and retries no story PR for that office and raises no `pr.openFailed` notice, and the story stays In Review. When to open stays decision B for every office that leaves the key on. Reason: on this repository the maintainer side merges its own PR from a finish branch (main merged in, review fixes on top) and never touches dipo's branch, so a story PR from dipo would be a second PR per story.
