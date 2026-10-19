@@ -1,10 +1,10 @@
 ---
 id: DIPO-144
 title: Open and update the story PR at In Review
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-18 14:46'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -20,6 +20,7 @@ references:
   - packages/engine/src/db/schema.ts
   - packages/engine/src/retention/policy.ts
   - packages/engine/src/views/
+  - packages/engine/src/index.ts
   - packages/daemon/src/
   - packages/engine/test/story-pr/
   - packages/engine/test/db/
@@ -33,7 +34,7 @@ ordinal: 133000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: each In Review push opens or updates one ready PR with a code-built title and body, recorded in story_prs and shown as StoryView.pr and the story.pr event, so a delivered story has its PR without the maintainer.
 
-Context: implements ADR 0019 section 3 (the story PR: when it opens, the record, ready not draft, title, body) and the story_prs table of section 16. M0 ends the run at In Review after the push and opens no PR (0019 fact 4, run/verify-commit.ts; 0010 section 7 says the PR opens in M1).
+Context: implements ADR 0019 section 3 (the story PR: when it opens, the record, ready not draft, title, body) and the story_prs table of section 16. M0 ends the run at In Review after the push and opens no PR (0019 fact 4, run/verify-commit.ts; 0010 section 7 says the PR opens in M1). The new story-pr/ module is exported from packages/engine/src/index.ts (export * from "./story-pr", as merge-slot is), because the daemon imports only from @dipsaus-orchestrator/engine.
 
 ```dipo
 branch: "DIPO-144/open-story-pr-at-in-review"
@@ -46,6 +47,10 @@ test_plan:
       check: "(unit) the body renders in section order, keeps the contract whole at the 20,000 character cap and skips an update with an unchanged hash"
     - kind: "automated"
       check: "(unit) with a fake host, an existing open PR is reused after a crash between push and create"
+    - kind: "automated"
+      check: "(unit) with a fake host whose create fails, the story stays In Review, one pr.openFailed notice is raised, and the retry after polling.prStateSeconds creates the PR"
+    - kind: "automated"
+      check: "(unit) StoryView.pr shows the story_prs row, and story.pr is emitted when the PR opens, when its state changes and when it gets a new head, and not for an update on the same head"
     - kind: "automated"
       check: "(migration) story_prs exists with retention tier S"
 ```

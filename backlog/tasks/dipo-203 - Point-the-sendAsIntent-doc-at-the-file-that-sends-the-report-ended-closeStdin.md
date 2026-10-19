@@ -1,10 +1,10 @@
 ---
 id: DIPO-203
 title: Point the sendAsIntent doc at the file that sends the report-ended closeStdin
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-18 09:10'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:S'
   - cutover

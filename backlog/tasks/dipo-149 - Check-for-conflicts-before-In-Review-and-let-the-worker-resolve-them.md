@@ -4,7 +4,7 @@ title: Check for conflicts before In Review and let the worker resolve them
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-18 14:29'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -32,6 +32,8 @@ ordinal: 138000
 Outcome: the engine checks with merge-tree before In Review, syncs riskier stories, resolves task-file conflicts itself, parks unwritable-path conflicts at once, leaves other conflicted merges in progress for the worker, concludes them after markers, scope and verify pass, and parks conflict at the second failed hand-off.
 
 Context: implements ADR 0019 section 10 (conflicts: when, riskier stories sync while building, leave the merge in progress, attempts; maintainer decisions on conflicts and spike answer 9) and the conflict item of section 8. There is no merge-tree call in engine/src/run/ today; the check was deferred in DIPO-15 and DIPO-49 (0019 fact 4).
+
+DIPO-142 built the worker place and the reviewer place (packages/engine/src/run/places.ts) and wired only the resume starter (packages/engine/src/run/compose.ts). The conflict handoff runs in the worker place: it registers the conflict starter there and appends the conflict run_steps kind that the final run_outcomes row counts as conflict_handoffs.
 
 ```dipo
 branch: "DIPO-149/conflict-check-and-worker-hand-off"
