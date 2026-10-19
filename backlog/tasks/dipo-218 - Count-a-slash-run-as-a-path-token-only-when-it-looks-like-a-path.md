@@ -1,10 +1,10 @@
 ---
 id: DIPO-218
 title: Count a slash run as a path token only when it looks like a path
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 15:12'
+updated_date: '2026-10-19 20:58'
 labels:
   - 'tier:S'
   - cutover
