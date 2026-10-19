@@ -92,6 +92,7 @@ export function storyRuns(office: OfficeHandle, key: StoryKey): RunRecord[] {
       agent: last?.agent_id ?? "",
       role: row.role,
       tier: row.tier ?? "",
+      // Only usage.run reaches the RunRecord; the feature view's budget limit comes from workView.
       budgetLimit: runCaps(office, stored).budgetTokens,
     });
     return {
