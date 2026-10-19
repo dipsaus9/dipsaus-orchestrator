@@ -372,7 +372,7 @@ const CITE_WEB_DENY =
 const CITE_WEB_PLAIN =
   "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them";
 const CITE_WEB_COUNTERS =
-  "the result's usage.server_tool_use (web_search_requests 1, web_fetch_requests 2) and modelUsage webSearchRequests 1 count the three calls, the refused fetch included; no live run showed how Claude Code counts a WebFetch or a call a PreToolUse hook refused [unverified]";
+  "the result's usage.server_tool_use (web_search_requests 0, web_fetch_requests 0) and modelUsage webSearchRequests 1 are what the live `web` capture (Claude Code 2.1.302) reports for one WebSearch, one WebFetch and one refused WebFetch: server_tool_use counts none of them, modelUsage counts the search only";
 const CITE_WEB_DENIALS =
   "the result's permission_denials holds the refused WebFetch (tool_input redacted, as a live capture redacts it), on the reading that Claude Code reports a PreToolUse deny there as it reports a permission deny (recording permission-denied); no live run showed it [unverified]";
 const CITE_WEB_REPORT =
@@ -517,15 +517,15 @@ function withInitTools(line: Envelope): Envelope {
 }
 
 /**
- * The source's first result with the web calls counted and its subagent leftovers dropped: the
- * server tool counters (1 search, 2 fetches) in `usage` and `modelUsage`, the refused fetch in
- * `permission_denials` (its input redacted, as a live capture redacts it), and no
- * `subagent_stats`, as this session started no subagent.
+ * The source's first result with the web counters of the live `web` capture and its subagent
+ * leftovers dropped: `usage.server_tool_use` counts no call and `modelUsage` counts the search
+ * (`webSearchRequests` 1), the refused fetch in `permission_denials` (its input redacted, as a
+ * live capture redacts it), and no `subagent_stats`, as this session started no subagent.
  */
 function withWebResult(line: Envelope): Envelope {
   const result = clone(line.data as Data);
   const usage = result.usage as Data;
-  usage.server_tool_use = { web_search_requests: 1, web_fetch_requests: 2 };
+  usage.server_tool_use = { web_search_requests: 0, web_fetch_requests: 0 };
   for (const entry of Object.values(result.modelUsage as Record<string, Data>)) {
     entry.webSearchRequests = 1;
   }

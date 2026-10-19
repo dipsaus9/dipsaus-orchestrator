@@ -19,6 +19,11 @@ const LIVE = [
   "interrupt",
   "resume",
   "worker-park-ambiguous",
+  // DIPO-164 and DIPO-145: captured with Claude Code 2.1.302.
+  "web",
+  "review-approved-live",
+  "review-blocked-live",
+  "review-invalid-live",
 ];
 const DERIVED = [
   "terminated",
@@ -119,7 +124,7 @@ describe("derived recordings", () => {
     }
   });
 
-  it("web-calls: the result counts its web calls, lists the refused fetch and keeps no subagent leftovers (DIPO-164 review)", () => {
+  it("web-calls: the result carries the live web counters, lists the refused fetch and keeps no subagent leftovers (DIPO-164 review)", () => {
     const recording = recordings.find((candidate) => candidate.name === "web-calls");
     const stdout = stdoutOf(recording?.lines ?? []).filter(isRecord);
     const calls = stdout.flatMap((data) => {
@@ -139,10 +144,17 @@ describe("derived recordings", () => {
     const results = stdout.filter((data) => data.type === "result");
     expect(results).toHaveLength(1);
     const result = results[0] as Record<string, any>;
-    expect(result.usage.server_tool_use).toEqual({
-      web_search_requests: searches,
-      web_fetch_requests: fetches,
-    });
+    // The live `web` capture (Claude Code 2.1.302) counts no call in server_tool_use and only the
+    // search in modelUsage; the derived recording carries the same numbers.
+    const live = stdoutOf(recordings.find((candidate) => candidate.name === "web")?.lines ?? [])
+      .filter(isRecord)
+      .find((data) => data.type === "result") as Record<string, any> | undefined;
+    expect(live?.usage.server_tool_use).toEqual({ web_search_requests: 0, web_fetch_requests: 0 });
+    expect(result.usage.server_tool_use).toEqual(live?.usage.server_tool_use);
+    const liveSearches = Object.values(live?.modelUsage ?? {}).map(
+      (entry: any) => entry.webSearchRequests,
+    );
+    expect(liveSearches).toEqual([searches]);
     for (const entry of Object.values(result.modelUsage as Record<string, any>)) {
       expect(entry.webSearchRequests).toBe(searches);
     }

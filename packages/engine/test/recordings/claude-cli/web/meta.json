@@ -1,0 +1,69 @@
+{
+  "scenario": "web",
+  "source": "live",
+  "claude_code_version": "2.1.302",
+  "captured_at": "2026-10-19",
+  "expected": "With worker.web the run settings allow WebSearch and WebFetch and register the PreToolUse hook for them. The WebSearch and the first WebFetch are let through (the gate prints nothing, so the run settings' allow rules decide) and show with their query and URL; the second WebFetch, whose URL holds the value of the workdir's .env, is denied by the hook with a reason naming .env and FIXTURE_API_KEY and not the value. Each PreToolUse payload is a ch: hook line.",
+  "usage_checksum": "dd9838dda67e13ce21457da61f94f2b5a8e34bc53cde126f4b168c370fdd83d9",
+  "fixture": "greeter",
+  "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",
+  "model": "haiku",
+  "flags": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--session-id",
+    "session-1",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--max-turns",
+    "8",
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    "--tools",
+    "Read,WebSearch,WebFetch",
+    "--settings",
+    "${RUN}/claude-settings.json",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--append-system-prompt-file",
+    "${RUN}/system.md",
+    "--exclude-dynamic-system-prompt-sections",
+    "--disable-slash-commands",
+    "--json-schema",
+    "<report schema sha256:08d0793923ef>",
+    "--include-partial-messages",
+    "--include-hook-events"
+  ],
+  "prompt_bytes": 723,
+  "prompt_sha256": "e8f9b9fc4a01e6bfef4cdfc66e2fcc1a4b7e909db1dd5bdc7a6792ef2eb7fbcf",
+  "processes": 1,
+  "steering": [
+    {
+      "t": 1,
+      "op": "spawn",
+      "resume": false
+    },
+    {
+      "t": 1,
+      "op": "user",
+      "bytes": 603
+    },
+    {
+      "t": 21904,
+      "op": "closeStdin"
+    }
+  ],
+  "unknown_types": [],
+  "testConfig": {
+    "permissionWaitSeconds": 10
+  }
+}
