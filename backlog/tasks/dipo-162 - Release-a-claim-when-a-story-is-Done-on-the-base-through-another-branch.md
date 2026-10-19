@@ -4,7 +4,7 @@ title: Release a claim when a story is Done on the base through another branch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 20:44'
+updated_date: '2026-10-19 23:03'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -58,6 +58,6 @@ test_plan:
 - [ ] #2 A parked or idle claim is released in one transaction with reason done-elsewhere: run ended, open park resolved done-elsewhere (added to the parks check by migration), questions closed ended, story.state Done, and a notice naming the base commit that last changed the task file
 - [ ] #3 dipo's open story PR is closed with a comment naming that commit; a clean worktree is removed and a dirty one kept; the branch is deleted locally and remotely when merge-tree shows it adds nothing to the base, else kept in released_branches with reason done-elsewhere; this replaces DIPO-216's interim reconcile release (reason done, resolved_how reconcile, a dirty worktree keeping its claim live) for the claims it covers: a dirty worktree is kept as leftovers while its claim is released (0020 section 10)
 - [ ] #4 A claim with a live worker is not stopped: a DONE ELSEWHERE desk item and an engine.notice are raised, and the release happens at the run's next end
-- [ ] #5 Anything kept is one LEFTOVERS desk item with the commits not on the base, the dirty files and the action dipo discard <id>, and leftovers are never deleted automatically
+- [ ] #5 Anything kept is one LEFTOVERS desk item with the commits not on the base, the dirty files and the action dipo discard <id>, and leftovers are never deleted automatically. An own-branch teardown that crashed after removing its worktree is now released by DIPO-216's reconcile step as done with its branch kept; this leftover handling also deletes such a branch locally and remotely when merge-tree shows it adds nothing to the base
 - [ ] #6 A test replays the DIPO-105 case: the claim is released, the worktree with uncommitted files and the branch are kept, and one leftovers item is on the desk
 <!-- AC:END -->
