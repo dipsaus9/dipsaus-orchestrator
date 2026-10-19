@@ -1,10 +1,10 @@
 ---
 id: DIPO-202
 title: Restore the output of stream-counted messages when a host dies mid-turn
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-18 14:29'
+updated_date: '2026-10-19 07:02'
 labels:
   - 'tier:M'
   - cutover
