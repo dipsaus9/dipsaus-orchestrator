@@ -3,10 +3,10 @@ id: DIPO-209
 title: >-
   Write golden files and derived recordings that pass the formatter when they
   are regenerated
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-19 22:31'
+updated_date: '2026-10-19 22:36'
 labels:
   - 'tier:S'
   - cutover
@@ -49,8 +49,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The golden writers in packages/engine/test/workers/plan.test.ts and packages/engine/test/sandbox/policy.test.ts write text in the formatter's own layout, so regenerating with DIPO_UPDATE_GOLDEN=1 leaves packages/engine/test/workers/golden/ and packages/engine/test/sandbox/golden/ with no formatting change
-- [ ] #2 A test writes the text each writer produces for its goldens under DIPO_TMP, runs oxfmt --check there with the repository's .oxfmtrc.json, and expects exit 0
-- [ ] #3 The committed golden files are unchanged in content, and bun run verify passes
-- [ ] #4 serializeMeta in tools/recordings/format.ts writes meta.json in the formatter's layout, so bun run recordings:derive leaves the committed derived recordings (model-switch/meta.json among them) unchanged and a test checks its output with oxfmt --check under DIPO_TMP
+- [x] #1 The golden writers in packages/engine/test/workers/plan.test.ts and packages/engine/test/sandbox/policy.test.ts write text in the formatter's own layout, so regenerating with DIPO_UPDATE_GOLDEN=1 leaves packages/engine/test/workers/golden/ and packages/engine/test/sandbox/golden/ with no formatting change
+- [x] #2 A test writes the text each writer produces for its goldens under DIPO_TMP, runs oxfmt --check there with the repository's .oxfmtrc.json, and expects exit 0
+- [x] #3 The committed golden files are unchanged in content, and bun run verify passes
+- [x] #4 serializeMeta in tools/recordings/format.ts writes meta.json in the formatter's layout, so bun run recordings:derive leaves the committed derived recordings (model-switch/meta.json among them) unchanged and a test checks its output with oxfmt --check under DIPO_TMP
 <!-- AC:END -->
