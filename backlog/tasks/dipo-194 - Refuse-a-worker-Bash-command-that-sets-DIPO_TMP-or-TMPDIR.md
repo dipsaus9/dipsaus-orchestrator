@@ -1,10 +1,10 @@
 ---
 id: DIPO-194
 title: Refuse a worker Bash command that sets DIPO_TMP or TMPDIR
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-19 22:03'
+updated_date: '2026-10-19 22:22'
 labels:
   - 'tier:M'
   - cutover
@@ -69,3 +69,9 @@ test_plan:
 - [x] #6 Tests in packages/daemon/src/hook.test.ts run --bash against the real worker host (withWorkerHost, as the DIPO-164 gate tests do) and show the deny for export DIPO_TMP=$TMPDIR && bun run verify, empty output for bun run verify, and no pending hook call on the host for either; a test with a check that throws shows empty output and exit 0
 - [x] #7 A test in packages/daemon/src/hook.ci.test.ts starts the real dipo hook PreToolUse --bash process from the CLI entry with no worker host and shows the deny on stdout for a DIPO_TMP payload and empty stdout for another command, each with exit 0 within 2 s
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B2BNZCH1YP7BMBPTXNNSAX (Sonnet, 33 turns, about $0.63, 10 min) reported done, In Review. Plain bun test passed in the sandbox; its DIPO_TEST_CI=1 run showed 28 failures from the sandbox (mkdtemp under /tmp refused), and outside the sandbox the full DIPO_TEST_CI=1 suite passes (3920 pass, 0 fail). refusedTempVariable (engine hooks/temp-guard.ts) splits a Bash command into simple commands and refuses prefix and bare assignments, export-like builtins, env (with options, -u, --unset, -S) and unset of DIPO_TMP or TMPDIR, following sh -c and env -S; reads and longer names pass. Every session with the hook relay gets a Bash PreToolUse entry `dipo hook PreToolUse --bash`, fail-open with no GATE_CRASH_EXIT, next to the unchanged fail-closed web --gate entry (0008 section 5 amendment); the daemon side decides in its own process without the host socket. Fixed on top after review (blocking): tests for each form inside a compound command; also shell keywords (if, then, else, elif, do, while, until) are skipped before the command word, so `then export TMPDIR=x` is refused, with tests and a false-positive probe by the reviewer. Known limits, gap candidates: here-doc bodies are checked as commands (fails safe), and eval, local, printf -v, read, sudo, xargs env and $(...) inside double quotes are not followed. Verify outside the sandbox: 3779 tests, 0 fail. Review and re-review passed.
+<!-- SECTION:NOTES:END -->
