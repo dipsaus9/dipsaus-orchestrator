@@ -103,7 +103,7 @@ export function markIntentSent(
   );
 }
 
-/** What the helper needs of the steering: the shape of `RunSteering` in `control.ts`. */
+/** What the helper needs of the steering: the shape of `RunSteering` in `control-types.ts`. */
 export interface IntentSteering {
   send(
     office: OfficeHandle,
@@ -143,7 +143,7 @@ export interface IntentSent<R> {
  *
  * Exceptions, sent with no intent (each is an answer to something the worker did, or a send that
  * changes nothing about how the exit reads):
- * - closeStdin after a turn that ended the run (`run/control.ts`, report-driven `ended`): the exit
+ * - closeStdin after a turn that ended the run (`run/control-turns.ts`, report-driven `ended`): the exit
  *   is explained by the worker's own report, not by an engine decision; an intent kind would give
  *   an outcome the adapter's `result` already gives.
  * - nudges (`hooks/nudges.ts`): one text per tool call, answering a hook call the worker is waiting
@@ -151,14 +151,17 @@ export interface IntentSent<R> {
  * - hook replies (`hooks/permissions.ts`): the allow or deny a waiting `PermissionRequest` hook
  *   call gets, recorded as the question's close; it never explains an exit.
  * Record-only sites send no op to a running worker and call `recordIntent` (and `markIntentSent`
- * or `resolveIntent`) directly, all in `run/outcomes.ts`:
- * - the plan-limit `pause`: stored, then resolved `plan-limit` in a second transaction; never
- *   marked sent.
- * - the start-failed `stop`: stored, marked sent and resolved `startFailed` in one transaction.
- * - the report-feedback `steer`: stored and marked sent in one transaction; its text is the first
- *   message of the resume, and it is resolved `resumed` once that session started.
- * - the park-resume `answer`: stored before anything changes, marked sent later in the resume's
- *   own transaction (with the park lift and the answer), then resolved with how the resume went.
+ * or `resolveIntent`) directly:
+ * - the plan-limit `pause` (`run/outcome-exits.ts`): stored, then resolved `plan-limit` in a second
+ *   transaction; never marked sent.
+ * - the start-failed `stop` (`run/outcome-sessions.ts`): stored, marked sent and resolved
+ *   `startFailed` in one transaction.
+ * - the report-feedback `steer` (`run/outcome-exits.ts`): stored and marked sent in one
+ *   transaction; its text is the first message of the resume, and it is resolved `resumed` once
+ *   that session started.
+ * - the park-resume `answer` (`run/resumption.ts`): stored before anything changes, marked sent
+ *   later in the resume's own transaction (with the park lift and the answer), then resolved with
+ *   how the resume went.
  */
 export function sendAsIntent<R = undefined>(
   office: OfficeHandle,
