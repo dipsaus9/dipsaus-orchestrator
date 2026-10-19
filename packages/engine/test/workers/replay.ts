@@ -39,6 +39,11 @@ export function loadRecording(name: string): Recording {
   return readRecording(join(RECORDINGS_DIR, name));
 }
 
+/** The report kind the session ran with: `review` for a reviewer's (0019 section 5). */
+export function reportKind(recording: Recording): "implement" | "review" {
+  return recording.meta["kind"] === "review" ? "review" : "implement";
+}
+
 /** The model the capture planned: from the recording, or from the live one it was derived from. */
 export function plannedModel(recording: Recording): string {
   if (typeof recording.meta.model === "string") return recording.meta.model;
@@ -74,7 +79,9 @@ export async function replay(recording: Recording, options: ReplayOptions = {}):
   const start = clock.now();
   const events: WorkerEvent[] = [];
   const lines: HostLine[] = [];
-  let state = options.state ?? initialState({ plannedModel: plannedModel(recording) });
+  let state =
+    options.state ??
+    initialState({ plannedModel: plannedModel(recording), reportKind: reportKind(recording) });
   const feed = (line: HostLine) => {
     lines.push(line);
     const step = interpret(line, state);

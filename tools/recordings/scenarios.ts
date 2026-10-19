@@ -2,11 +2,12 @@
 // (DIPO-41 AC #9). Every scenario runs on the `greeter` fixture with the cheapest model the launch
 // plan allows. Prompts are small and fixed; only their size and hash reach `meta.json`.
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import {
+  assembleReviewTaskMessage,
   claudeResult,
   currentPlatform,
   engineCredentialCheck,
@@ -14,6 +15,8 @@ import {
   interpretClaudeLine,
   judgeSelfTest,
   PROBE_GROUPS,
+  renderSystemFile,
+  REVIEW_TOOLS,
   runSandboxedStep,
   selfTestBashCalls,
   SELF_TEST_SYSTEM_PROMPT,
@@ -25,6 +28,7 @@ import type {
   ClaudeParseState,
   CredentialCheckResult,
   ProbeName,
+  PromptStory,
   RunStep,
   SelfTestDisk,
   SelfTestTools,
@@ -84,6 +88,11 @@ export interface Scenario {
    * have passed.
    */
   readonly hookRelay?: { readonly waitSeconds: number };
+  /**
+   * `review` for a reviewer session (0019 section 4): the plan of the review kind, its report
+   * schema, every installed plugin switched off, and `kind` in `meta.json`.
+   */
+  readonly kind?: "review";
 }
 
 export const SYSTEM_PROMPT = [
@@ -536,6 +545,191 @@ function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Sc
   };
 }
 
+// The review kind (DIPO-145; 0019 sections 4 and 5). Each scenario commits a change on the story
+// branch before the session, then gives the reviewer the review task message of a fixture story
+// about it, built by the engine's own assembly, under the reviewer's own system file.
+
+const REVIEW_TASK_FILE = "backlog/tasks/fix-1 - Greet-with-hello.md";
+
+const REVIEW_STORY: PromptStory = {
+  id: "FIX-1",
+  title: "Greet with hello",
+  type: "feature",
+  tier: "S",
+  outcome: "greet(name) returns hello, <name>, and a test proves it.",
+  criteria: [
+    { index: 1, text: "greet(name) returns `hello, <name>`." },
+    { index: 2, text: "A unit test covers greet." },
+  ],
+  scope: ["src/greet.ts", "src/greet.test.ts"],
+  inputs: [],
+  dependencies: [],
+  background: "",
+  testPlan: {
+    entries: [
+      { kind: "automated", check: "(unit) greet returns hello, Ada for Ada." },
+      { kind: "manual", check: "Read src/greet.ts.", expect: "It returns hello, <name>." },
+    ],
+  },
+  unknowns: [],
+  instructions: "",
+  taskFile: REVIEW_TASK_FILE,
+};
+
+const GREET_TEST = [
+  'import { expect, test } from "bun:test";',
+  "",
+  'import { greet } from "./greet";',
+  "",
+  'test("greet returns hello, Ada", () => {',
+  '  expect(greet("Ada")).toBe("hello, Ada");',
+  "});",
+];
+
+/** The approved change: a test of greet, as a new file. */
+const APPROVED_DIFF = [
+  "diff --git a/src/greet.test.ts b/src/greet.test.ts",
+  "new file mode 100644",
+  "--- /dev/null",
+  "+++ b/src/greet.test.ts",
+  `@@ -0,0 +1,${GREET_TEST.length} @@`,
+  ...GREET_TEST.map((line) => `+${line}`),
+  "",
+].join("\n");
+
+/** The blocked change: greet says hi, and no test. */
+const BLOCKED_DIFF = [
+  "diff --git a/src/greet.ts b/src/greet.ts",
+  "--- a/src/greet.ts",
+  "+++ b/src/greet.ts",
+  "@@ -1,4 +1,4 @@",
+  " // Fixture source for Claude Code recordings; never imported by the product.",
+  " export function greet(name: string): string {",
+  "-  return `hello, ${name}`;",
+  "+  return `hi, ${name}`;",
+  " }",
+  "",
+].join("\n");
+
+/** Commits `files` on the story branch of the capture's worktree, outside the session. */
+function commitOnStory(files: Readonly<Record<string, string>>) {
+  return (paths: CapturePaths): void => {
+    for (const [path, text] of Object.entries(files))
+      writeFileSync(join(paths.workdir, path), text);
+    for (const args of [
+      ["add", "--", ...Object.keys(files)],
+      [
+        "-c",
+        "user.name=fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "FIX-1: change",
+      ],
+    ]) {
+      const done = Bun.spawnSync(["git", "-C", paths.workdir, ...args], {
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_NOSYSTEM: "1",
+        },
+      });
+      if (done.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed in the fixture`);
+    }
+  };
+}
+
+function reviewMessage(diff: string, changes: { path: string; added: number; removed: number }[]) {
+  return assembleReviewTaskMessage({
+    story: REVIEW_STORY,
+    base: "HEAD~1",
+    changes,
+    diff,
+    gateChanges: [],
+    diffBudget: 40_000,
+  }).text;
+}
+
+/** The reviewer leaves the worktree as it found it, and ran with its four tools only. */
+async function verifyReview(
+  paths: CapturePaths,
+  raw: readonly Envelope[],
+): Promise<Record<string, unknown>> {
+  const status = await gitText(paths.workdir, ["status", "--porcelain"]);
+  const init = raw.find(
+    (line) =>
+      line.ch === "stdout" &&
+      isRecord(line.data) &&
+      line.data.type === "system" &&
+      line.data.subtype === "init",
+  )?.data as Record<string, unknown> | undefined;
+  const list = (field: string) => (Array.isArray(init?.[field]) ? (init[field] as unknown[]) : []);
+  return {
+    worktreeClean: status.ok && status.out === "",
+    tools: list("tools"),
+    skills: list("skills").length,
+    plugins: list("plugins").length,
+  };
+}
+
+function reviewScenario(
+  name: string,
+  turn: string,
+  prepare: (paths: CapturePaths) => void,
+  expected: string,
+): Scenario {
+  return {
+    name,
+    kind: "review",
+    fixture: "greeter",
+    model: "haiku",
+    effort: "low",
+    maxTurns: 12,
+    tools: REVIEW_TOOLS,
+    turns: [turn],
+    systemPrompt: renderSystemFile("review", "reviewer"),
+    prepare,
+    verify: verifyReview,
+    expected,
+    timeoutMs: 300_000,
+  };
+}
+
+const REVIEW_SCENARIOS: readonly Scenario[] = [
+  reviewScenario(
+    "review-approved-live",
+    reviewMessage(APPROVED_DIFF, [
+      { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
+    ]),
+    commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
+    "A reviewer's session (0019 section 4) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no installed plugin; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
+  ),
+  reviewScenario(
+    "review-blocked-live",
+    reviewMessage(BLOCKED_DIFF, [{ path: "src/greet.ts", added: 1, removed: 1 }]),
+    commitOnStory({
+      "src/greet.ts": [
+        "// Fixture source for Claude Code recordings; never imported by the product.",
+        "export function greet(name: string): string {",
+        "  return `hi, ${name}`;",
+        "}",
+        "",
+      ].join("\n"),
+    }),
+    "A reviewer's session (0019 section 4) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no installed plugin; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
+  ),
+  reviewScenario(
+    "review-invalid-live",
+    `${reviewMessage(APPROVED_DIFF, [
+      { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
+    ])}\nFor this recording only: do not return the structured report. Reply with the single word reviewed in plain text instead.\n`,
+    commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
+    'A reviewer\'s session (0019 section 4) asked not to return its report: the turn ends without a valid review report (none, or error_max_structured_output_retries); one correction turn "report in the schema", then, still invalid, it is handled as a crash: park worker-failed.',
+  ),
+];
+
 const SAFETY_MAIN_GIT = SCENARIOS_BASE.find((scenario) => scenario.name === "safety-main-git");
 
 export const SCENARIOS: readonly Scenario[] = [
@@ -559,6 +753,7 @@ export const SCENARIOS: readonly Scenario[] = [
     "safety-gh-token",
     "The DIPO-43 engine-side credential check (0008 amendments of 2026-10-13): the session runs no credential probe and makes only the control write, which succeeds; the session ends with a done report. checks.engineCredentialCheck holds the check: gh auth token and, on macOS, security find-generic-password -s gh:github.com -w run by the engine under srt's verify policy (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox.",
   ),
+  ...REVIEW_SCENARIOS,
 ];
 
 export function findScenario(name: string): Scenario | undefined {

@@ -188,6 +188,10 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     ["structured_output.question", "keep"],
     ["structured_output.needsPermission.tool", "keep"],
     ["structured_output.needsPermission.action", "keep"],
+    // A review report's enums (0019 section 5): code computes the verdict from them.
+    ["structured_output.criteria.*.status", "keep"],
+    ["structured_output.findings.*.severity", "keep"],
+    ["structured_output.findings.*.kind", "keep"],
   ],
   rate_limit_event: [
     ["rate_limit_info.status", "keep"],
@@ -271,6 +275,9 @@ export const DECISION_FIELDS: Readonly<Record<string, readonly string[]>> = {
     "structured_output.question",
     "structured_output.needsPermission.tool",
     "structured_output.needsPermission.action",
+    "structured_output.criteria.*.status",
+    "structured_output.findings.*.severity",
+    "structured_output.findings.*.kind",
   ],
   rate_limit_event: [
     "rate_limit_info.status",

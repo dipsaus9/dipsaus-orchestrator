@@ -16,6 +16,7 @@ import {
   parseResults,
   PROBE_GROUPS,
   resolveSelfTestTools,
+  REVIEW_PROBES,
   runSelfTest,
   SELF_TEST_MODEL,
   selfTestFailure,
@@ -36,6 +37,8 @@ import {
   MAIN,
   MemoryFs,
   POINTER,
+  REVIEW_BLOCKED_RESULTS,
+  reviewSpec,
   RUN_DIR,
   scriptedClaude,
   SELF_TEST_SESSION,
@@ -802,5 +805,197 @@ describe("(unit) npm-logs probe program (DIPO-98)", () => {
     expect(layout.prompt).toContain("Add nothing before or after it");
     expect(layout.prompt).toContain("no cat, no exit-code check");
     expect(layout.prompt).toContain("prints every result itself");
+  });
+});
+
+/** A review self-test's evidence (0019 section 4): the review probes, an install that must fail. */
+function reviewEvidence(disk: Partial<SelfTestDisk>, more: Partial<SelfTestEvidence> = {}) {
+  return evidence(
+    { results: REVIEW_BLOCKED_RESULTS, ...disk },
+    { probes: REVIEW_PROBES, installMustFail: true, ...more },
+  );
+}
+
+describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
+  const REVIEW_LAYOUT = selfTestLayout({ ...PATHS, nonce: NONCE, review: true }, REVIEW_PROBES);
+
+  it("writes its control file in the run temp root, probes the worktree, and installs first", () => {
+    const layout = selfTestLayout({ ...PATHS, review: true }, REVIEW_PROBES);
+    const name = `dipo-self-test-${PATHS.nonce}`;
+    expect(layout.controlFile).toBe(`${TMP_DIR}/.${name}`);
+    expect(layout.controlFile.startsWith(`${WORKDIR}/`)).toBe(false);
+    expect(layout.targets.find((target) => target.name === "worktree")).toEqual({
+      name: "worktree",
+      mode: ">",
+      path: `${WORKDIR}/.${name}`,
+    });
+    const dir = `${TMP_DIR}/${name}-install`;
+    expect(layout.installDir).toBe(dir);
+    const plain = selfTestLayout({ ...PATHS, review: false }, REVIEW_PROBES);
+    expect(layout.command).toBe(
+      `bun add --cwd='${dir}' --no-cache is-number@7.0.0 >/dev/null 2>&1; a=$?; ` +
+        `${plain.command.replace(`${WORKDIR}/.${name}' 'main-git`, `${TMP_DIR}/.${name}' 'main-git`)} 'install' 'exit' "$a"`,
+    );
+    expect(layout.prompt).toContain(layout.command);
+    expect(layout.prompt).toContain("a control file in the run's temp directory");
+    expect(layout.prompt).toContain("the install is expected to fail");
+    expect(layout.prompt).toContain("a file inside this worktree");
+  });
+
+  it("passes only when the worktree write is refused and the install failed", () => {
+    expect(judgeSelfTest(reviewEvidence({}))).toEqual({ ok: true });
+    // A bun that is not there also fails to install.
+    const missing = REVIEW_BLOCKED_RESULTS.replace("install exit 1", "install exit 127");
+    expect(judgeSelfTest(reviewEvidence({ results: missing }))).toEqual({ ok: true });
+  });
+
+  it("refuses as unsafe when the install succeeded, by its exit code or on disk", () => {
+    const succeeded = REVIEW_BLOCKED_RESULTS.replace("install exit 1", "install exit 0");
+    const verdict = judgeSelfTest(reviewEvidence({ results: succeeded }));
+    expect(verdict).toMatchObject({ ok: false, unsafe: true, probe: "install" });
+    expect((verdict as { reason: string }).reason).toContain(
+      "succeeded inside the reviewer sandbox",
+    );
+    expect(judgeSelfTest(reviewEvidence({ installed: true }))).toMatchObject({
+      ok: false,
+      unsafe: true,
+      probe: "install",
+    });
+    const failure = selfTestFailure({ verdict, evidence: null, plugins: null, targets: [] });
+    expect(failure).toMatchObject({ check: "self-test", key: "install" });
+    expect(failure?.fix).toContain("network");
+  });
+
+  it("refuses as unsafe when the worktree write got through", () => {
+    const written = REVIEW_BLOCKED_RESULTS.replace(
+      "worktree blocked Operation not permitted",
+      "worktree written",
+    );
+    expect(judgeSelfTest(reviewEvidence({ results: written }))).toMatchObject({
+      ok: false,
+      unsafe: true,
+      probe: "worktree",
+    });
+    expect(judgeSelfTest(reviewEvidence({ written: ["worktree"] }))).toMatchObject({
+      ok: false,
+      unsafe: true,
+      probe: "worktree",
+    });
+  });
+
+  it("cannot run without the install result or the control write in the run temp root", () => {
+    const noInstall = REVIEW_BLOCKED_RESULTS.replace("install exit 1\n", "");
+    expect(judgeSelfTest(reviewEvidence({ results: noInstall }))).toMatchObject({
+      ok: false,
+      unsafe: false,
+      probe: "install",
+    });
+    const noControl = judgeSelfTest(reviewEvidence({ controlWritten: false }));
+    expect(noControl).toMatchObject({ ok: false, unsafe: false, probe: "control" });
+    expect((noControl as { reason: string }).reason).toContain("inside the run temp root");
+  });
+
+  it("runs under the review run's settings, control file in the temp root, and cleans up", async () => {
+    const clock = new ManualClock();
+    const fs = new MemoryFs();
+    let installProject: string | null = null;
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([REVIEW_LAYOUT.command]),
+      onSession: () => {
+        installProject = fs.files.get(`${REVIEW_LAYOUT.installDir}/package.json`) ?? null;
+        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
+        fs.files.set(REVIEW_LAYOUT.controlFile, "");
+      },
+    });
+    // Safe-Chain on the machine changes nothing for a reviewer: no proxy, no wrapper, no install
+    // through it.
+    const safeChain = {
+      root: `${HOME}/.safe-chain`,
+      shell: "/bin/zsh",
+      path: "/usr/bin:/bin",
+      demoted: [],
+      dropped: [],
+      probe: "bun",
+      shellDir: `${RUN_DIR}/safe-chain`,
+      route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" },
+    };
+    const ctx = context({ safeChain });
+    const runPlan = plan(reviewSpec(), ctx);
+    const runSettings = runPlan.files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
+    const report = await runSelfTest(
+      { spec: reviewSpec(), ctx, runSettings, runFiles: runPlan.files },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+    );
+    expect(report.verdict).toEqual({ ok: true });
+    expect(report.evidence?.probes).toEqual(REVIEW_PROBES);
+    expect(report.evidence?.installMustFail).toBe(true);
+    expect(report.evidence?.safeChain).toBeUndefined();
+    expect(String(installProject)).toContain("dipo-self-test");
+    // The session runs the review run's own settings file, byte for byte, and its argv.
+    expect(fs.files.get(`${RUN_DIR}/self-test/${SETTINGS_FILE}`)).toBe(runSettings);
+    const session = fake.calls.find((call) => call.cmd.includes("-p"));
+    expect(session?.env?.["CLAUDE_CODE_SHELL"]).toBeUndefined();
+    expect(session?.cmd[session.cmd.indexOf("--mcp-config") + 1]).toBe(
+      `${RUN_DIR}/self-test/mcp-empty.json`,
+    );
+    expect(fs.executableWrites.size).toBe(0);
+    // Everything it made is gone: control file, results, worktree probe and install project.
+    expect(fs.files.has(REVIEW_LAYOUT.controlFile)).toBe(false);
+    expect(fs.files.has(REVIEW_LAYOUT.resultsFile)).toBe(false);
+    expect(fs.removedTrees).toEqual([REVIEW_LAYOUT.installDir ?? ""]);
+    expect(fs.files.get(`${WORKDIR}/.git`)).toBe(POINTER);
+  });
+
+  it("refuses the session when the install got through on disk", async () => {
+    const clock = new ManualClock();
+    const fs = new MemoryFs();
+    const installed = `${REVIEW_LAYOUT.installDir}/node_modules/is-number/package.json`;
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([REVIEW_LAYOUT.command]),
+      onSession: () => {
+        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
+        fs.files.set(REVIEW_LAYOUT.controlFile, "");
+        fs.files.set(installed, "{}");
+      },
+    });
+    const runSettings =
+      plan(reviewSpec(), context()).files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
+    const report = await runSelfTest(
+      { spec: reviewSpec(), ctx: context(), runSettings },
+      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+    );
+    expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "install" });
+  });
+
+  it("records the install exit code with the real perl program", async () => {
+    const perl = "/usr/bin/perl";
+    if (!existsSync(perl)) return;
+    const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
+    await withTempDir(async (dir) => {
+      const results = join(dir, "results.txt");
+      const layout = selfTestLayout({ ...PATHS, review: true }, REVIEW_PROBES);
+      const child = Bun.spawn(
+        [
+          perl,
+          "-e",
+          layout.script,
+          results,
+          "n",
+          "control",
+          ">",
+          join(dir, "c"),
+          "install",
+          "exit",
+          "1",
+        ],
+        { stdout: "ignore" },
+      );
+      expect(await child.exited).toBe(0);
+      expect(await Bun.file(results).text()).toBe("control written\ninstall exit 1\n");
+      expect(parseResults(await Bun.file(results).text()).get("install")).toEqual({
+        kind: "exit",
+        code: 1,
+      });
+    });
   });
 });

@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { WorkerReportSchema } from "./report-schema";
+import { ReviewReportSchema, WorkerReportSchema } from "./report-schema";
 
 const Count = z.number().int().nonnegative();
 /** A token count; absent counts read as zero. */
@@ -347,6 +347,7 @@ export const ClaudeWorkerEventSchema = z.union([
   z.strictObject({
     t: z.literal("turn"),
     report: WorkerReportSchema.nullable(),
+    review: ReviewReportSchema.exactOptional(),
     totals: z.record(Name, Totals),
     costUsd: z.record(Name, z.number().nonnegative()).exactOptional(),
     numTurns: Count,

@@ -30,6 +30,9 @@ const DERIVED = [
   "prompt-too-long",
   "stall",
   "budget-engine-cap",
+  "review-approved",
+  "review-blocked",
+  "review-invalid",
 ];
 
 const recordings = readAllRecordings();

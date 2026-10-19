@@ -69,7 +69,7 @@ import {
   nextSessionOptions,
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
@@ -256,7 +256,7 @@ export async function withRunOffice(
       const clock = new ManualClock();
       const worker: WorkerPort = {
         id: "claude-cli",
-        reportSchema: WORKER_REPORT_JSON_SCHEMA,
+        reportSchema: REPORT_JSON_SCHEMAS,
         localSettings: CLAUDE_LOCAL_SETTINGS,
         adapter: (paths, config) =>
           claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock }),

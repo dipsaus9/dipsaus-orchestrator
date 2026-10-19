@@ -16,7 +16,10 @@ import {
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
-import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import {
+  REVIEW_REPORT_JSON_SCHEMA,
+  WORKER_REPORT_JSON_SCHEMA,
+} from "../../src/workers/claude-cli/report-schema";
 import type { SelfTestFs } from "../../src/workers/claude-cli/self-test";
 import type { RunStep } from "../../src/workers/credential-check";
 import type { WorkerSpec } from "../../src/workers/types";
@@ -49,6 +52,20 @@ export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     hookRelay: false,
     ...overrides,
   };
+}
+
+/** A reviewer's spec (0019 section 4): kind review, read-only tools, the ReviewReport schema. */
+export function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
+  return spec({
+    kind: "review",
+    model: "opus",
+    effort: "high",
+    caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
+    systemFile: `${RUN_DIR}/system-review.md`,
+    tools: { allow: ["Read", "Glob", "Grep", "Bash"], deny: [] },
+    reportSchema: REVIEW_REPORT_JSON_SCHEMA,
+    ...overrides,
+  });
 }
 
 export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {
@@ -264,6 +281,9 @@ export const BLOCKED_RESULTS = [
   "npm-logs blocked Operation not permitted",
   "",
 ].join("\n");
+
+/** A review self-test's results (0019 section 4): the worktree refused too, the install failed. */
+export const REVIEW_BLOCKED_RESULTS = `${BLOCKED_RESULTS}worktree blocked Operation not permitted\ninstall exit 1\n`;
 
 /**
  * A step runner for the engine credential check. A number is the program's exit code, printed

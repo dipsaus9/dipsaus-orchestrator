@@ -224,8 +224,15 @@ export function refusedPlugins(
   );
 }
 
-/** The `startFailed` detail of a session that loaded plugins the office does not allow. */
-export function pluginRefusal(refused: readonly string[]): string {
+/**
+ * The `startFailed` detail of a session that loaded plugins the office does not allow; a reviewer
+ * session (`kind` `review`) allows none (0019 section 4).
+ */
+export function pluginRefusal(refused: readonly string[], kind?: string): string {
   const names = refused.join(", ");
-  return `system/init lists ${refused.length === 1 ? "plugin" : "plugins"} ${names}, not in worker.plugins: a plugin's hooks run outside the sandbox, so the session refuses to run (0008 amendment of 2026-10-12)`;
+  const listed = `system/init lists ${refused.length === 1 ? "plugin" : "plugins"} ${names}`;
+  if (kind === "review") {
+    return `${listed}, but a reviewer session loads no plugin: a plugin's hooks run outside the sandbox, so the session refuses to run (0019 section 4)`;
+  }
+  return `${listed}, not in worker.plugins: a plugin's hooks run outside the sandbox, so the session refuses to run (0008 amendment of 2026-10-12)`;
 }

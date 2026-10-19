@@ -1,0 +1,16 @@
+{
+  "scenario": "review-invalid",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "No valid review report: one correction turn \"report in the schema\" in the same session; still invalid, it is handled as a crash: park worker-failed (0019 section 4).",
+  "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
+  "derivedFrom": "success-single",
+  "transform": "A reviewer's session as review-approved; the result's structured_output is the source's worker report, which fails the review report schema.",
+  "cites": [
+    "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for; no live review run showed them (0019 section 4)",
+    "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands",
+    "a worker report in a review session's structured_output is illustrative; --json-schema makes Claude Code check the report against the schema it was given"
+  ],
+  "kind": "review"
+}

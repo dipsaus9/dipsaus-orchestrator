@@ -414,7 +414,13 @@ export {
   type ModelUsageTotals,
   type NudgeOp,
   type ParseState,
+  REVIEW_SUMMARY_MAX,
+  type ReportKind,
   type ResumeCheck,
+  type ReviewCriterion,
+  type ReviewFinding,
+  type ReviewFindingKind,
+  type ReviewReport,
   type SessionRef,
   type SteerOp,
   type UsageTotalsByModel,
@@ -432,14 +438,26 @@ export {
 export {
   CLAUDE_CLI_ADAPTER_ID,
   ENV_ALLOWLIST,
+  EMPTY_MCP_CONFIG_FILE,
+  kindContext as claudeKindContext,
   PLANNED_KINDS,
   plan as planClaudeLaunch,
   REPORT_SCHEMA_FILE,
+  REVIEW_TOOLS,
   SETTINGS_FILE,
   type ClaudeLaunchContext,
 } from "./workers/claude-cli/plan";
 export { encode as encodeClaudeOp } from "./workers/claude-cli/encode";
-export { WORKER_REPORT_JSON_SCHEMA, WorkerReportSchema } from "./workers/claude-cli/report-schema";
+export {
+  parseReviewReport,
+  REPORT_JSON_SCHEMAS,
+  REVIEW_REPORT_JSON_SCHEMA,
+  ReviewReportSchema,
+  WORKER_REPORT_JSON_SCHEMA,
+  WorkerReportSchema,
+  type ReviewReportRead,
+} from "./workers/claude-cli/report-schema";
+export { readInstalledPlugins } from "./workers/claude-cli/plugins";
 export {
   budgetTokens,
   currentTotals as currentClaudeTotals,
@@ -491,6 +509,7 @@ export {
   resolveSelfTestTools,
   workerWritableRoots,
   PROBE_GROUPS,
+  REVIEW_PROBES,
   runSelfTest,
   SELF_TEST_EFFORT,
   SELF_TEST_MODEL,
@@ -642,3 +661,10 @@ export {
   type BootoutOptions,
   type ReadCgroup,
 } from "./platform/supervisor";
+export {
+  assembleReviewTaskMessage,
+  renderSystemFile,
+  type PromptStory,
+  type ReviewChangedPath,
+  type ReviewTaskInput,
+} from "./prompts";

@@ -19,9 +19,10 @@ import {
   listenLineSocket,
   OFFICE_DEFAULTS,
   planClaudeLaunch,
+  readInstalledPlugins,
+  REPORT_JSON_SCHEMAS,
   SETTINGS_FILE,
   systemClock,
-  WORKER_REPORT_JSON_SCHEMA,
 } from "../../packages/engine/src/index";
 import type { LaunchPlan, LineServer, WorkerSpec } from "../../packages/engine/src/index";
 import { withTempRepo } from "../../packages/testkit/src/index";
@@ -371,7 +372,7 @@ export async function capture(scenario: Scenario): Promise<string> {
       const specFor = (resume: boolean, first: string): WorkerSpec => ({
         run: "run-0001",
         agent: "agt-0001",
-        kind: "implement",
+        kind: scenario.kind ?? "implement",
         workdir,
         model: scenario.model,
         effort: scenario.effort,
@@ -380,7 +381,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         taskMessage: first,
         tools: { allow: scenario.tools, deny: [] },
         session: { id: sessionId, resume },
-        reportSchema: WORKER_REPORT_JSON_SCHEMA,
+        reportSchema: REPORT_JSON_SCHEMAS[scenario.kind ?? "implement"],
         hookRelay: scenario.hookRelay !== undefined,
       });
       const hostSocket = join(repo.root, "host.sock");
@@ -399,6 +400,10 @@ export async function capture(scenario: Scenario): Promise<string> {
         ...(scenario.hookRelay === undefined
           ? {}
           : { permissionWaitSeconds: scenario.hookRelay.waitSeconds }),
+        // A reviewer loads no plugin: the plan switches off every installed one (0019 section 4).
+        ...(scenario.kind === "review"
+          ? { plugins: { installed: readInstalledPlugins(home), allowed: [] } }
+          : {}),
       };
       const launches: [LaunchPlan, readonly string[], boolean][] = [];
       const first = planClaudeLaunch(specFor(false, turns[0] ?? ""), context);
@@ -481,6 +486,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         processes: launches.length,
         steering: run.steering,
         unknown_types: scrubber.report.unknownTypes,
+        ...(scenario.kind === undefined ? {} : { kind: scenario.kind }),
         ...(scenario.hookRelay === undefined
           ? {}
           : { testConfig: { permissionWaitSeconds: scenario.hookRelay.waitSeconds } }),

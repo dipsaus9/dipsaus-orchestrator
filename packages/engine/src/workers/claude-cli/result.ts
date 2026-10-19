@@ -4,7 +4,15 @@
 
 import type { ParkReason } from "@dipsaus-orchestrator/contract";
 
-import type { ExitRecord, WorkerOutcome, WorkerReport, WorkerResult, WorkerRetry } from "../types";
+import type {
+  ExitRecord,
+  ReportKind,
+  ReviewReport,
+  WorkerOutcome,
+  WorkerReport,
+  WorkerResult,
+  WorkerRetry,
+} from "../types";
 import { currentTotals, type ClaudeParseState } from "./interpret";
 
 /** Exit code of a Claude process ended by SIGTERM (0008 "Exit and resume"). */
@@ -13,6 +21,7 @@ export const SIGTERM_EXIT_CODE = 143;
 interface Decision {
   readonly outcome: WorkerOutcome;
   readonly report: WorkerReport | null;
+  readonly review?: ReviewReport;
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   readonly resumable: boolean;
   readonly retry?: WorkerRetry;
@@ -77,7 +86,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     };
   }
   if (turn.subtype === "error_max_structured_output_retries") {
-    return noReport("error_max_structured_output_retries");
+    return noReport("error_max_structured_output_retries", state.reportKind);
   }
   if (turn.subtype !== "success") {
     const why =
@@ -88,6 +97,15 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     return crashed(`${turn.subtype} (${why})${last}, ${exitText(exit)}`);
   }
 
+  if (state.reportKind === "review") {
+    // A reviewer session (0019 sections 4 and 5): a valid report is all it returns; code computes
+    // the verdict from it.
+    const review = turn.review;
+    if (review === undefined) return noReport(turn.reportProblem ?? "no report", "review");
+    return exit.code === 0
+      ? { outcome: "done", report: null, review, resumable: false }
+      : { ...crashed(`review report but ${exitText(exit)}`), review };
+  }
   const report = turn.report;
   if (report === null) return noReport(turn.reportProblem ?? "no report");
   if (report.status === "done") {
@@ -112,8 +130,20 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
   };
 }
 
-/** No valid report after a turn: one feedback turn first (engine), then `ambiguous-spec`. */
-function noReport(why: string): Decision {
+/**
+ * No valid report after a turn: one feedback turn first (engine), then `ambiguous-spec`. A
+ * reviewer's is handled as a crash after that turn (0019 section 4): `worker-failed`.
+ */
+function noReport(why: string, kind?: ReportKind): Decision {
+  if (kind === "review") {
+    return {
+      outcome: "blocked",
+      report: null,
+      park: { reason: "worker-failed", detail: `no valid review report: ${why}` },
+      resumable: false,
+      retry: "report-feedback",
+    };
+  }
   return {
     outcome: "blocked",
     report: null,
@@ -140,9 +170,11 @@ export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult 
   return {
     outcome: decision.outcome,
     report: decision.report,
+    ...(decision.review === undefined ? {} : { review: decision.review }),
     usage: currentTotals(state),
     sessionId,
-    resumable: decision.resumable && sessionId !== "",
+    // The reviewer never resumes (0008 section 8): a failed review starts a fresh session.
+    resumable: decision.resumable && sessionId !== "" && state.reportKind !== "review",
     ...(decision.park === undefined ? {} : { park: decision.park }),
     ...(decision.retry === undefined ? {} : { retry: decision.retry }),
     ...(decision.detail === undefined ? {} : { detail: decision.detail }),

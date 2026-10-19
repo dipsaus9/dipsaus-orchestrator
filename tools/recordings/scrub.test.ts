@@ -206,6 +206,49 @@ describe("scrubber", () => {
     expect(isRedacted(result?.permission_denials[0].tool_input.file_path)).toBe(true);
   });
 
+  it("keeps a review report's enums and numbers, and redacts its text (DIPO-145)", () => {
+    const review = {
+      type: "result",
+      subtype: "success",
+      session_id: SESSION,
+      structured_output: {
+        criteria: [{ n: 1, status: "unmet", evidence: "greet.ts returns Hi" }],
+        findings: [
+          {
+            severity: "blocking",
+            kind: "correctness",
+            criterion: 1,
+            testEntry: 2,
+            file: "src/greet.ts",
+            line: 3,
+            quote: "return `Hi ${name}`;",
+            text: "Wrong greeting.",
+          },
+        ],
+        summary: "One criterion unmet.",
+      },
+    };
+    const [result] = stdoutOf(scrubCapture([out(1, review)], ROOTS).lines) as Record<string, any>[];
+    const report = result?.structured_output;
+    expect(report.criteria[0]).toMatchObject({ n: 1, status: "unmet" });
+    expect(report.findings[0]).toMatchObject({
+      severity: "blocking",
+      kind: "correctness",
+      criterion: 1,
+      testEntry: 2,
+      line: 3,
+    });
+    for (const text of [
+      report.criteria[0].evidence,
+      report.findings[0].file,
+      report.findings[0].quote,
+      report.findings[0].text,
+      report.summary,
+    ]) {
+      expect(isRedacted(text)).toBe(true);
+    }
+  });
+
   it("redacts an unknown message type whole and reports it", () => {
     const { lines, report } = scrubCapture(syntheticStream(), ROOTS);
     const unknown = stdoutOf(lines)[3] as Record<string, unknown>;

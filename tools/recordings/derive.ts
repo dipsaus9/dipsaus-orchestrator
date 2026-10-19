@@ -23,6 +23,8 @@ interface Transform {
   readonly transform: string;
   readonly expected: string;
   readonly cites?: readonly string[];
+  /** The worker kind the derived session ran as, when not `implement`. */
+  readonly kind?: "review";
   readonly apply: (lines: readonly Envelope[]) => Envelope[];
   readonly testConfig?: (lines: readonly Envelope[]) => Record<string, unknown>;
 }
@@ -166,6 +168,86 @@ function assistantError(lines: readonly Envelope[], error: string): Envelope[] {
       exit(init.t + 350, 1),
     ];
   });
+}
+
+// The review kind (0019 sections 4 and 5, DIPO-145). The worker sandbox that built these has no
+// network, so no live review run exists yet; the maintainer captures the `review-*-live`
+// scenarios. Until then the review recordings are the live `success-single` session with the
+// reviewer's system/init (its four tools, no skill, no slash command) and a review report.
+
+/** The tools a reviewer's system/init lists: the four of 0019 section 4 and the report tool. */
+const REVIEW_INIT_TOOLS = ["Bash", "Glob", "Grep", "Read", "StructuredOutput"];
+
+const CITE_REVIEW_INIT =
+  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for; no live review run showed them (0019 section 4)";
+const CITE_REVIEW_SKILLS =
+  "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands";
+const CITE_REVIEW_REPORT =
+  "structured_output is an illustrative ReviewReport (0019 section 5); no live review run returned one";
+
+const REVIEW_APPROVED: Data = {
+  criteria: [{ n: 1, status: "met", evidence: "src/greet.ts returns hello, <name>." }],
+  findings: [],
+  summary: "The change meets its one criterion; nothing to report.",
+};
+
+const REVIEW_BLOCKED: Data = {
+  criteria: [{ n: 1, status: "unmet", evidence: "greet returns Hi, not hello." }],
+  findings: [
+    {
+      severity: "blocking",
+      kind: "correctness",
+      criterion: 1,
+      file: "src/greet.ts",
+      line: 3,
+      quote: "return `Hi, ${name}`;",
+      text: "The greeting word is hello, as notes.txt fixes it.",
+    },
+    {
+      severity: "blocking",
+      kind: "test",
+      testEntry: 1,
+      text: "No test of greet for a name, which automated entry 1 asks for.",
+    },
+    {
+      severity: "advisory",
+      kind: "maintainability",
+      file: "src/greet.ts",
+      text: "The greeting word could be one exported constant.",
+    },
+  ],
+  summary: "Criterion 1 is unmet and automated test entry 1 has no test.",
+};
+
+/** The source session as a reviewer's: its init, and its first result carrying `report`. */
+function asReview(lines: readonly Envelope[], report: unknown): Envelope[] {
+  const result = indexOf(lines, (line) => isType(line, "result"));
+  return lines.map((line, index) => {
+    if (isInit(line)) {
+      return {
+        ...line,
+        data: {
+          ...clone(line.data as Data),
+          tools: REVIEW_INIT_TOOLS,
+          skills: [],
+          slash_commands: [],
+        },
+      };
+    }
+    if (index === result) {
+      return { ...line, data: { ...clone(line.data as Data), structured_output: clone(report) } };
+    }
+    return clone(line);
+  });
+}
+
+/** The source's own worker report: valid for `implement`, invalid for the review schema. */
+function workerReport(lines: readonly Envelope[]): unknown {
+  const result = at(
+    lines,
+    indexOf(lines, (line) => isType(line, "result")),
+  ).data as Data;
+  return result.structured_output;
 }
 
 export const TRANSFORMS: readonly Transform[] = [
@@ -404,6 +486,43 @@ export const TRANSFORMS: readonly Transform[] = [
     apply: (lines) => lines.map(clone),
     testConfig: (lines) => ({ budgetTokens: Math.floor(budgetTokens(lines) / 2) }),
   },
+  {
+    name: "review-approved",
+    from: "success-single",
+    kind: "review",
+    transform:
+      "A reviewer's session: system/init lists Bash, Glob, Grep, Read and StructuredOutput and no skill; the result's structured_output is a review report with every criterion met and no finding.",
+    expected:
+      "The outcome is done with a valid review report: every criterion met, no finding, so the verdict code computes is approved (0019 section 5).",
+    cites: [CITE_REVIEW_INIT, CITE_REVIEW_SKILLS, CITE_REVIEW_REPORT],
+    apply: (lines) => asReview(lines, REVIEW_APPROVED),
+  },
+  {
+    name: "review-blocked",
+    from: "success-single",
+    kind: "review",
+    transform:
+      "A reviewer's session as review-approved; the review report has criterion 1 unmet, a blocking correctness finding at a quoted line, a blocking test finding naming test plan entry 1 and an advisory finding.",
+    expected:
+      "The outcome is done with a valid review report; the verdict code computes is blocked (an unmet criterion; blocking findings once their evidence checks out), a failed round (0019 sections 5 and 6).",
+    cites: [CITE_REVIEW_INIT, CITE_REVIEW_SKILLS, CITE_REVIEW_REPORT],
+    apply: (lines) => asReview(lines, REVIEW_BLOCKED),
+  },
+  {
+    name: "review-invalid",
+    from: "success-single",
+    kind: "review",
+    transform:
+      "A reviewer's session as review-approved; the result's structured_output is the source's worker report, which fails the review report schema.",
+    expected:
+      'No valid review report: one correction turn "report in the schema" in the same session; still invalid, it is handled as a crash: park worker-failed (0019 section 4).',
+    cites: [
+      CITE_REVIEW_INIT,
+      CITE_REVIEW_SKILLS,
+      "a worker report in a review session's structured_output is illustrative; --json-schema makes Claude Code check the report against the schema it was given",
+    ],
+    apply: (lines) => asReview(lines, workerReport(lines)),
+  },
 ];
 
 /** Pure: every derived recording from its live source. */
@@ -421,6 +540,7 @@ export function deriveAll(read: (name: string) => Recording = readRecording): De
       derivedFrom: transform.from,
       transform: transform.transform,
       ...(transform.cites === undefined ? {} : { cites: transform.cites }),
+      ...(transform.kind === undefined ? {} : { kind: transform.kind }),
       ...(transform.testConfig === undefined
         ? {}
         : { testConfig: transform.testConfig(source.lines) }),

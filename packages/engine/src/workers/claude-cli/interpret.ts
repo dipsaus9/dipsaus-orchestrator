@@ -14,6 +14,8 @@ import type {
   HostLine,
   ModelUsageTotals,
   PlanLimitScope,
+  ReportKind,
+  ReviewReport,
   TurnProblem,
   UsageTotalsByModel,
   WorkerEvent,
@@ -21,7 +23,7 @@ import type {
 } from "../types";
 import { hookEventOf } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
-import { WorkerReportSchema } from "./report-schema";
+import { parseReviewReport, WorkerReportSchema } from "./report-schema";
 import { skillRefusal } from "./skills";
 import {
   ApiRetryMessage,
@@ -61,7 +63,9 @@ export interface TurnRecord {
   readonly subtype: string;
   readonly terminal: string;
   readonly report: WorkerReport | null;
-  /** Why the report is missing or invalid, when `report` is null. */
+  /** A `review` session's valid report (0019 section 5); absent in other kinds. */
+  readonly review?: ReviewReport;
+  /** Why the report is missing or invalid, when the kind's report is absent. */
   readonly reportProblem: string | null;
   readonly numTurns: number;
   readonly startupFailure: string | null;
@@ -109,6 +113,12 @@ export interface ClaudeParseState {
   readonly refuseSkills?: boolean;
   /** The skills of the last `system/init` (DIPO-130). Absent in states stored before it existed. */
   readonly skills?: readonly string[];
+  /**
+   * `review` when the session is a reviewer's (0019 sections 4 and 5): its result carries a
+   * `ReviewReport`, and `worker.plugins` does not apply, so `system/init` may list no plugin but the
+   * builtin ones. Absent means `implement`, as in states stored before it existed.
+   */
+  readonly reportKind?: ReportKind;
   /** Message ids already counted. */
   readonly seen: readonly string[];
   /** Live numbers since the last turn end, per model. */
@@ -191,6 +201,8 @@ export interface InitialStateOptions {
   readonly knownPlugins?: readonly string[];
   /** True when `system/init` may list no skill (DIPO-130). */
   readonly refuseSkills?: boolean;
+  /** `review` for a reviewer session (0019 section 5); `implement` by default. */
+  readonly reportKind?: ReportKind;
   /** Classifier switches already recorded on the run (0008 open question 7). */
   readonly acceptedModels?: readonly string[];
   /** Totals the run starts from, for a resumed run. */
@@ -239,6 +251,9 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
     ...(options.allowedPlugins === undefined ? {} : { allowedPlugins: options.allowedPlugins }),
     ...(options.knownPlugins === undefined ? {} : { knownPlugins: options.knownPlugins }),
     ...(options.refuseSkills === undefined ? {} : { refuseSkills: options.refuseSkills }),
+    ...(options.reportKind === undefined || options.reportKind === "implement"
+      ? {}
+      : { reportKind: options.reportKind }),
     ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     pending: "",
     truncated: false,
@@ -686,7 +701,8 @@ function init(value: unknown, state: ClaudeParseState): Step {
   // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
   // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
   // Checked only when the key source and the model passed: a session that fails those as well
-  // stays a rejected init.
+  // stays a rejected init. `worker.plugins` does not apply to a reviewer (0019 section 4): it may
+  // load no plugin but Claude Code's builtin ones.
   const allowed = next.allowedPlugins;
   if (
     allowed !== undefined &&
@@ -694,9 +710,10 @@ function init(value: unknown, state: ClaudeParseState): Step {
     next.initRejected === null &&
     next.startFailure === null
   ) {
-    const refused = refusedPlugins(plugins, allowed, next.knownPlugins ?? []);
+    const review = next.reportKind === "review";
+    const refused = refusedPlugins(plugins, review ? [] : allowed, next.knownPlugins ?? []);
     if (refused.length > 0) {
-      const reason = pluginRefusal(refused);
+      const reason = pluginRefusal(refused, next.reportKind);
       next = { ...next, startFailure: reason };
       // A neutral event, so the engine stops the worker before its first tool call.
       events.push({ t: "startRefused", reason });
@@ -920,7 +937,20 @@ function denial(state: ClaudeParseState, id: string, tool: string, reason: strin
   };
 }
 
-function readReport(output: unknown): { report: WorkerReport | null; problem: string | null } {
+interface ReportRead {
+  readonly report: WorkerReport | null;
+  readonly review?: ReviewReport;
+  readonly problem: string | null;
+}
+
+/** The report of the session's kind: a `WorkerReport`, or a `ReviewReport` for `review`. */
+function readReport(output: unknown, kind: ReportKind | undefined): ReportRead {
+  if (kind === "review") {
+    const read = parseReviewReport(output);
+    return read.ok
+      ? { report: null, review: read.report, problem: null }
+      : { report: null, problem: read.error };
+  }
   if (output === undefined || output === null)
     return { report: null, problem: "no structured_output" };
   const parsed = WorkerReportSchema.safeParse(output);
@@ -1007,17 +1037,19 @@ function result(value: unknown, state: ClaudeParseState): Step {
     Object.values(msg.modelUsage).find((entry) => entry.contextWindow !== undefined)?.contextWindow;
   if (window !== undefined) next = { ...next, contextWindow: window };
 
-  const read = readReport(msg.structured_output);
+  const read = readReport(msg.structured_output, next.reportKind);
   // A session that failed its start (an unlisted plugin, DIPO-108, or a skill, DIPO-130) reports
   // nothing the engine may act on: its turn carries no report, so verify and commit never run on
   // it, and the start failure decides.
   const report = next.startFailure === null ? read.report : null;
+  const review = next.startFailure === null ? read.review : undefined;
   const reportProblem = next.startFailure === null ? read.problem : next.startFailure;
   const terminal = msg.terminal_reason ?? msg.subtype;
   const turn: TurnRecord = {
     subtype: msg.subtype,
     terminal,
     report,
+    ...(review === undefined ? {} : { review }),
     reportProblem,
     numTurns: msg.num_turns,
     startupFailure: msg.startup_failure_reason ?? null,
@@ -1044,6 +1076,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
   events.push({
     t: "turn",
     report,
+    ...(review === undefined ? {} : { review }),
     totals: next.committed,
     ...(comparable ? { costUsd } : {}),
     numTurns: msg.num_turns,
@@ -1092,7 +1125,7 @@ function turnProblem(
     const last = state.lastError === null ? "" : `, last error ${state.lastError}`;
     return { kind: "error", detail: `${subtype} (${why})${last}` };
   }
-  if (turn.report === null) {
+  if (turn.report === null && turn.review === undefined) {
     return { kind: "report", detail: turn.reportProblem ?? "no report" };
   }
   return null;

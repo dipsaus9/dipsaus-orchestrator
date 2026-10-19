@@ -18,7 +18,13 @@ import {
 import type { SafeChainProxies } from "../../sandbox/safe-chain-proxies";
 import type { DipoPlatform } from "../../platform/paths";
 import type { LaunchPlan, WorkerSpec } from "../types";
-import { CLAUDE_CLI_ADAPTER_ID, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
+import {
+  CLAUDE_CLI_ADAPTER_ID,
+  kindContext,
+  plan,
+  SETTINGS_FILE,
+  type ClaudeLaunchContext,
+} from "./plan";
 import { checkNpmTokens } from "./npm-token-check";
 import { checkVerifyTools } from "./verify-tools";
 import type { VerifyCommands } from "../port";
@@ -164,11 +170,14 @@ export type PreparedLaunch =
  */
 export async function prepareLaunch(
   spec: WorkerSpec,
-  ctx: ClaudeLaunchContext,
+  launchContext: ClaudeLaunchContext,
   holds: AdapterHolds,
   deps: ClaudeLaunchCheckDeps,
   verify?: VerifyCommands,
 ): Promise<PreparedLaunch> {
+  // A review session has no Safe-Chain proxy and allows no plugin (0019 section 4); its checks
+  // and self-test run with the same context its plan has.
+  const ctx = kindContext(spec, launchContext);
   const launch = plan(spec, ctx);
   await checkNpmTokens(ctx);
   if (verify !== undefined) await checkVerifyTools(ctx, spec.workdir, verify);

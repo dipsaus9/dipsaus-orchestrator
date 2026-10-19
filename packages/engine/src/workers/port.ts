@@ -11,6 +11,7 @@ import type {
   JsonSchema,
   LaunchPlan,
   ParseState,
+  ReportKind,
   SteerOp,
   TranscriptRead,
   WorkerAdapter,
@@ -64,8 +65,11 @@ export interface LocalSettingsCopy {
 export interface WorkerPort {
   /** The adapter id, as `worker.adapter` names it (for example `claude-cli`). */
   readonly id: string;
-  /** The JSON Schema of `WorkerReport` a run puts in `WorkerSpec.reportSchema` (0008 section 1). */
-  readonly reportSchema: JsonSchema;
+  /**
+   * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008 section 1 and its
+   * amendment of 2026-10-16): `WorkerReport` for `implement`, `ReviewReport` for `review`.
+   */
+  readonly reportSchema: Readonly<Record<ReportKind, JsonSchema>>;
   /** What worktree setup copies as the adapter's local settings (DIPO-39, DIPO-113). */
   readonly localSettings: LocalSettingsCopy;
   /** The adapter for one run, its `plan` bound to the run's launch context (0008 section 1). */
@@ -97,7 +101,7 @@ export interface WorkerPort {
    * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
    * `previous` is the previous session's stored state: recorded classifier switches carry over,
    * and a resume (`spec.session.resume`) starts from its usage baseline, so restored spend is
-   * not counted twice.
+   * not counted twice. The spec's kind decides which report the state parses.
    */
   initialState(spec: WorkerSpec, previous?: ParseState): ParseState;
   /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
