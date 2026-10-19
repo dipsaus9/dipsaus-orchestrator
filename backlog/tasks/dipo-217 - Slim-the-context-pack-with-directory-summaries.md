@@ -1,10 +1,10 @@
 ---
 id: DIPO-217
 title: Slim the context pack with directory summaries
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 21:50'
+updated_date: '2026-10-19 21:59'
 labels:
   - 'tier:M'
   - cutover
@@ -52,3 +52,9 @@ test_plan:
 - [x] #5 aboutItem in packages/engine/src/prompts/assemble.ts renders a directory item as scope directory, <n> files, <k> changed most recently on the base; DEFAULT_PROVIDER_VERSION becomes 2 and the golden task message in packages/engine/test/prompts/golden/ is updated
 - [x] #6 A test in packages/engine/test/context/ builds a fixture checkout with a 120-file scope directory, an unnamed docs/decisions/ with 20 files, an unnamed packages/engine/test/recordings/claude-cli/ with 60 files, a tools/recordings/ with 14 files and a 10,000-character scope file, shows tools/recordings/ as a summary item and the two unnamed directories with no item, and asserts the pack's usedChars equals one pinned number, so any growth of the pack fails it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B1XQAH3NBB12C79VT0F6B0 (Sonnet, 31 turns, about $0.60, 5 min) reported done, In Review. Three calls were denied: a `cd . ; grep` compound and a sed -i (G7, known), and a throwaway `git init` repo under TMPDIR (git writes are refused by design). No write outside the References. A scope directory and the parent of a new scope path are now summaries: the file count plus the 15 files changed most recently on the base (one git log per directory), the rest in name order. docs/decisions/ and packages/engine/test/recordings/ give no item unless the story names a path in them; tools/recordings/ keeps its summary (0014 amendment of 2026-10-19). DEFAULT_PROVIDER_VERSION is 2; the AC6 fixture pins usedChars at 4,831. Fixed on top after review: a git error in the commit-order lookup keeps the name order and now adds a provenance note instead of passing silently, with a test. Not done (advisory): a pinned cut line for the 10,000-character head test, and a test of the scope-dir about text. Verify outside the sandbox: 3706 tests, 0 fail; DIPO_TEST_CI=1 context and prompts tests pass.
+<!-- SECTION:NOTES:END -->
