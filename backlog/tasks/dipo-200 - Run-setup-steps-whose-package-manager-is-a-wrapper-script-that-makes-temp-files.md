@@ -3,10 +3,10 @@ id: DIPO-200
 title: >-
   Run setup steps whose package manager is a wrapper script that makes temp
   files
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 22:21'
+updated_date: '2026-10-19 22:43'
 labels:
   - 'tier:M'
   - cutover
@@ -26,6 +26,8 @@ references:
   - packages/engine/test/worktree/claim.test.ts
   - packages/cli/src/run-command.ts
   - packages/cli/src/run-command.test.ts
+  - packages/daemon/src/runs.ts
+  - packages/engine/test/worktree/setup-harness.ts
 priority: high
 type: bug
 ordinal: 189000
@@ -71,3 +73,9 @@ test_plan:
 - [x] #2 The fix keeps the step's temp writes inside its temp root: the step sandbox's write rules are not widened to the user temp directory, and checkTrust gets the shim-prefixed PATH, so it vets the shim directory; a unit test with platform darwin shows the shim directory first on PATH and the trust check finding it outside every path the policy makes writable
 - [x] #3 When a setup step fails, the setup-failed message that `dipo run` prints names the command that shows the step's output (for example `dipo daemon logs --level debug`), and a unit test asserts it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B3Q5AFCEKF4DH6ASBDSZK4 (Sonnet, 29 turns, about $0.50, 4 min) reported done, In Review; two sed -i calls were auto-denied (G7). On macOS, runSandboxExec makes the private /tmp/dipo-sx-* directory (base as a parameter) and a read-only mktemp shim in it before checkTrust, which vets the shim-prefixed PATH. The shim, built from /usr/bin/mktemp, adds -p "$TMPDIR" to a template-less call (no arguments, -d, -q, -u, -t prefix, and the long --directory, --quiet, --dry-run) and passes templates, -p dir and --tmpdir through unchanged; Linux is unchanged. Fixed on top: (1) the CI wrapper test put its fake package manager in a bin/ inside the worktree, which the trust check rightly refused; it now lives outside, and the test passes on the branch and fails with main's sandbox-exec.ts with the original mktemp Operation not permitted error. (2) Review (blocking): warn lines never show stdout and stderr, so the hint `dipo daemon logs --level debug` showed nothing; setup now also logs the output tails at debug (wired in packages/daemon/src/runs.ts) and the notice names `dipo daemon log-level debug`, start the story again, then `dipo daemon logs --level debug`, with a test that renders both lines. (3) The long mktemp options above (review advisory). References widened at close: packages/daemon/src/runs.ts and packages/engine/test/worktree/setup-harness.ts. Not done (advisory): a test that the shim file exists when the trust callback runs. Verify outside the sandbox: 3753 tests, 0 fail; DIPO_TEST_CI=1 sandbox, platform, worktree, cli and daemon tests pass (693). Review and re-review passed apart from the References, now declared.
+<!-- SECTION:NOTES:END -->
