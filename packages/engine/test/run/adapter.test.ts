@@ -8,6 +8,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { planRefusedText, runWorkerSpec, sessionUuid } from "../../src/run";
+import { REVIEWER_TOOLS, REVIEW_SYSTEM_FILE } from "../../src/run/launch";
 import {
   CLAUDE_LINE_SCRUB,
   claudeCliAdapter,
@@ -17,11 +18,15 @@ import {
 import { initialState } from "../../src/workers/claude-cli/interpret";
 import { plan } from "../../src/workers/claude-cli/plan";
 import { selfTestLayout } from "../../src/workers/claude-cli/self-test";
-import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import {
+  REPORT_JSON_SCHEMAS,
+  REVIEW_REPORT_JSON_SCHEMA,
+  WORKER_REPORT_JSON_SCHEMA,
+} from "../../src/workers/claude-cli/report-schema";
 import { stripLocalSettings } from "../../src/workers/claude-cli/settings-check";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
-import { PlanError, type ParseState } from "../../src/workers/types";
+import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
 import {
   ADMIN_DIR,
   BLOCKED_RESULTS,
@@ -58,6 +63,26 @@ const PATHS: RunLaunchPaths = {
   shortTmpDir: SHORT_TMP_DIR,
 };
 
+/** A reviewer session's system/init line with `plugins` and `skills` (DIPO-145). */
+function reviewerInit(plugins: unknown[], skills: string[] = []): HostLine {
+  return {
+    t: 1,
+    ch: "stdout",
+    data: `${JSON.stringify({
+      type: "system",
+      subtype: "init",
+      session_id: "s",
+      model: "claude-opus-5-5",
+      claude_code_version: "2.1.301",
+      permissionMode: "default",
+      tools: ["Bash", "Glob", "Grep", "Read", "StructuredOutput"],
+      apiKeySource: "none",
+      plugins,
+      skills,
+    })}\n`,
+  };
+}
+
 describe("the worker port seam (DIPO-113)", () => {
   it("hands out the Claude report schema and the local settings copy", () => {
     const port = claudeWorkerPort({
@@ -74,13 +99,18 @@ describe("the worker port seam (DIPO-113)", () => {
       },
       uid: 501,
     });
-    expect(port.reportSchema).toBe(WORKER_REPORT_JSON_SCHEMA);
+    expect(port.reportSchema).toBe(REPORT_JSON_SCHEMAS);
+    expect(port.reportSchema.implement).toBe(WORKER_REPORT_JSON_SCHEMA);
+    expect(port.reportSchema.review).toBe(REVIEW_REPORT_JSON_SCHEMA);
     expect(port.localSettings.file).toBe(".claude/settings.local.json");
     expect(port.localSettings.strip).toBe(stripLocalSettings);
   });
 
   it("builds a run's WorkerSpec with the port's report schema", () => {
-    const reportSchema = { type: "object", title: "another adapter's report" };
+    const reportSchema = {
+      implement: { type: "object", title: "another adapter's report" },
+      review: { type: "object", title: "another adapter's review report" },
+    };
     const built = runWorkerSpec(
       { reportSchema },
       { runId: "run_1", agent: "agt_1", caps: OFFICE_DEFAULTS.tiers.S },
@@ -88,7 +118,66 @@ describe("the worker port seam (DIPO-113)", () => {
       "task",
       { id: "s-1", resume: false },
     );
-    expect(built.reportSchema).toBe(reportSchema);
+    expect(built.kind).toBe("implement");
+    expect(built.reportSchema).toBe(reportSchema.implement);
+  });
+
+  it("builds a reviewer's WorkerSpec: kind review, the review model and effort, the ReviewReport schema (DIPO-145)", () => {
+    const review = { ...OFFICE_DEFAULTS.review, model: "opus", effort: "high", maxTurns: 40 };
+    const tier = OFFICE_DEFAULTS.tiers.S;
+    const built = runWorkerSpec(
+      { reportSchema: REPORT_JSON_SCHEMAS },
+      { runId: "run_1", agent: "agt_2", caps: tier, reviewer: review },
+      PATHS,
+      "review task",
+      // The reviewer never resumes, whatever the caller asks.
+      { id: "s-2", resume: true },
+      { budgetTokens: 123_000, maxTurns: tier.maxTurns, maxMinutes: tier.maxMinutes },
+    );
+    expect(built.kind).toBe("review");
+    expect(built.model).toBe("opus");
+    expect(built.effort).toBe("high");
+    expect(built.caps).toEqual({
+      budgetTokens: 123_000,
+      maxTurns: 40,
+      maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
+    });
+    expect(built.tools).toEqual({ allow: ["Read", "Glob", "Grep", "Bash"], deny: [] });
+    expect(built.tools.allow).toEqual([...REVIEWER_TOOLS]);
+    expect(built.session).toEqual({ id: "s-2", resume: false });
+    expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);
+    expect(built.reportSchema).toBe(REVIEW_REPORT_JSON_SCHEMA);
+    // The ReviewReport of 0019 section 5: findings with testEntry, a summary of at most 1,500.
+    const schema = built.reportSchema as {
+      required: string[];
+      properties: {
+        summary: { maxLength: number };
+        findings: { items: { properties: Record<string, unknown>; required: string[] } };
+        criteria: { items: { properties: { status: { enum: string[] } } } };
+      };
+    };
+    expect(schema.required.toSorted()).toEqual(["criteria", "findings", "summary"]);
+    expect(schema.properties.summary.maxLength).toBe(1_500);
+    expect(Object.keys(schema.properties.findings.items.properties).toSorted()).toEqual([
+      "criterion",
+      "file",
+      "kind",
+      "line",
+      "quote",
+      "severity",
+      "testEntry",
+      "text",
+    ]);
+    expect(schema.properties.findings.items.required.toSorted()).toEqual([
+      "kind",
+      "severity",
+      "text",
+    ]);
+    expect(schema.properties.criteria.items.properties.status.enum).toEqual([
+      "met",
+      "unmet",
+      "maintainer",
+    ]);
   });
 });
 
@@ -340,6 +429,80 @@ describe("the Claude CLI adapter of one run", () => {
     expect(result.outcome).toBe("startFailed");
     expect(result.detail).toContain("plugin warp@claude-code-warp, not in worker.plugins");
     expect(result.park).toBeUndefined();
+  });
+
+  it("refuses a reviewer whose system/init lists a plugin, even one worker.plugins allows (DIPO-145)", () => {
+    const config = {
+      ...OFFICE_DEFAULTS,
+      worker: { ...OFFICE_DEFAULTS.worker, plugins: ["warp@claude-code-warp"] },
+    };
+    const ctx = claudeLaunchContext(
+      {
+        claudePath: `${HOME}/.local/bin/claude`,
+        home: HOME,
+        env: {},
+        pluginFiles: { read: () => undefined, dirs: () => [] },
+      },
+      PATHS,
+      config,
+    );
+    const port = claudeWorkerPort({
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: {},
+      spawn: neverSpawn,
+      clock,
+      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      platform: "darwin",
+      runStep: async () => {
+        throw new Error("no step may run in this test");
+      },
+      uid: 501,
+    });
+    const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
+    const warp = [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }];
+    const builtin = [{ name: "agents-md", source: "cc-plugin-agents-md@builtin", path: "/b" }];
+    const reviewSpec = spec({ kind: "review", model: "opus" });
+    // The worker of the same office may load warp; the reviewer may not.
+    const worker = adapter.interpret(
+      reviewerInit(warp),
+      port.initialState(spec({ model: "opus" })),
+    );
+    expect(worker.events.map((event) => event.t)).toEqual(["started"]);
+    const reviewer = adapter.interpret(reviewerInit(warp), port.initialState(reviewSpec));
+    expect(reviewer.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
+    const result = adapter.result(reviewer.state, { code: 143, signal: null });
+    expect(result.outcome).toBe("startFailed");
+    expect(result.detail).toContain("a reviewer session loads no plugin");
+    // Claude Code's own builtin plugins pass, as for workers.
+    const clean = adapter.interpret(reviewerInit(builtin), port.initialState(reviewSpec));
+    expect(clean.events.map((event) => event.t)).toEqual(["started"]);
+  });
+
+  it("refuses a reviewer whose system/init lists a skill (DIPO-145)", () => {
+    const ctx = context();
+    const port = claudeWorkerPort({
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: {},
+      spawn: neverSpawn,
+      clock,
+      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      platform: "darwin",
+      runStep: async () => {
+        throw new Error("no step may run in this test");
+      },
+      uid: 501,
+    });
+    const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
+    const step = adapter.interpret(
+      reviewerInit([], ["deploy"]),
+      port.initialState(spec({ kind: "review", model: "opus" })),
+    );
+    expect(step.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
+    const result = adapter.result(step.state, { code: 143, signal: null });
+    expect(result.outcome).toBe("startFailed");
+    expect(result.detail).toContain("skill deploy");
   });
 
   it("refuses to plan without a resolved claude", () => {

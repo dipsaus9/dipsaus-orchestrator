@@ -1,0 +1,17 @@
+{
+  "scenario": "review-blocked",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "The outcome is done with a valid review report; the verdict code computes is blocked (an unmet criterion; blocking findings once their evidence checks out), a failed round (0019 sections 5 and 6).",
+  "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
+  "derivedFrom": "success-single",
+  "transform": "A reviewer's session as review-approved; the review report has criterion 1 unmet, a blocking correctness finding at a quoted line, a blocking test finding naming test plan entry 1 and an advisory finding.",
+  "cites": [
+    "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for; no live review run showed them (0019 section 4)",
+    "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands",
+    "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5); no live review run returned one",
+    "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts): they are fixed illustrative text, not a live session's, and the replay tests read them"
+  ],
+  "kind": "review"
+}

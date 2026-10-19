@@ -69,8 +69,35 @@ export function closedWritePaths(home: string): ClosedWritePath[] {
   ];
 }
 
-/** Kinds this adapter plans. M0 plans only `implement` (D12, DIPO-15). */
-export const PLANNED_KINDS: readonly WorkerKind[] = ["implement"];
+/** Kinds this adapter plans: `implement` (D12, DIPO-15) and `review` (0019 section 4, DIPO-145). */
+export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review"];
+
+/**
+ * The only tools a `review` session may have (0019 section 4, option B): it reads the worktree and
+ * runs read-only commands in the sandbox. No Edit or Write, and no WebSearch or WebFetch.
+ */
+export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "Bash"];
+
+/**
+ * The MCP config file of a `review` session, in the run directory: no server. With
+ * `--strict-mcp-config` the reviewer loads no MCP server, not even the office's (0019 section 4).
+ */
+export const EMPTY_MCP_CONFIG_FILE = "mcp-empty.json";
+export const EMPTY_MCP_CONFIG = { mcpServers: {} } as const;
+
+/**
+ * The launch context a `spec` is planned with. A `review` session (0019 section 4) runs with no
+ * Safe-Chain proxy, since a reviewer installs nothing, and with no plugin the office allows its
+ * workers: `worker.plugins` does not apply, so every installed plugin is switched off.
+ */
+export function kindContext(
+  spec: Pick<WorkerSpec, "kind">,
+  ctx: ClaudeLaunchContext,
+): ClaudeLaunchContext {
+  if (spec.kind !== "review") return ctx;
+  const { safeChain: _safeChain, ...rest } = ctx;
+  return rest.plugins === undefined ? rest : { ...rest, plugins: { ...rest.plugins, allowed: [] } };
+}
 
 /** Variables passed through from the daemon's environment (0008 section 2). */
 export const ENV_ALLOWLIST = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TMPDIR"] as const;
@@ -254,6 +281,11 @@ function checkSpec(spec: WorkerSpec): void {
   if (spec.tools.allow.length === 0) throw new PlanError("the role must allow at least one tool");
   for (const tool of spec.tools.allow) {
     if (!TOOL_NAME.test(tool)) throw new PlanError(`not a tool name: ${tool}`);
+    if (spec.kind === "review" && !REVIEW_TOOLS.includes(tool)) {
+      throw new PlanError(
+        `a review session may use only ${REVIEW_TOOLS.join(", ")}, not ${tool} (0019 section 4)`,
+      );
+    }
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
 }
@@ -352,17 +384,23 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     ...commands("gh"),
     ...spec.tools.deny,
   ];
+  // A reviewer is read-only (0019 section 4): its tool list has no Edit or Write, and the rules
+  // deny both on the whole worktree as well.
+  const review = spec.kind === "review";
+  if (review) deny.push(`Edit(/${paths.workdir}/**)`, `Write(/${paths.workdir}/**)`);
   return {
     // `Bash` needs an allow rule: under `--permission-prompts none` the permission layer denies
     // every Bash call without one (0008 amendment of 2026-10-12, recording
     // `safety-bash-prompts-none`). The deny rules above, the read block, the sandbox and the
     // backstop stay the boundary.
-    allow: [
-      `Read(/${paths.workdir}/**)`,
-      `Edit(/${paths.workdir}/**)`,
-      `Write(/${paths.workdir}/**)`,
-      "Bash",
-    ],
+    allow: review
+      ? [`Read(/${paths.workdir}/**)`, "Bash"]
+      : [
+          `Read(/${paths.workdir}/**)`,
+          `Edit(/${paths.workdir}/**)`,
+          `Write(/${paths.workdir}/**)`,
+          "Bash",
+        ],
     deny: unique(deny),
     blockReadsOutsideWorkingDirectories: true,
   };
@@ -408,8 +446,15 @@ function safeChainNetwork(ctx: ClaudeLaunchContext) {
   };
 }
 
-function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
+/**
+ * A reviewer's network (0019 section 4): closed, whatever the office allows its workers, with no
+ * Safe-Chain proxy and no local binding, since a reviewer installs and serves nothing.
+ */
+const REVIEW_NETWORK = { allowedDomains: [], strictAllowlist: true, allowLocalBinding: false };
+
+function sandbox(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   const { home, workdir, main, tmp, shortTmp } = paths;
+  const review = spec.kind === "review";
   // The toolchain read list, not the install caches: the worker must reach `~/.bun/bin` to run bun.
   const allowRead = unique([
     ...ctx.sandbox.toolchainReadPaths.map((path) =>
@@ -424,8 +469,13 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
     failIfUnavailable: true,
     allowUnsandboxedCommands: false,
     filesystem: {
-      // The short temp root is the only write path added for tests (DIPO-118).
-      allowWrite: [workdir, tmp, ...(shortTmp === undefined ? [] : [shortTmp])],
+      // The short temp root is the only write path added for tests (DIPO-118). A reviewer writes
+      // only the two temp roots, never the worktree (0019 section 4).
+      allowWrite: [
+        ...(review ? [] : [workdir]),
+        tmp,
+        ...(shortTmp === undefined ? [] : [shortTmp]),
+      ],
       // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
       // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
       // With Safe-Chain the shell snapshot stays closed too: its functions would replace the
@@ -440,6 +490,8 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       denyWrite: [
         `${main}/.git`,
         `${workdir}/.git`,
+        // The story worktree itself for a reviewer (0019 section 4).
+        ...(review ? [workdir] : []),
         `${workdir}/backlog`,
         `${workdir}/.dipo`,
         `${workdir}/.claude/settings.json`,
@@ -449,13 +501,15 @@ function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
       ],
       allowRead,
     },
-    network: {
-      ...(ctx.safeChain === undefined ? closedNetwork(ctx) : safeChainNetwork(ctx)),
-      // A test daemon binds its socket under DIPO_TMP. macOS filters Unix sockets by path, so
-      // only sockets under the run's own short temp root open (bind and connect); Linux cannot
-      // filter them by path, so there they stay closed (DIPO-118).
-      ...(shortTmp === undefined ? {} : { allowUnixSockets: [shortTmp] }),
-    },
+    network: review
+      ? REVIEW_NETWORK
+      : {
+          ...(ctx.safeChain === undefined ? closedNetwork(ctx) : safeChainNetwork(ctx)),
+          // A test daemon binds its socket under DIPO_TMP. macOS filters Unix sockets by path, so
+          // only sockets under the run's own short temp root open (bind and connect); Linux
+          // cannot filter them by path, so there they stay closed (DIPO-118).
+          ...(shortTmp === undefined ? {} : { allowUnixSockets: [shortTmp] }),
+        },
     credentials: {
       files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
       envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
@@ -521,15 +575,17 @@ function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
     includeGitInstructions: false,
     attribution: { commit: "", pr: "" },
     permissions: permissions(spec, paths),
-    sandbox: sandbox(ctx, paths),
+    sandbox: sandbox(spec, ctx, paths),
     ...(hookBlock === undefined ? {} : { hooks: hookBlock }),
     ...(enabledPlugins === undefined ? {} : { enabledPlugins }),
   };
 }
 
 /** Pure: the launch plan for one Claude Code worker. Throws `PlanError` when it cannot. */
-export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
+export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
   checkSpec(spec);
+  const ctx = kindContext(spec, launch);
+  const review = spec.kind === "review";
   const claude = absolute("claudePath", ctx.claudePath);
   const home = absolute("home", ctx.home);
   const workdir = ruleSafe("workdir", absolute("workdir", spec.workdir));
@@ -573,7 +629,12 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
       );
     }
   }
-  const mcpConfig = ctx.mcpConfig === undefined ? undefined : absolute("mcpConfig", ctx.mcpConfig);
+  // A reviewer gets the empty MCP config, never the office's (0019 section 4).
+  const mcpConfig = review
+    ? `${runDir}/${EMPTY_MCP_CONFIG_FILE}`
+    : ctx.mcpConfig === undefined
+      ? undefined
+      : absolute("mcpConfig", ctx.mcpConfig);
   // The Safe-Chain wrapper also runs outside the sandbox (Claude Code's shell snapshot), so the
   // worker must not be able to change it.
   const shellDir =
@@ -638,6 +699,9 @@ export function plan(spec: WorkerSpec, ctx: ClaudeLaunchContext): LaunchPlan {
     files: [
       { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },
       { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
+      ...(review
+        ? [{ name: EMPTY_MCP_CONFIG_FILE, content: `${JSON.stringify(EMPTY_MCP_CONFIG)}\n` }]
+        : []),
       // For `dipo run --dry-run` and people: which default write paths the settings close, and why.
       {
         name: CLOSED_WRITES_FILE,

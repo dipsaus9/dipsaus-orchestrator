@@ -20,6 +20,11 @@
 //   blocked, so neither a missing nor a foreign directory passes for a sandbox refusal;
 // - a control write inside the worktree, which must succeed, or the blocked writes prove nothing.
 //
+// A `review` session's self-test (0019 section 4) differs in three ways: the worktree must refuse
+// writes, so the control write goes to the run temp root instead and one more probe writes into
+// the worktree; and with no Safe-Chain proxy and a closed network an install must fail, so a
+// `bun add` runs first and must not succeed (it replaces the pinned-install probe of DIPO-84).
+//
 // The program writes one line per probe into a results file in the sandbox temp directory. The
 // engine then judges from disk, outside the sandbox: the results file, whether any forbidden file
 // exists, whether the pointer changed, and whether the control file exists. Anything that got
@@ -49,9 +54,9 @@ import {
   SRT_DEFAULT_WRITE_PATHS,
 } from "../../sandbox/policy";
 import type { LaunchCheckFailure } from "../hold";
-import type { LaunchFile, WorkerOutcome, WorkerSpec } from "../types";
+import type { LaunchFile, ReportKind, WorkerOutcome, WorkerSpec } from "../types";
 import { initialState, interpret, type ClaudeParseState } from "./interpret";
-import { plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
+import { kindContext, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import {
   SAFE_CHAIN_BLOCKED_PACKAGE,
@@ -89,7 +94,8 @@ export type WriteProbe =
   | "refs"
   | "objects"
   | "pointer"
-  | "npm-logs";
+  | "npm-logs"
+  | "worktree";
 /** Every session probe writes; no credential probe runs in the session (0008 amendment). */
 export type ProbeName = WriteProbe;
 
@@ -101,6 +107,13 @@ export const WRITE_PROBES: readonly WriteProbe[] = [
   "pointer",
   "npm-logs",
 ];
+
+/** The probes of a `review` session's self-test: every write probe, and the worktree too. */
+export const REVIEW_PROBES: readonly WriteProbe[] = [...WRITE_PROBES, "worktree"];
+
+/** The package the review self-test tries to install, and the directory it would land in. */
+export const REVIEW_INSTALL_PACKAGE = SAFE_CHAIN_PROBE_PACKAGE;
+export const REVIEW_INSTALL_MODULE = "is-number";
 
 /** The srt default write path the npm-logs probe writes into, relative to home (DIPO-98). */
 export const NPM_LOGS_DIR = ".npm/_logs";
@@ -138,6 +151,12 @@ export interface SelfTestPaths {
    * records their exit codes as `safe-chain-install exit <n>` and `safe-chain-blocked exit <n>`.
    */
   readonly safeChainInstall?: boolean | undefined;
+  /**
+   * A `review` session (0019 section 4): the control file goes into the temp directory, and an
+   * install, `bun add --no-cache is-number@7.0.0` in a fresh project there, runs first; perl
+   * records its exit code as `install exit <n>`, and it must not be 0.
+   */
+  readonly review?: boolean | undefined;
 }
 
 export interface SelfTestTools {
@@ -165,7 +184,7 @@ export interface SelfTestLayout {
   readonly byte: string;
   readonly command: string;
   readonly prompt: string;
-  /** The project the Safe-Chain installs run in, or null without them (DIPO-84). */
+  /** The project the Safe-Chain installs or the review install run in, or null without them. */
   readonly installDir: string | null;
 }
 
@@ -203,6 +222,7 @@ const PROBE_PROSE: Record<WriteProbe, string> = {
   objects: "a file under .git/objects",
   pointer: "one byte appended to this worktree's .git pointer file",
   "npm-logs": "a file in npm's log directory under the home directory",
+  worktree: "a file inside this worktree",
 };
 
 function shellQuote(value: string): string {
@@ -235,6 +255,8 @@ export function selfTestLayout(
       case "pointer":
         // One byte appended: an allowed write changes the pointer, which the disk check sees.
         return { name: probe, mode: ">>", path: `${paths.workdir}/.git` };
+      case "worktree":
+        return { name: probe, mode: ">", path: `${paths.workdir}/.${name}` };
       case "npm-logs": {
         if (paths.home === undefined)
           throw new Error("the npm-logs probe needs the home directory");
@@ -243,7 +265,9 @@ export function selfTestLayout(
       }
     }
   };
-  const controlFile = `${paths.workdir}/.${name}`;
+  const review = paths.review === true;
+  // A reviewer may not write its worktree, so its control write goes to the temp directory.
+  const controlFile = review ? `${paths.tmpDir}/.${name}` : `${paths.workdir}/.${name}`;
   const resultsFile = `${paths.tmpDir}/${name}.txt`;
   const writes = probes;
   const targets: ProbeTarget[] = [
@@ -251,7 +275,8 @@ export function selfTestLayout(
     ...writes.map(where),
   ];
   const script = probeScript();
-  const installDir = paths.safeChainInstall === true ? `${paths.tmpDir}/${name}-install` : null;
+  const installDir =
+    paths.safeChainInstall === true || review ? `${paths.tmpDir}/${name}-install` : null;
   const args = [
     resultsFile,
     byte,
@@ -266,10 +291,16 @@ export function selfTestLayout(
   const perl = `${shellQuote(paths.tools.perl)} -e '${script}' ${args.map(shellQuote).join(" ")}`;
   const add = (spec: string) =>
     `${SAFE_CHAIN_PROBE} add --cwd=${shellQuote(installDir ?? "")} ${spec} >/dev/null 2>&1`;
+  // A review session's one install skips the manifest cache, so only the network could serve it.
   const command =
     installDir === null
       ? perl
-      : `${add(SAFE_CHAIN_PROBE_PACKAGE)}; a=$?; ${add(SAFE_CHAIN_BLOCKED_PACKAGE)}; b=$?; ${perl} 'safe-chain-install' 'exit' "$a" 'safe-chain-blocked' 'exit' "$b"`;
+      : review
+        ? `${add(`--no-cache ${REVIEW_INSTALL_PACKAGE}`)}; a=$?; ${perl} 'install' 'exit' "$a"`
+        : `${add(SAFE_CHAIN_PROBE_PACKAGE)}; a=$?; ${add(SAFE_CHAIN_BLOCKED_PACKAGE)}; b=$?; ${perl} 'safe-chain-install' 'exit' "$a" 'safe-chain-blocked' 'exit' "$b"`;
+  const control = review
+    ? "The perl program in it writes a control file in the run's temp directory, which should succeed"
+    : "The perl program in it writes a control file inside this worktree, which should succeed";
   const checks =
     writes.length === 0
       ? []
@@ -282,13 +313,17 @@ export function selfTestLayout(
     "Pass it to the Bash tool character for character. Add nothing before or after it: no echo, no cat, no exit-code check, no `;` or `&&`. The command already prints every result itself, and dipo compares the command you ran with this one, so any change, even an added check, makes the test fail.",
     "",
     checks.length === 0
-      ? "The perl program in it writes a control file inside this worktree, which should succeed, and records the result in a results file."
-      : `The perl program in it writes a control file inside this worktree, which should succeed. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
+      ? `${control}, and records the result in a results file.`
+      : `${control}. Then ${checks.join(", and ")}. The sandbox is expected to refuse all of these; each refusal is recorded in a results file, and that is the successful outcome of this test.`,
     ...(installDir === null
       ? []
-      : [
-          "Before that, the two `bun add` commands check that installs go through Safe-Chain in this sandbox: the first installs a small package and should succeed; the second asks for Safe-Chain's own harmless test package for its malware check, which Safe-Chain is expected to refuse. A refused install is the expected result.",
-        ]),
+      : review
+        ? [
+            "Before that, the `bun add` command tries to install a small package. This sandbox has no network, so the install is expected to fail. A failed install is the expected result.",
+          ]
+        : [
+            "Before that, the two `bun add` commands check that installs go through Safe-Chain in this sandbox: the first installs a small package and should succeed; the second asks for Safe-Chain's own harmless test package for its malware check, which Safe-Chain is expected to refuse. A refused install is the expected result.",
+          ]),
     "",
     'After the command has run, whatever it printed, return the report with status "done", criteria [{"n": 1, "met": true, "evidence": "self-test"}], summary "Ran the self-test." and commitSubject "chore: self-test".',
   ].join("\n");
@@ -345,6 +380,8 @@ export interface SelfTestDisk {
   readonly written: readonly WriteProbe[];
   readonly pointerChanged: boolean;
   readonly controlWritten: boolean;
+  /** A review self-test: the install's package is in its project after the session. */
+  readonly installed?: boolean;
 }
 
 export interface SelfTestEvidence {
@@ -360,6 +397,10 @@ export interface SelfTestEvidence {
   readonly disk: SelfTestDisk;
   /** With Safe-Chain installs probed (DIPO-84): the install they should go through. */
   readonly safeChain?: { readonly root: string };
+  /** A review self-test (0019 section 4): an install ran and must have failed. */
+  readonly installMustFail?: boolean;
+  /** The kind of the run the self-test ran for: a `review` session loads no plugin at all. */
+  readonly kind?: ReportKind;
   /** Plugins the session's `system/init` listed that `worker.plugins` does not (DIPO-108). */
   readonly refusedPlugins?: readonly string[];
   /** Skills the session's `system/init` listed, although the plan disabled them (DIPO-130). */
@@ -383,7 +424,7 @@ export type SelfTestVerdict =
       readonly ok: false;
       /** True when the sandbox let something through; false when the self-test could not run. */
       readonly unsafe: boolean;
-      readonly probe?: ProbeName | "control" | "safe-chain" | "plugins" | "skills";
+      readonly probe?: ProbeName | "control" | "safe-chain" | "install" | "plugins" | "skills";
       readonly reason: string;
     };
 
@@ -394,11 +435,12 @@ const PROBE_TEXT: Record<ProbeName, string> = {
   objects: "a write under <main>/.git/objects",
   pointer: "a write to the <worktree>/.git pointer",
   "npm-logs": `a write to <home>/${NPM_LOGS_DIR}, which srt opens by default`,
+  worktree: "a write inside the story worktree, which a reviewer may not write",
 };
 
 function cannotRun(
   reason: string,
-  probe?: ProbeName | "control" | "safe-chain" | "plugins" | "skills",
+  probe?: ProbeName | "control" | "safe-chain" | "install" | "plugins" | "skills",
 ): SelfTestVerdict {
   return {
     ok: false,
@@ -452,10 +494,15 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
         reason: `\`${SAFE_CHAIN_PROBE} add ${SAFE_CHAIN_BLOCKED_PACKAGE}\` succeeded inside the worker sandbox: Safe-Chain did not refuse its own test malware, so worker installs are not checked`,
       };
     }
+    const install = lines.get("install");
+    if (evidence.installMustFail === true && install?.kind === "exit" && install.code === 0) {
+      return installSucceeded();
+    }
   }
+  if (evidence.installMustFail === true && disk.installed === true) return installSucceeded();
   // A plugin the run settings did not switch off (DIPO-108): the session was stopped at init.
   const plugins = evidence.refusedPlugins ?? [];
-  if (plugins.length > 0) return cannotRun(pluginRefusal(plugins), "plugins");
+  if (plugins.length > 0) return cannotRun(pluginRefusal(plugins, evidence.kind), "plugins");
   // A skill although the plan passed `--disable-slash-commands` (DIPO-130): stopped at init too.
   const skills = evidence.refusedSkills ?? [];
   if (skills.length > 0) return cannotRun(skillRefusal(skills), "skills");
@@ -495,10 +542,24 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
   }
   const control = lines.get("control");
   if (control?.kind !== "write" || !control.written || !disk.controlWritten) {
+    const where = evidence.installMustFail === true ? "the run temp root" : "the worktree";
     return cannotRun(
-      "the control write inside the worktree failed, so the blocked writes prove nothing",
+      `the control write inside ${where} failed, so the blocked writes prove nothing`,
       "control",
     );
+  }
+  if (evidence.installMustFail === true) {
+    const install = lines.get("install");
+    if (install?.kind !== "exit") return cannotRun("no result for the install check", "install");
+    // The shell's own codes: bun was not found (127) or could not be executed (126). The install
+    // never reached the network, so its failure proves nothing about a closed network.
+    const missing = INSTALL_CANNOT_RUN[install.code];
+    if (missing !== undefined) {
+      return cannotRun(
+        `\`${SAFE_CHAIN_PROBE} add\` exited ${install.code} inside the reviewer sandbox: ${missing}, so the failed install does not show that the network is closed`,
+        "install",
+      );
+    }
   }
   if (evidence.outcome !== "done" && evidence.outcome !== "blocked") {
     return cannotRun(`the Claude Code session ended ${evidence.outcome}`);
@@ -522,6 +583,22 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
     }
   }
   return { ok: true };
+}
+
+/** Exit codes of the review install that mean `bun` never ran, so the install proves nothing. */
+const INSTALL_CANNOT_RUN: Readonly<Record<number, string>> = {
+  126: `${SAFE_CHAIN_PROBE} was found on the reviewer's PATH but could not be executed`,
+  127: `${SAFE_CHAIN_PROBE} was not found on the reviewer's PATH`,
+};
+
+/** The verdict of a review self-test whose install got through the sandbox (0019 section 4). */
+function installSucceeded(): SelfTestVerdict {
+  return {
+    ok: false,
+    unsafe: true,
+    probe: "install",
+    reason: `\`${SAFE_CHAIN_PROBE} add ${REVIEW_INSTALL_PACKAGE}\` succeeded inside the reviewer sandbox, which has no network and no Safe-Chain proxy, so a reviewer could install code`,
+  };
 }
 
 /** File access the self-test needs, outside the sandbox. Injectable for tests. */
@@ -965,7 +1042,10 @@ export async function runSelfTest(
   deps: SelfTestDeps,
 ): Promise<SelfTestReport> {
   const fs = deps.fs ?? nodeSelfTestFs;
-  const { spec, ctx } = input;
+  const { spec } = input;
+  // A review session's self-test runs with the context its plan has: no Safe-Chain, no plugin.
+  const ctx = kindContext(spec, input.ctx);
+  const review = spec.kind === "review";
   const workdir = spec.workdir;
   const main = ctx.mainCheckout;
   const pointerFile = `${workdir}/.git`;
@@ -1008,23 +1088,28 @@ export async function runSelfTest(
 
   // Lower case: the nonce names files and its first character is the written byte.
   const nonce = deps.sessionId.toLowerCase().replaceAll("-", "").slice(0, 16);
-  const layout = selfTestLayout({
-    main,
-    workdir,
-    adminDir,
-    tmpDir: ctx.tmpDir,
-    nonce,
-    tools: tools.tools,
-    home: ctx.home,
-    // The installs need `bun` on the worker PATH and the run's proxy (a launch, not a dry run).
-    safeChainInstall: ctx.safeChain?.probe !== null && ctx.safeChain?.route !== undefined,
-  });
+  const layout = selfTestLayout(
+    {
+      main,
+      workdir,
+      adminDir,
+      tmpDir: ctx.tmpDir,
+      nonce,
+      tools: tools.tools,
+      home: ctx.home,
+      // The installs need `bun` on the worker PATH and the run's proxy (a launch, not a dry run).
+      safeChainInstall: ctx.safeChain?.probe !== null && ctx.safeChain?.route !== undefined,
+      review,
+    },
+    review ? REVIEW_PROBES : ALL_PROBES,
+  );
   const selfDir = `${ctx.runDir}/${SELF_TEST_DIR}`;
   const systemFile = `${selfDir}/system.md`;
   const selfSpec: WorkerSpec = {
     run: spec.run,
     agent: spec.agent,
-    kind: "implement",
+    // The run's kind, so the self-test's argv is the run's (a reviewer's empty MCP config).
+    kind: review ? "review" : "implement",
     workdir,
     model: SELF_TEST_MODEL,
     effort: SELF_TEST_EFFORT,
@@ -1104,6 +1189,13 @@ export async function runSelfTest(
       written,
       pointerChanged: pointerAfter !== pointer,
       controlWritten: await fs.exists(layout.controlFile),
+      ...(review && layout.installDir !== null
+        ? {
+            installed: await fs.exists(
+              `${layout.installDir}/node_modules/${REVIEW_INSTALL_MODULE}/package.json`,
+            ),
+          }
+        : {}),
     };
   } finally {
     // Put the pointer back as it was before the session, in case a write got through.
@@ -1146,6 +1238,8 @@ export async function runSelfTest(
     ...(layout.installDir === null || ctx.safeChain === undefined
       ? {}
       : { safeChain: { root: ctx.safeChain.root } }),
+    ...(review ? { installMustFail: true } : {}),
+    kind: review ? "review" : "implement",
     ...(typeof session === "string" ? {} : initRefusals(session.state, ctx.plugins)),
   };
   return {
@@ -1181,14 +1275,33 @@ export function selfTestFailure(report: SelfTestReport): LaunchCheckFailure | nu
     detail: verdict.reason,
     ...(target === undefined ? {} : { file: target.path }),
     ...(verdict.probe === undefined ? {} : { key: verdict.probe }),
-    fix: verdict.unsafe
-      ? "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings."
-      : verdict.probe === "plugins"
-        ? "Claude Code loaded a plugin the run settings did not switch off. Remove or disable the plugin for this machine, or, when its hooks are safe to run outside the sandbox for an unattended worker, add it to worker.plugins in .dipo/office.yaml (reviewed like code); then start a run again."
-        : verdict.probe === "skills"
-          ? `Claude Code loaded skills although the plan passed ${DISABLE_SLASH_COMMANDS}. Check that this Claude Code version still honours the flag (\`claude --version\`; its system/init should list skills: []), then start a run again.`
-          : verdict.probe === "safe-chain"
-            ? "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again."
-            : "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.",
+    fix: selfTestFix(verdict, report.evidence?.kind),
   };
+}
+
+/** What the maintainer does about a refused self-test, by probe and by the run's kind. */
+function selfTestFix(
+  verdict: Extract<SelfTestVerdict, { ok: false }>,
+  kind: ReportKind | undefined,
+): string {
+  if (verdict.unsafe) {
+    return verdict.probe === "install"
+      ? "Do not run reviews on this machine until the sandbox closes the network for them; check the Claude Code version and the sandbox network settings, then start the review again."
+      : "Do not run workers on this machine until the sandbox blocks it; check the Claude Code version and the sandbox settings.";
+  }
+  switch (verdict.probe) {
+    case "plugins":
+      // A reviewer loads no plugin whatever worker.plugins says (0019 section 4).
+      return kind === "review"
+        ? "Claude Code loaded a plugin the run settings did not switch off. A reviewer session loads no plugins (0019 section 4), so worker.plugins does not apply to it; the plugin comes from the user scope or the project. Remove or disable it for this machine or this project, then start the review again."
+        : "Claude Code loaded a plugin the run settings did not switch off. Remove or disable the plugin for this machine, or, when its hooks are safe to run outside the sandbox for an unattended worker, add it to worker.plugins in .dipo/office.yaml (reviewed like code); then start a run again.";
+    case "skills":
+      return `Claude Code loaded skills although the plan passed ${DISABLE_SLASH_COMMANDS}. Check that this Claude Code version still honours the flag (\`claude --version\`; its system/init should list skills: []), then start a run again.`;
+    case "safe-chain":
+      return "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to the package registries, and that a real bun is on the daemon's PATH outside directories the sandbox cannot read; `dipo run --dry-run` shows the safe-chain shell files and safe-chain/proxy.json. Then start a run again.";
+    case "install":
+      return `Put a real ${SAFE_CHAIN_PROBE} on the daemon's PATH, outside directories a worker can write: a reviewer runs with that PATH, and its self-test needs ${SAFE_CHAIN_PROBE} to show that an install fails on the closed network. Then start the review again.`;
+    default:
+      return "Check that Claude Code starts, the login is the subscription and the sandbox can start (`claude` with the run settings), then start a run again.";
+  }
 }

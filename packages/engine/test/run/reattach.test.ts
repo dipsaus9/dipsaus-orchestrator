@@ -68,7 +68,7 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { readTranscript } from "../../src/workers/claude-cli/transcript";
-import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { VerifyCommands, WorkerPort } from "../../src/workers/port";
@@ -868,7 +868,7 @@ function realResumer(
 ): RunResumer {
   const worker: WorkerPort = {
     id: "claude-cli",
-    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    reportSchema: REPORT_JSON_SCHEMAS,
     localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: () =>
       ({

@@ -6,7 +6,6 @@ import { createHash } from "node:crypto";
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import type { Section } from "./contract";
 
 /** Characters per token for the estimate; 0014 measures 3.5 to 4, and reports name it an estimate. */
 export const CHARS_PER_TOKEN = 4;
@@ -38,7 +37,7 @@ export function measurePart(name: string, text: string): PromptPart {
 export function promptParts(
   systemFile: string,
   taskMessage: string,
-  sections: readonly Section[],
+  sections: readonly { readonly name: string; readonly text: string }[],
 ): PromptPart[] {
   return [
     measurePart(SYSTEM_PART, systemFile),

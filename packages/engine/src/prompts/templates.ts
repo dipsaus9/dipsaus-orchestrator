@@ -4,33 +4,44 @@
 // over every template file.
 
 import implementContract from "./contract/implement.md" with { type: "text" };
+import reviewContract from "./contract/review.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
 import resumeMessage from "./feedback/resume.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
+import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
 import background from "./task/background.md" with { type: "text" };
+import changes from "./task/changes.md" with { type: "text" };
 import contextItem from "./task/context-item.md" with { type: "text" };
 import contextListed from "./task/context-listed.md" with { type: "text" };
 import context from "./task/context.md" with { type: "text" };
 import criteria from "./task/criteria.md" with { type: "text" };
 import dependencies from "./task/dependencies.md" with { type: "text" };
+import diff from "./task/diff.md" with { type: "text" };
 import feedback from "./task/feedback.md" with { type: "text" };
+import gateChanges from "./task/gate-changes.md" with { type: "text" };
 import handoff from "./task/handoff.md" with { type: "text" };
 import inputs from "./task/inputs.md" with { type: "text" };
 import instructions from "./task/instructions.md" with { type: "text" };
 import outcome from "./task/outcome.md" with { type: "text" };
+import previousFindings from "./task/previous-findings.md" with { type: "text" };
+import reviewScope from "./task/review-scope.md" with { type: "text" };
+import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
 import scope from "./task/scope.md" with { type: "text" };
 import story from "./task/story.md" with { type: "text" };
 import testPlanNotApplicable from "./task/test-plan-not-applicable.md" with { type: "text" };
 import testPlan from "./task/test-plan.md" with { type: "text" };
 
-/** L1 worker contracts by run kind. M0 has `implement` only; `review` comes in M1. */
-export const CONTRACT_TEMPLATES = { implement: implementContract } as const;
+/** L1 worker contracts by run kind: `implement` and `review` (0019 section 4). */
+export const CONTRACT_TEMPLATES = { implement: implementContract, review: reviewContract } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
-/** Built-in L2 roles until `.dipo/roles/` (M4). M0 has `developer` only. */
-export const ROLE_TEMPLATES = { developer: developerRole } as const;
+/**
+ * Built-in L2 roles until `.dipo/roles/` (M4): `developer`, and `reviewer`, used only by the
+ * `review` kind and never named by a story (0019 section 4).
+ */
+export const ROLE_TEMPLATES = { developer: developerRole, reviewer: reviewerRole } as const;
 export type BuiltInRole = keyof typeof ROLE_TEMPLATES;
 
 /** L4 section templates. */
@@ -51,6 +62,12 @@ export const TASK_TEMPLATES = {
   answers,
   instructions,
   feedback,
+  changes,
+  diff,
+  gateChanges,
+  reviewScope,
+  reviewTestPlan,
+  previousFindings,
 } as const;
 
 /**
@@ -122,6 +139,10 @@ export const PROMPT_TAGS: readonly string[] = [
   "instructions",
   "feedback",
   "item",
+  "changes",
+  "diff",
+  "gate_changes",
+  "previous_findings",
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.

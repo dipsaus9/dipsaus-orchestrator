@@ -59,6 +59,11 @@ export interface Meta {
   readonly cites?: readonly string[];
   /** Engine test configuration the scenario needs, for example a low tier budget. */
   readonly testConfig?: Readonly<Record<string, unknown>>;
+  /**
+   * The worker kind the session ran as, when it is not `implement`: `review` for a reviewer
+   * session (0019 section 4), whose result carries a `ReviewReport`.
+   */
+  readonly kind?: "review";
 }
 
 export interface Recording {

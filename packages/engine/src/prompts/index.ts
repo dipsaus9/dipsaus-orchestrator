@@ -1,5 +1,6 @@
 // Worker prompt assembly (0014, DIPO-47): the L1+L2 system file, the `implement` task message,
-// verify feedback items, the handoff block, worker notes and prompt part measurements.
+// verify feedback items, the handoff block, worker notes and prompt part measurements; the
+// `review` system file and task message (0019 section 4).
 
 export { assembleTaskMessage, taskBudgetsFor } from "./assemble";
 export type { Drop, TaskBudgets, TaskMessage, TaskMessageInput } from "./assemble";
@@ -49,6 +50,15 @@ export {
 export type { PromptPart } from "./parts";
 export { backgroundOf, outcomeOf, promptStoryOf } from "./story";
 export type { PromptCriterion, PromptDependency, PromptStory, PromptStoryOptions } from "./story";
+export {
+  assembleReviewTaskMessage,
+  REVIEW_SECTION_ORDER,
+  type ReviewChangedPath,
+  type ReviewSection,
+  type ReviewSectionName,
+  type ReviewTaskInput,
+  type ReviewTaskMessage,
+} from "./review";
 export { renderSystemFile } from "./system";
 export {
   CONTRACT_TEMPLATES,

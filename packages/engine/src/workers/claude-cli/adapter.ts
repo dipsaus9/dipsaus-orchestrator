@@ -31,7 +31,7 @@ import { checkVerifyTools } from "./verify-tools";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
 import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
-import { WORKER_REPORT_JSON_SCHEMA } from "./report-schema";
+import { REPORT_JSON_SCHEMAS } from "./report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "./settings-check";
 import { expandHome } from "../../sandbox/policy";
 import { SAFE_CHAIN_SHELL_DIR, type SafeChainInput, type SafeChainLaunch } from "./safe-chain";
@@ -76,7 +76,8 @@ function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
  * `initialState` has no configuration; the adapter of the launch (or resume) has, so it sets them
  * on every line, whatever the stored state held, a null included:
  *
- * - the office's `worker.plugins` and the plugin ids of this launch (DIPO-108);
+ * - the office's `worker.plugins` and the plugin ids of this launch (DIPO-108); a reviewer's state
+ *   allows no plugin whatever `worker.plugins` says (0019 section 4, in the parser);
  * - the skills check (DIPO-130), always: `plan` passes `--disable-slash-commands` to every session.
  */
 function withInitChecks(state: ClaudeParseState, ctx: ClaudeLaunchContext): ClaudeParseState {
@@ -208,7 +209,7 @@ export function claudeLaunchContext(
 export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
   return {
     id: CLAUDE_CLI_ADAPTER_ID,
-    reportSchema: WORKER_REPORT_JSON_SCHEMA,
+    reportSchema: REPORT_JSON_SCHEMAS,
     localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths, config) => claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps),
     checkVerify: (paths, config, verify, root) =>
@@ -236,15 +237,17 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       return prepared.ok ? { ok: true, plan: scrubbed(prepared.plan) } : prepared;
     },
     initialState: (spec, previous) =>
-      initialState(
-        previous === undefined
+      initialState({
+        ...(previous === undefined
           ? { plannedModel: spec.model }
           : nextSessionOptions(
               previous as unknown as ClaudeParseState,
               spec.session.resume,
               spec.model,
-            ),
-      ) as unknown as ParseState,
+            )),
+        // A reviewer's result carries a `ReviewReport` (0019 section 5).
+        ...(spec.kind === "review" ? { reportKind: "review" as const } : {}),
+      }) as unknown as ParseState,
     encode,
     result: (state, exit) => result(state as unknown as ClaudeParseState, exit),
     sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),

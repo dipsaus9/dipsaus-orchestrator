@@ -11,6 +11,8 @@ import type { HookEvent, HookReply } from "../hooks/types";
 export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
 export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
+/** The kinds with a report schema of their own (0008 amendment of 2026-10-16, DIPO-131). */
+export type ReportKind = "implement" | "review";
 
 /** Caps per run, from the tier (0008 section 9). Loops stay in the engine. */
 export interface Caps {
@@ -42,7 +44,7 @@ export interface WorkerSpec {
   readonly tools: { readonly allow: readonly string[]; readonly deny: readonly string[] };
   /** Engine-made session id; `resume` continues that session instead of starting it. */
   readonly session: { readonly id: string; readonly resume: boolean };
-  /** The schema the worker's report must follow (`WorkerReport`). */
+  /** The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). */
   readonly reportSchema: JsonSchema;
   /** Relay the adapter's hooks to the worker host (0008 section 5). */
   readonly hookRelay: boolean;
@@ -147,6 +149,50 @@ export interface WorkerReport {
   readonly needsPermission?: { readonly tool: string; readonly action: string };
 }
 
+/** The longest `ReviewReport.summary` (0019 section 5). */
+export const REVIEW_SUMMARY_MAX = 1_500;
+
+/** A criterion as the reviewer judged it (0019 section 5); exactly one per criterion. */
+export interface ReviewCriterion {
+  readonly n: number;
+  /** `maintainer`: only the maintainer can check it; the merge waits for them. */
+  readonly status: "met" | "unmet" | "maintainer";
+  readonly evidence: string;
+}
+
+export type ReviewFindingKind =
+  | "scope"
+  | "test"
+  | "correctness"
+  | "security"
+  | "maintainability"
+  | "other";
+
+/** One reviewer finding (0019 section 5); code checks its evidence before it may block. */
+export interface ReviewFinding {
+  readonly severity: "blocking" | "advisory";
+  readonly kind: ReviewFindingKind;
+  readonly criterion?: number;
+  /** The number of an automated test-plan entry with no test (kind `test`). */
+  readonly testEntry?: number;
+  readonly file?: string;
+  readonly line?: number;
+  /** The changed line at `file:line`, as the reviewer quotes it. */
+  readonly quote?: string;
+  readonly text: string;
+}
+
+/**
+ * The report a reviewer returns (0019 section 5): per-criterion results and findings. Code, not
+ * the reviewer, computes the verdict from them.
+ */
+export interface ReviewReport {
+  readonly criteria: readonly ReviewCriterion[];
+  readonly findings: readonly ReviewFinding[];
+  /** At most `REVIEW_SUMMARY_MAX` characters. */
+  readonly summary: string;
+}
+
 export type WaitingOn = "permission" | "question" | "plan-limit" | "retry" | "auth";
 
 /** Facts an adapter reads from a worker's output (0008 section 3). */
@@ -201,7 +247,10 @@ export type WorkerEvent =
     }
   | {
       readonly t: "turn";
+      /** The worker's report; always null in a `review` session, whose report is `review`. */
       readonly report: WorkerReport | null;
+      /** A `review` session's valid report (0019 section 5); absent in other kinds. */
+      readonly review?: ReviewReport;
       readonly totals: UsageTotalsByModel;
       /**
        * The adapter's own cost estimate in USD per model, run totals as of this turn end, when
@@ -294,6 +343,8 @@ export type WorkerOutcome =
 export interface WorkerResult {
   readonly outcome: WorkerOutcome;
   readonly report: WorkerReport | null;
+  /** A `review` session's valid report; absent in other kinds. */
+  readonly review?: ReviewReport;
   readonly usage: UsageTotalsByModel;
   readonly sessionId: string;
   readonly resumable: boolean;

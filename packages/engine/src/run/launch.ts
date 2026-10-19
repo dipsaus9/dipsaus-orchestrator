@@ -70,6 +70,15 @@ import {
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
 
+/** The tools of the reviewer role (0019 section 4, option B): read-only, no web tools. */
+export const REVIEWER_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "Bash"];
+
+/**
+ * The reviewer's system file in the run directory: a name of its own, so a review never replaces
+ * the developer's `system.md`, which a resumed developer session passes again.
+ */
+export const REVIEW_SYSTEM_FILE = "system-review.md";
+
 /** `engine.notice` codes of the worker start. */
 export const LAUNCH_NOTICES = {
   planRefused: "run.planRefused",
@@ -85,6 +94,15 @@ const PREVIEW_SESSION = "00000000-0000-4000-8000-000000000000";
 
 /** A tier's caps as the office configuration holds them. */
 export type TierCaps = OfficeConfig["tiers"]["S"];
+
+/**
+ * A reviewer session's model, effort and session caps (0019 sections 4 and 16): the office's
+ * `review` block, or the values the run snapshot of it at its start.
+ */
+export type ReviewerSettings = Pick<
+  OfficeConfig["review"],
+  "model" | "effort" | "maxTurns" | "maxMinutes"
+>;
 
 /** Starts a worker host for a run and records it in `worker_hosts` (DIPO-44). */
 export interface HostStarter {
@@ -232,31 +250,59 @@ export function runLaunchPaths(
 
 /**
  * The `WorkerSpec` of one session of a run (DIPO-74; DIPO-51 for the later sessions). The report
- * schema comes from the worker port, never from an adapter module (DIPO-113).
+ * schema comes from the worker port, never from an adapter module (DIPO-113), for the session's
+ * kind. With `facts.reviewer` the session is a reviewer's (0019 section 4): kind `review`, model
+ * and effort from the review settings, the reviewer's tools, its own turn and minute caps, the
+ * `ReviewReport` schema, and always a fresh session. Otherwise it is the developer's `implement`
+ * session with the tier's model, effort and caps.
  */
 export function runWorkerSpec(
   worker: Pick<WorkerPort, "reportSchema">,
-  facts: { readonly runId: string; readonly agent: string; readonly caps: TierCaps },
+  facts: {
+    readonly runId: string;
+    readonly agent: string;
+    readonly caps: TierCaps;
+    readonly reviewer?: ReviewerSettings;
+  },
   paths: RunLaunchPaths,
   taskMessage: string,
   session: { readonly id: string; readonly resume: boolean },
   caps: Caps = capsOf(facts.caps),
 ): WorkerSpec {
-  return {
+  const reviewer = facts.reviewer;
+  const common = {
     run: facts.runId,
     agent: facts.agent,
-    kind: "implement",
     workdir: paths.workdir,
+    systemFile: join(paths.runDir, reviewer === undefined ? SYSTEM_FILE : REVIEW_SYSTEM_FILE),
+    taskMessage,
+    // The adapter relays its hooks to the worker host (0008 section 5, DIPO-59).
+    hookRelay: true,
+  };
+  if (reviewer !== undefined) {
+    return {
+      ...common,
+      kind: "review",
+      model: reviewer.model,
+      effort: reviewer.effort,
+      // The reviewer's turns and minutes count only toward its own caps (0019 section 13); the
+      // tokens are the story's budget.
+      caps: { ...caps, maxTurns: reviewer.maxTurns, maxMinutes: reviewer.maxMinutes },
+      tools: { allow: [...REVIEWER_TOOLS], deny: [] },
+      // The reviewer never resumes (0008 section 8).
+      session: { id: session.id, resume: false },
+      reportSchema: worker.reportSchema.review,
+    };
+  }
+  return {
+    ...common,
+    kind: "implement",
     model: facts.caps.model,
     effort: facts.caps.effort,
     caps,
-    systemFile: join(paths.runDir, SYSTEM_FILE),
-    taskMessage,
     tools: { allow: [...DEVELOPER_TOOLS], deny: [] },
     session,
-    reportSchema: worker.reportSchema,
-    // The adapter relays its hooks to the worker host (0008 section 5, DIPO-59).
-    hookRelay: true,
+    reportSchema: worker.reportSchema.implement,
   };
 }
 

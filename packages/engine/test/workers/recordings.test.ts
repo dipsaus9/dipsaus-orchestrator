@@ -41,6 +41,13 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "report-invalid": ["blocked", "ambiguous-spec"],
   "report-invalid-missing": ["blocked", "ambiguous-spec"],
   resume: ["done", null],
+  // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived until the live ones are captured.
+  "review-approved": ["done", null],
+  "review-blocked": ["done", null],
+  "review-invalid": ["blocked", "worker-failed"],
+  "review-approved-live": ["done", null],
+  "review-blocked-live": ["done", null],
+  "review-invalid-live": ["blocked", "worker-failed"],
   "safety-bash-prompts-none": ["blocked", "needs-permission"],
   "safety-gh-token": ["done", null],
   "safety-gitdir-write": ["done", null],
@@ -67,6 +74,8 @@ const RETRY: Readonly<Record<string, string>> = {
   "prompt-too-long": "handoff",
   "report-invalid": "report-feedback",
   "report-invalid-missing": "report-feedback",
+  "review-invalid": "report-feedback",
+  "review-invalid-live": "report-feedback",
 };
 
 /**
@@ -77,6 +86,10 @@ const AWAITING_CAPTURE = new Set([
   "safety-gh-token",
   "safety-gitdir-write",
   "safety-pointer-write",
+  // DIPO-145: the review scenarios of `bun run recordings:capture`.
+  "review-approved-live",
+  "review-blocked-live",
+  "review-invalid-live",
 ]);
 
 /** Scenarios whose park in `meta.expected` the engine decides from its own caps, not the adapter. */

@@ -9,6 +9,7 @@ import {
   neutraliseTags,
   outcomeOf,
   PROMPT_TAGS,
+  REVIEW_SECTION_ORDER,
   SECTION_ORDER,
   verifyFeedback,
   type HandoffFacts,
@@ -193,8 +194,16 @@ function tagLines(text: string): string[] {
 }
 
 describe("tags inside slot text", () => {
-  it("covers every section name and the context item", () => {
-    expect(PROMPT_TAGS).toEqual([...SECTION_ORDER, "item"]);
+  it("covers every section name, the context item and the review sections", () => {
+    expect(PROMPT_TAGS).toEqual([
+      ...SECTION_ORDER,
+      "item",
+      "changes",
+      "diff",
+      "gate_changes",
+      "previous_findings",
+    ]);
+    for (const name of REVIEW_SECTION_ORDER) expect(PROMPT_TAGS).toContain(name);
   });
 
   it("neutralises opening and closing tags of known names only, idempotently", () => {

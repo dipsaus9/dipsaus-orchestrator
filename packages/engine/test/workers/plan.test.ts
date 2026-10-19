@@ -10,14 +10,19 @@ import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../src
 import {
   CLOSED_WRITES_FILE,
   closedWritePaths,
+  EMPTY_MCP_CONFIG_FILE,
   GIT_WRITE_VERBS,
   plan,
   REPORT_SCHEMA_FILE,
+  REVIEW_TOOLS,
   SETTINGS_FILE,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import { HOOK_BUNFIG_FILE, REGISTERED_HOOKS } from "../../src/workers/claude-cli/hooks";
-import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import {
+  REVIEW_REPORT_JSON_SCHEMA,
+  WORKER_REPORT_JSON_SCHEMA,
+} from "../../src/workers/claude-cli/report-schema";
 import { PlanError } from "../../src/workers/types";
 import type { LaunchPlan, WorkerSpec } from "../../src/workers/types";
 
@@ -481,8 +486,8 @@ describe("claude-cli plan", () => {
     expect(() => plan(later, context())).toThrow('"pair-programming"');
   });
 
-  it("refuses the known kinds M0 does not plan", () => {
-    for (const kind of ["review", "session"]) {
+  it("refuses the known kinds it does not plan", () => {
+    for (const kind of ["session"]) {
       expect(() => plan(spec("S", { kind }), context())).toThrow(`"${kind}"`);
     }
   });
@@ -893,5 +898,151 @@ describe("claude-cli plan with Safe-Chain (DIPO-82, DIPO-84)", () => {
         }),
       ),
     ).toThrow(PlanError);
+  });
+});
+
+describe("claude-cli plan of the review kind (DIPO-145, 0019 section 4)", () => {
+  const WORKDIR = "/home/maintainer/code/shop.worktrees/DIPO-999";
+  const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0001";
+
+  function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
+    return spec("M", {
+      kind: "review",
+      model: OFFICE_DEFAULTS.review.model,
+      effort: OFFICE_DEFAULTS.review.effort,
+      caps: {
+        budgetTokens: 200_000,
+        maxTurns: OFFICE_DEFAULTS.review.maxTurns,
+        maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
+      },
+      systemFile: `${RUN_DIR}/system-review.md`,
+      tools: { allow: [...REVIEW_TOOLS], deny: [] },
+      reportSchema: REVIEW_REPORT_JSON_SCHEMA,
+      ...overrides,
+    });
+  }
+
+  interface ReviewSettings {
+    permissions: { allow: string[]; deny: string[] };
+    sandbox: {
+      filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[] };
+      network: Record<string, unknown>;
+    };
+    enabledPlugins?: Record<string, boolean>;
+  }
+
+  it("passes Read, Glob, Grep and Bash, the review model and effort and the ReviewReport schema", () => {
+    const launch = plan(reviewSpec(), context());
+    expect(flag(launch, "--tools")).toBe("Read,Glob,Grep,Bash");
+    expect(flag(launch, "--model")).toBe("opus");
+    expect(flag(launch, "--effort")).toBe("high");
+    expect(flag(launch, "--max-turns")).toBe(String(OFFICE_DEFAULTS.review.maxTurns));
+    expect(JSON.parse(flag(launch, "--json-schema") ?? "null")).toEqual(REVIEW_REPORT_JSON_SCHEMA);
+    const written = launch.files.find((file) => file.name === REPORT_SCHEMA_FILE)?.content ?? "";
+    expect(JSON.parse(written)).toEqual(REVIEW_REPORT_JSON_SCHEMA);
+    expect(launch.cwd).toBe(WORKDIR);
+    for (const tool of ["Edit", "Write", "WebSearch", "WebFetch"]) {
+      expect(launch.argv.join(" ")).not.toContain(tool);
+    }
+  });
+
+  it("refuses Edit, Write, WebSearch, WebFetch or any other tool in a review spec", () => {
+    for (const tool of ["Edit", "Write", "WebSearch", "WebFetch", "Agent"]) {
+      const extra = reviewSpec({ tools: { allow: [...REVIEW_TOOLS, tool], deny: [] } });
+      expect(() => plan(extra, context())).toThrow(PlanError);
+      expect(() => plan(extra, context())).toThrow(`not ${tool}`);
+    }
+  });
+
+  it("loads no MCP server, skill or slash command: an empty --mcp-config, never the office's", () => {
+    const launch = plan(reviewSpec(), context());
+    expect(launch.argv).toContain("--strict-mcp-config");
+    expect(flag(launch, "--mcp-config")).toBe(`${RUN_DIR}/${EMPTY_MCP_CONFIG_FILE}`);
+    expect(launch.argv).not.toContain("/home/maintainer/code/shop/.git/dipo/mcp.json");
+    const empty = launch.files.find((file) => file.name === EMPTY_MCP_CONFIG_FILE)?.content;
+    expect(JSON.parse(empty ?? "null")).toEqual({ mcpServers: {} });
+    expect(launch.argv).toContain("--disable-slash-commands");
+    expect(flag(launch, "--setting-sources")).toBe("project,local");
+  });
+
+  it("allows reads and Bash only, and denies Edit and Write on the whole worktree", () => {
+    const settings = settingsOf(plan(reviewSpec(), context())) as unknown as ReviewSettings;
+    expect(settings.permissions.allow).toEqual([`Read(/${WORKDIR}/**)`, "Bash"]);
+    expect(settings.permissions.deny).toContain(`Edit(/${WORKDIR}/**)`);
+    expect(settings.permissions.deny).toContain(`Write(/${WORKDIR}/**)`);
+    // Every deny rule of a worker stays.
+    const worker = settingsOf(plan(spec("M"), context())) as unknown as ReviewSettings;
+    for (const rule of worker.permissions.deny) expect(settings.permissions.deny).toContain(rule);
+  });
+
+  it("puts the worktree in denyWrite next to <main>/.git and the pointer; only the temp roots stay writable", () => {
+    const settings = settingsOf(plan(reviewSpec(), context())) as unknown as ReviewSettings;
+    const { allowWrite, denyWrite } = settings.sandbox.filesystem;
+    expect(allowWrite).toEqual(["/tmp/claude-501", SHORT_TMP]);
+    expect(allowWrite).not.toContain(WORKDIR);
+    for (const path of ["/home/maintainer/code/shop/.git", `${WORKDIR}/.git`, WORKDIR]) {
+      expect(denyWrite).toContain(path);
+    }
+    for (const closed of closedWritePaths("/home/maintainer")) {
+      expect(denyWrite).toContain(closed.path);
+    }
+    // The worker's own denies are all there too.
+    const worker = settingsOf(plan(spec("M"), context())) as unknown as ReviewSettings;
+    for (const path of worker.sandbox.filesystem.denyWrite) expect(denyWrite).toContain(path);
+  });
+
+  it("closes the network whatever the office allows its workers, with no Unix sockets", () => {
+    const sandbox = OFFICE_DEFAULTS.sandbox;
+    const open = context({
+      sandbox: { ...sandbox, allowedDomains: ["example.com"], allowLocalBinding: true },
+    });
+    const settings = settingsOf(plan(reviewSpec(), open)) as unknown as ReviewSettings;
+    expect(settings.sandbox.network).toEqual({
+      allowedDomains: [],
+      strictAllowlist: true,
+      allowLocalBinding: false,
+    });
+  });
+
+  it("runs with no Safe-Chain proxy, wrapper or shell even where Safe-Chain is installed", () => {
+    const safeChain = {
+      root: "/home/maintainer/.safe-chain",
+      shell: "/bin/zsh",
+      path: "/home/maintainer/.bun/bin-originals:/usr/bin:/bin",
+      demoted: [],
+      dropped: [],
+      probe: "bun",
+      shellDir: `${RUN_DIR}/safe-chain`,
+      route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" },
+    };
+    const launch = plan(reviewSpec(), context({ safeChain }));
+    expect(launch.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
+    expect(launch.files.some((file) => file.name.startsWith("safe-chain/"))).toBe(false);
+    const settings = settingsOf(launch) as unknown as ReviewSettings;
+    expect(settings.sandbox.network["httpProxyPort"]).toBeUndefined();
+    expect(JSON.stringify(settings)).not.toContain("safe-chain");
+    expect(launch).toEqual(plan(reviewSpec(), context()));
+  });
+
+  it("switches off every installed plugin, also those worker.plugins allows", () => {
+    const plugins = {
+      installed: ["dipsaus-ai@dipsaus-ai", "warp@claude-code-warp"],
+      allowed: ["dipsaus-ai@dipsaus-ai"],
+    };
+    const review = settingsOf(
+      plan(reviewSpec(), context({ plugins })),
+    ) as unknown as ReviewSettings;
+    expect(review.enabledPlugins).toEqual({
+      "dipsaus-ai@dipsaus-ai": false,
+      "warp@claude-code-warp": false,
+    });
+    const worker = settingsOf(plan(spec("M"), context({ plugins }))) as unknown as ReviewSettings;
+    expect(worker.enabledPlugins).toEqual({ "warp@claude-code-warp": false });
+  });
+
+  it("leaves the implement plan as it was", () => {
+    const launch = plan(spec("M"), context());
+    expect(launch.files.map((file) => file.name)).not.toContain(EMPTY_MCP_CONFIG_FILE);
+    expect(flag(launch, "--mcp-config")).toBe("/home/maintainer/code/shop/.git/dipo/mcp.json");
   });
 });

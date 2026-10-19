@@ -1,10 +1,10 @@
 ---
 id: DIPO-145
 title: Run the reviewer session on the story worktree
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 09:37'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -65,10 +65,20 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Claude adapter plans the review kind with --tools Read,Glob,Grep,Bash and no Edit, Write, WebSearch or WebFetch; the story worktree, <main>/.git and the <worktree>/.git pointer are in denyWrite; the network is closed with no Safe-Chain proxy; model and effort come from the review config
-- [ ] #2 The review session self-test writes its control file in the run temp root and requires an install to fail, and the 0008 fail-closed launch checks apply unchanged
-- [ ] #3 Every installed plugin is switched off, --disable-slash-commands and --strict-mcp-config with an empty config are passed, and a system/init that lists a plugin or a skill refuses the session
-- [ ] #4 WorkerPort.reportSchema is per kind, and the review kind's schema is the ReviewReport of section 5 (criteria, findings with testEntry, summary of at most 1,500 characters)
-- [ ] #5 prompts/contract/review.md (L1) and the reviewer role (L2) are golden-tested, and the review task message (L4) carries the section 4 inputs (story facts, criteria, scope, numbered test plan, resolved unknowns, gate script changes, changed paths with line counts, the diff without the task file within budget, previous findings on a re-review) and never the worker's report, notes, handoff or transcript
-- [ ] #6 tools/recordings/derive.ts derives an approval, a blocked verdict and an invalid review report from committed live recordings into packages/engine/test/recordings/claude-cli/, with the fields no live run showed in meta.cites; tools/recordings/scenarios.ts gains the three review scenarios for bun run recordings:capture; and replay tests parse each recording into the review report schema or its error
+- [x] #1 The Claude adapter plans the review kind with --tools Read,Glob,Grep,Bash and no Edit, Write, WebSearch or WebFetch; the story worktree, <main>/.git and the <worktree>/.git pointer are in denyWrite; the network is closed with no Safe-Chain proxy; model and effort come from the review config
+- [x] #2 The review session self-test writes its control file in the run temp root and requires an install to fail, and the 0008 fail-closed launch checks apply unchanged
+- [x] #3 Every installed plugin is switched off, --disable-slash-commands and --strict-mcp-config with an empty config are passed, and a system/init that lists a plugin or a skill refuses the session
+- [x] #4 WorkerPort.reportSchema is per kind, and the review kind's schema is the ReviewReport of section 5 (criteria, findings with testEntry, summary of at most 1,500 characters)
+- [x] #5 prompts/contract/review.md (L1) and the reviewer role (L2) are golden-tested, and the review task message (L4) carries the section 4 inputs (story facts, criteria, scope, numbered test plan, resolved unknowns, gate script changes, changed paths with line counts, the diff without the task file within budget, previous findings on a re-review) and never the worker's report, notes, handoff or transcript
+- [x] #6 tools/recordings/derive.ts derives an approval, a blocked verdict and an invalid review report from committed live recordings into packages/engine/test/recordings/claude-cli/, with the fields no live run showed in meta.cites; tools/recordings/scenarios.ts gains the three review scenarios for bun run recordings:capture; and replay tests parse each recording into the review report schema or its error
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M59NYSPPP8N78JDFXWCX4RXQ (Opus high, 147 turns, about $12.24, 22 min) reported done, In Review on the story branch; two launches before it were refused by a transient Safe-Chain proxy timeout (G45). The reviewer session is planned with kind review: Read, Glob, Grep and Bash only, the worktree write-denied, a closed network, no Safe-Chain, model and effort from the review config, no plugins, an empty MCP config and no slash commands; a review self-test whose install must fail; a ReviewReport schema; review L1 and role prompts and a code-built review task message (golden); three review recordings derived from success-single with cites, and scenarios for the live capture.
+
+Review passed. Fixed on top: a review install that exits 126 or 127 now makes the self-test unable to run (key install) instead of passing, since a missing bun proves nothing about the network; a review self-test refused for a plugin gets a reviewer's reason and fix; the derived review recordings carry the review report in the StructuredOutput tool use and its streamed deltas too, with cites for the unredacted text fields. Each fix's test fails without it. Verify outside the sandbox: 3547 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on workers, prompts and tools/recordings: 779 pass.
+
+Not run: the live capture of the three review scenarios (manual test plan entry); the replay tests should be run again on those captures.
+<!-- SECTION:NOTES:END -->
