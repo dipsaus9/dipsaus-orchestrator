@@ -85,6 +85,7 @@ import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { type AdapterHold, holdMessage } from "../workers/hold";
+import type { VerifyCommands } from "../workers/port";
 import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
@@ -96,6 +97,13 @@ import { markPhase } from "./markers";
 import { placeTaken, START_KINDS } from "./places";
 import { currentProfileId, hasActiveRun, insertRun, recordConfigSnapshot } from "./records";
 import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "./select";
+import { verifyCommands } from "../scan/store";
+
+/** The resolved verify for the launch checks (DIPO-173); nothing when it is not resolved. */
+function verifyOf(handle: OfficeHandle): { readonly verify?: VerifyCommands } {
+  const verify = verifyCommands(handle);
+  return verify === null ? {} : { verify };
+}
 
 /** The role every M0 run starts with (0012 F12). */
 export const DEVELOPER_ROLE = RoleId.parse("developer");
@@ -486,6 +494,7 @@ export class WorkRun {
       caps,
       config: c.config,
       taskFile: checked.taskFile,
+      ...verifyOf(handle),
     };
     let failures: GateFailureFact[] | null = null;
     let outcome: ClaimOutcome;
@@ -856,6 +865,7 @@ export class WorkRun {
         config,
         taskFile: startable.taskFile,
         base: read.checkout,
+        ...verifyOf(handle),
       });
       return { ...info(), story, skipped, launch, problem: null };
     } catch (error) {

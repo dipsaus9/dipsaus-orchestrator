@@ -47,7 +47,7 @@ import { type PromptPart, type PromptText, promptParts } from "../prompts/parts"
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
-import type { RunLaunchPaths, WorkerPort } from "../workers/port";
+import type { RunLaunchPaths, VerifyCommands, WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type LaunchPlan, type WorkerSpec } from "../workers/types";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
@@ -181,6 +181,8 @@ export interface RunFacts {
   readonly config: OfficeConfig;
   /** Repo-relative path of the story's task file. */
   readonly taskFile: string;
+  /** The office's resolved verify (DIPO-173); the launch refuses a tool that cannot start. */
+  readonly verify?: VerifyCommands;
 }
 
 /** A setup that passed with a launch plan the host may start. */
@@ -385,6 +387,7 @@ export class RunLauncher {
         paths,
         facts.config,
         sessionUuid(`${facts.agent}:launch-check`),
+        facts.verify,
       );
     } catch (error) {
       if (!(error instanceof PlanError))
@@ -539,6 +542,8 @@ export class RunLauncher {
     readonly config: OfficeConfig;
     readonly taskFile: string;
     readonly base: { readonly path: string };
+    /** The office's resolved verify (DIPO-173), checked as the real launch checks it. */
+    readonly verify?: VerifyCommands;
   }): Promise<WorkerLaunchPreview> {
     const git = this.#git(input.office);
     const worktree = join(git.worktreeRoot(), input.story);
@@ -569,6 +574,10 @@ export class RunLauncher {
       PREVIEW_SESSION,
     );
     const plan = this.#deps.worker.adapter(paths, input.config).plan(spec);
+    // The worktree does not exist yet; the main checkout's node_modules stands for its install.
+    if (input.verify !== undefined) {
+      await this.#deps.worker.checkVerify?.(paths, input.config, input.verify, paths.mainCheckout);
+    }
     return {
       adapter: this.#deps.worker.id,
       branch: input.branch,
