@@ -1,10 +1,10 @@
 ---
 id: DIPO-212
 title: Delete closed story PR records after the state retention period
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 21:13'
+updated_date: '2026-10-19 21:15'
 labels:
   - 'tier:S'
   - cutover
@@ -37,6 +37,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/retention/run.ts deletes story_prs rows whose closed_at is before the state cutoff, next to the backlog_prs line, and counts them in the pass result
-- [ ] #2 A test in packages/engine/test/retention/ keeps an open story PR and one closed after the cutoff, and deletes one closed before it
+- [x] #1 packages/engine/src/retention/run.ts deletes story_prs rows whose closed_at is before the state cutoff, next to the backlog_prs line, and counts them in the pass result
+- [x] #2 A test in packages/engine/test/retention/ keeps an open story PR and one closed after the cutoff, and deletes one closed before it
 <!-- AC:END -->
