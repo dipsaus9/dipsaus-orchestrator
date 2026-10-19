@@ -4,7 +4,7 @@ title: Keep a done report that arrives on the turn that crosses a run cap
 status: Refined
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 06:58'
+updated_date: '2026-10-19 20:47'
 labels:
   - 'tier:M'
   - cutover

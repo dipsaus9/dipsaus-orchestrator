@@ -1,10 +1,10 @@
 ---
 id: DIPO-160
 title: Hold and drop stories through the backlog lane
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:15'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:M'
   - 'slice:m1a'
