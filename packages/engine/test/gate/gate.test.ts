@@ -576,7 +576,23 @@ describe("R10 word matches", () => {
   it("ignores a phrase inside a path token (DIPO-170)", () => {
     expect(hits("Writes the file /etc/zprofile")).toEqual([]);
     expect(hits("Writes the file at /etc/zprofile, then the rows")).toEqual([]);
-    expect(hits("Writes the file at etc/zprofile")).toEqual([]);
+    expect(hits("Writes the file at etc/zprofile")).toEqual(['"etc"']);
+  });
+
+  it("ignores a phrase inside a run that looks like a path (DIPO-218)", () => {
+    expect(hits("Writes /etc/zprofile,")).toEqual([]);
+    expect(hits("Writes ~/etc/x")).toEqual([]);
+    expect(hits("Writes ./etc/x")).toEqual([]);
+    expect(hits("Writes ../etc/x")).toEqual([]);
+    expect(hits("Writes packages/etc/")).toEqual([]);
+    expect(hits("Writes src/etc.ts")).toEqual([]);
+    expect(hits("Writes (src/etc.ts)")).toEqual([]);
+  });
+
+  it("matches a phrase inside a slash run that is prose (DIPO-218)", () => {
+    expect(hits("Writes etc/zprofile")).toEqual(['"etc"']);
+    expect(hits("Writes TBD/later etc")).toEqual(['"etc"']);
+    expect(hits("Writes and/or,etc")).toEqual(['"etc"']);
   });
 
   it("ignores a phrase inside a code span (DIPO-170)", () => {
@@ -598,8 +614,9 @@ describe("R10 word matches", () => {
   it("masks code spans and path tokens in the original text (DIPO-170)", () => {
     // A masked span does not join the words around it into a phrase.
     expect(hits("The export works`x`well today")).toEqual([]);
-    // The slash inside the code span still makes the whole run a path token.
-    expect(hits("Writes etc`a/b` to the rows")).toEqual([]);
+    // The run etc`a/b` does not look like a path (no leading /, ~, ./ or ../, no trailing /, no
+    // extension), so etc is matched (DIPO-218).
+    expect(hits("Writes etc`a/b` to the rows")).toEqual(['"etc"']);
   });
 });
 
@@ -739,6 +756,11 @@ describe("R27 maintainer steps", () => {
 
   it("passes a criterion without a listed phrase", () => {
     expect(stepHits("A sandboxed `bun run verify` run passes and its output is kept")).toEqual([]);
+  });
+
+  it("matches a phrase inside a slash run that does not look like a path (DIPO-218)", () => {
+    expect(stepHits("Write the task notes/later")).toHaveLength(1);
+    expect(stepHits("Write the task notes/x.md")).toEqual([]);
   });
 
   it("gives one failure per criterion and phrase, in both modes", () => {
