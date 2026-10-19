@@ -539,6 +539,21 @@ describe("work.run starts the worker of a claimed run", () => {
     ]);
   });
 
+  it("plans the M0 developer tools and no PreToolUse hook with worker.web false (DIPO-164)", async () => {
+    world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
+    story("TASK-1", "Ready");
+    expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
+    const [host] = world.hosts;
+    const argv: readonly string[] = host?.plan.argv ?? [];
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit,Write,Glob,Grep,Bash");
+    const settings = JSON.parse(
+      host?.plan.files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
+    ) as { hooks: Record<string, unknown>; permissions: { allow: string[] } };
+    expect(Object.keys(settings.hooks)).not.toContain("PreToolUse");
+    expect(Object.keys(settings.hooks)).toContain("PermissionRequest");
+    expect(settings.permissions.allow.filter((rule) => rule.startsWith("Web"))).toEqual([]);
+  });
+
   it("stores no prompt text with storePrompts off (DIPO-137)", async () => {
     world.config = {
       ...OFFICE_DEFAULTS,

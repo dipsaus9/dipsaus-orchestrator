@@ -122,6 +122,24 @@ describe("the worker port seam (DIPO-113)", () => {
     expect(built.reportSchema).toBe(reportSchema.implement);
   });
 
+  it("gives the developer the web tools with web, and the reviewer only its own tools even with web (DIPO-164)", () => {
+    const tier = OFFICE_DEFAULTS.tiers.S;
+    const specOf = (facts: { web?: boolean; reviewer?: typeof OFFICE_DEFAULTS.review }) =>
+      runWorkerSpec(
+        { reportSchema: REPORT_JSON_SCHEMAS },
+        { runId: "run_1", agent: "agt_1", caps: tier, ...facts },
+        PATHS,
+        "task",
+        { id: "s-1", resume: false },
+      );
+    const m0 = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
+    expect(specOf({ web: true }).tools.allow).toEqual([...m0, "WebSearch", "WebFetch"]);
+    expect(specOf({ web: false }).tools.allow).toEqual(m0);
+    const reviewer = specOf({ web: true, reviewer: OFFICE_DEFAULTS.review });
+    expect(reviewer.kind).toBe("review");
+    expect(reviewer.tools).toEqual({ allow: [...REVIEWER_TOOLS], deny: [] });
+  });
+
   it("builds a reviewer's WorkerSpec: kind review, the review model and effort, the ReviewReport schema (DIPO-145)", () => {
     const review = { ...OFFICE_DEFAULTS.review, model: "opus", effort: "high", maxTurns: 40 };
     const tier = OFFICE_DEFAULTS.tiers.S;
