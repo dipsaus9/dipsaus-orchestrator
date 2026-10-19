@@ -1,10 +1,10 @@
 ---
 id: DIPO-206
 title: Count budget grants in the work view's usage
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-19 21:17'
 labels:
   - 'tier:S'
   - cutover
