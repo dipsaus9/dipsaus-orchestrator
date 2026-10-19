@@ -5,7 +5,9 @@
 // totals), 1 once a turn end's cumulative totals hold it, and 2 once a transcript recovery added
 // it. Only a message in state 0 gets its output from a transcript; state 2 may still grow when a
 // later read of the transcript holds a higher output. Messages of an agent that already had a turn
-// end are taken as in the totals (1), the best a database without the marker can tell.
+// end are taken as in the totals (1), the best a database without the marker can tell. The cost: in a
+// database from before this migration, a message the stream counted after its agent's last turn end
+// is never restored from a transcript.
 
 import type { SqlMigration } from "../migrations";
 

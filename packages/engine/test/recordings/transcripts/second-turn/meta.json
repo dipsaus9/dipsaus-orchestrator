@@ -5,5 +5,5 @@
   "captured_at": "2026-10-12",
   "expected": "A session whose host died in its second turn: msg-1 is the first turn (its turn end holds its output), msg-2 the second turn's message the stream counted, msg-3 the one it did not.",
   "derivedFrom": "transcripts/host-died",
-  "transform": "Scrubbed as host-died; one message per turn, all content as placeholders."
+  "transform": "Scrubbed as host-died; one message per turn, all content as placeholders. Edited numbers: msg-1 and msg-2 cache writes moved from ephemeral_1h to ephemeral_5m, msg-3 cache_read set to 8499 (7839 + 660, the cache the second turn reads); the queue-operation line and the noise lines dropped."
 }
