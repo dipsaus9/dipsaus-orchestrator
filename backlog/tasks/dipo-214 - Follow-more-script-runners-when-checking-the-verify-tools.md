@@ -1,10 +1,10 @@
 ---
 id: DIPO-214
 title: Follow more script runners when checking the verify tools
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 21:24'
+updated_date: '2026-10-19 21:29'
 labels:
   - 'tier:S'
   - cutover
@@ -37,6 +37,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 verify-tools.ts follows pnpm run <script>, pnpm <script>, yarn run <script>, yarn <script> and bun <script> through the root package.json scripts, and checks npx <bin> as the node_modules/.bin program it names
-- [ ] #2 A shorthand word that is not a package.json script and not a .bin program is left alone, as today, and so is a word that is one of bun's own commands (test, build, install, add, x and the others bun runs before a script of the same name), so `bun test` with a test script is not followed; tests in packages/engine/test/workers/verify-tools.test.ts cover each runner and the bun test case
+- [x] #1 verify-tools.ts follows pnpm run <script>, pnpm <script>, yarn run <script>, yarn <script> and bun <script> through the root package.json scripts, and checks npx <bin> as the node_modules/.bin program it names
+- [x] #2 A shorthand word that is not a package.json script and not a .bin program is left alone, as today, and so is a word that is one of bun's own commands (test, build, install, add, x and the others bun runs before a script of the same name), so `bun test` with a test script is not followed; tests in packages/engine/test/workers/verify-tools.test.ts cover each runner and the bun test case
 <!-- AC:END -->
