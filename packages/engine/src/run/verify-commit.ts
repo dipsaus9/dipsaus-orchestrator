@@ -34,6 +34,9 @@
 //    the story stays In Review with the branch local. A failure in the commit steps parks
 //    `interrupted` with the error. A commit that holds dependency files (manifests, lockfiles,
 //    `requirements*.txt`) raises `verify.dependenciesChanged` naming them (DIPO-84).
+// 6. The story PR (DIPO-144; 0019 section 3). After a push that reached the remote, `storyPr.sync`
+//    opens the story's ready PR, or updates the one it has. It never fails the commit: a failed
+//    create is a `pr.openFailed` notice and a retry poll, and the story stays In Review.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -334,6 +337,11 @@ export interface VerifyCommitDeps {
   };
   /** Keep-awake: verify registers while it runs (DIPO-63). */
   readonly work?: { beginVerify(): () => void };
+  /**
+   * The story PR (DIPO-144): called right after an In Review push that reached the remote, to open
+   * or update the story's PR. It never throws; a failure is its own notice.
+   */
+  readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -703,6 +711,7 @@ export class VerifyCommit implements RunFinisher {
         title: current?.title ?? input.view.title,
         lifecycle: "In Review",
         ...(current?.tier === undefined ? {} : { tier: current.tier }),
+        ...(current?.pr === undefined ? {} : { pr: current.pr }),
       });
       const entries: NewEntry[] = [
         {
@@ -740,6 +749,8 @@ export class VerifyCommit implements RunFinisher {
       }
       return entries;
     });
+    // 6. The story PR: opened, or updated when an earlier push already opened it (0019 section 3).
+    if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
     return { kind: "ended" };
   }
 }

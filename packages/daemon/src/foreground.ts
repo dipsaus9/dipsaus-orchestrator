@@ -39,6 +39,7 @@ import {
   errorCodeOf,
   GateStore,
   GhHost,
+  gitStoryPrOps,
   hasLiveClaim,
   helloFeature,
   helloHandshake,
@@ -81,6 +82,7 @@ import {
   SoftwareStream,
   StoryClaims,
   StoryIndex,
+  StoryPrs,
   StoryTeardown,
   systemExecutableStamp,
   systemProcessProbe,
@@ -435,6 +437,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     stableTimer: TimerHandle | null;
     storyIndex: StoryIndex | null;
     teardown: StoryTeardown | null;
+    storyPrs: StoryPrs | null;
     mergeSlot: MergeSlot | null;
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
@@ -449,6 +452,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     stableTimer: null,
     storyIndex: null,
     teardown: null,
+    storyPrs: null,
     mergeSlot: null,
     retention: null,
     maintenance: null,
@@ -623,6 +627,17 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "teardown" }),
     });
     held.teardown = teardown;
+    // The story PR (DIPO-144): opened or updated right after each In Review push, and retried
+    // every `polling.prStateSeconds` until it exists, through the same `gh` host.
+    const storyPrs = new StoryPrs({
+      host,
+      git: gitStoryPrOps({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+      offices,
+      clock,
+      onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "story-pr" }),
+    });
+    held.storyPrs = storyPrs;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
     // daemon's PATH, and looked up after each story-index poll for a merge by hand.
     const backlogPrs: BacklogPrs = new BacklogPrs({
@@ -743,6 +758,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "runs" }),
       cli: backlogCli,
+      storyPr: storyPrs,
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
@@ -822,6 +838,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       engineGit.feature,
       claims.feature,
       teardown.feature,
+      storyPrs.feature,
       lane.feature,
       storyIndex.feature,
       mergeSlot.feature,
@@ -1126,6 +1143,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     await keepAwake.stop();
     held.storyIndex?.stop();
     held.teardown?.stop();
+    held.storyPrs?.stop();
     held.mergeSlot?.stop();
     held.ingest?.close();
     // No more debounced office summaries once the daemon stops.

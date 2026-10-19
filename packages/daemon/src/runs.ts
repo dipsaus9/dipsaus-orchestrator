@@ -10,6 +10,7 @@ import type {
   CommandName,
   IdSource,
   OfficeId,
+  RunId,
   Spawn,
   StoryKey,
   ToolPaths,
@@ -104,6 +105,8 @@ export interface DaemonRunsOptions {
   readonly cli: BacklogCli;
   /** True when the engine implements a command; a park offers only those (DIPO-50). */
   readonly implemented: (name: CommandName) => boolean;
+  /** The story PR, opened or updated right after each In Review push (DIPO-144). */
+  readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
@@ -268,6 +271,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     profile: (office) => currentProfile(office)?.profile ?? null,
     host: { home, uid, env },
     ...(options.work === undefined ? {} : { work: options.work }),
+    ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   const started = systemHostStarter({

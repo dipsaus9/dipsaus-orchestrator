@@ -16,6 +16,7 @@ import {
   type QueueColumn,
   StoryKey,
   StoryId,
+  type StoryPr,
   type StoryView,
   type Tier,
   type WorkRef,
@@ -25,6 +26,7 @@ import type { OfficeHandle } from "../db/office";
 import { gateText } from "../gate/rules";
 import type { RuleResult } from "../gate/store";
 import { activeRuns } from "../run/records";
+import { latestStoryPr } from "../story-pr/records";
 import { isProvisionalId } from "../stories/keys";
 
 import { workRefOf } from "./work";
@@ -75,6 +77,8 @@ export interface StoryFacts {
   readonly gateFailures?: readonly GateFailureFact[];
   /** Who works on the story's active run. */
   readonly work?: WorkRef;
+  /** The story's PR on the code host (0019 section 3). */
+  readonly pr?: StoryPr;
 }
 
 /** The column a story shows in (0009 section 3). */
@@ -111,6 +115,7 @@ export function deriveStoryView(facts: StoryFacts): StoryView {
     ...(facts.tier === undefined ? {} : { tier: facts.tier }),
     column,
     ...(facts.work === undefined ? {} : { work: facts.work }),
+    ...(facts.pr === undefined ? {} : { pr: facts.pr }),
     ...(facts.lifecycle === "Parked" && facts.park !== undefined
       ? { parked: parkedOf(facts.park) }
       : {}),
@@ -219,6 +224,7 @@ function viewOfRow(
       : lifecycleOf(row.kind, row.status);
   const park = parkOf(row.park, row.park_since);
   const ref = work.get(row.key);
+  const pr = latestStoryPr(office, row.key);
   return deriveStoryView({
     key: StoryKey.parse(row.key),
     story: StoryId.parse(row.story_id),
@@ -229,6 +235,7 @@ function viewOfRow(
     ...(park === undefined ? {} : { park }),
     gateFailures: lifecycle === "Refined" ? gateFailures(office, row.key) : [],
     ...(ref === undefined ? {} : { work: ref }),
+    ...(pr === null ? {} : { pr: { number: pr.number, url: pr.url, state: pr.state } }),
   });
 }
 
