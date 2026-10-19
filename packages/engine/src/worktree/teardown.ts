@@ -302,6 +302,8 @@ export async function removeWorktree(
   if (deps.git.adminDirOf(path) !== null) {
     const lock = await lockOf(git, path);
     if (lock !== null && lock !== ours) {
+      // A start an earlier crash left behind is cleared too, so the claim reads as live again.
+      if (claim.teardownStartedAt !== null) mark(null);
       return {
         ok: false,
         why: `the worktree ${path} is locked by someone else (${lock === "" ? "no reason given" : lock})`,

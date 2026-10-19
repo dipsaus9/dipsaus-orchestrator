@@ -177,12 +177,52 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
         { run: one.runId },
       );
       const branch = await localTip(o, one.branch);
+      // Without git: no git queue item runs while the claim is still live.
+      const real = o.engineGit.forOffice(o.officeId) as OfficeGit;
+      let queuedWhileLive = 0;
+      const git = new Proxy(real, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop, target) as unknown;
+          if (prop === "run") {
+            return (fn: Parameters<OfficeGit["run"]>[0]) => {
+              if (claimRow(o.office, one).releasedAt === null) queuedWhileLive += 1;
+              return target.run(fn);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
 
-      await s.reconcile();
+      await s.reconcile(git);
 
+      expect(queuedWhileLive).toBe(0);
       expect(claimRow(o.office, one).releaseReason).toBe("done");
       expect(s.slots.slotOf(one.worktree)).toBeNull();
       expect(await localTip(o, one.branch)).toBe(branch);
+    }));
+
+  it("keeps a worktree locked by someone else and clears a teardown start left by a crash", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
+      const s = setupOf(o);
+      s.hold(one);
+      await o.repo.git("worktree", "unlock", one.worktree);
+      await o.repo.git("worktree", "lock", "--reason", "someone else", one.worktree);
+      o.office.run(
+        "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
+        { run: one.runId },
+      );
+      const seq = lastSeq(o.office);
+
+      await s.reconcile();
+
+      expect(existsSync(one.worktree)).toBe(true);
+      expect(liveClaimOf(o.office, one.key)).not.toBeNull();
+      expect(claimRow(o.office, one).teardownStartedAt).toBeNull();
+      expect(s.slots.slotOf(one.worktree)).not.toBeNull();
+      expect(await o.repo.git("worktree", "list", "--porcelain")).toContain("locked someone else");
+      const kept = noticesAfter(o.office, seq).filter((n) => n.code === DONE_ON_BASE_NOTICES.kept);
+      expect(kept.map((n) => n.text.includes("locked by someone else"))).toEqual([true]);
     }));
 
   it("keeps the worktree, lock and claim of a run reopened before the git queue item", () =>
