@@ -17,9 +17,3 @@ version: 8
 # the review loop takes over, so a PR from dipo would be a second PR per story.
 storyPr:
   open: false
-
-# Worker web search and fetch (DIPO-164) stay off on this repository until the maintainer's live web
-# capture on the scratch repository confirms the fail-closed gate against the pinned Claude Code
-# (maintainer decision 2026-10-19).
-worker:
-  web: false

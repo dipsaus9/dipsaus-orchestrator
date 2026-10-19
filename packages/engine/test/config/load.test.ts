@@ -1020,12 +1020,13 @@ describe("this repository's .dipo/office.yaml", () => {
   );
 
   // DIPO-210 AC #4: dipo opens no story PR here while the maintainer side merges its own
-  // finish-branch PRs. Web tools stay off here until the maintainer's live web capture (DIPO-164).
-  it("is version 8, switches story PRs off and keeps worker web tools off", () => {
+  // finish-branch PRs. Worker web tools are on (the default) since the live web capture of
+  // 2026-10-19 showed the fail-closed gate working against Claude Code (DIPO-164).
+  it("is version 8, switches story PRs off and leaves worker web tools on", () => {
     const result = ok(resolveOfficeConfig({ office }));
     expect(office.startsWith("version: 8\n")).toBe(true);
     expect(result.config.storyPr.open).toBe(false);
-    expect(result.config.worker.web).toBe(false);
+    expect(result.config.worker.web).toBe(true);
     expect(office).toContain("finish-branch PRs");
   });
 
