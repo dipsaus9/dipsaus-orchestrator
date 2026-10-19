@@ -36,6 +36,15 @@ const REFUSED: Array<[string, string]> = [
   ["(export TMPDIR=/x; bun test)", "TMPDIR"],
   ["command env DIPO_TMP=x bun test", "DIPO_TMP"],
   ["env env TMPDIR=/x bun test", "TMPDIR"],
+  // Each form inside a compound command (AC #2).
+  ["cd x && TMPDIR=/x", "TMPDIR"],
+  ["cd x && env DIPO_TMP=/tmp/x bun run verify", "DIPO_TMP"],
+  ["bun install; env -i TMPDIR=/x bun test", "TMPDIR"],
+  ["cd x && env -u TMPDIR bun test", "TMPDIR"],
+  // After a shell keyword.
+  ["if true; then export TMPDIR=/x; fi", "TMPDIR"],
+  ["for f in a; do DIPO_TMP=x bun test; done", "DIPO_TMP"],
+  ["while true; do unset TMPDIR; done", "TMPDIR"],
 ];
 
 const PASSED = [

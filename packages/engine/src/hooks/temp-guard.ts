@@ -10,6 +10,8 @@ export const GUARDED_TEMP_VARIABLES: readonly string[] = ["DIPO_TMP", "TMPDIR"];
 const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)\+?=/;
 /** Words in front of the real command that do not change which variables it sets. */
 const PREFIX_WORDS = new Set(["command", "builtin", "exec", "time", "nohup", "nice"]);
+/** Shell keywords that open a command list: `then export TMPDIR=x` sets the variable too. */
+const KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 /** Nesting of `sh -c` and `env -S` strings that is followed. */
 const MAX_DEPTH = 4;
@@ -122,7 +124,13 @@ function commandRefusal(words: readonly string[], depth: number): string | null 
     if (word === undefined) return null;
     const assigned = assignedName(word);
     if (assigned !== null) return assigned;
-    if (ASSIGNMENT.test(word) || PREFIX_WORDS.has(word) || word === "{" || word === "!") {
+    if (
+      ASSIGNMENT.test(word) ||
+      PREFIX_WORDS.has(word) ||
+      KEYWORDS.has(word) ||
+      word === "{" ||
+      word === "!"
+    ) {
       at++;
       continue;
     }
