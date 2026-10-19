@@ -4,7 +4,7 @@ title: Let an office switch story PRs off
 status: Refined
 assignee: []
 created_date: '2026-10-19 08:49'
-updated_date: '2026-10-19 08:49'
+updated_date: '2026-10-19 08:54'
 labels:
   - 'tier:S'
   - cutover
@@ -45,6 +45,8 @@ test_plan:
       check: "(unit) office config version 7: a version 6 office.yaml migrates in memory with storyPr.open true, storyPr.open false is read, an older file that names storyPr gets the version hint, office.local.yaml refuses the key, and the committed office.schema.json equals the generator output"
     - kind: "automated"
       check: "(engine) with storyPr.open false a fake host records no create, edit or view call across an In Review push, a later push and a poll, and no pr.openFailed notice is raised; with the default true the existing story-pr tests pass unchanged"
+    - kind: "automated"
+      check: "(unit) resolveOfficeConfig on the committed .dipo/office.yaml succeeds and gives storyPr.open false"
     - kind: "manual"
       check: "(live) with the binary built after this story and .dipo/office.yaml setting storyPr.open: false, run one story on this repository to In Review"
       expect: "no GitHub PR is opened from the story branch and no pr.openFailed notice appears"
@@ -56,5 +58,5 @@ test_plan:
 - [ ] #1 Office key storyPr.open (default true) arrives in office config version 7 with its in-memory migration from 6, KEY_ADDED_IN names it, packages/engine/schema/office.schema.json is regenerated, the tests that pin the config version are updated, and office.local.yaml does not accept it
 - [ ] #2 With storyPr.open false the engine opens, updates, polls and retries no story PR for that office and raises no pr.openFailed notice, shown by a test whose fake host counts zero calls
 - [ ] #3 With storyPr.open true or absent the story PR behaviour of DIPO-144 is unchanged and its tests pass
-- [ ] #4 .dipo/office.yaml sets storyPr.open: false with a comment that says the maintainer side merges its own finish-branch PRs on this repository until the review loop takes over
+- [ ] #4 .dipo/office.yaml sets version: 7 and storyPr.open: false, with a comment that says the maintainer side merges its own finish-branch PRs on this repository until the review loop takes over, and a test loads the committed file and gets storyPr.open false
 <!-- AC:END -->
