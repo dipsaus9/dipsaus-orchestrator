@@ -4,7 +4,7 @@ title: Watch CI on story PRs and turn failures into feedback
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 06:32'
+updated_date: '2026-10-19 14:43'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -37,6 +37,8 @@ Outcome: the PR poll waits for the office's and the host's required checks on th
 Context: implements ADR 0019 section 7 (which checks, timing against the review, polling, logs) and the CI rows of section 8 (items, signatures, caps; maintainer spike answers 2 and 10). The merge slot today waits for hard-coded check names (0019 fact 2), which DIPO-133 makes an office setting.
 
 DIPO-142 added the run_steps kind ci ("a pushed head whose required checks were red", migration 0034) that the final run_outcomes row counts as ci_attempts. This story appends one ci step per red pushed head, the same count it parks on at mergeSlot.ciAttempts; DIPO-148's fix round appends none.
+
+The story PR body's status block (DIPO-144, statusSection in packages/engine/src/story-pr/body.ts) has no required-checks line yet; 0019 section 3 gives it one with each check's name and state, which this story adds when it reads the checks.
 
 ```dipo
 branch: "DIPO-147/watch-ci-on-story-prs"

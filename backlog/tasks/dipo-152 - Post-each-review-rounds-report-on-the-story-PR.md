@@ -4,7 +4,7 @@ title: Post each review round's report on the story PR
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-19 14:43'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -29,6 +29,8 @@ ordinal: 141000
 Outcome: after each review round the engine posts one code-built comment in the format of ADR 0019 section 3, with every value from the copied env files replaced by [redacted], never edits it, stores its URL on the verdict, and retries a failed post without holding the gate.
 
 Context: implements the review comments of ADR 0019 section 3 (spike answer 5), including what a public comment can reveal and the maintainer decision of 2026-10-17 that env values are redacted before posting; the rule that worktree env files hold development secrets only stays (0008 open question 8).
+
+The story PR body's status block (DIPO-144, statusSection in packages/engine/src/story-pr/body.ts) shows the review as pending only; 0019 section 3 gives it the review round states, which this story adds with the round comments.
 
 ```dipo
 branch: "DIPO-152/post-review-report-on-story-pr"

@@ -4,7 +4,7 @@ title: Write golden plans that pass the formatter when they are regenerated
 status: Refined
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 14:43'
 labels:
   - 'tier:S'
   - cutover
@@ -28,6 +28,8 @@ Outcome: regenerating the golden files with DIPO_UPDATE_GOLDEN=1 writes files th
 Context: M1a run of DIPO-204 on 2026-10-18 and its review (PR #210). The golden writer in packages/engine/test/workers/plan.test.ts writes `JSON.stringify(value, null, 2)`, while oxfmt puts short arrays such as denyRead and allowRead on one line, so a regenerated golden fails format:check until format:fix runs. The worker had to reformat them by hand. packages/engine/test/sandbox/policy.test.ts (around line 50) has the same writer for packages/engine/test/sandbox/golden/. Both comparisons read parsed JSON, so only the written text changes.
 
 0017 allows test writes only under DIPO_TMP, so the automated check writes the regenerated text there and runs oxfmt --check on it with the repository's oxfmt configuration (.oxfmtrc.json), never in the repository.
+
+The same holds for tools/recordings/derive.ts: running bun run recordings:derive rewrites packages/engine/test/recordings/claude-cli/model-switch/meta.json because serializeMeta writes cites as a multi-line array while the committed file has oxfmt's one-line array (review of PR #231). Generated files should pass format:check as written.
 
 ```dipo
 branch: "DIPO-209/formatted-golden-plans"

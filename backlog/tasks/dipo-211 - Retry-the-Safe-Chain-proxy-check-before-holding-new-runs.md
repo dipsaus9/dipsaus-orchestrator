@@ -1,0 +1,45 @@
+---
+id: DIPO-211
+title: Retry the Safe-Chain proxy check before holding new runs
+status: Refined
+assignee: []
+created_date: '2026-10-19 14:43'
+updated_date: '2026-10-19 14:43'
+labels:
+  - 'tier:S'
+  - cutover
+milestone: m-1
+dependencies: []
+references:
+  - packages/engine/src/platform/safe-chain-proxy.ts
+  - packages/engine/test/sandbox/safe-chain-proxy.test.ts
+priority: high
+type: bug
+ordinal: 211000
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+Outcome: one slow or dropped download in the Safe-Chain proxy check no longer holds new claude-cli runs in every office; the check tries the allowed download again before it reports a failure.
+
+Context: M1a run of DIPO-145 on 2026-10-19. Two launches were refused with "the Safe-Chain proxy check failed: downloading is-number@7.0.0 through the proxy did not work (... timed out)", which holds new runs on claude-cli in every office until someone names a story again. A direct download of the same URL took 0.7 s, and the third launch a few minutes later passed. The check in packages/engine/src/platform/safe-chain-proxy.ts makes each of its three requests once (attempt, PROXY_CHECK_TIMEOUT_MS = 30 s) and proxyCheckProblem reports the first failure; nothing tries again. The blocked and refused requests prove the proxy blocks; only a failed allowed download is a candidate for a transient network problem.
+
+```dipo
+branch: "DIPO-211/retry-safe-chain-proxy-check"
+unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) an allowed download that times out once and then succeeds passes the proxy check; one that fails on every attempt fails it with the attempt count in the problem text"
+    - kind: "automated"
+      check: "(unit) a blocked or refused request that the proxy lets through still fails the check at once, with no retry"
+```
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 The allowed download of the proxy check is tried up to 3 times with a short pause between attempts before it counts as failed, and a test with a fake download that fails once then succeeds shows the check passing
+- [ ] #2 When every attempt fails, the problem text says how many attempts were made and keeps the cause of the last one
+- [ ] #3 The blocked and refused requests are not retried: a proxy that lets a blocked or refused download through fails the check on the first attempt, as today
+<!-- AC:END -->
