@@ -1,10 +1,10 @@
 ---
 id: DIPO-164
 title: Give workers web search and fetch
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 09:50'
+updated_date: '2026-10-19 10:06'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -72,6 +72,10 @@ test_plan:
     - kind: "manual"
       check: "(live, on the maintainer's machine with network) run bun run recordings:capture for the web scenario: a WebSearch, a WebFetch, and a WebFetch whose URL holds a value from a copied env file"
       expect: "the recording is written with source live, shows the search and the fetch with their query and URL and the third fetch denied by the PreToolUse hook naming the env file and key but not the value, and the web replay test passes on it"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 121 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
