@@ -6,7 +6,7 @@ title: >-
 status: Ready
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 21:08'
+updated_date: '2026-10-19 21:18'
 labels:
   - 'tier:M'
   - cutover
@@ -49,7 +49,7 @@ unknowns:
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) the shim setup with platform darwin makes the private directory before the trust check, puts the shim directory first on PATH and gives the trust check that PATH, which finds the shim directory outside every path the policy makes writable; with platform linux PATH is unchanged and there is no shim"
+      check: "(unit) the shim setup, which takes the base directory of the private directory as a parameter (/tmp in production) so the test makes it under DIPO_TMP, with platform darwin makes the private directory before the trust check, puts the shim directory first on PATH and gives the trust check that PATH, which finds the shim directory outside every path the policy makes writable; with platform linux PATH is unchanged and there is no shim"
     - kind: "automated"
       check: "(unit) the shim built with a recording fake in place of /usr/bin/mktemp adds -p \"$TMPDIR\" for no arguments, -d, -q, -u and -t prefix, and passes a template, a relative template and an explicit -p dir to the fake unchanged, with no second -p"
     - kind: "automated"

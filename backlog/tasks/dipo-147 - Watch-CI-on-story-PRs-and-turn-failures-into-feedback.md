@@ -4,7 +4,7 @@ title: Watch CI on story PRs and turn failures into feedback
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:07'
+updated_date: '2026-10-19 21:18'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -25,6 +25,7 @@ references:
   - packages/engine/test/story-pr/
   - packages/engine/test/merge-slot/
   - packages/engine/test/prompts/
+  - packages/engine/test/run/
 priority: high
 type: feature
 ordinal: 136000
