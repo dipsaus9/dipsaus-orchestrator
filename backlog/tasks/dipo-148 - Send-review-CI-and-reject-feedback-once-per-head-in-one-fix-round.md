@@ -4,7 +4,7 @@ title: 'Send review, CI and reject feedback once per head in one fix round'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-18 14:46'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -31,6 +31,8 @@ ordinal: 137000
 Outcome: feedback items with their text are stored in feedback_items, sent once per head with repeats marked, and batched into one fix round that moves the story to In Progress and resumes the developer session in the worker place.
 
 Context: implements ADR 0019 section 8 (sources, one round per head, items and signatures, storage, send-once, caps per source) and the fix-round timing of section 7. Verify items already carry a sha256 signature, but nothing records which were sent (0019 fact 10).
+
+DIPO-142 built the worker place and the reviewer place (packages/engine/src/run/places.ts) and wired only the resume starter (packages/engine/src/run/compose.ts). The fix round runs in the worker place: it registers the fix starter there. It appends no run_steps kind of its own: DIPO-147 appends the ci step, one per red pushed head, which is the count it parks on at mergeSlot.ciAttempts, and DIPO-146 appends review-failed for a blocked round; the final run_outcomes row counts both. work.run checks workerPlaceTaken before its claim while Places.drain is not serialized with it; a fix round that drains into the worker place should not race a pickup.
 
 ```dipo
 branch: "DIPO-148/send-feedback-once-per-head"
