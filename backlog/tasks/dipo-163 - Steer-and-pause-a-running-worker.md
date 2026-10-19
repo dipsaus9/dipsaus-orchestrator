@@ -1,10 +1,10 @@
 ---
 id: DIPO-163
 title: Steer and pause a running worker
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-19 20:47'
 labels:
   - 'tier:M'
   - 'slice:m1a'
