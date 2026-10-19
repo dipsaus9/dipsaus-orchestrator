@@ -2,9 +2,11 @@
 // in the worker sandbox. Verify runs `bun run verify`, which runs oxfmt, oxlint and tsc from
 // `node_modules/.bin`; those start with `#!/usr/bin/env node`, and a node under `~/.nvm` is outside
 // the default read paths, so the worker would fail `env: node: No such file or directory` and
-// spend its turns finding out. The check follows `bun run` and `npm run` references through the
-// root package.json scripts, takes the first word of each command, reads the interpreter line of
-// each program found in `node_modules/.bin` and resolves the interpreter on the worker's PATH.
+// spend its turns finding out. The check follows `bun`, `npm`, `pnpm` and `yarn` script calls
+// (`run <script>`, and `bun`, `pnpm` and `yarn <script>`) through the root package.json scripts,
+// takes the bin `npx` names, takes the first word of each other command, reads the interpreter
+// line of each program found in `node_modules/.bin` and resolves the interpreter on the worker's
+// PATH.
 //
 // A refusal is a `PlanError` like the npm token check's: it is this office's read paths, so it
 // refuses this run and holds no adapter for other offices. Reads files only; never throws for a
@@ -29,7 +31,38 @@ export interface VerifyToolFailure {
   readonly foundAt: string | null;
 }
 
-const RUNNERS = new Set(["bun", "npm"]);
+const RUNNERS = new Set(["bun", "npm", "pnpm", "yarn"]);
+/** The runners that also take a bare script name: `bun <script>` runs one like `run` does. */
+const SHORTHAND = new Set(["bun", "pnpm", "yarn"]);
+/** Commands bun runs itself, before a script of the same name. */
+const BUN_COMMANDS = new Set([
+  "run",
+  "test",
+  "x",
+  "repl",
+  "exec",
+  "install",
+  "add",
+  "remove",
+  "update",
+  "outdated",
+  "link",
+  "unlink",
+  "publish",
+  "patch",
+  "pm",
+  "info",
+  "why",
+  "audit",
+  "init",
+  "create",
+  "upgrade",
+  "build",
+  "completions",
+  "getcompletes",
+  "help",
+  "feedback",
+]);
 const SEGMENT = /&&|\|\||;|\||\n/;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -57,11 +90,38 @@ async function rootScripts(root: string): Promise<Record<string, string>> {
   }
 }
 
-/** The script a `bun run`/`npm run` argument list names, or null when it is not such a call. */
-function runTarget(words: readonly string[]): string | null {
+/** The first word that is not a flag. */
+function operand(words: readonly string[]): string | undefined {
+  return words.find((word) => !word.startsWith("-"));
+}
+
+/**
+ * The root script a command runs, or undefined when it runs none: `bun`, `npm`, `pnpm` and `yarn`
+ * `run <script>`, and `bun`, `pnpm` and `yarn <script>`, unless bun runs that word as its own
+ * command.
+ */
+function scriptOf(words: readonly string[], scripts: Record<string, string>): string | undefined {
   const [runner, verb, ...rest] = words;
-  if (runner === undefined || !RUNNERS.has(runner) || verb !== "run") return null;
-  return rest.find((word) => !word.startsWith("-")) ?? null;
+  if (runner === undefined || !RUNNERS.has(runner)) return undefined;
+  const name =
+    verb === "run" ? operand(rest) : SHORTHAND.has(runner) ? operand(words.slice(1)) : undefined;
+  if (name === undefined || !Object.hasOwn(scripts, name)) return undefined;
+  return runner === "bun" && verb !== "run" && BUN_COMMANDS.has(name) ? undefined : name;
+}
+
+/**
+ * The program a command starts when it runs no root script: the bin `npx` names, the word a
+ * `bun`, `pnpm` or `yarn` shorthand names (checked against `node_modules/.bin` like any program),
+ * else the runner itself. A `run` call that names no script starts nothing.
+ */
+function programOf(words: readonly string[]): string | undefined {
+  const [runner, verb] = words;
+  if (runner === undefined) return undefined;
+  if (runner === "npx") return operand(words.slice(1)) ?? runner;
+  if (RUNNERS.has(runner) && verb === "run") return undefined;
+  if (!SHORTHAND.has(runner)) return runner;
+  const word = operand(words.slice(1));
+  return word === undefined || (runner === "bun" && BUN_COMMANDS.has(word)) ? runner : word;
 }
 
 /** The first word of every command in a script body, in order. */
@@ -77,24 +137,23 @@ function commandsOf(body: string): string[][] {
 }
 
 /**
- * The first words of the commands verify runs, following `bun run`/`npm run` references through
- * the root scripts (each script once).
+ * The first words of the commands verify runs, following the script calls of `bun`, `npm`, `pnpm`
+ * and `yarn` through the root scripts (each script once), and the bins `npx` names.
  */
 export async function verifyPrograms(root: string, verify: VerifyCommands): Promise<string[]> {
   const scripts = await rootScripts(posix.join(root, verify.cwd));
   const seen = new Set<string>();
   const programs: string[] = [];
   const visit = (words: readonly string[]): void => {
-    const target = runTarget(words);
-    if (target === null) {
-      const first = words[0];
-      if (first !== undefined && !programs.includes(first)) programs.push(first);
+    const script = scriptOf(words, scripts);
+    if (script === undefined) {
+      const program = programOf(words);
+      if (program !== undefined && !programs.includes(program)) programs.push(program);
       return;
     }
-    const body = scripts[target];
-    if (body === undefined || seen.has(target)) return;
-    seen.add(target);
-    for (const command of commandsOf(body)) visit(command);
+    if (seen.has(script)) return;
+    seen.add(script);
+    for (const command of commandsOf(scripts[script] ?? "")) visit(command);
   };
   for (const command of verify.commands) visit(command);
   return programs;
