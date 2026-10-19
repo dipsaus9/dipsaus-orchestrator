@@ -12,13 +12,16 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
+  cutWebLine,
   type EnvSecret,
+  MIN_SECRET_CHARS,
   REDACTED_TEXT,
   redactSecrets,
   redactWebTarget,
   WebGuard,
 } from "../../src/hooks/web-guard";
 import type { IngestAdapter } from "../../src/ingest/ingestor";
+import { INPUT_MAX_CHARS } from "../../src/ingest/output";
 import { insertRun } from "../../src/run";
 import { OfficeIngest } from "../../src/run/hosts";
 import { addStory } from "../../src/stories/keys";
@@ -85,7 +88,11 @@ describe("redactSecrets (pure)", () => {
 });
 
 /** Ingests the `web-calls` recording through `OfficeIngest` with the web check's redaction. */
-async function ingestWebCalls(dir: string, secrets: () => EnvSecret[]) {
+async function ingestWebCalls(
+  dir: string,
+  secrets: () => EnvSecret[],
+  recording = loadRecording("web-calls"),
+) {
   const f = await ingestFixture(dir);
   const at = f.t.clock.now();
   const { key } = f.office.immediate(() =>
@@ -124,7 +131,7 @@ async function ingestWebCalls(dir: string, secrets: () => EnvSecret[]) {
     secrets,
     warn: (message) => warnings.push(message),
   });
-  appendLines(f.eventFile, hostLines(loadRecording("web-calls")));
+  appendLines(f.eventFile, hostLines(recording));
   new OfficeIngest({
     clock: f.t.clock,
     pricing: () => null,
@@ -156,6 +163,43 @@ describe("stored web lines (DIPO-164 review)", () => {
       expect(logged).not.toContain(VALUE);
       expect(warnings).toEqual([]);
     }));
+
+  it("redact a value across the INPUT_MAX_CHARS cut before cutting: no prefix of it stays", () =>
+    withTempDir(async (dir) => {
+      // The refused URL padded so the value starts 5 characters before the cut and runs past it.
+      const refused = `https://example.com/lookup?token=${VALUE}`;
+      const head = "https://example.com/lookup?pad=";
+      const pad = "a".repeat(INPUT_MAX_CHARS - 5 - head.length - "&token=".length);
+      const url = `${head}${pad}&token=${VALUE}`;
+      expect(url.indexOf(VALUE)).toBe(INPUT_MAX_CHARS - 5);
+      const recording = JSON.parse(
+        JSON.stringify(loadRecording("web-calls")).replaceAll(refused, url),
+      ) as ReturnType<typeof loadRecording>;
+      expect(JSON.stringify(recording)).toContain(url);
+
+      const { output, logged, warnings } = await ingestWebCalls(dir, () => SECRETS, recording);
+      // No prefix of the value of MIN_SECRET_CHARS characters or more is stored or logged.
+      for (let length = MIN_SECRET_CHARS; length <= VALUE.length; length++) {
+        expect(output).not.toContain(VALUE.slice(0, length));
+        expect(logged).not.toContain(VALUE.slice(0, length));
+      }
+      const redacted = `${head}${pad}&token=${REDACTED_TEXT}`;
+      expect(output.split("\n").filter((line) => line.startsWith("[web] WebFetch "))).toEqual([
+        "[web] WebFetch https://bun.sh/docs/cli/test",
+        `[web] WebFetch ${redacted.slice(0, INPUT_MAX_CHARS)} [cut ${redacted.length - INPUT_MAX_CHARS} more chars]`,
+      ]);
+      expect(warnings).toEqual([]);
+    }));
+
+  it("cuts a web line only after it is redacted, and leaves other lines alone", () => {
+    const long = `[web] WebSearch ${"q".repeat(INPUT_MAX_CHARS + 7)}`;
+    expect(cutWebLine(long)).toBe(
+      `[web] WebSearch ${"q".repeat(INPUT_MAX_CHARS)} [cut 7 more chars]`,
+    );
+    expect(cutWebLine("[web] WebFetch https://x.test")).toBe("[web] WebFetch https://x.test");
+    expect(cutWebLine(REDACTED_TEXT)).toBe(REDACTED_TEXT);
+    expect(cutWebLine("[web] WebFetch")).toBe("[web] WebFetch");
+  });
 
   it("redact every web target when the env files cannot be read", () =>
     withTempDir(async (dir) => {

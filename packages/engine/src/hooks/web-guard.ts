@@ -20,8 +20,10 @@
 // Each web call shows in the worker output as `[web] <tool> <query or URL>`. Before that line is
 // stored (`output_chunks`, and the `work.output` change-log entries read from it), every env value
 // in it is replaced by `[redacted]`, as 0008 does for review comments; the refusal still names the
-// file and key. The raw `events.ndjson` of the run keeps the call as Claude wrote it, as it keeps
-// every tool input (0007 sections 7 and 8).
+// file and key. The adapter's line holds the query or URL whole; it is cut to `INPUT_MAX_CHARS`,
+// as other tool inputs, only after the redaction, so a value across the cut leaves no prefix. The
+// raw `events.ndjson` of the run keeps the call as Claude wrote it, as it keeps every tool input
+// (0007 sections 7 and 8).
 //
 // Every failure is a deny: an env file that cannot be read, a call that cannot be checked. This
 // module emits only the neutral `toolGate` op; the adapter's `encode` decides what its CLI prints.
@@ -33,6 +35,7 @@ import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
+import { oneLineInput } from "../ingest/output";
 import { background } from "../platform/background";
 import type { RunSteering } from "../run/control";
 import { findRun } from "../run/records";
@@ -203,6 +206,18 @@ export function redactWebTarget(line: string): string {
   return space === -1 ? line : `${WEB_LINE_PREFIX}${rest.slice(0, space)} ${REDACTED_TEXT}`;
 }
 
+/**
+ * Pure: a web output line with its query or URL cut to `INPUT_MAX_CHARS`, as other tool inputs.
+ * Run it only on a line already redacted: a value across the cut would leave its prefix otherwise.
+ */
+export function cutWebLine(line: string): string {
+  if (!line.startsWith(WEB_LINE_PREFIX)) return line;
+  const rest = line.slice(WEB_LINE_PREFIX.length);
+  const space = rest.indexOf(" ");
+  if (space === -1) return line;
+  return `${WEB_LINE_PREFIX}${rest.slice(0, space)} ${oneLineInput(rest.slice(space + 1))}`;
+}
+
 /** Files of a `worktree.files` entry that exists in `worktree`: a file, or those under a directory. */
 function filesOf(worktree: string, path: string): string[] {
   const out: string[] = [];
@@ -354,9 +369,10 @@ export class WebGuard {
 
   /**
    * The output text of one ingestion pass of `office`'s run `run`, with every env value in its web
-   * lines replaced by `[redacted]` before it is stored (file comment). The env files are read only
-   * when the text holds a web line; when they cannot be read, each web line's query or URL is
-   * redacted whole. Other lines are returned as they are.
+   * lines replaced by `[redacted]` before it is stored (file comment), and each web line's query or
+   * URL then cut to `INPUT_MAX_CHARS`. The env files are read only when the text holds a web line;
+   * when they cannot be read, each web line's query or URL is redacted whole. Other lines are
+   * returned as they are.
    */
   redactOutput(office: OfficeHandle, run: string, text: string): string {
     if (!text.includes(WEB_LINE_PREFIX)) return text;
@@ -371,7 +387,8 @@ export class WebGuard {
       .split("\n")
       .map((line) => {
         if (!line.startsWith(WEB_LINE_PREFIX)) return line;
-        return secrets === null ? redactWebTarget(line) : redactSecrets(line, secrets);
+        // Redact the whole line first, then cut: never the other way round.
+        return cutWebLine(secrets === null ? redactWebTarget(line) : redactSecrets(line, secrets));
       })
       .join("\n");
   }

@@ -10,6 +10,7 @@ import {
   interpretLogged,
   nextSessionOptions,
   rateLimitScope,
+  webLine,
 } from "../../src/workers/claude-cli/interpret";
 import { result } from "../../src/workers/claude-cli/result";
 import type { HostLine, WorkerEvent, WorkerReport } from "../../src/workers/types";
@@ -206,6 +207,13 @@ describe("interpret (0008 section 3)", () => {
       { t: "output", text: "[web] WebFetch https://x.test\n" },
       { t: "output", text: "[web] WebSearch bun\n" },
     ]);
+  });
+
+  it("keeps a web call's query or URL whole on one line: the engine redacts it before it cuts it", () => {
+    const url = `https://x.test/?q=${"a".repeat(500)}`;
+    expect(webLine("WebFetch", `  ${url}\n`)).toBe(`[web] WebFetch ${url}\n`);
+    expect(webLine("WebSearch", "bun\n\ttest")).toBe("[web] WebSearch bun test\n");
+    expect(webLine("WebSearch", undefined)).toBe("[web] WebSearch\n");
   });
 
   it("counts usage once per message id; a subagent message carries its parent tool use", () => {

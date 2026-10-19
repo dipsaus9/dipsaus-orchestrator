@@ -22,7 +22,7 @@ import type {
   WorkerReport,
 } from "../types";
 import { WEB_LINE_PREFIX } from "../types";
-import { oneLineInput } from "../../ingest/output";
+import { flatInput } from "../../ingest/output";
 import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { parseReviewReport, WorkerReportSchema } from "./report-schema";
@@ -779,9 +779,13 @@ const INPUT_FIELDS: Readonly<Record<string, string>> = {
   WebSearch: "query",
 };
 
-/** The output line of a web call: `[web] WebFetch https://…`, the input cut as other tool inputs. */
+/**
+ * The output line of a web call: `[web] WebFetch https://…`, the input as one line but whole. The
+ * engine redacts env values from the whole line before it cuts the input as other tool inputs
+ * (`WebGuard.redactOutput`), so a value across the cut leaves no part of itself behind.
+ */
 export function webLine(tool: string, input: string | undefined): string {
-  const line = input === undefined ? "" : oneLineInput(input);
+  const line = input === undefined ? "" : flatInput(input);
   return `${WEB_LINE_PREFIX}${tool}${line === "" ? "" : ` ${line}`}\n`;
 }
 
