@@ -1,10 +1,10 @@
 ---
 id: DIPO-206
 title: Count budget grants in the work view's usage
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 21:22'
+updated_date: '2026-10-19 21:29'
 labels:
   - 'tier:S'
   - cutover
@@ -41,3 +41,9 @@ test_plan:
 - [x] #1 packages/engine/src/views/work.ts and packages/engine/src/views/feature.ts take the budget limit they pass to readUsage from runCaps, so a run with a budget grant shows the start budget plus the grant as Usage.budget.limit in both views
 - [x] #2 A test in packages/engine/test/views/ records a budget grant of 5000 tokens on a run with a 20000 token start budget and expects the literal limit 25000 in the work view and in the feature view
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B0DQXQ1Q95QWF3XJ9QXT1F (Haiku, 15 turns, about $0.01, 2 min) reported done, In Review, with no denied call and no write outside the References. workView and storyRuns now pass runCaps(...).budgetTokens (snapshot plus budget grants) to readUsage, so a run with a grant shows the granted limit in the work view and in story.detail's work. storyRuns keeps only usage.run in its RunRecord, so its limit is not shown; a comment there now says the feature view's limit comes from workView. Verify outside the sandbox: 3696 tests, 0 fail; DIPO_TEST_CI=1 views tests pass. Review passed.
+<!-- SECTION:NOTES:END -->
