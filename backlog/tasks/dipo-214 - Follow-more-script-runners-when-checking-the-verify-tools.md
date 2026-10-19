@@ -1,10 +1,10 @@
 ---
 id: DIPO-214
 title: Follow more script runners when checking the verify tools
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-19 21:36'
 labels:
   - 'tier:S'
   - cutover
@@ -37,6 +37,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 verify-tools.ts follows pnpm run <script>, pnpm <script>, yarn run <script>, yarn <script> and bun <script> through the root package.json scripts, and checks npx <bin> as the node_modules/.bin program it names
-- [ ] #2 A shorthand word that is not a package.json script and not a .bin program is left alone, as today, and so is a word that is one of bun's own commands (test, build, install, add, x and the others bun runs before a script of the same name), so `bun test` with a test script is not followed; tests in packages/engine/test/workers/verify-tools.test.ts cover each runner and the bun test case
+- [x] #1 verify-tools.ts follows pnpm run <script>, pnpm <script>, yarn run <script>, yarn <script> and bun <script> through the root package.json scripts, and checks npx <bin> as the node_modules/.bin program it names
+- [x] #2 A shorthand word that is not a package.json script and not a .bin program is left alone, as today, and so is a word that is one of bun's own commands (test, build, install, add, x and the others bun runs before a script of the same name), so `bun test` with a test script is not followed; tests in packages/engine/test/workers/verify-tools.test.ts cover each runner and the bun test case
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B0S3M960C99FC42WZ7J8WN (Haiku, 14 turns, about $0.02, 3 min) reported done, In Review, with no denied call and no write outside the References. verifyPrograms now follows pnpm run, pnpm <script>, yarn run, yarn <script> and bun <script> through the root scripts and checks npx <bin> as the .bin program; a word that is neither a script nor a .bin program is left alone. Fixed on top after review (blocking): BUN_COMMANDS gains dedupe, prune and the short forms i, a, rm and c from `bun --help` of Bun 1.4.2, with a test per word; re-review passed. Known limits, filed as gap candidates: pnpm and yarn built-ins that shadow a script are still followed, and npx -p <pkg> <cmd> takes the package as the bin. Verify outside the sandbox: 3711 tests, 0 fail; DIPO_TEST_CI=1 workers tests pass.
+<!-- SECTION:NOTES:END -->
