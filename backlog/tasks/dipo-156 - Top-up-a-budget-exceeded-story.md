@@ -4,7 +4,7 @@ title: Top up a budget-exceeded story
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:15'
+updated_date: '2026-10-19 06:56'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -12,6 +12,7 @@ milestone: m-1
 dependencies:
   - DIPO-155
   - DIPO-146
+  - DIPO-205
 references:
   - packages/contract/src/
   - packages/contract/schema/
@@ -57,4 +58,5 @@ test_plan:
 - [ ] #3 commands.describe gains confirmWhen and work.resume declares it for budget; the CLI shows the caps before and after and asks yes or no unless --yes is given
 - [ ] #4 Cause build resumes the developer session (native when the 0014 section 6 checks pass, else a handoff) with feedback/topup.md first; cause review starts a fresh reviewer session on the same head in the reviewer place, and that round is not counted as failed
 - [ ] #5 The CLI --max-turns backstop of the resumed session gets the remaining turns of the raised cap
+- [ ] #6 A top-up resume of a budget-exceeded park that a reopened round hit before any worker session (DIPO-205) sends that round's undelivered feedback first, then feedback/topup.md
 <!-- AC:END -->
