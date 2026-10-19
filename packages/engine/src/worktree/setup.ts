@@ -76,10 +76,12 @@ export interface SetupDeps extends Pick<
   /** Runs one sandboxed step: `runSandboxedStep` with the daemon's step dependencies. */
   readonly runStep: (request: StepRequest) => Promise<StepResult>;
   /**
-   * Logs a failed step (the daemon's logger at warn): script, command and exit; the output tails
-   * go in `stdout` and `stderr`, which the logger shows only at debug (0006 decision 13).
+   * Logs a failed step (the daemon's logger at warn): script, command and exit. A warn line never
+   * shows `stdout` and `stderr` (0006 decision 13), so the output tails also go to `debug`.
    */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** Logs a failed step's output tails at debug, where the logger shows them (DIPO-200). */
+  readonly debug?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 /** Characters of a failed step's stderr (else stdout) the failure reason and its notice carry. */
@@ -296,6 +298,12 @@ async function runCommands(
       exitCode: result.code,
       signal: result.signal,
       timedOut: result.timedOut,
+      stdout: result.stdout.text.slice(-STEP_OUTPUT_TAIL),
+      stderr: result.stderr.text.slice(-STEP_OUTPUT_TAIL),
+    });
+    deps.debug?.("a setup step's output", {
+      story: request.claim.story,
+      script: step.script,
       stdout: result.stdout.text.slice(-STEP_OUTPUT_TAIL),
       stderr: result.stderr.text.slice(-STEP_OUTPUT_TAIL),
     });
