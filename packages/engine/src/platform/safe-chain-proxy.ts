@@ -73,6 +73,10 @@ export const PROXY_CHECK_BLOCKED_URL =
   "https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz";
 /** A host the gate must refuse (not a checked registry). */
 export const PROXY_CHECK_REFUSED_URL = "https://example.com/";
+/** How many times the allowed download may be tried before it counts as failed (DIPO-211). */
+export const PROXY_CHECK_ATTEMPTS = 3;
+/** Time on the clock between two tries of the allowed download. */
+export const PROXY_CHECK_RETRY_DELAY_MS = 2_000;
 
 export interface SafeChainProxyRequest {
   /** The official install, `~/.safe-chain`; only its binary is read (copied). */
@@ -340,12 +344,16 @@ async function statusThrough(port: number, ca: string, url: string): Promise<num
  * Null when the proxy checks installs as it must.
  */
 export function proxyCheckProblem(results: {
+  /** The last try of the allowed download. */
   readonly allowed: number | string;
+  /** How many tries of the allowed download were made. */
+  readonly attempts: number;
   readonly blocked: number | string;
   readonly refused: number | string;
 }): string | null {
   if (results.allowed !== 200) {
-    return `downloading is-number@7.0.0 through the proxy did not work (${results.allowed})`;
+    const tries = results.attempts === 1 ? "attempt" : "attempts";
+    return `downloading is-number@7.0.0 through the proxy did not work after ${results.attempts} ${tries} (${results.allowed})`;
   }
   if (results.blocked !== 403) {
     return `Safe-Chain did not refuse its test package safe-chain-test (${results.blocked}); installs would not be checked`;
@@ -356,18 +364,45 @@ export function proxyCheckProblem(results: {
   return null;
 }
 
-async function check(clock: Clock, port: number, ca: string): Promise<string | null> {
-  const attempt = async (url: string): Promise<number | string> => {
-    try {
-      return await withTimeout(clock, PROXY_CHECK_TIMEOUT_MS, statusThrough(port, ca, url), url);
-    } catch (error) {
-      return messageOf(error);
+/** One download of the proxy check, with its timeout: the status, or the error's message. */
+async function attemptOnce(
+  clock: Clock,
+  download: (url: string) => Promise<number>,
+  url: string,
+): Promise<number | string> {
+  try {
+    return await withTimeout(clock, PROXY_CHECK_TIMEOUT_MS, download(url), url);
+  } catch (error) {
+    return messageOf(error);
+  }
+}
+
+/**
+ * The proxy check: the allowed download is tried up to PROXY_CHECK_ATTEMPTS times, the retry
+ * waiting PROXY_CHECK_RETRY_DELAY_MS on the clock (DIPO-211); the blocked and refused downloads
+ * are tried once, since a pass for them is the proxy failing its check.
+ */
+export async function runProxyCheck(
+  clock: Clock,
+  download: (url: string) => Promise<number>,
+): Promise<string | null> {
+  let allowed: number | string = "";
+  let attempts = 0;
+  while (attempts < PROXY_CHECK_ATTEMPTS) {
+    if (attempts > 0) {
+      await new Promise<void>((resolveWait) =>
+        clock.setTimeout(resolveWait, PROXY_CHECK_RETRY_DELAY_MS),
+      );
     }
-  };
+    attempts += 1;
+    allowed = await attemptOnce(clock, download, PROXY_CHECK_ALLOWED_URL);
+    if (allowed === 200) break;
+  }
   return proxyCheckProblem({
-    allowed: await attempt(PROXY_CHECK_ALLOWED_URL),
-    blocked: await attempt(PROXY_CHECK_BLOCKED_URL),
-    refused: await attempt(PROXY_CHECK_REFUSED_URL),
+    allowed,
+    attempts,
+    blocked: await attemptOnce(clock, download, PROXY_CHECK_BLOCKED_URL),
+    refused: await attemptOnce(clock, download, PROXY_CHECK_REFUSED_URL),
   });
 }
 
@@ -502,7 +537,7 @@ export async function startSafeChainProxy(
   }
   const address = server.address();
   const port = typeof address === "object" && address !== null ? address.port : 0;
-  const problem = await check(deps.clock, port, ca);
+  const problem = await runProxyCheck(deps.clock, (url) => statusThrough(port, ca, url));
   if (problem !== null) return refuse(`the Safe-Chain proxy check failed: ${problem}`);
   return {
     ok: true,
