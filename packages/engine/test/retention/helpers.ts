@@ -177,6 +177,25 @@ export function insertReleasedBranch(
   );
 }
 
+/** A story PR of `run`: open while `closedAt` is null, otherwise merged at that time. */
+export function insertStoryPr(office: OfficeHandle, run: string, closedAt: number | null): void {
+  office.immediate(() =>
+    office.run(
+      `insert into story_prs (office_id, run_id, key, pr_number, url, branch, base, head_sha, state,
+         title, body_hash, opened_at, closed_at)
+       values ($office_id, $run, $key, 1, 'https://example.test/pr/1', $branch, 'main', 'h',
+         $state, 't', 'b', 0, $closed)`,
+      {
+        run,
+        key: `sto-${run}`,
+        branch: `DIPO-1/${run}`,
+        state: closedAt === null ? "open" : "merged",
+        closed: closedAt,
+      },
+    ),
+  );
+}
+
 export function insertPricingCheck(office: OfficeHandle, run: string, raisedAt: number): void {
   office.immediate(() =>
     office.run(

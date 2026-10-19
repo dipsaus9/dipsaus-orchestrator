@@ -35,6 +35,7 @@ import {
   insertNudgeSource,
   insertReleasedBranch,
   insertScan,
+  insertStoryPr,
   insertRequest,
   insertRequests,
 } from "./helpers";
@@ -345,6 +346,31 @@ describe("retention of run rows", () => {
       expect(
         ids("select gate_id as id from gates where office_id = $office_id order by opened_at desc"),
       ).toEqual([recent, "gat-waiting"]);
+    }));
+
+  it("deletes story PRs closed before the state tier and keeps open and recently closed ones", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      insertStoryPr(office, "run-old", day(0));
+      insertStoryPr(office, "run-recent", day(300));
+      insertStoryPr(office, "run-open", null);
+      t.clock.advanceTo(day(400));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({ story_prs: 1 });
+      expect(
+        office
+          .all<{ id: string }>(
+            "select run_id as id from story_prs where office_id = $office_id order by 1",
+          )
+          .map((row) => row.id),
+      ).toEqual(["run-open", "run-recent"]);
     }));
 
   it("deletes reclaimed released branches and pricing checks after the state tier", () =>
