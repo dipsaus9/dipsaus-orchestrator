@@ -4,7 +4,7 @@ title: Post each review round's report on the story PR
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -30,6 +30,8 @@ Outcome: after each review round the engine posts one code-built comment in the 
 
 Context: implements the review comments of ADR 0019 section 3 (spike answer 5), including what a public comment can reveal and the maintainer decision of 2026-10-17 that env values are redacted before posting; the rule that worktree env files hold development secrets only stays (0008 open question 8).
 
+The story PR body's status block (DIPO-144, statusSection in packages/engine/src/story-pr/body.ts) shows the review as pending only; 0019 section 3 gives it the review round states, which this story adds with the round comments.
+
 ```dipo
 branch: "DIPO-152/post-review-report-on-story-pr"
 unknowns: []
@@ -53,4 +55,5 @@ test_plan:
 - [ ] #3 A comment over 60,000 characters is cut, advisory findings first, with a marker
 - [ ] #4 After the cap, every value read as a KEY=value line from the env files dipo copied into the worktree (the copy entries of worktree.files) is replaced by [redacted] across the whole comment while the stored verdict keeps the reviewer's text; an unreadable copied env file holds the comment back with a pr.commentFailed notice
 - [ ] #5 A failed post raises pr.commentFailed and is retried by the PR poll, never blocking or delaying the gate, a fix round or a merge
+- [ ] #6 The story PR body's status block shows the review round state, as 0019 section 3 gives it, rewritten with the body after each round
 <!-- AC:END -->
