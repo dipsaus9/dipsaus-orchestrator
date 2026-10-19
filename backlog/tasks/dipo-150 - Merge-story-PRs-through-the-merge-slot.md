@@ -4,7 +4,7 @@ title: Merge story PRs through the merge slot
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-19 21:06'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -22,6 +22,8 @@ references:
   - packages/daemon/src/
   - packages/engine/test/merge-slot/
   - packages/engine/test/db/
+  - packages/engine/src/run/
+  - packages/engine/test/run/
 priority: high
 type: feature
 ordinal: 139000
@@ -39,6 +41,8 @@ branch: "DIPO-150/merge-story-prs-through-the-slot"
 unknowns: []
 test_plan:
   entries:
+    - kind: "automated"
+      check: "(integration, real git and a fake host) an approved head plus a clean base merge the merge slot made and a task-file commit carries the approval to the new head with no review round"
     - kind: "automated"
       check: "(integration, real git and a fake host) a story PR with an approved verdict and green checks goes through close-out, sync, push, checks and squash merge with --match-head-commit"
     - kind: "automated"
@@ -60,4 +64,5 @@ test_plan:
 - [ ] #4 A merge_slot table (occupant, phase, pushed head, attempt count; retention tier P) keeps the slot across a daemon restart, its row deleted when the PR merges or leaves the slot, and every step is idempotent when run again
 - [ ] #5 A PR labelled autorelease: pending is never merged by the engine for any PR kind, checked in code before entry and right before the host merge; a label in mergeSlot.holdLabels holds the PR until it is gone; backlog PRs gain the persistence and the label guard
 - [ ] #6 A host head that differs from the pushed head keeps the story out of the slot with a pr.headChanged notice naming both heads, and a story PR closed on the host without a merge parks stopped with cause pr-closed and detail PR #n was closed on the host
+- [ ] #7 The merge slot records each clean base merge it makes, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
 <!-- AC:END -->
