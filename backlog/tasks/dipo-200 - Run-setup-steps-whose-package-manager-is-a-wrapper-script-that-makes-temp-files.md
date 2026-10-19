@@ -3,10 +3,10 @@ id: DIPO-200
 title: >-
   Run setup steps whose package manager is a wrapper script that makes temp
   files
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 22:15'
+updated_date: '2026-10-19 22:21'
 labels:
   - 'tier:M'
   - cutover
@@ -67,7 +67,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On darwin, runSandboxExec in packages/engine/src/platform/sandbox-exec.ts makes its private /tmp/dipo-sx-* directory before checkTrust, writes a read-only mktemp shim into a directory inside it and puts that directory first on the step's PATH; on linux no shim is added. The shim text is built from the real mktemp path, adds -p "$TMPDIR" when the call names neither a template nor -p (no arguments, only -d, -q or -u, or -t prefix) and passes every other call, an explicit -p dir among them, to the real mktemp unchanged; unit tests in packages/engine/test/platform/ build the shim with a recording fake in place of /usr/bin/mktemp and check the arguments it gets for each form, and a *.ci.test.ts under packages/engine/test/sandbox/ runs a setup step whose command is a bash wrapper that calls mktemp with no arguments and then execs a stand-in tool through the real step runner and asserts that it passes
-- [ ] #2 The fix keeps the step's temp writes inside its temp root: the step sandbox's write rules are not widened to the user temp directory, and checkTrust gets the shim-prefixed PATH, so it vets the shim directory; a unit test with platform darwin shows the shim directory first on PATH and the trust check finding it outside every path the policy makes writable
-- [ ] #3 When a setup step fails, the setup-failed message that `dipo run` prints names the command that shows the step's output (for example `dipo daemon logs --level debug`), and a unit test asserts it
+- [x] #1 On darwin, runSandboxExec in packages/engine/src/platform/sandbox-exec.ts makes its private /tmp/dipo-sx-* directory before checkTrust, writes a read-only mktemp shim into a directory inside it and puts that directory first on the step's PATH; on linux no shim is added. The shim text is built from the real mktemp path, adds -p "$TMPDIR" when the call names neither a template nor -p (no arguments, only -d, -q or -u, or -t prefix) and passes every other call, an explicit -p dir among them, to the real mktemp unchanged; unit tests in packages/engine/test/platform/ build the shim with a recording fake in place of /usr/bin/mktemp and check the arguments it gets for each form, and a *.ci.test.ts under packages/engine/test/sandbox/ runs a setup step whose command is a bash wrapper that calls mktemp with no arguments and then execs a stand-in tool through the real step runner and asserts that it passes
+- [x] #2 The fix keeps the step's temp writes inside its temp root: the step sandbox's write rules are not widened to the user temp directory, and checkTrust gets the shim-prefixed PATH, so it vets the shim directory; a unit test with platform darwin shows the shim directory first on PATH and the trust check finding it outside every path the policy makes writable
+- [x] #3 When a setup step fails, the setup-failed message that `dipo run` prints names the command that shows the step's output (for example `dipo daemon logs --level debug`), and a unit test asserts it
 <!-- AC:END -->
