@@ -1,10 +1,10 @@
 ---
 id: DIPO-194
 title: Refuse a worker Bash command that sets DIPO_TMP or TMPDIR
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-19 20:58'
+updated_date: '2026-10-19 21:51'
 labels:
   - 'tier:M'
   - cutover
