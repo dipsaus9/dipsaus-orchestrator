@@ -191,6 +191,8 @@ describe("setup inside the claim", () => {
         String(warnings[0]?.fields["stdout"]) + String(warnings[0]?.fields["stderr"]),
       ).toContain("database not reachable");
       expect(outcome.notice).toContain("stays Ready");
+      // And how to read the rest of the step's output (DIPO-200).
+      expect(outcome.notice).toContain("dipo daemon logs --level debug");
       expect(outcome.log).toContain("database not reachable");
       expect(notices(h.s.office).map((n) => n.code)).toContain(SETUP_NOTICES.failed);
       await assertRolledBack(repo, h, key);
