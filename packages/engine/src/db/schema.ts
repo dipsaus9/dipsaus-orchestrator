@@ -39,6 +39,7 @@ import { usageOutputState } from "./migrations/0035-usage-output-state";
 import { storyPrs } from "./migrations/0036-story-prs";
 import { webCalls } from "./migrations/0037-web-calls";
 import { runStepCap } from "./migrations/0038-run-step-cap";
+import { reviewVerdicts } from "./migrations/0039-review-verdicts";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -113,4 +114,5 @@ create table offices (
   storyPrs,
   webCalls,
   runStepCap,
+  reviewVerdicts,
 ];

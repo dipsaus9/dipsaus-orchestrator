@@ -27,6 +27,7 @@ import type { OfficeHandle } from "../db/office";
 import { openQuestionViews, storyQuestionViews } from "../hooks/questions";
 import { readUsage } from "../ingest/usage";
 import { promptTextsOf } from "../prompts/parts";
+import { reviewVerdictOfGate, reviewVerdictView } from "../review/store";
 import { runCaps } from "../run/caps";
 import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
@@ -143,8 +144,11 @@ export function storyVerdicts(office: OfficeHandle, key: StoryKey): Verdict[] {
   );
   return rows.map((row) => {
     const failures = failuresOf(row.rule_results);
+    const gate = GateId.parse(row.gate_id);
+    // A review gate carries its round's verdict (0019 section 14, DIPO-146).
+    const review = row.kind === "review" ? reviewVerdictOfGate(office, gate) : null;
     return {
-      gate: GateId.parse(row.gate_id),
+      gate,
       ...(row.run_id === null ? {} : { run: RunId.parse(row.run_id) }),
       kind: row.kind,
       decision: row.decision,
@@ -152,6 +156,7 @@ export function storyVerdicts(office: OfficeHandle, key: StoryKey): Verdict[] {
       ...(row.note === null ? {} : { note: row.note }),
       ...(failures.length === 0 ? {} : { failures }),
       at: iso(row.decided_at),
+      ...(review === null ? {} : { review: reviewVerdictView(office, review) }),
     };
   });
 }
