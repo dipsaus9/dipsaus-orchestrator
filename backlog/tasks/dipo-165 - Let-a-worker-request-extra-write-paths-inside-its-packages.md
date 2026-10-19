@@ -4,7 +4,7 @@ title: Let a worker request extra write paths inside its packages
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:15'
+updated_date: '2026-10-18 14:32'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -71,7 +71,7 @@ test_plan:
 - [ ] #1 WorkerReport gains scopeRequest { paths, why }, sent with status blocked, in the report schema, and the WorkerPort lists the paths its deny rules protect
 - [ ] #2 Code decides each path in the section 11a order: refused when invalid (R12, under backlog/, .dipo/ or .git/, a deny-rule path, or resolving outside the worktree through a symlink), refused outside the packages the story writes, refused naming the story when it collides with another live claim, refused when R26 would break, waiting when restricted, else granted
 - [ ] #3 The package of a path is its workspace member's directory, else its top-level directory, and a root file belongs to none; office keys scope.packages and scope.restricted (defaults dependency manifests and lockfiles, .github/**, CLAUDE.md, AGENTS.md, docs/decisions/**, which an office may add to and not remove from) arrive in the next config version with migration and schema
-- [ ] #4 A grant adds the paths with backlog task edit --add-ref in a lane-a commit <ID>: scope add <paths>, records a scope grant in run_grants and a closed questions row kind scope decided by rule, and the waiting session is told the paths are now in scope; the scope check at done reads the start scope plus granted paths
+- [ ] #4 A grant adds the paths with `backlog task edit --add-ref` in a lane-a commit <ID>: scope add <paths>, records a scope grant in run_grants and a closed questions row kind scope decided by rule, and the waiting session is told the paths are now in scope; the scope check at done reads the start scope plus granted paths
 - [ ] #5 A restricted path stores a questions row kind scope with its paths, waits timeouts.questionWaitMinutes as a SCOPE desk row, and parks needs-scope when unanswered; dipo answer <question> allow|deny [reason] decides it now or resumes the park, and dipo resume answers resume.decisionRequired
 - [ ] #6 The scope nudge and the worker contract say outside the declared scope; if the story needs it, report blocked with a scopeRequest, in place of will be rejected
 <!-- AC:END -->
