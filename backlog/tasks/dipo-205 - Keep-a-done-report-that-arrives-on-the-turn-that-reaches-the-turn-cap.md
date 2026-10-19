@@ -1,10 +1,10 @@
 ---
 id: DIPO-205
 title: Keep a done report that arrives on the turn that crosses a run cap
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 21:08'
+updated_date: '2026-10-19 22:22'
 labels:
   - 'tier:M'
   - cutover
@@ -66,9 +66,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A run whose turn crosses budgetTokens, maxTurns or maxMinutes on the engine total and carries a done report takes the normal done path (verify-commit, then In Review) instead of parking, and a run_steps row of kind cap records the crossed cap and its detail; a test in packages/engine/test/run/ drives RunControl with such a turn for the turn cap and for the token cap and reads the row back
-- [ ] #2 A turn with a done report and `capped` from the CLI --max-turns backstop takes the same done path, tested with a synthetic turn event in packages/engine/test/run/
-- [ ] #3 When the verify of that done path fails, the story parks verify-failing with park cause capped and the verify failure as its detail, no feedback turn is sent, and capped wins over loops when the same verify reaches the loop cap; a test shows the park, its cause and that no worker message follows
-- [ ] #4 A cap-crossing turn without a done report still parks budget-exceeded with its cap detail ("turn cap reached: <n> of <cap> turns" on the engine total), and the existing cap tests in packages/engine/test/run/ pass unchanged
-- [ ] #5 One shared pre-start cap check in packages/engine/src/run/ runs in Places.drain before the starter of a worker-place fix or conflict wait (START_KINDS.fix, START_KINDS.conflict) is called: when the run's runCaps are already reached, the story parks budget-exceeded with cause build and the cap detail and the starter is not called; a unit test stores a capped run's fix wait and conflict wait with waitForPlace, drains with a recording starter, and shows the park and that the starter was never called, and that a run under its caps reaches its starter
+- [x] #1 A run whose turn crosses budgetTokens, maxTurns or maxMinutes on the engine total and carries a done report takes the normal done path (verify-commit, then In Review) instead of parking, and a run_steps row of kind cap records the crossed cap and its detail; a test in packages/engine/test/run/ drives RunControl with such a turn for the turn cap and for the token cap and reads the row back
+- [x] #2 A turn with a done report and `capped` from the CLI --max-turns backstop takes the same done path, tested with a synthetic turn event in packages/engine/test/run/
+- [x] #3 When the verify of that done path fails, the story parks verify-failing with park cause capped and the verify failure as its detail, no feedback turn is sent, and capped wins over loops when the same verify reaches the loop cap; a test shows the park, its cause and that no worker message follows
+- [x] #4 A cap-crossing turn without a done report still parks budget-exceeded with its cap detail ("turn cap reached: <n> of <cap> turns" on the engine total), and the existing cap tests in packages/engine/test/run/ pass unchanged
+- [x] #5 One shared pre-start cap check in packages/engine/src/run/ runs in Places.drain before the starter of a worker-place fix or conflict wait (START_KINDS.fix, START_KINDS.conflict) is called: when the run's runCaps are already reached, the story parks budget-exceeded with cause build and the cap detail and the starter is not called; a unit test stores a capped run's fix wait and conflict wait with waitForPlace, drains with a recording starter, and shows the park and that the starter was never called, and that a run under its caps reaches its starter
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B32VSVF424REX93GSEHSP2 (Sonnet, 58 turns, about $1.54, 8 min) reported done, In Review; two sed -i calls were auto-denied (G7, known). No write outside the References. A done report on the turn that crosses a cap now takes the done path (verify, commit, In Review) and the run records the crossed cap as a run_steps row of kind cap (migration 38 adds the kind, keeping all rows); a red verify on that path parks verify-failing with cause capped, which wins over the loop cap. A crossing turn without a done report still ends on the cap. The shared pre-start cap check (run/pre-start-caps.ts) runs in Places.drain before a fix or conflict starter and parks budget-exceeded before any session; it takes effect once those starters exist (DIPO-148, 149). The capped-park resume stays with DIPO-157 and feedback_items with DIPO-148. Review passed with two advisories, filed as a gap candidate: a non-story run that reports done on a crossing turn keeps its caps off for good, because the finisher answers continue for it; and a failed write of the cap row is only logged. Verify outside the sandbox: 3737 tests, 0 fail; DIPO_TEST_CI=1 run, db and daemon tests pass.
+<!-- SECTION:NOTES:END -->

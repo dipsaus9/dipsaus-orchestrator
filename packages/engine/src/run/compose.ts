@@ -299,6 +299,7 @@ function buildOutcomes(
     ...(planLimits === null
       ? {}
       : { held: (adapter: string, model: string | null) => planLimits.held(adapter, model) }),
+    park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: { resume: (office, run) => resumption.startQueued(office, run) },
     ...given("scheduling", ports.scheduling),
     ...given("onChanged", ports.onChanged),

@@ -5,6 +5,7 @@ import { background } from "../platform/background";
 import { withWorkViews } from "../views/work";
 import type { TurnProblem, WorkerReport } from "../workers/types";
 
+import type { FiredCap } from "./caps";
 import type { RunEndings } from "./control-endings";
 import { disarm, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { ParkOutcome } from "./park";
@@ -23,9 +24,14 @@ export class AfterTurns {
   }
 
   /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
-  queue(tracked: Tracked, report: WorkerReport | null, problem?: TurnProblem): void {
+  queue(
+    tracked: Tracked,
+    report: WorkerReport | null,
+    problem?: TurnProblem,
+    capped: FiredCap | null = null,
+  ): void {
     tracked.turns = background(
-      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem)),
+      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped)),
       {
         failed: "verify and commit after a turn failed",
         fields: { run: tracked.runId },
@@ -38,12 +44,15 @@ export class AfterTurns {
   async #runTurn(
     tracked: Tracked,
     report: WorkerReport | null,
-    problem?: TurnProblem,
+    problem: TurnProblem | undefined,
+    capped: FiredCap | null,
   ): Promise<void> {
     if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
     const decided =
-      finisher === undefined ? "continue" : await this.#finishTurn(tracked, finisher, report);
+      finisher === undefined
+        ? "continue"
+        : await this.#finishTurn(tracked, finisher, report, capped);
     // A turn the finisher let continue: its problem decides next (DIPO-51).
     const outcomes = this.#deps.outcomes?.();
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
@@ -56,6 +65,7 @@ export class AfterTurns {
     tracked: Tracked,
     finisher: RunFinisher,
     report: WorkerReport | null,
+    capped: FiredCap | null,
   ): Promise<"continue" | "decided"> {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return "decided";
@@ -75,6 +85,7 @@ export class AfterTurns {
         run,
         work: tracked.work,
         report,
+        capped,
         snapshot: tracked.snapshot ?? null,
         live: () => tracked.ending === null || tracked.ending === mine,
         claimEnd: claim,
