@@ -1,10 +1,10 @@
 ---
 id: DIPO-206
 title: Count budget grants in the work view's usage
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 21:17'
+updated_date: '2026-10-19 21:22'
 labels:
   - 'tier:S'
   - cutover
@@ -38,6 +38,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/views/work.ts and packages/engine/src/views/feature.ts take the budget limit they pass to readUsage from runCaps, so a run with a budget grant shows the start budget plus the grant as Usage.budget.limit in both views
-- [ ] #2 A test in packages/engine/test/views/ records a budget grant of 5000 tokens on a run with a 20000 token start budget and expects the literal limit 25000 in the work view and in the feature view
+- [x] #1 packages/engine/src/views/work.ts and packages/engine/src/views/feature.ts take the budget limit they pass to readUsage from runCaps, so a run with a budget grant shows the start budget plus the grant as Usage.budget.limit in both views
+- [x] #2 A test in packages/engine/test/views/ records a budget grant of 5000 tokens on a run with a 20000 token start budget and expects the literal limit 25000 in the work view and in the feature view
 <!-- AC:END -->
