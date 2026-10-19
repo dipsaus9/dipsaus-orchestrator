@@ -1,10 +1,10 @@
 ---
 id: DIPO-144
 title: Open and update the story PR at In Review
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 07:53'
 labels:
   - 'tier:M'
   - 'slice:m1a'
