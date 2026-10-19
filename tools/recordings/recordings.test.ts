@@ -118,4 +118,42 @@ describe("derived recordings", () => {
       expect(committed?.lines).toEqual(derived.lines);
     }
   });
+
+  it("web-calls: the result counts its web calls, lists the refused fetch and keeps no subagent leftovers (DIPO-164 review)", () => {
+    const recording = recordings.find((candidate) => candidate.name === "web-calls");
+    const stdout = stdoutOf(recording?.lines ?? []).filter(isRecord);
+    const calls = stdout.flatMap((data) => {
+      const content = isRecord(data.message) ? data.message.content : undefined;
+      return data.type === "assistant" && Array.isArray(content)
+        ? content.filter(
+            (block) =>
+              isRecord(block) &&
+              block.type === "tool_use" &&
+              (block.name === "WebSearch" || block.name === "WebFetch"),
+          )
+        : [];
+    }) as { id: string; name: string }[];
+    const searches = calls.filter((call) => call.name === "WebSearch").length;
+    const fetches = calls.filter((call) => call.name === "WebFetch").length;
+    expect([searches, fetches]).toEqual([1, 2]);
+    const results = stdout.filter((data) => data.type === "result");
+    expect(results).toHaveLength(1);
+    const result = results[0] as Record<string, any>;
+    expect(result.usage.server_tool_use).toEqual({
+      web_search_requests: searches,
+      web_fetch_requests: fetches,
+    });
+    for (const entry of Object.values(result.modelUsage as Record<string, any>)) {
+      expect(entry.webSearchRequests).toBe(searches);
+    }
+    expect(
+      result.permission_denials.map((denial: Record<string, unknown>) => [
+        denial.tool_name,
+        denial.tool_use_id,
+      ]),
+    ).toEqual([["WebFetch", calls[2]?.id]]);
+    expect(result.subagent_stats).toBeUndefined();
+    // Every leftover kept on purpose is cited.
+    expect(recording?.meta.cites?.some((cite) => cite.includes("background subagent"))).toBe(true);
+  });
 });

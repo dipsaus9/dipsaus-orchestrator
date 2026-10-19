@@ -4,7 +4,7 @@
   "claude_code_version": "2.1.296",
   "captured_at": "2026-10-12",
   "expected": "Each web call shows in the worker output with its query or URL, and the calls are counted by tool: 1 WebSearch and 2 WebFetch. The PreToolUse hook lines relay the whole query or URL; the engine denies the third, whose URL holds a value from the fixture env file, naming the file and key and never the value (0020 section 11b).",
-  "usage_checksum": "809d2daccd6035dc57a6d8c77154d2f15768cdfb6200c6b201c85fc77970fd3c",
+  "usage_checksum": "673bdb7c02b2361763298dd2506b93964205ac44187a78b78b2ff5aeb2af3c8f",
   "derivedFrom": "success-tools-subagent",
   "transform": "The first turn only; system/init lists WebFetch and WebSearch; a WebSearch, a WebFetch and a WebFetch whose URL holds a fixture env value, each with its PreToolUse hook line and tool result (the third refused, its result naming the env file and key and not the value); then the source's report turn.",
   "cites": [
@@ -12,6 +12,9 @@
     "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source; no live run called a web tool",
     "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query), with tool_input cut to the url or query as dipo hook PreToolUse --gate relays it; no live run registered the hook",
     "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny. A live capture keeps the error result of a web call through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the successful results are redacted here as a live capture redacts them",
-    "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them"
+    "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them",
+    "the result's usage.server_tool_use (web_search_requests 1, web_fetch_requests 2) and modelUsage webSearchRequests 1 count the three calls, the refused fetch included; no live run showed how Claude Code counts a WebFetch or a call a PreToolUse hook refused [unverified]",
+    "the result's permission_denials holds the refused WebFetch (tool_input redacted, as a live capture redacts it), on the reading that Claude Code reports a PreToolUse deny there as it reports a permission deny (recording permission-denied); no live run showed it [unverified]",
+    "the report turn (thinking, the StructuredOutput call, num_turns, durations and usage totals, and the report with status blocked and a question about the source's background subagent) is the source's live first turn, kept as captured on purpose so the report and usage stay live data; the source's subagent_stats is dropped, as this session starts no subagent"
   ]
 }
