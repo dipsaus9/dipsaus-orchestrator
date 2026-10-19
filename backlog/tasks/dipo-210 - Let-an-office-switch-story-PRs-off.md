@@ -1,10 +1,10 @@
 ---
 id: DIPO-210
 title: Let an office switch story PRs off
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-19 08:49'
-updated_date: '2026-10-19 08:54'
+updated_date: '2026-10-19 09:17'
 labels:
   - 'tier:S'
   - cutover
@@ -55,8 +55,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Office key storyPr.open (default true) arrives in office config version 7 with its in-memory migration from 6, KEY_ADDED_IN names it, packages/engine/schema/office.schema.json is regenerated, the tests that pin the config version are updated, and office.local.yaml does not accept it
-- [ ] #2 With storyPr.open false the engine opens, updates, polls and retries no story PR for that office and raises no pr.openFailed notice, shown by a test whose fake host counts zero calls
-- [ ] #3 With storyPr.open true or absent the story PR behaviour of DIPO-144 is unchanged and its tests pass
-- [ ] #4 .dipo/office.yaml sets version: 7 and storyPr.open: false, with a comment that says the maintainer side merges its own finish-branch PRs on this repository until the review loop takes over, and a test loads the committed file and gets storyPr.open false
+- [x] #1 Office key storyPr.open (default true) arrives in office config version 7 with its in-memory migration from 6, KEY_ADDED_IN names it, packages/engine/schema/office.schema.json is regenerated, the tests that pin the config version are updated, and office.local.yaml does not accept it
+- [x] #2 With storyPr.open false the engine opens, updates, polls and retries no story PR for that office and raises no pr.openFailed notice, shown by a test whose fake host counts zero calls
+- [x] #3 With storyPr.open true or absent the story PR behaviour of DIPO-144 is unchanged and its tests pass
+- [x] #4 .dipo/office.yaml sets version: 7 and storyPr.open: false, with a comment that says the maintainer side merges its own finish-branch PRs on this repository until the review loop takes over, and a test loads the committed file and gets storyPr.open false
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: by hand (the story changes .dipo/office.yaml, which a dipo worker cannot write). Office config version 7 adds storyPr.open (default true), identity migration from 6, KEY_ADDED_IN, regenerated office.schema.json; office.local.yaml refuses the key, and a version 4 local file still loads next to a version 7 office.yaml (fixture test). StoryPrs checks the key before every sync and before the poll, so with it off no story PR is opened, updated, read or retried and no pr.openFailed is raised; the zero-call test fails without the gate. Turning the key back on opens the PR at the next poll; a PR opened while it was on is not read while it is off. .dipo/office.yaml is at version 7 with storyPr.open false and a comment on why. Verify: 3476 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on config, office and story-pr: 209 pass. Review passed. Merged after the DIPO-145 run ended, since the daemon binary of that run knew config version 6 at most; the temp daemon was rebuilt with DIPO-144 and this story right after.
+<!-- SECTION:NOTES:END -->
