@@ -122,6 +122,19 @@ describe("(unit) verify programs and shebangs", () => {
     });
   });
 
+  // The words `bun --help` of Bun 1.4.2 lists as its own commands and short forms.
+  it.each(["prune", "dedupe", "i", "a", "rm", "c"])(
+    "leaves bun %s alone when a script of the same name exists",
+    async (word) => {
+      await withTempDir(async (home) => {
+        const root = checkout(home, { verify: "oxfmt --check", [word]: "oxlint --deny-warnings" });
+        expect(await verifyPrograms(root, { commands: [["bun", word]], cwd: "." })).toEqual([
+          "bun",
+        ]);
+      });
+    },
+  );
+
   it("reads env, env -S and absolute interpreter lines; others are not scripts", () => {
     expect(shebangInterpreter("#!/usr/bin/env node\nx")).toBe("node");
     expect(shebangInterpreter("#!/usr/bin/env -S node --flag\n")).toBe("node");

@@ -34,10 +34,16 @@ export interface VerifyToolFailure {
 const RUNNERS = new Set(["bun", "npm", "pnpm", "yarn"]);
 /** The runners that also take a bare script name: `bun <script>` runs one like `run` does. */
 const SHORTHAND = new Set(["bun", "pnpm", "yarn"]);
-/** Commands bun runs itself, before a script of the same name. */
+/** Commands bun runs itself, before a script of the same name (`bun --help` of Bun 1.4.2). */
 const BUN_COMMANDS = new Set([
   "run",
   "test",
+  "i",
+  "a",
+  "rm",
+  "c",
+  "dedupe",
+  "prune",
   "x",
   "repl",
   "exec",
