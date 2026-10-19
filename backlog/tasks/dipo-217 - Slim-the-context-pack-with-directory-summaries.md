@@ -1,10 +1,10 @@
 ---
 id: DIPO-217
 title: Slim the context pack with directory summaries
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 20:36'
+updated_date: '2026-10-19 20:58'
 labels:
   - 'tier:M'
   - cutover

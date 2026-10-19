@@ -1,10 +1,10 @@
 ---
 id: DIPO-205
 title: Keep a done report that arrives on the turn that crosses a run cap
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 20:47'
+updated_date: '2026-10-19 21:08'
 labels:
   - 'tier:M'
   - cutover
@@ -41,7 +41,7 @@ Decision records: the 0020 maintainer decision "Budget-exceeded resume" and 0020
 
 References: packages/engine/src/run/ and its tests for the done path and the park; packages/engine/src/db/migrations/, packages/engine/src/db/schema.ts and packages/engine/test/db/ (its migration test) because recording the crossed cap as a run_steps row needs a new kind in the run_steps kind check (migration 0034).
 
-Decided (maintainer, 2026-10-19; 0008 and 0020 Amendments of 2026-10-19, DIPO-205): every cap whose crossing turn carries a done report, and the CLI backstop turn with a done report, takes the normal done path (verify-commit, then In Review), and the crossed cap is recorded as a durable run fact: a run_steps row (appendRunStep) of a new kind cap with the cap name and its detail; the done path's own end kinds (in-review, done) stay as they are, and OUTCOME_ENDS.capped stays the budget-exceeded park's. If that verify fails, no turn is left for feedback: the story parks verify-failing with the new park cause capped (PARK_CAUSES in packages/engine/src/run/park.ts) and the failure as its detail; capped wins over loops when the same verify also reaches the loop cap. A later round the engine sends back to the worker after a capped done path (a review or CI fix round, a conflict hand-off) whose caps are still used up parks budget-exceeded before any worker session starts (maintainer, 2026-10-19). No check does this today: RunControl checks caps only after usage and turn events and on its 60 s tick (CAP_TICK_MS), and RunResumer gives the CLI at least one turn, so this story adds one shared check in packages/engine/src/run/ that every reopened developer session (worker place) passes before it starts; review sessions in the reviewer place have their own caps and are not checked here. The round's feedback_items rows are stored before the check parks, so a top-up resume can still send them (DIPO-156). A maintainer resume of such a run is refused with resume.capReached (0020 section 1 step 1), not parked. The resume of that park (note plus a +50% top-up grant) is DIPO-157's. A live CLI backstop result (error_max_turns) carries no structured_output, so the backstop case is tested with a synthetic turn event. This story does not edit docs/decisions/.
+Decided (maintainer, 2026-10-19; 0008 and 0020 Amendments of 2026-10-19, DIPO-205): every cap whose crossing turn carries a done report, and the CLI backstop turn with a done report, takes the normal done path (verify-commit, then In Review), and the crossed cap is recorded as a durable run fact: a run_steps row (appendRunStep) of a new kind cap with the cap name and its detail; the done path's own end kinds (in-review, done) stay as they are, and OUTCOME_ENDS.capped stays the budget-exceeded park's. If that verify fails, no turn is left for feedback: the story parks verify-failing with the new park cause capped (PARK_CAUSES in packages/engine/src/run/park.ts) and the failure as its detail; capped wins over loops when the same verify also reaches the loop cap. A later round the engine sends back to the worker after a capped done path (a review or CI fix round, a conflict hand-off) whose caps are still used up parks budget-exceeded before any worker session starts (maintainer, 2026-10-19). No check does this today: RunControl checks caps only after usage and turn events and on its 60 s tick (CAP_TICK_MS), and RunResumer gives the CLI at least one turn, so this story adds one shared pre-start cap check in packages/engine/src/run/ that Places.drain (places.ts) runs before it calls the starter of a worker-place fix or conflict wait (START_KINDS.fix, START_KINDS.conflict); review sessions in the reviewer place have their own caps and are not checked here. No fix or conflict starter is registered on main yet (DIPO-148 and DIPO-149 add them), so the check is tested with a recording starter. feedback_items does not exist before DIPO-148, which stores a fix round's feedback_items rows before this check runs, so a top-up resume can still send them (DIPO-156); this story does not depend on DIPO-148. A maintainer resume of such a run is refused with resume.capReached (0020 section 1 step 1), not parked. The resume of that park (note plus a +50% top-up grant) is DIPO-157's. A live CLI backstop result (error_max_turns) carries no structured_output, so the backstop case is tested with a synthetic turn event. This story does not edit docs/decisions/.
 
 ```dipo
 branch: "DIPO-205/done-report-at-turn-cap"
@@ -60,7 +60,7 @@ test_plan:
     - kind: "automated"
       check: "(engine) a cap-crossing turn without a done report still parks budget-exceeded with its cap detail"
     - kind: "automated"
-      check: "(engine) a run reopened for a fix round after a capped done path, with its caps still reached, parks budget-exceeded with the cap detail and no worker session starts"
+      check: "(unit) the shared pre-start cap check: a run whose runCaps are reached, waiting in the worker place as a fix start and as a conflict start, parks budget-exceeded with cause build and the cap detail when Places.drain runs, and the recording starter is never called; a run under its caps reaches its starter"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -70,5 +70,5 @@ test_plan:
 - [ ] #2 A turn with a done report and `capped` from the CLI --max-turns backstop takes the same done path, tested with a synthetic turn event in packages/engine/test/run/
 - [ ] #3 When the verify of that done path fails, the story parks verify-failing with park cause capped and the verify failure as its detail, no feedback turn is sent, and capped wins over loops when the same verify reaches the loop cap; a test shows the park, its cause and that no worker message follows
 - [ ] #4 A cap-crossing turn without a done report still parks budget-exceeded with its cap detail ("turn cap reached: <n> of <cap> turns" on the engine total), and the existing cap tests in packages/engine/test/run/ pass unchanged
-- [ ] #5 A developer session of a reopened run (a review or CI fix round, a conflict hand-off) that would start with runCaps already reached does not start: the round's feedback_items rows are stored, then the story parks budget-exceeded with cause build and the cap detail, through one shared check in packages/engine/src/run/; a test reopens a capped run for a fix round and shows the stored feedback, the park and that no worker session was launched
+- [ ] #5 One shared pre-start cap check in packages/engine/src/run/ runs in Places.drain before the starter of a worker-place fix or conflict wait (START_KINDS.fix, START_KINDS.conflict) is called: when the run's runCaps are already reached, the story parks budget-exceeded with cause build and the cap detail and the starter is not called; a unit test stores a capped run's fix wait and conflict wait with waitForPlace, drains with a recording starter, and shows the park and that the starter was never called, and that a run under its caps reaches its starter
 <!-- AC:END -->
