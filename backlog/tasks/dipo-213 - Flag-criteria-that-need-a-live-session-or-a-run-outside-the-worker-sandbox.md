@@ -1,10 +1,10 @@
 ---
 id: DIPO-213
 title: Flag criteria that need a live session or a run outside the worker sandbox
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 22:25'
+updated_date: '2026-10-19 22:29'
 labels:
   - 'tier:S'
   - cutover
@@ -44,6 +44,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The default story.maintainerStepPhrases in packages/engine/src/config/schema.ts adds `live recording`, `live capture`, `run outside the sandbox`, `the PR states` and `the PR description`, and packages/engine/schema/office.schema.json stays equal to a fresh export
-- [ ] #2 A test in packages/engine/test/gate/ fails a criterion for each new phrase with the R27 message and passes the same phrase inside a code span
+- [x] #1 The default story.maintainerStepPhrases in packages/engine/src/config/schema.ts adds `live recording`, `live capture`, `run outside the sandbox`, `the PR states` and `the PR description`, and packages/engine/schema/office.schema.json stays equal to a fresh export
+- [x] #2 A test in packages/engine/test/gate/ fails a criterion for each new phrase with the R27 message and passes the same phrase inside a code span
 <!-- AC:END -->
