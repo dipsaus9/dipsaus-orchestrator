@@ -1,10 +1,10 @@
 ---
 id: DIPO-202
 title: Restore the output of stream-counted messages when a host dies mid-turn
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 07:02'
+updated_date: '2026-10-19 07:09'
 labels:
   - 'tier:M'
   - cutover
@@ -43,7 +43,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The engine knows, per stored message, whether its output is already in the turn totals (for example the messages counted after the agent's last turn end), and the transcript recovery adds the transcript's output for those messages only
-- [ ] #2 A test replays a scrubbed fixture under packages/engine/test/recordings/transcripts/ in which the host dies in its second turn after the stream counted one message of that turn; the expected output total is written as literals from the fixture lines, and a second pass adds nothing
-- [ ] #3 The DIPO-134 tests pass unchanged
+- [x] #1 The engine knows, per stored message, whether its output is already in the turn totals (for example the messages counted after the agent's last turn end), and the transcript recovery adds the transcript's output for those messages only
+- [x] #2 A test replays a scrubbed fixture under packages/engine/test/recordings/transcripts/ in which the host dies in its second turn after the stream counted one message of that turn; the expected output total is written as literals from the fixture lines, and a second pass adds nothing
+- [x] #3 The DIPO-134 tests pass unchanged
 <!-- AC:END -->
