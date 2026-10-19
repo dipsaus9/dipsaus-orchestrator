@@ -4,7 +4,7 @@ title: Release the claim of a story Done on the base and remove its clean worktr
 status: Refined
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 20:44'
+updated_date: '2026-10-19 20:45'
 labels:
   - 'tier:M'
   - cutover
@@ -50,7 +50,7 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 The index pass in packages/engine/src/stories/index-stories.ts keeps, for each claimed story it reads on its branch, the status that story has on _base, and the IndexResult carries it for reconcile; a test in packages/engine/test/stories/ shows a claimed story In Progress on its branch and Done on _base with both statuses
 - [ ] #2 Reconcile, at daemon start and on office.rescan, finds each live claim with a claim commit whose story is Done on _base and whose run has ended; for each, in one item of the office git queue that checks again there that the run has ended and the story is Done on _base, it records claims.teardown_started_at as tearDown in packages/engine/src/worktree/teardown.ts does, unlocks the claim's own worktree lock, removes the worktree with git worktree remove without --force, then in one transaction releases the claim through releaseClaim in packages/engine/src/worktree/records.ts with release_reason done and keepBranch false, resolves an open park of the run with resolved_how reconcile, deletes the worktree's worker_notes and context_packs rows and writes an info engine.notice naming the story and the base, and then frees the worktree's port slot
-- [ ] #3 A worktree that git refuses to remove (modified or untracked files) or one locked by anyone else is kept: the claim stays live, the slot stays held, the lock is restored, and a warn engine.notice names the worktree path and the files git status lists
+- [ ] #3 A worktree that git refuses to remove (modified or untracked files) or one locked by anyone else is kept: the claim stays live, the slot stays held, the lock is restored, claims.teardown_started_at is cleared, and a warn engine.notice names the worktree path and the files git status lists
 - [ ] #4 Neither branch is changed: the release runs no git update-ref -d, git branch -D or git push --delete, and a test shows the local and the remote story branch at the same commit before and after the release
 - [ ] #5 A claim whose run has not ended, a claimed story that is not Done on _base, and a claim without a claim commit are left alone by this step, and after any release reconcile runs one more index pass so the story is read on _base
 - [ ] #6 A test in packages/engine/test/reconcile/ with a real git repository and remote replays the 2026-10-19 case: two claims of stories Done on the base through another branch, one clean and one with an untracked file; the clean claim is released with reason done, its worktree directory is gone and its slot is free, and the dirty claim keeps its worktree, claim and slot with one notice that lists the untracked file
