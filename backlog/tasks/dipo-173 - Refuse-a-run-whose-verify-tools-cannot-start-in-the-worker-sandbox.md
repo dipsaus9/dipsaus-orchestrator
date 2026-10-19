@@ -1,10 +1,10 @@
 ---
 id: DIPO-173
 title: Refuse a run whose verify tools cannot start in the worker sandbox
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-19 07:14'
+updated_date: '2026-10-19 07:23'
 labels:
   - 'tier:M'
   - cutover
@@ -48,9 +48,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Before a worker starts, a launch check lists the programs the office's resolved verify runs, following `bun run <script>` and `npm run <script>` references through the root package.json scripts, and reads the interpreter line of each program found in the worktree's node_modules/.bin
-- [ ] #2 When an interpreter does not resolve on the worker's planned PATH, or resolves to a file under the home directory outside sandbox.toolchainReadPaths and sandbox.allowRead, the run is refused with one failure per interpreter naming the verify program, the interpreter, where the daemon's PATH finds it, and sandbox.toolchainReadPaths in .dipo/office.local.yaml as the fix
-- [ ] #3 This refusal does not hold the adapter for other offices: a run in an office whose verify programs resolve still starts
-- [ ] #4 `dipo run --dry-run` shows the same failure lines for the story it would pick
-- [ ] #5 Tests cover a verify chain whose node_modules/.bin program needs node outside the read paths (refused, message names the key), the same with node's directory added to sandbox.toolchainReadPaths (passes), and a verify that runs no node_modules/.bin program (passes)
+- [x] #1 Before a worker starts, a launch check lists the programs the office's resolved verify runs, following `bun run <script>` and `npm run <script>` references through the root package.json scripts, and reads the interpreter line of each program found in the worktree's node_modules/.bin
+- [x] #2 When an interpreter does not resolve on the worker's planned PATH, or resolves to a file under the home directory outside sandbox.toolchainReadPaths and sandbox.allowRead, the run is refused with one failure per interpreter naming the verify program, the interpreter, where the daemon's PATH finds it, and sandbox.toolchainReadPaths in .dipo/office.local.yaml as the fix
+- [x] #3 This refusal does not hold the adapter for other offices: a run in an office whose verify programs resolve still starts
+- [x] #4 `dipo run --dry-run` shows the same failure lines for the story it would pick
+- [x] #5 Tests cover a verify chain whose node_modules/.bin program needs node outside the read paths (refused, message names the key), the same with node's directory added to sandbox.toolchainReadPaths (passes), and a verify that runs no node_modules/.bin program (passes)
 <!-- AC:END -->
