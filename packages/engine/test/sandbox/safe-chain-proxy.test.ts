@@ -26,7 +26,6 @@ import {
   PROXY_CHECK_ALLOWED_URL,
   PROXY_CHECK_BLOCKED_URL,
   PROXY_CHECK_REFUSED_URL,
-  PROXY_CHECK_RETRY_DELAY_MS,
   proxyCheckProblem,
   runProxyCheck,
   sweepSafeChainProxies,
@@ -272,14 +271,15 @@ describe("(unit) the proxy check's verdict", () => {
 });
 
 /**
- * A fake download: `outcome` gives a status or an error for each call, by the URL and the number
- * of times that URL was asked for so far.
+ * A fake download: `outcome` gives a status, an error or "hang" (never settles) for each call, by
+ * the URL and the number of times that URL was asked for so far.
  */
-function fakeDownload(outcome: (url: string, call: number) => number | Error) {
+function fakeDownload(outcome: (url: string, call: number) => number | Error | "hang") {
   const calls: string[] = [];
   const download = (url: string): Promise<number> => {
     calls.push(url);
     const result = outcome(url, calls.filter((called) => called === url).length);
+    if (result === "hang") return new Promise<number>(() => {});
     return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
   };
   return { calls, download };
@@ -301,7 +301,7 @@ describe("(unit) the proxy check's retries (DIPO-211)", () => {
 
     await flush();
     expect(fake.calls).toEqual([PROXY_CHECK_ALLOWED_URL]);
-    clock.advance(PROXY_CHECK_RETRY_DELAY_MS - 1);
+    clock.advance(1_999);
     await flush();
     expect(fake.calls).toEqual([PROXY_CHECK_ALLOWED_URL]);
     clock.advance(1);
@@ -317,19 +317,37 @@ describe("(unit) the proxy check's retries (DIPO-211)", () => {
 
   it("fails after 3 attempts, with the last cause, when every allowed download fails", async () => {
     const clock = new ManualClock();
-    const fake = fakeDownload((url) => {
-      if (url === PROXY_CHECK_ALLOWED_URL) return new Error("socket hang up");
+    const fake = fakeDownload((url, call) => {
+      if (url === PROXY_CHECK_ALLOWED_URL) return new Error(`cause ${call}`);
       return 403;
     });
     const verdict = runProxyCheck(clock, fake.download);
 
     await flush();
-    clock.advance(PROXY_CHECK_RETRY_DELAY_MS);
+    clock.advance(2_000);
     await flush();
-    clock.advance(PROXY_CHECK_RETRY_DELAY_MS);
+    clock.advance(2_000);
     const problem = await verdict;
-    expect(problem).toContain("did not work after 3 attempts (socket hang up)");
+    expect(problem).toContain("did not work after 3 attempts (cause 3)");
     expect(fake.calls.filter((url) => url === PROXY_CHECK_ALLOWED_URL)).toHaveLength(3);
+  });
+
+  it("retries an allowed download that times out, after the 30 s timeout and the 2 s wait", async () => {
+    const clock = new ManualClock();
+    const fake = fakeDownload((url, call) => {
+      if (url === PROXY_CHECK_ALLOWED_URL) return call === 1 ? "hang" : 200;
+      return 403;
+    });
+    const verdict = runProxyCheck(clock, fake.download);
+
+    await flush();
+    clock.advance(30_000);
+    await flush();
+    expect(fake.calls).toEqual([PROXY_CHECK_ALLOWED_URL]);
+    clock.advance(2_000);
+    expect(await verdict).toBeNull();
+    expect(fake.calls.filter((url) => url === PROXY_CHECK_ALLOWED_URL)).toHaveLength(2);
+    expect(clock.pendingTimers).toBe(0);
   });
 
   it("fails a blocked or refused download that gets through at once, with no retry", async () => {
