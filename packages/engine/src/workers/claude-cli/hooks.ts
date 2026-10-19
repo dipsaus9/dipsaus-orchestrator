@@ -36,6 +36,17 @@ export const WEB_HOOK_MATCHER = "WebFetch|WebSearch";
 /** The hook that is registered only for a session with web tools, and fails closed. */
 export const GATE_HOOK: RegisteredHook = "PreToolUse";
 
+/** Told to the worker when the gate command itself failed (exit 2 shows stderr to Claude). */
+export const GATE_CRASH_REASON = "dipo could not check this web call, so it was refused.";
+
+/**
+ * The end of the gate's command line: when `cd` or `dipo hook PreToolUse --gate` fails in any way
+ * (a crash exits 1, which Claude Code treats as a non-blocking error and runs the call), the shell
+ * exits 2 instead, which blocks a `PreToolUse` call and shows stderr to Claude (hooks reference,
+ * exit code 2). A gate that ran prints its own decision and exits 0.
+ */
+export const GATE_CRASH_EXIT = ` || { echo ${shellQuote(GATE_CRASH_REASON)} >&2; exit 2; }`;
+
 /**
  * The hooks whose call may get a 0014 section 8 nudge (DIPO-60): `dipo hook <event> --nudge` waits
  * a short while for the engine's answer and still ends within 2 s.
@@ -110,7 +121,7 @@ export function hookSettings(
             hooks: [
               {
                 type: "command",
-                command: `${prefix} hook ${event} --gate`,
+                command: `${prefix} hook ${event} --gate${GATE_CRASH_EXIT}`,
                 timeout: HOOK_TIMEOUT_SECONDS,
               },
             ],
@@ -320,11 +331,50 @@ export function preToolUseDenyOutput(reason: string): string {
 }
 
 /**
- * Pure: what `dipo hook PreToolUse --gate` prints for the engine's reply: a deny, else nothing, so
- * the call proceeds under the run settings' rules.
+ * What `dipo hook PreToolUse --gate` prints when the engine let the call through: Claude's explicit
+ * `PreToolUse` allow (hooks reference, `permissionDecision: "allow"`). It is never empty, so the
+ * relay tells the engine's allow apart from the worker host's empty answer (no engine watching,
+ * the wait passed, the host stopped), which refuses the call (0020 section 11b).
+ */
+export const PRE_TOOL_USE_ALLOW_OUTPUT = JSON.stringify({
+  hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
+});
+
+/**
+ * Pure: what `dipo hook PreToolUse --gate` prints for the engine's reply: a deny, else the explicit
+ * allow. The run settings allow both web tools anyway, so the allow widens nothing.
  */
 export function preToolUseOutput(reply: HookReply): string {
-  return reply.decision === "deny" ? preToolUseDenyOutput(reply.reason ?? "") : "";
+  return reply.decision === "deny"
+    ? preToolUseDenyOutput(reply.reason ?? "")
+    : PRE_TOOL_USE_ALLOW_OUTPUT;
+}
+
+/** True when `output` is exactly a `PreToolUse` deny as `preToolUseDenyOutput` prints it. */
+function isPreToolUseDeny(output: string): boolean {
+  let value: unknown;
+  try {
+    value = JSON.parse(output);
+  } catch {
+    return false;
+  }
+  if (!isRecord(value)) return false;
+  const reason = isRecord(value["hookSpecificOutput"])
+    ? value["hookSpecificOutput"]["permissionDecisionReason"]
+    : undefined;
+  return typeof reason === "string" && output === preToolUseDenyOutput(reason);
+}
+
+/**
+ * Pure: what the fail-closed `dipo hook PreToolUse --gate` prints for the worker host's answer
+ * (0020 section 11b). Only the engine's explicit allow lets the call through and the engine's deny
+ * is printed as it is; anything else (no answer, the host's empty answer, any other text) prints a
+ * deny with `noAnswerReason`.
+ */
+export function gateOutput(answer: string | null, noAnswerReason: string): string {
+  if (answer === PRE_TOOL_USE_ALLOW_OUTPUT) return answer;
+  if (answer !== null && isPreToolUseDeny(answer)) return answer;
+  return preToolUseDenyOutput(noAnswerReason);
 }
 
 /** Claude's name of the hook a neutral nudge answers. */

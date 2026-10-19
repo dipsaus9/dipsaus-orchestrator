@@ -4,17 +4,23 @@
 // engine's neutral reply becomes Claude's `PermissionRequest` output.
 
 import { describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 
 import type { HookEvent } from "../../src/hooks/types";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   DEFAULT_DENY_MESSAGE,
   exactAction,
+  GATE_CRASH_EXIT,
+  GATE_CRASH_REASON,
+  gateOutput,
   HOOK_TIMEOUT_SECONDS,
   hookEventOf,
   hookSettings,
   inputSummary,
   NUDGE_HOOKS,
+  PRE_TOOL_USE_ALLOW_OUTPUT,
+  preToolUseDenyOutput,
   preToolUseOutput,
   REGISTERED_HOOKS,
 } from "../../src/workers/claude-cli/hooks";
@@ -371,7 +377,9 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
     const hooks = hookSettings(["/opt/dipo"], 300, "/run/dir", true) as Registered;
     const entry = hooks["PreToolUse"]?.[0];
     expect(entry?.matcher).toBe("WebFetch|WebSearch");
-    expect(entry?.hooks[0].command.endsWith(" hook PreToolUse --gate")).toBe(true);
+    expect(entry?.hooks[0].command.endsWith(` hook PreToolUse --gate${GATE_CRASH_EXIT}`)).toBe(
+      true,
+    );
     expect(entry?.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
   });
 
@@ -400,7 +408,7 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
     ).toBeNull();
   });
 
-  it("prints Claude's PreToolUse deny for a refusal and nothing to let the call proceed", () => {
+  it("prints Claude's PreToolUse deny for a refusal and an explicit, non-empty allow to let the call proceed", () => {
     expect(JSON.parse(preToolUseOutput({ hook: 1, decision: "deny", reason: "no" }))).toEqual({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -408,10 +416,59 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
         permissionDecisionReason: "no",
       },
     });
-    expect(preToolUseOutput({ hook: 1, decision: null })).toBe("");
-    expect(preToolUseOutput({ hook: 1, decision: "allow" })).toBe("");
+    // Never "": the worker host's own empty answer must not read as the engine's allow.
+    expect(JSON.parse(PRE_TOOL_USE_ALLOW_OUTPUT)).toEqual({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
+    });
+    expect(preToolUseOutput({ hook: 1, decision: null })).toBe(PRE_TOOL_USE_ALLOW_OUTPUT);
+    expect(preToolUseOutput({ hook: 1, decision: "allow" })).toBe(PRE_TOOL_USE_ALLOW_OUTPUT);
     expect(encode({ kind: "toolGate", reply: { hook: 9, decision: null } })).toEqual([
-      { hookReply: 9, output: "" },
+      { hookReply: 9, output: PRE_TOOL_USE_ALLOW_OUTPUT },
     ]);
+  });
+
+  it("gate output: only the explicit allow passes, the engine's deny is kept, anything else denies", () => {
+    const deny = preToolUseDenyOutput("The URL contains a value from .env (KEY).");
+    const noAnswer = preToolUseDenyOutput("no answer");
+    expect(gateOutput(PRE_TOOL_USE_ALLOW_OUTPUT, "no answer")).toBe(PRE_TOOL_USE_ALLOW_OUTPUT);
+    expect(gateOutput(deny, "no answer")).toBe(deny);
+    for (const answer of [
+      null,
+      "",
+      " ",
+      "allow",
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}',
+      `${PRE_TOOL_USE_ALLOW_OUTPUT}\n`,
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"x":1}',
+    ]) {
+      expect(gateOutput(answer, "no answer")).toBe(noAnswer);
+    }
+  });
+});
+
+describe("the gate's command line fails closed when dipo itself fails (DIPO-164 review)", () => {
+  type Registered = Record<string, [{ hooks: [{ command: string }] }]>;
+
+  /** Runs the registered `PreToolUse` command with `program` as the dipo binary, through `sh`. */
+  function runGate(program: string): { code: number | null; stdout: string; stderr: string } {
+    const hooks = hookSettings([program], 300, "/", true) as Registered;
+    const command = hooks["PreToolUse"]?.[0].hooks[0].command ?? "";
+    const done = spawnSync("sh", ["-c", command], { input: "{}", encoding: "utf8" });
+    return { code: done.status, stdout: done.stdout, stderr: done.stderr };
+  }
+
+  it("exits 2 with the reason on stderr when the binary crashes or is missing", () => {
+    for (const program of ["/usr/bin/false", "/nonexistent/dipo"]) {
+      const ran = runGate(program);
+      expect(ran.code).toBe(2);
+      expect(ran.stderr).toContain(GATE_CRASH_REASON);
+      expect(ran.stdout).toBe("");
+    }
+  });
+
+  it("keeps the gate's own exit 0 and its output", () => {
+    const ran = runGate("/usr/bin/true");
+    expect(ran.code).toBe(0);
+    expect(ran.stderr).toBe("");
   });
 });

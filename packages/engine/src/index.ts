@@ -449,6 +449,10 @@ export {
 } from "./workers/claude-cli/plan";
 export { encode as encodeClaudeOp } from "./workers/claude-cli/encode";
 export {
+  gateOutput as claudeGateOutput,
+  PRE_TOOL_USE_ALLOW_OUTPUT as CLAUDE_GATE_ALLOW_OUTPUT,
+} from "./workers/claude-cli/hooks";
+export {
   parseReviewReport,
   REPORT_JSON_SCHEMAS,
   REVIEW_REPORT_JSON_SCHEMA,

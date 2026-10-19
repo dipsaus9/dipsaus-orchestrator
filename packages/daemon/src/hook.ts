@@ -7,10 +7,11 @@
 // version, no answer. A call without `--wait` ends within 2 s; with `--nudge` it waits for the
 // engine's 0014 section 8 nudge only as long as that limit allows (DIPO-60); with `--wait` it
 // waits at most that long plus a grace. A `--gate` call (the `PreToolUse` check of a web tool,
-// 0020 section 11b, DIPO-164) waits like a nudge call but fails closed: every failure, and no
-// answer within the limit, prints Claude's deny, so the call never proceeds unchecked.
+// 0020 section 11b, DIPO-164) waits like a nudge call but fails closed: only the engine's explicit
+// allow lets the call proceed; every failure, an empty answer and no answer within the limit print
+// Claude's deny, and a gate that cannot print exits 2, so the call never proceeds unchecked.
 
-import { encodeClaudeOp, relayHookPayload } from "@dipsaus-orchestrator/engine";
+import { claudeGateOutput, encodeClaudeOp, relayHookPayload } from "@dipsaus-orchestrator/engine";
 
 import { type DaemonIo, readProcessInput } from "./io";
 
@@ -120,18 +121,21 @@ export function parseHookArgs(args: readonly string[]): HookArgs | null {
   return { event, waitMs: value * 1000 };
 }
 
-/** Runs the relay; always resolves to 0, so a failure never blocks or breaks the worker. */
+/**
+ * Runs the relay. Resolves to 0, so a failure never blocks or breaks the worker, except for a gate
+ * call that could not print its decision (see `runGate`).
+ */
 export async function runHookForm(args: readonly string[], io: DaemonIo): Promise<number> {
   const parsed = parseHookArgs(args);
   const write = io.write ?? ((text: string) => process.stdout.write(text));
+  // A gate call fails closed even when its arguments do not parse.
+  if (parsed?.gate === true || args.includes("--gate")) return runGate(parsed, io, write);
   let output: string | null = null;
   try {
     output = await relayCall(parsed, io);
   } catch {
     // Silent on every failure (0008 section 5): no output means no decision.
   }
-  // A gate call fails closed (0020 section 11b): without the engine's answer it prints a deny.
-  if (parsed?.gate === true && output === null) output = gateDenyOutput(GATE_NO_ANSWER_REASON);
   if (output !== null && output !== "") {
     try {
       write(output);
@@ -140,6 +144,39 @@ export async function runHookForm(args: readonly string[], io: DaemonIo): Promis
     }
   }
   return 0;
+}
+
+/** Told to the worker on stderr when a gate call could not print its decision (exit 2). */
+export const GATE_FAILED_REASON = "dipo could not check this web call, so it was refused.";
+
+/**
+ * A `--gate` call (0020 section 11b): prints the engine's explicit allow or its deny, and a deny for
+ * anything else: no answer within the limit, the worker host's empty answer (no engine watching,
+ * the wait passed, the host stopped) or any other text. When even that cannot be printed, it exits
+ * 2 with the reason on stderr, which blocks a `PreToolUse` call (hooks reference, exit code 2).
+ */
+async function runGate(
+  parsed: HookArgs | null,
+  io: DaemonIo,
+  write: (text: string) => void,
+): Promise<number> {
+  let answer: string | null = null;
+  try {
+    answer = parsed?.gate === true ? await relayCall(parsed, io) : null;
+  } catch {
+    answer = null;
+  }
+  try {
+    write(claudeGateOutput(answer, GATE_NO_ANSWER_REASON));
+    return 0;
+  } catch {
+    try {
+      io.writeError(GATE_FAILED_REASON);
+    } catch {
+      // Exit 2 blocks the call without a reason too.
+    }
+    return 2;
+  }
 }
 
 /** The relay's output for one call, or null when there is none. */
