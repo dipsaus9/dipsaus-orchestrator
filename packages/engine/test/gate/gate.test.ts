@@ -590,6 +590,7 @@ describe("R10 word matches", () => {
   });
 
   it("matches a phrase inside a slash run that is prose (DIPO-218)", () => {
+    expect(hits("Writes etc/zprofile")).toEqual(['"etc"']);
     expect(hits("Writes TBD/later etc")).toEqual(['"etc"']);
     expect(hits("Writes and/or,etc")).toEqual(['"etc"']);
   });
@@ -613,7 +614,8 @@ describe("R10 word matches", () => {
   it("masks code spans and path tokens in the original text (DIPO-170)", () => {
     // A masked span does not join the words around it into a phrase.
     expect(hits("The export works`x`well today")).toEqual([]);
-    // The code span is masked, so the run before it is prose, not a path token (DIPO-218).
+    // The run etc`a/b` does not look like a path (no leading /, ~, ./ or ../, no trailing /, no
+    // extension), so etc is matched (DIPO-218).
     expect(hits("Writes etc`a/b` to the rows")).toEqual(['"etc"']);
   });
 });
