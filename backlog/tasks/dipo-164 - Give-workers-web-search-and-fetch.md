@@ -1,10 +1,10 @@
 ---
 id: DIPO-164
 title: Give workers web search and fetch
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 10:06'
+updated_date: '2026-10-19 11:19'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -34,6 +34,9 @@ references:
   - packages/engine/test/recordings/claude-cli/
   - tools/recordings/
   - docs/decisions/
+  - packages/engine/src/index.ts
+  - packages/engine/src/ingest/
+  - packages/daemon/test/integration/database-unavailable.test.ts
 priority: high
 type: feature
 ordinal: 153000
@@ -81,10 +84,20 @@ park:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Office key worker.web (default true) arrives in office config version 8 (version 7 is DIPO-210's): a version 7 file migrates in memory, KEY_ADDED_IN names worker.web, the regenerated packages/engine/schema/office.schema.json holds it, and worker.web false restores the M0 developer tool list
-- [ ] #2 With worker.web true the developer role's --tools gain WebSearch and WebFetch and the run settings allow both, while the Bash sandbox network stays closed and the reviewer gets no web tools
-- [ ] #3 The run settings register a PreToolUse hook with matcher WebFetch|WebSearch; dipo hook PreToolUse relays the URL or query and waits within the relay's 2-second limit; the engine denies, naming the env file and key and never the value, a URL or query that holds a value from the copied env files as written or percent-encoded, else allows; with no answer in time the relay prints a deny
-- [ ] #4 Every web call shows in the worker output with its query or URL, and run_outcomes gains web call counts by tool through a migration
-- [ ] #5 L1 for the developer says the worker may search the web for documentation, that every query and URL is shown to the maintainer, never to send repository content, secrets or file contents in a query or URL, and to ask a question for a decision; L1 stays golden-tested
-- [ ] #6 tools/recordings/derive.ts derives a recording with a WebSearch, a WebFetch and a WebFetch the PreToolUse hook refused from committed live recordings into packages/engine/test/recordings/claude-cli/, with the fields no live run showed in meta.cites; tools/recordings/scenarios.ts gains the live web scenario; and a replay test reads the recording and counts the web calls by tool
+- [x] #1 Office key worker.web (default true) arrives in office config version 8 (version 7 is DIPO-210's): a version 7 file migrates in memory, KEY_ADDED_IN names worker.web, the regenerated packages/engine/schema/office.schema.json holds it, and worker.web false restores the M0 developer tool list
+- [x] #2 With worker.web true the developer role's --tools gain WebSearch and WebFetch and the run settings allow both, while the Bash sandbox network stays closed and the reviewer gets no web tools
+- [x] #3 The run settings register a PreToolUse hook with matcher WebFetch|WebSearch; dipo hook PreToolUse relays the URL or query and waits within the relay's 2-second limit; the engine denies, naming the env file and key and never the value, a URL or query that holds a value from the copied env files as written or percent-encoded, else allows; with no answer in time the relay prints a deny
+- [x] #4 Every web call shows in the worker output with its query or URL, and run_outcomes gains web call counts by tool through a migration
+- [x] #5 L1 for the developer says the worker may search the web for documentation, that every query and URL is shown to the maintainer, never to send repository content, secrets or file contents in a query or URL, and to ask a question for a decision; L1 stays golden-tested
+- [x] #6 tools/recordings/derive.ts derives a recording with a WebSearch, a WebFetch and a WebFetch the PreToolUse hook refused from committed live recordings into packages/engine/test/recordings/claude-cli/, with the fields no live run showed in meta.cites; tools/recordings/scenarios.ts gains the live web scenario; and a replay test reads the recording and counts the web calls by tool
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M59S3BK924RXNEADYRS8S2SC (Sonnet medium, 123 turns over two results, about $4.16, 16 min) did most of the work and parked blocked with a scope question: packages/daemon/test/integration/database-unavailable.test.ts damaged pages 3 to 10 assuming schema_migrations fits one page, and with migration 37 the damage landed in unused bytes, so quick_check passed. Finished outside the sandbox on DIPO-164/worker-web-search-and-fetch-finish: the worker's diff copied over, the daemon test now damages the real root pages read from sqlite_schema (layout-independent, shown with a temporary extra migration), lint, format, the migration name and a recordings row fixed, and the AC #6 replay test added.
+
+Security review blocked twice, fixed on top: the web gate failed open (the host's empty answer read as the engine's allow); now only an exact no-decision marker (a PreToolUse output with no permissionDecision, so Claude's own permission rules still decide and a later deny rule keeps priority) gives empty stdout, everything else is a deny, the gate exits 2 when it cannot print, and the registered command falls back to exit 2; tests run against the in-process WorkerHost for no engine, an expired wait and relayHook null. Env values are found leniently decoded (stray %, invalid escapes, up to three encodings). The web output line is redacted before it is cut and before output_chunks. One web tool list derives the hook matcher. worker.web false is shown reaching the plan; the reviewer never gets web tools. The capture answers the web scenario's gate, scrub rules keep the query, URL and refusal, and the derived recording's counters match. References widened: packages/engine/src/index.ts, packages/engine/src/ingest/, the daemon test. Verify outside the sandbox: 3637 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on workers, hooks, ingest, host, daemon and tools/recordings: 1169 pass.
+
+Residual risks: Claude Code treats a hook past its 5 s timeout as non-blocking (a very slow gate start is not covered); events.ndjson keeps the URL as Claude's own tool_use line wrote it (local run file, 0007 retention). Not run: the live web capture (manual entry); it is also the check that Claude Code accepts the no-decision marker and blocks on exit 2.
+<!-- SECTION:NOTES:END -->
