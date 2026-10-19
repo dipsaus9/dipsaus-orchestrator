@@ -1,0 +1,9 @@
+{
+  "scenario": "second-turn",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "A session whose host died in its second turn: msg-1 is the first turn (its turn end holds its output), msg-2 the second turn's message the stream counted, msg-3 the one it did not.",
+  "derivedFrom": "transcripts/host-died",
+  "transform": "Scrubbed as host-died; one message per turn, all content as placeholders."
+}
