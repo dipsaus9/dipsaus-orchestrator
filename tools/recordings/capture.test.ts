@@ -1,7 +1,7 @@
 // The capture's fixture host for the `web` scenario (DIPO-164 review; 0020 section 11b), offline:
 // with `webGate` it answers a waiting `PreToolUse` call as the engine does, from the env file the
 // scenario's `prepare` writes into the workdir: the URL holding its value gets Claude's deny naming
-// the file and key, the clean search and fetch get the adapter's explicit allow, and a
+// the file and key, the clean search and fetch get the adapter's marker without a decision, and a
 // `PermissionRequest` stays unanswered. No `claude` runs.
 
 import { describe, expect, it } from "bun:test";
@@ -9,7 +9,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  CLAUDE_GATE_ALLOW_OUTPUT,
+  CLAUDE_GATE_NO_DECISION_MARKER,
   refusalText,
   relayHookPayload,
   systemClock,
@@ -59,10 +59,10 @@ describe("the web scenario's gate answer (DIPO-164 review)", () => {
       expect(JSON.parse(refused ?? "")).toEqual(DENY);
       expect(refused).not.toContain(WEB_ENV_VALUE);
       expect(webGateAnswer(workdir, web("WebFetch", { url: WEB_URL }))).toBe(
-        CLAUDE_GATE_ALLOW_OUTPUT,
+        CLAUDE_GATE_NO_DECISION_MARKER,
       );
       expect(webGateAnswer(workdir, web("WebSearch", { query: WEB_QUERY }))).toBe(
-        CLAUDE_GATE_ALLOW_OUTPUT,
+        CLAUDE_GATE_NO_DECISION_MARKER,
       );
       // Only a web tool's PreToolUse call is answered.
       expect(webGateAnswer(workdir, { hook_event_name: "PermissionRequest" })).toBeNull();
@@ -94,7 +94,7 @@ describe("the web scenario's gate answer (DIPO-164 review)", () => {
           JSON.parse((await relay(web("WebFetch", { url: WEB_REFUSED_URL }), 1_000)) ?? ""),
         ).toEqual(DENY);
         expect(await relay(web("WebFetch", { url: WEB_URL }), 1_000)).toBe(
-          CLAUDE_GATE_ALLOW_OUTPUT,
+          CLAUDE_GATE_NO_DECISION_MARKER,
         );
         expect(
           await relay({ hook_event_name: "PermissionRequest", tool_name: "Bash" }, 50),

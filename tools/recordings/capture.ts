@@ -315,8 +315,8 @@ function gateOutputOf(reason: string | undefined): string {
  * The fixture host's answer to a waiting call of the `web` scenario (`Scenario.webGate`), as the
  * engine answers it (0020 section 11b): a `PreToolUse` call of a web tool whose query or URL holds
  * a value of the workdir's env file gets Claude's deny naming the file and key, any other web call
- * the adapter's explicit allow, and a call whose env file cannot be read a deny. Any other call
- * (a `PermissionRequest`) is not answered: null.
+ * the adapter's marker without a decision (which the relay prints as nothing), and a call whose
+ * env file cannot be read a deny. Any other call (a `PermissionRequest`) is not answered: null.
  */
 export function webGateAnswer(workdir: string, payload: unknown): string | null {
   if (!isRecord(payload) || payload.hook_event_name !== "PreToolUse") return null;

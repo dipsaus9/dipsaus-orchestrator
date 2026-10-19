@@ -19,7 +19,7 @@ import {
   hookSettings,
   inputSummary,
   NUDGE_HOOKS,
-  PRE_TOOL_USE_ALLOW_OUTPUT,
+  PRE_TOOL_USE_NO_DECISION_MARKER,
   preToolUseDenyOutput,
   preToolUseOutput,
   REGISTERED_HOOKS,
@@ -420,7 +420,7 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
     ).toBeNull();
   });
 
-  it("prints Claude's PreToolUse deny for a refusal and an explicit, non-empty allow to let the call proceed", () => {
+  it("answers Claude's PreToolUse deny for a refusal and a non-empty marker without a decision to let the call proceed", () => {
     expect(JSON.parse(preToolUseOutput({ hook: 1, decision: "deny", reason: "no" }))).toEqual({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -428,29 +428,35 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
         permissionDecisionReason: "no",
       },
     });
-    // Never "": the worker host's own empty answer must not read as the engine's allow.
-    expect(JSON.parse(PRE_TOOL_USE_ALLOW_OUTPUT)).toEqual({
-      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
+    // Never "": the worker host's own empty answer must not read as the engine's pass. And no
+    // `permissionDecision`: an explicit allow would bypass Claude's permission rules (DIPO-169).
+    expect(JSON.parse(PRE_TOOL_USE_NO_DECISION_MARKER)).toEqual({
+      hookSpecificOutput: { hookEventName: "PreToolUse" },
     });
-    expect(preToolUseOutput({ hook: 1, decision: null })).toBe(PRE_TOOL_USE_ALLOW_OUTPUT);
-    expect(preToolUseOutput({ hook: 1, decision: "allow" })).toBe(PRE_TOOL_USE_ALLOW_OUTPUT);
+    expect(PRE_TOOL_USE_NO_DECISION_MARKER).not.toContain("permissionDecision");
+    expect(preToolUseOutput({ hook: 1, decision: null })).toBe(PRE_TOOL_USE_NO_DECISION_MARKER);
+    expect(preToolUseOutput({ hook: 1, decision: "allow" })).toBe(PRE_TOOL_USE_NO_DECISION_MARKER);
     expect(encode({ kind: "toolGate", reply: { hook: 9, decision: null } })).toEqual([
-      { hookReply: 9, output: PRE_TOOL_USE_ALLOW_OUTPUT },
+      { hookReply: 9, output: PRE_TOOL_USE_NO_DECISION_MARKER },
     ]);
   });
 
-  it("gate output: only the explicit allow passes, the engine's deny is kept, anything else denies", () => {
+  it("gate output: only the marker passes, as empty output; the engine's deny is kept; anything else denies", () => {
     const deny = preToolUseDenyOutput("The URL contains a value from .env (KEY).");
     const noAnswer = preToolUseDenyOutput("no answer");
-    expect(gateOutput(PRE_TOOL_USE_ALLOW_OUTPUT, "no answer")).toBe(PRE_TOOL_USE_ALLOW_OUTPUT);
+    // Empty: Claude's own permission rules decide the call, a deny rule included.
+    expect(gateOutput(PRE_TOOL_USE_NO_DECISION_MARKER, "no answer")).toBe("");
     expect(gateOutput(deny, "no answer")).toBe(deny);
     for (const answer of [
       null,
       "",
       " ",
       "allow",
+      // An explicit allow from the engine is unknown now: it would bypass the permission rules.
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}',
       '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}',
-      `${PRE_TOOL_USE_ALLOW_OUTPUT}\n`,
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse"},"x":1}',
+      `${PRE_TOOL_USE_NO_DECISION_MARKER}\n`,
       '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"x":1}',
     ]) {
       expect(gateOutput(answer, "no answer")).toBe(noAnswer);

@@ -7,7 +7,8 @@
 // - the URL or query holds a value from the env files dipo copied into the worktree (the `copy`
 //   entries of `worktree.files`, read as `KEY=value` lines), as written or percent-encoded: deny,
 //   naming the file and the key, never the value;
-// - otherwise: allow (a reply with no decision, which the adapter prints as its explicit allow).
+// - otherwise: let it on (a reply with no decision; the adapter encodes a marker the gate prints
+//   as nothing, so Claude's permission rules decide the call).
 //
 // A value under `MIN_SECRET_CHARS` characters is not compared: "1" or "true" would refuse every
 // call. Data that is not an env value is not caught (the follow-up story decides more).

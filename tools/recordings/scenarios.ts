@@ -91,9 +91,9 @@ export interface Scenario {
   /**
    * The fixture host answers a waiting `PreToolUse` call as the engine does (0020 section 11b): a
    * URL or query holding a value of the workdir's `.env` (written by `prepare`) gets Claude's deny
-   * naming the file and key, any other web call the adapter's explicit allow (`webGateAnswer` in
-   * `capture.ts`). A `PermissionRequest` call, and every waiting call without it, is never
-   * answered.
+   * naming the file and key, any other web call the adapter's marker without a decision
+   * (`webGateAnswer` in `capture.ts`). A `PermissionRequest` call, and every waiting call without
+   * it, is never answered.
    */
   readonly webGate?: true;
   /**
@@ -361,7 +361,7 @@ const SCENARIOS_BASE: readonly Scenario[] = [
     hookRelay: { waitSeconds: 10 },
     webGate: true,
     expected:
-      "With worker.web the run settings allow WebSearch and WebFetch and register the PreToolUse hook for them. The WebSearch and the first WebFetch are let through (the explicit PreToolUse allow) and show with their query and URL; the second WebFetch, whose URL holds the value of the workdir's .env, is denied by the hook with a reason naming .env and FIXTURE_API_KEY and not the value. Each PreToolUse payload is a ch: hook line.",
+      "With worker.web the run settings allow WebSearch and WebFetch and register the PreToolUse hook for them. The WebSearch and the first WebFetch are let through (the gate prints nothing, so the run settings' allow rules decide) and show with their query and URL; the second WebFetch, whose URL holds the value of the workdir's .env, is denied by the hook with a reason naming .env and FIXTURE_API_KEY and not the value. Each PreToolUse payload is a ch: hook line.",
     timeoutMs: 300_000,
   },
   {

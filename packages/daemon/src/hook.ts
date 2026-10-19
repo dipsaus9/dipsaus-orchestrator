@@ -7,8 +7,9 @@
 // version, no answer. A call without `--wait` ends within 2 s; with `--nudge` it waits for the
 // engine's 0014 section 8 nudge only as long as that limit allows (DIPO-60); with `--wait` it
 // waits at most that long plus a grace. A `--gate` call (the `PreToolUse` check of a web tool,
-// 0020 section 11b, DIPO-164) waits like a nudge call but fails closed: only the engine's explicit
-// allow lets the call proceed; every failure, an empty answer and no answer within the limit print
+// 0020 section 11b, DIPO-164) waits like a nudge call but fails closed: only the engine's marker
+// that carries no decision lets the call proceed, as empty output and exit 0, so Claude's own
+// permission rules decide it; every failure, an empty answer and no answer within the limit print
 // Claude's deny, and a gate that cannot print exits 2, so the call never proceeds unchecked.
 
 import { claudeGateOutput, encodeClaudeOp, relayHookPayload } from "@dipsaus-orchestrator/engine";
@@ -150,10 +151,12 @@ export async function runHookForm(args: readonly string[], io: DaemonIo): Promis
 export const GATE_FAILED_REASON = "dipo could not check this web call, so it was refused.";
 
 /**
- * A `--gate` call (0020 section 11b): prints the engine's explicit allow or its deny, and a deny for
- * anything else: no answer within the limit, the worker host's empty answer (no engine watching,
- * the wait passed, the host stopped) or any other text. When even that cannot be printed, it exits
- * 2 with the reason on stderr, which blocks a `PreToolUse` call (hooks reference, exit code 2).
+ * A `--gate` call (0020 section 11b): prints nothing for the engine's marker that carries no
+ * decision (Claude's permission rules then decide the call), the engine's deny as it is, and a deny
+ * for anything else: no answer within the limit, the worker host's empty answer (no engine
+ * watching, the wait passed, the host stopped), an explicit allow or any other text. When a deny
+ * cannot be printed, it exits 2 with the reason on stderr, which blocks a `PreToolUse` call (hooks
+ * reference, exit code 2).
  */
 async function runGate(
   parsed: HookArgs | null,
@@ -167,7 +170,9 @@ async function runGate(
     answer = null;
   }
   try {
-    write(claudeGateOutput(answer, GATE_NO_ANSWER_REASON));
+    const output = claudeGateOutput(answer, GATE_NO_ANSWER_REASON);
+    // Empty for the engine's pass: the call goes on to Claude's permission rules.
+    if (output !== "") write(output);
     return 0;
   } catch {
     try {

@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import type { ChildExit, ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
 import {
-  CLAUDE_GATE_ALLOW_OUTPUT,
+  CLAUDE_GATE_NO_DECISION_MARKER,
   connectHost,
   hostSocketPath,
   LAUNCH_FILE,
@@ -267,15 +267,26 @@ describe("dipo hook --gate (DIPO-164; 0020 section 11b)", () => {
     });
   });
 
-  it("prints the engine's deny or explicit allow as is, and a deny for an empty or any other answer", () =>
+  it("prints the engine's deny as is, nothing for the engine's pass marker, and a deny for an empty or any other answer", () =>
     withTempDir(async (dir) => {
       const deny = gateDenyOutput("The URL contains a value from .env (KEY); never send it.");
       const cases = [
         [deny, [deny]],
-        [CLAUDE_GATE_ALLOW_OUTPUT, [CLAUDE_GATE_ALLOW_OUTPUT]],
+        // The pass carries no decision: empty stdout and exit 0, so Claude's own permission rules
+        // (the run settings' allow, and any deny rule) decide the call.
+        [CLAUDE_GATE_NO_DECISION_MARKER, []],
         // The worker host's own answer when nobody decided: never an allow (0020 section 11b).
         ["", [DENY_NO_ANSWER]],
-        ['{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}', [DENY_NO_ANSWER]],
+        // An explicit allow would bypass Claude's permission rules: only the marker passes.
+        [
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}',
+          [DENY_NO_ANSWER],
+        ],
+        [
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}',
+          [DENY_NO_ANSWER],
+        ],
+        [`${CLAUDE_GATE_NO_DECISION_MARKER}\n`, [DENY_NO_ANSWER]],
         ["allow", [DENY_NO_ANSWER]],
       ] as const;
       for (const [index, [answer, printed]] of cases.entries()) {
@@ -285,8 +296,11 @@ describe("dipo hook --gate (DIPO-164; 0020 section 11b)", () => {
         try {
           const out: string[] = [];
           const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-          await runHookForm(["PreToolUse", "--gate"], io(env, PAYLOAD("https://x.test"), out));
-          expect(out).toEqual([...printed]);
+          const code = await runHookForm(
+            ["PreToolUse", "--gate"],
+            io(env, PAYLOAD("https://x.test"), out),
+          );
+          expect({ code, out }).toEqual({ code: 0, out: [...printed] });
           const op = frames.find((frame) => frame["op"] === "hook");
           expect(op?.["waitMs"]).toBeGreaterThan(0);
           expect(op?.["waitMs"]).toBeLessThanOrEqual(HOOK_DEADLINE_MS - NUDGE_REPLY_MARGIN_MS);
@@ -472,19 +486,23 @@ describe("dipo hook --gate against the real worker host (DIPO-164 review)", () =
       }
     }));
 
-  it("lets the call through only on the engine's explicit allow", () =>
+  it("lets the call on to Claude's permission rules only on the engine's pass marker", () =>
     withWorkerHost(async ({ host, socket }) => {
       const client = await watchingEngine(socket);
       try {
         for (const [reply, printed] of [
-          ["", DENY_NO_ANSWER],
-          [CLAUDE_GATE_ALLOW_OUTPUT, CLAUDE_GATE_ALLOW_OUTPUT],
+          ["", [DENY_NO_ANSWER]],
+          [
+            '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}',
+            [DENY_NO_ANSWER],
+          ],
+          [CLAUDE_GATE_NO_DECISION_MARKER, []],
         ] as const) {
           const call = gate(socket);
           for (let i = 0; i < 200 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
           const [hook] = host.pendingHooks;
           await client.request({ op: "hookReply", hook: hook ?? 0, output: reply });
-          expect(await call).toEqual({ code: 0, out: [printed] });
+          expect(await call).toEqual({ code: 0, out: [...printed] });
         }
       } finally {
         client.close();

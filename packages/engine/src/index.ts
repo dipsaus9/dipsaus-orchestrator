@@ -450,7 +450,7 @@ export {
 export { encode as encodeClaudeOp } from "./workers/claude-cli/encode";
 export {
   gateOutput as claudeGateOutput,
-  PRE_TOOL_USE_ALLOW_OUTPUT as CLAUDE_GATE_ALLOW_OUTPUT,
+  PRE_TOOL_USE_NO_DECISION_MARKER as CLAUDE_GATE_NO_DECISION_MARKER,
 } from "./workers/claude-cli/hooks";
 export {
   parseReviewReport,

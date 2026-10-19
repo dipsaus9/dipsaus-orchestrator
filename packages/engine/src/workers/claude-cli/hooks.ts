@@ -3,6 +3,9 @@
 // `HookEvent`, and how the engine's neutral `HookReply` becomes Claude's `PermissionRequest`
 // output. Everything Claude-specific about hooks lives here; `engine/src/hooks` sees only the
 // neutral shapes.
+//
+// Residual risk of the web gate: Claude Code treats a hook past its 5 s timeout as a non-blocking
+// error and runs the call, so a gate process that is very slow to start is not covered.
 
 import type { HookEvent, HookReply } from "../../hooks/types";
 import { type NudgeOp, WEB_TOOLS } from "../types";
@@ -332,23 +335,26 @@ export function preToolUseDenyOutput(reason: string): string {
 }
 
 /**
- * What `dipo hook PreToolUse --gate` prints when the engine let the call through: Claude's explicit
- * `PreToolUse` allow (hooks reference, `permissionDecision: "allow"`). It is never empty, so the
- * relay tells the engine's allow apart from the worker host's empty answer (no engine watching,
- * the wait passed, the host stopped), which refuses the call (0020 section 11b).
+ * The engine's answer to a gate call it let through: a marker that carries no decision. It is never
+ * empty, so the relay tells the engine's pass apart from the worker host's empty answer (no engine
+ * watching, the wait passed, the host stopped), which refuses the call (0020 section 11b). The
+ * relay prints nothing for exactly this marker (`gateOutput`), so Claude applies its own permission
+ * rules: the run settings' allow rules let the web tool through, and a deny rule there (a WebFetch
+ * domain rule) still holds, which an explicit `permissionDecision: "allow"` would bypass (hooks
+ * reference). Were the marker ever printed as is, it would still decide nothing.
  */
-export const PRE_TOOL_USE_ALLOW_OUTPUT = JSON.stringify({
-  hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
+export const PRE_TOOL_USE_NO_DECISION_MARKER = JSON.stringify({
+  hookSpecificOutput: { hookEventName: "PreToolUse" },
 });
 
 /**
- * Pure: what `dipo hook PreToolUse --gate` prints for the engine's reply: a deny, else the explicit
- * allow. The run settings allow both web tools anyway, so the allow widens nothing.
+ * Pure: the engine's answer to a gate call for its reply: a deny, else the marker that carries no
+ * decision.
  */
 export function preToolUseOutput(reply: HookReply): string {
   return reply.decision === "deny"
     ? preToolUseDenyOutput(reply.reason ?? "")
-    : PRE_TOOL_USE_ALLOW_OUTPUT;
+    : PRE_TOOL_USE_NO_DECISION_MARKER;
 }
 
 /** True when `output` is exactly a `PreToolUse` deny as `preToolUseDenyOutput` prints it. */
@@ -368,12 +374,13 @@ function isPreToolUseDeny(output: string): boolean {
 
 /**
  * Pure: what the fail-closed `dipo hook PreToolUse --gate` prints for the worker host's answer
- * (0020 section 11b). Only the engine's explicit allow lets the call through and the engine's deny
- * is printed as it is; anything else (no answer, the host's empty answer, any other text) prints a
- * deny with `noAnswerReason`.
+ * (0020 section 11b). Exactly the engine's `PRE_TOOL_USE_NO_DECISION_MARKER` prints nothing, so
+ * Claude's own permission rules decide the call; the engine's deny is printed as it is; anything
+ * else (no answer, the host's empty answer, an explicit allow, any other text) prints a deny with
+ * `noAnswerReason`.
  */
 export function gateOutput(answer: string | null, noAnswerReason: string): string {
-  if (answer === PRE_TOOL_USE_ALLOW_OUTPUT) return answer;
+  if (answer === PRE_TOOL_USE_NO_DECISION_MARKER) return "";
   if (answer !== null && isPreToolUseDeny(answer)) return answer;
   return preToolUseDenyOutput(noAnswerReason);
 }

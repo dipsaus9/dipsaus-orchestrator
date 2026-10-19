@@ -28,7 +28,7 @@ import { endRun, insertRun, runOutcome } from "../../src/run";
 import type { RunSteering } from "../../src/run/control";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
-import { PRE_TOOL_USE_ALLOW_OUTPUT } from "../../src/workers/claude-cli/hooks";
+import { PRE_TOOL_USE_NO_DECISION_MARKER } from "../../src/workers/claude-cli/hooks";
 import type { HostOp, SteerOp, WorkerEvent } from "../../src/workers/types";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
@@ -252,11 +252,11 @@ describe("WebGuard (DIPO-164)", () => {
       expect(w.ops[0]).toMatchObject({ kind: "toolGate", reply: { hook: 11, decision: "deny" } });
     }));
 
-  it("lets a clean URL proceed: a reply the adapter prints as an explicit allow, never empty", () =>
+  it("lets a clean URL proceed: a reply the adapter encodes as its marker without a decision, never empty", () =>
     withWorld(async (w) => {
       await pass(w, call(12, "WebFetch", "https://docs.example/guide"));
       expect(w.ops).toEqual([{ kind: "toolGate", reply: { hook: 12, decision: null } }]);
-      expect(w.outputs).toEqual([[{ hookReply: 12, output: PRE_TOOL_USE_ALLOW_OUTPUT }]]);
+      expect(w.outputs).toEqual([[{ hookReply: 12, output: PRE_TOOL_USE_NO_DECISION_MARKER }]]);
     }));
 
   it("denies when the env files cannot be read: it fails closed", () =>
