@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-18 09:10'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:M'
   - cutover
@@ -52,5 +52,5 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 The index pass a gate read runs goes through StoryIndex (one method that takes the caller's git session), so StoryIndex's last sha and last pass are updated, its branchUnread warnings are logged, and onOfficeChanged is called when the pass wrote change-log entries
 - [ ] #2 After such a gate read, the next stories index poll at the same base sha runs no pass; a test counts the passes
-- [ ] #3 The work.run claim recheck with a stale mirror brings the mirror up to date through the same method instead of viewing every task, or the PR states why it cannot and the per-view fallback stays
+- [ ] #3 The work.run claim recheck with a stale mirror brings the mirror up to date through the same method instead of viewing every task, or the report evidence says why it cannot and the per-view fallback stays
 <!-- AC:END -->

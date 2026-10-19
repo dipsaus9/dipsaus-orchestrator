@@ -4,7 +4,7 @@ title: Watch CI on story PRs and turn failures into feedback
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 14:43'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -63,4 +63,5 @@ test_plan:
 - [ ] #3 A head whose required checks are not final after mergeSlot.checksWaitMinutes raises one ci.stuck notice and is then polled every 10 minutes, and the waiting story holds no session place
 - [ ] #4 Each failed Actions check becomes a CI feedback item with check name, job, failing step names, the log tail cut to the 0014 feedback budget and parsed file:line locations, signed over check name, job name, failing step names and locations; an aggregate check explained by other failed jobs is named without a log, and logs are fetched once per failed head
 - [ ] #5 The red head that reaches mergeSlot.ciAttempts parks the story verify-failing with cause ci
+- [ ] #6 The story PR body's status block shows each required check with its state, as 0019 section 3 gives it, rewritten with the body when a check changes
 <!-- AC:END -->

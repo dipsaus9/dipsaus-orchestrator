@@ -4,7 +4,7 @@ title: Retry the Safe-Chain proxy check before holding new runs
 status: Refined
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 14:43'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:S'
   - cutover
@@ -39,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The allowed download of the proxy check is tried up to 3 times with a short pause between attempts before it counts as failed, and a test with a fake download that fails once then succeeds shows the check passing
+- [ ] #1 The allowed download of the proxy check is tried up to 3 times, 2 s apart on the injected clock, before it counts as failed, and a test with a fake download that fails once then succeeds shows the check passing and the 2 s wait on a ManualClock
 - [ ] #2 When every attempt fails, the problem text says how many attempts were made and keeps the cause of the last one
 - [ ] #3 The blocked and refused requests are not retried: a proxy that lets a blocked or refused download through fails the check on the first attempt, as today
 <!-- AC:END -->

@@ -4,7 +4,7 @@ title: Let dipo's permission decision reach a worker's approval-needing calls
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-17 17:06'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:M'
   - cutover
@@ -54,7 +54,7 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 A worker call that needs approval, at least a compound Bash command joined with `;` and a write outside the worktree, gets dipo's decision under permissions.ask (allow, deny, or the maintainer's answer within timeouts.permissionWaitSeconds), and the CLI does not deny it before that decision arrives
 - [ ] #2 When dipo denies a call, the worker's tool result holds dipo's deny reason; the CLI's automatic-deny text never reaches the worker, and later calls needing approval in the same session still reach dipo
-- [ ] #3 A CI-only test against the pinned Claude CLI, or a new live recording under packages/engine/test/recordings/claude-cli/ captured with tools/recordings/ and a replay test, shows a compound Bash command reaching dipo's decision and the worker reading it
+- [ ] #3 A CI-only test against the pinned Claude CLI, or a replay test over a recording in packages/engine/test/recordings/claude-cli/, shows a compound Bash command reaching dipo's decision and the worker reading it
 - [ ] #4 The session self-test checks that a call needing approval reaches dipo's decision and refuses the launch when it does not, so a CLI update that changes this holds the adapter instead of running unguarded
 - [ ] #5 If the chosen path changes 0008 section 5, the PR proposes a dated note for docs/decisions/0008-worker-adapter.md, for the maintainer's approval
 <!-- AC:END -->

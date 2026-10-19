@@ -4,7 +4,7 @@ title: Write golden plans that pass the formatter when they are regenerated
 status: Refined
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-19 14:43'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,8 @@ references:
   - packages/engine/test/workers/golden/
   - packages/engine/test/sandbox/policy.test.ts
   - packages/engine/test/sandbox/golden/
+  - tools/recordings/format.ts
+  - tools/recordings/
 priority: low
 type: chore
 ordinal: 209000
@@ -37,6 +39,8 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
+      check: "(unit) the meta.json that serializeMeta writes passes oxfmt --check with .oxfmtrc.json, written under DIPO_TMP"
+    - kind: "automated"
       check: "(unit) the text each golden writer produces, written under DIPO_TMP, passes oxfmt --check with the repository's oxfmt configuration"
 ```
 <!-- SECTION:DESCRIPTION:END -->
@@ -46,4 +50,5 @@ test_plan:
 - [ ] #1 The golden writers in packages/engine/test/workers/plan.test.ts and packages/engine/test/sandbox/policy.test.ts write text in the formatter's own layout, so regenerating with DIPO_UPDATE_GOLDEN=1 leaves packages/engine/test/workers/golden/ and packages/engine/test/sandbox/golden/ with no formatting change
 - [ ] #2 A test writes the text each writer produces for its goldens under DIPO_TMP, runs oxfmt --check there with the repository's .oxfmtrc.json, and expects exit 0
 - [ ] #3 The committed golden files are unchanged in content, and bun run verify passes
+- [ ] #4 serializeMeta in tools/recordings/format.ts writes meta.json in the formatter's layout, so bun run recordings:derive leaves the committed derived recordings (model-switch/meta.json among them) unchanged and a test checks its output with oxfmt --check under DIPO_TMP
 <!-- AC:END -->

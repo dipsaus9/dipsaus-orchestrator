@@ -4,7 +4,7 @@ title: Post each review round's report on the story PR
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 14:43'
+updated_date: '2026-10-19 15:00'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -55,4 +55,5 @@ test_plan:
 - [ ] #3 A comment over 60,000 characters is cut, advisory findings first, with a marker
 - [ ] #4 After the cap, every value read as a KEY=value line from the env files dipo copied into the worktree (the copy entries of worktree.files) is replaced by [redacted] across the whole comment while the stored verdict keeps the reviewer's text; an unreadable copied env file holds the comment back with a pr.commentFailed notice
 - [ ] #5 A failed post raises pr.commentFailed and is retried by the PR poll, never blocking or delaying the gate, a fix round or a merge
+- [ ] #6 The story PR body's status block shows the review round state, as 0019 section 3 gives it, rewritten with the body after each round
 <!-- AC:END -->
