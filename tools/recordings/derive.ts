@@ -173,24 +173,26 @@ function assistantError(lines: readonly Envelope[], error: string): Envelope[] {
   });
 }
 
-// The review kind (0019 sections 4 and 5, DIPO-145). The worker sandbox that built these has no
-// network, so no live review run exists yet; the maintainer captures the `review-*-live`
-// scenarios. Until then the review recordings are the live `success-single` session with the
-// reviewer's system/init (its four tools, no skill, no slash command) and a review report.
+// The review kind (0019 sections 4 and 5, DIPO-145). The live `review-*-live` captures (Claude
+// Code 2.1.302, 2026-10-19) exist beside these; the derived review recordings stay the live
+// `success-single` session with the reviewer's system/init (its four tools, no skill, no slash
+// command) and an illustrative review report, kept readable for the replay tests. The derived
+// `review-invalid` is the only invalid review report: the live `review-invalid-live` returned a
+// valid one.
 
 /** The tools a reviewer's system/init lists: the four of 0019 section 4 and the report tool. */
 const REVIEW_INIT_TOOLS = ["Bash", "Glob", "Grep", "Read", "StructuredOutput"];
 
 const CITE_REVIEW_INIT =
-  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for; no live review run showed them (0019 section 4)";
+  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for, as the live review-*-live captures (Claude Code 2.1.302, 2026-10-19) list them, with skills [] and slash_commands [] (0019 section 4)";
 const CITE_REVIEW_SKILLS =
   "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands";
 const CITE_REVIEW_REPORT =
-  "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5); no live review run returned one";
+  "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5). The live review-*-live captures (Claude Code 2.1.302, 2026-10-19) confirm the report travels in all three places; a live capture keeps only structured_output's decision fields (criteria status, finding severity and kind) and numbers, and redacts every string of the tool_use input and every partial_json delta";
 // The replay tests check the findings' file, line and quote, and a review judge checks a quote
 // against the code tree (0019 section 5), so the injected text stays readable.
 const CITE_REVIEW_PLAIN =
-  "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts): they are fixed illustrative text, not a live session's, and the replay tests read them";
+  "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts; the review-*-live captures show it): they are fixed illustrative text, not a live session's, and the replay tests read them";
 
 const REVIEW_APPROVED: Data = {
   criteria: [{ n: 1, status: "met", evidence: "src/greet.ts returns hello, <name>." }],
@@ -342,11 +344,12 @@ function workerReport(lines: readonly Envelope[]): unknown {
   return result.structured_output;
 }
 
-// The web tools (0020 section 11b, DIPO-164). The worker sandbox that built this has no network, so
-// no live run with a WebSearch, a WebFetch or the PreToolUse hook exists yet; the maintainer
-// captures the `web` scenario. Until then the web recording is the live `success-tools-subagent`
-// session cut to its first turn: its init, three tool calls built on its Read call, and its
-// report turn.
+// The web tools (0020 section 11b, DIPO-164). The live `web` capture (Claude Code 2.1.302,
+// 2026-10-19) exists beside this one and confirmed the query and URLs on the tool_use blocks and
+// PreToolUse hook lines, the hook's deny as an error tool_result, the refused call in
+// permission_denials and the result's web counters. The derived `web-calls` stays the live
+// `success-tools-subagent` session cut to its first turn: its init, three tool calls built on its
+// Read call, and its report turn; its cites name where the live capture differs.
 
 /** The tools a developer's system/init lists with `worker.web`. */
 const WEB_INIT_TOOLS = [
@@ -362,19 +365,19 @@ const WEB_INIT_TOOLS = [
 ];
 
 const CITE_WEB_INIT =
-  "system/init tools lists WebFetch and WebSearch besides the six of the developer role; no live run with worker.web showed them (0020 section 11b)";
+  "system/init tools lists WebFetch and WebSearch besides the six of the developer role (0020 section 11b); the live `web` capture (Claude Code 2.1.302, 2026-10-19) lists WebFetch and WebSearch beside the Read and StructuredOutput its scenario asked for";
 const CITE_WEB_CALLS =
-  "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source; no live run called a web tool";
+  "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source, one call per message; in the live `web` capture (Claude Code 2.1.302, 2026-10-19) the three calls share one message id, the refused call's result comes first, and each user message also carries tool_use_result and tool_result_meta, which this recording drops";
 const CITE_WEB_HOOK =
-  "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query), with tool_input cut to the url or query as dipo hook PreToolUse --gate relays it; no live run registered the hook";
+  "the PreToolUse hook payloads (tool_name, tool_use_id, tool_input cut to the url or query as dipo hook PreToolUse --gate relays it) match the live `web` capture (Claude Code 2.1.302, 2026-10-19), which also carries prompt_id and the PostToolUse lines of the two calls that ran; this recording has neither";
 const CITE_WEB_DENY =
-  "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny. A live capture keeps the error result of a web call through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the successful results are redacted here as a live capture redacts them";
+  "the refused call's tool_result (is_error, the engine's reason naming .env and FIXTURE_API_KEY and not the value) follows the live `web` capture (Claude Code 2.1.302, 2026-10-19), where the deny travels as the hook's stdout with exit 0 (hook_response outcome success) and the tool_result text is the reason behind a `PreToolUse:WebFetch hook error: ` prefix this recording leaves out. A live capture keeps the error result of a web call through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the successful results are redacted here as a live capture redacts them";
 const CITE_WEB_PLAIN =
   "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them";
 const CITE_WEB_COUNTERS =
   "the result's usage.server_tool_use (web_search_requests 0, web_fetch_requests 0) and modelUsage webSearchRequests 1 are what the live `web` capture (Claude Code 2.1.302) reports for one WebSearch, one WebFetch and one refused WebFetch: server_tool_use counts none of them, modelUsage counts the search only";
 const CITE_WEB_DENIALS =
-  "the result's permission_denials holds the refused WebFetch (tool_input redacted, as a live capture redacts it), on the reading that Claude Code reports a PreToolUse deny there as it reports a permission deny (recording permission-denied); no live run showed it [unverified]";
+  "the result's permission_denials holds the refused WebFetch (tool_name, tool_use_id, and tool_input with url and prompt redacted), as the live `web` capture (Claude Code 2.1.302, 2026-10-19) shows a PreToolUse hook deny there";
 const CITE_WEB_REPORT =
   "the report turn (thinking, the StructuredOutput call, num_turns, durations and usage totals, and the report with status blocked and a question about the source's background subagent) is the source's live first turn, kept as captured on purpose so the report and usage stay live data; the source's subagent_stats is dropped, as this session starts no subagent";
 

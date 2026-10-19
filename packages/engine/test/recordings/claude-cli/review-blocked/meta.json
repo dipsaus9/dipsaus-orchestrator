@@ -8,10 +8,10 @@
   "derivedFrom": "success-single",
   "transform": "A reviewer's session as review-approved; the review report has criterion 1 unmet, a blocking correctness finding at a quoted line, a blocking test finding naming test plan entry 1 and an advisory finding.",
   "cites": [
-    "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for; no live review run showed them (0019 section 4)",
+    "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for, as the live review-*-live captures (Claude Code 2.1.302, 2026-10-19) list them, with skills [] and slash_commands [] (0019 section 4)",
     "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands",
-    "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5); no live review run returned one",
-    "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts): they are fixed illustrative text, not a live session's, and the replay tests read them"
+    "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5). The live review-*-live captures (Claude Code 2.1.302, 2026-10-19) confirm the report travels in all three places; a live capture keeps only structured_output's decision fields (criteria status, finding severity and kind) and numbers, and redacts every string of the tool_use input and every partial_json delta",
+    "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts; the review-*-live captures show it): they are fixed illustrative text, not a live session's, and the replay tests read them"
   ],
   "kind": "review"
 }
