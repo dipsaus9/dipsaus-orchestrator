@@ -1,10 +1,10 @@
 ---
 id: DIPO-213
 title: Flag criteria that need a live session or a run outside the worker sandbox
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 22:29'
+updated_date: '2026-10-19 22:43'
 labels:
   - 'tier:S'
   - cutover
@@ -47,3 +47,9 @@ test_plan:
 - [x] #1 The default story.maintainerStepPhrases in packages/engine/src/config/schema.ts adds `live recording`, `live capture`, `run outside the sandbox`, `the PR states` and `the PR description`, and packages/engine/schema/office.schema.json stays equal to a fresh export
 - [x] #2 A test in packages/engine/test/gate/ fails a criterion for each new phrase with the R27 message and passes the same phrase inside a code span
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B493G9GZF71X4Q174X8X5R (Haiku, 17 turns, about $0.01, 2 min, binary 1451e4d) reported done, In Review, with no denied call and no write outside the References. The default story.maintainerStepPhrases adds 'live recording', 'live capture', 'run outside the sandbox', 'the PR states' and 'the PR description' (the maintainer's answer of 2026-10-19); the bare 'outside the sandbox' stays out. No config version bump; office.schema.json is unchanged and equals a fresh export. The reviewer checked all 13 Ready and 36 Refined task files on main: none newly fails R27. Added on top after review: a test that pins the bare phrase as allowed. Verify outside the sandbox: 3734 tests, 0 fail; DIPO_TEST_CI=1 gate and config tests pass. Review passed.
+<!-- SECTION:NOTES:END -->
