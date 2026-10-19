@@ -3,10 +3,10 @@ id: DIPO-200
 title: >-
   Run setup steps whose package manager is a wrapper script that makes temp
   files
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 06:32'
 labels:
   - 'tier:M'
   - cutover
@@ -40,7 +40,9 @@ Context: M1a run of DIPO-177 on 2026-10-18. `dipo run DIPO-177` printed "setup f
 
 ```dipo
 branch: "DIPO-200/setup-with-temp-file-wrapper"
-unknowns: []
+unknowns:
+  - q: "Does a stand-in setup step (a bash wrapper that runs mktemp with no arguments and then execs bun) fail on main the way the DIPO-177 setup did, when run on macOS outside any sandbox through the real step runner with DIPO_TEST_CI=1, and if so, why does mktemp ignore the step's TMPDIR? The maintainer side runs this before the story goes Ready, since a worker cannot run the real step sandbox inside its own; criteria 1 and 2 are then written around the cause found, or the story is dropped if the stand-in does not reproduce it."
+    status: "open"
 test_plan:
   entries:
     - kind: "automated"
