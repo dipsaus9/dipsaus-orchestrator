@@ -3,10 +3,10 @@ id: DIPO-200
 title: >-
   Run setup steps whose package manager is a wrapper script that makes temp
   files
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 21:18'
+updated_date: '2026-10-19 22:15'
 labels:
   - 'tier:M'
   - cutover
