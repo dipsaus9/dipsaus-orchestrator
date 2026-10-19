@@ -10,8 +10,8 @@
   "cites": [
     "system/init tools lists WebFetch and WebSearch besides the six of the developer role; no live run with worker.web showed them (0020 section 11b)",
     "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source; no live run called a web tool",
-    "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query); no live run registered the hook",
-    "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny, and its text fields are left unredacted on purpose, where a live capture redacts them",
-    "the tool_use input (query, url) of the three calls and the hook payloads' tool_input are fixed illustrative text, left unredacted on purpose, where a live capture keeps them only through the web scrub rules (tools/recordings/scrub.ts)"
+    "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query), with tool_input cut to the url or query as dipo hook PreToolUse --gate relays it; no live run registered the hook",
+    "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny. A live capture keeps the error result of a web call through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the successful results are redacted here as a live capture redacts them",
+    "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them"
   ]
 }

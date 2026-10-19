@@ -33,6 +33,7 @@ const DERIVED = [
   "review-approved",
   "review-blocked",
   "review-invalid",
+  "web-calls",
 ];
 
 const recordings = readAllRecordings();

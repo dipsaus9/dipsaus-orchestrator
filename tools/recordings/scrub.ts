@@ -254,6 +254,19 @@ export const HOOK_RULES: Readonly<Record<string, readonly PathRule[]>> = {
 };
 
 /**
+ * The web rules (0020 section 11b, DIPO-164): the input field of each web tool that is kept, as the
+ * `web` scenario's query and URLs are fixed synthetic fixture text. They apply only to a call of
+ * these tools, matched by name: the `tool_input` of a `PreToolUse` hook line, the `input` of an
+ * assistant `tool_use` block and its `wire_tool_inputs` entry. The `tool_result` of a web call
+ * that is an error (the hook's refusal, naming the env file and key) is kept too; a successful
+ * result, which holds fetched page text, stays redacted.
+ */
+export const WEB_INPUT_FIELDS: Readonly<Record<string, string>> = {
+  WebSearch: "query",
+  WebFetch: "url",
+};
+
+/**
  * Fields 0008 maps to an outcome, signal, wait, hold or park. A redacted value would change what
  * the engine decides on replay, so none of them may ever hold a redaction marker.
  */
@@ -370,6 +383,8 @@ export interface ScrubReport {
 export class Scrubber {
   private readonly ids = new Map<string, string>();
   private readonly counters = new Map<string, number>();
+  /** The raw tool use ids of the web calls seen so far, for their error results. */
+  private readonly webCalls = new Set<string>();
   private readonly roots: PathRoot[];
   readonly report: ScrubReport = { unknownTypes: [], redactedPaths: {} };
 
@@ -491,7 +506,40 @@ export class Scrubber {
       this.noteUnknown(kind);
       return this.whole(data, ["type", "subtype"]);
     }
-    return this.walk(data, [], [...COMMON, ...rules], kind);
+    return this.walk(data, [], [...this.webRules(data), ...COMMON, ...rules], kind);
+  }
+
+  /**
+   * The web rules (`WEB_INPUT_FIELDS`) of one stdout message: the input field of each web
+   * `tool_use` block of an assistant message, and the content of each error `tool_result` of a
+   * web call in a user message.
+   */
+  private webRules(data: Record<string, unknown>): PathRule[] {
+    const rules: PathRule[] = [];
+    const message = data.message;
+    if (!isRecord(message) || !Array.isArray(message.content)) return rules;
+    for (const [index, block] of message.content.entries()) {
+      if (!isRecord(block)) continue;
+      const at = `message.content.${index}`;
+      if (data.type === "assistant" && block.type === "tool_use") {
+        const field = typeof block.name === "string" ? WEB_INPUT_FIELDS[block.name] : undefined;
+        if (field === undefined) continue;
+        rules.push([`${at}.input.${field}`, "keep"]);
+        if (typeof block.id === "string") {
+          this.webCalls.add(block.id);
+          rules.push([`wire_tool_inputs.${block.id}.${field}`, "keep"]);
+        }
+      } else if (
+        data.type === "user" &&
+        block.type === "tool_result" &&
+        block.is_error === true &&
+        typeof block.tool_use_id === "string" &&
+        this.webCalls.has(block.tool_use_id)
+      ) {
+        rules.push([`${at}.content`, "keep"], [`${at}.content.*.text`, "keep"]);
+      }
+    }
+    return rules;
   }
 
   hook(data: unknown): unknown {
@@ -505,7 +553,13 @@ export class Scrubber {
       this.noteUnknown(`hook:${event}`);
       return this.whole(data, ["hook_event_name"]);
     }
-    return this.walk(data, [], [...HOOK_COMMON, ...rules], `hook:${event}`);
+    // The web rules: a web tool's query or URL on its `PreToolUse` line.
+    const field =
+      event === "PreToolUse" && typeof data.tool_name === "string"
+        ? WEB_INPUT_FIELDS[data.tool_name]
+        : undefined;
+    const web: PathRule[] = field === undefined ? [] : [[`tool_input.${field}`, "keep"]];
+    return this.walk(data, [], [...web, ...HOOK_COMMON, ...rules], `hook:${event}`);
   }
 
   envelope(line: Envelope): Envelope {

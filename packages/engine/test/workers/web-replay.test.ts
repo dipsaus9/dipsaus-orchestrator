@@ -6,6 +6,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { findSecret, refusalText, webCallCounts } from "../../src/hooks";
+import { WEB_TOOLS } from "../../src/workers/types";
 import { loadRecording, replay } from "./replay";
 
 // The fixture env file of the `web` scenario (tools/recordings/scenarios.ts).
@@ -16,19 +17,35 @@ const REFUSED_URL = `https://example.com/lookup?token=${ENV.value}`;
 
 type Json = Record<string, unknown>;
 
-/** The text of every tool_result in the recording, by tool use id. */
-function toolResults(name: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const line of loadRecording(name).lines) {
+/** The message content blocks of the recording's stdout lines of `type`. */
+function blocks(name: string, type: string): Json[] {
+  return loadRecording(name).lines.flatMap((line) => {
     const data = line.data as Json;
-    if (line.ch !== "stdout" || data["type"] !== "user") continue;
-    for (const block of (data["message"] as { content: Json[] }).content) {
-      if (block["type"] === "tool_result" && typeof block["content"] === "string") {
-        out.set(block["tool_use_id"] as string, block["content"]);
-      }
-    }
-  }
-  return out;
+    if (line.ch !== "stdout" || data["type"] !== type) return [];
+    const content = (data["message"] as { content?: unknown } | undefined)?.content;
+    return Array.isArray(content) ? (content as Json[]) : [];
+  });
+}
+
+/** The text of a tool result: a string, or its text blocks joined. */
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return (content as Json[]).map((part) => String(part["text"] ?? "")).join("");
+}
+
+/**
+ * The result of the recording's third web call, found by order, not by id, so the test reads a
+ * live capture of the `web` scenario as it reads the derived recording.
+ */
+function thirdWebResult(name: string): { text: string; isError: boolean } {
+  const ids = blocks(name, "assistant")
+    .filter((block) => block["type"] === "tool_use" && WEB_TOOLS.includes(String(block["name"])))
+    .map((block) => block["id"]);
+  const result = blocks(name, "user").find(
+    (block) => block["type"] === "tool_result" && block["tool_use_id"] === ids[2],
+  );
+  return { text: resultText(result?.["content"]), isError: result?.["is_error"] === true };
 }
 
 describe("the web-calls recording (DIPO-164)", () => {
@@ -66,9 +83,11 @@ describe("the web-calls recording (DIPO-164)", () => {
   });
 
   it("gives the refused call the engine's reason, naming the file and key and not the value", () => {
-    const refused = toolResults("web-calls").get("toolu-w3") ?? "";
-    expect(refused).toBe(refusalText("WebFetch", { file: ENV.file, key: ENV.key }));
-    expect(refused).toContain(".env (FIXTURE_API_KEY)");
-    expect(refused).not.toContain(ENV.value);
+    const refused = thirdWebResult("web-calls");
+    expect(refused.isError).toBe(true);
+    // Claude Code may wrap the hook's reason in text of its own.
+    expect(refused.text).toContain(refusalText("WebFetch", { file: ENV.file, key: ENV.key }));
+    expect(refused.text).toContain(".env (FIXTURE_API_KEY)");
+    expect(refused.text).not.toContain(ENV.value);
   });
 });

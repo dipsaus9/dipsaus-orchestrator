@@ -8,7 +8,7 @@ import { WEB_ENV_FILE, WEB_ENV_KEY, WEB_QUERY, WEB_REFUSED_URL, WEB_URL } from "
 
 import type { Envelope, Meta, Recording } from "./format";
 import { isRecord, readRecording, serializeMeta, serializeStream, writeRecording } from "./format";
-import { redact } from "./scrub";
+import { redact, WEB_INPUT_FIELDS } from "./scrub";
 import { guardSecrets, machineNeedles } from "./secrets";
 import { budgetTokens, stdoutOf, usageChecksum } from "./usage";
 
@@ -366,11 +366,11 @@ const CITE_WEB_INIT =
 const CITE_WEB_CALLS =
   "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source; no live run called a web tool";
 const CITE_WEB_HOOK =
-  "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query); no live run registered the hook";
+  "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query), with tool_input cut to the url or query as dipo hook PreToolUse --gate relays it; no live run registered the hook";
 const CITE_WEB_DENY =
-  "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny, and its text fields are left unredacted on purpose, where a live capture redacts them";
+  "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny. A live capture keeps the error result of a web call through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the successful results are redacted here as a live capture redacts them";
 const CITE_WEB_PLAIN =
-  "the tool_use input (query, url) of the three calls and the hook payloads' tool_input are fixed illustrative text, left unredacted on purpose, where a live capture keeps them only through the web scrub rules (tools/recordings/scrub.ts)";
+  "the query and url of the three calls (tool_use input, wire_tool_inputs and the hook payloads' tool_input) are the web scenario's fixed synthetic text, kept as a live capture keeps them through the web rules (WEB_INPUT_FIELDS, tools/recordings/scrub.ts); the WebFetch prompts are redacted as a live capture redacts them";
 
 /** One web call: the assistant tool_use, the PreToolUse hook payload and the tool result. */
 function webCall(
@@ -379,22 +379,29 @@ function webCall(
     readonly n: number;
     readonly t: number;
     readonly tool: "WebSearch" | "WebFetch";
-    readonly input: Data;
+    /** The query or URL, kept by the web rules. */
+    readonly target: string;
+    /** A WebFetch's prompt, redacted as a live capture redacts it. */
+    readonly prompt?: string;
+    /** The tool result: redacted unless the call was refused (an error result is kept). */
     readonly result: string;
     readonly refused?: boolean;
   },
 ): Envelope[] {
   const id = `toolu-w${call.n}`;
+  const field = WEB_INPUT_FIELDS[call.tool] ?? "url";
+  const input: Data = {
+    [field]: call.target,
+    ...(call.prompt === undefined ? {} : { prompt: redact(call.prompt) }),
+  };
   const assistant = clone(read.assistant.data as Data);
   const message = clone(assistant.message as Data);
   assistant.message = {
     ...message,
     id: `msg-w${call.n}`,
-    content: [
-      { type: "tool_use", id, name: call.tool, input: call.input, caller: { type: "direct" } },
-    ],
+    content: [{ type: "tool_use", id, name: call.tool, input, caller: { type: "direct" } }],
   };
-  assistant.wire_tool_inputs = { [id]: call.input };
+  assistant.wire_tool_inputs = { [id]: input };
   assistant.uuid = `uuid-w${call.n}a`;
   assistant.request_id = `req-w${call.n}`;
   const user = clone(read.user.data as Data);
@@ -404,7 +411,7 @@ function webCall(
       {
         tool_use_id: id,
         type: "tool_result",
-        content: call.result,
+        content: call.refused === true ? call.result : redact(call.result),
         ...(call.refused === true ? { is_error: true } : {}),
       },
     ],
@@ -424,7 +431,8 @@ function webCall(
         permission_mode: "default",
         hook_event_name: "PreToolUse",
         tool_name: call.tool,
-        tool_input: call.input,
+        // `dipo hook PreToolUse --gate` relays only the query or URL of the tool input.
+        tool_input: { [field]: call.target },
         tool_use_id: id,
       },
     },
@@ -461,21 +469,23 @@ function withWebCalls(lines: readonly Envelope[]): Envelope[] {
       n: 1,
       t: t0,
       tool: "WebSearch",
-      input: { query: WEB_QUERY },
+      target: WEB_QUERY,
       result: `Web search results for "${WEB_QUERY}": 1 result.`,
     }),
     webCall(read, {
       n: 2,
       t: t0 + 1_000,
       tool: "WebFetch",
-      input: { url: WEB_URL, prompt: "Summarise how to run a single test file." },
+      target: WEB_URL,
+      prompt: "Summarise how to run a single test file.",
       result: "bun test runs files matching *.test.ts; pass a path to run one file.",
     }),
     webCall(read, {
       n: 3,
       t: t0 + 2_000,
       tool: "WebFetch",
-      input: { url: WEB_REFUSED_URL, prompt: "Read the page." },
+      target: WEB_REFUSED_URL,
+      prompt: "Read the page.",
       result: refusalText("WebFetch", { file: WEB_ENV_FILE, key: WEB_ENV_KEY }),
       refused: true,
     }),
