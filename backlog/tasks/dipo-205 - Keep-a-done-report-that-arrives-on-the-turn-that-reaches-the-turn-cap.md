@@ -4,19 +4,14 @@ title: Keep a done report that arrives on the turn that reaches the turn cap
 status: Refined
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 06:34'
 labels:
   - 'tier:M'
   - cutover
 milestone: m-1
 dependencies: []
 references:
-  - packages/engine/src/run/control.ts
-  - packages/engine/src/run/control-turns.ts
-  - packages/engine/src/run/control-endings.ts
-  - packages/engine/src/run/caps.ts
-  - packages/engine/src/run/outcome-exits.ts
-  - packages/engine/src/run/verify-commit.ts
+  - packages/engine/src/run/
   - packages/engine/test/run/
 priority: medium
 type: bug
@@ -43,11 +38,14 @@ Decision records: the 0020 maintainer decision "Budget-exceeded resume" and 0020
 
 References: they cover every option for now (C and D add the park-time commit in control-endings.ts and verify-commit.ts) and are revised to the chosen option once the unknown is answered.
 
+Decided (maintainer, 2026-10-19; 0008 and 0020 Amendments of 2026-10-19, DIPO-205): every cap whose crossing turn carries a done report, and the CLI backstop turn with a done report, takes the normal done path (verify-commit, then In Review), and runs.end_kind records capped. If that verify fails, no turn is left for feedback: the story parks verify-failing with the new park cause capped (PARK_CAUSES in packages/engine/src/run/park.ts) and the failure as its detail. The resume of that park (note plus a +50% top-up grant) is DIPO-157's. A live CLI backstop result (error_max_turns) carries no structured_output, so the backstop case is tested with a synthetic turn event. This story does not edit docs/decisions/.
+
 ```dipo
 branch: "DIPO-205/done-report-at-turn-cap"
 unknowns:
   - q: "When the turn that crosses a run cap also carries the worker's done report (DIPO-188 reported done on the turn that took it to 63 of 60 turns, and dipo parked it budget-exceeded with nothing committed), what should dipo do? (A) Treat the run as done, for the turn cap only (the engine total and the CLI --max-turns backstop): take the normal done path (verify-commit, then In Review) and record the crossed cap in the run's outcome. (B) The same as A, for every cap whose crossing turn carries a done report: tokens, turns and minutes, since the crossing code in caps.ts and control.ts is shared. (C) Still park budget-exceeded, for the turn cap only, but commit the worker's work to the story branch first, so a resume with a top-up or a hand finish starts from that commit. (D) The same as C, for every cap whose crossing turn carries a done report. A and B change 0008 section 6 (the engine stops the worker at 100% of budgetTokens, maxTurns or maxMinutes) and need a dated note on the 0020 maintainer decision 'Budget-exceeded resume' and 0020 section 4, since such a run no longer parks or needs a top-up. C and D need a dated 0020 note on what a budget-exceeded park leaves on the branch."
-    status: "open"
+    status: "resolved"
+    answer: "B (maintainer, 2026-10-19): for every cap (tokens, turns, minutes, and the CLI --max-turns backstop), a done report on the crossing turn takes the normal done path and the outcome records the crossed cap. If that done path's verify fails, the story parks verify-failing with cause capped (follow-up answer B); its resume needs a note and raises the crossed cap by the default +50% top-up as a budget grant (follow-up answer A, delivered by DIPO-157). Notes: 0008 and 0020 Amendments, 2026-10-19, DIPO-205."
 test_plan:
   entries:
     - kind: "automated"
@@ -61,7 +59,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A run whose cap-crossing turn carries a done report follows the option chosen for the unknown and leaves the worker's work committed on the story branch, with a test in packages/engine/test/run/ that drives RunControl with such a turn on the engine-total crossing
-- [ ] #2 A turn that carries a done report and `capped` from the CLI --max-turns backstop follows the same option, with its own test in packages/engine/test/run/
-- [ ] #3 A cap-crossing turn without a done report still parks budget-exceeded with its cap detail ("turn cap reached: <n> of <cap> turns" on the engine total), and the existing cap tests in packages/engine/test/run/ pass unchanged
+- [ ] #1 A run whose turn crosses budgetTokens, maxTurns or maxMinutes on the engine total and carries a done report takes the normal done path (verify-commit, then In Review) instead of parking, with runs.end_kind capped; a test in packages/engine/test/run/ drives RunControl with such a turn for the turn cap and for the token cap
+- [ ] #2 A turn with a done report and `capped` from the CLI --max-turns backstop takes the same done path, tested with a synthetic turn event in packages/engine/test/run/
+- [ ] #3 When the verify of that done path fails, the story parks verify-failing with park cause capped and the verify failure as its detail, and no feedback turn is sent; a test shows the park, its cause and that no worker message follows
+- [ ] #4 A cap-crossing turn without a done report still parks budget-exceeded with its cap detail ("turn cap reached: <n> of <cap> turns" on the engine total), and the existing cap tests in packages/engine/test/run/ pass unchanged
 <!-- AC:END -->

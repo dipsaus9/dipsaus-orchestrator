@@ -453,3 +453,7 @@ All in milestone `m-1`, label `slice:m1a` (story 18 excepted), after DIPO-115 (c
 5. Backlog.md 1.53.0 `task edit --help`: `--add-ref`, `--append-notes`, `--final-summary`; `draft create`.
 6. Claude Code docs, settings and permissions (WebSearch and WebFetch permission rules, tools outside the Bash sandbox), as cited in 0008; hooks reference (`PreToolUse` matchers and `permissionDecision: "deny"`).
 7. Code on main at 107a2cb: `packages/engine/src/workers/claude-cli/hooks.ts` (`REGISTERED_HOOKS` has no `PreToolUse`; `WAITING_HOOK` is `PermissionRequest`), `packages/daemon/src/hook.ts` (the relay is silent on every failure and keeps only written paths of a tool input for a call that does not wait).
+
+## Amendments
+
+- 2026-10-19, DIPO-205 (maintainer): maintainer decision "Budget-exceeded resume", sections 2 and 4. A run whose cap-crossing turn carried a done report does not park `budget-exceeded` (0008 note of 2026-10-19). If the verify of that done path fails, no turn is left for feedback, so the story parks `verify-failing` with the new cause `capped` and the failure as its detail. Its resume needs a note, like the other `verify-failing` causes, and raises the crossed cap by the default top-up of +50%, recorded as a budget grant with who and why (never silent); the first message is the verify failure from `feedback_items`, then the note. A resume without a note answers `resume.noteRequired`.
