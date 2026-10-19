@@ -1,10 +1,10 @@
 ---
 id: DIPO-211
 title: Retry the Safe-Chain proxy check before holding new runs
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-19 21:09'
 labels:
   - 'tier:S'
   - cutover
