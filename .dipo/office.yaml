@@ -1,4 +1,4 @@
-version: 2
+version: 7
 # The worker sandbox reads the default toolchain paths (~/.bun, ~/.npm, ~/.cache). oxfmt and
 # oxlint run on node, so `bun run verify` passes inside a worker only when the sandbox can read
 # node too (DIPO-115). Where node lives is machine-specific, so it is not listed here: on a machine
@@ -11,3 +11,9 @@ version: 2
 #
 # Only the node versions, not nvm's own checkout. Keep npm tokens in ~/.npmrc: a run is refused
 # when a node version's etc/npmrc under a read path, or a .npmrc at the root of one, holds one.
+
+# dipo opens no story PR on this repository (DIPO-210, 0019 amendment of 2026-10-19). The
+# maintainer side merges its own finish-branch PRs here (main merged in, review fixes on top) until
+# the review loop takes over, so a PR from dipo would be a second PR per story.
+storyPr:
+  open: false

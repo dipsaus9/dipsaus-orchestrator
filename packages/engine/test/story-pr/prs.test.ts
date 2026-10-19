@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { OFFICE_DEFAULTS } from "../../src/config";
+import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import {
   CodeHostError,
@@ -36,17 +36,22 @@ const REPO = "o/r";
 const BRANCH = "DIPO-1/open-the-pr";
 
 class FakeHost implements CodeHost {
+  /** Every host method called, by name, in order. */
+  readonly calls: string[] = [];
   readonly creates: NewPr[] = [];
   readonly updates: { number: number; title: string; body: string }[] = [];
   open: HostPr | null = null;
   failCreate: CodeHostError | null = null;
   async checkVersion(): Promise<string> {
+    this.calls.push("checkVersion");
     return "2.50.0";
   }
   async findOpenPr(): Promise<HostPr | null> {
+    this.calls.push("findOpenPr");
     return this.open;
   }
   async createPr(_repo: string, pr: NewPr): Promise<HostPr> {
+    this.calls.push("createPr");
     if (this.failCreate !== null) throw this.failCreate;
     this.creates.push(pr);
     this.open = hostPr(7, pr);
@@ -57,18 +62,25 @@ class FakeHost implements CodeHost {
     number: number,
     change: { title: string; body: string },
   ): Promise<void> {
+    this.calls.push("updatePr");
     this.updates.push({ number, ...change });
   }
   /** The state `viewPr` reports, and the PR numbers it was asked for. */
   hostState: PrState = "open";
   readonly views: number[] = [];
   async viewPr(_repo: string, number: number): Promise<HostPr> {
+    this.calls.push("viewPr");
     this.views.push(number);
     return { ...hostPr(number, { base: "main", head: BRANCH, title: "t" }), state: this.hostState };
   }
-  async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
+  async closePr(): Promise<void> {
+    this.calls.push("closePr");
+  }
+  async squashMerge(): Promise<void> {
+    this.calls.push("squashMerge");
+  }
   async requiredChecks(): Promise<[]> {
+    this.calls.push("requiredChecks");
     return [];
   }
 }
@@ -88,6 +100,10 @@ function hostPr(number: number, pr: Pick<NewPr, "base" | "head" | "title">): Hos
 
 interface World {
   facts: StoryPrFacts;
+  /** The office configuration in force; the defaults (story PRs on) unless a test changes it. */
+  config: OfficeConfig;
+  /** How often StoryPrs read the story's git facts. */
+  gitReads: number;
   readonly host: FakeHost;
   readonly prs: StoryPrs;
   readonly run: RunId;
@@ -176,6 +192,8 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
     const host = new FakeHost();
     const world: World = {
       facts: FACTS,
+      config: OFFICE_DEFAULTS,
+      gitReads: 0,
       host,
       run,
       key,
@@ -183,10 +201,15 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
       t,
       prs: new StoryPrs({
         host,
-        git: { read: async () => world.facts } satisfies StoryPrGit,
+        git: {
+          read: async () => {
+            world.gitReads += 1;
+            return world.facts;
+          },
+        } satisfies StoryPrGit,
         offices: {
           get: () => office,
-          config: () => OFFICE_DEFAULTS,
+          config: () => world.config,
         },
         clock: t.clock,
       }),
@@ -391,6 +414,99 @@ describe("the story PR", () => {
       expect(findStoryPr(w.office, w.run)?.number).toBe(7);
       expect(w.host.creates).toHaveLength(1);
       expect(storyPrEvents(w.office)).toHaveLength(1);
+    });
+  });
+});
+
+// DIPO-210: an office with storyPr.open false gets no story PR (0019 amendment of 2026-10-19).
+const PRS_OFF: OfficeConfig = { ...OFFICE_DEFAULTS, storyPr: { open: false } };
+
+/** Arms the poll from the load step, as the daemon does when the office loads. */
+function armPoll(w: World): void {
+  let step: ((ctx: unknown) => unknown) | undefined;
+  w.prs.feature.register({
+    registerLoadStep: (_name: string, run: (ctx: unknown) => unknown) => {
+      step = run;
+    },
+  } as never);
+  step?.({ officeId: w.office.officeId, office: w.office, clock: w.t.clock, config: w.config });
+}
+
+/** Lets the poll timer fire `times` times and its retries finish. */
+async function pollIntervals(w: World, times: number): Promise<void> {
+  for (let n = 0; n < times; n++) {
+    w.t.clock.advance(w.config.polling.prStateSeconds * 1000);
+    for (let i = 0; i < 20; i++) await yieldToEventLoop();
+  }
+}
+
+describe("the story PR switched off with storyPr.open false", () => {
+  it("calls the host zero times across an In Review push, a later push and a poll, and raises no pr.openFailed", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      w.config = PRS_OFF;
+      // A create would fail: with the switch on this run would get a pr.openFailed notice.
+      w.host.failCreate = new CodeHostError("failed", "gh: network is down");
+      armPoll(w);
+
+      // The In Review push.
+      await w.prs.sync(id, w.run);
+      // A later push on a new head.
+      w.facts = { ...FACTS, head: "b".repeat(40) };
+      await w.prs.sync(id, w.run);
+      expect(w.host.calls).toEqual([]);
+      // The poll, called directly and from its timer.
+      const tried = await w.prs.retry(id);
+      await pollIntervals(w, 2);
+
+      expect(w.host.calls).toEqual([]);
+      expect(tried).toEqual([]);
+      expect(w.gitReads).toBe(0);
+      expect(findStoryPr(w.office, w.run)).toBeNull();
+      expect(storyPrEvents(w.office)).toHaveLength(0);
+      expect(notices(w.office, STORY_PR_NOTICES.openFailed)).toHaveLength(0);
+      expect(notices(w.office, STORY_PR_NOTICES.opened)).toHaveLength(0);
+      expect(storyView(w.office, w.key)?.lifecycle).toBe("In Review");
+      expect(storyView(w.office, w.key)?.pr).toBeUndefined();
+    });
+  });
+
+  it("neither updates nor polls a PR opened before the office switched it off", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      expect(w.host.calls).toEqual(["findOpenPr", "createPr"]);
+      const before = w.host.calls.length;
+
+      w.config = PRS_OFF;
+      armPoll(w);
+      w.facts = { ...FACTS, story: { ...FACTS.story, outcome: "changed" }, head: "b".repeat(40) };
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "merged";
+      expect(await w.prs.retry(id)).toEqual([]);
+      await pollIntervals(w, 2);
+
+      expect(w.host.calls).toHaveLength(before);
+      expect(w.host.updates).toHaveLength(0);
+      expect(w.host.views).toEqual([]);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ headSha: FACTS.head, state: "open" });
+      expect(storyPrEvents(w.office)).toHaveLength(1);
+    });
+  });
+
+  it("picks the office up again once the key is back on", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      w.config = PRS_OFF;
+      armPoll(w);
+      await w.prs.sync(id, w.run);
+      await pollIntervals(w, 1);
+      expect(w.host.calls).toEqual([]);
+
+      w.config = { ...OFFICE_DEFAULTS, storyPr: { open: true } };
+      await pollIntervals(w, 1);
+      expect(w.host.creates).toHaveLength(1);
+      expect(findStoryPr(w.office, w.run)?.number).toBe(7);
     });
   });
 });
