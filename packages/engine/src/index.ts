@@ -224,6 +224,7 @@ export type { BacklogCli } from "./backlog/runner";
 export * from "./backlog/lane";
 export * from "./backlog/pr";
 export * from "./merge-slot";
+export * from "./story-pr";
 export * from "./office/init";
 export * from "./run";
 export * from "./hooks";

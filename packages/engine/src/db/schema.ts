@@ -36,6 +36,7 @@ import { runGrants } from "./migrations/0032-run-grants";
 import { promptTexts } from "./migrations/0033-prompt-texts";
 import { runRounds } from "./migrations/0034-run-rounds";
 import { usageOutputState } from "./migrations/0035-usage-output-state";
+import { storyPrs } from "./migrations/0036-story-prs";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -107,4 +108,5 @@ create table offices (
   promptTexts,
   runRounds,
   usageOutputState,
+  storyPrs,
 ];

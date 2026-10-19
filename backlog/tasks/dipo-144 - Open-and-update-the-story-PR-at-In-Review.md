@@ -1,10 +1,10 @@
 ---
 id: DIPO-144
 title: Open and update the story PR at In Review
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 12:51'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 08:40'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -24,6 +24,7 @@ references:
   - packages/daemon/src/
   - packages/engine/test/story-pr/
   - packages/engine/test/db/
+  - packages/engine/test/run/verify-commit.test.ts
 priority: high
 type: feature
 ordinal: 133000
@@ -58,9 +59,19 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Right after the In Review push the engine looks for an open PR with the story branch as head and creates a ready PR, not a draft, when none exists; every later In Review push updates the same PR, and a crash between push and create never opens a second one
-- [ ] #2 The title is <type>(<ID>): <subject>, with feature and enhancement mapped to feat, bug to fix, docs and spike to docs and every other type to chore, and the subject being the story title without trailing full stops, first letter lowercased unless the second character is uppercase, cut to at most 100 characters on a word boundary
-- [ ] #3 The body is built by code in the order outcome, criteria ticked as in the task file, test plan, declared scope, status block, footer; it is at most 20,000 characters with the story contract never cut, and is updated only when its stored hash changes
-- [ ] #4 A story_prs row (key, run, number, URL, branch, base, pushed head, state, body hash, opened and closed times; retention tier S) is written per PR, StoryView.pr shows it, and story.pr is emitted when a PR opens, changes state or gets a new head
-- [ ] #5 A failed create raises a pr.openFailed notice, the story stays In Review, and a retry every polling.prStateSeconds creates the PR
+- [x] #1 Right after the In Review push the engine looks for an open PR with the story branch as head and creates a ready PR, not a draft, when none exists; every later In Review push updates the same PR, and a crash between push and create never opens a second one
+- [x] #2 The title is <type>(<ID>): <subject>, with feature and enhancement mapped to feat, bug to fix, docs and spike to docs and every other type to chore, and the subject being the story title without trailing full stops, first letter lowercased unless the second character is uppercase, cut to at most 100 characters on a word boundary
+- [x] #3 The body is built by code in the order outcome, criteria ticked as in the task file, test plan, declared scope, status block, footer; it is at most 20,000 characters with the story contract never cut, and is updated only when its stored hash changes
+- [x] #4 A story_prs row (key, run, number, URL, branch, base, pushed head, state, body hash, opened and closed times; retention tier S) is written per PR, StoryView.pr shows it, and story.pr is emitted when a PR opens, changes state or gets a new head
+- [x] #5 A failed create raises a pr.openFailed notice, the story stays In Review, and a retry every polling.prStateSeconds creates the PR
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M59JDECXWHHWCJ0MA6RWJFS4 (Sonnet medium, 66 turns, about $1.73, 8 min) reported done, In Review on the story branch. One sed -i was auto-denied (G7). Migration 36 adds story_prs; after a green verify and a push that reached the remote, the engine opens (or reuses) the story PR with a code-built title and body and updates it on later pushes when the title or body hash changes; StoryView.pr and story.pr; pr.openFailed once per run and cause, with a retry every polling.prStateSeconds.
+
+Review blocked twice, fixed on top: the prStateSeconds poll reads each open PR on the host and writes merged or closed with closed_at and one story.pr (criterion 4); the retry only picks runs whose story is In Review now, with a live claim and an In Review push that reached the remote (verify-commit records pushedAt), so historical Done runs never get a PR. packages/engine/test/run/verify-commit.test.ts (the pushedAt tests) was added to the References. Verify outside the sandbox: 3460 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on story-pr, db, run, views and daemon: 641 pass.
+
+Not live on this repository yet: by the maintainer's choice (2026-10-19) the temp daemon keeps a binary without this story until the office key that switches story PRs off lands, since the maintainer side merges its own finish-branch PRs here. Follow-ups: retention/run.ts does not prune story_prs (closed_at is now written); the status block has no checks line and a fixed review line (DIPO-147, DIPO-152); pushedAt and the run end must keep the same time, or the retry stops.
+<!-- SECTION:NOTES:END -->

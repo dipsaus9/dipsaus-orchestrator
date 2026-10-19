@@ -36,7 +36,7 @@ import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
-import { insertClaim } from "../../src/worktree/records";
+import { findClaim, insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 
 function profileOf(scripts: Record<string, string>, workspaces: string[] = []): RunProfile {
@@ -165,6 +165,8 @@ interface World {
   config?: OfficeConfig;
   scanFails?: boolean;
   pushRejected: boolean;
+  /** A push failure that is not a rejection, such as a network error. */
+  pushError?: string;
 }
 
 const TASK_FILE = "backlog/tasks/dipo-1 - Add-a-greeting.md";
@@ -192,6 +194,8 @@ function fakeStoryGit(world: () => World): StoryGit {
     },
     push: async (_o, branch) => {
       world().calls.push(`push ${branch}`);
+      const { pushError } = world();
+      if (pushError !== undefined) return { pushed: false, rejected: false, error: pushError };
       return world().pushRejected
         ? { pushed: false, rejected: true, error: "pushing failed ([rejected] non-fast-forward)" }
         : { pushed: true, rejected: false, error: null };
@@ -554,6 +558,20 @@ describe("verify and commit", () => {
     await play();
     expect(parks().map((p) => [p.reason, p.cause])).toEqual([["conflict", "push-rejected"]]);
     expect(events("story.state").map((e) => e["to"])).toEqual(["Parked"]);
+  });
+
+  it("records the In Review push on the claim at the run's end (DIPO-144)", async () => {
+    await play();
+    const run = findRun(w.f.office, w.f.run);
+    expect(run?.endKind).toBe("in-review");
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBe(run?.endedAt ?? -1);
+  });
+
+  it("leaves the claim's push unrecorded when the In Review push fails (DIPO-144)", async () => {
+    w.pushError = "pushing failed (network is down)";
+    await play();
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBeNull();
   });
 
   it("writes an outcome row for a budget-exceeded park too", async () => {

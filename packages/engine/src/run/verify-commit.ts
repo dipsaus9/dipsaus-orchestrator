@@ -29,11 +29,15 @@
 //    story id; the code tree key is recorded on the green results; the Backlog CLI checks off the
 //    criteria the report marks met and sets In Review, committed alone as `<ID>: status In Review`;
 //    the branch is pushed without force. Then, in one transaction, the run ends at In Review with
-//    its outcome row (`endRun`) and summary, and `story.state` moves the story to In Review. A
+//    its outcome row (`endRun`) and summary, a push that reached the remote is recorded on the
+//    claim at the run's end (`claims.pushed_at`), and `story.state` moves the story to In Review. A
 //    non-fast-forward push rejection parks `conflict` (0010); any other push failure is a notice and
 //    the story stays In Review with the branch local. A failure in the commit steps parks
 //    `interrupted` with the error. A commit that holds dependency files (manifests, lockfiles,
 //    `requirements*.txt`) raises `verify.dependenciesChanged` naming them (DIPO-84).
+// 6. The story PR (DIPO-144; 0019 section 3). After a push that reached the remote, `storyPr.sync`
+//    opens the story's ready PR, or updates the one it has. It never fails the commit: a failed
+//    create is a `pr.openFailed` notice and a retry poll, and the story stays In Review.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -68,7 +72,7 @@ import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress } from "../views/work";
 import type { WorkerReport } from "../workers/types";
-import { findClaim } from "../worktree/records";
+import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
@@ -334,6 +338,11 @@ export interface VerifyCommitDeps {
   };
   /** Keep-awake: verify registers while it runs (DIPO-63). */
   readonly work?: { beginVerify(): () => void };
+  /**
+   * The story PR (DIPO-144): called right after an In Review push that reached the remote, to open
+   * or update the story's PR. It never throws; a failure is its own notice.
+   */
+  readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -694,6 +703,8 @@ export class VerifyCommit implements RunFinisher {
       const office = ctx.office;
       const at = this.#deps.clock.now();
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
+      // The In Review push on the remote, at the run's end: the PR poll retries only such a run.
+      if (push.pushed) updateClaim(office, run.runId, { pushedAt: at });
       endRunMarked(office, run.runId, at, IN_REVIEW_END);
       const key = run.key as StoryKey;
       const current = storyView(office, key);
@@ -703,6 +714,7 @@ export class VerifyCommit implements RunFinisher {
         title: current?.title ?? input.view.title,
         lifecycle: "In Review",
         ...(current?.tier === undefined ? {} : { tier: current.tier }),
+        ...(current?.pr === undefined ? {} : { pr: current.pr }),
       });
       const entries: NewEntry[] = [
         {
@@ -740,6 +752,8 @@ export class VerifyCommit implements RunFinisher {
       }
       return entries;
     });
+    // 6. The story PR: opened, or updated when an earlier push already opened it (0019 section 3).
+    if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
     return { kind: "ended" };
   }
 }
