@@ -275,25 +275,28 @@ export async function tearDown(
   return outcome;
 }
 
-/** The git steps of a teardown, inside one queue item. */
-async function removeAll(
-  deps: TeardownDeps,
+/** What the worktree steps of a teardown report. */
+export type WorktreeOutcome =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly why: string;
+      readonly files: readonly string[];
+    };
+
+/**
+ * The worktree steps of a teardown, inside one queue item: records `teardown_started_at`, unlocks
+ * the worktree (only a lock this claim holds), removes it with `git worktree remove` without
+ * `--force` and unpins it. A worktree git refuses to remove or one locked by anyone else keeps
+ * everything: the lock is put back and the start record cleared. A worktree already gone is fine.
+ */
+export async function removeWorktree(
+  deps: Pick<TeardownDeps, "office" | "git" | "clock">,
   git: GitSession,
   claim: ClaimRecord,
-  tip: string | null,
-): Promise<TeardownOutcome> {
+): Promise<WorktreeOutcome> {
   const path = claim.worktree;
-  const ref = `refs/heads/${claim.branch}`;
   const ours = claimLockReason(claim.runId);
-  // The branch must still be where the detection judged it; a commit since then is kept.
-  const current = await revParse(git, ref);
-  if (current !== tip) {
-    return {
-      ok: false,
-      why: `the branch ${claim.branch} moved from ${tip ?? "(gone)"} to ${current ?? "(gone)"} after Done was detected; dipo checks it again on its next poll`,
-      files: [],
-    };
-  }
   const mark = (at: number | null) =>
     deps.office.immediate(() => markTeardownStarted(deps.office, claim.runId, at));
   if (deps.git.adminDirOf(path) !== null) {
@@ -331,6 +334,28 @@ async function removeAll(
     mark(claim.teardownStartedAt ?? deps.clock.now());
     deps.git.unpinWorktree(path);
   }
+  return { ok: true };
+}
+
+/** The git steps of a teardown, inside one queue item. */
+async function removeAll(
+  deps: TeardownDeps,
+  git: GitSession,
+  claim: ClaimRecord,
+  tip: string | null,
+): Promise<TeardownOutcome> {
+  const ref = `refs/heads/${claim.branch}`;
+  // The branch must still be where the detection judged it; a commit since then is kept.
+  const current = await revParse(git, ref);
+  if (current !== tip) {
+    return {
+      ok: false,
+      why: `the branch ${claim.branch} moved from ${tip ?? "(gone)"} to ${current ?? "(gone)"} after Done was detected; dipo checks it again on its next poll`,
+      files: [],
+    };
+  }
+  const worktree = await removeWorktree(deps, git, claim);
+  if (!worktree.ok) return worktree;
 
   // The local branch, only now that Done is detected (0010 section 7), and only while it is still
   // at the tip the detection judged (`git update-ref -d` with the old value, like `branch -D`
@@ -367,7 +392,11 @@ async function removeAll(
 }
 
 /** The files `git status` lists in the worktree; empty when it cannot be read. */
-async function dirtyFiles(deps: TeardownDeps, git: GitSession, path: string): Promise<string[]> {
+async function dirtyFiles(
+  deps: Pick<TeardownDeps, "git">,
+  git: GitSession,
+  path: string,
+): Promise<string[]> {
   try {
     const location = deps.git.worktreeLocation(path);
     return statusPaths(
