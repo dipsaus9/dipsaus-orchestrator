@@ -112,6 +112,24 @@ describe("default provider: scope", () => {
     expect(pack.items[0]?.reason).toMatchObject({ shown: 15, total: 20 });
   });
 
+  it("keeps the name order and notes it when git cannot give the commit order", async () => {
+    const files: Record<string, string> = { "pkg/b.ts": "", "pkg/a.ts": "" };
+    const workspace = {
+      ...memoryWorkspace(files),
+      filesByLastCommit: async () => {
+        throw new Error("unknown revision");
+      },
+    };
+    const pack = await createDefaultProvider({ workspace }).gather(
+      request({ scope: ["pkg/"], baseSha: "d".repeat(40) }),
+      12_000,
+    );
+    expect(pack.items[0]?.text.split("\n")).toEqual(["pkg/a.ts", "pkg/b.ts"]);
+    expect(pack.provenance.notes).toEqual([
+      `scope directory pkg/: no commit order on ${"d".repeat(40)} (unknown revision), files in name order`,
+    ]);
+  });
+
   it("gives no item for the decision records and recording data unless the story names a path in them", async () => {
     const files: Record<string, string> = {
       "docs/decisions/0001-a.md": "",

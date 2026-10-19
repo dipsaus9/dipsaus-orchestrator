@@ -104,16 +104,25 @@ function namesPathIn(req: ContextRequest, dir: string): boolean {
   return [req.outcome, ...req.criteria].some((text) => pattern.test(text));
 }
 
-/** The files of `dir` changed most recently on `baseSha` first, the rest in name order. */
+/**
+ * The files of `dir` changed most recently on `baseSha` first, the rest in name order. A git
+ * error (an unknown sha, a timeout) leaves the name order and adds a provenance note.
+ */
 async function filesByRecentChange(
   ws: Workspace,
   baseSha: string,
   dir: string,
   files: readonly string[],
+  notes: string[],
 ): Promise<string[]> {
   const present = new Set(files);
-  // A base sha the checkout does not know (no history yet) leaves the name order.
-  const ordered = await ws.filesByLastCommit?.(baseSha, dir).catch(() => []);
+  const ordered = await ws.filesByLastCommit?.(baseSha, dir).catch((error: unknown) => {
+    const why = error instanceof Error ? error.message : String(error);
+    notes.push(
+      `scope directory ${dir === "" ? "./" : `${dir}/`}: no commit order on ${baseSha} (${why}), files in name order`,
+    );
+    return [];
+  });
   const first = [...new Set(ordered ?? [])].filter((file) => present.has(file));
   const done = new Set(first);
   return [...first, ...files.filter((file) => !done.has(file)).toSorted()];
@@ -244,7 +253,7 @@ async function gatherDefault(
     } else if (entry.kind === "dir") {
       if (isHidden(entry.path) && !namesPathIn(req, entry.path)) continue;
       const label = entry.path === "" ? "./" : `${entry.path}/`;
-      const recent = await filesByRecentChange(ws, req.baseSha, entry.path, entry.files);
+      const recent = await filesByRecentChange(ws, req.baseSha, entry.path, entry.files, notes);
       const list = listing(recent, DIRECTORY_RECENT_MAX, CONTEXT_ITEM_MAX, label);
       candidates.push({
         item: {
@@ -258,7 +267,7 @@ async function gatherDefault(
       while (parent !== "" && !index.has(parent)) parent = parentOf(parent);
       const label = parent === "" ? "./" : `${parent}/`;
       const under = filesUnder(sortedFiles, parent);
-      const recent = await filesByRecentChange(ws, req.baseSha, parent, under);
+      const recent = await filesByRecentChange(ws, req.baseSha, parent, under, notes);
       const list = listing(recent, DIRECTORY_RECENT_MAX, CONTEXT_ITEM_MAX, label);
       candidates.push({
         item: {
