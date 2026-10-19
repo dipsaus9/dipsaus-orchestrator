@@ -1,10 +1,10 @@
 ---
 id: DIPO-216
 title: Release the claim of a story Done on the base and remove its clean worktree
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 20:45'
+updated_date: '2026-10-19 20:58'
 labels:
   - 'tier:M'
   - cutover
