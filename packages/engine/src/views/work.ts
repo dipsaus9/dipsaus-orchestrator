@@ -212,7 +212,7 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
       agent: agent.agent_id,
       role: run.role,
       tier: run.tier ?? "",
-      budgetLimit: run.budgetLimit,
+      budgetLimit: runCaps(office, run).budgetTokens,
     }),
     health,
     signals: signals.map((signal) => ({ signal: signal.signal, since: iso(signal.since) })),

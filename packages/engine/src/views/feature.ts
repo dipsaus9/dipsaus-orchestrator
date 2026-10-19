@@ -27,7 +27,9 @@ import type { OfficeHandle } from "../db/office";
 import { openQuestionViews, storyQuestionViews } from "../hooks/questions";
 import { readUsage } from "../ingest/usage";
 import { promptTextsOf } from "../prompts/parts";
+import { runCaps } from "../run/caps";
 import { storedMarker } from "../run/markers";
+import { findRun } from "../run/records";
 
 import { activeStoryViews, storyView } from "./story";
 import { openGateViews } from "./summary";
@@ -83,12 +85,14 @@ export function storyRuns(office: OfficeHandle, key: StoryKey): RunRecord[] {
       { run: row.run_id },
     );
     const last = agents.at(-1);
+    const stored = findRun(office, RunId.parse(row.run_id));
+    if (stored === null) throw new Error(`run ${row.run_id} vanished inside its read`);
     const usage = readUsage(office, {
       run: row.run_id,
       agent: last?.agent_id ?? "",
       role: row.role,
       tier: row.tier ?? "",
-      budgetLimit: row.budget_limit,
+      budgetLimit: runCaps(office, stored).budgetTokens,
     });
     return {
       run: RunId.parse(row.run_id),
