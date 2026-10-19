@@ -66,6 +66,8 @@ export const PARK_CAUSES = {
   ci: "ci",
   /** `verify-failing`: verify could not run. */
   refused: "refused",
+  /** `verify-failing`: verify red on the done turn that crossed a cap, so no turn is left (0020). */
+  capped: "capped",
   /** `conflict`: the second failed conflict hand-off, the merge left in progress (0019). */
   mergeInProgress: "merge-in-progress",
   /** `conflict`: a conflict in a path the worker cannot write (0019). */

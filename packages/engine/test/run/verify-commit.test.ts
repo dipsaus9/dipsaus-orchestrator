@@ -678,3 +678,150 @@ describe("dependency files (DIPO-84)", () => {
     ).toEqual([]);
   });
 });
+
+// ---- a done report on the turn that crosses a cap (DIPO-205) --------------------------------------
+
+const MODEL = "claude-haiku-5-5";
+const setRun = (column: "max_turns" | "budget_limit" | "loop_cap", value: number): void => {
+  w.f.office.run(
+    `update runs set ${column} = $value where office_id = $office_id and run_id = $run`,
+    { value, run: w.f.run },
+  );
+};
+const capSteps = () =>
+  w.f.office.all<{ value: string }>(
+    `select value from run_steps where office_id = $office_id and run_id = $run
+      and kind = 'cap'`,
+    { run: w.f.run },
+  );
+/**
+ * One ingestion pass as run control sees it: the usage the events folded in is stored, then
+ * every `usage` and `turn` event is applied (the cap marks) before the pass is handled.
+ */
+async function pass(
+  pending: readonly WorkerEvent[],
+  used: { readonly turns: number; readonly tokens: number },
+): Promise<void> {
+  w.f.office.immediate(() => {
+    w.f.office.run(
+      `insert or ignore into agents (office_id, agent_id, run_id, role, model, session_id,
+         started_at) values ($office_id, $agent, $run, 'developer', $model, 's-1', 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL },
+    );
+    w.f.office.run(
+      `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input, turns,
+         updated_at)
+       values ($office_id, $run, $agent, $model, 'developer', 'S', $tokens, $turns, 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL, tokens: used.tokens, turns: used.turns },
+    );
+  });
+  for (const event of pending) {
+    if (event.t === "usage" || event.t === "turn") w.control.onEventApplied(w.f.run, event);
+  }
+  w.control.onWorkerEvents(w.f.run, pending);
+  await w.control.idle();
+}
+const usage = (input: number): WorkerEvent => ({
+  t: "usage",
+  messageId: "msg-1",
+  model: MODEL,
+  input,
+  output: 0,
+  cacheCreate: 0,
+  cacheCreate5m: 0,
+  cacheCreate1h: 0,
+  cacheRead: 0,
+});
+const feedbackSent = () => w.sent.flat().some((op) => "write" in op);
+const committed = [
+  "commit DIPO-1: print a greeting [src/greet.ts]",
+  "in-review [1]",
+  "push DIPO-1/add-a-greeting",
+];
+
+describe("a done report on the turn that crosses a cap (DIPO-205)", () => {
+  it("takes the done path on the turn that reaches the engine turn cap and records the cap", async () => {
+    setRun("max_turns", 1);
+    await pass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(committed);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap reached: 1 of 1 turns" }]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).not.toContain("cap");
+  });
+
+  it("takes the done path on the turn that reaches the token budget and records the cap", async () => {
+    setRun("budget_limit", 1_000);
+    await pass([turn(DONE)], { turns: 1, tokens: 2_000 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(committed);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(capSteps().map((step) => step.value)).toEqual([
+      "budgetTokens: token budget reached: 2,000 of 1,000 budget tokens (input, output and cache creation)",
+    ]);
+  });
+
+  it("takes the done path when the crossing usage event comes before the done turn in one pass", async () => {
+    setRun("budget_limit", 1_000);
+    await pass([usage(2_000), turn(DONE)], { turns: 1, tokens: 2_000 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(committed);
+    expect(capSteps()).toHaveLength(1);
+  });
+
+  it("takes the done path on a done turn that ended at the CLI --max-turns backstop", async () => {
+    const capped: WorkerEvent = {
+      t: "turn",
+      report: DONE,
+      totals: {},
+      numTurns: 61,
+      terminal: "max_turns",
+      capped: "turn cap (--max-turns) after 61 turns",
+    };
+    w.control.onWorkerEvents(w.f.run, [capped]);
+    await w.control.idle();
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(committed);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap (--max-turns) after 61 turns" }]);
+  });
+
+  it("parks verify-failing with cause capped when that verify fails, and sends no feedback turn", async () => {
+    setRun("max_turns", 1);
+    w.exitCodes = [1];
+    await pass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "capped"]]);
+    expect(parks()[0]?.detail).toContain("Exit code: 1");
+    expect(parks()[0]?.detail).toContain("test/greet.test.ts:7:15");
+    expect(feedbackSent()).toBe(false);
+    expect(w.sent).toEqual([[{ closeStdin: true }]]);
+    expect(w.calls).toEqual([]);
+    expect(capSteps()).toHaveLength(1);
+  });
+
+  it("lets capped win over loops when the same verify reaches the loop cap", async () => {
+    setRun("max_turns", 1);
+    setRun("loop_cap", 1);
+    w.exitCodes = [1];
+    await pass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "capped"]]);
+    expect(feedbackSent()).toBe(false);
+  });
+
+  it("still parks budget-exceeded with the cap detail when the crossing turn has no done report", async () => {
+    setRun("max_turns", 1);
+    await pass([turn(null)], { turns: 1, tokens: 10 });
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["budget-exceeded", "build", "turn cap reached: 1 of 1 turns"],
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(capSteps()).toEqual([]);
+  });
+
+  it("ends no run for a cap while the capped done path runs", async () => {
+    setRun("max_turns", 1);
+    await pass([turn(DONE), usage(1), turn(null)], { turns: 1, tokens: 10 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(committed);
+  });
+});
