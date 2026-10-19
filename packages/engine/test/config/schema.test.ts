@@ -10,18 +10,21 @@ import {
   OfficeConfigV4,
   OfficeConfigV5,
   OfficeConfigV6,
+  OfficeConfigV7,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
   OfficeFileV4,
   OfficeFileV5,
   OfficeFileV6,
+  OfficeFileV7,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
   OfficeLocalFileV4,
   OfficeLocalFileV5,
   OfficeLocalFileV6,
+  OfficeLocalFileV7,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -282,7 +285,6 @@ function officeFileV6(body: object): boolean {
 
 describe("version 6 key paths", () => {
   it("are the version 5 paths plus story.maintainerStepPhrases", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(6);
     expect(schemaKeyPaths(OfficeConfigV6)).toEqual(VERSION_6_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV6)).toEqual(
       VERSION_6_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -305,58 +307,104 @@ describe("version 6 key paths", () => {
   });
 });
 
+// Version 7 (DIPO-210): storyPr.open, the office switch for the story PR. office.local.yaml
+// gains no key.
+const VERSION_7_KEY_PATHS = [...VERSION_6_KEY_PATHS, "storyPr.open"];
+
+/** Whether `.dipo/office.yaml` version 7 accepts `body` as given. */
+function officeFileV7(body: object): boolean {
+  return OfficeFileV7.safeParse({ version: 7, ...body }).success;
+}
+
+describe("version 7 key paths", () => {
+  it("are the version 6 paths plus storyPr.open, which office.local.yaml does not take", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(7);
+    expect(schemaKeyPaths(OfficeConfigV7)).toEqual(VERSION_7_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV7)).toEqual(
+      VERSION_7_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV7)).toEqual(
+      VERSION_7_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+    expect(OfficeLocalFileV7.safeParse({ version: 7, storyPr: { open: false } }).success).toBe(
+      false,
+    );
+  });
+
+  it("accept a boolean storyPr.open and refuse anything else", () => {
+    expect(officeFileV7({ storyPr: { open: false } })).toBe(true);
+    expect(officeFileV7({ storyPr: {} })).toBe(true);
+    expect(officeFileV7({ storyPr: { open: "no" } })).toBe(false);
+    expect(officeFileV7({ storyPr: { open: false, draft: true } })).toBe(false);
+  });
+
+  it("keep version 6 without storyPr", () => {
+    expect(OfficeFileV6.safeParse({ version: 6, storyPr: { open: false } }).success).toBe(false);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 6 as the identity", () => {
+  it("migrates version 1 to 7 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 6 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 7 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 6 as the identity", () => {
+  it("migrates version 2 to 7 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 6 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 7 });
   });
 
-  it("migrates version 3 to 6 as the identity", () => {
+  it("migrates version 3 to 7 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 6 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 7 });
   });
 
-  it("migrates version 4 to 6 as the identity", () => {
+  it("migrates version 4 to 7 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 6 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 7 });
   });
 
-  it("migrates version 5 to 6 as the identity", () => {
+  it("migrates version 5 to 7 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 6 });
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 7 });
   });
 
-  it("leaves a version 6 document as it is", () => {
+  it("migrates version 6 to 7 as the identity", () => {
     const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual(v6);
+    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 7 });
   });
 
-  it("turns the version 1 defaults into the version 6 defaults but worker.plugins, mergeSlot, review and the step phrases", () => {
+  it("leaves a version 7 document as it is", () => {
+    const v7 = { version: 7, storyPr: { open: false } };
+    expect(migrateOfficeDocument(7, v7)).toEqual(v7);
+  });
+
+  it("turns the version 1 defaults into the version 7 defaults but worker.plugins, mergeSlot, review, the step phrases and storyPr", () => {
     const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
     const { maintainerStepPhrases: _phrases, ...story } = OFFICE_DEFAULTS.story;
-    const { mergeSlot: _mergeSlot, review: _review, ...rest } = OFFICE_DEFAULTS;
+    const { mergeSlot: _mergeSlot, review: _review, storyPr: _storyPr, ...rest } = OFFICE_DEFAULTS;
     const v1 = OfficeConfigV1.parse({ ...rest, story, version: 1, worker });
     expect(
-      OfficeConfigV6.parse({
+      OfficeConfigV7.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
         review: OFFICE_DEFAULTS.review,
         story: OFFICE_DEFAULTS.story,
+        storyPr: OFFICE_DEFAULTS.storyPr,
       }),
     ).toEqual(OFFICE_DEFAULTS);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 6 configuration", () => {
-    expect(OfficeConfigV6.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 7 configuration", () => {
+    expect(OfficeConfigV7.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("open the story PR (0019 section 3)", () => {
+    expect(OFFICE_DEFAULTS.storyPr).toEqual({ open: true });
   });
 
   it("give the story the step phrases that R27 refuses", () => {

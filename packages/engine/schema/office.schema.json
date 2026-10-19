@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 6
+      "const": 7
     },
     "tiers": {
       "type": "object",
@@ -863,6 +863,17 @@
       },
       "additionalProperties": false,
       "description": "Limits of the review loop (0019 section 16): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review."
+    },
+    "storyPr": {
+      "type": "object",
+      "properties": {
+        "open": {
+          "type": "boolean",
+          "description": "Whether the engine opens the story PR at the first In Review push and keeps it updated (0019 section 3). With false it opens, updates, polls and retries no story PR for this office and raises no pr.openFailed notice; the story stays In Review."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The story PR of this office (0019 section 3, amendment of 2026-10-19)."
     }
   },
   "required": ["version"],
