@@ -1,10 +1,10 @@
 ---
 id: DIPO-205
 title: Keep a done report that arrives on the turn that crosses a run cap
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-19 06:58'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:M'
   - cutover

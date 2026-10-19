@@ -3,10 +3,10 @@ id: DIPO-174
 title: >-
   Make the reviewer flag tests that take expected values from the code under
   test
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:00'
-updated_date: '2026-10-17 17:00'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:S'
   - cutover

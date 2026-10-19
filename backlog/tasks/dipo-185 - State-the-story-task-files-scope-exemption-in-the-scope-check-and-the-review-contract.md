@@ -3,10 +3,10 @@ id: DIPO-185
 title: >-
   State the story task file's scope exemption in the scope check and the review
   prompt
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-17 17:33'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:S'
   - cutover

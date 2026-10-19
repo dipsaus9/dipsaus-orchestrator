@@ -1,10 +1,10 @@
 ---
 id: DIPO-212
 title: Delete closed story PR records after the state retention period
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 14:43'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:S'
   - cutover

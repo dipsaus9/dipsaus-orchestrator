@@ -1,10 +1,10 @@
 ---
 id: DIPO-207
 title: Start a resumed or re-attached session with the effort its run started with
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-18 14:46'
+updated_date: '2026-10-19 15:14'
 labels:
   - 'tier:M'
   - cutover
