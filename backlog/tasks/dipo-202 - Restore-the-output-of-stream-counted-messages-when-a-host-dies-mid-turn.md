@@ -1,10 +1,10 @@
 ---
 id: DIPO-202
 title: Restore the output of stream-counted messages when a host dies mid-turn
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-19 07:09'
+updated_date: '2026-10-19 07:21'
 labels:
   - 'tier:M'
   - cutover
@@ -47,3 +47,13 @@ test_plan:
 - [x] #2 A test replays a scrubbed fixture under packages/engine/test/recordings/transcripts/ in which the host dies in its second turn after the stream counted one message of that turn; the expected output total is written as literals from the fixture lines, and a second pass adds nothing
 - [x] #3 The DIPO-134 tests pass unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M59FF7TA60YQXWVCAC3VF92N (Sonnet medium, 52 turns, about $0.73, 6 min) reported done, In Review on the story branch. Four compound commands were auto-denied (G7, DIPO-181). Migration 35 adds usage_messages.output_state (0 not in the turn totals, 1 in them, 2 restored from a transcript); applyTurnTotals marks the agent's messages 1, and transcript recovery adds output once for state 0 and only a higher output for state 2. A derived transcript recording (transcripts/second-turn) covers a host that died in its second turn.
+
+Review passed; the reviewer's mutation checks each fail the new test. Fixed on top: the migration comment states the backfill's loss (in a database from before migration 35, a message the stream counted after its agent's last turn end is never restored) and the recording's meta lists its numeric edits. Behaviour change worth knowing: for an agent with no turn end, the totals' output now holds only messages the transcript has, not the stream placeholders of the others. The worker's note that Bun's db.run runs one statement is wrong: Bun's Database.run runs all; the project's SqliteConnection.run wrapper (db.query(sql).run()) runs the first only, and migrations go through exec. Verify outside the sandbox: 3427 pass, 2 skip, 0 fail; DIPO_TEST_CI=1 on ingest, db and run: 428 pass.
+
+Process note: while checking the migration, the reviewer listed ~/Library/Application Support/dipo and copied the maintainer's real dipo.db into the session scratchpad, then migrated the copy. The real files were not changed; the copy was deleted, and agent briefs now forbid that path.
+<!-- SECTION:NOTES:END -->
