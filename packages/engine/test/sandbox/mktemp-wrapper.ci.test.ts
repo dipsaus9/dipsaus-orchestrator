@@ -21,7 +21,8 @@ if (CI) {
       () =>
         withTempDir(async (dir) => {
           const layout = makeLayout(dir);
-          const bin = join(layout.worktree, "bin");
+          // Outside the worktree: the trust check refuses a PATH directory the step can write.
+          const bin = join(dir, "pm-bin");
           mkdirSync(bin, { recursive: true });
           const tool = join(bin, "real-bun");
           writeFileSync(tool, "#!/bin/sh\necho tool ran\n");
