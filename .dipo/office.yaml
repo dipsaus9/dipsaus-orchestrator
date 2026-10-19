@@ -1,4 +1,4 @@
-version: 7
+version: 8
 # The worker sandbox reads the default toolchain paths (~/.bun, ~/.npm, ~/.cache). oxfmt and
 # oxlint run on node, so `bun run verify` passes inside a worker only when the sandbox can read
 # node too (DIPO-115). Where node lives is machine-specific, so it is not listed here: on a machine
@@ -17,3 +17,9 @@ version: 7
 # the review loop takes over, so a PR from dipo would be a second PR per story.
 storyPr:
   open: false
+
+# Worker web search and fetch (DIPO-164) stay off on this repository until the maintainer's live web
+# capture on the scratch repository confirms the fail-closed gate against the pinned Claude Code
+# (maintainer decision 2026-10-19).
+worker:
+  web: false
