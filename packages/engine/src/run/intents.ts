@@ -143,9 +143,9 @@ export interface IntentSent<R> {
  *
  * Exceptions, sent with no intent (each is an answer to something the worker did, or a send that
  * changes nothing about how the exit reads):
- * - closeStdin after a turn that ended the run (`run/control-turns.ts`, report-driven `ended`): the exit
- *   is explained by the worker's own report, not by an engine decision; an intent kind would give
- *   an outcome the adapter's `result` already gives.
+ * - closeStdin after a turn that ended the run (`run/control-turns.ts`, report-driven `ended`):
+ *   the exit is explained by the worker's own report, not by an engine decision; an intent kind
+ *   would give an outcome the adapter's `result` already gives.
  * - nudges (`hooks/nudges.ts`): one text per tool call, answering a hook call the worker is waiting
  *   on; they are counted as prompt parts (`nudges`) and never explain an exit.
  * - hook replies (`hooks/permissions.ts`): the allow or deny a waiting `PermissionRequest` hook
