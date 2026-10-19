@@ -35,6 +35,7 @@ import { mirrorGateTask } from "./migrations/0031-mirror-gate-task";
 import { runGrants } from "./migrations/0032-run-grants";
 import { promptTexts } from "./migrations/0033-prompt-texts";
 import { runRounds } from "./migrations/0034-run-rounds";
+import { usageOutputState } from "./migrations/0035-usage-output-state";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -105,4 +106,5 @@ create table offices (
   runGrants,
   promptTexts,
   runRounds,
+  usageOutputState,
 ];
