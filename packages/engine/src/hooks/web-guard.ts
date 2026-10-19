@@ -91,27 +91,57 @@ export function parseEnvText(text: string): Array<{ key: string; value: string }
   return found;
 }
 
-function safeDecode(text: string): string | null {
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return null;
+/** A run of `%XX` escapes. A `%` not followed by two hex digits is not part of one. */
+const ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g;
+
+/**
+ * Pure: `text` percent-decoded leniently. Each run of `%XX` escapes is decoded on its own as UTF-8;
+ * a run that is not valid UTF-8 (`%C0`) has its ASCII escapes decoded and its other escapes kept as
+ * written; a stray `%` stays as it is. `decodeURIComponent` throws on either, which would skip the
+ * decoded comparison for the whole target.
+ */
+export function lenientDecode(text: string): string {
+  return text.replace(ESCAPE_RUN, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run.replace(/%[0-7][0-9A-Fa-f]/g, (escape) => decodeURIComponent(escape));
+    }
+  });
+}
+
+/** How often a target is decoded again, for a value encoded more than once (`%2561` is `%61`). */
+export const MAX_DECODE_ROUNDS = 3;
+
+/**
+ * Pure: the forms of `target` a secret is looked for in: as written and each round of lenient
+ * percent-decoding until nothing changes, each also with `+` read as a space first.
+ */
+export function decodedForms(target: string): string[] {
+  const forms = new Set<string>([target]);
+  for (const start of [target, target.replaceAll("+", " ")]) {
+    let text = start;
+    for (let round = 0; round < MAX_DECODE_ROUNDS; round++) {
+      const next = lenientDecode(text);
+      if (next === text) break;
+      forms.add(next);
+      text = next;
+    }
   }
+  return [...forms];
 }
 
 /**
  * Pure: the first of `secrets` whose value `target` holds, as written, percent-encoded (the
  * encoded form of the value in the target, in either hex case) or after the target is
- * percent-decoded (a `+` read as a space too).
+ * percent-decoded leniently, up to `MAX_DECODE_ROUNDS` times (a `+` read as a space too).
  */
 export function findSecret(target: string, secrets: readonly EnvSecret[]): SecretHit | null {
-  const decoded = [safeDecode(target), safeDecode(target.replaceAll("+", " "))].filter(
-    (text): text is string => text !== null,
-  );
+  const decoded = decodedForms(target);
   const lowerTarget = target.toLowerCase();
   for (const secret of secrets) {
     if (secret.value.length < MIN_SECRET_CHARS) continue;
-    const written = [target, ...decoded].some((text) => text.includes(secret.value));
+    const written = decoded.some((text) => text.includes(secret.value));
     const encoded = [
       encodeURIComponent(secret.value),
       encodeURI(secret.value),

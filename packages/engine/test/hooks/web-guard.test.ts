@@ -13,8 +13,10 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import {
+  decodedForms,
   type EnvSecret,
   findSecret,
+  lenientDecode,
   MIN_SECRET_CHARS,
   parseEnvText,
   readEnvSecrets,
@@ -82,6 +84,22 @@ describe("findSecret (pure)", () => {
       file: ".env",
       key: "STRIPE_KEY",
     });
+  });
+
+  it("decodes leniently: a stray %, an invalid UTF-8 escape and a double encoding hide nothing (review)", () => {
+    const secrets: EnvSecret[] = [{ file: ".env", key: "TOKEN", value: "abcd1234" }];
+    const hit = { file: ".env", key: "TOKEN" };
+    // A stray '%' makes decodeURIComponent throw for the whole target.
+    expect(findSecret("https://x.test/?a=%&k=%61bcd1234", secrets)).toEqual(hit);
+    // An invalid UTF-8 escape elsewhere in the target, and right next to the value.
+    expect(findSecret("https://x.test/?x=%C0&k=%61bcd1234", secrets)).toEqual(hit);
+    expect(findSecret("https://x.test/?k=%C0%61bcd1234", secrets)).toEqual(hit);
+    // Encoded twice, and three times.
+    expect(findSecret("https://x.test/?k=%2561bcd1234", secrets)).toEqual(hit);
+    expect(findSecret("https://x.test/?k=%252561bcd1234", secrets)).toEqual(hit);
+    // The invalid escape is kept as written, the valid one decoded.
+    expect(lenientDecode("%C0%61%&%zz%e2%82%ac")).toBe("%C0a%&%zz€");
+    expect(decodedForms("%2561")).toEqual(["%2561", "%61", "a"]);
   });
 
   it("allows a clean URL or query and ignores values under the minimum length", () => {
