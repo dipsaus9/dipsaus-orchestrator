@@ -1,10 +1,10 @@
 ---
 id: DIPO-218
 title: Count a slash run as a path token only when it looks like a path
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 15:12'
-updated_date: '2026-10-19 21:43'
+updated_date: '2026-10-19 21:54'
 labels:
   - 'tier:S'
   - cutover
@@ -44,3 +44,9 @@ test_plan:
 - [x] #3 Tests in packages/engine/test/gate/ show R10 failing for `Writes TBD/later etc`, `Writes and/or,etc` and `Writes etc/zprofile`, and passing for `/etc/zprofile`, `/etc/zprofile,` (with a comma), `~/etc/x`, `./etc/x`, `../etc/x`, `packages/etc/`, `src/etc.ts` and `(src/etc.ts)`; the DIPO-170 tests for `Writes the file at etc/zprofile` and for a code span written right after a word now expect an R10 failure
 - [x] #4 A test shows R27 matching `task notes` in `Write the task notes/later` and not in `Write the task notes/x.md`, where `notes/x.md` is a path token
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B1KVQT60P9Z801P8SDX2JC (Haiku, 15 turns, about $0.01, 3 min) reported done, In Review, with no denied call and no write outside the References. looksLikePath in gate/text.ts masks a slash run only when it starts with /, ~, ./ or ../, ends in /, or its last segment has an extension, after removing surrounding brackets, quotes and trailing punctuation (0012 amendment of 2026-10-19); `~x` counts as starting with ~ and a backtick counts as a quote, both within the ADR wording. Prose like etc/zprofile, TBD/later and and/or is matched again; the DIPO-170 tests hold. Fixed on top after review (blocking): a test for the criterion's own input `Writes etc/zprofile`, and a corrected test comment. Known limit, filed as a gap candidate: a code span glued to a word joins its run, so `etc` followed by a code span holding a file name is still masked. Verify outside the sandbox: 3704 tests, 0 fail; DIPO_TEST_CI=1 gate tests pass.
+<!-- SECTION:NOTES:END -->
