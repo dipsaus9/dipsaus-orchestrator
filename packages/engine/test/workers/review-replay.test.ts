@@ -76,6 +76,24 @@ describe("review recordings", () => {
         expect(run.result.resumable).toBe(false);
       });
 
+      it("carries the result's report in the StructuredOutput tool use and its streamed deltas", () => {
+        const report = lastResult(recording)["structured_output"];
+        const messages = stdout(recording);
+        const inputs = messages
+          .filter((message) => message["type"] === "assistant")
+          .flatMap((message) => (message["message"] as Json)["content"] as Json[])
+          .filter((block) => block["type"] === "tool_use" && block["name"] === "StructuredOutput")
+          .map((block) => block["input"]);
+        expect(inputs).toEqual([report]);
+        const streamed = messages
+          .map((message) => (message["type"] === "stream_event" ? message["event"] : undefined))
+          .map((event) => (event as Json | undefined)?.["delta"] as Json | undefined)
+          .filter((delta) => delta?.["type"] === "input_json_delta")
+          .map((delta) => delta?.["partial_json"])
+          .join("");
+        expect(JSON.parse(streamed)).toEqual(report);
+      });
+
       it("ran with the reviewer's tools and no skill", () => {
         const init = stdout(recording).find(
           (message) => message["type"] === "system" && message["subtype"] === "init",

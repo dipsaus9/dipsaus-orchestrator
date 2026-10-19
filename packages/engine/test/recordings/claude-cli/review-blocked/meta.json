@@ -10,7 +10,8 @@
   "cites": [
     "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for; no live review run showed them (0019 section 4)",
     "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands",
-    "structured_output is an illustrative ReviewReport (0019 section 5); no live review run returned one"
+    "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5); no live review run returned one",
+    "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts): they are fixed illustrative text, not a live session's, and the replay tests read them"
   ],
   "kind": "review"
 }
