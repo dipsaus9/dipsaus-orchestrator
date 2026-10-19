@@ -194,11 +194,17 @@ describe("interpret (0008 section 3)", () => {
       { t: "activity", kind: "tool", tool: "Bash", input: "bun test" },
       { t: "activity", kind: "tool", tool: "Grep", path: "${WORKDIR}/src", input: "TODO" },
       { t: "activity", kind: "tool", tool: "Glob", input: "**/*.ts" },
-      { t: "activity", kind: "tool", tool: "WebFetch", input: "https://x.test" },
-      { t: "activity", kind: "tool", tool: "WebSearch", input: "bun" },
+      // A web call carries no input on its activity: its query or URL is an output line (below).
+      { t: "activity", kind: "tool", tool: "WebFetch" },
+      { t: "activity", kind: "tool", tool: "WebSearch" },
       // File contents and edits never travel as input; the path says what was touched.
       { t: "activity", kind: "tool", tool: "Write", path: "${WORKDIR}/a.ts" },
       { t: "activity", kind: "tool", tool: "Bash" },
+    ]);
+    // Every web call shows with its query or URL, whatever the opt-in for tool inputs (DIPO-164).
+    expect(events.filter((event) => event.t === "output")).toEqual([
+      { t: "output", text: "[web] WebFetch https://x.test\n" },
+      { t: "output", text: "[web] WebSearch bun\n" },
     ]);
   });
 

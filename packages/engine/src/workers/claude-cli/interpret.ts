@@ -21,7 +21,8 @@ import type {
   WorkerEvent,
   WorkerReport,
 } from "../types";
-import { hookEventOf } from "./hooks";
+import { oneLineInput } from "../../ingest/output";
+import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { parseReviewReport, WorkerReportSchema } from "./report-schema";
 import { skillRefusal } from "./skills";
@@ -777,6 +778,12 @@ const INPUT_FIELDS: Readonly<Record<string, string>> = {
   WebSearch: "query",
 };
 
+/** The output line of a web call: `[web] WebFetch https://…`, the input cut as other tool inputs. */
+export function webLine(tool: string, input: string | undefined): string {
+  const line = input === undefined ? "" : oneLineInput(input);
+  return `[web] ${tool}${line === "" ? "" : ` ${line}`}\n`;
+}
+
 function toolInput(tool: string, input: unknown): string | undefined {
   const field = INPUT_FIELDS[tool];
   if (field === undefined || !isRecord(input)) return undefined;
@@ -859,14 +866,20 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
     } else {
       const path = toolPath(tool.data.input);
       const input = toolInput(tool.data.name, tool.data.input);
+      // A web call always shows its query or URL (0020 section 11b), whatever the privacy opt-in
+      // for tool inputs: its line is an output line of its own, and the activity carries no input.
+      const web = WEB_TOOLS.includes(tool.data.name);
       events.push({
         t: "activity",
         kind: "tool",
         tool: tool.data.name,
         ...(path === undefined ? {} : { path }),
-        ...(input === undefined ? {} : { input }),
+        ...(input === undefined || web ? {} : { input }),
         ...scope,
       });
+      if (web && agentId === undefined) {
+        events.push({ t: "output", text: webLine(tool.data.name, input) });
+      }
     }
   }
 

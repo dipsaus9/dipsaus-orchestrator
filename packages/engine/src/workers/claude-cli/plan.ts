@@ -9,7 +9,12 @@ import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../san
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
-import { DEFAULT_PERMISSION_WAIT_SECONDS, HOOK_BUNFIG_FILE, hookSettings } from "./hooks";
+import {
+  DEFAULT_PERMISSION_WAIT_SECONDS,
+  HOOK_BUNFIG_FILE,
+  hookSettings,
+  WEB_TOOLS,
+} from "./hooks";
 import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
 import {
   PREVIEW_SAFE_CHAIN_ROUTE,
@@ -287,7 +292,19 @@ function checkSpec(spec: WorkerSpec): void {
       );
     }
   }
+  // A web tool without the hook that checks its URL or query for env values is never planned
+  // (0020 section 11b): the check fails closed, and so does its absence.
+  if (webTools(spec) && !spec.hookRelay) {
+    throw new PlanError(
+      `${WEB_TOOLS.join(" and ")} need the hook relay, which checks each URL and query for env values (0020 section 11b)`,
+    );
+  }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
+}
+
+/** True when the session has a web tool (`worker.web`, 0020 section 11b). */
+function webTools(spec: Pick<WorkerSpec, "tools">): boolean {
+  return spec.tools.allow.some((tool) => WEB_TOOLS.includes(tool));
 }
 
 /** Where npm writes its debug logs in a worker run: the run temp directory (DIPO-98). */
@@ -393,6 +410,8 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     // every Bash call without one (0008 amendment of 2026-10-12, recording
     // `safety-bash-prompts-none`). The deny rules above, the read block, the sandbox and the
     // backstop stay the boundary.
+    // With `worker.web` the two web tools are allowed too: under `--permission-prompts none` a
+    // call nothing allows is denied (0020 section 11b). The `PreToolUse` hook is their check.
     allow: review
       ? [`Read(/${paths.workdir}/**)`, "Bash"]
       : [
@@ -400,6 +419,7 @@ function permissions(spec: WorkerSpec, paths: Paths) {
           `Edit(/${paths.workdir}/**)`,
           `Write(/${paths.workdir}/**)`,
           "Bash",
+          ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool)),
         ],
     deny: unique(deny),
     blockReadsOutsideWorkingDirectories: true,
@@ -544,7 +564,7 @@ function hooks(
       `permissionWaitSeconds must be a whole number from 1 to ${MAX_PERMISSION_WAIT_SECONDS}: ${wait}`,
     );
   }
-  return hookSettings(command, wait, runDir);
+  return hookSettings(command, wait, runDir, webTools(spec));
 }
 
 /** The largest `timeouts.permissionWaitSeconds` the relay accepts (`dipo hook --wait`): one hour. */

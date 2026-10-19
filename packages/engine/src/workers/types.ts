@@ -90,6 +90,11 @@ export type SteerOp =
   | { readonly kind: "pause" | "stop" | "kill" }
   /** The engine's reply to a waiting hook call (0008 section 5), adapter-neutral. */
   | { readonly kind: "hookReply"; readonly reply: HookReply }
+  /**
+   * The engine's answer to a waiting `PreToolUse` gate call (0020 section 11b, DIPO-164): a deny
+   * refuses the tool call, any other reply lets it proceed.
+   */
+  | { readonly kind: "toolGate"; readonly reply: HookReply }
   | NudgeOp;
 
 /**

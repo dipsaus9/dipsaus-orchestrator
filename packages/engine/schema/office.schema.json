@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 7
+      "const": 8
     },
     "tiers": {
       "type": "object",
@@ -136,6 +136,10 @@
             "pattern": "^[^@\\s]+@[^@\\s]+$"
           },
           "description": "Plugins a worker session may load, as <plugin>@<marketplace> (0008 amendment of 2026-10-12). Every other installed plugin is switched off in the run settings, and a session whose system/init lists one refuses to start. A listed plugin brings its hooks, which run outside the sandbox, so listing one is reviewed like code."
+        },
+        "web": {
+          "type": "boolean",
+          "description": "Whether the developer role gets WebSearch and WebFetch (0020 section 11b). Every call shows in the worker output and is counted on the run outcome, and a PreToolUse hook refuses a URL or query that holds a value from the copied env files. The Bash sandbox network stays closed and the reviewer gets no web tools. With false the developer keeps the M0 tool list."
         }
       },
       "additionalProperties": false

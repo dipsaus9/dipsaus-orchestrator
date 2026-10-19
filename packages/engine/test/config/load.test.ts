@@ -144,13 +144,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 8\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 9\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 8\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 9\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -481,11 +481,12 @@ describe("office configuration version 2", () => {
   it("loads a version 1 file migrated to version 5, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(7);
+    expect(v1.config.version).toBe(8);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
       plugins: [],
+      web: true,
     });
     expect(v1.config.remote).toBe("upstream");
     expect(v1.config.tiers.S.budgetTokens).toBe(250_000);
@@ -526,7 +527,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(7);
+      expect(result.config.version).toBe(8);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -729,7 +730,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
       }),
     );
     expect(v4.config).toEqual(v3.config);
-    expect(v4.config.version).toBe(7);
+    expect(v4.config.version).toBe(8);
   });
 });
 
@@ -737,7 +738,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
 describe("office configuration version 6", () => {
   it("gives a version 5 file the default step phrases", () => {
     const v5 = ok(resolveOfficeConfig({ office: "version: 5\n" }));
-    expect(v5.config.version).toBe(7);
+    expect(v5.config.version).toBe(8);
     expect(v5.config.story.maintainerStepPhrases).toEqual(
       OFFICE_DEFAULTS.story.maintainerStepPhrases,
     );
@@ -772,7 +773,7 @@ describe("office configuration version 6", () => {
 describe("office configuration version 7", () => {
   it("migrates a version 6 file in memory and opens the story PR by default", () => {
     const v6 = ok(resolveOfficeConfig({ office: "version: 6\n" }));
-    expect(v6.config.version).toBe(7);
+    expect(v6.config.version).toBe(8);
     expect(v6.config.storyPr).toEqual({ open: true });
     expect(ok(resolveOfficeConfig({})).config.storyPr.open).toBe(true);
   });
@@ -821,7 +822,7 @@ describe("office configuration version 7", () => {
         local: fixture("office-local-v4.yaml"),
       }),
     );
-    expect(result.config.version).toBe(7);
+    expect(result.config.version).toBe(8);
     expect(result.config.storyPr.open).toBe(false);
     expect(result.config.timeouts.workerStallMinutes).toBe(25);
     expect(result.config.privacy.keepRawEvents).toBe(true);
@@ -849,11 +850,66 @@ describe("office configuration version 7", () => {
   });
 });
 
+// Version 8 (DIPO-164): worker.web, the office switch for the developer role's web tools (0020
+// section 11b). It is committed with the repository: office.local.yaml does not take it.
+describe("office configuration version 8", () => {
+  it("migrates a version 7 file in memory and gives the developer web tools by default", () => {
+    const v7 = ok(resolveOfficeConfig({ office: "version: 7\nstoryPr: { open: false }\n" }));
+    expect(v7.config.version).toBe(8);
+    expect(v7.config.worker.web).toBe(true);
+    expect(v7.config.storyPr.open).toBe(false);
+    expect(ok(resolveOfficeConfig({})).config.worker.web).toBe(true);
+  });
+
+  it("reads worker.web false from a version 8 file", () => {
+    const result = ok(resolveOfficeConfig({ office: "version: 8\nworker: { web: false }\n" }));
+    expect(result.config.worker.web).toBe(false);
+    expect(result.config.worker.adapter).toBe("claude-cli");
+  });
+
+  it("refuses worker.web in a version 7 file and says version 8 adds it", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ office: "version: 7\nworker: { web: false }\n" }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.path).toBe("worker.web");
+    expect(error?.message).toContain("unknown key in version 7");
+    expect(error?.message).toContain("Version 8 adds worker.web: set version: 8 to use it");
+  });
+
+  it("refuses a worker.web that is not a boolean", () => {
+    const [error] = errors(resolveOfficeConfig({ office: "version: 8\nworker: { web: no }\n" }));
+    expect(error?.path).toBe("worker.web");
+  });
+
+  it("refuses worker.web in office.local.yaml", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({
+        office: "version: 8\n",
+        local: "version: 8\nworker: { web: false }\n",
+      }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.file).toBe(".dipo/office.local.yaml");
+    expect(error?.path).toBe("worker");
+  });
+
+  it("takes worker.web as a command flag override", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 8\nworker: { web: false }\n",
+        flags: { worker: { web: true } },
+      }),
+    );
+    expect(result.config.worker.web).toBe(true);
+  });
+});
+
 // Version 5 (DIPO-139): the review block and the rest of mergeSlot, with their defaults.
 describe("office configuration version 5", () => {
   it("migrates a version 3 file to version 5 and gives the new keys their defaults", () => {
     const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
-    expect(v3.config.version).toBe(7);
+    expect(v3.config.version).toBe(8);
     expect(v3.config.review).toEqual({
       model: "opus",
       effort: "high",

@@ -19,13 +19,15 @@
 // Version 7 (DIPO-210) adds `storyPr.open` (0019 amendment of 2026-10-19): whether the engine opens
 // and keeps the story PR for this office. `office.local.yaml` gains no key, so the switch is
 // committed with the repository.
+// Version 8 (DIPO-164) adds `worker.web` (0020 section 11b): whether the developer role gets
+// WebSearch and WebFetch. `office.local.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 7;
+export const OFFICE_CONFIG_VERSION = 8;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -256,7 +258,7 @@ const officeShapeV6 = {
 };
 
 // Version 7: the office keys of version 6 plus `storyPr.open` (DIPO-210).
-const officeShape = {
+const officeShapeV7 = {
   ...officeShapeV6,
   storyPr: z
     .strictObject({
@@ -267,6 +269,19 @@ const officeShape = {
         ),
     })
     .describe("The story PR of this office (0019 section 3, amendment of 2026-10-19)."),
+};
+
+// Version 8: the office keys of version 7 plus `worker.web` (DIPO-164).
+const officeShape = {
+  ...officeShapeV7,
+  worker: z.strictObject({
+    ...officeShapeV2.worker.shape,
+    web: z
+      .boolean()
+      .describe(
+        "Whether the developer role gets WebSearch and WebFetch (0020 section 11b). Every call shows in the worker output and is counted on the run outcome, and a PreToolUse hook refuses a URL or query that holds a value from the copied env files. The Bash sandbox network stays closed and the reviewer gets no web tools. With false the developer keeps the M0 tool list.",
+      ),
+  }),
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -323,15 +338,24 @@ export const OfficeConfigV6 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 7 (kept to read version 7 files). */
 export const OfficeConfigV7 = z.strictObject({
+  version: z.literal(7),
+  ...officeShapeV7,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/** The effective configuration of an office: every key set, after defaults and overrides. */
+export const OfficeConfigV8 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV7>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV8>;
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -429,6 +453,12 @@ export const OfficeFileV6 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 7: version 6 plus `storyPr.open` (DIPO-210). */
 export const OfficeFileV7 = z.strictObject({
+  version: z.literal(7),
+  ...fileShape(officeShapeV7),
+}) as unknown as z.ZodType<OfficeFileOf<7>>;
+
+/** `.dipo/office.yaml`, version 8: version 7 plus `worker.web` (DIPO-164). */
+export const OfficeFileV8 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -483,6 +513,12 @@ export const OfficeLocalFileV6 = z.strictObject({
  * `storyPr.open` is committed with the repository.
  */
 export const OfficeLocalFileV7 = z.strictObject({
+  version: z.literal(7),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<7>>;
+
+/** `.dipo/office.local.yaml`, version 8: the same keys as version 7 (DIPO-164 adds none here). */
+export const OfficeLocalFileV8 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -517,8 +553,13 @@ export const OfficeOverridesV6 = z.strictObject(
   fileShape(officeShapeV6),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 7 keys. */
 export const OfficeOverridesV7 = z.strictObject(
+  fileShape(officeShapeV7),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+export const OfficeOverridesV8 = z.strictObject(
   fileShape(officeShape),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
@@ -531,6 +572,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   5: OfficeFileV5,
   6: OfficeFileV6,
   7: OfficeFileV7,
+  8: OfficeFileV8,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -540,6 +582,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   5: OfficeLocalFileV5,
   6: OfficeLocalFileV6,
   7: OfficeLocalFileV7,
+  8: OfficeLocalFileV8,
 };
 
 /**
@@ -551,6 +594,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
  * when absent. Version 4 to 5 is the identity too: `review` and the new `mergeSlot` keys take
  * their defaults. Version 5 to 6 is the identity: `story.maintainerStepPhrases` takes its
  * default. Version 6 to 7 is the identity too: `storyPr.open` takes its default, true (DIPO-210).
+ * Version 7 to 8 is the identity too: `worker.web` takes its default, true (DIPO-164).
  * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -564,6 +608,7 @@ export function migrateOfficeDocument(
   if (current.version === 4) current = { ...current, version: 5 };
   if (current.version === 5) current = { ...current, version: 6 };
   if (current.version === 6) current = { ...current, version: 7 };
+  if (current.version === 7) current = { ...current, version: 8 };
   return current;
 }
 
@@ -617,7 +662,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   },
   // 0008 sections 2 and 5; `plugins` empty: no plugin in a worker session (0008 amendment of
   // 2026-10-12).
-  worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [] },
+  // `web` true: the developer role gets WebSearch and WebFetch (0020 section 11b, DIPO-164).
+  worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [], web: true },
   // 0016 rule 2: the checks every backlog PR waits for in the merge slot (DIPO-133). The rest of
   // the merge slot block and the review limits are DIPO-139's defaults (ADR 0019 section 16).
   mergeSlot: {

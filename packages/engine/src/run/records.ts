@@ -494,6 +494,12 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
     `select coalesce(sum(input + output + cache_create), 0) as n from usage_totals
       where office_id = $office_id and run_id = $run`,
   );
+  // The run's web calls by tool, counted from its tool activity (0020 section 11b, DIPO-164).
+  const web = office.get<{ searches: number; fetches: number }>(
+    `select web_searches as searches, web_fetches as fetches from runs
+      where office_id = $office_id and run_id = $run`,
+    { run: runId },
+  ) ?? { searches: 0, fetches: 0 };
   const criteria =
     run.key === null
       ? null
@@ -506,10 +512,10 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
     `insert into run_outcomes (office_id, run_id, story_id, tier, role, model, outcome,
        park_reasons, loops, review_rounds, verify_failures, budget_tokens, minutes,
        criteria_count, scope_size, ended_at, end_kind, final, review_rounds_failed, ci_attempts,
-       conflict_handoffs, override)
+       conflict_handoffs, override, web_searches, web_fetches)
      values ($office_id, $run, $story, $tier, $role, $model, $outcome, $parks, $loops, $reviews,
        $failures, $budget, $minutes, $criteria, $scope, $at, $kind, $final, $failed, $ci,
-       $conflicts, $override)
+       $conflicts, $override, $searches, $fetches)
      on conflict (office_id, run_id) do update set story_id = excluded.story_id,
        tier = excluded.tier, role = excluded.role, model = excluded.model,
        outcome = excluded.outcome, park_reasons = excluded.park_reasons, loops = excluded.loops,
@@ -518,7 +524,8 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
        criteria_count = excluded.criteria_count, scope_size = excluded.scope_size,
        ended_at = excluded.ended_at, end_kind = excluded.end_kind, final = excluded.final,
        review_rounds_failed = excluded.review_rounds_failed, ci_attempts = excluded.ci_attempts,
-       conflict_handoffs = excluded.conflict_handoffs, override = excluded.override
+       conflict_handoffs = excluded.conflict_handoffs, override = excluded.override,
+       web_searches = excluded.web_searches, web_fetches = excluded.web_fetches
      where run_outcomes.final = 0`,
     {
       run: runId,
@@ -543,6 +550,8 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
       ci: rounds.ciAttempts,
       conflicts: rounds.conflictHandoffs,
       override: rounds.override ? 1 : 0,
+      searches: web.searches,
+      fetches: web.fetches,
     },
   );
 }
@@ -572,6 +581,9 @@ export interface RunOutcome {
   readonly ciAttempts: number;
   readonly conflictHandoffs: number;
   readonly override: boolean;
+  /** The run's WebSearch and WebFetch calls (DIPO-164). */
+  readonly webSearches: number;
+  readonly webFetches: number;
 }
 
 export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | null {
@@ -597,6 +609,8 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
     ci_attempts: number;
     conflict_handoffs: number;
     override: number;
+    web_searches: number;
+    web_fetches: number;
   }>(`select * from run_outcomes where office_id = $office_id and run_id = $run`, { run: runId });
   return row === null
     ? null
@@ -622,5 +636,7 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
         ciAttempts: row.ci_attempts,
         conflictHandoffs: row.conflict_handoffs,
         override: row.override === 1,
+        webSearches: row.web_searches,
+        webFetches: row.web_fetches,
       };
 }

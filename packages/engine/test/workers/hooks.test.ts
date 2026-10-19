@@ -15,6 +15,7 @@ import {
   hookSettings,
   inputSummary,
   NUDGE_HOOKS,
+  preToolUseOutput,
   REGISTERED_HOOKS,
 } from "../../src/workers/claude-cli/hooks";
 import {
@@ -42,6 +43,10 @@ const FIXTURES: Record<(typeof REGISTERED_HOOKS)[number], [Record<string, unknow
       source: "startup",
       transcriptPath: "/home/maintainer/.claude/projects/x/session-1.jsonl",
     },
+  ],
+  PreToolUse: [
+    { tool_name: "WebFetch", tool_input: { url: "https://docs.example/a?q=1", prompt: "read" } },
+    { kind: "webCall", id: 640, tool: "WebFetch", target: "https://docs.example/a?q=1" },
   ],
   PermissionRequest: [
     { tool_name: "Bash", tool_input: { command: "docker compose up", description: "start" } },
@@ -348,12 +353,65 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
       string,
       [{ hooks: [{ command: string; timeout: number }] }]
     >;
-    for (const name of REGISTERED_HOOKS) {
+    for (const name of REGISTERED_HOOKS.filter((hook) => hook !== "PreToolUse")) {
       const entry = hooks[name]?.[0].hooks[0];
       if (entry === undefined) throw new Error(`no ${name} hook`);
       const nudged = (NUDGE_HOOKS as readonly string[]).includes(name);
       expect(entry.command.endsWith(" --nudge")).toBe(nudged);
       if (nudged) expect(entry.timeout).toBe(HOOK_TIMEOUT_SECONDS);
     }
+  });
+
+  it("registers PreToolUse for the web tools with --gate only with web (DIPO-164)", () => {
+    type Registered = Record<
+      string,
+      [{ matcher?: string; hooks: [{ command: string; timeout: number }] }]
+    >;
+    expect("PreToolUse" in hookSettings(["/opt/dipo"], 300, "/run/dir")).toBe(false);
+    const hooks = hookSettings(["/opt/dipo"], 300, "/run/dir", true) as Registered;
+    const entry = hooks["PreToolUse"]?.[0];
+    expect(entry?.matcher).toBe("WebFetch|WebSearch");
+    expect(entry?.hooks[0].command.endsWith(" hook PreToolUse --gate")).toBe(true);
+    expect(entry?.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
+  });
+
+  it("maps a WebSearch to its whole query, and checks a malformed web call whole", () => {
+    expect(
+      hookEventOf(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "WebSearch",
+          tool_input: { query: "bun test" },
+        },
+        4,
+      ),
+    ).toEqual({ kind: "webCall", id: 4, tool: "WebSearch", target: "bun test" });
+    expect(
+      hookEventOf(
+        { hook_event_name: "PreToolUse", tool_name: "WebFetch", tool_input: { u: "x" } },
+        4,
+      ),
+    ).toEqual({ kind: "webCall", id: 4, tool: "WebFetch", target: '{"u":"x"}' });
+    expect(
+      hookEventOf(
+        { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } },
+        4,
+      ),
+    ).toBeNull();
+  });
+
+  it("prints Claude's PreToolUse deny for a refusal and nothing to let the call proceed", () => {
+    expect(JSON.parse(preToolUseOutput({ hook: 1, decision: "deny", reason: "no" }))).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: "no",
+      },
+    });
+    expect(preToolUseOutput({ hook: 1, decision: null })).toBe("");
+    expect(preToolUseOutput({ hook: 1, decision: "allow" })).toBe("");
+    expect(encode({ kind: "toolGate", reply: { hook: 9, decision: null } })).toEqual([
+      { hookReply: 9, output: "" },
+    ]);
   });
 });

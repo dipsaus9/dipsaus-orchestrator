@@ -3,7 +3,7 @@
 // running turn: `next` once the running tool calls finish, `now` interrupts the turn.
 
 import type { HostOp, SteerOp } from "../types";
-import { nudgeOutput, permissionOutput } from "./hooks";
+import { nudgeOutput, permissionOutput, preToolUseOutput } from "./hooks";
 
 export type MessagePriority = "now" | "next" | "later";
 
@@ -47,6 +47,9 @@ export function encode(op: SteerOp): HostOp[] {
     case "hookReply":
       // The waiting `PermissionRequest` hook prints this (0008 section 5); empty is no decision.
       return [{ hookReply: op.reply.hook, output: permissionOutput(op.reply) }];
+    case "toolGate":
+      // The waiting `PreToolUse` hook prints Claude's deny, or nothing to let the call proceed.
+      return [{ hookReply: op.reply.hook, output: preToolUseOutput(op.reply) }];
     case "nudge":
       // The pending `PostToolUse` or `SessionStart` hook prints the text as `additionalContext`
       // (0014 section 8, 0008 amendment of 2026-10-12).

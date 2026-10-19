@@ -11,6 +11,7 @@ import {
   OfficeConfigV5,
   OfficeConfigV6,
   OfficeConfigV7,
+  OfficeConfigV8,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -18,6 +19,7 @@ import {
   OfficeFileV5,
   OfficeFileV6,
   OfficeFileV7,
+  OfficeFileV8,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -25,6 +27,7 @@ import {
   OfficeLocalFileV5,
   OfficeLocalFileV6,
   OfficeLocalFileV7,
+  OfficeLocalFileV8,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -318,7 +321,6 @@ function officeFileV7(body: object): boolean {
 
 describe("version 7 key paths", () => {
   it("are the version 6 paths plus storyPr.open, which office.local.yaml does not take", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(7);
     expect(schemaKeyPaths(OfficeConfigV7)).toEqual(VERSION_7_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV7)).toEqual(
       VERSION_7_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -343,50 +345,88 @@ describe("version 7 key paths", () => {
   });
 });
 
+// Version 8 (DIPO-164): worker.web, the office switch for the developer role's web tools. It is
+// committed with the repository: office.local.yaml does not take it.
+const VERSION_8_KEY_PATHS = [...VERSION_7_KEY_PATHS, "worker.web"];
+
+/** Whether `.dipo/office.yaml` version 8 accepts `body` as given. */
+function officeFileV8(body: object): boolean {
+  return OfficeFileV8.safeParse({ version: 8, ...body }).success;
+}
+
+describe("version 8 key paths", () => {
+  it("are the version 7 paths plus worker.web, which office.local.yaml does not take", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(8);
+    expect(schemaKeyPaths(OfficeConfigV8)).toEqual(VERSION_8_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV8)).toEqual(
+      VERSION_8_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV8)).toEqual(
+      VERSION_8_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+    expect(OfficeLocalFileV8.safeParse({ version: 8, worker: { web: false } }).success).toBe(false);
+  });
+
+  it("accept a boolean worker.web and refuse anything else", () => {
+    expect(officeFileV8({ worker: { web: false } })).toBe(true);
+    expect(officeFileV8({ worker: {} })).toBe(true);
+    expect(officeFileV8({ worker: { web: "no" } })).toBe(false);
+  });
+
+  it("keep version 7 without worker.web", () => {
+    expect(OfficeFileV7.safeParse({ version: 7, worker: { web: false } }).success).toBe(false);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 7 as the identity", () => {
+  it("migrates version 1 to 8 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 7 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 8 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 7 as the identity", () => {
+  it("migrates version 2 to 8 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 7 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 8 });
   });
 
-  it("migrates version 3 to 7 as the identity", () => {
+  it("migrates version 3 to 8 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 7 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 8 });
   });
 
-  it("migrates version 4 to 7 as the identity", () => {
+  it("migrates version 4 to 8 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 7 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 8 });
   });
 
-  it("migrates version 5 to 7 as the identity", () => {
+  it("migrates version 5 to 8 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 7 });
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 8 });
   });
 
-  it("migrates version 6 to 7 as the identity", () => {
+  it("migrates version 6 to 8 as the identity", () => {
     const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 7 });
+    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 8 });
   });
 
-  it("leaves a version 7 document as it is", () => {
+  it("migrates version 7 to 8 as the identity", () => {
     const v7 = { version: 7, storyPr: { open: false } };
-    expect(migrateOfficeDocument(7, v7)).toEqual(v7);
+    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 8 });
   });
 
-  it("turns the version 1 defaults into the version 7 defaults but worker.plugins, mergeSlot, review, the step phrases and storyPr", () => {
-    const { plugins: _plugins, ...worker } = OFFICE_DEFAULTS.worker;
+  it("leaves a version 8 document as it is", () => {
+    const v8 = { version: 8, worker: { web: false } };
+    expect(migrateOfficeDocument(8, v8)).toEqual(v8);
+  });
+
+  it("turns the version 1 defaults into the version 8 defaults but worker.plugins, worker.web, mergeSlot, review, the step phrases and storyPr", () => {
+    const { plugins: _plugins, web: _web, ...worker } = OFFICE_DEFAULTS.worker;
     const { maintainerStepPhrases: _phrases, ...story } = OFFICE_DEFAULTS.story;
     const { mergeSlot: _mergeSlot, review: _review, storyPr: _storyPr, ...rest } = OFFICE_DEFAULTS;
     const v1 = OfficeConfigV1.parse({ ...rest, story, version: 1, worker });
     expect(
-      OfficeConfigV7.parse({
+      OfficeConfigV8.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
@@ -399,8 +439,8 @@ describe("migrateOfficeDocument", () => {
 });
 
 describe("defaults", () => {
-  it("are a complete version 7 configuration", () => {
-    expect(OfficeConfigV7.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 8 configuration", () => {
+    expect(OfficeConfigV8.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 
   it("open the story PR (0019 section 3)", () => {

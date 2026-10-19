@@ -8,6 +8,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
+import { WebGuard } from "../hooks/web-guard";
 import type { WorkerPort } from "../workers/port";
 import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
@@ -135,6 +136,7 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
 interface HookListeners {
   readonly permissions: PermissionAsks;
   readonly nudges: Nudges;
+  readonly webGuard: WebGuard;
   readonly hookEvents: OfficeRunListener;
 }
 
@@ -171,11 +173,19 @@ function buildHookListeners(
     ending,
     ...given("warn", ports.warn),
   });
+  const webGuard = new WebGuard({
+    clock: ports.clock,
+    offices: ports.offices,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    ...given("warn", ports.warn),
+  });
   const onEnded = ports.ingest.onEnded;
   const hookEvents: OfficeRunListener = {
     onWorkerEvents: (office, run, agent, events) => {
       permissions.onWorkerEvents(office, run, agent, events);
       nudges.onWorkerEvents(office, run, agent, events);
+      webGuard.onWorkerEvents(office, run, agent, events);
     },
     onEnded: (office, run) => {
       permissions.onEnded(office, run);
@@ -183,7 +193,7 @@ function buildHookListeners(
       onEnded?.(office, run);
     },
   };
-  return { permissions, nudges, hookEvents };
+  return { permissions, nudges, webGuard, hookEvents };
 }
 
 function buildIngest(

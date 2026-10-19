@@ -9,6 +9,8 @@ import { listenLineSocket, systemClock } from "@dipsaus-orchestrator/engine";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  GATE_NO_ANSWER_REASON,
+  gateDenyOutput,
   HOOK_DEADLINE_MS,
   NUDGE_REPLY_MARGIN_MS,
   parseHookArgs,
@@ -219,6 +221,100 @@ describe("dipo hook --nudge (DIPO-60 AC #3)", () => {
         expect(out).toEqual([]);
       } finally {
         await server.stop();
+      }
+    }));
+});
+
+describe("dipo hook --gate (DIPO-164; 0020 section 11b)", () => {
+  const PAYLOAD = (url: string) =>
+    JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_name: "WebFetch",
+      tool_input: { url, prompt: "summarise" },
+    });
+  const DENY_NO_ANSWER = gateDenyOutput(GATE_NO_ANSWER_REASON);
+
+  it("parses --gate without a value", () => {
+    expect(parseHookArgs(["PreToolUse", "--gate"])).toEqual({ event: "PreToolUse", gate: true });
+    expect(parseHookArgs(["PreToolUse", "--gate", "5"])).toBeNull();
+  });
+
+  it("keeps a URL or query whole, never cut, and drops the rest of the tool input", () => {
+    const url = `https://x.test/?q=${"a".repeat(5000)}`;
+    const kept = JSON.parse(trimPayload(PAYLOAD(url), false, true)) as {
+      tool_input: Record<string, unknown>;
+    };
+    expect(kept.tool_input).toEqual({ url });
+    const search = JSON.stringify({ tool_name: "WebSearch", tool_input: { query: "q", x: "y" } });
+    expect(JSON.parse(trimPayload(search, false, true))).toEqual({
+      tool_name: "WebSearch",
+      tool_input: { query: "q" },
+    });
+  });
+
+  it("prints a deny that names no env value when the host answers with one, and nothing for an allow", () =>
+    withTempDir(async (dir) => {
+      const deny = gateDenyOutput("The URL contains a value from .env (KEY); never send it.");
+      for (const [answer, printed] of [
+        [deny, [deny]],
+        ["", []],
+      ] as const) {
+        const socket = join(dir, `g${printed.length}.sock`);
+        const frames: Record<string, unknown>[] = [];
+        const server = slowHost(socket, answer, frames, 20);
+        try {
+          const out: string[] = [];
+          const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+          await runHookForm(["PreToolUse", "--gate"], io(env, PAYLOAD("https://x.test"), out));
+          expect(out).toEqual([...printed]);
+          const op = frames.find((frame) => frame["op"] === "hook");
+          expect(op?.["waitMs"]).toBeGreaterThan(0);
+          expect(op?.["waitMs"]).toBeLessThanOrEqual(HOOK_DEADLINE_MS - NUDGE_REPLY_MARGIN_MS);
+          expect(String(op?.["payload"])).toContain("https://x.test");
+        } finally {
+          await server.stop();
+        }
+      }
+    }));
+
+  it("prints a deny within 2 s when the engine does not answer", () =>
+    withTempDir(async (dir) => {
+      const socket = join(dir, "never.sock");
+      const server = slowHost(socket, "late", [], null);
+      try {
+        const out: string[] = [];
+        const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+        const started = systemClock.now();
+        const code = await runHookForm(
+          ["PreToolUse", "--gate"],
+          io(env, PAYLOAD("https://x.test"), out),
+        );
+        expect(code).toBe(0);
+        expect(systemClock.now() - started).toBeLessThan(2_000);
+        expect(out).toEqual([DENY_NO_ANSWER]);
+        expect(JSON.parse(DENY_NO_ANSWER)).toEqual({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: GATE_NO_ANSWER_REASON,
+          },
+        });
+      } finally {
+        await server.stop();
+      }
+    }));
+
+  it("fails closed on every other failure: no socket, an unreachable host, no payload", () =>
+    withTempDir(async (dir) => {
+      const env = { DIPO_HOST_SOCKET: join(dir, "none.sock"), DIPO_RUN: RUN };
+      for (const [e, input] of [
+        [{}, PAYLOAD("https://x.test")],
+        [env, PAYLOAD("https://x.test")],
+        [env, null],
+      ] as const) {
+        const out: string[] = [];
+        expect(await runHookForm(["PreToolUse", "--gate"], io(e, input, out))).toBe(0);
+        expect(out).toEqual([DENY_NO_ANSWER]);
       }
     }));
 });

@@ -465,7 +465,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(flag("--model")).toBe(caps.model);
     expect(flag("--effort")).toBe(caps.effort);
     expect(flag("--max-turns")).toBe(String(caps.maxTurns));
-    expect(flag("--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash");
+    // worker.web is on by default (DIPO-164): the developer also has the web tools.
+    expect(flag("--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash,WebSearch,WebFetch");
     expect(host?.plan.cwd).toBe(join(world.worktreeRoot, "TASK-1"));
 
     // The session id is engine-made, stored on the run's agent and passed to the worker.

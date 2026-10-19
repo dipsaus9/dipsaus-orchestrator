@@ -238,7 +238,11 @@ async function runProcess(
  * does not wait with no output, and never answers a waiting call, so the `PermissionRequest` hook
  * gives no decision once its wait has passed (0017 `permission-wait`: a fixture that never answers).
  */
-function fixtureHost(path: string, onHook: (payload: unknown) => void): LineServer {
+function fixtureHost(
+  path: string,
+  onHook: (payload: unknown) => void,
+  answer?: (payload: unknown) => string,
+): LineServer {
   return listenLineSocket(path, (connection) => {
     let version: number | null = null;
     const send = (frame: unknown) => connection.send(JSON.stringify(frame));
@@ -277,9 +281,12 @@ function fixtureHost(path: string, onHook: (payload: unknown) => void): LineServ
           });
           return;
         }
-        onHook(parseLine(frame.payload));
+        const payload = parseLine(frame.payload);
+        onHook(payload);
         if (typeof frame.waitMs !== "number") {
           send({ kind: "reply", id: frame.id, ok: true, result: { output: "" } });
+        } else if (answer !== undefined) {
+          send({ kind: "reply", id: frame.id, ok: true, result: { output: answer(payload) } });
         }
       },
       closed: () => undefined,

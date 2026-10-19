@@ -1,0 +1,17 @@
+{
+  "scenario": "web-calls",
+  "source": "derived",
+  "claude_code_version": "2.1.296",
+  "captured_at": "2026-10-12",
+  "expected": "Each web call shows in the worker output with its query or URL, and the calls are counted by tool: 1 WebSearch and 2 WebFetch. The PreToolUse hook lines relay the whole query or URL; the engine denies the third, whose URL holds a value from the fixture env file, naming the file and key and never the value (0020 section 11b).",
+  "usage_checksum": "809d2daccd6035dc57a6d8c77154d2f15768cdfb6200c6b201c85fc77970fd3c",
+  "derivedFrom": "success-tools-subagent",
+  "transform": "The first turn only; system/init lists WebFetch and WebSearch; a WebSearch, a WebFetch and a WebFetch whose URL holds a fixture env value, each with its PreToolUse hook line and tool result (the third refused, its result naming the env file and key and not the value); then the source's report turn.",
+  "cites": [
+    "system/init tools lists WebFetch and WebSearch besides the six of the developer role; no live run with worker.web showed them (0020 section 11b)",
+    "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source; no live run called a web tool",
+    "the PreToolUse hook payloads follow the Claude Code hooks reference (tool_name, tool_input.url or tool_input.query); no live run registered the hook",
+    "the refused call's tool_result (is_error, the engine's reason as its text) is illustrative; no live run showed how Claude Code reports a PreToolUse deny, and its text fields are left unredacted on purpose, where a live capture redacts them",
+    "the tool_use input (query, url) of the three calls and the hook payloads' tool_input are fixed illustrative text, left unredacted on purpose, where a live capture keeps them only through the web scrub rules (tools/recordings/scrub.ts)"
+  ]
+}

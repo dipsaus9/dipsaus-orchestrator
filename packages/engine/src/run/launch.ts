@@ -70,6 +70,9 @@ import {
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
 
+/** The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164). */
+export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
+
 /** The tools of the reviewer role (0019 section 4, option B): read-only, no web tools. */
 export const REVIEWER_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "Bash"];
 
@@ -263,6 +266,8 @@ export function runWorkerSpec(
     readonly agent: string;
     readonly caps: TierCaps;
     readonly reviewer?: ReviewerSettings;
+    /** `worker.web`: the developer role also gets the web tools (0020 section 11b, DIPO-164). */
+    readonly web?: boolean;
   },
   paths: RunLaunchPaths,
   taskMessage: string,
@@ -300,7 +305,7 @@ export function runWorkerSpec(
     model: facts.caps.model,
     effort: facts.caps.effort,
     caps,
-    tools: { allow: [...DEVELOPER_TOOLS], deny: [] },
+    tools: { allow: [...DEVELOPER_TOOLS, ...(facts.web === true ? WEB_TOOLS : [])], deny: [] },
     session,
     reportSchema: worker.reportSchema.implement,
   };
@@ -353,7 +358,7 @@ export class RunLauncher {
   }
 
   #spec(
-    facts: Pick<RunFacts, "runId" | "agent" | "caps">,
+    facts: Pick<RunFacts, "runId" | "agent" | "caps"> & { readonly web: boolean },
     paths: RunLaunchPaths,
     taskMessage: string,
     session: string,
@@ -414,7 +419,12 @@ export class RunLauncher {
       });
       ensurePrivateDir(paths.runDir);
       prepareRunTempDirs(paths, facts.runId, this.#deps.tempOwner?.());
-      spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
+      spec = this.#spec(
+        { ...facts, web: facts.config.worker.web },
+        paths,
+        prompts.taskMessage,
+        RunLauncher.sessionOf(facts.agent),
+      );
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
       promptSources = { nudgeSources: prompts.nudgeSources };
@@ -614,7 +624,12 @@ export class RunLauncher {
       config: input.config,
     });
     const spec = this.#spec(
-      { runId: PREVIEW_RUN as RunId, agent: "<agent-id>" as AgentId, caps: input.caps },
+      {
+        runId: PREVIEW_RUN as RunId,
+        agent: "<agent-id>" as AgentId,
+        caps: input.caps,
+        web: input.config.worker.web,
+      },
       paths,
       prompts.taskMessage,
       PREVIEW_SESSION,

@@ -500,7 +500,7 @@ describe("claude-cli plan", () => {
     );
     const file = launch.files.find((f) => f.name === SETTINGS_FILE);
     const hooks = (JSON.parse(file?.content ?? "{}") as { hooks: Record<string, unknown> }).hooks;
-    expect(Object.keys(hooks)).toEqual([...REGISTERED_HOOKS]);
+    expect(Object.keys(hooks)).toEqual(REGISTERED_HOOKS.filter((name) => name !== "PreToolUse"));
     const quoted = `cd '${context().runDir}' && '/opt/dipo'\\''s tools/bin/dipo'`;
     expect(hooks["Stop"]).toEqual([
       { hooks: [{ type: "command", command: `${quoted} hook Stop`, timeout: 5 }] },
@@ -1044,5 +1044,70 @@ describe("claude-cli plan of the review kind (DIPO-145, 0019 section 4)", () => 
     const launch = plan(spec("M"), context());
     expect(launch.files.map((file) => file.name)).not.toContain(EMPTY_MCP_CONFIG_FILE);
     expect(flag(launch, "--mcp-config")).toBe("/home/maintainer/code/shop/.git/dipo/mcp.json");
+  });
+});
+
+// DIPO-164, 0020 section 11b: with worker.web the developer role gets the two web tools.
+describe("web tools (DIPO-164)", () => {
+  const WEB = ["WebSearch", "WebFetch"];
+  const M0_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
+  const webSpec = (web: boolean) =>
+    spec("M", {
+      hookRelay: true,
+      tools: { allow: web ? [...M0_TOOLS, ...WEB] : M0_TOOLS, deny: [] },
+    });
+  const webContext = () => context({ hookCommand: ["/opt/dipo"] });
+  interface Settings {
+    permissions: { allow: string[] };
+    sandbox: { network: { allowedDomains: string[] } };
+    hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
+  }
+
+  it("adds the tools and their allow rules, and registers the PreToolUse gate", () => {
+    const launch = plan(webSpec(true), webContext());
+    expect(flag(launch, "--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash,WebSearch,WebFetch");
+    const settings = settingsOf(launch) as unknown as Settings;
+    expect(settings.permissions.allow).toEqual(expect.arrayContaining(WEB));
+    const gate = settings.hooks["PreToolUse"]?.[0];
+    expect(gate?.matcher).toBe("WebFetch|WebSearch");
+    expect(gate?.hooks[0]?.command.endsWith(" hook PreToolUse --gate")).toBe(true);
+  });
+
+  it("keeps the Bash sandbox network closed", () => {
+    const settings = settingsOf(plan(webSpec(true), webContext())) as unknown as Settings;
+    expect(settings.sandbox.network.allowedDomains).toEqual([]);
+  });
+
+  it("restores the M0 tool list without web: no tool, no allow rule, no gate", () => {
+    const launch = plan(webSpec(false), webContext());
+    expect(flag(launch, "--tools")).toBe(M0_TOOLS.join(","));
+    const settings = settingsOf(launch) as unknown as Settings;
+    for (const tool of WEB) expect(settings.permissions.allow).not.toContain(tool);
+    expect(settings.hooks["PreToolUse"]).toBeUndefined();
+    expect(JSON.stringify(settings)).not.toContain("WebFetch");
+  });
+
+  it("gives the reviewer no web tools, whatever the office says", () => {
+    const launch = plan(
+      spec("M", {
+        kind: "review",
+        tools: { allow: [...REVIEW_TOOLS], deny: [] },
+        reportSchema: REVIEW_REPORT_JSON_SCHEMA,
+        hookRelay: true,
+      }),
+      webContext(),
+    );
+    expect(flag(launch, "--tools")).toBe("Read,Glob,Grep,Bash");
+    const settings = settingsOf(launch) as unknown as Settings;
+    for (const tool of WEB) expect(settings.permissions.allow).not.toContain(tool);
+    expect(settings.hooks["PreToolUse"]).toBeUndefined();
+  });
+
+  it("refuses web tools without the hook relay that checks them", () => {
+    const unchecked = spec("M", {
+      hookRelay: false,
+      tools: { allow: [...M0_TOOLS, ...WEB], deny: [] },
+    });
+    expect(() => plan(unchecked, context())).toThrow(/hook relay/);
   });
 });
