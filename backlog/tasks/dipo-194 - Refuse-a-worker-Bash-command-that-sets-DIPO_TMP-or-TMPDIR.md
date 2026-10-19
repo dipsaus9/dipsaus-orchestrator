@@ -4,7 +4,7 @@ title: Refuse a worker Bash command that sets DIPO_TMP or TMPDIR
 status: Refined
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-19 15:12'
+updated_date: '2026-10-19 20:44'
 labels:
   - 'tier:M'
   - cutover
@@ -22,6 +22,7 @@ references:
   - packages/daemon/src/hook.ts
   - packages/daemon/src/hook.test.ts
   - packages/daemon/src/hook.ci.test.ts
+  - packages/engine/test/run/start.test.ts
 priority: medium
 type: bug
 ordinal: 183000
@@ -62,7 +63,7 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 A pure function in packages/engine/src/hooks/, exported through packages/engine/src/hooks/index.ts, takes a Bash command text and returns the variable it refuses or null. It splits the text into simple commands at &&, ||, ;, | and newlines, and refuses when a simple command sets DIPO_TMP or TMPDIR as a prefix assignment (DIPO_TMP=x bun test), as a bare assignment, through export (export DIPO_TMP=x), through env (env DIPO_TMP=x cmd, also after env options, and env -u TMPDIR), or clears it with unset (unset TMPDIR). It returns null for a command that only reads the variable ($DIPO_TMP or ${TMPDIR}), names it as a later argument (echo DIPO_TMP=1), or names a longer variable (DIPO_TMP_ROOT=x)
 - [ ] #2 Unit tests in packages/engine/test/hooks/ cover each form of the first criterion alone and inside a compound command, at least cd x && export DIPO_TMP=$TMPDIR, DIPO_TMP=/tmp/x bun test, env DIPO_TMP=/tmp/x bun run verify, unset TMPDIR and export DIPO_TMP=$TMPDIR && bun run verify from run_01M5619VZDHNJH9AHJY3VCZAYK, and each null case
-- [ ] #3 hookSettings in packages/engine/src/workers/claude-cli/hooks.ts registers, in every session with the hook relay, with or without web tools, a PreToolUse entry with matcher Bash whose command is <dipo> hook PreToolUse --bash without the GATE_CRASH_EXIT fallback, next to the unchanged WebFetch|WebSearch --gate entry; tests in packages/engine/test/workers/hooks.test.ts and packages/engine/test/workers/plan.test.ts assert both entries with web tools and the Bash entry alone without them
+- [ ] #3 hookSettings in packages/engine/src/workers/claude-cli/hooks.ts registers, in every session with the hook relay, with or without web tools, a PreToolUse entry with matcher Bash whose command is <dipo> hook PreToolUse --bash without the GATE_CRASH_EXIT fallback, next to the unchanged WebFetch|WebSearch --gate entry; tests in packages/engine/test/workers/hooks.test.ts and packages/engine/test/workers/plan.test.ts assert both entries with web tools and the Bash entry alone without them, and the worker.web false test in packages/engine/test/run/start.test.ts expects the Bash PreToolUse entry and no WebFetch|WebSearch entry
 - [ ] #4 A test in packages/engine/test/workers/hooks.test.ts runs the registered Bash command line through sh with /usr/bin/false and with a missing binary as dipo, as the DIPO-164 gate test does, and shows it never exits 2 and prints nothing on stdout
 - [ ] #5 dipo hook PreToolUse --bash (parseHookArgs and runHookForm in packages/daemon/src/hook.ts) reads tool_input.command from the payload and decides it with the function of the first criterion in its own process, without connecting to DIPO_HOST_SOCKET. A refusal prints Claude's PreToolUse deny with the reason: dipo refused this command because it sets or clears <VAR>; dipo sets DIPO_TMP and the sandbox sets TMPDIR for the run, so never set or clear them (contract rule Temp files); run the command without it. Any other command, a payload that does not parse and a check that throws print nothing and exit 0
 - [ ] #6 Tests in packages/daemon/src/hook.test.ts run --bash against the real worker host (withWorkerHost, as the DIPO-164 gate tests do) and show the deny for export DIPO_TMP=$TMPDIR && bun run verify, empty output for bun run verify, and no pending hook call on the host for either; a test with a check that throws shows empty output and exit 0
