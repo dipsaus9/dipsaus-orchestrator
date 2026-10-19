@@ -27,6 +27,7 @@ import { PlanError } from "../types";
 import { encode } from "./encode";
 import { initialState, interpret, nextSessionOptions, type ClaudeParseState } from "./interpret";
 import { prepareLaunch, type ClaudeLaunchCheckDeps } from "./launch-checks";
+import { checkVerifyTools } from "./verify-tools";
 import { CLAUDE_CLI_ADAPTER_ID, ENV_ALLOWLIST, plan, type ClaudeLaunchContext } from "./plan";
 import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
@@ -210,7 +211,9 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
     reportSchema: WORKER_REPORT_JSON_SCHEMA,
     localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths, config) => claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps),
-    prepare: async (spec, paths, config, checkSession) => {
+    checkVerify: (paths, config, verify, root) =>
+      checkVerifyTools(claudeLaunchContext(deps, paths, config), root, verify),
+    prepare: async (spec, paths, config, checkSession, verify) => {
       const prepared = await prepareLaunch(
         spec,
         claudeLaunchContext(deps, paths, config),
@@ -228,6 +231,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
             ? {}
             : { safeChainProxies: deps.safeChainProxies }),
         },
+        verify,
       );
       return prepared.ok ? { ok: true, plan: scrubbed(prepared.plan) } : prepared;
     },

@@ -169,6 +169,22 @@ export function storedProfile(office: OfficeHandle, profileId: number): StoredPr
   return row === null ? null : profileOf(office, row);
 }
 
+/** The commands of the current profile's resolved verify (DIPO-173); null when it is not resolved. */
+export function verifyCommands(office: OfficeHandle): CommandSpec | null {
+  const row = office.get<{ profile_id: number }>(
+    "select profile_id from run_profiles where office_id = $office_id and current = 1",
+  );
+  if (row === null) return null;
+  const capability = office.get<CapabilityRow>(
+    `select capability, status, commands, working_dir, source, confidence, evidence, candidates
+       from run_capabilities
+       where office_id = $office_id and profile_id = $profile and capability = 'verify'`,
+    { profile: row.profile_id },
+  );
+  const verify = capabilityOf(capability ?? undefined);
+  return verify.status === "resolved" ? verify.value : null;
+}
+
 /** The current profile's fingerprint, without reading the rest; null before the first scan. */
 export function currentFingerprint(office: OfficeHandle): string | null {
   return (

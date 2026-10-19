@@ -48,7 +48,9 @@ import {
   RunReattacher,
   RunResumer,
   runIntents,
+  runLaunchPaths,
   runTotals,
+  runWorkerSpec,
   storeBackstopSnapshot,
   STOP_AGAIN_DETAIL,
 } from "../../src/run";
@@ -57,6 +59,7 @@ import { activeSignals, raiseSignal } from "../../src/run/signals";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
+import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   type ClaudeParseState,
@@ -67,14 +70,16 @@ import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { readTranscript } from "../../src/workers/claude-cli/transcript";
 import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
-import type { WorkerPort } from "../../src/workers/port";
-import type {
-  Caps,
-  HostOp,
-  ParseState,
-  ResumeCheck,
-  SessionRef,
-  WorkerAdapter,
+import { AdapterHolds } from "../../src/workers/hold";
+import type { VerifyCommands, WorkerPort } from "../../src/workers/port";
+import {
+  type Caps,
+  type HostOp,
+  type ParseState,
+  PlanError,
+  type ResumeCheck,
+  type SessionRef,
+  type WorkerAdapter,
 } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import {
@@ -88,6 +93,7 @@ import {
 import { RECORDINGS_DIR } from "../workers/replay";
 import { memoryWorkspace } from "../context/helpers";
 import { plainTask } from "../prompts/helpers";
+import { storeResolvedVerify } from "./verify-profile";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -857,6 +863,8 @@ function realResumer(
   > = {},
   canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
   config: OfficeConfig = OFFICE_DEFAULTS,
+  /** The launch checks; by default a pass that records the spec. */
+  prepare?: WorkerPort["prepare"],
 ): RunResumer {
   const worker: WorkerPort = {
     id: "claude-cli",
@@ -869,10 +877,15 @@ function realResumer(
         canResume,
         interpret: claude.interpret,
       }) as unknown as WorkerAdapter,
-    prepare: async (spec) => {
-      preparedSpecs.push(spec);
-      return { ok: true, plan: { argv: ["/bin/true"], env: {}, cwd: "/", files: [], stdin: [] } };
-    },
+    prepare:
+      prepare ??
+      (async (spec) => {
+        preparedSpecs.push(spec);
+        return {
+          ok: true,
+          plan: { argv: ["/bin/true"], env: {}, cwd: "/", files: [], stdin: [] },
+        };
+      }),
     initialState: () => ({}),
     encode,
     result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
@@ -1818,4 +1831,110 @@ describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
       [],
     );
   });
+});
+
+describe("the verify tools check of the next session (DIPO-173)", () => {
+  const verify: VerifyCommands = { commands: [["bun", "run", "verify"]], cwd: "." };
+  for (const mode of ["a resume", "a handoff"] as const) {
+    it(`refuses ${mode} whose verify program's interpreter is outside the read paths, as the first launch does, holding no adapter`, async () => {
+      firstSession();
+      storeResolvedVerify(w.f.office, verify);
+      // The worktree and the home lie outside the main checkout (w.dir), as the plan and the
+      // read paths want them.
+      const outside = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "reattach-verify-"));
+      try {
+        // The run's worktree: verify runs oxfmt from node_modules/.bin, which starts with node.
+        const worktree = join(outside, "trees", "DIPO-1");
+        w.f.office.immediate(() => {
+          w.f.office.run(
+            "update runs set worktree = $worktree where office_id = $office_id and run_id = $run",
+            { worktree, run: w.f.run },
+          );
+          // The real plan resumes only a UUID session id.
+          w.f.office.run(
+            `update agents set session_id = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d'
+              where office_id = $office_id and agent_id = $agent`,
+            { agent: w.f.agent },
+          );
+        });
+        mkdirSync(join(worktree, "node_modules", ".bin"), { recursive: true });
+        writeFileSync(
+          join(worktree, "package.json"),
+          JSON.stringify({ scripts: { verify: "oxfmt --check" } }),
+        );
+        writeFileSync(join(worktree, "node_modules", ".bin", "oxfmt"), "#!/usr/bin/env node\n", {
+          mode: 0o755,
+        });
+        // node lives under an nvm directory of the home, which the default read paths do not cover.
+        const home = join(outside, "home");
+        const nodeBin = join(home, ".nvm", "versions", "node", "v22.11.0", "bin");
+        mkdirSync(nodeBin, { recursive: true });
+        writeFileSync(join(nodeBin, "node"), "", { mode: 0o755 });
+        const holds = new AdapterHolds({ clock: w.f.t.clock, notify: () => undefined });
+        const port = claudeWorkerPort({
+          claudePath: "/opt/claude/bin/claude",
+          home,
+          env: { PATH: `${nodeBin}:/usr/bin:/bin`, HOME: home },
+          dipoCommand: ["/opt/dipo/bin/dipo"],
+          spawn: () => {
+            throw new Error("no process may start in this test");
+          },
+          clock: w.f.t.clock,
+          holds,
+          platform: "darwin",
+          runStep: async () => {
+            throw new Error("no step may run in this test");
+          },
+          uid: 501,
+          pluginFiles: { read: () => undefined, dirs: () => [] },
+        });
+
+        // The first launch's refusal on the same worktree, office and verify.
+        const git = { commonDir: join(w.dir, "git"), mainWorktree: w.dir } as never;
+        const paths = runLaunchPaths(
+          git,
+          { runtimeDir: join(w.dir, "rt"), tmpRoot: join(w.dir, "tmp") },
+          worktree,
+          w.f.run,
+        );
+        const launch = runWorkerSpec(
+          port,
+          { runId: w.f.run, agent: w.f.agent, caps: OFFICE_DEFAULTS.tiers.M },
+          paths,
+          "task",
+          { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
+        );
+        const refused = await port
+          .prepare(launch, paths, OFFICE_DEFAULTS, "launch-check", verify)
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        expect(refused).toBeInstanceOf(PlanError);
+        const text = (refused as PlanError).message;
+        expect(text).toContain("sandbox.toolchainReadPaths");
+
+        const started: string[] = [];
+        const outcome = await realResumer(
+          {
+            start: async (_office, options) => {
+              started.push(options.agentId);
+              throw new Error("no host may start in this test");
+            },
+          },
+          { probe: async () => null, story: async () => storyOf(), handoff, workspace },
+          mode === "a resume"
+            ? () => ({ ok: true })
+            : () => ({ ok: false, reason: "the context is too full" }),
+          OFFICE_DEFAULTS,
+          port.prepare,
+        ).next(nextRequest());
+        expect(outcome).toEqual({ kind: "failed", reason: `the launch plan refused it: ${text}` });
+        expect(started).toEqual([]);
+        expect(holds.adapterHeld("claude-cli")).toBeNull();
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  }
 });

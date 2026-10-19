@@ -63,11 +63,12 @@ import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-che
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
-import type { LaunchPlan, ParseState } from "../../src/workers/types";
+import { type LaunchPlan, type ParseState, PlanError } from "../../src/workers/types";
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
+import { storeResolvedVerify } from "./verify-profile";
 
 const CLAUDE = "/opt/claude/bin/claude";
 const BACKSTOP: BackstopSnapshot = {
@@ -179,6 +180,8 @@ interface World {
   releaseFails: boolean;
   readonly warnings: string[];
   gate: GateResult;
+  /** The verify tools check's refusal (DIPO-173); null passes. */
+  verifyRefusal: string | null;
 }
 
 let world: World;
@@ -211,6 +214,7 @@ beforeEach(async () => {
     releaseFails: false,
     warnings: [] as string[],
     gate: { mode: "pickup", passed: true, failures: [] } as GateResult,
+    verifyRefusal: null,
   } as unknown as World;
 
   const git = {
@@ -224,7 +228,12 @@ beforeEach(async () => {
     localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths, config) =>
       claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
-    prepare: async (spec, paths, config) => {
+    // The verify tools check (DIPO-173), scripted: it refuses with `w.verifyRefusal` when set.
+    checkVerify: async () => {
+      if (w.verifyRefusal !== null) throw new PlanError(w.verifyRefusal);
+    },
+    prepare: async (spec, paths, config, _checkSession, verify) => {
+      if (verify !== undefined && w.verifyRefusal !== null) throw new PlanError(w.verifyRefusal);
       const plan = claudeCliAdapter(ctxOf(paths, config), {
         spawn: neverSpawn,
         clock: t.clock,
@@ -790,5 +799,28 @@ describe("work.preview, the dry run", () => {
     const result = resultOf<PreviewResult>(await preview());
     expect(result.launch).toBeNull();
     expect(result.problem).toContain('"["');
+  });
+
+  it("reports a refused verify tool as the problem, in the text of the launch's planRefused notice (DIPO-173)", async () => {
+    story("TASK-1", "Ready");
+    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+    world.verifyRefusal =
+      "verify runs oxfmt (node_modules/.bin), which needs node (#! line), but node does not resolve on the worker's PATH";
+    const before = snapshot();
+    const result = resultOf<PreviewResult>(await preview());
+    expect(snapshot()).toEqual(before);
+    expect(result.story?.story).toBe("TASK-1");
+    expect(result.launch).toBeNull();
+
+    // The real launch of the same story refuses with the same PlanError: its notice is the problem.
+    const started = resultOf<RunResult>(await run());
+    expect(started.started).toEqual([]);
+    expect(world.hosts).toEqual([]);
+    const notice = entries().find(
+      (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.planRefused,
+    );
+    expect(notice).toBeDefined();
+    expect(result.problem).toBe(String(notice?.delta["text"]));
+    expect(result.problem).toContain(world.verifyRefusal);
   });
 });

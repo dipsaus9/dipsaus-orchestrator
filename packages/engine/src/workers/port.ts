@@ -38,6 +38,13 @@ export interface RunLaunchPaths {
   readonly shortTmpDir: string;
 }
 
+/** The resolved verify of an office: argument lists run in order, from `cwd` below the checkout. */
+export interface VerifyCommands {
+  readonly commands: readonly (readonly string[])[];
+  /** Repo-relative working directory; `"."` is the root. */
+  readonly cwd: string;
+}
+
 export type PreparedWorker =
   | { readonly ok: true; readonly plan: LaunchPlan }
   | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
@@ -66,14 +73,26 @@ export interface WorkerPort {
   /**
    * Plans the launch and runs the adapter's launch checks before it (0008 section 2). A refused
    * check holds the adapter and returns `startFailed`; a spec or path that cannot be planned
-   * throws `PlanError`.
+   * throws `PlanError`. With `verify` (DIPO-173) a program the office's verify runs whose
+   * interpreter the worker sandbox cannot reach throws `PlanError` too, holding no adapter.
    */
   prepare(
     spec: WorkerSpec,
     paths: RunLaunchPaths,
     config: OfficeConfig,
     checkSession: string,
+    verify?: VerifyCommands,
   ): Promise<PreparedWorker>;
+  /**
+   * The verify tools check alone, for the dry run (DIPO-173): throws the same `PlanError` as
+   * `prepare`. `root` is the checkout whose `node_modules` holds the verify programs.
+   */
+  checkVerify?(
+    paths: RunLaunchPaths,
+    config: OfficeConfig,
+    verify: VerifyCommands,
+    root: string,
+  ): Promise<void>;
   /**
    * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
    * `previous` is the previous session's stored state: recorded classifier switches carry over,

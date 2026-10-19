@@ -20,6 +20,8 @@ import type { DipoPlatform } from "../../platform/paths";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { CLAUDE_CLI_ADAPTER_ID, plan, SETTINGS_FILE, type ClaudeLaunchContext } from "./plan";
 import { checkNpmTokens } from "./npm-token-check";
+import { checkVerifyTools } from "./verify-tools";
+import type { VerifyCommands } from "../port";
 import { probe } from "./probe";
 import { safeChainCaFile } from "./safe-chain";
 import { checkProjectSettings, type ReadOptionalText } from "./settings-check";
@@ -157,17 +159,19 @@ export type PreparedLaunch =
 /**
  * Plans a launch or a resume (`spec.session.resume`) and runs the launch checks first. Throws
  * `PlanError` when the spec cannot be planned (DIPO-74 AC #7), and when an npm config file the
- * worker sandbox can read holds an auth key (DIPO-172): that is this office's read paths, so it
- * holds no adapter. A failed check holds the adapter in every office; a pass lifts the hold.
+ * worker sandbox can read holds an auth key (DIPO-172) or a verify program's interpreter is out
+ * of its reach (DIPO-173): that is this office's read paths, so it holds no adapter. A failed check holds the adapter in every office; a pass lifts the hold.
  */
 export async function prepareLaunch(
   spec: WorkerSpec,
   ctx: ClaudeLaunchContext,
   holds: AdapterHolds,
   deps: ClaudeLaunchCheckDeps,
+  verify?: VerifyCommands,
 ): Promise<PreparedLaunch> {
   const launch = plan(spec, ctx);
   await checkNpmTokens(ctx);
+  if (verify !== undefined) await checkVerifyTools(ctx, spec.workdir, verify);
   const safeChain = ctx.safeChain;
   if (safeChain === undefined) {
     const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>

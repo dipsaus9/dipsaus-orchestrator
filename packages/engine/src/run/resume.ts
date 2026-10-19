@@ -11,8 +11,10 @@
 // - Otherwise a new session with an engine-made session id and a 0014 handoff: the story's task
 //   message with the handoff block of the worktree (commits since the claim's base, uncommitted
 //   changes, the last report's criteria, the last verify, the previous worker's notes).
-// - The launch checks run again before every launch or resume (`WorkerPort.prepare`); a refused
-//   check is `startFailed` with the adapter hold set, and the caller decides what follows.
+// - The launch checks run again before every launch or resume (`WorkerPort.prepare`), with the
+//   office's resolved verify for the verify tools check (DIPO-173); a refused check is
+//   `startFailed` with the adapter hold set, a refused verify tool `failed` with the plan's
+//   refusal and no hold, and the caller decides what follows.
 // - Caps: the CLI's own caps get what remains of the run's budget, turns and minutes (at least
 //   one each); run control keeps tracking the run's own caps from the original start.
 // - No double ingestion: the run's event file is shared by its hosts, so the new host's row starts
@@ -62,6 +64,7 @@ import {
 } from "../prompts/parts";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
+import { verifyCommands } from "../scan/store";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
@@ -377,7 +380,8 @@ export class RunResumer implements NextSession {
       };
     }
 
-    // The launch checks run before every launch and resume (0008 section 2).
+    // The launch checks run before every launch and resume (0008 section 2), the verify tools
+    // check (DIPO-173) with them, on the office's resolved verify as the first launch reads it.
     let prepared;
     try {
       prepared = await deps.worker.prepare(
@@ -385,6 +389,7 @@ export class RunResumer implements NextSession {
         paths,
         config,
         sessionUuid(`${agent}:launch-check`),
+        verifyCommands(office) ?? undefined,
       );
     } catch (error) {
       const why =

@@ -609,3 +609,63 @@ describe("(engine) npm auth keys the worker sandbox can read (DIPO-172)", () => 
     });
   });
 });
+
+describe("(engine) verify tools the worker sandbox cannot start (DIPO-173)", () => {
+  it("refuses one office's run without a hold; another office's run, whose verify resolves, starts", async () => {
+    await withTempDir(async (home) => {
+      const bin = join(home, ".nvm", "versions", "node", "v22.11.0", "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, "node"), "", { mode: 0o755 });
+      const office = (name: string, scripts: Record<string, string>, tool: boolean) => {
+        const root = join(home, name);
+        mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+        writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
+        if (tool) {
+          writeFileSync(join(root, "node_modules", ".bin", "oxfmt"), "#!/usr/bin/env node\n", {
+            mode: 0o755,
+          });
+        }
+        return root;
+      };
+      const needsNode = office("a", { verify: "oxfmt --check" }, true);
+      const verify = { commands: [["bun", "run", "verify"]], cwd: "." };
+      const ctx = context({ home, env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home } });
+      const { clock, holds, notices } = setup();
+      const fs = new MemoryFs();
+      const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
+      const deps = {
+        spawn: fake.spawn,
+        clock,
+        selfTestSessionId: SELF_TEST_SESSION,
+        platform: "darwin" as const,
+        runStep: credentialSteps().runStep,
+        uid: 501,
+        allowProjectSettings: [],
+        readText: async () => undefined,
+        fs,
+      };
+
+      const refused = await prepareLaunch(
+        { ...spec(), workdir: needsNode },
+        ctx,
+        holds,
+        deps,
+        verify,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(refused).toBeInstanceOf(PlanError);
+      expect((refused as PlanError).message).toContain("sandbox.toolchainReadPaths");
+      expect(fake.calls).toEqual([]);
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+      expect(notices).toEqual([]);
+
+      // The self-test's layout is that of the fixture worktree, so the second office's checkout
+      // is the fixture one: verify runs no program from node_modules/.bin there.
+      const started = await prepareLaunch(spec(), ctx, holds, deps, verify);
+      expect(started.ok).toBe(true);
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+    });
+  });
+});
