@@ -133,6 +133,37 @@ describe("(unit) checkVerifyTools", () => {
     });
   });
 
+  it("refuses a node in a readable PATH directory that links into a directory outside the read paths", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home);
+      const target = nvmNode(home);
+      // ~/.bun is in the default read paths; its node is a link to the nvm install.
+      const bunBin = join(home, ".bun", "bin");
+      mkdirSync(bunBin, { recursive: true });
+      symlinkSync(join(target, "node"), join(bunBin, "node"));
+      const error = await refusal(checkVerifyTools(ctxFor(home, bunBin), root, VERIFY));
+      expect(error).toBeInstanceOf(PlanError);
+      const message = (error as PlanError).message;
+      expect(message).toContain(`finds node at ${target}/node`);
+      expect(message).toContain(
+        "Add ~/.nvm/versions/node/v22.11.0 to sandbox.toolchainReadPaths in .dipo/office.local.yaml",
+      );
+    });
+  });
+
+  it("refuses a node in a PATH entry that is a link to a directory outside the read paths", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home);
+      const target = nvmNode(home);
+      mkdirSync(join(home, ".bun"), { recursive: true });
+      symlinkSync(target, join(home, ".bun", "bin"));
+      const error = await refusal(
+        checkVerifyTools(ctxFor(home, join(home, ".bun", "bin")), root, VERIFY),
+      );
+      expect((error as PlanError).message).toContain(`finds node at ${target}/node`);
+    });
+  });
+
   it("refuses with the missing node named when the PATH finds none", async () => {
     await withTempDir(async (home) => {
       const root = checkout(home);

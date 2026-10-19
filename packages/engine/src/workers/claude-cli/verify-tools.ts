@@ -11,7 +11,7 @@
 // file it cannot read (the worker cannot read it either).
 
 import { constants } from "node:fs";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { posix } from "node:path";
 
 import { expandHome, isAtOrUnder } from "../../sandbox/policy";
@@ -129,10 +129,21 @@ async function resolveOn(name: string, dirs: readonly string[]): Promise<string 
   return null;
 }
 
+/** The path with symlinks resolved, or the path itself when it does not resolve. */
+async function realOf(file: string): Promise<string> {
+  try {
+    return await realpath(file);
+  } catch {
+    return file;
+  }
+}
+
 /**
  * The interpreters the verify programs need that the worker cannot start. `path` is the daemon's
  * PATH, which the worker's PATH is planned from; an entry under `home` outside `readable` is one
- * the worker sandbox cannot read, so it does not count. Reads files; never throws.
+ * the worker sandbox cannot read, so it does not count. As `detectSafeChain` does, a PATH entry
+ * and an interpreter are judged on their realpath too: a readable directory's `node` that links
+ * into an unread one cannot start. Reads files; never throws.
  */
 export async function findVerifyToolFailures(input: {
   readonly root: string;
@@ -142,10 +153,24 @@ export async function findVerifyToolFailures(input: {
   /** Absolute paths the worker sandbox can read inside the home directory. */
   readonly readable: readonly string[];
 }): Promise<VerifyToolFailure[]> {
+  // A realpath may name the home directory and the read paths by their own realpaths.
+  const realHome = await realOf(input.home);
+  const homes = [input.home, realHome];
+  const roots = [...input.readable, ...(await Promise.all(input.readable.map(realOf)))];
   const unreadable = (file: string): boolean =>
-    isAtOrUnder(file, input.home) && !input.readable.some((root) => isAtOrUnder(file, root));
+    homes.some((home) => isAtOrUnder(file, home)) && !roots.some((root) => isAtOrUnder(file, root));
+  const reachable = async (file: string): Promise<boolean> =>
+    !unreadable(file) && !unreadable(await realOf(file));
+  /** The realpath of a file the daemon finds, written below the home directory as it is named. */
+  const shown = async (file: string): Promise<string> => {
+    const real = await realOf(file);
+    return realHome !== input.home && isAtOrUnder(real, realHome)
+      ? `${input.home}${real.slice(realHome.length)}`
+      : real;
+  };
   const dirs = input.path.split(":").filter((entry) => entry.startsWith("/"));
-  const planned = dirs.filter((dir) => !unreadable(dir));
+  const planned: string[] = [];
+  for (const dir of dirs) if (await reachable(dir)) planned.push(dir);
 
   const byInterpreter = new Map<string, string[]>();
   for (const program of await verifyPrograms(input.root, input.verify)) {
@@ -158,17 +183,17 @@ export async function findVerifyToolFailures(input: {
   const failures: VerifyToolFailure[] = [];
   for (const [interpreter, programs] of byInterpreter) {
     if (interpreter.startsWith("/")) {
-      if (unreadable(interpreter) || !(await executable(interpreter))) {
-        failures.push({
-          programs,
-          interpreter,
-          foundAt: (await executable(interpreter)) ? interpreter : null,
-        });
+      const found = await executable(interpreter);
+      if (!found || !(await reachable(interpreter))) {
+        failures.push({ programs, interpreter, foundAt: found ? await shown(interpreter) : null });
       }
       continue;
     }
-    if ((await resolveOn(interpreter, planned)) !== null) continue;
-    failures.push({ programs, interpreter, foundAt: await resolveOn(interpreter, dirs) });
+    // The worker's PATH starts the first one it finds, which must be readable through its links.
+    const first = await resolveOn(interpreter, planned);
+    if (first !== null && (await reachable(first))) continue;
+    const found = await resolveOn(interpreter, dirs);
+    failures.push({ programs, interpreter, foundAt: found === null ? null : await shown(found) });
   }
   return failures;
 }
