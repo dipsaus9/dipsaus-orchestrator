@@ -19,6 +19,7 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import { WORKTREE_ADD_CONFIG } from "../../src/git/hardened";
+import { formatLogLine } from "../../src/log/logger";
 import { readWorktreeSnapshot } from "../../src/git/snapshot";
 import {
   CLAIM_NOTICES,
@@ -165,12 +166,14 @@ describe("setup inside the claim", () => {
       const key = h.s.key();
       const steps = fakeSteps({ setup: exited(3, "database not reachable\n") });
       const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
+      const debugs: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
 
       const outcome = skipped(
         await h.claim(key, {
           steps,
           worktree: { post_create: [] },
           warn: (message, fields) => warnings.push({ message, fields }),
+          debug: (message, fields) => debugs.push({ message, fields }),
         }),
       );
 
@@ -191,8 +194,18 @@ describe("setup inside the claim", () => {
         String(warnings[0]?.fields["stdout"]) + String(warnings[0]?.fields["stderr"]),
       ).toContain("database not reachable");
       expect(outcome.notice).toContain("stays Ready");
-      // And how to read the rest of the step's output (DIPO-200).
-      expect(outcome.notice).toContain("dipo daemon logs --level debug");
+      // And how to read the rest of the step's output (DIPO-200): a warn line hides the output,
+      // the debug line shows it, and the notice names the steps that bring the debug line up.
+      expect(formatLogLine(0, "warn", warnings[0]!.message, {}, warnings[0]!.fields)).not.toContain(
+        "database not reachable",
+      );
+      expect(debugs).toHaveLength(1);
+      expect(formatLogLine(0, "debug", debugs[0]!.message, {}, debugs[0]!.fields)).toContain(
+        "database not reachable",
+      );
+      expect(outcome.notice).toContain(
+        "To read the step's output, run `dipo daemon log-level debug`, start the story again, then run `dipo daemon logs --level debug`.",
+      );
       expect(outcome.log).toContain("database not reachable");
       expect(notices(h.s.office).map((n) => n.code)).toContain(SETUP_NOTICES.failed);
       await assertRolledBack(repo, h, key);

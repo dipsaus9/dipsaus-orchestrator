@@ -39,7 +39,8 @@ for arg in "$@"; do
   fi
   case "$arg" in
     --) rest=1 ;;
-    --?*) need=0 ;;
+    --tmpdir*) need=0 ;;
+    --?*) ;;
     -?*)
       opts=\${arg#-}
       while [ -n "$opts" ]; do

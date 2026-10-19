@@ -49,6 +49,9 @@ describe("mktempShimText", () => {
     ["-t prefix", ["-t", "pre"], [...P, "-t", "pre"]],
     ["-dt prefix", ["-dt", "pre"], [...P, "-dt", "pre"]],
     ["-tpre", ["-tpre"], [...P, "-tpre"]],
+    // Long forms macOS mktemp accepts without a template.
+    ["--directory", ["--directory"], [...P, "--directory"]],
+    ["--quiet --dry-run", ["--quiet", "--dry-run"], [...P, "--quiet", "--dry-run"]],
   ];
   for (const [name, args, expected] of added) {
     it(`adds -p "$TMPDIR" for ${name}`, () =>
@@ -66,6 +69,7 @@ describe("mktempShimText", () => {
     ["-p with -t", ["-t", "pre", "-p", "/other"]],
     ["-dp dir", ["-dp", "/other"]],
     ["a template after --", ["--", "tmp.XXXXXX"]],
+    ["--tmpdir=dir", ["--tmpdir=/other", "--dry-run"]],
   ];
   for (const [name, args] of unchanged) {
     it(`passes ${name} unchanged, with no second -p`, () =>
