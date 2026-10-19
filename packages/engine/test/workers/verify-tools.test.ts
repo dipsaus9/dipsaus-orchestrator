@@ -20,6 +20,16 @@ import { PlanError } from "../../src/workers/types";
 import { context } from "./launch-fixtures";
 
 const VERIFY: VerifyCommands = { commands: [["bun", "run", "verify"]], cwd: "." };
+/** The ways to call the root `verify` script; each runs the same programs as `bun run verify`. */
+const SCRIPT_CALLS: string[][] = [
+  ["bun", "run", "verify"],
+  ["bun", "verify"],
+  ["pnpm", "run", "verify"],
+  ["pnpm", "verify"],
+  ["yarn", "run", "verify"],
+  ["yarn", "verify"],
+];
+const NPX = ["npx", "--no-install", "oxfmt", "--check"];
 
 function write(path: string, text: string, mode = 0o644): void {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -86,6 +96,44 @@ describe("(unit) verify programs and shebangs", () => {
       expect(await verifyPrograms(root, VERIFY)).toEqual(["oxfmt", "tsc", "cat", "echo"]);
     });
   });
+
+  it("follows pnpm, yarn and bun script calls and npx's bin the way bun run does", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home, { verify: "oxfmt --check && oxlint --deny-warnings" });
+      for (const command of SCRIPT_CALLS) {
+        expect(await verifyPrograms(root, { commands: [command], cwd: "." })).toEqual([
+          "oxfmt",
+          "oxlint",
+        ]);
+      }
+      expect(await verifyPrograms(root, { commands: [NPX], cwd: "." })).toEqual(["oxfmt"]);
+    });
+  });
+
+  it("leaves bun's own commands alone, so bun test with a test script is not followed", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home, { verify: "oxfmt --check", test: "oxlint --deny-warnings" });
+      expect(await verifyPrograms(root, { commands: [["bun", "test"]], cwd: "." })).toEqual([
+        "bun",
+      ]);
+      expect(await verifyPrograms(root, { commands: [["bun", "run", "test"]], cwd: "." })).toEqual([
+        "oxlint",
+      ]);
+    });
+  });
+
+  // The words `bun --help` of Bun 1.4.2 lists as its own commands and short forms.
+  it.each(["prune", "dedupe", "i", "a", "rm", "c"])(
+    "leaves bun %s alone when a script of the same name exists",
+    async (word) => {
+      await withTempDir(async (home) => {
+        const root = checkout(home, { verify: "oxfmt --check", [word]: "oxlint --deny-warnings" });
+        expect(await verifyPrograms(root, { commands: [["bun", word]], cwd: "." })).toEqual([
+          "bun",
+        ]);
+      });
+    },
+  );
 
   it("reads env, env -S and absolute interpreter lines; others are not scripts", () => {
     expect(shebangInterpreter("#!/usr/bin/env node\nx")).toBe("node");
@@ -177,6 +225,30 @@ describe("(unit) checkVerifyTools", () => {
       const root = checkout(home, { verify: "bun test && bun run typecheck", typecheck: "bun x" });
       const bin = nvmNode(home);
       expect(await refusal(checkVerifyTools(ctxFor(home, bin), root, VERIFY))).toBeNull();
+    });
+  });
+
+  it.each([...SCRIPT_CALLS, NPX])(
+    "refuses %j when its node is outside the read paths",
+    async (...command: string[]) => {
+      await withTempDir(async (home) => {
+        const root = checkout(home, { verify: "oxfmt --check && oxlint --deny-warnings" });
+        const bin = nvmNode(home);
+        const verify: VerifyCommands = { commands: [command], cwd: "." };
+        const error = await refusal(checkVerifyTools(ctxFor(home, bin), root, verify));
+        expect(error).toBeInstanceOf(PlanError);
+        expect((error as PlanError).message).toContain(`${bin}/node`);
+        expect((error as PlanError).message).toContain("oxfmt");
+      });
+    },
+  );
+
+  it("passes a shorthand word that names neither a script nor a bin program", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home);
+      const bin = nvmNode(home);
+      const verify: VerifyCommands = { commands: [["pnpm", "frobnicate"]], cwd: "." };
+      expect(await refusal(checkVerifyTools(ctxFor(home, bin), root, verify))).toBeNull();
     });
   });
 });
