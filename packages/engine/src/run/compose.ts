@@ -199,13 +199,16 @@ function buildHookListeners(
 function buildIngest(
   ports: RunPorts,
   control: RunControl | null,
-  hookEvents: OfficeRunListener,
+  listeners: Pick<HookListeners, "hookEvents" | "webGuard">,
 ): OfficeIngest {
+  const { hookEvents, webGuard } = listeners;
   return new OfficeIngest({
     clock: ports.clock,
     pricing: ports.ingest.pricing,
     ...(control === null ? {} : { hooks: control.hooks }),
     hookEvents,
+    // No env value of the worktree reaches the stored web lines (0020 section 11b, DIPO-164).
+    redactOutput: (office, run, text) => webGuard.redactOutput(office, run, text),
     ...given("watchdog", ports.ingest.watchdog),
     ...given("onAppended", ports.onChanged),
     // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
@@ -367,8 +370,9 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     places: null,
   };
   const control = buildControl(ports, late);
-  const { permissions, nudges, hookEvents } = buildHookListeners(ports, control, late);
-  const ingest = buildIngest(ports, control, hookEvents);
+  const listeners = buildHookListeners(ports, control, late);
+  const { permissions, nudges } = listeners;
+  const ingest = buildIngest(ports, control, listeners);
   late.ingest = ingest;
   const built = buildOutcomes(ports, control, ingest, late);
   const outcomes = built?.outcomes ?? null;

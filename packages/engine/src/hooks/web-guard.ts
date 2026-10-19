@@ -7,7 +7,7 @@
 // - the URL or query holds a value from the env files dipo copied into the worktree (the `copy`
 //   entries of `worktree.files`, read as `KEY=value` lines), as written or percent-encoded: deny,
 //   naming the file and the key, never the value;
-// - otherwise: allow (an empty reply, so the call proceeds under the run settings' rules).
+// - otherwise: allow (a reply with no decision, which the adapter prints as its explicit allow).
 //
 // A value under `MIN_SECRET_CHARS` characters is not compared: "1" or "true" would refuse every
 // call. Data that is not an env value is not caught (the follow-up story decides more).
@@ -15,6 +15,12 @@
 // The module also counts the run's web calls by tool from the worker's own tool activity, a call
 // the hook refused included (it shows in the worker output like any tool call): the counts are
 // `runs.web_searches` and `runs.web_fetches`, and the run's outcome row copies them.
+//
+// Each web call shows in the worker output as `[web] <tool> <query or URL>`. Before that line is
+// stored (`output_chunks`, and the `work.output` change-log entries read from it), every env value
+// in it is replaced by `[redacted]`, as 0008 does for review comments; the refusal still names the
+// file and key. The raw `events.ndjson` of the run keeps the call as Claude wrote it, as it keeps
+// every tool input (0007 sections 7 and 8).
 //
 // Every failure is a deny: an env file that cannot be read, a call that cannot be checked. This
 // module emits only the neutral `toolGate` op; the adapter's `encode` decides what its CLI prints.
@@ -29,7 +35,7 @@ import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
 import type { RunSteering } from "../run/control";
 import { findRun } from "../run/records";
-import type { HostOp, SteerOp, WorkerEvent } from "../workers/types";
+import { type HostOp, type SteerOp, WEB_LINE_PREFIX, type WorkerEvent } from "../workers/types";
 
 import type { HookEvent } from "./types";
 
@@ -142,14 +148,58 @@ export function findSecret(target: string, secrets: readonly EnvSecret[]): Secre
   for (const secret of secrets) {
     if (secret.value.length < MIN_SECRET_CHARS) continue;
     const written = decoded.some((text) => text.includes(secret.value));
-    const encoded = [
-      encodeURIComponent(secret.value),
-      encodeURI(secret.value),
-      encodeURIComponent(secret.value).replaceAll("%20", "+"),
-    ].some((form) => form !== secret.value && lowerTarget.includes(form.toLowerCase()));
+    const encoded = encodedForms(secret.value).some((form) =>
+      lowerTarget.includes(form.toLowerCase()),
+    );
     if (written || encoded) return { file: secret.file, key: secret.key };
   }
   return null;
+}
+
+/** The percent-encoded forms of `value` that differ from it. */
+function encodedForms(value: string): string[] {
+  return [
+    encodeURIComponent(value),
+    encodeURI(value),
+    encodeURIComponent(value).replaceAll("%20", "+"),
+  ].filter((form) => form !== value);
+}
+
+/** What stored output holds in place of an env value (as 0008 redacts review comments). */
+export const REDACTED_TEXT = "[redacted]";
+
+function escapeRegExp(text: string): string {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Pure: `line` with every env value of `secrets` replaced by `[redacted]`: as written and
+ * percent-encoded (either hex case), then each whitespace-separated word that still holds one
+ * (encoded part by part, or encoded twice) whole. A line that still holds one after that is
+ * `[redacted]` whole.
+ */
+export function redactSecrets(line: string, secrets: readonly EnvSecret[]): string {
+  const live = secrets.filter((secret) => secret.value.length >= MIN_SECRET_CHARS);
+  if (live.length === 0) return line;
+  let out = line;
+  for (const secret of live) {
+    out = out.split(secret.value).join(REDACTED_TEXT);
+    for (const form of encodedForms(secret.value)) {
+      out = out.replaceAll(new RegExp(escapeRegExp(form), "gi"), REDACTED_TEXT);
+    }
+  }
+  out = out
+    .split(/(\s+)/)
+    .map((word) => (findSecret(word, live) === null ? word : REDACTED_TEXT))
+    .join("");
+  return findSecret(out, live) === null ? out : REDACTED_TEXT;
+}
+
+/** Pure: a web output line with its query or URL replaced by `[redacted]`, its tool kept. */
+export function redactWebTarget(line: string): string {
+  const rest = line.slice(WEB_LINE_PREFIX.length);
+  const space = rest.indexOf(" ");
+  return space === -1 ? line : `${WEB_LINE_PREFIX}${rest.slice(0, space)} ${REDACTED_TEXT}`;
 }
 
 /** Files of a `worktree.files` entry that exists in `worktree`: a file, or those under a directory. */
@@ -301,16 +351,45 @@ export class WebGuard {
     );
   }
 
+  /**
+   * The output text of one ingestion pass of `office`'s run `run`, with every env value in its web
+   * lines replaced by `[redacted]` before it is stored (file comment). The env files are read only
+   * when the text holds a web line; when they cannot be read, each web line's query or URL is
+   * redacted whole. Other lines are returned as they are.
+   */
+  redactOutput(office: OfficeHandle, run: string, text: string): string {
+    if (!text.includes(WEB_LINE_PREFIX)) return text;
+    let secrets: EnvSecret[] | null;
+    try {
+      secrets = this.#secrets(office, run);
+    } catch (error) {
+      this.#warn("the web output could not be checked for env values", run, error);
+      secrets = null;
+    }
+    return text
+      .split("\n")
+      .map((line) => {
+        if (!line.startsWith(WEB_LINE_PREFIX)) return line;
+        return secrets === null ? redactWebTarget(line) : redactSecrets(line, secrets);
+      })
+      .join("\n");
+  }
+
   /** Why the call is refused, or undefined to let it proceed. Throws when it cannot be checked. */
   #refusal(office: OfficeHandle, run: string, call: WebCall): string | undefined {
+    const hit = findSecret(call.target, this.#secrets(office, run));
+    return hit === null ? undefined : refusalText(call.tool, hit);
+  }
+
+  /** The env values of the run's worktree. Throws when they cannot be read. */
+  #secrets(office: OfficeHandle, run: string): EnvSecret[] {
     const stored = findRun(office, run as RunId);
     const config = this.#deps.offices.config(office.officeId);
     if (stored === null || config === undefined || stored.worktree === null) {
       throw new Error("the run's worktree or the office configuration is not known");
     }
     const read = this.#deps.secrets ?? readEnvSecrets;
-    const hit = findSecret(call.target, read(stored.worktree, config.worktree.files));
-    return hit === null ? undefined : refusalText(call.tool, hit);
+    return read(stored.worktree, config.worktree.files);
   }
 
   #warn(message: string, run: string, error: unknown): void {

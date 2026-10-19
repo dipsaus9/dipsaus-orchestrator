@@ -21,6 +21,9 @@ export type ReportKind = "implement" | "review";
  */
 export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
 
+/** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
+export const WEB_LINE_PREFIX = "[web] ";
+
 /** Caps per run, from the tier (0008 section 9). Loops stay in the engine. */
 export interface Caps {
   /** Input plus output plus cache-creation tokens (0008 section 4). */

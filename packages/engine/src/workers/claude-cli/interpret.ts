@@ -21,6 +21,7 @@ import type {
   WorkerEvent,
   WorkerReport,
 } from "../types";
+import { WEB_LINE_PREFIX } from "../types";
 import { oneLineInput } from "../../ingest/output";
 import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
@@ -781,7 +782,7 @@ const INPUT_FIELDS: Readonly<Record<string, string>> = {
 /** The output line of a web call: `[web] WebFetch https://…`, the input cut as other tool inputs. */
 export function webLine(tool: string, input: string | undefined): string {
   const line = input === undefined ? "" : oneLineInput(input);
-  return `[web] ${tool}${line === "" ? "" : ` ${line}`}\n`;
+  return `${WEB_LINE_PREFIX}${tool}${line === "" ? "" : ` ${line}`}\n`;
 }
 
 function toolInput(tool: string, input: unknown): string | undefined {

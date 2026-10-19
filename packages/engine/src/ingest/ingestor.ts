@@ -172,6 +172,12 @@ export interface IngestorOptions {
    * ingestor so a model is warned about once per day. Without it the ingestor keeps its own.
    */
   readonly costDrift?: CostDriftWarnings;
+  /**
+   * Rewrites a pass's output text of `run` before it is stored in `output_chunks`, in the pass
+   * transaction: the web check redacts env values from web lines (0020 section 11b, DIPO-164).
+   * Without it the text is stored as it is.
+   */
+  readonly redactOutput?: (run: string, text: string) => string;
 }
 
 export type PassStatus = "ingested" | "idle" | "stopped" | "ended" | "fileChanged";
@@ -257,6 +263,7 @@ export class Ingestor {
   readonly #warn: NonNullable<IngestorOptions["warn"]>;
   readonly #privacy: () => OutputPrivacy;
   readonly #costDrift: CostDriftWarnings;
+  readonly #redactOutput: (run: string, text: string) => string;
   readonly #tracked = new Map<string, Tracked>();
 
   constructor(options: IngestorOptions) {
@@ -268,6 +275,7 @@ export class Ingestor {
     this.#warn = options.warn ?? (() => {});
     this.#privacy = options.privacy ?? (() => DEFAULT_OUTPUT_PRIVACY);
     this.#costDrift = options.costDrift ?? new CostDriftWarnings();
+    this.#redactOutput = options.redactOutput ?? ((_run, text) => text);
   }
 
   /**
@@ -519,6 +527,7 @@ export class Ingestor {
         }
       }
 
+      if (text !== "") text = this.#redactOutput(run, text);
       if (text !== "") {
         const from = this.#outputEnd(run);
         this.#office.run(
