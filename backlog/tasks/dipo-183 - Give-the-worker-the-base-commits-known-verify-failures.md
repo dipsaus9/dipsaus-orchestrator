@@ -1,10 +1,10 @@
 ---
 id: DIPO-183
 title: Give the worker the base commit's known verify failures
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 18:44'
+updated_date: '2026-10-20 18:52'
 labels:
   - 'tier:M'
   - cutover
@@ -59,6 +59,10 @@ test_plan:
     - kind: "manual"
       check: "(live) on this repository, run a story while tests still fail on main inside the worker sandbox"
       expect: "the task message lists those tests, and the worker builds no baseline of its own"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "dipo's reviewer self-test fails (bun not on the reviewer's PATH) and retries every ~70 s; stopped to end the loop, reviewed by hand"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
