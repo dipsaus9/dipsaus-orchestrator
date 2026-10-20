@@ -1,14 +1,13 @@
 ---
 id: DIPO-238
 title: Refuse a story labelled dropped or on-hold at the Ready gate
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 18:47'
+updated_date: '2026-10-20 18:50'
 labels:
   - 'tier:S'
   - cutover
-  - needs-info
 milestone: m-1
 dependencies: []
 references:
@@ -33,7 +32,8 @@ Context: on 2026-10-20 DIPO-182 (labelled dropped) passed the gate and was nearl
 branch: "DIPO-238/gate-refuses-set-aside"
 unknowns:
   - q: "May the Ready gate get a new rule R28, recorded as a dated 0012 section 3 note: a story labelled dropped or on-hold fails in both modes with 'labelled <label>: the maintainer set it aside; remove the label to make it Ready'? (a) yes, R28 as written (recommended: the gate is the one place both a bundle and a pickup pass through, and two set-aside stories nearly went Ready on 2026-10-20); (b) no rule, the labels stay advisory and bundles check them by hand."
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-20): approved; the 0012 section 3 note of 2026-10-20 (DIPO-238) adds R28: a story labelled dropped or on-hold fails in both modes with 'labelled <label>: the maintainer set it aside; remove the label to make it Ready'."
 test_plan:
   entries:
     - kind: "automated"

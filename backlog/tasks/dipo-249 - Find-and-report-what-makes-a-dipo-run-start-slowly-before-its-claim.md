@@ -4,14 +4,13 @@ title: Find and report what makes a dipo run start slowly before its claim
 status: To Do
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 18:35'
+updated_date: '2026-10-20 18:52'
 labels:
   - 'tier:S'
   - cutover
   - needs-info
 milestone: m-1
 dependencies:
-  - DIPO-240
   - DIPO-248
 references:
   - packages/engine/src/run/work-run.ts
