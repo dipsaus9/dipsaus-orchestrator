@@ -1,10 +1,10 @@
 ---
 id: DIPO-228
 title: List what a drop with --delete-branch loses before the typed id
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 20:51'
+updated_date: '2026-10-20 21:02'
 labels:
   - 'tier:S'
   - cutover
@@ -60,10 +60,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Before the typed id, `dipo drop <id> --delete-branch` prints the commits on the story's branch that are not on the base (short sha and subject, at most 20 and a count of the rest) and the uncommitted and untracked files of its worktree (at most 50 and a count of the rest), read through the office read story.losses; with neither it says that no commits or files are lost, and when the read fails it prints why and drops nothing
-- [ ] #2 The engine answers story.losses as an async office read registered in StoryPlanning's feature (packages/engine/src/stories/planning.ts): it lists the commits in the office's git queue against the base as last fetched and the files as dirtyFilesOf does, for a live claim and for an open released_branches branch of the story, returns empty lists for a story with neither, and changes nothing
-- [ ] #3 The contract defines the office read story.losses { office, story } in packages/contract/src/office.ts, since 1 and listed in officeReads, whose result holds the story, its key, the commits (short sha and subject) and the files; packages/contract/src/fixtures.ts has its fixture, packages/contract/src/work.test.ts lists it among the reads shipped in minor 1, and packages/contract/schema/ equals a fresh `bun run contract:schema`
-- [ ] #4 When a drop's release fails after the drop closed the story PR, the error says that PR #<n> was closed and the story was not archived, with the release's reason
-- [ ] #5 story.drop with deleteBranch and no live claim deletes, locally and on the remote, each branch with an open released_branches row for the story's key, and sets reclaimed_at on those rows so no later claim reuses a deleted branch
-- [ ] #6 Tests in packages/cli/src/story-commands.test.ts show the lists before the typed-id question, the empty case and a failed read dropping nothing, with the existing checks for "cannot be undone" and "Type DIPO-7" kept; tests in packages/engine/test/backlog/planning.test.ts and planning.ci.test.ts cover criteria 2, 4 and 5, the ci test with a real repository and a bare remote
+- [x] #1 Before the typed id, `dipo drop <id> --delete-branch` prints the commits on the story's branch that are not on the base (short sha and subject, at most 20 and a count of the rest) and the uncommitted and untracked files of its worktree (at most 50 and a count of the rest), read through the office read story.losses; with neither it says that no commits or files are lost, and when the read fails it prints why and drops nothing
+- [x] #2 The engine answers story.losses as an async office read registered in StoryPlanning's feature (packages/engine/src/stories/planning.ts): it lists the commits in the office's git queue against the base as last fetched and the files as dirtyFilesOf does, for a live claim and for an open released_branches branch of the story, returns empty lists for a story with neither, and changes nothing
+- [x] #3 The contract defines the office read story.losses { office, story } in packages/contract/src/office.ts, since 1 and listed in officeReads, whose result holds the story, its key, the commits (short sha and subject) and the files; packages/contract/src/fixtures.ts has its fixture, packages/contract/src/work.test.ts lists it among the reads shipped in minor 1, and packages/contract/schema/ equals a fresh `bun run contract:schema`
+- [x] #4 When a drop's release fails after the drop closed the story PR, the error says that PR #<n> was closed and the story was not archived, with the release's reason
+- [x] #5 story.drop with deleteBranch and no live claim deletes, locally and on the remote, each branch with an open released_branches row for the story's key, and sets reclaimed_at on those rows so no later claim reuses a deleted branch
+- [x] #6 Tests in packages/cli/src/story-commands.test.ts show the lists before the typed-id question, the empty case and a failed read dropping nothing, with the existing checks for "cannot be undone" and "Type DIPO-7" kept; tests in packages/engine/test/backlog/planning.test.ts and planning.ci.test.ts cover criteria 2, 4 and 5, the ci test with a real repository and a bare remote
 <!-- AC:END -->
