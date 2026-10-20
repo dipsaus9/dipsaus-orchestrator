@@ -3,10 +3,10 @@ id: DIPO-185
 title: >-
   State the story task file's scope exemption in the scope check and the review
   prompt
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 07:53'
+updated_date: '2026-10-20 08:00'
 labels:
   - 'tier:S'
   - cutover
@@ -46,8 +46,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 checkScope exempts exactly the story's own task file: tests show that another story's task file and a different file under backlog/ are outside scope, and the story's own task file is not
-- [ ] #2 A scope-violation detail lists the declared scope and says that the story's own task file, written by dipo, is exempt
-- [ ] #3 The worker's L1 Scope section says dipo writes the story's own task file (status, checked criteria) and the worker does not; the golden file is updated
-- [ ] #4 The reviewer role (L2) or the review task message from DIPO-145 says the story's own task file is written by dipo, is exempt from scope and is never a scope finding, and the review task message's changed-path list leaves it out or marks it as written by dipo; the review L1 is not changed, and the golden files are updated
+- [x] #1 checkScope exempts exactly the story's own task file: tests show that another story's task file and a different file under backlog/ are outside scope, and the story's own task file is not
+- [x] #2 A scope-violation detail lists the declared scope and says that the story's own task file, written by dipo, is exempt
+- [x] #3 The worker's L1 Scope section says dipo writes the story's own task file (status, checked criteria) and the worker does not; the golden file is updated
+- [x] #4 The reviewer role (L2) or the review task message from DIPO-145 says the story's own task file is written by dipo, is exempt from scope and is never a scope finding, and the review task message's changed-path list leaves it out or marks it as written by dipo; the review L1 is not changed, and the golden files are updated
 <!-- AC:END -->
