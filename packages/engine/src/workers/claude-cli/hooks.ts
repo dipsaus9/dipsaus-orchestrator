@@ -66,12 +66,15 @@ export const GATE_CRASH_EXIT = ` || { echo ${shellQuote(GATE_CRASH_REASON)} >&2;
 export const GH_WORD_PATTERN = "(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])";
 
 /**
- * Joins the JSON payload the way the shell joins the command before the gh grep: an escaped line
- * continuation (`\\\n` in JSON) goes, a `\n`, `\t` or `\r` escape becomes a space, and quote and
- * backslash characters go, so `g\\h`, `'g'h` and a gh call on a later line are seen. It errs toward
- * a gh word, which only refuses more.
+ * Prints the JSON `$payload` joined the way the shell joins the command, for the gh grep. Backslash
+ * pairs are decoded left to right at both levels: a JSON `\\\\` becomes the marker \001 (each JSON
+ * escape starts a pair, so this is aligned), two markers become \002 (an escaped backslash in the
+ * command), a marker before a `\n` escape is a line continuation and goes, every other `\n`, `\t` or
+ * `\r` escape becomes a space, and the markers, quotes and backslashes go. So `g\\h`, `'g'h`, a
+ * continuation and a gh call on a later line are seen, and an escaped backslash before a newline
+ * keeps the line break. It errs toward a gh word, which only refuses more.
  */
-export const GH_PAYLOAD_JOIN = String.raw`sed -e 's/\\\\\\n//g' -e 's/\\[nrt]/ /g' | tr -d '\047\042\134'`;
+export const GH_PAYLOAD_JOIN = String.raw`a=$(printf "\001"); b=$(printf "\002"); printf "%s" "$payload" | sed -e "s/\\\\\\\\/$a/g" -e "s/$a$a/$b/g" -e "s/$a\\\\n//g" -e "s/\\\\[nrt]/ /g" | tr -d "\001\002\047\042\134"`;
 
 /** Told to the worker when the Bash check cannot run on a command that names gh (DIPO-241). */
 export const BASH_GH_CRASH_REASON =
@@ -141,7 +144,7 @@ export function hookProgram(command: readonly [string, ...string[]], runDir: str
  * header of this file records.
  */
 export function bashHookCommand(command: readonly [string, ...string[]], runDir: string): string {
-  const ghWord = `printf '%s' "$payload" | ${GH_PAYLOAD_JOIN} | grep -Eiq ${shellQuote(GH_WORD_PATTERN)}`;
+  const ghWord = `${GH_PAYLOAD_JOIN} | grep -Eiq ${shellQuote(GH_WORD_PATTERN)}`;
   return [
     "payload=$(cat);",
     `{ cd ${shellQuote(runDir)} && printf '%s' "$payload" | ${hookProgram(command, runDir)} hook PreToolUse --bash; };`,

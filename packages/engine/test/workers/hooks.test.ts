@@ -539,6 +539,9 @@ describe("the Bash check's command line fails closed for gh and open otherwise w
       "g\\h pr list",
       "g\\\nh pr list",
       "GH pr merge 1",
+      "x\\\\\ngh pr merge 1",
+      "x\\\\\ng\\\nh pr list",
+      "true\\\\\ngh api /user",
     ]) {
       const ran = runBash("/nonexistent/dipo", JSON.stringify({ tool_input: { command } }));
       expect([command, ran.code]).toEqual([command, 2]);

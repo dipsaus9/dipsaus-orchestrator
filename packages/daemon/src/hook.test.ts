@@ -580,6 +580,9 @@ describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
         "g\\h pr list",
         "g\\\nh pr list",
         "GH pr merge 1",
+        "x\\\\\ngh pr merge 1",
+        "x\\\\\ng\\\nh pr list",
+        "true\\\\\ngh api /user",
       ]) {
         expect([named, (await bashCall(socket, named, throwingCheck)).code]).toEqual([named, 2]);
       }

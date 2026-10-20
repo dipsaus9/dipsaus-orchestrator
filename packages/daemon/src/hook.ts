@@ -168,12 +168,15 @@ export const BASH_GH_FAILED_REASON =
 const GH_WORD = /(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])/i;
 
 /**
- * True when `command` names gh, read as the shell would join it: line continuations and quote and
- * escape characters are dropped first (`g\\h`, `'g'h`), and the case is ignored (a case-insensitive
- * file system runs `GH` as gh). It errs toward a gh word, which only refuses more.
+ * True when `command` names gh, read as the shell would join it: backslash pairs are decoded left to
+ * right, so a backslash-newline is a line continuation but an escaped backslash before a newline is
+ * not (`x\\\\<newline>gh` runs gh on the next line); then quote and backslash characters go
+ * (`g\\h`, `'g'h`), and the case is ignored (a case-insensitive file system runs `GH` as gh). It errs
+ * toward a gh word, which only refuses more.
  */
 function namesGh(command: string): boolean {
-  return GH_WORD.test(command.replace(/\\\n/g, "").replace(/['"\\]/g, ""));
+  const joined = command.replace(/\\([\s\S])/g, (_, next: string) => (next === "\n" ? "" : next));
+  return GH_WORD.test(joined.replace(/['"\\]/g, ""));
 }
 
 /** The status of a `--bash` call that read no command: the shell fallback then greps the payload. */
