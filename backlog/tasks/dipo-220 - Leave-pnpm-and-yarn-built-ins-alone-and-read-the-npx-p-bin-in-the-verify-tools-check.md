@@ -3,10 +3,10 @@ id: DIPO-220
 title: >-
   Leave pnpm and yarn built-ins alone and read the npx -p bin in the verify
   tools check
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:59'
+updated_date: '2026-10-20 09:30'
 labels:
   - 'tier:S'
   - cutover
@@ -43,7 +43,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 verify-tools.ts holds a PNPM_COMMANDS and a YARN_COMMANDS set next to BUN_COMMANDS, with at least add, audit, create, dlx, exec, i, init, install, link, outdated, pack, patch, publish, rebuild, remove, rm, unlink, up, update and why for pnpm and add, audit, cache, config, create, dlx, exec, info, init, install, link, outdated, pack, publish, remove, unlink, up, upgrade and why for yarn; a shorthand word in the runner's set is not followed through a root script of that name, and the runner itself is checked; programOf uses the same sets, so `pnpm add` or `yarn install` with no root script of that name checks the runner, not a program named add or install
-- [ ] #2 programOf skips the value of npx's -p and --package options, so `npx -p @scope/fmt-pkg oxfmt --check`, `npx --package @scope/fmt-pkg oxfmt` and `npx -p a -p b oxfmt` check oxfmt from node_modules/.bin, as `npx --package=oxfmt oxfmt` does today
-- [ ] #3 Tests in packages/engine/test/workers/verify-tools.test.ts cover each case of criteria 1 and 2, and show `pnpm test` and `yarn test` with a root test script still followed through it
+- [x] #1 verify-tools.ts holds a PNPM_COMMANDS and a YARN_COMMANDS set next to BUN_COMMANDS, with at least add, audit, create, dlx, exec, i, init, install, link, outdated, pack, patch, publish, rebuild, remove, rm, unlink, up, update and why for pnpm and add, audit, cache, config, create, dlx, exec, info, init, install, link, outdated, pack, publish, remove, unlink, up, upgrade and why for yarn; a shorthand word in the runner's set is not followed through a root script of that name, and the runner itself is checked; programOf uses the same sets, so `pnpm add` or `yarn install` with no root script of that name checks the runner, not a program named add or install
+- [x] #2 programOf skips the value of npx's -p and --package options, so `npx -p @scope/fmt-pkg oxfmt --check`, `npx --package @scope/fmt-pkg oxfmt` and `npx -p a -p b oxfmt` check oxfmt from node_modules/.bin, as `npx --package=oxfmt oxfmt` does today
+- [x] #3 Tests in packages/engine/test/workers/verify-tools.test.ts cover each case of criteria 1 and 2, and show `pnpm test` and `yarn test` with a root test script still followed through it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C99QSRXY5KKCQRR50XP7Y3 (Haiku, 11 turns, about $0.02, 3 min) reported done, In Review, with no denied call and no write outside the References. verify-tools.ts has PNPM_COMMANDS and YARN_COMMANDS next to BUN_COMMANDS, used by scriptOf and programOf, so pnpm and yarn built-ins are checked as the runner and not followed through a same-named root script, while pnpm test and yarn test still follow the test script; npx skips the value of -p and --package, so the command's bin is checked. Review passed with no findings. Verify outside the sandbox: 3946 tests, 0 fail; DIPO_TEST_CI=1 workers tests pass (518).
+<!-- SECTION:NOTES:END -->
