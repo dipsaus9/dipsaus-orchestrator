@@ -1,10 +1,10 @@
 ---
 id: DIPO-136
 title: Change the privacy settings from the TUI
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-16 19:09'
-updated_date: '2026-10-20 16:03'
+updated_date: '2026-10-20 18:24'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -62,6 +62,10 @@ test_plan:
     - kind: "manual"
       check: "(live) on the scratch repo, start a run that uses Bash and toggle storeCommandBodies off, then on again, in the TUI while it runs"
       expect: "after off the next tool lines show no commands, after on they show them again, and office.local.yaml holds the last value under dipo's header comment"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "already reviewed and merged on main (#282); review reopened by the pending-review start"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
