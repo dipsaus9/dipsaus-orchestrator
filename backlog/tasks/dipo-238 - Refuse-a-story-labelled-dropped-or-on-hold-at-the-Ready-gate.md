@@ -4,7 +4,7 @@ title: Refuse a story labelled dropped or on-hold at the Ready gate
 status: To Do
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 18:35'
+updated_date: '2026-10-20 18:47'
 labels:
   - 'tier:S'
   - cutover
@@ -16,6 +16,7 @@ references:
   - packages/engine/src/gate/evaluate.ts
   - packages/engine/src/backlog/fields/labels.ts
   - packages/engine/test/gate/gate.test.ts
+  - packages/engine/src/gate/types.ts
 priority: medium
 type: enhancement
 ordinal: 238000

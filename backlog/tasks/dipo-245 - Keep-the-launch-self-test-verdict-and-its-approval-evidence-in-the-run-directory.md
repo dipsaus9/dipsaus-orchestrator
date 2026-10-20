@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 18:35'
+updated_date: '2026-10-20 18:47'
 labels:
   - 'tier:S'
   - cutover
@@ -17,6 +17,7 @@ references:
   - packages/engine/src/workers/claude-cli/launch-checks.ts
   - packages/engine/src/workers/claude-cli/self-test.ts
   - packages/engine/test/workers/launch-checks.test.ts
+  - packages/engine/test/workers/launch-fixtures.ts
 priority: medium
 type: enhancement
 ordinal: 245000
