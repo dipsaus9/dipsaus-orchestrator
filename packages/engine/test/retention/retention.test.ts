@@ -374,6 +374,42 @@ describe("retention of run rows", () => {
       ).toEqual(["run-open", "run-recent"]);
     }));
 
+  it("deletes review verdicts decided before the state tier and keeps recent ones (DIPO-146)", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      for (const [gate, at] of [
+        ["gate-old", day(0)],
+        ["gate-recent", day(300)],
+      ] as const) {
+        office.immediate(() =>
+          office.run(
+            `insert into review_verdicts (office_id, gate_id, run_id, key, round, model, commit_sha,
+               code_tree_key, verdict, criteria, findings, summary, validation_notes, decided_at)
+             values ($office_id, $gate, 'run-1', 'sto-1', 1, 'm', 'c', 't', 'approved', '[]', '[]',
+               's', '[]', $at)`,
+            { gate, at },
+          ),
+        );
+      }
+      t.clock.advanceTo(day(400));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        periods: DEFAULTS,
+        pause: noPause,
+      });
+
+      expect(report.deleted).toEqual({ review_verdicts: 1 });
+      expect(
+        office
+          .all<{ id: string }>(
+            "select gate_id as id from review_verdicts where office_id = $office_id",
+          )
+          .map((row) => row.id),
+      ).toEqual(["gate-recent"]);
+    }));
+
   it("deletes reclaimed released branches and pricing checks after the state tier", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
