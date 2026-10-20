@@ -3,10 +3,10 @@ id: DIPO-220
 title: >-
   Leave pnpm and yarn built-ins alone and read the npx -p bin in the verify
   tools check
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:17'
+updated_date: '2026-10-20 09:30'
 labels:
   - 'tier:S'
   - cutover
@@ -47,3 +47,9 @@ test_plan:
 - [x] #2 programOf skips the value of npx's -p and --package options, so `npx -p @scope/fmt-pkg oxfmt --check`, `npx --package @scope/fmt-pkg oxfmt` and `npx -p a -p b oxfmt` check oxfmt from node_modules/.bin, as `npx --package=oxfmt oxfmt` does today
 - [x] #3 Tests in packages/engine/test/workers/verify-tools.test.ts cover each case of criteria 1 and 2, and show `pnpm test` and `yarn test` with a root test script still followed through it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C99QSRXY5KKCQRR50XP7Y3 (Haiku, 11 turns, about $0.02, 3 min) reported done, In Review, with no denied call and no write outside the References. verify-tools.ts has PNPM_COMMANDS and YARN_COMMANDS next to BUN_COMMANDS, used by scriptOf and programOf, so pnpm and yarn built-ins are checked as the runner and not followed through a same-named root script, while pnpm test and yarn test still follow the test script; npx skips the value of -p and --package, so the command's bin is checked. Review passed with no findings. Verify outside the sandbox: 3946 tests, 0 fail; DIPO_TEST_CI=1 workers tests pass (518).
+<!-- SECTION:NOTES:END -->
