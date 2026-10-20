@@ -1,10 +1,10 @@
 ---
 id: DIPO-246
 title: Rebuild CI items after a restart and harden the CI watch's tests
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 23:19'
+updated_date: '2026-10-20 23:25'
 labels:
   - 'tier:M'
   - cutover
@@ -41,7 +41,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When a red head's `ci` run step is recorded but no CI items for that head are in memory (after a daemon restart), the next poll rebuilds them, reading each failed job's log once, without appending a second `ci` step, so the CI-cap park detail and the fix round get them
-- [ ] #2 A park on red checks that keeps failing writes its warn once per head and run; later failed attempts for the same head log at debug, and a later success parks as today
-- [ ] #3 packages/engine/test/story-pr/ci.test.ts covers the rebuild after a restart and the park retry with one warn, its stuck-head test advances the clock by a literal 10 minutes, and its aggregate item test asserts the check name, empty steps and the wording that names the failed job
+- [x] #1 When a red head's `ci` run step is recorded but no CI items for that head are in memory (after a daemon restart), the next poll rebuilds them, reading each failed job's log once, without appending a second `ci` step, so the CI-cap park detail and the fix round get them
+- [x] #2 A park on red checks that keeps failing writes its warn once per head and run; later failed attempts for the same head log at debug, and a later success parks as today
+- [x] #3 packages/engine/test/story-pr/ci.test.ts covers the rebuild after a restart and the park retry with one warn, its stuck-head test advances the clock by a literal 10 minutes, and its aggregate item test asserts the check name, empty steps and the wording that names the failed job
 <!-- AC:END -->
