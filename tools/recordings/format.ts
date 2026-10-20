@@ -79,8 +79,22 @@ export function serializeStream(lines: readonly Envelope[]): string {
   return lines.map((line) => `${JSON.stringify(line)}\n`).join("");
 }
 
+/**
+ * `meta.json` in the layout oxfmt gives it (DIPO-209), so a derived recording passes format:check
+ * as it is written.
+ */
 export function serializeMeta(meta: Meta): string {
-  return `${JSON.stringify(meta, null, 2)}\n`;
+  const result = Bun.spawnSync(
+    [
+      join(REPO_ROOT, "node_modules/.bin/oxfmt"),
+      `--stdin-filepath=${META_FILE}`,
+      "-c",
+      join(REPO_ROOT, ".oxfmtrc.json"),
+    ],
+    { stdin: Buffer.from(`${JSON.stringify(meta, null, 2)}\n`), stdout: "pipe", stderr: "pipe" },
+  );
+  if (result.exitCode !== 0) throw new Error(`oxfmt failed on ${META_FILE}: ${result.stderr}`);
+  return result.stdout.toString();
 }
 
 export function parseStream(text: string): Envelope[] {

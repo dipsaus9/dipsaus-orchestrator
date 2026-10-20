@@ -3,10 +3,10 @@ id: DIPO-209
 title: >-
   Write golden files and derived recordings that pass the formatter when they
   are regenerated
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-20 07:09'
 labels:
   - 'tier:S'
   - cutover
@@ -49,8 +49,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The golden writers in packages/engine/test/workers/plan.test.ts and packages/engine/test/sandbox/policy.test.ts write text in the formatter's own layout, so regenerating with DIPO_UPDATE_GOLDEN=1 leaves packages/engine/test/workers/golden/ and packages/engine/test/sandbox/golden/ with no formatting change
-- [ ] #2 A test writes the text each writer produces for its goldens under DIPO_TMP, runs oxfmt --check there with the repository's .oxfmtrc.json, and expects exit 0
-- [ ] #3 The committed golden files are unchanged in content, and bun run verify passes
-- [ ] #4 serializeMeta in tools/recordings/format.ts writes meta.json in the formatter's layout, so bun run recordings:derive leaves the committed derived recordings (model-switch/meta.json among them) unchanged and a test checks its output with oxfmt --check under DIPO_TMP
+- [x] #1 The golden writers in packages/engine/test/workers/plan.test.ts and packages/engine/test/sandbox/policy.test.ts write text in the formatter's own layout, so regenerating with DIPO_UPDATE_GOLDEN=1 leaves packages/engine/test/workers/golden/ and packages/engine/test/sandbox/golden/ with no formatting change
+- [x] #2 A test writes the text each writer produces for its goldens under DIPO_TMP, runs oxfmt --check there with the repository's .oxfmtrc.json, and expects exit 0
+- [x] #3 The committed golden files are unchanged in content, and bun run verify passes
+- [x] #4 serializeMeta in tools/recordings/format.ts writes meta.json in the formatter's layout, so bun run recordings:derive leaves the committed derived recordings (model-switch/meta.json among them) unchanged and a test checks its output with oxfmt --check under DIPO_TMP
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B4MTJRAB06JKXH3ZJQFMMM (Haiku, 19 turns, about $0.02, 3 min) reported done, In Review, with no denied call and no write outside the References. The golden writers in workers/plan.test.ts and sandbox/policy.test.ts pipe JSON through oxfmt with .oxfmtrc.json, and serializeMeta in tools/recordings/format.ts does the same, so regenerated goldens and derived recordings pass oxfmt --check; tests check that under DIPO_TMP, and format.test.ts pins model-switch/meta.json byte for byte. The reviewer regenerated every golden and ran recordings:derive in a copy: byte-identical. Review passed. Advisories, not done: the goldenText helper is copied in plan.test.ts and policy.test.ts (no shared module in scope; testkit later), and the engine golden tests compare parsed values, not bytes. Verify outside the sandbox: 3754 tests, 0 fail; DIPO_TEST_CI=1 tools, workers and sandbox tests pass (932); recordings:derive leaves the tree unchanged.
+<!-- SECTION:NOTES:END -->
