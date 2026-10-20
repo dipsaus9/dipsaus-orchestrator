@@ -835,7 +835,17 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       profiles: runProfiles,
       statuses: (office) => officeInit.officeStatusesReady(office),
-      adapterHeld: (adapter) => holds.adapterHeld(adapter),
+      // A launch scopes its hold by the office's main checkout (DIPO-257).
+      adapterHeld: (adapter, scope) => {
+        const checkout =
+          scope === undefined ? undefined : engineGit.forOffice(scope.office)?.mainWorktree;
+        return holds.adapterHeld(
+          adapter,
+          scope === undefined || checkout === undefined
+            ? undefined
+            : { office: checkout, kind: scope.kind },
+        );
+      },
       planLimitHeld: (adapter, model) => runs.planLimits.held(adapter, model),
       claims,
       gates,

@@ -808,6 +808,67 @@ describe("the failure table (0019 section 4)", () => {
     expect(notices).toContain("stays In Review and its review waits");
   });
 
+  const go: ReviewSessionOutcome = { kind: "started", agent: "agt-unused" as AgentId };
+  const refused: ReviewSessionOutcome = {
+    kind: "startFailed",
+    hold: {
+      adapter: "claude-cli",
+      check: "self-test",
+      detail: "the sandbox self-test could not run",
+      failures: [{ check: "self-test", detail: "the sandbox self-test could not run" }],
+      since: 0,
+    },
+  };
+
+  it("backs a refused review start off: the next pending review starts in its place (DIPO-257)", async () => {
+    const older = inReview("DIPO-1", "tree-1");
+    heads.set(older.run, "tree-1");
+    w.t.clock.advance(MINUTE);
+    const newer = inReview("DIPO-2", "tree-2");
+    heads.set(newer.run, "tree-2");
+    w.t.clock.advance(MINUTE);
+    let calls = 0;
+    x.next = () => {
+      calls += 1;
+      return calls === 1 ? refused : go;
+    };
+    expect(await x.places.drain(officeId())).toBe(1);
+    expect(x.sessions.map((started) => started.run)).toEqual([newer.run]);
+    // The refused review stays In Review and waits; its notice says so.
+    expect(findRun(w.office, older.run)).toMatchObject({
+      endedAt: null,
+      waiting: START_KINDS.review,
+    });
+    expect(JSON.stringify(events("engine.notice"))).toContain("run.startFailed");
+  });
+
+  it("starts a review the launch checks refused again after its wait, with no other trigger (DIPO-257)", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    w.t.clock.advance(MINUTE);
+    let calls = 0;
+    x.next = () => {
+      calls += 1;
+      return calls <= 2 ? refused : go;
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(calls).toBe(1);
+    // Not before its minute; then it is tried again and refused again, which doubles the wait.
+    w.t.clock.advance(MINUTE - 1);
+    await x.places.idle();
+    expect(calls).toBe(1);
+    w.t.clock.advance(1);
+    await x.places.idle();
+    expect(calls).toBe(2);
+    w.t.clock.advance(MINUTE);
+    await x.places.idle();
+    expect(calls).toBe(2);
+    w.t.clock.advance(MINUTE);
+    await x.places.idle();
+    expect(calls).toBe(3);
+    expect(x.sessions.map((started) => started.run)).toEqual([s.run]);
+  });
+
   it("ends a session whose turn failed as a crash and starts one fresh session", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");

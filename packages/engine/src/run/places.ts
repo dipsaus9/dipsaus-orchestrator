@@ -16,6 +16,9 @@
 //   new pickups by `work.run`; the reviewer place starts maintainer resumes of a review first,
 //   then pending reviews, oldest In Review first. Within a rank the oldest wait goes first. A story
 //   that waits for CI, for the maintainer or in the merge slot has an ended run and holds no place.
+// - Backoff (DIPO-257). A start whose launch checks refused it (`START_BACKOFF`) is passed over
+//   for 1, 2, 4 and 8 minutes and then 30, and the next start of its place goes in its place. It
+//   still counts as waiting, so the minute tick keeps running and starts it again after its wait.
 // - Plan limits pause places by scope (0008 section 7): a session or weekly hold pauses both places
 //   in every office, a model-family hold pauses the place whose session uses that family, and an
 //   `allowed_warning` stops new sessions of its scope. The hold is `PlanLimits.held` asked with the
@@ -36,6 +39,8 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
 import { withWorkViews, workRefOf } from "../views/work";
+
+import { launchRetryMs } from "../workers/hold";
 
 import { REVIEWER_ROLE } from "./caps";
 import type { RunEnding } from "./control-types";
@@ -247,15 +252,20 @@ export function claimPlace(office: OfficeHandle, runId: RunId, at: number): bool
   return true;
 }
 
+/** What a starter returns when its launch checks refused the session: the start backs off. */
+export const START_BACKOFF = "backoff";
+
 /**
  * Starts the session a waiting run waits for; true when it started. A start that did not happen
  * either ended the run (parked or released it) or left it as it was, and then it waits again.
+ * `START_BACKOFF` is such a start whose launch checks refused it: `drain` passes it over for
+ * 1, 2, 4 and 8 minutes and then 30 (`launchRetryMs`), and starts the next one in its place.
  */
 export type PlaceStarter = (
   office: OfficeId,
   run: StoredRun,
   start: PlaceStart,
-) => Promise<boolean>;
+) => Promise<boolean | typeof START_BACKOFF>;
 
 export interface PlacesDeps {
   readonly clock: Clock;
@@ -295,6 +305,10 @@ interface Drained {
   timer: TimerHandle | null;
 }
 
+function backoffKey(officeId: OfficeId, start: PlaceStart): string {
+  return `${officeId}\u0000${start.runId ?? ""}`;
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -303,6 +317,8 @@ export class Places {
   readonly #deps: PlacesDeps;
   readonly #offices = new Map<OfficeId, Drained>();
   readonly #inflight = new Set<Promise<unknown>>();
+  /** Starts the launch checks refused, by office and run: failed starts and when to try again. */
+  readonly #backoffs = new Map<string, { failures: number; until: number }>();
   #closed = false;
 
   constructor(deps: PlacesDeps) {
@@ -415,48 +431,80 @@ export class Places {
     }
     const holders = placeHolders(office);
     const starts = startOrder([...waitingStarts(office), ...(this.#deps.pending?.(office) ?? [])]);
+    this.#forgetBackoffs(officeId, starts);
+    const now = this.#deps.clock.now();
     let waiting = false;
     let started = 0;
     for (const place of PLACES) {
-      const first = starts.find((start) => placeOfStart(start.kind) === place);
-      if (first === undefined) continue;
+      const inPlace = starts.filter((start) => placeOfStart(start.kind) === place);
+      if (inPlace.length === 0) continue;
+      // A start that backs off still waits, so the tick keeps running until its wait is over.
       waiting = true;
       if (holders[place].length > 0) continue;
-      const run = first.runId === null ? null : findRun(office, first.runId);
-      if (run === null) continue;
-      const starter = this.#deps.starters[first.kind];
-      if (starter === undefined) continue;
-      if (await this.#parkedForCaps(office, run, first)) continue;
-      const paused = this.#paused(officeId, this.modelOf(officeId, place, run));
-      if (paused !== null) {
-        this.#limited(office, run, paused);
-        continue;
-      }
-      const claimedAt = this.#deps.clock.now();
-      this.#write(office, () => {
-        const at = claimedAt;
-        claimPlace(office, run.runId, at);
-        // The hold that paused its place is over; a run held by its own wait keeps its signal.
-        if (openWait(office, run.runId) !== null) return [];
-        return observed(office, run, clearSignals(office, run.runId, ["plan-limit"], at), at);
-      });
-      let ok = false;
-      try {
-        ok = await starter(officeId, findRun(office, run.runId) ?? run, first);
-      } catch (error) {
-        this.#deps.warn?.("starting a session that waited for its place failed", {
-          office: officeId,
-          run: run.runId,
-          kind: first.kind,
-          reason: messageOf(error),
+      // Only a start that backs off passes the place on to the next start in order.
+      for (const first of inPlace.filter((start) => !this.#backedOff(officeId, start, now))) {
+        const run = first.runId === null ? null : findRun(office, first.runId);
+        if (run === null) break;
+        const starter = this.#deps.starters[first.kind];
+        if (starter === undefined) break;
+        if (await this.#parkedForCaps(office, run, first)) break;
+        const paused = this.#paused(officeId, this.modelOf(officeId, place, run));
+        if (paused !== null) {
+          this.#limited(office, run, paused);
+          break;
+        }
+        const claimedAt = this.#deps.clock.now();
+        this.#write(office, () => {
+          const at = claimedAt;
+          claimPlace(office, run.runId, at);
+          // The hold that paused its place is over; a run held by its own wait keeps its signal.
+          if (openWait(office, run.runId) !== null) return [];
+          return observed(office, run, clearSignals(office, run.runId, ["plan-limit"], at), at);
         });
+        let ok: boolean | typeof START_BACKOFF = false;
+        try {
+          ok = await starter(officeId, findRun(office, run.runId) ?? run, first);
+        } catch (error) {
+          this.#deps.warn?.("starting a session that waited for its place failed", {
+            office: officeId,
+            run: run.runId,
+            kind: first.kind,
+            reason: messageOf(error),
+          });
+        }
+        if (ok === true) {
+          started += 1;
+          this.#backoffs.delete(backoffKey(officeId, first));
+          break;
+        }
+        this.#requeue(office, run.runId, first, claimedAt);
+        if (ok !== START_BACKOFF) break;
+        this.#backOff(officeId, first);
       }
-      if (ok) started += 1;
-      else this.#requeue(office, run.runId, first, claimedAt);
     }
     if (waiting) this.#arm(officeId, state);
     else this.#disarm(state);
     return started;
+  }
+
+  #backedOff(officeId: OfficeId, start: PlaceStart, now: number): boolean {
+    const backoff = this.#backoffs.get(backoffKey(officeId, start));
+    return backoff !== undefined && now < backoff.until;
+  }
+
+  /** A start the launch checks refused waits `launchRetryMs` of its failed starts so far. */
+  #backOff(officeId: OfficeId, start: PlaceStart): void {
+    const key = backoffKey(officeId, start);
+    const failures = (this.#backoffs.get(key)?.failures ?? 0) + 1;
+    this.#backoffs.set(key, { failures, until: this.#deps.clock.now() + launchRetryMs(failures) });
+  }
+
+  /** Drops the backoffs of starts that no longer wait in the office. */
+  #forgetBackoffs(officeId: OfficeId, starts: readonly PlaceStart[]): void {
+    const waiting = new Set(starts.map((start) => backoffKey(officeId, start)));
+    for (const key of this.#backoffs.keys()) {
+      if (key.startsWith(`${officeId}\u0000`) && !waiting.has(key)) this.#backoffs.delete(key);
+    }
   }
 
   /**

@@ -72,7 +72,7 @@ import {
   type RunView,
 } from "./outcome-types";
 import { PARK_CAUSES } from "./park";
-import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
+import { claimPlace, type PlaceStart, START_BACKOFF, START_KINDS, waitForPlace } from "./places";
 import { appendRunStep, DONE_END, findRun, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
 import type { ReviewGit, ReviewSessions } from "./review-launch";
@@ -196,9 +196,14 @@ export class Reviews {
   /**
    * The review starter (`START_KINDS.review`): see the file comment. True when a reviewer session
    * started; false leaves a reopened run waiting for its place again (`Places`), or a run ended
-   * at In Review pending.
+   * at In Review pending. `START_BACKOFF` is false for a start the launch checks refused: `Places`
+   * passes the review over with a growing wait (DIPO-257).
    */
-  async start(officeId: OfficeId, run: StoredRun, start: PlaceStart): Promise<boolean> {
+  async start(
+    officeId: OfficeId,
+    run: StoredRun,
+    start: PlaceStart,
+  ): Promise<boolean | typeof START_BACKOFF> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined || run.worktree === null || run.story === null) return false;
     if (run.endKind === DONE_END) return false;
@@ -244,7 +249,11 @@ export class Reviews {
   }
 
   /** Builds the review task message and starts a fresh reviewer session; true when it started. */
-  async #launch(office: OfficeHandle, run: StoredRun, facts: RunStoryFacts): Promise<boolean> {
+  async #launch(
+    office: OfficeHandle,
+    run: StoredRun,
+    facts: RunStoryFacts,
+  ): Promise<boolean | typeof START_BACKOFF> {
     const officeId = office.officeId as OfficeId;
     const config = this.#deps.offices.config(officeId);
     if (config === undefined || run.worktree === null) return false;
@@ -289,7 +298,7 @@ export class Reviews {
         return true;
       case "startFailed":
         this.#startFailed(office, run, holdMessage(outcome.hold));
-        return false;
+        return START_BACKOFF;
       case "failed":
         this.#deps.warn?.("a reviewer session did not start; the review waits", {
           run: run.runId,
@@ -636,7 +645,8 @@ export class Reviews {
     ]);
     let started = false;
     try {
-      started = await this.#launch(office, run, await this.#deps.story(view.office, run));
+      started =
+        (await this.#launch(office, run, await this.#deps.story(view.office, run))) === true;
     } catch (error) {
       this.#deps.warn?.("starting a fresh review session failed; the review waits", {
         run: run.runId,

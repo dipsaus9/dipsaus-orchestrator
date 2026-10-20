@@ -176,8 +176,14 @@ export interface WorkRunDeps {
   };
   /** `officeStatusesReady` (DIPO-36): the refusal while the base lacks the run statuses. */
   readonly statuses: (office: OfficeId) => Promise<string | null>;
-  /** `adapterHeld` (DIPO-43). */
-  readonly adapterHeld: (adapter: string) => AdapterHold | null;
+  /**
+   * `adapterHeld` (DIPO-43), asked with the office's worker launch kind: a hold of every office,
+   * or the could-not-run hold of that office's worker kind (DIPO-257).
+   */
+  readonly adapterHeld: (
+    adapter: string,
+    scope?: { readonly office: OfficeId; readonly kind: "worker" },
+  ) => AdapterHold | null;
   /**
    * The plan-limit hold (DIPO-61, `PlanLimits.held`): why a new run on the adapter and model must
    * wait, or null. With `model` null only the holds of every model count.
@@ -332,7 +338,7 @@ export class WorkRun {
     }
     // A run that names its stories is the explicit run that repeats the launch checks (DIPO-43,
     // DIPO-74): they lift the hold when they pass. Without names the hold refuses the run.
-    const hold = deps.adapterHeld(config.worker.adapter);
+    const hold = deps.adapterHeld(config.worker.adapter, { office, kind: "worker" });
     if (hold !== null && (args.stories === undefined || deps.launcher === undefined)) {
       throw refused(office, "adapter", holdMessage(hold));
     }
@@ -772,7 +778,7 @@ export class WorkRun {
       );
     }
     const refusals: Preview["refusals"] = [];
-    const hold = deps.adapterHeld(config.worker.adapter);
+    const hold = deps.adapterHeld(config.worker.adapter, { office, kind: "worker" });
     // As in `work.run`: a run that names its stories repeats the launch checks, so the hold is
     // information then, not a refusal.
     const notes: string[] = [];

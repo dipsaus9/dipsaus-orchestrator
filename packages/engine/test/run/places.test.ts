@@ -36,6 +36,7 @@ import {
   waitForPlace,
   waitingStarts,
 } from "../../src/run";
+import { START_BACKOFF } from "../../src/run/places";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { workView } from "../../src/views/work";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -420,6 +421,61 @@ describe("plan-limit holds pause the places by scope (0019 section 12)", () => {
     expect(run?.waiting).toBeNull();
     expect(workView(w.office, fix.run)?.health).not.toBe("limited");
     expect(countRows(w.office, "parks")).toBe(0);
+    places.close();
+  });
+});
+
+describe("a review start that backs off (DIPO-257)", () => {
+  it("passes the backed-off head over, starts the next review, and starts the head again after its wait with the tick running", async () => {
+    const head = inReview("DIPO-1");
+    w.t.clock.advance(1);
+    const next = inReview("DIPO-2");
+    const pendingStarts: PlaceStart[] = [
+      { kind: START_KINDS.review, runId: head.run, since: now() - 10 },
+      { kind: START_KINDS.review, runId: next.run, since: now() },
+    ];
+    const tried: string[] = [];
+    const started = new Set<string>();
+    let launchChecksPass = false;
+    const places = new Places({
+      clock: w.t.clock,
+      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+      pending: () => pendingStarts.filter((entry) => !started.has(entry.runId ?? "")),
+      starters: {
+        review: async (_office, run) => {
+          tried.push(run.story ?? "");
+          if (run.story === "DIPO-1" && !launchChecksPass) return START_BACKOFF;
+          started.add(run.runId);
+          return true;
+        },
+      },
+    });
+
+    // The head's launch checks refuse it: the next review starts in its place, in the same drain.
+    expect(await places.drain(officeId())).toBe(1);
+    expect(tried).toEqual(["DIPO-1", "DIPO-2"]);
+    expect(w.t.clock.pendingTimers).toBe(1);
+
+    // After its minute the head is tried again, refused again, and waits two minutes.
+    w.t.clock.advance(MINUTE);
+    await places.idle();
+    expect(tried).toEqual(["DIPO-1", "DIPO-2", "DIPO-1"]);
+
+    // The tick keeps running while the head waits; it is passed over until its wait is over.
+    launchChecksPass = true;
+    w.t.clock.advance(MINUTE);
+    await places.idle();
+    expect(tried).toHaveLength(3);
+    expect(w.t.clock.pendingTimers).toBe(1);
+    w.t.clock.advance(MINUTE);
+    await places.idle();
+    expect(tried).toEqual(["DIPO-1", "DIPO-2", "DIPO-1", "DIPO-1"]);
+    expect(started.has(head.run)).toBe(true);
+    // Nothing waits any more: the next tick finds nothing and stops.
+    w.t.clock.advance(MINUTE);
+    await places.idle();
+    expect(w.t.clock.pendingTimers).toBe(0);
+    expect(tried).toHaveLength(4);
     places.close();
   });
 });

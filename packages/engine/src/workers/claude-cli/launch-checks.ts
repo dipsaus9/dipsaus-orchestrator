@@ -6,12 +6,15 @@
 // rolls back the claim, DIPO-51 resumes through the same function). The npm token check
 // (DIPO-172) runs first and refuses with a `PlanError`, which holds no adapter.
 
+import { randomUUID } from "node:crypto";
+
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import {
   gateLaunch,
   type AdapterHold,
   type AdapterHolds,
+  type HoldScope,
   type LaunchCheckFailure,
   type LaunchCheckOutcome,
 } from "../hold";
@@ -47,6 +50,8 @@ export interface ClaudeLaunchCheckDeps {
   readonly clock: Clock;
   /** An engine-made UUID for the self-test session (a new one per check). */
   readonly selfTestSessionId: string;
+  /** The self-test session id of each recheck of a held launch kind; a new UUID by default. */
+  readonly nextSelfTestSessionId?: () => string;
   /** `worker.allowProjectSettings` of the office. */
   readonly allowProjectSettings: readonly string[];
   readonly readText?: ReadOptionalText;
@@ -169,7 +174,13 @@ export async function claudeLaunchChecks(
       commands: report.evidence?.bash.commands ?? [],
     });
   }
-  return failure === null ? { ok: true } : { ok: false, failures: [failure] };
+  if (failure === null) return { ok: true };
+  // A verdict that is not `unsafe` is a self-test that could not run: it holds one launch kind in
+  // one office. An unsafe one (a probe write or read got through) holds every office (DIPO-257).
+  return {
+    ok: false,
+    failures: [verdict.ok || verdict.unsafe ? failure : { ...failure, couldNotRun: true }],
+  };
 }
 
 export type PreparedLaunch =
@@ -180,7 +191,7 @@ export type PreparedLaunch =
  * Plans a launch or a resume (`spec.session.resume`) and runs the launch checks first. Throws
  * `PlanError` when the spec cannot be planned (DIPO-74 AC #7), and when an npm config file the
  * worker sandbox can read holds an auth key (DIPO-172) or a verify program's interpreter is out
- * of its reach (DIPO-173): that is this office's read paths, so it holds no adapter. A failed check holds the adapter in every office; a pass lifts the hold.
+ * of its reach (DIPO-173): that is this office's read paths, so it holds no adapter. A failed check holds the adapter in every office, except a self-test that could not run, which holds only this office's launch kind, worker or reviewer (DIPO-257); a pass lifts the hold.
  */
 export async function prepareLaunch(
   spec: WorkerSpec,
@@ -195,10 +206,23 @@ export async function prepareLaunch(
   const launch = plan(spec, ctx);
   await checkNpmTokens(ctx);
   if (verify !== undefined) await checkVerifyTools(ctx, spec.workdir, verify);
+  // A self-test that could not run holds only this office's launch kind, which its recheck
+  // repeats with this launch's context and a new self-test session (DIPO-257).
+  const scope: HoldScope = {
+    office: ctx.mainCheckout,
+    kind: spec.kind === "review" ? "reviewer" : "worker",
+  };
+  const again = (): ClaudeLaunchCheckDeps => ({
+    ...deps,
+    selfTestSessionId: (deps.nextSelfTestSessionId ?? randomUUID)(),
+  });
   const safeChain = ctx.safeChain;
   if (safeChain === undefined) {
-    const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
-      claudeLaunchChecks(spec, ctx, launch, deps),
+    const gate = await gateLaunch(
+      CLAUDE_CLI_ADAPTER_ID,
+      holds,
+      () => claudeLaunchChecks(spec, ctx, launch, deps),
+      { scope, recheck: () => claudeLaunchChecks(spec, ctx, launch, again()) },
     );
     return gate.ok ? { ok: true, plan: launch } : gate;
   }
@@ -206,7 +230,7 @@ export async function prepareLaunch(
   // port; without it the run is refused, never started with unchecked or no installs.
   let routed: LaunchPlan = launch;
   const proxies = deps.safeChainProxies;
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, async () => {
+  const routedChecks = async (checkDeps: ClaudeLaunchCheckDeps): Promise<LaunchCheckOutcome> => {
     const started =
       proxies === undefined
         ? { ok: false as const, reason: "this dipo has no Safe-Chain proxy" }
@@ -219,7 +243,18 @@ export async function prepareLaunch(
       safeChain: { ...safeChain, route: { port: started.proxy.port, dir: started.proxy.dir } },
     };
     routed = plan(spec, withRoute);
-    return claudeLaunchChecks(spec, withRoute, routed, deps);
+    return claudeLaunchChecks(spec, withRoute, routed, checkDeps);
+  };
+  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () => routedChecks(deps), {
+    scope,
+    // The run's proxy runs only for the check: no worker starts from a recheck.
+    recheck: async () => {
+      try {
+        return await routedChecks(again());
+      } finally {
+        await proxies?.stop(spec.run);
+      }
+    },
   });
   if (!gate.ok) {
     await proxies?.stop(spec.run);

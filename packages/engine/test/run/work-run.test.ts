@@ -227,7 +227,7 @@ beforeEach(async () => {
     stories: { indexStories: async () => undefined },
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => w.verify },
     statuses: async () => w.statuses,
-    adapterHeld: (adapter) => holds.adapterHeld(adapter),
+    adapterHeld: (adapter, scope) => holds.adapterHeld(adapter, scope),
     planLimitHeld: (adapter, model) => w.planLimit(adapter, model),
     liveSlots: () => {
       if (w.slotsError !== null) throw w.slotsError;
@@ -643,6 +643,11 @@ async function codeOf(args: Record<string, unknown> = {}) {
   return reply.error;
 }
 
+/** The launch checks a scoped hold repeats; these pass. */
+async function recheck() {
+  return { ok: true } as const;
+}
+
 describe("work.run refusals", () => {
   it("refuses with each predicate's message and starts nothing", async () => {
     story("TASK-1", "Ready");
@@ -694,6 +699,46 @@ describe("work.run refusals", () => {
 
     expect(world.claims).toEqual([]);
     expect(resultOf(await run()).started).toHaveLength(1);
+  });
+
+  it("refuses a run only for the worker kind a could-not-run hold names, in that office (DIPO-257)", async () => {
+    story("TASK-1", "Ready");
+    const couldNotRun = [
+      { check: "self-test", detail: "the sandbox self-test could not run", couldNotRun: true },
+    ] as const;
+
+    // The reviewer kind of this office, and the worker kind of another office, still launch.
+    world.holds.holdScoped(
+      "claude-cli",
+      { office: world.officeId, kind: "reviewer" },
+      couldNotRun,
+      recheck,
+    );
+    world.holds.holdScoped(
+      "claude-cli",
+      { office: "office-other", kind: "worker" },
+      couldNotRun,
+      recheck,
+    );
+    expect(resultOf(await run()).started).toHaveLength(1);
+
+    story("TASK-2", "Ready");
+    world.holds.holdScoped(
+      "claude-cli",
+      { office: world.officeId, kind: "worker" },
+      couldNotRun,
+      recheck,
+    );
+    const held = await codeOf();
+    expect(held).toMatchObject({ code: "run.refused", details: { check: "adapter" } });
+    expect(held.message).toStartWith(
+      "New worker sessions on claude-cli are held in this office; other offices and the other session kind still launch: self-test: the sandbox self-test could not run.",
+    );
+
+    // An unsafe verdict holds the adapter in every office, as before.
+    world.holds.liftScoped("claude-cli", { office: world.officeId, kind: "worker" });
+    world.holds.hold("claude-cli", [{ check: "self-test", detail: "a probe write got through" }]);
+    expect(await codeOf()).toMatchObject({ code: "run.refused", details: { check: "adapter" } });
   });
 
   it("refuses every run while a plan limit of every model holds, and skips a held model as planLimit (DIPO-61, DIPO-92)", async () => {

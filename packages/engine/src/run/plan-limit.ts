@@ -34,7 +34,7 @@ import type { FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
-import type { AdapterHold, HoldNotice } from "../workers/hold";
+import type { AdapterHold, HoldNotice, ScopedHoldSource } from "../workers/hold";
 
 import {
   openWait,
@@ -123,7 +123,9 @@ export interface PlanLimitsDeps {
   readonly holds?: {
     adapterHeld(adapter: string): AdapterHold | null;
     lift(adapter: string): boolean;
-  };
+  } & Partial<ScopedHoldSource>;
+  /** The recheck schedule of the scoped holds (DIPO-257), stopped with this schedule's timers. */
+  readonly rechecks?: { close(): void };
   /** The feature that registers `work.resume` (`Resumption.feature`), with the schedule's own. */
   readonly commands?: FeatureModule;
   /** Raises an `engine.notice` on the software stream (a warning holds every office). */
@@ -294,6 +296,7 @@ export class PlanLimits implements PlanLimitWaits {
 
   /** Stops every timer; the wait facts stay in the database. */
   close(): void {
+    this.#deps.rechecks?.close();
     for (const wait of this.#waits.values()) {
       if (wait.timer !== null) this.#deps.clock.clearTimeout(wait.timer);
     }

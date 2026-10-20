@@ -10,6 +10,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
+import { HoldRechecks, type ScopedHoldSource } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
@@ -232,6 +233,18 @@ function trackerOf(ports: RunPorts, control: RunControl): NonNullable<RunLaunche
   return ports.tracker?.(control) ?? control;
 }
 
+/** The holds as `HoldRechecks` reads them; undefined when they keep no scoped holds. */
+function scopedHoldsOf(holds: PlanLimitsDeps["holds"]): ScopedHoldSource | undefined {
+  if (holds?.onScopedHold === undefined || holds.scopedAttempts === undefined) return undefined;
+  if (holds.recheck === undefined) return undefined;
+  const { onScopedHold, scopedAttempts, recheck } = holds;
+  return {
+    onScopedHold: (listener) => onScopedHold.call(holds, listener),
+    scopedAttempts: (adapter, scope) => scopedAttempts.call(holds, adapter, scope),
+    recheck: (adapter, scope) => recheck.call(holds, adapter, scope),
+  };
+}
+
 interface Outcomes {
   readonly resumer: RunResumer;
   readonly outcomes: RunOutcomes;
@@ -292,11 +305,25 @@ function buildOutcomes(
       ...given("holds", ports.holdResumer),
     },
   );
+  // A launch kind held because its self-test could not run is checked again on the engine clock
+  // (DIPO-257); what waited for it starts once the hold lifts.
+  const scopedHolds = scopedHoldsOf(ports.planLimits?.holds);
+  const rechecks =
+    scopedHolds === undefined
+      ? undefined
+      : new HoldRechecks({
+          clock: ports.clock,
+          holds: scopedHolds,
+          onLifted: () => late.places?.drainAll(),
+          ...given("scheduling", ports.scheduling),
+          ...given("warn", ports.warn),
+        });
   const planLimits =
     ports.planLimits === undefined
       ? null
       : new PlanLimits({
           ...ports.planLimits,
+          ...given("rechecks", rechecks),
           clock: ports.clock,
           offices: ports.offices,
           resume: (office, run, why) => resumption.resumeWait(office, run, why),

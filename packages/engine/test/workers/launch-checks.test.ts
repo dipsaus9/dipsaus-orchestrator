@@ -23,6 +23,8 @@ import {
   AdapterHolds,
   gateLaunch,
   HOLD_NOTICE_CODE,
+  HoldRechecks,
+  launchRetryMs,
   RELEASE_NOTICE_CODE,
 } from "../../src/workers/hold";
 import { PlanError } from "../../src/workers/types";
@@ -410,6 +412,7 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
       detail:
         "the sandbox self-test could not run: system/init lists plugin warp@claude-code-warp, but a reviewer session loads no plugin: a plugin's hooks run outside the sandbox, so the session refuses to run (0019 section 4)",
       key: "plugins",
+      couldNotRun: true,
       fix: "Claude Code loaded a plugin the run settings did not switch off. A reviewer session loads no plugins (0019 section 4), so worker.plugins does not apply to it; the plugin comes from the user scope or the project. Remove or disable it for this machine or this project, then start the review again.",
     });
   });
@@ -927,3 +930,229 @@ describe("(engine) verify tools the worker sandbox cannot start (DIPO-173)", () 
     });
   });
 });
+
+describe("(engine) scoped launch holds (DIPO-257)", () => {
+  const REVIEW_LAYOUT = selfTestLayout({ ...LAYOUT_PATHS, review: true }, REVIEW_PROBES);
+  const OTHER = "/home/maintainer/code/blog";
+  const reviewerKind = { office: MAIN, kind: "reviewer" } as const;
+  const workerKind = { office: MAIN, kind: "worker" } as const;
+  /** A review self-test that leaves its results behind only once `state.pass` is set. */
+  function reviewWorld(clock: ManualClock, state: { pass: boolean }) {
+    const fs = new MemoryFs();
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([REVIEW_LAYOUT.command]),
+      onSession: () => {
+        if (!state.pass) return;
+        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
+        fs.files.set(REVIEW_LAYOUT.controlFile, "");
+      },
+    });
+    const deps = {
+      spawn: fake.spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      nextSelfTestSessionId: () => SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs,
+    };
+    const sessions = () => fake.calls.filter((call) => call.cmd.includes("-p")).length;
+    return { deps, sessions };
+  }
+
+  it("a verdict that is unsafe holds the adapter in every office and both launch kinds", async () => {
+    const { clock, holds, notices } = setup();
+    const fs = new MemoryFs();
+    const leaked = BLOCKED_RESULTS.replace("refs blocked Operation not permitted", "refs written");
+    const refused = await prepareLaunch(spec(), context(), holds, {
+      spawn: claudeWith(clock, fs, leaked).spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs,
+    });
+    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
+    for (const scope of [workerKind, reviewerKind, { office: OTHER, kind: "reviewer" as const }]) {
+      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, scope)).toMatchObject({ key: "refs" });
+    }
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.scope).toBeUndefined();
+    expect(noticeTexts(notices).at(-1)).toContain("every office");
+  });
+
+  it("a self-test that could not run holds only that office's launch kind, with the probe and the fix in the notice", async () => {
+    const { clock, holds, notices } = setup();
+    const fs = new MemoryFs();
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([LAYOUT.command], {
+        approvalResult: CLI_NO_APPROVAL_TEXT,
+        cliDenied: true,
+      }),
+      onSession: () => {
+        fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
+        fs.files.set(LAYOUT.controlFile, "");
+      },
+    });
+    const refused = await prepareLaunch(spec(), context(), holds, {
+      spawn: fake.spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      standIn: fakeStandIn({ reached: false }).start,
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs,
+    });
+    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
+    const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, workerKind);
+    expect(hold).toMatchObject({ key: "approval", scope: workerKind });
+    expect(hold?.failures[0]?.couldNotRun).toBe(true);
+    // The other kind, and the same kind in another office, still launch.
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, reviewerKind)).toBeNull();
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, { office: OTHER, kind: "worker" })).toBeNull();
+    const text = noticeTexts(notices).at(-1) ?? "";
+    expect(text).toContain("worker sessions");
+    expect(text).toContain("key approval");
+    expect(text).toContain("PermissionRequest hook");
+    expect(text).toContain("after 1, 2, 4 and 8 minutes and then every 30 minutes");
+    expect(text).not.toContain("every office.");
+  });
+
+  it("every other launch check failure holds every office, so the scoped hold fails closed", async () => {
+    const { clock, holds } = setup();
+    const fake = scriptedClaude(clock, { auth: '{"loggedIn":true,"authMethod":"api-key"}' });
+    await prepareLaunch(reviewSpec(), context(), holds, {
+      spawn: fake.spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs: new MemoryFs(),
+    });
+    expect(
+      holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, { office: OTHER, kind: "worker" }),
+    ).toMatchObject({ check: "probe" });
+    const thrown = setup();
+    await gateLaunch("claude-cli", thrown.holds, () => Promise.reject(new Error("boom")), {
+      scope: reviewerKind,
+    });
+    expect(thrown.holds.adapterHeld("claude-cli", { office: OTHER, kind: "worker" })).toMatchObject(
+      { check: "launch-checks" },
+    );
+  });
+
+  it("checks a could-not-run hold again after 1, 2 and 4 minutes with that kind's context, and lifts it when they pass", async () => {
+    const { clock, holds, notices } = setup();
+    const lifted: number[] = [];
+    const rechecks = new HoldRechecks({ clock, holds, onLifted: () => lifted.push(clock.now()) });
+    const state = { pass: false };
+    const { deps, sessions } = reviewWorld(clock, state);
+
+    const refused = await prepareLaunch(reviewSpec(), context(), holds, deps);
+    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, reviewerKind)).toMatchObject({
+      scope: reviewerKind,
+    });
+    expect(sessions()).toBe(1);
+
+    const advance = async (ms: number) => {
+      clock.advance(ms);
+      await settle();
+    };
+    await advance(59_999);
+    expect(sessions()).toBe(1);
+    await advance(1);
+    expect(sessions()).toBe(2);
+    await advance(119_999);
+    expect(sessions()).toBe(2);
+    await advance(1);
+    expect(sessions()).toBe(3);
+    await advance(239_999);
+    expect(sessions()).toBe(3);
+    state.pass = true;
+    await advance(1);
+    // The fourth check ran the review kind's checks and passed: the hold is gone.
+    expect(sessions()).toBe(4);
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, reviewerKind)).toBeNull();
+    expect(lifted).toHaveLength(1);
+    expect(noticeTexts(notices).at(-1)).toContain("no longer held");
+    // Nothing is armed once the hold lifted.
+    await advance(60 * 60_000);
+    expect(sessions()).toBe(4);
+    rechecks.close();
+  });
+
+  it("waits 1, 2, 4 and 8 minutes and then 30 minutes between checks", () => {
+    expect([1, 2, 3, 4, 5, 6, 20].map((failed) => launchRetryMs(failed) / 60_000)).toEqual([
+      1, 2, 4, 8, 30, 30, 30,
+    ]);
+  });
+
+  it("a recheck that throws keeps the hold on its kind and never widens it", async () => {
+    const { clock, holds } = setup();
+    const rechecks = new HoldRechecks({ clock, holds });
+    let calls = 0;
+    await gateLaunch("claude-cli", holds, async () => ({ ok: false, failures: [COULD_NOT_RUN] }), {
+      scope: reviewerKind,
+      recheck: async () => {
+        calls += 1;
+        throw new Error("the run directory is gone");
+      },
+    });
+    clock.advance(60_000);
+    await settle();
+    expect(calls).toBe(1);
+    expect(holds.adapterHeld("claude-cli", reviewerKind)).toMatchObject({ scope: reviewerKind });
+    expect(holds.adapterHeld("claude-cli", workerKind)).toBeNull();
+    expect(holds.scopedAttempts("claude-cli", reviewerKind)).toBe(2);
+    rechecks.close();
+  });
+
+  it("a pass by one kind leaves the other kind's hold and a global hold alone on recheck", async () => {
+    const { clock, holds } = setup();
+    holds.hold("claude-cli", [{ check: "probe", detail: "not logged in" }]);
+    await gateLaunch("claude-cli", holds, async () => ({ ok: false, failures: [COULD_NOT_RUN] }), {
+      scope: reviewerKind,
+      recheck: async () => ({ ok: true }),
+    });
+    await gateLaunch("claude-cli", holds, async () => ({ ok: false, failures: [COULD_NOT_RUN] }), {
+      scope: workerKind,
+      recheck: async () => ({ ok: false, failures: [COULD_NOT_RUN] }),
+    });
+    expect(await holds.recheck("claude-cli", reviewerKind)).toBe(true);
+    expect(holds.scopedAttempts("claude-cli", reviewerKind)).toBeNull();
+    expect(holds.scopedAttempts("claude-cli", workerKind)).toBe(1);
+    expect(holds.adapterHeld("claude-cli")?.check).toBe("probe");
+    expect(clock.now()).toBeGreaterThan(0);
+  });
+});
+
+/** Lets the promise chains a fired timer started run to their end. */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 2000; round += 1) await Promise.resolve();
+}
+
+function noticeTexts(notices: readonly Event[]): string[] {
+  return notices.map((event) => String((event.data as { text?: string }).text));
+}
+
+const COULD_NOT_RUN = {
+  check: "self-test",
+  detail: "the sandbox self-test could not run: the session ended early",
+  key: "approval",
+  couldNotRun: true,
+} as const;
