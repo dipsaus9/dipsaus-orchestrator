@@ -238,6 +238,25 @@ function lastVerifyOf(office: OfficeHandle, runId: RunId): LastVerify | null {
   return { passed: false, step: last.profile, exitCode: last.exitCode ?? -1 };
 }
 
+/**
+ * The tier a run's sessions use: the office tier in force with the model the run row started with
+ * and the effort of the run's first developer agent, so a tier edit never changes a parked or live
+ * story's session (DIPO-207). A first agent without a recorded effort leaves the tier's effort.
+ */
+export function startTierOf(office: OfficeHandle, run: StoredRun, tier: TierCaps): TierCaps {
+  const first = office.get<{ effort: string | null }>(
+    `select effort from agents
+      where office_id = $office_id and run_id = $run and role = 'developer'
+      order by started_at, rowid limit 1`,
+    { run: run.runId },
+  );
+  return {
+    ...tier,
+    model: run.model,
+    effort: (first?.effort ?? tier.effort) as TierCaps["effort"],
+  };
+}
+
 function previousAgent(office: OfficeHandle, runId: string, agent: string): PreviousAgent {
   const row = office.get<{
     session_id: string | null;
@@ -276,15 +295,21 @@ export class RunResumer implements NextSession {
     const office = deps.offices.get(request.office);
     const config = deps.offices.config(request.office);
     const git = deps.git(request.office);
-    const tier =
+    const inForce =
       run.tier === null ? undefined : config?.tiers[run.tier as keyof OfficeConfig["tiers"]];
-    if (office === undefined || config === undefined || git === undefined || tier === undefined) {
+    if (
+      office === undefined ||
+      config === undefined ||
+      git === undefined ||
+      inForce === undefined
+    ) {
       return {
         kind: "failed",
         reason: `office ${request.office} is not loaded with a valid configuration`,
       };
     }
     if (run.worktree === null) return { kind: "failed", reason: `${run.runId} has no worktree` };
+    const tier = startTierOf(office, run, inForce);
     const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
     const facts = previous.state === undefined ? null : deps.worker.sessionFacts(previous.state);
