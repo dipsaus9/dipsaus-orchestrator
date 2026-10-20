@@ -1,10 +1,10 @@
 ---
 id: DIPO-243
 title: Read a quoted keyword as a plain word in the Bash command splitter
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:23'
+updated_date: '2026-10-20 23:01'
 labels:
   - 'tier:S'
   - cutover
