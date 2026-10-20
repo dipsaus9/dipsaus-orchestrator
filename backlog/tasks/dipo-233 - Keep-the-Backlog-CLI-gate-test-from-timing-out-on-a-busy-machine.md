@@ -1,10 +1,10 @@
 ---
 id: DIPO-233
 title: Keep the Backlog CLI gate test from timing out on a busy machine
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 14:01'
+updated_date: '2026-10-20 14:46'
 labels:
   - 'tier:S'
   - cutover
