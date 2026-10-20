@@ -1,10 +1,10 @@
 ---
 id: DIPO-160
 title: Hold and drop stories through the backlog lane
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 07:09'
+updated_date: '2026-10-20 07:30'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -58,10 +58,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 story.hold (dipo hold <id> --note <text>) on a Refined or Ready story journals a lane-b hold writing F16 with reason on-hold, from and note, and status Parked, and the pending-op skip applies at once
-- [ ] #2 Hold of a running story answers story.notHoldable naming dipo stop, and hold of a parked story with a claim answers story.notHoldable naming resume and discard
-- [ ] #3 work.resume of an on-hold park removes F16 in lane b and sets park.from, and a story returned to Ready goes through the pickup re-check at the next work.run
-- [ ] #4 story.drop (dipo drop <id> [--delete-branch]) on a Draft, Refined, Ready or Parked story releases any claim, archives the story in lane b and emits story.state Removed; it answers story.active for In Progress or In Review, story.hasDependents when another active story depends on it, and story.dirtyWorktree listing the files when the worktree is dirty and --delete-branch is absent; dropping a Parked story resolves its open park with resolved_how drop (0020 section 8)
-- [ ] #5 Drop closes an open story PR from story_prs with a comment naming the drop; without --delete-branch it removes the worktree and records the branch as released, with it it removes the worktree with --force and deletes the branch locally and remotely after a typed confirmation, and commands.describe declares irreversibleWhen deleteBranch
-- [ ] #6 story.hold and story.drop are registered with their since on the waiting command path
+- [x] #1 story.hold (dipo hold <id> --note <text>) on a Refined or Ready story journals a lane-b hold writing F16 with reason on-hold, from and note, and status Parked, and the pending-op skip applies at once
+- [x] #2 Hold of a running story answers story.notHoldable naming dipo stop, and hold of a parked story with a claim answers story.notHoldable naming resume and discard
+- [x] #3 work.resume of an on-hold park removes F16 in lane b and sets park.from, and a story returned to Ready goes through the pickup re-check at the next work.run
+- [x] #4 story.drop (dipo drop <id> [--delete-branch]) on a Draft, Refined, Ready or Parked story releases any claim, archives the story in lane b and emits story.state Removed; it answers story.active for In Progress or In Review, story.hasDependents when another active story depends on it, and story.dirtyWorktree listing the files when the worktree is dirty and --delete-branch is absent; dropping a Parked story resolves its open park with resolved_how drop (0020 section 8)
+- [x] #5 Drop closes an open story PR from story_prs with a comment naming the drop; without --delete-branch it removes the worktree and records the branch as released, with it it removes the worktree with --force and deletes the branch locally and remotely after a typed confirmation, and commands.describe declares irreversibleWhen deleteBranch
+- [x] #6 story.hold and story.drop are registered with their since on the waiting command path
 <!-- AC:END -->
