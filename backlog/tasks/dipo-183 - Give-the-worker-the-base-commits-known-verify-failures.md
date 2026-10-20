@@ -1,10 +1,10 @@
 ---
 id: DIPO-183
 title: Give the worker the base commit's known verify failures
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 18:52'
+updated_date: '2026-10-20 19:14'
 labels:
   - 'tier:M'
   - cutover
@@ -59,10 +59,6 @@ test_plan:
     - kind: "manual"
       check: "(live) on this repository, run a story while tests still fail on main inside the worker sandbox"
       expect: "the task message lists those tests, and the worker builds no baseline of its own"
-park:
-  reason: "stopped"
-  from: "In Review"
-  note: "dipo's reviewer self-test fails (bun not on the reviewer's PATH) and retries every ~70 s; stopped to end the loop, reviewed by hand"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -78,4 +74,6 @@ park:
 
 <!-- SECTION:NOTES:BEGIN -->
 Hold lifted (maintainer, 2026-10-20, answer A: lift the hold, set Ready). The story had been on hold since 2026-10-18 while main's verify passed in the worker sandbox; the maintainer chose to deliver it so a red or flaky base is named to the worker.
+
+Delivery: dipo run run_01M5D91G9G8T78RZZAJ534WST8 (Sonnet, 185 turns, past its 120-turn cap, about $4.01, 15 min) reported done, with no denied call and no write outside the References; dipo's review round could not start (bun not on the reviewer's PATH, DIPO-250), so the run was stopped at review and reviewed by hand. After setup and before the worker starts, while the story worktree is at the base commit, setup runs the office's verify once under the worker's read fence (sandbox/fence.ts) and stores green, the failing test names, or the output tail in base_verifies (migration 0040, tier P), keyed by office, base commit and a hash of the worktree, timeouts and sandbox settings plus the run profile's verify commands; later runs on the same base reuse the row. The task message of the first session and of a handoff gets a base_verify section (green, the failing tests that fail on the base without this story's change, or not known); L1 lists it and the golden files are updated. A verify that cannot run, or a worktree not at its base with no stored row, gives not known and the run still starts. Fixed on top after review: the key includes the run profile's verify commands, and a handoff hashes with the profile the run started with. Advisory, not done (follow-ups): a timed-out base verify is retried on every run on that base; base_verifies could move from tier P to S; setup's profile and the run's recorded run_profile_id can differ when a rescan lands during setup (worst case not known); the worker's note that the config subset was forced by scope was inaccurate. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4165 tests; DIPO_TEST_CI=1 worktree, prompts, sandbox, db and run tests pass.
 <!-- SECTION:NOTES:END -->
