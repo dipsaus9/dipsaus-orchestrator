@@ -1,10 +1,10 @@
 ---
 id: DIPO-227
 title: Refuse a drop while the parked run's worker host still runs
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 08:42'
+updated_date: '2026-10-20 14:01'
 labels:
   - 'tier:S'
   - cutover
@@ -26,7 +26,7 @@ ordinal: 227000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: story.drop no longer removes the worktree of a parked run whose worker host still runs; it answers the retryable run.hostAlive and changes nothing, as 0020 section 8 sets for work.discard.
 
-Context: review of DIPO-160 (PR #251). drop in packages/engine/src/stories/planning.ts refuses a story with an active run or In Progress or In Review, checks dependents and, without deleteBranch, the dirty files; then it journals the drop, closes the story PR and calls releaseForDrop (packages/engine/src/worktree/release.ts), which with deleteBranch runs `git worktree remove --force`. Nothing checks the worker hosts of the claim's run, and a parked run's host can still run after the park while its worker exits (0006 decision 8). 0020 section 8 gives work.discard "run.hostAlive while the host lives"; work.discard is still provisional with no handler on main, and today the park resume answers run.hostAlive (Resume.#earlierHostAlive in packages/engine/src/run/resume.ts, with hostAlive and workerHostsOf of packages/engine/src/runs/worker-hosts.ts). run.hostAlive is one of 0005's retryable codes, so a client offers a retry. StoryPlanningDeps have no process probe; packages/daemon/src/foreground.ts builds StoryPlanning. The storyDrop comment in packages/contract/src/office.ts lists its errors.
+Context: review of DIPO-160 (PR #251). drop in packages/engine/src/stories/planning.ts refuses a story with an active run or In Progress or In Review, checks dependents and, without deleteBranch, the dirty files; then it journals the drop, closes the story PR and calls releaseForDrop (packages/engine/src/worktree/release.ts), which with deleteBranch runs `git worktree remove --force`. Nothing checks the worker hosts of the claim's run, and a parked run's host can still run after the park while its worker exits (0006 decision 8). 0020 section 8 gives work.discard "run.hostAlive while the host lives", and its note of 2026-10-20 (DIPO-227) gives story.drop the same answer while a worker host of the parked run still runs, with nothing changed; work.discard is still provisional with no handler on main, and today the park resume answers run.hostAlive (Resume.#earlierHostAlive in packages/engine/src/run/resume.ts, with hostAlive and workerHostsOf of packages/engine/src/runs/worker-hosts.ts). run.hostAlive is one of 0005's retryable codes, so a client offers a retry. StoryPlanningDeps have no process probe; packages/daemon/src/foreground.ts builds StoryPlanning. The storyDrop comment in packages/contract/src/office.ts lists its errors.
 
 ```dipo
 branch: "DIPO-227/drop-waits-for-parked-host"

@@ -3,7 +3,7 @@
 
 import { background } from "../platform/background";
 import { withWorkViews } from "../views/work";
-import type { TurnProblem, WorkerReport } from "../workers/types";
+import type { ReviewReport, TurnProblem, WorkerReport } from "../workers/types";
 
 import type { FiredCap } from "./caps";
 import { capEnding, type RunEndings } from "./control-endings";
@@ -24,15 +24,19 @@ export class AfterTurns {
     this.#inflight = inflight;
   }
 
-  /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
+  /**
+   * Queues the after-turn work of one turn; turns of a run are handled one at a time. `review` is
+   * a reviewer session's valid report (DIPO-219).
+   */
   queue(
     tracked: Tracked,
     report: WorkerReport | null,
     problem?: TurnProblem,
     capped: FiredCap | null = null,
+    review?: ReviewReport,
   ): void {
     tracked.turns = background(
-      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped)),
+      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review)),
       {
         failed: "verify and commit after a turn failed",
         fields: { run: tracked.runId },
@@ -47,6 +51,7 @@ export class AfterTurns {
     report: WorkerReport | null,
     problem: TurnProblem | undefined,
     capped: FiredCap | null,
+    review: ReviewReport | undefined,
   ): Promise<void> {
     if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
@@ -78,6 +83,11 @@ export class AfterTurns {
     }
     // A turn the finisher let continue: its problem decides next (DIPO-51).
     const outcomes = this.#deps.outcomes?.();
+    // A reviewer's report the backstop let through is judged by the review rounds (DIPO-219).
+    if (decided === "continue" && review !== undefined && outcomes?.onReview !== undefined) {
+      if (tracked.ending === null) await outcomes.onReview(viewOf(tracked), review);
+      return;
+    }
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
       // The worker's reply to a pause carries no report; it is no problem to feed back (DIPO-163).
       const office = this.#deps.offices.get(tracked.office);

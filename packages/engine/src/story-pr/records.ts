@@ -172,3 +172,25 @@ export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryK
     )
     .map((row) => ({ runId: row.run_id as RunId, key: row.key as StoryKey }));
 }
+
+/** True when the story `key` is a task at status In Review now, not removed. */
+export function storyInReview(office: OfficeHandle, key: string): boolean {
+  return (
+    office.get(
+      `select 1 as found from stories s
+        join backlog_mirror m on m.office_id = s.office_id and m.key = s.key
+        where s.office_id = $office_id and s.key = $key and s.removed_at is null
+          and m.kind = 'task' and m.status = $status`,
+      { key, status: IN_REVIEW_STATUS },
+    ) !== null
+  );
+}
+
+/** True when the run has a park row (written by `parkStory`). */
+export function runParked(office: OfficeHandle, runId: RunId): boolean {
+  return (
+    office.get("select 1 as found from parks where office_id = $office_id and run_id = $run", {
+      run: runId,
+    }) !== null
+  );
+}
