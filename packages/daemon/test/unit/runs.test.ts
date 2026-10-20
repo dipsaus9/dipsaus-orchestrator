@@ -5,10 +5,18 @@
 import { describe, expect, it } from "bun:test";
 
 import type { OfficeId, SpawnOptions } from "@dipsaus-orchestrator/contract";
-import { engineFeatures, engineRegistry, type OfficeHandle } from "@dipsaus-orchestrator/engine";
+import {
+  engineFeatures,
+  engineRegistry,
+  OFFICE_DEFAULTS,
+  type OfficeHandle,
+  type ParseState,
+  type StoredRun,
+  type WorkerSpec,
+} from "@dipsaus-orchestrator/engine";
 import { FakeProcess, ManualClock, SequentialIds } from "@dipsaus-orchestrator/testkit";
 
-import { backlogCliFor } from "../../src/runs";
+import { backlogCliFor, startedSessionState } from "../../src/runs";
 
 const BACKLOG = "/opt/tools/bin/backlog";
 
@@ -53,5 +61,42 @@ describe("the daemon's Backlog CLI", () => {
     });
     expect(result).toEqual({ ok: true });
     expect(calls.map((call) => call.cmd)).toEqual([[BACKLOG, "--version"]]);
+  });
+});
+
+describe("a re-attached session's initial state (DIPO-207)", () => {
+  const run = { runId: "run_1", model: "haiku", tier: "M" } as unknown as StoredRun;
+  // The office's tier M was edited after the run started: another model, effort high.
+  const edited = { ...OFFICE_DEFAULTS.tiers.M, model: "opus", effort: "high" };
+  const paths = { runDir: "/run", workdir: "/work" } as unknown as Parameters<
+    typeof startedSessionState
+  >[5];
+
+  function stateWith(startEffort: string | null) {
+    const specs: WorkerSpec[] = [];
+    const handle = {
+      get: () => (startEffort === null ? { effort: null } : { effort: startEffort }),
+    } as unknown as OfficeHandle;
+    const worker = {
+      reportSchema: {},
+      initialState: (spec: WorkerSpec) => {
+        specs.push(spec);
+        return {} as ParseState;
+      },
+    } as unknown as Parameters<typeof startedSessionState>[0];
+    startedSessionState(worker, handle, run, "agt_2", edited, paths, true);
+    return specs[0];
+  }
+
+  it("is built with the model and effort the run started with", () => {
+    const spec = stateWith("medium");
+    expect(spec?.model).toBe("haiku");
+    expect(spec?.effort).toBe("medium");
+  });
+
+  it("falls back to the effort of the tier in force without a recorded start effort", () => {
+    const spec = stateWith(null);
+    expect(spec?.model).toBe("haiku");
+    expect(spec?.effort).toBe("high");
   });
 });

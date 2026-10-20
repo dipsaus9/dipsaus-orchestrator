@@ -314,6 +314,7 @@ export {
   RESUME_NOTICES,
   RESUME_POLICY,
   RunResumer,
+  startTierOf,
 } from "./resume";
 export type {
   NextSession,
