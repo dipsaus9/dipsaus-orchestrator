@@ -139,6 +139,8 @@ export interface Tracked extends TrackedRun {
    * and no cap ends it while verify and commit run.
    */
   capped: FiredCap | null;
+  /** Stdin of the paused worker was closed after the 10 minutes (DIPO-163). */
+  pauseClosed?: boolean;
 }
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */

@@ -9,6 +9,8 @@
 //   (the reviewer's in a `review` phase). A run held by a plan limit keeps its place: it resumes
 //   into it after the reset. Session runs hold no place (the 2026-10-16 review finding), while
 //   `activeRuns` and `hasActiveRun` still count them for `office.forget` and `dipo daemon status`.
+//   A run the maintainer paused keeps its place while its process lives; once stdin closed and the
+//   process exited it holds none, and `work.resume` waits for the place (DIPO-163).
 // - Start order. A reopened run whose place is taken waits for it (`runs.waiting`, `waitForPlace`):
 //   the worker place starts maintainer resumes first, then conflict hand-offs and fix rounds, then
 //   new pickups by `work.run`; the reviewer place starts maintainer resumes of a review first,
@@ -38,6 +40,7 @@ import { withWorkViews, workRefOf } from "../views/work";
 import { REVIEWER_ROLE } from "./caps";
 import type { RunEnding } from "./control-types";
 import { openWait } from "./outcome-types";
+import { pausedWithoutSession } from "./pauses";
 import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
 import { activeRuns, findRun, type StoredRun } from "./records";
 import { clearSignals, raiseSignal, type StoredSignal } from "./signals";
@@ -156,6 +159,8 @@ export function placeHolders(office: OfficeHandle): Record<Place, StoredRun[]> {
   const holders: Record<Place, StoredRun[]> = { worker: [], reviewer: [] };
   for (const run of activeRuns(office)) {
     if (run.kind !== "story" || run.waiting != null) continue;
+    // A paused run whose process exited after the 10 minutes holds no place (0020 section 9).
+    if (pausedWithoutSession(office, run.runId)) continue;
     holders[placeOfRun(office, run)].push(run);
   }
   return holders;

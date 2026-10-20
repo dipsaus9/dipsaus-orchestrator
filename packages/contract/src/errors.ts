@@ -79,15 +79,22 @@ export const OFFICE_ERROR_CODES = [
   "gate.noteRequired",
 ] as const;
 
+// Specific codes of the maintainer's hand on a worker. Since minor 1 (DIPO-163, 0020 section 9),
+// not retryable: `story.notSteerable` when `work.steer` or `work.pause` names a story whose live
+// session is its reviewer, or whose worker host is followed only.
+export const STEER_ERROR_CODES = ["story.notSteerable"] as const;
+
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];
 export type RetryableErrorCode = (typeof RETRYABLE_ERROR_CODES)[number];
 export type SoftwareErrorCode = (typeof SOFTWARE_ERROR_CODES)[number];
 export type OfficeErrorCode = (typeof OFFICE_ERROR_CODES)[number];
+export type SteerErrorCode = (typeof STEER_ERROR_CODES)[number];
 export type KnownErrorCode =
   | GenericErrorCode
   | RetryableErrorCode
   | SoftwareErrorCode
-  | OfficeErrorCode;
+  | OfficeErrorCode
+  | SteerErrorCode;
 
 export function isRetryableErrorCode(code: string): boolean {
   return (RETRYABLE_ERROR_CODES as readonly string[]).includes(code);

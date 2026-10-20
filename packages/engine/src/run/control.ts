@@ -22,6 +22,9 @@
 //   `encode`: a now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and
 //   parks the story `stopped`; branch and worktree are kept.
 //
+// - `work.steer` and `work.pause` (DIPO-163, `intervene.ts`): the maintainer's message to a live
+//   worker, and the pause that closes its stdin after 10 minutes on the cap tick.
+//
 // Every op is stored as a pending intent before it is sent (`intents.ts`), and when the worker
 // exits the intent that explains the exit is resolved with its outcome. A decision without a park
 // (`act`) whose intent cannot be stored sends nothing: the failure is logged with its error code
@@ -69,6 +72,7 @@ import {
   viewOf,
 } from "./control-types";
 import { AfterTurns } from "./control-turns";
+import { Interventions } from "./intervene";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkOutcome } from "./park";
@@ -100,12 +104,14 @@ export class RunControl implements RunEnder {
   readonly #endings: RunEndings;
   readonly #turns: AfterTurns;
   readonly #reconcile: ReconcileStops;
+  readonly #interventions: Interventions;
 
   constructor(deps: RunControlDeps) {
     this.#deps = deps;
     this.#endings = new RunEndings(deps, this.#tracked, this.#inflight);
     this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
     this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
+    this.#interventions = new Interventions(deps, this.#tracked, this.#inflight);
   }
 
   /** The ingestion hooks: caps and reports after every committed pass, intents at the exit. */
@@ -499,8 +505,9 @@ export class RunControl implements RunEnder {
     return this.#reconcile.parkForReconcile(office, run, detail, notice);
   }
 
-  /** The command `work.stop`. */
+  /** The commands `work.stop`, `work.steer` and `work.pause`. */
   get feature(): FeatureModule {
+    const intervene = this.#interventions.feature;
     return {
       name: "run-control",
       register: (registry) => {
@@ -508,6 +515,7 @@ export class RunControl implements RunEnder {
           definition: workStop,
           handle: (ctx, args) => this.stop(ctx, args),
         });
+        intervene.register(registry);
       },
     };
   }
@@ -522,6 +530,8 @@ export class RunControl implements RunEnder {
       // A turn problem whose intent failed is decided now, before the caps (DIPO-123).
       const retry = tracked.unstored;
       if (retry !== null && this.act(tracked.runId, retry)) return;
+      // A pause older than 10 minutes closes the worker's stdin (DIPO-163).
+      this.#interventions.expire(tracked);
       if (!this.#checkCaps(tracked)) this.#arm(tracked);
     }, this.#deps.tickMs ?? CAP_TICK_MS);
   }

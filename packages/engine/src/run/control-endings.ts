@@ -24,7 +24,8 @@ import {
   type StopResult,
   type Tracked,
 } from "./control-types";
-import { sendAsIntent } from "./intents";
+import { recordIntent, sendAsIntent } from "./intents";
+import { MAINTAINER_TAGS, openPause } from "./pauses";
 import type { RunAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { activeRuns, findRun, type StoredRun } from "./records";
@@ -285,13 +286,29 @@ export class RunEndings {
     });
   }
 
-  /** Sends a verify feedback item as the next user message, stored first as a `steer` intent. */
+  /**
+   * Sends a verify feedback item as the next user message, stored first as a `steer` intent. A run
+   * the maintainer paused (also while the engine ran verify) gets no message: the item waits, and
+   * the first message after `work.resume` carries it (0020 section 9, DIPO-163).
+   */
   async sendFeedback(
     office: OfficeHandle,
     run: StoredRun,
     text: string,
     write: (fn: () => readonly NewEntry[]) => void,
   ): Promise<void> {
+    const held = office.immediate(() => {
+      if (openPause(office, run.runId) === null) return false;
+      recordIntent(
+        office,
+        run.runId,
+        "steer",
+        `${MAINTAINER_TAGS.held} ${text}`,
+        this.#deps.clock.now(),
+      );
+      return true;
+    });
+    if (held) return;
     const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
       kind: "steer",
       detail: "verify feedback",
