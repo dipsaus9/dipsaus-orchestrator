@@ -1,10 +1,10 @@
 ---
 id: DIPO-227
 title: Refuse a drop while the parked run's worker host still runs
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:01'
+updated_date: '2026-10-20 14:39'
 labels:
   - 'tier:S'
   - cutover
