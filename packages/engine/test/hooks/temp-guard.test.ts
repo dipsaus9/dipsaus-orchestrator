@@ -45,6 +45,50 @@ const REFUSED: Array<[string, string]> = [
   ["if true; then export TMPDIR=/x; fi", "TMPDIR"],
   ["for f in a; do DIPO_TMP=x bun test; done", "DIPO_TMP"],
   ["while true; do unset TMPDIR; done", "TMPDIR"],
+  // A shell reads its here-doc body as a script (DIPO-223 AC #1).
+  ["bash <<'EOF'\nDIPO_TMP=/x bun test\nEOF", "DIPO_TMP"],
+  ["sh <<- EOF\nTMPDIR=/x\nEOF", "TMPDIR"],
+  ["cat <<'EOF' | bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // A here-string is no here-doc: the next line is a command of its own.
+  ["read x <<< y\nDIPO_TMP=/x bun test", "DIPO_TMP"],
+  // eval, local, printf -v, read and the wrappers (DIPO-223 AC #2, #3).
+  ['eval "DIPO_TMP=/x bun test"', "DIPO_TMP"],
+  ["eval 'TMPDIR=/x' bun test", "TMPDIR"],
+  ["local TMPDIR=/x", "TMPDIR"],
+  ["printf -v TMPDIR %s /x", "TMPDIR"],
+  ["printf -vDIPO_TMP %s /x", "DIPO_TMP"],
+  ["read TMPDIR <<< /x", "TMPDIR"],
+  ["read -a TMPDIR <<< 'a b'", "TMPDIR"],
+  ["sudo TMPDIR=/x bun test", "TMPDIR"],
+  ["sudo -u me env DIPO_TMP=/x bun test", "DIPO_TMP"],
+  ["xargs env TMPDIR=/x bun test", "TMPDIR"],
+  ["xargs -I {} -n 1 env DIPO_TMP={} bun test", "DIPO_TMP"],
+  // Combined env short options (DIPO-223 AC #4).
+  ["env -iu TMPDIR bun test", "TMPDIR"],
+  ["env -iuTMPDIR bun test", "TMPDIR"],
+  // Command substitution inside double quotes (DIPO-223 AC #5).
+  ['echo "$(DIPO_TMP=/x bun test)"', "DIPO_TMP"],
+  ['echo "`TMPDIR=/x bun test`"', "TMPDIR"],
+  // A shell reached through a wrapper, a pipe or a group reads the here-doc body too.
+  ["sudo bash <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["env bash <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["env -i bash <<EOF\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["cat <<'EOF' | sudo bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["cat <<'EOF' | env bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["cat <<'EOF' | grep x | bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["{ bash; } <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["( bash ) <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // A parenthesis inside quotes or a here-doc body does not hide the rest of the text.
+  ["echo \"$(echo '(')\"; DIPO_TMP=/x bun test", "DIPO_TMP"],
+  ['echo "$(echo :-()" && DIPO_TMP=/x bun test', "DIPO_TMP"],
+  ["git commit -m \"$(cat <<'EOF'\n...(see below\nEOF\n)\" && DIPO_TMP=/x bun test", "DIPO_TMP"],
+  // An arithmetic shift opens no here-doc.
+  ["echo $((1<<2))\nDIPO_TMP=/x bun test", "DIPO_TMP"],
+  ["(( x = 1<<2 ))\nDIPO_TMP=/x bun test", "DIPO_TMP"],
+  ['echo "$((1<<2))"\nDIPO_TMP=/x bun test', "DIPO_TMP"],
+  // Long wrapper options with a separate value.
+  ["sudo --user me TMPDIR=/x bun test", "TMPDIR"],
+  ["xargs --max-args 1 env TMPDIR=/x bun test", "TMPDIR"],
 ];
 
 const PASSED = [
@@ -67,6 +111,24 @@ const PASSED = [
   "# export DIPO_TMP=1\nbun test",
   "bun test --preload TMPDIR=x",
   "git commit -m 'unset TMPDIR'",
+  // A here-doc body is not split, unless a shell reads it (DIPO-223 AC #1).
+  "cat > s.sh <<'EOF'\nDIPO_TMP=/x bun test\nEOF",
+  "cat > s.sh <<-EOF\n\tTMPDIR=/x\n\tEOF",
+  "bash -c 'echo hi' <<'EOF'\nDIPO_TMP=/x\nEOF",
+  "read x <<< y",
+  "printf -v DIPO_TMP_ROOT %s x",
+  "read -d TMPDIR line",
+  "local DIPO_TMP_ROOT=x",
+  'eval "echo DIPO_TMP=1"',
+  "sudo -u me env FOO=1 bun test",
+  "env -iC /x bun test",
+  "echo '$(DIPO_TMP=/x bun test)'",
+  "printf -- -v TMPDIR",
+  'eval "DIPO_TMP_ROOT=/x bun test"',
+  "read DIPO_TMP_ROOT <<< x",
+  "cat > s.sh <<EOF\nDIPO_TMP=/x bun test\nEOF",
+  "git commit -m \"$(cat <<'EOF'\nTMPDIR=/x (\nEOF\n)\"",
+  "{ cat; } <<'EOF'\nDIPO_TMP=/x\nEOF",
 ];
 
 describe("refusedTempVariable (pure)", () => {
@@ -85,6 +147,23 @@ describe("refusedTempVariable (pure)", () => {
       expect(refusedTempVariable(command)).toBeNull();
     });
   }
+
+  it("ends without throwing on unterminated and long input", () => {
+    const texts = [
+      "bash <<'EOF'\nDIPO_TMP=/x\n",
+      "cat <<",
+      "echo 'abc; TMPDIR=/x",
+      'echo "$(abc; TMPDIR=/x',
+      "echo \\",
+      '"$('.repeat(34_000),
+      "(".repeat(100_000),
+      "cat <<E\n".repeat(12_500),
+      "{ ".repeat(25_000) + "} ".repeat(25_000),
+      "a|".repeat(50_000),
+    ];
+    for (const text of texts) expect(() => refusedTempVariable(text)).not.toThrow();
+    expect(refusedTempVariable("bash <<'EOF'\nDIPO_TMP=/x\n")).toBe("DIPO_TMP");
+  });
 
   it("names the variable and the rule in the reason", () => {
     expect(tempVariableRefusal("DIPO_TMP")).toBe(
