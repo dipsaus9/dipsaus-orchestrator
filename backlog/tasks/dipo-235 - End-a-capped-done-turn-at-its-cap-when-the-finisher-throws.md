@@ -1,10 +1,10 @@
 ---
 id: DIPO-235
 title: End a capped done turn at its cap when the finisher throws
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 11:16'
+updated_date: '2026-10-20 11:22'
 labels:
   - 'tier:S'
   - cutover
@@ -43,3 +43,9 @@ test_plan:
 - [x] #2 A turn that carries no crossed cap and whose #finishTurn rejects behaves as today: the turn rejects and background logs "verify and commit after a turn failed"
 - [x] #3 Tests in packages/engine/test/run/control.test.ts, beside the DIPO-222 tests, use a finisher whose afterTurn throws: on the capped done turn the stop op is sent, the story parks budget-exceeded with the cap detail and one warn line is written, and the test fails without the fix; on a turn with no crossed cap no cap ending begins
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CG7NEVRD5PEZJ0XQ026BDG (Haiku, 13 turns, about $0.01, 1 min) reported done, In Review. Its `DIPO_TMP=$TMPDIR bun test ...` call was refused by the DIPO-194 Bash guard with the intended reason (live check of DIPO-194); no other denial, no write outside the References. When the finisher throws on a capped done turn and no ending holds the run, #runTurn warns 'verify and commit after a capped turn failed; ending at the cap' and ends the run with the cap ending, so the run is never left uncapped; an uncapped throw behaves as before, and a throw after the finisher claimed the end still rethrows. Review passed; advisory, not done: the capped-throw test does not assert that no cap step row is written. Verify outside the sandbox: exit 0, 4023 tests; DIPO_TEST_CI=1 run tests pass (392).
+<!-- SECTION:NOTES:END -->
