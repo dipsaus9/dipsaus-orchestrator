@@ -4,7 +4,7 @@ title: Re-check the command a wrapper or a shell runs in the gh check
 status: Ready
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 23:28'
+updated_date: '2026-10-20 23:29'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/hooks/gh-guard.ts
   - packages/engine/src/hooks/temp-guard.ts
   - packages/engine/test/hooks/gh-guard.test.ts
+  - packages/engine/test/hooks/temp-guard.test.ts
 priority: medium
 type: enhancement
 ordinal: 242000
@@ -49,6 +50,6 @@ test_plan:
 - [ ] #2 `function` and `coproc` are skipped before the program, so `function f { gh pr list; }` and `coproc gh pr list` are refused
 - [ ] #3 A shell without -c that reads a here-string, or that reads its stdin from an earlier stage of a pipe, has that text checked as a script, so `bash <<< 'gh pr list'` and `echo gh pr list | bash` are refused
 - [ ] #4 Each case of the criteria before is a row in the refused or allowed table of packages/engine/test/hooks/gh-guard.test.ts, and every row there before keeps its result
-- [ ] #5 In packages/engine/src/hooks/temp-guard.ts simpleCommands decodes ANSI-C quoting: a `$'...'` span is a quoted span whose escapes (`\xHH`, `\NNN` octal, `\n`, `\t` and the like) are read as bash reads them, and `$"..."` is read as a double-quoted span, so `$'gh' pr merge 1`, `$'\x67h' pr list` and `$"gh" pr list` give the word gh and are refused
-- [ ] #6 The gh check compares a program's basename with gh case-insensitively, so `GH pr merge 1` and `Gh api /user` are refused, while the allowed help forms stay allowed in any case (`GH --version`)
+- [ ] #5 In packages/engine/src/hooks/temp-guard.ts simpleCommands decodes ANSI-C quoting: a `$'...'` span is a quoted span whose escapes (`\xHH`, `\NNN` octal, `\n`, `\t` and the like) are read as bash reads them, and `$"..."` is read as a double-quoted span, so `$'gh' pr merge 1`, `$'\x67h' pr list` and `$"gh" pr list` give the word gh and are refused; the temp guard shares simpleCommands, so `export $'DIPO_TMP=/x'`, `$'DIPO_TMP=/x' ls`, `env $'DIPO_TMP=/x' ls` and `unset $'DIPO_TMP'` are refused too (rows in packages/engine/test/hooks/temp-guard.test.ts), and every temp-guard row before keeps its result
+- [ ] #6 The gh check compares a program's basename with gh case-insensitively, so `GH pr merge 1` and `Gh api /user` are refused, while the allowed help forms stay allowed whatever the letter case of the program name (`GH --version` is a row in the allowed table)
 <!-- AC:END -->
