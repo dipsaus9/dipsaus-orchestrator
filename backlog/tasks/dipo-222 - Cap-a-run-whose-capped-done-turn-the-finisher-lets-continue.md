@@ -1,10 +1,10 @@
 ---
 id: DIPO-222
 title: Cap a run whose capped done turn the finisher lets continue
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:59'
+updated_date: '2026-10-20 09:26'
 labels:
   - 'tier:M'
   - cutover
