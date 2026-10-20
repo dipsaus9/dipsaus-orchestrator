@@ -1,10 +1,10 @@
 ---
 id: DIPO-229
 title: Serialize a direct park resume with work.run's claim of the worker place
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:37'
+updated_date: '2026-10-20 18:07'
 labels:
   - 'tier:S'
   - cutover
@@ -38,6 +38,10 @@ test_plan:
       check: "(unit) a park answer resumed first holds the worker place, and the pickup that follows is skipped for the worker place"
     - kind: "automated"
       check: "(unit) without places the park resume starts its session at once, and a queued resume started by a drain does not wait on serialized"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "already reviewed and merged on main (#278); review reopened by the pending-review start"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
