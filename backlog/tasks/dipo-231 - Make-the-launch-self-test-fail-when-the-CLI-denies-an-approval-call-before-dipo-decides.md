@@ -6,7 +6,7 @@ title: >-
 status: Ready
 assignee: []
 created_date: '2026-10-20 08:42'
-updated_date: '2026-10-20 14:01'
+updated_date: '2026-10-20 14:19'
 labels:
   - 'tier:M'
   - cutover
@@ -22,6 +22,7 @@ references:
   - packages/engine/test/workers/launch-fixtures.ts
   - packages/engine/test/workers/skills.test.ts
   - packages/engine/test/run/adapter.test.ts
+  - packages/engine/src/workers/claude-cli/adapter.ts
 priority: medium
 type: feature
 ordinal: 231000
@@ -32,7 +33,7 @@ ordinal: 231000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the launch self-test catches the failure DIPO-181 fixes: its session makes one planned Bash call that needs approval under the run settings, dipo answers that call's PermissionRequest with a fixed deny, and the launch is refused when the CLI denied the call on its own before dipo's decision arrived.
 
-Context: split from DIPO-181 by the PR #256 review (2026-10-20). Today the self-test (packages/engine/src/workers/claude-cli/self-test.ts) runs with hookRelay false and one planned Bash call built so the permission layer does not stop it, so it never meets a PermissionRequest. It is spawned with no worker host, and its DIPO_HOST_SOCKET (plan.ts) names the run's host socket, which nothing binds before launch, so the self-test needs a short-lived host-protocol stand-in that answers non-waiting hooks with no output and the approval PermissionRequest with the self-test deny. The approval call is `cd .; ls`: in the 2026-10-20 probe (9 Haiku sessions on Claude CLI 2.1.304 with a real worker's run settings and argv) it asked 4 of 4 times, because cd names a path computed at run time that the permission layer cannot check against the read block, and it writes nothing even when allowed; earlier compound commands ran with no ask. The CLI's ask list can change between versions, so a session whose call never reached dipo is inconclusive and refuses the launch, never passes it. The shared fixture packages/engine/test/workers/launch-fixtures.ts (selfTestSession) and packages/engine/test/workers/skills.test.ts replay the one-call session today. The 0008 section 2 note of 2026-10-20 (DIPO-231) records the approval call, dipo's fixed deny and the refusal that holds the adapter, as DIPO-98 recorded its probes.
+Context: split from DIPO-181 by the PR #256 review (2026-10-20). Today the self-test (packages/engine/src/workers/claude-cli/self-test.ts) runs with hookRelay false and one planned Bash call built so the permission layer does not stop it, so it never meets a PermissionRequest. It is spawned with no worker host, and its DIPO_HOST_SOCKET (plan.ts) names the run's host socket, which nothing binds before launch, so the self-test needs a short-lived host-protocol stand-in that answers non-waiting hooks with no output and the approval PermissionRequest with the self-test deny. The approval call is `cd .; ls`: in the 2026-10-20 probe (9 Haiku sessions on Claude CLI 2.1.304 with a real worker's run settings and argv) it asked 4 of 4 times, because cd names a path computed at run time that the permission layer cannot check against the read block, and it writes nothing even when allowed; earlier compound commands ran with no ask. The CLI's ask list can change between versions, so a session whose call never reached dipo is inconclusive and refuses the launch, never passes it. When the CLI denies the call on its own, its permission_denied text reads 'no approval surface in this session; permission request denied automatically'; the judge matches the substring 'no approval surface'. claudeWorkerPort in packages/engine/src/workers/claude-cli/adapter.ts picks the launch-check seams (launchCheckSeams) the self-test runs with. The shared fixture packages/engine/test/workers/launch-fixtures.ts (selfTestSession) and packages/engine/test/workers/skills.test.ts replay the one-call session today. The 0008 section 2 note of 2026-10-20 (DIPO-231) records the approval call, dipo's fixed deny and the refusal that holds the adapter, as DIPO-98 recorded its probes.
 
 ```dipo
 branch: "DIPO-231/self-test-approval-call"
