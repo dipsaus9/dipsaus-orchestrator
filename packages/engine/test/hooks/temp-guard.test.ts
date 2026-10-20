@@ -78,6 +78,22 @@ const REFUSED: Array<[string, string]> = [
   ["cat <<'EOF' | grep x | bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["{ bash; } <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["( bash ) <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["(bash) <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // A here-doc on the closing word of an if, loop or case compound is the body of the shell inside
+  // it (DIPO-237 AC #2).
+  ["if true; then bash; fi <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["if true; then bash; fi <<'EOF'\nexport TMPDIR=/x\nEOF", "TMPDIR"],
+  ["while read l; do bash; done <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["until false; do sh; done <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["for i in a; do bash; done <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["case x in x) bash ;; esac <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["case x in x) bash ;; esac <<'EOF'\nexport TMPDIR=/x\nEOF", "TMPDIR"],
+  // A nested compound: the shell two compounds deep reads the body of the outer closing word.
+  ["if true; then for i in a; do bash; done; fi <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["{ if true; then bash; fi; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // A command substitution is no group: the shell inside it does not read the body of cat, but
+  // a `$(` export is still checked on its own (DIPO-237 AC #3).
+  ["x=$(export DIPO_TMP=/x) true", "DIPO_TMP"],
   // A parenthesis inside quotes or a here-doc body does not hide the rest of the text.
   ["echo \"$(echo '(')\"; DIPO_TMP=/x bun test", "DIPO_TMP"],
   ['echo "$(echo :-()" && DIPO_TMP=/x bun test', "DIPO_TMP"],
@@ -129,6 +145,19 @@ const PASSED = [
   "cat > s.sh <<EOF\nDIPO_TMP=/x bun test\nEOF",
   "git commit -m \"$(cat <<'EOF'\nTMPDIR=/x (\nEOF\n)\"",
   "{ cat; } <<'EOF'\nDIPO_TMP=/x\nEOF",
+  // The closing word of an if, loop or case compound with cat, or as an argument, reads no shell
+  // (DIPO-237 AC #2).
+  "if true; then cat; fi <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "if true; then cat; fi <<'EOF'\nexport TMPDIR=/x\nEOF",
+  "while read l; do cat; done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "until false; do cat; done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "for i in a; do cat; done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "case x in x) cat ;; esac <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "echo done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "while read l; do echo done; done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "echo fi <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  // A command substitution is no group: the command it is a word of reads no body (DIPO-237 AC #3).
+  "x=$(bash ./mk.sh) cat > f <<'EOF'\nexport DIPO_TMP=/x\nEOF",
 ];
 
 describe("refusedTempVariable (pure)", () => {
