@@ -105,6 +105,9 @@ const privacyShape = {
   keepRawEvents: z.boolean(),
 };
 
+/** The keys under `privacy` (`storePrompts`, `storeCommandBodies`, `keepRawEvents`). */
+export const PRIVACY_KEYS = Object.keys(privacyShape) as ReadonlyArray<keyof typeof privacyShape>;
+
 const retentionShape = {
   shortDays: count(),
   stateDays: count(),

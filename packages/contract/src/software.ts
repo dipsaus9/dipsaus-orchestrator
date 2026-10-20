@@ -35,6 +35,15 @@ export const DayUsage = z.object({
 });
 export type DayUsage = z.infer<typeof DayUsage>;
 
+// One privacy setting of an office: its key (`privacy.storeCommandBodies`), the value in force and
+// whether the value is the default or comes from `.dipo/office.local.yaml`.
+export const PrivacySetting = z.object({
+  key: z.string().min(1),
+  value: z.boolean(),
+  source: z.enum(["default", "office.local.yaml"]),
+});
+export type PrivacySetting = z.infer<typeof PrivacySetting>;
+
 export const OfficeSummary = z.object({
   office: OfficeId,
   name: z.string(),
@@ -55,6 +64,10 @@ export const OfficeSummary = z.object({
   // that output was removed after this period. Absent when the office has no valid configuration.
   // Minor 1, DIPO-97.
   outputRetentionDays: z.int().positive().optional(),
+  // The three privacy settings with their effective value and where it comes from, so a client can
+  // show and change them (0007 section 8). Absent when the office has no valid configuration.
+  // Minor 1, DIPO-136.
+  privacy: z.array(PrivacySetting).optional(),
 });
 export type OfficeSummary = z.infer<typeof OfficeSummary>;
 
@@ -169,6 +182,27 @@ export const officeReloadConfig = defineCommand({
   args: OfficeTargetArgs,
   result: z.object({
     office: OfficeId,
+    valid: z.boolean(),
+    errors: z.array(ConfigErrorData),
+    configHash: z.string().optional(),
+  }),
+  confirm: false,
+  irreversible: false,
+  since: 1,
+});
+
+// Changes one privacy setting of an office in `.dipo/office.local.yaml` and reloads the
+// configuration (0007 section 8, DIPO-136). `key` is `storeCommandBodies`, `storePrompts` or
+// `keepRawEvents`; an unknown key or a value that is not a boolean is refused with the file and key
+// named. `configHash` is the hash of the configuration in force after the reload.
+export const officeSetPrivacy = defineCommand({
+  name: "office.setPrivacy",
+  level: "software",
+  args: z.object({ office: OfficeId, key: z.string().min(1), value: z.unknown() }),
+  result: z.object({
+    office: OfficeId,
+    key: z.string(),
+    value: z.boolean(),
     valid: z.boolean(),
     errors: z.array(ConfigErrorData),
     configHash: z.string().optional(),
@@ -346,6 +380,7 @@ export const softwareCommands = [
   officePurge,
   officeRescan,
   officeReloadConfig,
+  officeSetPrivacy,
   daemonStop,
   daemonSetLogLevel,
   daemonResumeScheduling,

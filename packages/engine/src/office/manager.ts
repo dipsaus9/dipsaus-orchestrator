@@ -7,8 +7,8 @@
 // configuration never refuses an office: it keeps the previous configuration for running work and
 // `configBlocksRuns` reports the errors until a valid reload (0017 section 5).
 
-import { existsSync, rmSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   type Clock,
@@ -28,7 +28,12 @@ import {
   officeUnknown,
 } from "../commands/offices";
 import type { CommandOutcome, Registry } from "../commands/registry";
-import { loadOfficeConfig, type OfficeConfig } from "../config";
+import {
+  loadOfficeConfig,
+  OFFICE_LOCAL_FILE,
+  type OfficeConfig,
+  updateLocalPrivacy,
+} from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
@@ -96,6 +101,11 @@ export interface ReloadConfigResult {
   readonly configHash?: string;
 }
 
+export interface SetPrivacyResult extends ReloadConfigResult {
+  readonly key: string;
+  readonly value: boolean;
+}
+
 interface OfficeRow {
   readonly office_id: string;
   readonly path: string;
@@ -106,7 +116,12 @@ interface OfficeRow {
 
 /** One loaded office: its handle, location and the configuration in force. */
 class OfficeInstance {
-  config: { readonly config: OfficeConfig; readonly configHash: string } | null = null;
+  config: {
+    readonly config: OfficeConfig;
+    readonly configHash: string;
+    /** Leaf key paths `office.local.yaml` sets, for the summary's setting sources. */
+    readonly localOverrideKeys: readonly string[];
+  } | null = null;
   configErrors: readonly ConfigError[] = [];
 
   constructor(
@@ -177,6 +192,11 @@ export class OfficeManager implements OfficeDirectory {
   /** The configuration in force for `office`: the last valid one read, kept through invalid reloads. */
   config(office: OfficeId): OfficeConfig | undefined {
     return this.#instances.get(office)?.config?.config;
+  }
+
+  /** The leaf keys `.dipo/office.local.yaml` sets in the configuration in force for `office`. */
+  localOverrideKeys(office: OfficeId): readonly string[] {
+    return this.#instances.get(office)?.config?.localOverrideKeys ?? [];
   }
 
   /** The hash of the configuration in force for `office` (0017), as `runs.config_hash` records it. */
@@ -292,7 +312,11 @@ export class OfficeManager implements OfficeDirectory {
     if (result.ok) {
       const changed =
         instance.config?.configHash !== result.configHash || instance.configErrors.length > 0;
-      instance.config = { config: result.config, configHash: result.configHash };
+      instance.config = {
+        config: result.config,
+        configHash: result.configHash,
+        localOverrideKeys: result.localOverrideKeys,
+      };
       instance.configErrors = [];
       return changed;
     }
@@ -352,6 +376,19 @@ export class OfficeManager implements OfficeDirectory {
    */
   reloadConfig(office: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {
     return this.#serialised(() => this.#reloadConfig(office));
+  }
+
+  /**
+   * `office.setPrivacy { office, key, value }` (0007 section 8, DIPO-136): writes one privacy
+   * setting to `.dipo/office.local.yaml`, then reads the configuration again like
+   * `office.reloadConfig`. A refused change leaves the file as it was.
+   */
+  setPrivacy(
+    office: OfficeId,
+    key: string,
+    value: unknown,
+  ): Promise<CommandOutcome<SetPrivacyResult>> {
+    return this.#serialised(() => this.#setPrivacy(office, key, value));
   }
 
   /** The office's row; `office.unknown` for an id that was never registered. */
@@ -681,6 +718,57 @@ export class OfficeManager implements OfficeDirectory {
         ...(instance.config === null ? {} : { configHash: instance.config.configHash }),
       },
       changed,
+    };
+  }
+
+  async #setPrivacy(
+    officeId: OfficeId,
+    key: string,
+    value: unknown,
+  ): Promise<CommandOutcome<SetPrivacyResult>> {
+    const db = this.#deps.database();
+    if (db === null) throw new CommandError(recovering().code, recovering().message);
+    this.#existing(db, officeId);
+    const access = await this.load(officeId);
+    if (!access.ok)
+      throw new CommandError(access.error.code, access.error.message, access.error.details);
+    const instance = this.#instances.get(officeId);
+    if (instance === undefined) {
+      const error = officeUnknown(officeId);
+      throw new CommandError(error.code, error.message, error.details);
+    }
+    const file = join(instance.path, OFFICE_LOCAL_FILE);
+    let current: string | undefined;
+    try {
+      current = readFileSync(file, "utf8");
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== "ENOENT") {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new CommandError("args.invalid", `${OFFICE_LOCAL_FILE} cannot be read: ${reason}`, {
+          file: OFFICE_LOCAL_FILE,
+        });
+      }
+    }
+    const update = updateLocalPrivacy(current, key, value);
+    if (!update.ok) {
+      const first = update.errors[0];
+      throw new CommandError(
+        "args.invalid",
+        update.errors.map((error) => error.message).join("; "),
+        { file: OFFICE_LOCAL_FILE, ...(first === undefined ? {} : { key: first.path }) },
+      );
+    }
+    const written = update.text !== current;
+    if (written) {
+      mkdirSync(dirname(file), { recursive: true });
+      const temp = `${file}.${process.pid}.tmp`;
+      writeFileSync(temp, update.text);
+      renameSync(temp, file);
+    }
+    const reloaded = await this.#reloadConfig(officeId);
+    return {
+      result: { ...reloaded.result, key, value: value as boolean },
+      changed: written || (reloaded.changed ?? false),
     };
   }
 

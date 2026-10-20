@@ -85,6 +85,16 @@ export async function mount(options: MountOptions = {}) {
       await session.command({ name: "daemon.resumeScheduling" } as never, {} as never);
       return { ok: true, value: null };
     },
+    setPrivacy: async (request) => {
+      const outcome = await session.command(
+        { name: "office.setPrivacy" } as never,
+        { office: request.office, key: request.key, value: request.value } as never,
+        { requestId: request.requestId },
+      );
+      return outcome.ok
+        ? { ok: true, value: null }
+        : { ok: false, message: `${outcome.error.code}: ${outcome.error.message}` };
+    },
     runStories: async (request) =>
       (await session.command(
         { name: "work.run" } as never,

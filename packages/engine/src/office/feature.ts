@@ -1,5 +1,5 @@
 // The software-level office commands (0005 section 4): `office.open`, `office.forget`,
-// `office.purge` (DIPO-76) and `office.reloadConfig`, answered by the office manager. The daemon lists this module next to the
+// `office.purge` (DIPO-76), `office.reloadConfig` and `office.setPrivacy` (DIPO-136), answered by the office manager. The daemon lists this module next to the
 // engine's own features, because the manager needs the state database and the software stream.
 
 import {
@@ -7,6 +7,7 @@ import {
   officeOpen,
   officePurge,
   officeReloadConfig,
+  officeSetPrivacy,
 } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../commands/registry";
@@ -34,6 +35,10 @@ export function officeFeature(manager: OfficeManager): FeatureModule {
       registry.addSoftwareCommand({
         definition: officeReloadConfig,
         handle: (_ctx, args) => manager.reloadConfig(args.office),
+      });
+      registry.addSoftwareCommand({
+        definition: officeSetPrivacy,
+        handle: (_ctx, args) => manager.setPrivacy(args.office, args.key, args.value),
       });
     },
   };

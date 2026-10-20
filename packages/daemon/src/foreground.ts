@@ -854,7 +854,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
     // `optIns` names the privacy opt-ins that are on (0007 section 8, DIPO-83) and
     // `outputRetentionDays` the stored-output retention period (0007 section 7, DIPO-97).
-    const settingsOf = (office: OfficeId) => summarySettings(offices.config(office));
+    const settingsOf = (office: OfficeId) =>
+      summarySettings(offices.config(office), offices.localOverrideKeys(office));
     const summaries = officeSummarySource(() => held.database, settingsOf);
     const registry: Registry = engineRegistry([
       ...engineFeatures({ backlog: backlogCli }),
