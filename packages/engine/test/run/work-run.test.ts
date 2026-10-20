@@ -111,7 +111,7 @@ interface World {
   readonly tasks: PlainTask[];
   readonly keys: Map<string, StoryKey>;
   readonly claims: ClaimRequest[];
-  readonly gates: { key: StoryKey; mode: GateMode; inQueue: boolean }[];
+  readonly gates: { key: StoryKey; mode: GateMode; inQueue: boolean; inSession: boolean }[];
   readonly lane: { journaled: LaneOp[]; flushes: number };
   readonly holds: AdapterHolds;
   config: OfficeConfig;
@@ -133,6 +133,9 @@ interface World {
   /** Holds the claim open when set: `entered` is called as it starts, `open` lets it go on (DIPO-208). */
   claimGate: { readonly entered: () => void; readonly open: Promise<void> } | null;
 }
+
+/** The git session the fake claim hands its recheck, so a test can see the gate got it (DIPO-201). */
+const CLAIM_SESSION = { claimSession: true } as never;
 
 let dir = "";
 let world: World;
@@ -226,7 +229,7 @@ beforeEach(async () => {
           w.claimGate.entered();
           await w.claimGate.open;
         }
-        const skip = await request.recheck?.(undefined as never);
+        const skip = await request.recheck?.(CLAIM_SESSION);
         if (skip !== null && skip !== undefined) return skip;
         const claim = {
           runId: request.runId,
@@ -265,8 +268,13 @@ beforeEach(async () => {
       },
     },
     gates: {
-      recordGateDecision: async (_office, key, mode, checkout) => {
-        gates.push({ key, mode, inQueue: checkout !== undefined });
+      recordGateDecision: async (_office, key, mode, checkout, session) => {
+        gates.push({
+          key,
+          mode,
+          inQueue: checkout !== undefined,
+          inSession: session === CLAIM_SESSION,
+        });
         const result = w.gate(key, mode);
         office.immediate(() =>
           storeGateDecision(office, t.ids, { key, result, contentHash: "h", at: t.clock.now() }),
@@ -370,7 +378,7 @@ describe("work.run picks and claims one Ready story", () => {
 
     // The claim got the frozen branch and ran the pickup re-check inside its queue item.
     expect(world.claims.map((c) => [c.story, c.branch])).toEqual([["TASK-3", "TASK-3/a-story"]]);
-    expect(world.gates).toEqual([{ key: key3, mode: "pickup", inQueue: true }]);
+    expect(world.gates).toEqual([{ key: key3, mode: "pickup", inQueue: true, inSession: true }]);
     expect(countRows(world.office, "gate_decisions")).toBe(1);
 
     const runId = RunId.parse(result.started[0]?.run);
@@ -613,7 +621,7 @@ describe("work.run picks and claims one Ready story", () => {
     });
     const result = resultOf(await run());
     expect(result.skipped).toEqual([{ story: "TASK-1", key, reason: "pickupCheckFailed" }]);
-    expect(world.gates).toEqual([{ key, mode: "pickup", inQueue: false }]);
+    expect(world.gates).toEqual([{ key, mode: "pickup", inQueue: false, inSession: false }]);
     expect(world.claims).toEqual([]);
   });
 });
