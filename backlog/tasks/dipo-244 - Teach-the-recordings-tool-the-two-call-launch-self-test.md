@@ -1,10 +1,10 @@
 ---
 id: DIPO-244
 title: Teach the recordings tool the two-call launch self-test
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 23:08'
+updated_date: '2026-10-20 23:17'
 labels:
   - 'tier:S'
   - cutover
@@ -51,7 +51,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tools/recordings/scenarios.ts plans the self-test's two calls (the probe and APPROVAL_COMMAND), runs the host-protocol stand-in for the captured session at the session's own socket, and writes the approval evidence (result, cliDenied, reached) and the two-call bash evidence into the recording's checks
-- [ ] #2 The replay test in packages/engine/test/workers/self-test.test.ts judges a recording whose checks hold approval evidence with that evidence and its recorded call count, and uses the synthetic two-call override only for a recording without approval evidence, with the reason in a comment
-- [ ] #3 A test in tools/recordings/capture.test.ts shows a captured safety scenario with a passing approval evidence and verdict ok, using a fake session
+- [x] #1 tools/recordings/scenarios.ts plans the self-test's two calls (the probe and APPROVAL_COMMAND), runs the host-protocol stand-in for the captured session at the session's own socket, and writes the approval evidence (result, cliDenied, reached) and the two-call bash evidence into the recording's checks
+- [x] #2 The replay test in packages/engine/test/workers/self-test.test.ts judges a recording whose checks hold approval evidence with that evidence and its recorded call count, and uses the synthetic two-call override only for a recording without approval evidence, with the reason in a comment
+- [x] #3 A test in tools/recordings/capture.test.ts shows a captured safety scenario with a passing approval evidence and verdict ok, using a fake session
 <!-- AC:END -->
