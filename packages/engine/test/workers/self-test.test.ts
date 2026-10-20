@@ -1192,12 +1192,12 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
         fs.files.set(REVIEW_LAYOUT.controlFile, "");
       },
     });
-    // Safe-Chain on the machine changes nothing for a reviewer: no proxy, no wrapper, no install
-    // through it.
+    // Safe-Chain on the machine gives a reviewer the detected PATH and a closed shell snapshot
+    // (DIPO-250), but no proxy, no wrapper and no install through it.
     const safeChain = {
       root: `${HOME}/.safe-chain`,
       shell: "/bin/zsh",
-      path: "/usr/bin:/bin",
+      path: "/usr/bin:/bin:/demoted/bin",
       demoted: [],
       dropped: [],
       probe: "bun",
@@ -1220,6 +1220,8 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
     expect(fs.files.get(`${RUN_DIR}/self-test/${SETTINGS_FILE}`)).toBe(runSettings);
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
     expect(session?.env?.["CLAUDE_CODE_SHELL"]).toBeUndefined();
+    expect(session?.env?.["PATH"]).toBe(safeChain.path);
+    expect(runSettings).toContain(`${HOME}/.claude/shell-snapshots`);
     expect(session?.cmd[session.cmd.indexOf("--mcp-config") + 1]).toBe(
       `${RUN_DIR}/self-test/mcp-empty.json`,
     );

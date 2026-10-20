@@ -1,10 +1,10 @@
 ---
 id: DIPO-250
 title: Give review sessions the worker's readable PATH and a closed shell snapshot
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-20 20:27'
+updated_date: '2026-10-20 21:16'
 labels:
   - 'tier:M'
   - cutover
@@ -50,9 +50,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 kindContext in packages/engine/src/workers/claude-cli/plan.ts keeps ctx.safeChain undefined for a review, so no Safe-Chain proxy starts and no Safe-Chain install runs for a reviewer (0019 section 4), and, when the Safe-Chain install was detected, carries the PATH detectSafeChain built and a flag that closes the CLI's shell snapshot
-- [ ] #2 With that PATH and flag, the review plan sets env PATH to the detected PATH (entries the sandbox cannot read left out, demoted entries at the end) and adds the shell snapshot directory to the sandbox's denyRead; it sets no CLAUDE_CODE_SHELL and keeps REVIEW_NETWORK
-- [ ] #3 The reviewer self-test in packages/engine/src/workers/claude-cli/self-test.ts uses the same detected PATH for its workerPath, and the reviewer launch checks in launch-checks.ts start no Safe-Chain proxy
-- [ ] #4 A review plan, self-test and launch on a machine without the official Safe-Chain install are unchanged
-- [ ] #5 Unit tests cover the review plan with and without Safe-Chain in packages/engine/test/workers/plan.test.ts, the reviewer self-test in packages/engine/test/workers/self-test.test.ts (the test that Safe-Chain changes nothing for a reviewer is updated to the new PATH and closed snapshot), and the reviewer launch in packages/engine/test/workers/launch-checks.test.ts
+- [x] #1 kindContext in packages/engine/src/workers/claude-cli/plan.ts keeps ctx.safeChain undefined for a review, so no Safe-Chain proxy starts and no Safe-Chain install runs for a reviewer (0019 section 4), and, when the Safe-Chain install was detected, carries the PATH detectSafeChain built and a flag that closes the CLI's shell snapshot
+- [x] #2 With that PATH and flag, the review plan sets env PATH to the detected PATH (entries the sandbox cannot read left out, demoted entries at the end) and adds the shell snapshot directory to the sandbox's denyRead; it sets no CLAUDE_CODE_SHELL and keeps REVIEW_NETWORK
+- [x] #3 The reviewer self-test in packages/engine/src/workers/claude-cli/self-test.ts uses the same detected PATH for its workerPath, and the reviewer launch checks in launch-checks.ts start no Safe-Chain proxy
+- [x] #4 A review plan, self-test and launch on a machine without the official Safe-Chain install are unchanged
+- [x] #5 Unit tests cover the review plan with and without Safe-Chain in packages/engine/test/workers/plan.test.ts, the reviewer self-test in packages/engine/test/workers/self-test.test.ts (the test that Safe-Chain changes nothing for a reviewer is updated to the new PATH and closed snapshot), and the reviewer launch in packages/engine/test/workers/launch-checks.test.ts
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DJ2QR7BR4Q7RTJS1QKCAFG (Sonnet, 37 turns, about $0.45, 2 min) reported done with no denied call and no write outside the References; stopped at review (the running binary predated this fix) and reviewed by hand. A review session keeps no Safe-Chain context (no proxy, shell wrapper or install, network closed, 0019 section 4), but on a machine with the official Safe-Chain install kindContext now carries the PATH detectSafeChain built (reviewShell): the plan sets the reviewer's env PATH to it and read-denies the CLI's shell snapshot directory, so the reviewer's Bash no longer takes the login shell's PATH, whose first bun links outside the sandbox's read paths (the cause of 49 failed review starts on 2026-10-20). The self-test's workerPath follows. Workers and machines without Safe-Chain are unchanged. Fixed on top: a stale self-test comment. Not yet proven: whether bun resolves in a live reviewer sandbox (a zsh login shell could reorder PATH via path_helper, as DIPO-107 handled for workers); the live check is the next review start on a rebuilt binary. Follow-ups: a direct test that the self-test's workerPath is reviewShell.path; the reviewer's env PATH replaces the whole claude process PATH, unlike a worker. Verify outside the sandbox: exit 0, 4181 tests; DIPO_TEST_CI=1 workers and run tests.
+<!-- SECTION:NOTES:END -->

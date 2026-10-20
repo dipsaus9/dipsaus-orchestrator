@@ -1077,7 +1077,47 @@ describe("claude-cli plan of the review kind (DIPO-145, 0019 section 4)", () => 
     const settings = settingsOf(launch) as unknown as ReviewSettings;
     expect(settings.sandbox.network["httpProxyPort"]).toBeUndefined();
     expect(JSON.stringify(settings)).not.toContain("safe-chain");
-    expect(launch).toEqual(plan(reviewSpec(), context()));
+    expect(JSON.stringify(settings)).not.toContain("dipo-p");
+    expect(settings.sandbox.network).toEqual({
+      allowedDomains: [],
+      strictAllowlist: true,
+      allowLocalBinding: false,
+    });
+  });
+
+  it("gets the detected PATH and a closed shell snapshot where Safe-Chain is installed (DIPO-250)", () => {
+    const safeChain = {
+      root: "/home/maintainer/.safe-chain",
+      shell: "/bin/zsh",
+      path: "/home/maintainer/.bun/bin-originals:/usr/bin:/bin:/home/maintainer/.bun/bin",
+      demoted: [{ entry: "/home/maintainer/.bun/bin", reason: "wrapped command unreadable" }],
+      dropped: [{ entry: "/home/maintainer/.safe-chain/shims", reason: "sandbox cannot read it" }],
+      probe: "bun",
+      shellDir: `${RUN_DIR}/safe-chain`,
+      route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" },
+    };
+    const launch = plan(reviewSpec(), context({ safeChain }));
+    expect(launch.env["PATH"]).toBe(safeChain.path);
+    expect(launch.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
+    const settings = settingsOf(launch) as unknown as ReviewSettings;
+    const sandbox = settings.sandbox as unknown as {
+      filesystem: { denyRead: string[]; allowRead: string[] };
+    };
+    expect(sandbox.filesystem.denyRead).toEqual([
+      "/home/maintainer/Library/Keychains",
+      "/home/maintainer/.claude/shell-snapshots",
+    ]);
+    expect(sandbox.filesystem.allowRead).not.toContain(safeChain.shellDir);
+    expect(JSON.stringify(settings.sandbox.network)).not.toContain("50123");
+    // The worker's own plan keeps the Safe-Chain shell.
+    expect(plan(spec("M"), context({ safeChain })).env["CLAUDE_CODE_SHELL"]).toBeDefined();
+  });
+
+  it("is unchanged without Safe-Chain: the daemon's PATH and an open snapshot directory", () => {
+    const launch = plan(reviewSpec(), context());
+    expect(launch.env["PATH"]).toBe("/home/maintainer/.bun/bin:/usr/bin:/bin");
+    const sandbox = settingsOf(launch)["sandbox"] as { filesystem: { denyRead: string[] } };
+    expect(sandbox.filesystem.denyRead).toEqual(["/home/maintainer/Library/Keychains"]);
   });
 
   it("switches off every installed plugin, also those worker.plugins allows", () => {
