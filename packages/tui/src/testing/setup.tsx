@@ -89,7 +89,7 @@ export async function mount(options: MountOptions = {}) {
       const outcome = await session.command(
         { name: "office.setPrivacy" } as never,
         { office: request.office, key: request.key, value: request.value } as never,
-        { requestId: request.requestId },
+        { requestId: request.requestId, confirmed: true },
       );
       return outcome.ok
         ? { ok: true, value: null }

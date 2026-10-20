@@ -762,8 +762,22 @@ export class OfficeManager implements OfficeDirectory {
     if (written) {
       mkdirSync(dirname(file), { recursive: true });
       const temp = `${file}.${process.pid}.tmp`;
-      writeFileSync(temp, update.text);
-      renameSync(temp, file);
+      try {
+        writeFileSync(temp, update.text);
+        renameSync(temp, file);
+      } catch (error) {
+        // No temp file is left in the office repository, and the refusal names the file.
+        rmSync(temp, { force: true });
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new CommandError(
+          "office.refused",
+          `${OFFICE_LOCAL_FILE} cannot be written: ${reason}`,
+          {
+            office: officeId,
+            file: OFFICE_LOCAL_FILE,
+          },
+        );
+      }
     }
     const reloaded = await this.#reloadConfig(officeId);
     return {

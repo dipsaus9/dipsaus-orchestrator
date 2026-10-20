@@ -2,7 +2,14 @@
 // configuration and answers with the new hash; a refused change leaves the file unchanged.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import type { ConfigError, OfficeId } from "@dipsaus-orchestrator/contract";
@@ -118,6 +125,34 @@ describe("office.setPrivacy", () => {
         expect(!refused.ok && refused.error.message).toContain("timeouts.workerStallMinutes");
         expect(!refused.ok && refused.error.message).toContain(".dipo/office.local.yaml");
         expect(readFileSync(file, "utf8")).toBe(invalid);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("refuses a write that fails, naming the file and leaving no temp file", async () => {
+    await withTempRepo(
+      async (repo) => {
+        const dipo = join(repo.dir, ".dipo");
+        mkdirSync(dipo, { recursive: true });
+        const s = await officeSetup(repo.root);
+        const office = resultOf<{ office: OfficeId }>(
+          await send(s, "office.open", { path: repo.dir }),
+        ).office;
+        chmodSync(dipo, 0o555);
+        try {
+          const reply = await send(s, "office.setPrivacy", {
+            office,
+            key: "storePrompts",
+            value: false,
+          });
+          expect(!reply.ok && reply.error.code).toBe("office.refused");
+          expect(!reply.ok && reply.error.message).toContain(".dipo/office.local.yaml");
+        } finally {
+          chmodSync(dipo, 0o755);
+        }
+        expect(readdirSync(dipo).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+        expect(existsSync(join(dipo, "office.local.yaml"))).toBe(false);
       },
       { fixture: BACKLOG_FIXTURE },
     );

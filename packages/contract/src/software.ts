@@ -194,7 +194,9 @@ export const officeReloadConfig = defineCommand({
 // Changes one privacy setting of an office in `.dipo/office.local.yaml` and reloads the
 // configuration (0007 section 8, DIPO-136). `key` is `storeCommandBodies`, `storePrompts` or
 // `keepRawEvents`; an unknown key or a value that is not a boolean is refused with the file and key
-// named. `configHash` is the hash of the configuration in force after the reload.
+// named. `configHash` is the hash of the configuration in force after the reload. Every client asks
+// before it sends it (the maintainer, 2026-10-20): turning storage on widens what dipo keeps on disk,
+// and what was stored stays after it is turned off again.
 export const officeSetPrivacy = defineCommand({
   name: "office.setPrivacy",
   level: "software",
@@ -207,7 +209,7 @@ export const officeSetPrivacy = defineCommand({
     errors: z.array(ConfigErrorData),
     configHash: z.string().optional(),
   }),
-  confirm: false,
+  confirm: true,
   irreversible: false,
   since: 1,
 });

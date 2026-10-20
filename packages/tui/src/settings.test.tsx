@@ -47,7 +47,9 @@ describe("privacy settings view", () => {
     expect(frame).toMatch(/keepRawEvents\s+off\s+\(office\.local\.yaml\)/);
     expect(frame).toContain("comments are not kept");
     await ui.press("escape");
-    expect(ui.frame()).not.toContain("Privacy settings");
+    // Wait for the overview to render again before checking the settings view is gone.
+    const overview = await ui.waitFor("[p] privacy");
+    expect(overview).not.toContain("Privacy settings");
   });
 
   it("confirms a toggle with what is stored, sends the command, and drops the warning", async () => {

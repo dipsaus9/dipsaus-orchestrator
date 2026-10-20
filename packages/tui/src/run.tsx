@@ -164,7 +164,8 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
           const outcome = await connected.command(
             officeSetPrivacy,
             { office: request.office, key: request.key, value: request.value },
-            { requestId: request.requestId },
+            // `office.setPrivacy` has `confirm: true`; the maintainer answered yes before this is sent.
+            { requestId: request.requestId, confirmed: true },
           );
           if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
           if (!outcome.result.valid) {
