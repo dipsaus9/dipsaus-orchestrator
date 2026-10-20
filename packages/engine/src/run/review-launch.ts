@@ -97,6 +97,23 @@ function worktreeAt(git: OfficeGit, worktree: string): Extract<GitLocation, { ki
 }
 
 /** The real `ReviewGit`: office git queue items through the hardened runner. */
+/**
+ * The `git diff` arguments of the story diff the reviewer gets. The prefixes are fixed, so a user's
+ * or a repository's diff.noprefix, diff.srcPrefix or diff.dstPrefix cannot change the `+++ b/<path>`
+ * lines parseStoryDiff reads (DIPO-146 review).
+ */
+export function storyDiffArgs(range: string): string[] {
+  return [
+    "diff",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-renames",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    range,
+  ];
+}
+
 export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined): ReviewGit {
   const attached = (office: OfficeId): OfficeGit => {
     const git = gitOf(office);
@@ -124,13 +141,7 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
       return git.run(async (session) => {
         const location = worktreeAt(git, worktree);
         const range = `${base}...HEAD`;
-        const diff = await session.ok(location, [
-          "diff",
-          "--no-color",
-          "--no-ext-diff",
-          "--no-renames",
-          range,
-        ]);
+        const diff = await session.ok(location, storyDiffArgs(range));
         const numstat = await session.ok(location, [
           "diff",
           "--numstat",
