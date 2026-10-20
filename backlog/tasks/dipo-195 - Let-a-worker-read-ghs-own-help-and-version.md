@@ -1,10 +1,10 @@
 ---
 id: DIPO-195
 title: Let a worker read gh's own help and version
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-20 14:57'
+updated_date: '2026-10-20 18:24'
 labels:
   - 'tier:S'
   - cutover
@@ -53,6 +53,10 @@ test_plan:
     - kind: "manual"
       check: "(live) on the scratch repo, run a story whose task asks the worker to report the flags of gh pr view"
       expect: "the worker runs gh pr view --help in the sandbox and reads the help text, and a gh pr view call with a PR number is denied with dipo's reason"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "already reviewed and merged on main (#281); review reopened by the pending-review start"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
