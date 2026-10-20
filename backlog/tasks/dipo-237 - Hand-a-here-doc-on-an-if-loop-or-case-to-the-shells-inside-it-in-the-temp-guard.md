@@ -3,10 +3,10 @@ id: DIPO-237
 title: >-
   Hand a here-doc on an if, loop or case to the shells inside it in the temp
   guard
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 14:07'
+updated_date: '2026-10-20 18:06'
 labels:
   - 'tier:S'
   - cutover
@@ -39,6 +39,10 @@ test_plan:
       check: "(unit) passed-table rows: the same compounds with cat in place of the shell, a closing word that is an argument such as echo done, and x=$(bash ./mk.sh) cat > f with a DIPO_TMP body"
     - kind: "automated"
       check: "(unit) refused-table rows: x=$(export DIPO_TMP=/x) true, and (bash) with a DIPO_TMP here-doc body; the rows DIPO-223 added still pass"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "already reviewed and merged on main (#276); review reopened by the pending-review start"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
