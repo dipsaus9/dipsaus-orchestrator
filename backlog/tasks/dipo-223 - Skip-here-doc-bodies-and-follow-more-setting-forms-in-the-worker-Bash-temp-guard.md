@@ -3,10 +3,10 @@ id: DIPO-223
 title: >-
   Skip here-doc bodies and follow more setting forms in the worker Bash temp
   guard
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:49'
+updated_date: '2026-10-20 10:13'
 labels:
   - 'tier:S'
   - cutover
@@ -56,3 +56,9 @@ test_plan:
 - [x] #5 A command substitution inside double quotes, as $(...) or between backticks, is checked as a command text; one inside single quotes is not
 - [x] #6 Tests in packages/engine/test/hooks/temp-guard.test.ts add each form of criteria 1 to 5 to REFUSED or PASSED, and every entry the file holds today keeps its result
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CB0WM0GV1C48QY5V9Z3976 (Haiku, 10 turns, about $0.04, 4 min) reported done, In Review, with no denied call and no write outside the References. The temp guard no longer splits here-doc bodies as commands (except a body read by a shell, also through env, sudo, a pipeline or a group), treats <<< as a here-string, and follows eval, local, printf -v, read, sudo (options, long options with values, NAME=value), xargs, env combined short options and $(...) or backticks inside double quotes. Review blocked: the first version reopened cases main refused (a here-doc fed to a shell through sudo, env, a longer pipeline or a group; an unbalanced '(' inside "$(...)" swallowing the rest, which hit the common git commit -m "$(cat <<'EOF' ...)" form; an arithmetic << read as a here-doc). Fixed on top by a fixing agent (commit 9677d6a): the body reaches wrapped shells, the paren scan skips quotes, comments and here-doc bodies and does not swallow on no match, no here-doc opens in arithmetic, printf stops at --, sudo/xargs long options; 17 REFUSED and 6 PASSED entries and a no-throw test; a 20,000-case fuzz threw nothing. Re-review passed. Advisories to the gap list: a here-doc on an if/while/for compound is not handed to a shell inside it (main refused it); an unquoted $(...) counts as a group, a rare false positive main had too. Deliberate: `cat <<EOF | xargs bash` passes (xargs makes the lines arguments). Verify outside the sandbox: exit 0, 4010 tests; DIPO_TEST_CI=1 hooks and daemon tests pass.
+<!-- SECTION:NOTES:END -->
