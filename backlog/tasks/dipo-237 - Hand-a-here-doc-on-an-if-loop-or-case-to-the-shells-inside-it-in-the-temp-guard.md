@@ -6,7 +6,7 @@ title: >-
 status: Ready
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 11:24'
+updated_date: '2026-10-20 13:38'
 labels:
   - 'tier:S'
   - cutover
@@ -26,7 +26,7 @@ ordinal: 237000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the worker Bash temp guard refuses a shell inside an if, while, until, for or case compound that reads a here-doc body setting DIPO_TMP or TMPDIR, as main refused it before DIPO-223, and no longer refuses a command whose unquoted `$(...)` runs a shell while the command itself reads such a body.
 
-Context: DIPO-223 (PR #264, open on 2026-10-20, branch DIPO-223/temp-guard-heredoc-more-forms-finish, so not on main yet) gives simpleCommands in packages/engine/src/hooks/temp-guard.ts here-doc bodies: a body goes to the command that opens it and, for the `}` of a `{ ...; }` group or the command after the `)` of a `( ... )` group, to each command inside the group; a shell (sh, bash, zsh, dash, ksh) without -c that reads a body is checked against it. Probed on that branch with refusedTempVariable and a body `export DIPO_TMP=/x`: (1) `if true; then bash; fi <<'EOF'` passes, and so do the same forms with while, until, for and case: the `fi`, `done` or `esac` command gets the body and the shell inside does not. origin/main, with no here-doc handling, refuses them, since it reads the body lines as commands. (2) An unquoted `$(` is read as a `$` word and a `(` group, so in `x=$(bash ./mk.sh) cat > f <<'EOF'` the command after the `)` carries the group and the body goes to `bash ./mk.sh`, which is refused, although the substitution runs before cat and does not read cat's here-doc. KEYWORDS holds if, then, else, elif, do, while and until; listStart marks a command that holds only keywords and `{`. The refused and passed tables are in packages/engine/test/hooks/temp-guard.test.ts. This story builds on DIPO-223's code.
+Context: DIPO-223 (PR #264, merged) gives simpleCommands in packages/engine/src/hooks/temp-guard.ts here-doc bodies: a body goes to the command that opens it and, for the `}` of a `{ ...; }` group or the command after the `)` of a `( ... )` group, to each command inside the group; a shell (sh, bash, zsh, dash, ksh) without -c that reads a body is checked against it. Probed on that branch with refusedTempVariable and a body `export DIPO_TMP=/x`: (1) `if true; then bash; fi <<'EOF'` passes, and so do the same forms with while, until, for and case: the `fi`, `done` or `esac` command gets the body and the shell inside does not. origin/main, with no here-doc handling, refuses them, since it reads the body lines as commands. (2) An unquoted `$(` is read as a `$` word and a `(` group, so in `x=$(bash ./mk.sh) cat > f <<'EOF'` the command after the `)` carries the group and the body goes to `bash ./mk.sh`, which is refused, although the substitution runs before cat and does not read cat's here-doc. KEYWORDS holds if, then, else, elif, do, while and until; listStart marks a command that holds only keywords and `{`. The refused and passed tables are in packages/engine/test/hooks/temp-guard.test.ts. This story builds on DIPO-223's code.
 
 ```dipo
 branch: "DIPO-237/temp-guard-heredoc-compounds"
