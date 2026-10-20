@@ -1,10 +1,10 @@
 ---
 id: DIPO-215
 title: Say the reviewer's init holds only built-in plugins in the review scenarios
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-20 07:41'
 labels:
   - 'tier:S'
   - cutover
