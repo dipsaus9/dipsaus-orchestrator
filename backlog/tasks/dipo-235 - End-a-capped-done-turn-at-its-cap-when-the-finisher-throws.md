@@ -1,10 +1,10 @@
 ---
 id: DIPO-235
 title: End a capped done turn at its cap when the finisher throws
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 11:13'
+updated_date: '2026-10-20 11:16'
 labels:
   - 'tier:S'
   - cutover
@@ -39,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In #runTurn of packages/engine/src/run/control-turns.ts, when the turn carries a crossed cap and #finishTurn rejects, the error is logged through the run control's warn with the run, the cap and the reason, and, while tracked.ending is null, the run begins capEnding with the crossed cap and its detail, the ending the DIPO-222 fallback begins; that queued turn does not reject
-- [ ] #2 A turn that carries no crossed cap and whose #finishTurn rejects behaves as today: the turn rejects and background logs "verify and commit after a turn failed"
-- [ ] #3 Tests in packages/engine/test/run/control.test.ts, beside the DIPO-222 tests, use a finisher whose afterTurn throws: on the capped done turn the stop op is sent, the story parks budget-exceeded with the cap detail and one warn line is written, and the test fails without the fix; on a turn with no crossed cap no cap ending begins
+- [x] #1 In #runTurn of packages/engine/src/run/control-turns.ts, when the turn carries a crossed cap and #finishTurn rejects, the error is logged through the run control's warn with the run, the cap and the reason, and, while tracked.ending is null, the run begins capEnding with the crossed cap and its detail, the ending the DIPO-222 fallback begins; that queued turn does not reject
+- [x] #2 A turn that carries no crossed cap and whose #finishTurn rejects behaves as today: the turn rejects and background logs "verify and commit after a turn failed"
+- [x] #3 Tests in packages/engine/test/run/control.test.ts, beside the DIPO-222 tests, use a finisher whose afterTurn throws: on the capped done turn the stop op is sent, the story parks budget-exceeded with the cap detail and one warn line is written, and the test fails without the fix; on a turn with no crossed cap no cap ending begins
 <!-- AC:END -->
