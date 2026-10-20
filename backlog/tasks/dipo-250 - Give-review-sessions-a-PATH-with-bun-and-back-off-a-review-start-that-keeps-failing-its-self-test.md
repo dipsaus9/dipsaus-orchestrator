@@ -1,10 +1,10 @@
 ---
 id: DIPO-250
 title: Give review sessions the worker's readable PATH and a closed shell snapshot
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-20 21:07'
+updated_date: '2026-10-20 21:11'
 labels:
   - 'tier:M'
   - cutover
@@ -50,9 +50,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 kindContext in packages/engine/src/workers/claude-cli/plan.ts keeps ctx.safeChain undefined for a review, so no Safe-Chain proxy starts and no Safe-Chain install runs for a reviewer (0019 section 4), and, when the Safe-Chain install was detected, carries the PATH detectSafeChain built and a flag that closes the CLI's shell snapshot
-- [ ] #2 With that PATH and flag, the review plan sets env PATH to the detected PATH (entries the sandbox cannot read left out, demoted entries at the end) and adds the shell snapshot directory to the sandbox's denyRead; it sets no CLAUDE_CODE_SHELL and keeps REVIEW_NETWORK
-- [ ] #3 The reviewer self-test in packages/engine/src/workers/claude-cli/self-test.ts uses the same detected PATH for its workerPath, and the reviewer launch checks in launch-checks.ts start no Safe-Chain proxy
-- [ ] #4 A review plan, self-test and launch on a machine without the official Safe-Chain install are unchanged
-- [ ] #5 Unit tests cover the review plan with and without Safe-Chain in packages/engine/test/workers/plan.test.ts, the reviewer self-test in packages/engine/test/workers/self-test.test.ts (the test that Safe-Chain changes nothing for a reviewer is updated to the new PATH and closed snapshot), and the reviewer launch in packages/engine/test/workers/launch-checks.test.ts
+- [x] #1 kindContext in packages/engine/src/workers/claude-cli/plan.ts keeps ctx.safeChain undefined for a review, so no Safe-Chain proxy starts and no Safe-Chain install runs for a reviewer (0019 section 4), and, when the Safe-Chain install was detected, carries the PATH detectSafeChain built and a flag that closes the CLI's shell snapshot
+- [x] #2 With that PATH and flag, the review plan sets env PATH to the detected PATH (entries the sandbox cannot read left out, demoted entries at the end) and adds the shell snapshot directory to the sandbox's denyRead; it sets no CLAUDE_CODE_SHELL and keeps REVIEW_NETWORK
+- [x] #3 The reviewer self-test in packages/engine/src/workers/claude-cli/self-test.ts uses the same detected PATH for its workerPath, and the reviewer launch checks in launch-checks.ts start no Safe-Chain proxy
+- [x] #4 A review plan, self-test and launch on a machine without the official Safe-Chain install are unchanged
+- [x] #5 Unit tests cover the review plan with and without Safe-Chain in packages/engine/test/workers/plan.test.ts, the reviewer self-test in packages/engine/test/workers/self-test.test.ts (the test that Safe-Chain changes nothing for a reviewer is updated to the new PATH and closed snapshot), and the reviewer launch in packages/engine/test/workers/launch-checks.test.ts
 <!-- AC:END -->
