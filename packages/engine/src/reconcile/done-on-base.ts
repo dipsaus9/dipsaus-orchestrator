@@ -65,6 +65,8 @@ function stillEligible(deps: ReconcileDeps, claim: ClaimRecord): boolean {
 export interface DoneOnBaseResult {
   readonly released: number;
   readonly baseMoved: number;
+  /** The run ids of the claims skipped because `_base` moved, for the retry to look at only those. */
+  readonly skippedRuns: readonly string[];
 }
 
 /** The outcome of one claim: released, skipped because `_base` moved since the pass, or left alone. */
@@ -72,23 +74,26 @@ type ClaimOutcome = "released" | "baseMoved" | "none";
 
 /**
  * Releases the claims of stories Done on `_base`; returns how many it released and how many it
- * skipped because the HEAD of `_base` was not the pass's commit. `record` writes a notice with its
- * facts in one transaction.
+ * skipped because the HEAD of `_base` was not the pass's commit, with the run ids of the skipped
+ * ones. `only`, when given, limits the pass to the claims of those run ids. `record` writes a notice
+ * with its facts in one transaction.
  */
 export async function releaseDoneOnBase(
   deps: ReconcileDeps,
   pass: IndexResult,
   record: Recorder,
+  only?: ReadonlySet<string>,
 ): Promise<DoneOnBaseResult> {
   let released = 0;
-  let baseMoved = 0;
+  const skippedRuns: string[] = [];
   for (const claim of liveClaims(deps.office)) {
+    if (only !== undefined && !only.has(claim.runId)) continue;
     if (claim.claimSha === null || !runEnded(deps, claim)) continue;
     if (!isDoneOnBase(baseStatusOf(pass, claim))) continue;
     try {
       const outcome = await releaseOne(deps, pass, claim, record);
       if (outcome === "released") released += 1;
-      if (outcome === "baseMoved") baseMoved += 1;
+      if (outcome === "baseMoved") skippedRuns.push(claim.runId);
     } catch (error) {
       record({
         code: DONE_ON_BASE_NOTICES.kept,
@@ -97,7 +102,7 @@ export async function releaseDoneOnBase(
       });
     }
   }
-  return { released, baseMoved };
+  return { released, baseMoved: skippedRuns.length, skippedRuns };
 }
 
 async function releaseOne(

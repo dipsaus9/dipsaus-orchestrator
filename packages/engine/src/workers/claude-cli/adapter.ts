@@ -148,6 +148,8 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * starts its run's proxy through them; without them such a launch is refused.
    */
   readonly safeChainProxies?: ClaudeLaunchCheckDeps["safeChainProxies"];
+  /** Writes the warn line of a launch self-test session refused for the Bash command it ran (DIPO-230). */
+  readonly warn?: ClaudeLaunchCheckDeps["warn"];
   /**
    * Reads Claude Code's plugin lists (DIPO-108); a test seam. Defaults to the files under
    * `home`.
@@ -231,6 +233,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
           ...(deps.safeChainProxies === undefined
             ? {}
             : { safeChainProxies: deps.safeChainProxies }),
+          ...(deps.warn === undefined ? {} : { warn: deps.warn }),
         },
         verify,
       );

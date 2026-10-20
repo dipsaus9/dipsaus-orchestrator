@@ -76,7 +76,7 @@ function evidence(disk: Partial<SelfTestDisk>, more: Partial<SelfTestEvidence> =
     probes: selfTestLayout(PATHS).probes,
     outcome: "done" as const,
     denied: [],
-    bash: { calls: 1, exact: true, shape: true },
+    bash: { calls: 1, exact: true, shape: true, commands: [selfTestLayout(PATHS).command] },
     disk: {
       results: BLOCKED_RESULTS,
       written: [],
@@ -167,6 +167,7 @@ describe("(unit) self-test layout", () => {
       calls: 1,
       exact: true,
       shape: true,
+      commands: [planned],
     });
     // The same message repeated (a stream re-emit) still counts once.
     expect(
@@ -176,12 +177,17 @@ describe("(unit) self-test layout", () => {
       calls: 1,
       exact: false,
       shape: true,
+      commands: [`${planned} `],
     });
     expect(bashCalls(`${bashLine("t1", planned)}\n${bashLine("t2", "ls")}\n`, planned)).toEqual({
       calls: 2,
       exact: false,
       shape: false,
+      commands: [planned, "ls"],
     });
+    // Each command is cut to 300 characters, the others are kept whole (DIPO-230).
+    const long = `echo ${"x".repeat(400)}`;
+    expect(bashCalls(`${bashLine("t1", long)}\n`, planned).commands).toEqual([long.slice(0, 300)]);
     const shaped = (input: Record<string, unknown>) =>
       bashCalls(
         `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input }] } })}\n`,
@@ -191,7 +197,7 @@ describe("(unit) self-test layout", () => {
     expect(shaped({ command: planned, run_in_background: false }).shape).toBe(true);
     expect(shaped({ command: planned, run_in_background: true }).shape).toBe(false);
     expect(shaped({ command: planned, dangerouslyDisableSandbox: true }).shape).toBe(false);
-    expect(bashCalls("", planned)).toEqual({ calls: 0, exact: false, shape: false });
+    expect(bashCalls("", planned)).toEqual({ calls: 0, exact: false, shape: false, commands: [] });
   });
 });
 
@@ -248,16 +254,33 @@ describe("(unit) self-test verdict", () => {
 
   it("refuses when the session made no Bash call, extra calls or a different command", () => {
     const cases: [SelfTestBashCalls, string][] = [
-      [{ calls: 0, exact: false, shape: false }, "0 Bash calls"],
-      [{ calls: 2, exact: false, shape: false }, "2 Bash calls"],
-      [{ calls: 1, exact: false, shape: true }, "not the planned command"],
-      [{ calls: 1, exact: true, shape: false }, "ran in the background"],
+      [{ calls: 0, exact: false, shape: false, commands: [] }, "0 Bash calls"],
+      [{ calls: 2, exact: false, shape: false, commands: ["ls", "pwd"] }, "2 Bash calls"],
+      [{ calls: 1, exact: false, shape: true, commands: ["ls"] }, "not the planned command"],
+      [{ calls: 1, exact: true, shape: false, commands: ["perl -e 1"] }, "ran in the background"],
     ];
     for (const [bash, text] of cases) {
       const verdict = judgeSelfTest(evidence({}, { bash }));
-      expect(verdict).toMatchObject({ ok: false, unsafe: false });
+      expect(verdict).toMatchObject({ ok: false, unsafe: false, bash: true });
       expect(!verdict.ok && verdict.reason).toContain(text);
     }
+  });
+
+  it("names each Bash command the session ran in the refusal (DIPO-230)", () => {
+    const verdict = judgeSelfTest(
+      evidence({}, { bash: { calls: 1, exact: false, shape: true, commands: ["ls -la"] } }),
+    );
+    expect(verdict).toEqual({
+      ok: false,
+      unsafe: false,
+      bash: true,
+      reason:
+        'the sandbox self-test could not run: the session\'s Bash call was not the planned command; the commands it ran: "ls -la"',
+    });
+    const none = judgeSelfTest(
+      evidence({}, { bash: { calls: 0, exact: false, shape: false, commands: [] } }),
+    );
+    expect(!none.ok && none.reason).toContain("the commands it ran: none");
   });
 
   it("refuses when the self-test cannot run", () => {
@@ -380,7 +403,9 @@ describe("(engine) self-test run", () => {
   it("runs one Claude session under the run's own settings file and passes on a blocked disk", async () => {
     const { report, fs, fake, runSettings } = await runWith(BLOCKED_RESULTS);
     expect(report.verdict).toEqual({ ok: true });
-    expect(report.evidence?.bash).toEqual({ calls: 1, exact: true, shape: true });
+    expect(report.evidence?.bash).toMatchObject({ calls: 1, exact: true, shape: true });
+    expect(report.evidence?.bash.commands).toHaveLength(1);
+    expect(report.evidence?.bash.commands[0]).toStartWith("'/usr/bin/perl' -e '");
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
     expect(session?.cmd).toContain("--settings");
     expect(session?.cmd).toContain(`${RUN_DIR}/self-test/${SETTINGS_FILE}`);
@@ -582,7 +607,7 @@ describe("(unit) live safety recordings", () => {
       const recording = loadRecording(name);
       const checks = recording.meta["checks"] as {
         disk: SelfTestDisk;
-        bash: SelfTestBashCalls;
+        bash: Omit<SelfTestBashCalls, "commands">;
         probes: ProbeName[];
         verdict: unknown;
       };
@@ -593,7 +618,7 @@ describe("(unit) live safety recordings", () => {
         probes: checks.probes,
         outcome: run.result.outcome,
         denied,
-        bash: checks.bash,
+        bash: { commands: [], ...checks.bash },
         disk: checks.disk,
       });
       expect(verdict.ok).toBe(true);

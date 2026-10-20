@@ -448,6 +448,9 @@ export function afterRunExits(port: RunOutcomesPort, after: () => void): RunOutc
     ...(port.onPlanWarning === undefined
       ? {}
       : { onPlanWarning: (view, warning) => port.onPlanWarning?.(view, warning) }),
+    ...(port.onReview === undefined
+      ? {}
+      : { onReview: (view, report) => port.onReview?.(view, report) ?? Promise.resolve() }),
     ...(port.onHostLost === undefined
       ? {}
       : {

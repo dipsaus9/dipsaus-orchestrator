@@ -14,7 +14,10 @@ import { PermissionAsks } from "../../src/hooks/permissions";
 import {
   activeSignals,
   composeRuns,
+  endRun,
+  IN_REVIEW_END,
   insertRun,
+  pendingReviews,
   OfficeIngest,
   PlanLimits,
   RunControl,
@@ -23,7 +26,9 @@ import {
   type RunPorts,
   RunReattacher,
   RunResumer,
+  Reviews,
 } from "../../src/run";
+import { insertClaim } from "../../src/worktree/records";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { WorkerPort } from "../../src/workers/port";
@@ -114,7 +119,7 @@ function compose(extra: Partial<RunPorts> = {}) {
 }
 
 /** The fixture's run, stored as a claimed story run that has not ended. */
-function storeRun(): void {
+function storeRun(reviewRoundCap: number | null = null): void {
   const { office } = f;
   const { key } = office.immediate(() =>
     addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
@@ -135,7 +140,7 @@ function storeRun(): void {
       budgetUnit: "tokens",
       budgetLimit: ROOMY.budgetTokens,
       loopCap: 3,
-      reviewRoundCap: null,
+      reviewRoundCap,
       configHash: "h",
       overrideKeys: null,
       runProfileId: null,
@@ -208,6 +213,42 @@ describe("composeRuns", () => {
 
     // Outcomes raised `host-lost` before `afterExit` ran, and it ran once.
     expect(atAfterExit).toEqual([["host-lost"]]);
+  });
+
+  test("feeds the pending reviews to the review starter in the reviewer place (DIPO-219)", async () => {
+    storeRun(3);
+    const { office } = f;
+    office.immediate(() => {
+      insertClaim(office, {
+        runId: f.run,
+        key: f.work.key,
+        story: "DIPO-1",
+        branch: "DIPO-1/add-a-greeting",
+        worktree: join(dir, "trees", "DIPO-1"),
+        base: "main",
+        baseSha: "b".repeat(40),
+        startSha: "b".repeat(40),
+        claimSha: "d".repeat(40),
+        reused: false,
+        snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
+        firstFeedback: null,
+        claimedAt: f.t.clock.now(),
+      });
+      endRun(office, f.run, f.t.clock.now(), IN_REVIEW_END);
+    });
+    const warned: string[] = [];
+    const composed = compose({
+      control: CONTROL,
+      outcomes: {},
+      warn: (message) => warned.push(message),
+    });
+    expect(composed.reviews).toBeInstanceOf(Reviews);
+    expect(pendingReviews(office).map((start) => start.runId)).toEqual([f.run]);
+
+    // The starter reads the story first; this wiring reads none, so the review waits.
+    expect(await composed.places?.drain(office.officeId)).toBe(0);
+    expect(warned).toContain("reading a story before its review failed; the review waits");
+    composed.places?.close();
   });
 
   test("without outcomes a lost host decides nothing", async () => {
