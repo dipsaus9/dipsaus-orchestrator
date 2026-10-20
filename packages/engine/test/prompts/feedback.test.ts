@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { parseLocations, verifyFeedback } from "../../src/prompts";
+import { ciFeedback, parseLocations, verifyFeedback } from "../../src/prompts";
 
 const ROOT = "/home/maintainer/code/shop.worktrees/SHOP-12";
 const ESC = String.fromCharCode(27);
@@ -155,5 +155,53 @@ describe("verify feedback item", () => {
     expect(item.locations).toHaveLength(25);
     expect(item.text).toContain("- src/a.ts:20:1\n- and 5 more");
     expect(item.text).not.toContain("- src/a.ts:21:1");
+  });
+});
+
+const gh = (lines: readonly string[]): string =>
+  lines.map((line) => `build\tRun tests\t2026-10-20T10:00:00.0000000Z ${line}`).join("\n");
+
+describe("ciFeedback (DIPO-147)", () => {
+  it("names the check, job and failing steps and cuts the log to the line budget", () => {
+    const log = gh(Array.from({ length: 100 }, (_, n) => `line ${n}`));
+    const item = ciFeedback({ check: "build (linux)", link: "https://x/job/1", log });
+    expect(item).toMatchObject({ kind: "ci", check: "build (linux)", job: "build" });
+    expect(item.steps).toEqual(["Run tests"]);
+    expect(item.text).toContain("Required check build (linux) failed");
+    expect(item.text).toContain("line 99");
+    expect(item.text).not.toContain("line 10\n");
+    expect(item.text).toContain("showing the last 60 of 100 output lines");
+  });
+
+  it("keeps an item within the item budget", () => {
+    const log = gh(Array.from({ length: 60 }, () => "x".repeat(200)));
+    expect(
+      ciFeedback({ check: "c", link: "", log }, { itemMax: 1_000 }).text.length,
+    ).toBeLessThanOrEqual(1_000);
+  });
+
+  it("signs over check, job, steps and locations, not the log text or the link", () => {
+    const a = ciFeedback({
+      check: "c",
+      link: "https://x/job/1",
+      log: gh(["src/a.ts:3:7: error TS1: first wording"]),
+    });
+    const b = ciFeedback({
+      check: "c",
+      link: "https://x/job/9",
+      log: gh(["src/a.ts:3:7: error TS1: other wording", "extra line"]),
+    });
+    const other = ciFeedback({ check: "c", link: "", log: gh(["src/a.ts:4:7: error TS1: x"]) });
+    expect(a.signature).toBe(b.signature);
+    expect(a.signature).not.toBe(other.signature);
+    expect(a.locations).toEqual([{ file: "src/a.ts", line: 3, column: 7 }]);
+  });
+
+  it("names a check with no log and says why", () => {
+    const item = ciFeedback({ check: "ci-ok", link: "", log: null, noLog: "no log: aggregate." });
+    expect(item.job).toBe("ci-ok");
+    expect(item.steps).toEqual([]);
+    expect(item.text).toContain("no log: aggregate.");
+    expect(item.text).toContain("Link: none");
   });
 });
