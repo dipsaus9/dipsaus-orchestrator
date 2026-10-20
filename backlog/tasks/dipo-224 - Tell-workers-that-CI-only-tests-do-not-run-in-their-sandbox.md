@@ -1,10 +1,10 @@
 ---
 id: DIPO-224
 title: Tell workers that CI-only tests do not run in their sandbox
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:38'
+updated_date: '2026-10-20 09:59'
 labels:
   - 'tier:S'
   - cutover
@@ -43,3 +43,9 @@ test_plan:
 - [x] #1 The What the engine does section of packages/engine/src/prompts/contract/implement.md says, right after the sentence on running tests, that tests the project runs only in CI (for example `*.ci.test.ts` files that run only when `DIPO_TEST_CI` is set) do not run in the worker sandbox, that the worker neither runs them nor sets that variable, and that a CI-only test the story asks for is written and left to CI, which runs it
 - [x] #2 packages/engine/test/prompts/golden/system-implement-developer.md holds the new contract text and packages/engine/test/prompts/system.test.ts checks the new sentence with toContain, and the existing test that the contract holds no id, date, path or count keeps passing, so the new text has no digit
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CAMSVNMNDE7RCBPA778W8N (Haiku, 11 turns, about $0.01, under 1 min) reported done, In Review, with no denied call and no write outside the References. The implement contract now says, right after the sentence on running tests, that tests the project runs only in CI (for example `*.ci.test.ts` files that run only when `DIPO_TEST_CI` is set) do not run in the worker sandbox, that the worker neither runs them nor sets that variable, and that a CI-only test the story asks for is written and left to CI; no digit, golden updated, a test checks the sentence. Review passed with no findings. Verify outside the sandbox: exit 0, 3957 tests (a first run under load failed only on the flaky story-gate CLI timeout, logged as a gap); DIPO_TEST_CI=1 prompts tests pass (68).
+<!-- SECTION:NOTES:END -->
