@@ -31,6 +31,7 @@ The task message holds these sections, in this order, each in its own tag. A sec
 - `<dependencies>`: the stories this one builds on, one line each.
 - `<background>`: the story's free text.
 - `<handoff>`: the state an earlier session left behind: commits, uncommitted changes, criteria status, the last verify result, open feedback and its notes.
+- `<base_verify>`: what verify says about the base commit in your sandbox, before your change: green, the tests that already fail, or not known. A failure listed there is not yours.
 - `<story>`: the story's id, title, type and tier.
 - `<outcome>`: what must be true when the story is done.
 - `<criteria>`: the acceptance criteria, numbered.

@@ -14,6 +14,7 @@ import type { ChildProcess, Clock, TimerHandle } from "@dipsaus-orchestrator/con
 
 import type { DipoPlatform } from "../platform/paths";
 import { stepEnv } from "./env";
+import { fenceDenyRead, type ListDir, listDirOnDisk, workerReadPaths } from "./fence";
 import {
   translatePolicy,
   type SandboxTools,
@@ -86,6 +87,8 @@ export interface StepDeps {
   readonly clock: Clock;
   readonly platform: DipoPlatform;
   readonly host: SandboxHost;
+  /** Lists a directory for the read fence; the directory on disk by default. */
+  readonly listDir?: ListDir;
 }
 
 export interface StepRequest {
@@ -107,6 +110,12 @@ export interface StepRequest {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Variables the engine sets for the step, such as ports. */
   readonly extraEnv?: Readonly<Record<string, string>>;
+  /**
+   * Runs the step under the worker's read fence (DIPO-183): the home directory is unreadable
+   * except the worktree, the step temp root, the main checkout's `.git`, the git configuration and
+   * `readPaths` (the office's `sandbox.toolchainReadPaths` and `sandbox.allowRead`).
+   */
+  readonly readFence?: { readonly readPaths: readonly string[] };
   /** Called with each piece of stdout or stderr text as it arrives (verify streams it, DIPO-49). */
   readonly onOutput?: (text: string) => void;
 }
@@ -152,6 +161,24 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
     } catch (error) {
       return startFailed(`could not resolve dipo's own directories: ${message(error)}`);
     }
+    let fenced: string[] | undefined;
+    if (request.readFence !== undefined) {
+      try {
+        fenced = await fenceDenyRead({
+          home: request.home,
+          keep: workerReadPaths({
+            home: request.home,
+            worktree: request.worktree,
+            mainCheckout: request.mainCheckout,
+            tempRoot,
+            configured: request.readFence.readPaths,
+          }),
+          list: deps.listDir ?? listDirOnDisk,
+        });
+      } catch (error) {
+        return startFailed(`could not build the worker read fence: ${message(error)}`);
+      }
+    }
     const run = {
       platform: deps.platform,
       kind: request.kind,
@@ -164,6 +191,7 @@ export async function runSandboxedStep(deps: StepDeps, request: StepRequest): Pr
       sshAuthSock: request.env["SSH_AUTH_SOCK"],
       installCachePaths: request.sandbox.installCachePaths,
       registryHosts: request.sandbox.registryHosts,
+      fenceDenyRead: fenced,
     };
 
     let tools: SandboxTools;

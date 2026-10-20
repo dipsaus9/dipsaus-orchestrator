@@ -13,6 +13,7 @@ import developerRole from "./roles/developer.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
 import background from "./task/background.md" with { type: "text" };
+import baseVerify from "./task/base-verify.md" with { type: "text" };
 import changes from "./task/changes.md" with { type: "text" };
 import contextItem from "./task/context-item.md" with { type: "text" };
 import contextListed from "./task/context-listed.md" with { type: "text" };
@@ -54,6 +55,7 @@ export const TASK_TEMPLATES = {
   dependencies,
   background,
   handoff,
+  baseVerify,
   story,
   outcome,
   criteria,
@@ -132,6 +134,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "dependencies",
   "background",
   "handoff",
+  "base_verify",
   "story",
   "outcome",
   "criteria",
