@@ -1,14 +1,13 @@
 ---
 id: DIPO-183
 title: Give the worker the base commit's known verify failures
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 14:19'
+updated_date: '2026-10-20 14:35'
 labels:
   - 'tier:M'
   - cutover
-  - on-hold
 milestone: m-1
 dependencies: []
 references:
@@ -74,5 +73,5 @@ test_plan:
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-On hold (maintainer, 2026-10-18). Main is green, and since DIPO-176 the full verify also passes in the worker sandbox; the false failures seen since came from workers overriding DIPO_TMP (DIPO-194). Pick this story up only if a base commit's verify fails again inside the sandbox while it passes outside; otherwise drop it.
+Hold lifted (maintainer, 2026-10-20, answer A: lift the hold, set Ready). The story had been on hold since 2026-10-18 while main's verify passed in the worker sandbox; the maintainer chose to deliver it so a red or flaky base is named to the worker.
 <!-- SECTION:NOTES:END -->
