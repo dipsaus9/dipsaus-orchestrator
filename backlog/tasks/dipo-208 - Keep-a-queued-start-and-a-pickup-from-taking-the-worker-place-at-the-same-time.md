@@ -1,10 +1,10 @@
 ---
 id: DIPO-208
 title: Keep a queued start and a pickup from taking the worker place at the same time
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-20 07:53'
+updated_date: '2026-10-20 08:08'
 labels:
   - 'tier:S'
   - cutover
@@ -46,3 +46,9 @@ test_plan:
 - [x] #2 A test in packages/engine/test/run/ holds work.run's claim step open with a fake (the claim, the pickup recheck or launcher.prepare), then queues a resume and drains it inside that window, and expects exactly one developer session, with the other start skipped with `capacity` or requeued, whichever the serialized step decides
 - [x] #3 The test of criterion #2 fails on the story branch's base commit and passes with the change
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C4CR44YSH3G9V8A9AW9W68 (Haiku, 50 turns, about $0.07, 5 min) reported done, In Review; one compound cd command was auto-denied (G7). No write outside the References. Places.serialized is a per-office FIFO chain; Places.drain and each work.run candidate's start (claim, pickup recheck, prepare and the run record) run in it, so a queued start and a pickup never hold the worker place together; a drain that finds the place held keeps its start queued. The worker's sandbox could not check out the base commit, so the reviewer ran the new test against main's code: it fails there (the drain started the resume inside the claim window as well) and passes on the branch. Fixed on top after review: the doc comment says a serialized step must never await drain or serialized of the same office. Advisories: the direct park-resume path (resumePark) is not serialized yet, filed as a gap story; the serialized step also covers launcher.start, so drains wait for a pickup's whole start. Verify outside the sandbox: 3866 tests, 0 fail; DIPO_TEST_CI=1 run and daemon tests pass (587).
+<!-- SECTION:NOTES:END -->
