@@ -4,7 +4,7 @@ title: Refuse a drop while the parked run's worker host still runs
 status: Refined
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 08:20'
+updated_date: '2026-10-20 08:42'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,7 @@ references:
   - packages/daemon/src/foreground.ts
   - packages/contract/src/office.ts
   - packages/engine/test/backlog/planning.test.ts
+  - packages/engine/test/backlog/planning.ci.test.ts
 priority: high
 type: bug
 ordinal: 227000
