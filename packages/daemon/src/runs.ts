@@ -31,7 +31,9 @@ import {
   gitInputChanges,
   type Logger,
   OfficeIngest,
+  type OfficeHandle,
   type OfficeManager,
+  type ParseState,
   PermissionAsks,
   type Places,
   type Presence,
@@ -59,12 +61,15 @@ import {
   selfCommand,
   setupWorktree,
   type SlotTable,
+  type TierCaps,
+  type WorkerPort,
   type StateDatabase,
   type StoryClaims,
   type StoryIndex,
   systemDiskProbe,
   systemHostStarter,
   signalProcess,
+  startTierOf,
   systemProcessProbe,
   systemSandboxHost,
   storyHoldsWork,
@@ -78,6 +83,28 @@ import {
 /** The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
+}
+
+/**
+ * A re-attached session's initial state, built with the model and effort its run started with, not
+ * the office tier in force (DIPO-207).
+ */
+export function startedSessionState(
+  worker: Pick<WorkerPort, "reportSchema" | "initialState">,
+  handle: OfficeHandle,
+  run: StoredRun,
+  agent: string,
+  inForce: TierCaps,
+  paths: Parameters<typeof runWorkerSpec>[2],
+  resume: boolean,
+  previous?: ParseState,
+): ParseState {
+  const tier = startTierOf(handle, run, inForce);
+  const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
+    id: "",
+    resume,
+  });
+  return worker.initialState(spec, previous);
 }
 
 export interface DaemonRunsOptions {
@@ -429,13 +456,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       },
       initialState: ({ office, run, agent, resume, previous }) => {
         const paths = runPaths(office, run);
-        const tier = tierOf(office, run);
-        if (paths === null || tier === undefined) return {};
-        const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
-          id: "",
-          resume,
-        });
-        return worker.initialState(spec, previous);
+        const inForce = tierOf(office, run);
+        const handle = options.offices.get(office);
+        if (paths === null || inForce === undefined || handle === undefined) return {};
+        return startedSessionState(worker, handle, run, agent, inForce, paths, resume, previous);
       },
       caps: capsFor,
     },
