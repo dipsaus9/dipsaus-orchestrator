@@ -850,6 +850,8 @@ const preparedSpecs: {
   readonly taskMessage: string;
   readonly systemFile: string;
   readonly caps: Caps;
+  readonly model: string;
+  readonly effort?: string;
 }[] = [];
 
 /** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
@@ -1937,4 +1939,78 @@ describe("the verify tools check of the next session (DIPO-173)", () => {
       }
     });
   }
+});
+
+describe("a later session keeps the model and effort its run started with (DIPO-207)", () => {
+  /** The office's tier M edited after the run started: another model, effort high. */
+  const EDITED: OfficeConfig = {
+    ...OFFICE_DEFAULTS,
+    tiers: {
+      ...OFFICE_DEFAULTS.tiers,
+      M: { ...OFFICE_DEFAULTS.tiers.M, model: "opus", effort: "high" },
+    },
+  };
+
+  /** The run's first developer agent crashed with `effort` recorded; the next session resumes. */
+  async function resumeWith(effort: string | null) {
+    beforeRestart("terminated", 0);
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        `update agents set end_reason = 'crashed', session_id = 'session-1', role = 'developer',
+           effort = $effort where office_id = $office_id and agent_id = $agent`,
+        { agent: w.f.agent, effort },
+      ),
+    );
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
+    const resumer = realResumer(
+      {
+        start: async (office, options) => {
+          const host = {
+            pid: 4243,
+            startTimeMs: 0,
+            runId: options.runId,
+            agentId: options.agentId,
+            socketPath: join(w.dir, "host.sock"),
+            protocolVersion: 1,
+            runDir,
+            eventFile: join(runDir, "events.ndjson"),
+          };
+          recordWorkerHost(office, host, w.f.t.clock, {
+            ...(options.processedOffset === undefined
+              ? {}
+              : { processedOffset: options.processedOffset }),
+            ...(options.record === undefined ? {} : { record: options.record }),
+          });
+          return host;
+        },
+      },
+      { probe: async () => null },
+      () => ({ ok: true }),
+      EDITED,
+    );
+    const outcome = await resumer.next(nextRequest());
+    expect(outcome.kind).toBe("started");
+    const agent = w.f.office.get<{ model: string; effort: string | null }>(
+      `select model, effort from agents where office_id = $office_id and agent_id != $first
+        and run_id = $run`,
+      { first: w.f.agent, run: w.f.run },
+    );
+    return { spec: preparedSpecs.at(-1), agent };
+  }
+
+  it("resumes with the start model and effort after the tier was edited (AC #1, AC #4)", async () => {
+    const { spec, agent } = await resumeWith("medium");
+    expect(spec?.model).toBe("haiku");
+    expect(spec?.effort).toBe("medium");
+    expect(agent).toEqual({ model: "haiku", effort: "medium" });
+  });
+
+  it("uses the run's tier in force when the first developer agent has no effort (AC #3)", async () => {
+    const { spec, agent } = await resumeWith(null);
+    expect(spec?.model).toBe("haiku");
+    expect(spec?.effort).toBe("high");
+    expect(agent).toEqual({ model: "haiku", effort: "high" });
+  });
 });

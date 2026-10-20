@@ -743,7 +743,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
       { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
     ]),
     commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
-    "A reviewer's session (0019 section 4) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no installed plugin; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
+    "A reviewer's session (0019 section 4) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
   ),
   reviewScenario(
     "review-blocked-live",
@@ -757,7 +757,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
         "",
       ].join("\n"),
     }),
-    "A reviewer's session (0019 section 4) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no installed plugin; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
+    "A reviewer's session (0019 section 4) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
   ),
   reviewScenario(
     "review-invalid-live",

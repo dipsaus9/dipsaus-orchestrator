@@ -233,6 +233,12 @@
               },
               "irreversible": {
                 "type": "boolean"
+              },
+              "irreversibleWhen": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": ["name", "args", "result", "since", "level", "confirm", "irreversible"]
