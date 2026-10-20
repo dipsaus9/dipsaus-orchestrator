@@ -337,6 +337,24 @@ describe("work.steer", () => {
     expect(steers().map((s) => s.state)).toEqual(["resolved"]);
   });
 
+  it("keeps a held steer out of a reviewer session's first message (0002)", async () => {
+    park();
+    expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
+    w.f.office.immediate(() =>
+      w.f.office.run("update runs set ended_at = null where office_id = $office_id"),
+    );
+    exitWorker();
+    w.f.office.immediate(() =>
+      w.f.office.run("update agents set role = 'reviewer' where office_id = $office_id"),
+    );
+    w.f.office.immediate(() =>
+      w.f.office.run("update runs set role = 'reviewer' where office_id = $office_id"),
+    );
+    await startSession();
+    expect(w.sessions[0]?.message ?? "").not.toContain("Mind the edge case.");
+    expect(steers().map((s) => s.state)).toEqual(["pending"]);
+  });
+
   it("answers story.notRunning for a story with neither a run nor a park", async () => {
     w.f.office.immediate(() =>
       w.f.office.run(
@@ -428,6 +446,8 @@ describe("work.pause", () => {
     track();
     ok(await pause());
     w.sent.length = 0;
+    // The story's 10 minutes (0020 section 9).
+    expect(PAUSE_CLOSE_MS).toBe(10 * 60_000);
     const minutes = PAUSE_CLOSE_MS / CAP_TICK_MS;
     for (let minute = 1; minute < minutes; minute++) w.f.t.clock.advance(CAP_TICK_MS);
     expect(w.sent).toEqual([]);

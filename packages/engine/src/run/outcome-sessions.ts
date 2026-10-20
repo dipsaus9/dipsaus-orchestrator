@@ -19,6 +19,7 @@ import {
 import { steerText } from "./intervene";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
 import { heldMessages, markHeldSent } from "./pauses";
+import { placeOfRun } from "./places";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
 import { PARK_CAUSES } from "./park";
@@ -60,8 +61,11 @@ export class SessionStarts {
       return false;
     }
     // The steers and feedback items that waited for this session go with its first message
-    // (0020 section 9, DIPO-163).
-    const held = heldMessages(office, run.runId, steerText);
+    // (0020 section 9, DIPO-163); a reviewer session gets no maintainer text (0002), so they wait.
+    const held =
+      placeOfRun(office, run) === "reviewer"
+        ? { ids: [], texts: [] }
+        : heldMessages(office, run.runId, steerText);
     const message =
       held.texts.length === 0
         ? request.message
