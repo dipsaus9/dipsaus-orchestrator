@@ -57,4 +57,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-163 ships the commands `work.steer` (its `delivered` also says `on-resume`) and `work.pause`,
 // the optional `queued` of the `work.resume` result and the office code `story.notSteerable` in the
 // same, still unreleased, minor.
+// DIPO-136 ships the command `office.setPrivacy` and adds the optional `privacy` of `OfficeSummary`
+// (each privacy setting with its value and source) to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

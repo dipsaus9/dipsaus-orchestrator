@@ -51,6 +51,7 @@ describe("command and read definitions", () => {
         "daemon.stop",
         "office.forget",
         "office.purge",
+        "office.setPrivacy",
         "gate.reject",
         "work.stop",
         "work.discard",

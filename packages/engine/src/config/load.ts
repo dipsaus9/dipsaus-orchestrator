@@ -136,12 +136,14 @@ function issueErrors(
   });
 }
 
-type Checked = { ok: true; value: Record<string, unknown> } | { ok: false; errors: ConfigError[] };
-type Read =
+export type Checked =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; errors: ConfigError[] };
+export type Read =
   | { ok: true; value: Record<string, unknown>; version: OfficeConfigVersion }
   | { ok: false; errors: ConfigError[] };
 
-function validate(
+export function validate(
   file: string,
   schema: z.ZodType,
   input: unknown,
@@ -154,7 +156,7 @@ function validate(
 
 // Parses one file and checks its version, the same way as software configuration. Returns the
 // mapping to validate and its version.
-function readDocument(file: string, text: string): Read {
+export function readDocument(file: string, text: string): Read {
   const checked = checkConfigDocument(file, parseYamlDocument(text), OFFICE_CONFIG_VERSION);
   if (!checked.ok) return checked;
   return { ok: true, value: checked.document, version: checked.version as OfficeConfigVersion };

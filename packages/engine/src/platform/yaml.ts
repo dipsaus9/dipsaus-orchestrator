@@ -11,3 +11,11 @@ export type { YamlParseResult };
 export function parseYamlDocument(text: string): YamlParseResult {
   return parseSingleYamlDocument((source) => Bun.YAML.parse(source), text);
 }
+
+/**
+ * Writes `value` as one YAML document in block style, one key per line. `Bun.YAML.stringify` writes
+ * flow style on one line unless it is given an indent (0017), and it keeps no comments.
+ */
+export function stringifyYamlDocument(value: unknown): string {
+  return Bun.YAML.stringify(value, null, 2);
+}

@@ -9,7 +9,8 @@
 // "worker ends, branch kept, story parks as stopped" and sends `work.stop` on yes, and Esc returns
 // to the view it came from. In the switcher: `j`/`k` or arrows move, Enter opens the office through
 // `office.switch`, `n` opens a new repository path through `office.open`, Esc goes back. Action
-// keys are off while offline.
+// keys are off while offline. In the overview `p` opens the privacy settings (`settings.tsx`):
+// Enter toggles the selected one after a yes that names what is stored, through `office.setPrivacy`.
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
@@ -42,6 +43,7 @@ import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
 import { boardEntries, EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
 import { Queue, queueRows } from "./queue";
+import { appliesWords, confirmPrompt, privacySettings, Settings, settingName } from "./settings";
 import {
   Banners,
   bannerLines,
@@ -83,6 +85,14 @@ export interface RunRequest {
   readonly requestId: RequestId;
 }
 
+/** One `office.setPrivacy`: `key` is the setting name, such as `storePrompts`. */
+export interface PrivacyRequest {
+  readonly office: OfficeId;
+  readonly key: string;
+  readonly value: boolean;
+  readonly requestId: RequestId;
+}
+
 /** A story's view and runs, as `story.detail` answers (DIPO-81). */
 export type StoryOutcome =
   | {
@@ -119,6 +129,8 @@ export interface TuiActions {
   openPath(path: string): Promise<ActionResult<OfficeId>>;
   /** `daemon.resumeScheduling`, after the maintainer agreed. */
   resumeScheduling(): Promise<ActionResult<null>>;
+  /** `office.setPrivacy` for the setting the maintainer confirmed (DIPO-136). */
+  setPrivacy(request: PrivacyRequest): Promise<ActionResult<null>>;
   /** `work.run` with `origin: "tui"` and the given request id (0009 section 5). */
   runStories(request: RunRequest): Promise<RunOutcome>;
   /** A fresh request id for a new action; a retry reuses the old one. */
@@ -130,9 +142,10 @@ type Mode =
   | { readonly kind: "switcher"; readonly index: number }
   | { readonly kind: "path"; readonly index: number; readonly text: string }
   | { readonly kind: "confirm-resume" }
-  | { readonly kind: "confirm-stop"; readonly story: StoryRefValue };
+  | { readonly kind: "confirm-stop"; readonly story: StoryRefValue }
+  | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean };
 
-type View = "overview" | "queue";
+type View = "overview" | "queue" | "settings";
 
 /** The live agent detail and the view Esc returns to. */
 interface DetailState {
@@ -235,6 +248,9 @@ export function App(props: AppProps) {
   // The selected overview row by story key, so it follows the story when rows come and go.
   const [overviewKey, setOverviewKey] = useState<string | null>(null);
   const [stop, setStop] = useState<StopAction | null>(null);
+  // The selected privacy setting, and whether one was written (the comments warning is then gone).
+  const [settingsIndex, setSettingsIndex] = useState(0);
+  const [privacyWritten, setPrivacyWritten] = useState(false);
   // The newest output line of each running run, for the overview's `now:` lines (DIPO-81).
   const { latest } = useLatestLines({
     store,
@@ -305,6 +321,22 @@ export function App(props: AppProps) {
           ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
           snapshots: store.state.snapshots,
         });
+      });
+  };
+
+  const sendPrivacy = (key: string, value: boolean) => {
+    if (state.office === null) return;
+    const name = settingName(key);
+    setMessage(`${name}: sending${ellipsis}`);
+    void actions
+      .setPrivacy({ office: state.office, key: name, value, requestId: actions.newRequestId() })
+      .then((outcome) => {
+        if (!outcome.ok) {
+          setMessage(`${name}: ${outcome.message}`);
+          return;
+        }
+        setPrivacyWritten(true);
+        setMessage(`${name} is ${value ? "on" : "off"}; applies ${appliesWords(key)}`);
       });
   };
 
@@ -471,6 +503,20 @@ export function App(props: AppProps) {
       return;
     }
 
+    if (mode.kind === "confirm-privacy") {
+      setMode({ kind: "home" });
+      if (input !== "y" && input !== "Y") {
+        setMessage(`${settingName(mode.key)} stays as it was`);
+        return;
+      }
+      if (offline) {
+        setMessage("offline: actions are disabled");
+        return;
+      }
+      sendPrivacy(mode.key, mode.value);
+      return;
+    }
+
     if (input === "q") {
       const now = clock.now();
       if (quitArmedAt !== null && now - quitArmedAt <= QUIT_WINDOW_MS) {
@@ -567,6 +613,7 @@ export function App(props: AppProps) {
     } else if (key.escape) {
       setRun(null);
       setMessage(null);
+      if (view === "settings") setView("overview");
     } else if (input === "S" && state.daemon === "safe") {
       if (offline) {
         setMessage("offline: actions are disabled");
@@ -579,7 +626,10 @@ export function App(props: AppProps) {
         const entry = board[Math.max(0, Math.min(count - 1, index))];
         setOverviewKey(entry === undefined ? null : String(entry.key));
       };
-      if (key.downArrow || input === "j") {
+      if (input === "p") {
+        setMessage(null);
+        setView("settings");
+      } else if (key.downArrow || input === "j") {
         select(overviewIndex + 1);
       } else if (key.upArrow || input === "k") {
         select(overviewIndex - 1);
@@ -587,6 +637,22 @@ export function App(props: AppProps) {
         setOverviewKey(String(overviewEntry.key));
         if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
         else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
+      }
+    } else if (view === "settings") {
+      const settings = privacySettings(state);
+      const index = Math.min(settingsIndex, Math.max(0, settings.length - 1));
+      if (key.downArrow || input === "j") {
+        setSettingsIndex(Math.min(Math.max(0, settings.length - 1), index + 1));
+      } else if (key.upArrow || input === "k") {
+        setSettingsIndex(Math.max(0, index - 1));
+      } else if ((key.return || input === " ") && settings[index] !== undefined) {
+        if (offline) {
+          setMessage("offline: actions are disabled");
+          return;
+        }
+        const setting = settings[index];
+        setMessage(null);
+        setMode({ kind: "confirm-privacy", key: setting.key, value: !setting.value });
       }
     } else if (view === "queue") {
       if (key.downArrow || input === "j") {
@@ -686,12 +752,17 @@ export function App(props: AppProps) {
   // Header, banners, footer keys and message, and the run lines stay on screen; the queue gets
   // the rest.
   const prompt = mode.kind === "path" || mode.kind.startsWith("confirm") ? 1 : 0;
+  // A confirmation question that wraps takes more than one line.
+  const promptLines =
+    mode.kind === "confirm-privacy"
+      ? Math.ceil((confirmPrompt(mode.key, mode.value).length + 8) / Math.max(1, columns))
+      : prompt;
   const height =
     rows -
     3 -
     bannerLines(state, display.ascii).length -
     panel.length -
-    prompt -
+    promptLines -
     (footerMessage === null ? 0 : 1);
 
   return (
@@ -722,6 +793,13 @@ export function App(props: AppProps) {
           keysActive={mode.kind === "home"}
           tailBytes={props.outputTailBytes ?? OUTPUT_TAIL_BYTES}
         />
+      ) : view === "settings" ? (
+        <Settings
+          state={state}
+          display={display}
+          selected={settingsIndex}
+          written={privacyWritten}
+        />
       ) : view === "queue" ? (
         <Queue
           rows={queue}
@@ -748,6 +826,9 @@ export function App(props: AppProps) {
       ))}
       {mode.kind === "path" ? <Text>{` open repository path: ${mode.text}_`}</Text> : null}
       {mode.kind === "confirm-resume" ? <Text>{" Resume scheduling? [y/N]"}</Text> : null}
+      {mode.kind === "confirm-privacy" ? (
+        <Text>{` ${confirmPrompt(mode.key, mode.value)} [y/N]`}</Text>
+      ) : null}
       {mode.kind === "confirm-stop" ? (
         <Text wrap="truncate-end">{` Stop ${mode.story}? ${STOP_PROMPT}. [y/N]`}</Text>
       ) : null}
@@ -810,6 +891,14 @@ function footerKeys(
         ],
         width,
       );
+    case "confirm-privacy":
+      return fitHints(
+        [
+          ["[y] change it", QUIT],
+          ["[any other key] keep it", 50],
+        ],
+        width,
+      );
     case "switcher":
       hints.push(["[Enter] open", 70], ["[n] open new repo path", 40], ["[j/k] move", 30]);
       if (state.office !== null) hints.push(["[Esc] back", 50]);
@@ -831,7 +920,14 @@ function footerKeys(
         if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
-      if (view === "queue") {
+      if (view === "settings") {
+        hints.push(
+          ["[Enter] toggle", 70],
+          ["[j/k] move", 30],
+          ["[Esc] back", 50],
+          ["[1] overview", 40],
+        );
+      } else if (view === "queue") {
         hints.push(
           ["[Enter] detail", 60],
           ["r[u]n selected", 70],
@@ -843,7 +939,7 @@ function footerKeys(
         if (boardEntries(state).length > 0) {
           hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
         }
-        hints.push(["[2] queue", 50]);
+        hints.push(["[2] queue", 50], ["[p] privacy", 45]);
       }
       hints.push(["[o] offices", 40]);
       if (state.daemon === "safe") hints.push(["[S] resume scheduling", 60]);
