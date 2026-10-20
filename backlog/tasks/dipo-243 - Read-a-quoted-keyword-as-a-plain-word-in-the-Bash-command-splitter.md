@@ -1,10 +1,10 @@
 ---
 id: DIPO-243
 title: Read a quoted keyword as a plain word in the Bash command splitter
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 23:01'
+updated_date: '2026-10-20 23:04'
 labels:
   - 'tier:S'
   - cutover
@@ -39,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 simpleCommands in packages/engine/src/hooks/temp-guard.ts records for each word whether any part of it was quoted or escaped, and a word with quoting never counts as an opening keyword, a closing `fi`, `done` or `esac`, or a `{` or `}` group word
-- [ ] #2 `{ 'if' x; bash; } <<'EOF'` with a here-doc body `export DIPO_TMP=/x` is refused, and `echo 'fi'` and `echo \done` pass
-- [ ] #3 Each case of the criterion before is a row in the refused or passed table of packages/engine/test/hooks/temp-guard.test.ts, every row there before keeps its result, and packages/engine/test/hooks/gh-guard.test.ts passes
+- [x] #1 simpleCommands in packages/engine/src/hooks/temp-guard.ts records for each word whether any part of it was quoted or escaped, and a word with quoting never counts as an opening keyword, a closing `fi`, `done` or `esac`, or a `{` or `}` group word
+- [x] #2 `{ 'if' x; bash; } <<'EOF'` with a here-doc body `export DIPO_TMP=/x` is refused, and `echo 'fi'` and `echo \done` pass
+- [x] #3 Each case of the criterion before is a row in the refused or passed table of packages/engine/test/hooks/temp-guard.test.ts, every row there before keeps its result, and packages/engine/test/hooks/gh-guard.test.ts passes
 <!-- AC:END -->
