@@ -1,10 +1,10 @@
 ---
 id: DIPO-227
 title: Refuse a drop while the parked run's worker host still runs
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:45'
+updated_date: '2026-10-20 18:08'
 labels:
   - 'tier:S'
   - cutover
@@ -39,6 +39,10 @@ test_plan:
       check: "(unit) the same drop passes once the host has exited, and a story without a claim drops as before"
     - kind: "automated"
       check: "(unit) the daemon builds StoryPlanning with the engine's process probe"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "already reviewed and merged on main (#279); review reopened by the pending-review start"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
