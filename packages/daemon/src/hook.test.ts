@@ -570,3 +570,30 @@ describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
       }
     }));
 });
+
+describe("dipo hook PermissionRequest --wait against the real worker host (DIPO-181)", () => {
+  it("holds each waiting call until the engine's hookReply and prints that output, call after call", () =>
+    withWorkerHost(async ({ host, socket }) => {
+      const client = await watchingEngine(socket);
+      try {
+        for (const output of ['{"decision":"allow"}', '{"decision":"deny"}']) {
+          const out: string[] = [];
+          const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+          const call = runHookForm(
+            ["PermissionRequest", "--wait", "310"],
+            io(env, '{"hook_event_name":"PermissionRequest"}', out),
+          );
+          for (let i = 0; i < 200 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+          expect(host.pendingHooks).toHaveLength(1);
+          const [hook] = host.pendingHooks;
+          const reply = await client.request({ op: "hookReply", hook: hook ?? 0, output });
+          // The reply finds the held call: never hook.unknown.
+          expect(reply).toEqual({ ok: true, result: undefined });
+          expect(await call).toBe(0);
+          expect(out).toEqual([output]);
+        }
+      } finally {
+        client.close();
+      }
+    }));
+});
