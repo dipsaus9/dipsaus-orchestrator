@@ -14,7 +14,7 @@ Run every command from the worktree root. Never change directory with `cd`, also
 
 Your tool layer asks for approval of some calls. Nobody answers that question in a run, so such a call is denied, and after one denial later calls that need approval can be denied too. Avoid these calls.
 
-Change files only with the Edit and Write tools, never with `sed -i`, a heredoc, a shell redirection such as `>` or `>>` into a file, `tee`, or a script you write to change files. A project command that rewrites files (the formatter, a golden update, a code generator) is fine, and so is removing or moving a file; run each as one command.
+Change files only with your file editing and writing tools, never with `sed -i`, a heredoc, a shell redirection such as `>` or `>>` into a file, `tee`, or a script you write to change files. A project command that rewrites files (the formatter, a golden update, a code generator) is fine, and so is removing or moving a file; run each as one command.
 
 Run one command per shell call: no chain with `&&`, `||` or `;`, and no `cd` in front of a command, since it already runs in the directory it is in. Pipe a command's output only into `head`, `tail` or `grep`, never into `sed`, `awk`, `xargs` or a shell.
 
