@@ -278,6 +278,20 @@ export {
   wakeAt,
 } from "./plan-limit";
 export type { PlanLimitsDeps } from "./plan-limit";
+// `story.hold` and `story.drop` through the planning lane (DIPO-160), and the on-hold resume that
+// `work.resume` hands them.
+export {
+  DIRTY_WORKTREE,
+  HAS_DEPENDENTS,
+  NOT_DROPPABLE,
+  NOT_HOLDABLE,
+  PLANNING_NOTICES,
+  PR_NOT_CLOSED,
+  STORY_ACTIVE,
+  StoryPlanning,
+} from "../stories/planning";
+export type { StoryPlanningDeps } from "../stories/planning";
+export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module with a per-reason policy table (DIPO-138).
 export {
   createRunOutcomes,

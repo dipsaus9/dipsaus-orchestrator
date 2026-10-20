@@ -60,6 +60,7 @@ import {
   type StoredRun,
   selfCommand,
   setupWorktree,
+  type HoldResumer,
   type SlotTable,
   type TierCaps,
   type WorkerPort,
@@ -134,6 +135,8 @@ export interface DaemonRunsOptions {
   readonly implemented: (name: CommandName) => boolean;
   /** The story PR, opened or updated right after each In Review push (DIPO-144). */
   readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
+  /** The planning lane's resume of an on-hold park, for `work.resume` (DIPO-160). */
+  readonly holdResumer?: () => HoldResumer | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
@@ -353,6 +356,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     tmpRoot: realDir(options.tmpRoot),
     // The daemon-start sweep removes a run it does not know only when this daemon made it.
     tempOwner: () => tempDirs.owner(),
+    ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
     ...(refreshStory === undefined
