@@ -7,6 +7,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import {
+  APPROVAL_COMMAND,
+  approvalFacts,
   assembleReviewTaskMessage,
   claudeResult,
   currentPlatform,
@@ -32,6 +34,7 @@ import type {
   RunStep,
   SelfTestDisk,
   SelfTestTools,
+  StandInRequest,
 } from "../../packages/engine/src/index";
 import type { Envelope } from "./format";
 import { isRecord } from "./format";
@@ -66,11 +69,21 @@ export interface Scenario {
   /** Turns of a second process started with `--resume` on the same session. */
   readonly resumeTurns?: readonly TurnText[];
   readonly expected: string;
-  /** Checks on disk and on the raw stream in memory; only the findings are stored. */
+  /**
+   * Checks on disk and on the raw stream in memory; only the findings are stored. `requests` are
+   * the PermissionRequests the stand-in host of `standIn` received (empty without it).
+   */
   readonly verify?: (
     paths: CapturePaths,
     raw: readonly Envelope[],
+    requests: readonly StandInRequest[],
   ) => Promise<Record<string, unknown>>;
+  /**
+   * A launch self-test session (DIPO-244): the capture starts the engine's host-protocol stand-in
+   * at the session's own socket (`selfTestSocketPath`), so the approval call's PermissionRequest
+   * gets dipo's deny as the engine's self-test gets it. The run settings then carry the hooks.
+   */
+  readonly standIn?: true;
   readonly timeoutMs: number;
   /**
    * Extra allow rules added to the run settings file for a diagnostic scenario. They only skip
@@ -468,7 +481,8 @@ const SCENARIOS_BASE: readonly Scenario[] = [
 // plan as it is. The capture judges it with the engine's own verdict over the raw stream and the
 // disk, and stores the disk facts and the verdict, so replay tests can judge the committed stream.
 
-function selfTestPaths(paths: CapturePaths) {
+/** The self-test's paths for a capture, the same the capture's verify and prompt use. */
+export function selfTestPaths(paths: CapturePaths) {
   return {
     main: paths.main,
     workdir: paths.workdir,
@@ -512,6 +526,7 @@ function verifySelfTest(probes: readonly ProbeName[], credentials: boolean) {
   return async (
     paths: CapturePaths,
     raw: readonly Envelope[],
+    requests: readonly StandInRequest[],
   ): Promise<Record<string, unknown>> => {
     const layout = selfTestLayout(selfTestPaths(paths), probes);
     const results = existsSync(layout.resultsFile)
@@ -549,11 +564,19 @@ function verifySelfTest(probes: readonly ProbeName[], credentials: boolean) {
       .filter((line) => line.ch === "stdout")
       .map((line) => `${JSON.stringify(line.data)}\n`)
       .join("");
-    const bash = selfTestBashCalls(stdout, layout.command);
-    const verdict = judgeSelfTest({ probes, outcome, denied, bash, disk });
+    // The two planned calls (DIPO-231): the probe, then the approval call dipo denies.
+    const bash = selfTestBashCalls(stdout, [layout.command, APPROVAL_COMMAND]);
+    // The stand-in's PermissionRequests decide whether the approval call reached dipo (as in
+    // `runSelfTest`); the stdout holds the call's tool result and the CLI's own denial.
+    const reached = requests.some(
+      (request) => request.tool === "Bash" && request.command === APPROVAL_COMMAND,
+    );
+    const approval = approvalFacts(stdout, reached);
+    const verdict = judgeSelfTest({ probes, outcome, denied, bash, approval, disk });
     return {
       disk,
       bash,
+      approval,
       verdict,
       probes,
       ...(credentials
@@ -579,6 +602,7 @@ function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Sc
     turns: [(paths) => selfTestLayout(selfTestPaths(paths), probes).prompt],
     expected,
     verify: verifySelfTest(probes, name === "safety-gh-token"),
+    standIn: true,
     systemPrompt: SELF_TEST_SYSTEM_PROMPT,
     timeoutMs: 300_000,
   };
