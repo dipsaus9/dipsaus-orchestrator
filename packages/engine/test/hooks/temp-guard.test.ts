@@ -86,8 +86,12 @@ const REFUSED: Array<[string, string]> = [
   ["while read l; do bash; done <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["until false; do sh; done <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["for i in a; do bash; done <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["while read l; do bash; done <<'EOF'\nexport TMPDIR=/x\nEOF", "TMPDIR"],
+  ["until false; do sh; done <<'EOF'\nexport TMPDIR=/x\nEOF", "TMPDIR"],
+  ["for i in a; do bash; done <<'EOF'\nexport TMPDIR=/x\nEOF", "TMPDIR"],
   ["case x in x) bash ;; esac <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["case x in x) bash ;; esac <<'EOF'\nexport TMPDIR=/x\nEOF", "TMPDIR"],
+  ["case x in (x) bash ;; esac <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   // A nested compound: the shell two compounds deep reads the body of the outer closing word.
   ["if true; then for i in a; do bash; done; fi <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["{ if true; then bash; fi; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
@@ -156,6 +160,11 @@ const PASSED = [
   "echo done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
   "while read l; do echo done; done <<'EOF'\nexport DIPO_TMP=/x\nEOF",
   "echo fi <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "while read l; do cat; done <<'EOF'\nexport TMPDIR=/x\nEOF",
+  "until false; do cat; done <<'EOF'\nexport TMPDIR=/x\nEOF",
+  "for i in a; do cat; done <<'EOF'\nexport TMPDIR=/x\nEOF",
+  "case x in x) cat ;; esac <<'EOF'\nexport TMPDIR=/x\nEOF",
+  "echo done <<'EOF'\nexport TMPDIR=/x\nEOF",
   // A command substitution is no group: the command it is a word of reads no body (DIPO-237 AC #3).
   "x=$(bash ./mk.sh) cat > f <<'EOF'\nexport DIPO_TMP=/x\nEOF",
 ];
