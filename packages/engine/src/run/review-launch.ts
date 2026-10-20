@@ -96,7 +96,6 @@ function worktreeAt(git: OfficeGit, worktree: string): Extract<GitLocation, { ki
   return git.worktreeLocation(worktree) as Extract<GitLocation, { kind: "worktree" }>;
 }
 
-/** The real `ReviewGit`: office git queue items through the hardened runner. */
 /**
  * The `git diff` arguments of the story diff the reviewer gets. The prefixes are fixed, so a user's
  * or a repository's diff.noprefix, diff.srcPrefix or diff.dstPrefix cannot change the `+++ b/<path>`
@@ -114,6 +113,7 @@ export function storyDiffArgs(range: string): string[] {
   ];
 }
 
+/** The real `ReviewGit`: office git queue items through the hardened runner. */
 export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined): ReviewGit {
   const attached = (office: OfficeId): OfficeGit => {
     const git = gitOf(office);
