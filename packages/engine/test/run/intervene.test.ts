@@ -679,7 +679,7 @@ describe("work.resume of a paused run", () => {
     const { office } = w.f;
 
     expect(ok(await resume())).toMatchObject({ to: "In Progress", queued: true });
-    // The queued resume waits for the place and resolves nothing meanwhile.
+    // The queued resume resolved the pause when it was queued and now waits for the place.
     expect(openPause(office, w.f.run)).toBeNull();
     w.f.t.clock.advance(4 * 60_000);
     office.immediate(() => {
