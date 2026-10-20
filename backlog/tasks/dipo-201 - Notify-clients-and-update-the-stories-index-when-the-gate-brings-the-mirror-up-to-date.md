@@ -3,10 +3,10 @@ id: DIPO-201
 title: >-
   Notify clients and update the stories index when the gate brings the mirror up
   to date
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-20 13:38'
+updated_date: '2026-10-20 14:17'
 labels:
   - 'tier:M'
   - cutover
