@@ -13,17 +13,31 @@ import { configHash } from "../config";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { BASE_VERIFY_UNKNOWN, type BaseVerifyFacts } from "../prompts/base-verify";
+import type { RunProfile } from "../scan/detect";
+import { storedProfile } from "../scan/store";
 
 /** The configuration a verify result depends on: where and how a step runs, and for how long. */
 export type BaseVerifyConfig = Pick<OfficeConfig, "worktree" | "timeouts" | "sandbox">;
 
-/** The configuration hash a stored result is keyed by: a change to these settings runs verify again. */
-export function baseVerifyConfigHash(config: BaseVerifyConfig): string {
+/**
+ * The configuration hash a stored result is keyed by: a change to these settings, or to the verify
+ * commands of the run profile (a confirmed capability or a rescan), runs verify again.
+ */
+export function baseVerifyConfigHash(config: BaseVerifyConfig, profile: RunProfile | null): string {
+  const verify = profile?.capabilities.verify;
   return configHash({
     worktree: config.worktree,
     timeouts: config.timeouts,
     sandbox: config.sandbox,
+    verify: verify?.status === "resolved" ? verify.value : null,
   });
+}
+
+/** The run profile a run started with (its stored `run_profile_id`), or null. */
+export function runProfileOf(office: OfficeHandle, runProfileId: string | null): RunProfile | null {
+  if (runProfileId === null) return null;
+  const id = Number(runProfileId);
+  return Number.isInteger(id) ? (storedProfile(office, id)?.profile ?? null) : null;
 }
 
 /** Characters of output tail stored when no failing test name could be read. */

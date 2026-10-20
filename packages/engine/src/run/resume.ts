@@ -70,7 +70,7 @@ import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
-import { baseVerifyConfigHash, baseVerifyFactsOf } from "../worktree/base-verify";
+import { baseVerifyConfigHash, baseVerifyFactsOf, runProfileOf } from "../worktree/base-verify";
 import { findClaim } from "../worktree/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 
@@ -656,7 +656,11 @@ export class RunResumer implements NextSession {
       config,
       handoff,
       // The result stored for this base when the run started (DIPO-183); a new session runs no verify.
-      baseVerify: baseVerifyFactsOf(office, baseSha, baseVerifyConfigHash(config)),
+      baseVerify: baseVerifyFactsOf(
+        office,
+        baseSha,
+        baseVerifyConfigHash(config, runProfileOf(office, run.runProfileId)),
+      ),
     });
     return { text: prompts.taskMessage, sources: prompts.nudgeSources };
   }

@@ -261,7 +261,7 @@ async function baseVerifyOf(
   log: string[],
 ): Promise<BaseVerifyFacts> {
   const { claim } = request;
-  const hash = baseVerifyConfigHash(request.config);
+  const hash = baseVerifyConfigHash(request.config, request.profile);
   const stored = findBaseVerify(deps.office, claim.baseSha, hash);
   if (stored !== null) {
     log.push(`base verify: stored result for ${claim.baseSha.slice(0, 12)}: ${stored.kind}`);

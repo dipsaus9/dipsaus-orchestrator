@@ -81,7 +81,11 @@ import {
   type SessionRef,
   type WorkerAdapter,
 } from "../../src/workers/types";
-import { baseVerifyConfigHash, storeBaseVerify } from "../../src/worktree/base-verify";
+import {
+  baseVerifyConfigHash,
+  runProfileOf,
+  storeBaseVerify,
+} from "../../src/worktree/base-verify";
 import { findClaim, insertClaim } from "../../src/worktree/records";
 import {
   appendLines,
@@ -1802,7 +1806,10 @@ describe("the base verify section of a handoff (DIPO-183)", () => {
     w.f.office.immediate(() =>
       storeBaseVerify(w.f.office, {
         baseSha,
-        hash: baseVerifyConfigHash(OFFICE_DEFAULTS),
+        hash: baseVerifyConfigHash(
+          OFFICE_DEFAULTS,
+          runProfileOf(w.f.office, run?.runProfileId ?? null),
+        ),
         runId: w.f.run,
         result: { kind: "red", failing: ["sandbox > reads home", "worktree > setup"], tail: null },
         at: 1,
