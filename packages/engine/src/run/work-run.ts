@@ -94,7 +94,7 @@ import { recordRunCriteria } from "./criteria";
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
 import { markPhase } from "./markers";
 
-import { placeTaken, START_KINDS } from "./places";
+import { placeTaken, type Places, START_KINDS } from "./places";
 import { currentProfileId, hasActiveRun, insertRun, recordConfigSnapshot } from "./records";
 import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "./select";
 import { verifyCommands } from "../scan/store";
@@ -205,6 +205,12 @@ export interface WorkRunDeps {
    * writing. Without it no slots refusal is made; setup still fails when every slot is taken.
    */
   readonly liveSlots?: () => readonly SlotEntry[];
+  /**
+   * The office's serialized steps (`Places.serialized`, DIPO-208): each candidate's worker-place
+   * check, claim and run record run in one of them, so a queued start cannot take the place between
+   * the check and the record. Without it the steps run unserialized, as the tests of one run do.
+   */
+  readonly places?: Pick<Places, "serialized">;
 }
 
 type Args = z.output<typeof workRun.args>;
@@ -378,19 +384,22 @@ export class WorkRun {
 
     const started: Started[] = [];
     const skipped: Skipped[] = [];
-    const busy = workerPlaceTaken(handle);
     for (const candidate of candidates) {
-      const reason = await this.#tryStart(ctx, {
-        candidate,
-        status: read.statuses.get(candidate.story),
-        view: views.get(candidate.story),
-        unparsed: read.unparsed.includes(candidate.story),
-        checkout: read.checkout,
-        full: busy || started.length > 0,
-        config,
-        configHash,
-        started,
-      });
+      // The worker place is decided and taken in one serialized step (DIPO-208): the check, the
+      // claim and the run record, so a drain of a queued start waits for the record it counts.
+      const reason = await this.#serialized(office, () =>
+        this.#tryStart(ctx, {
+          candidate,
+          status: read.statuses.get(candidate.story),
+          view: views.get(candidate.story),
+          unparsed: read.unparsed.includes(candidate.story),
+          checkout: read.checkout,
+          full: workerPlaceTaken(handle) || started.length > 0,
+          config,
+          configHash,
+          started,
+        }),
+      );
       if (reason !== null) skipped.push({ ...candidate, reason });
     }
     return { result: { started, skipped } };
@@ -451,6 +460,11 @@ export class WorkRun {
       return { tooLarge: `${story} cannot start: ${error.code}: ${error.message}` };
     }
     return { view, fields, branch, tier: tier as string, caps, taskFile };
+  }
+
+  /** Runs `fn` as one of the office's serialized steps (DIPO-208), or at once without places. */
+  #serialized<T>(office: OfficeId, fn: () => Promise<T>): Promise<T> {
+    return this.#deps.places === undefined ? fn() : this.#deps.places.serialized(office, fn);
   }
 
   /** Starts one candidate, or returns why it was skipped. */
