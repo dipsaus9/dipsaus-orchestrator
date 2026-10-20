@@ -3,10 +3,10 @@ id: DIPO-231
 title: >-
   Make the launch self-test fail when the CLI denies an approval call before
   dipo decides
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-20 08:42'
-updated_date: '2026-10-20 16:40'
+updated_date: '2026-10-20 17:18'
 labels:
   - 'tier:M'
   - cutover
@@ -53,6 +53,10 @@ test_plan:
     - kind: "manual"
       check: "(live) on the scratch repo, launch a story on the pinned CLI"
       expect: "the launch self-test passes with its two planned calls"
+park:
+  reason: "verify-failing"
+  from: "In Progress"
+  note: "Verify failed at the verify step.\nCommand: bun run verify\nExit code: 1\nLocations:\n- packages/testkit/src/git.ts:90:36\n- packages/engine/test/worktree/setup.test.ts:58:29\n- packages/engine/test/worktree/setup.test.ts:307:27\n- packages/testkit/src/git.ts:156:23\n- packages/engine/test/git/helpers.ts:53:26\n- packages/engine/test/git/office-git.test.ts:182:13\nLast output lines:\n[dipo: showing the last 41 of 4,916 output lines.]\n(pass) FakeProcess > records stdin writes and the close [0.07ms]\n(pass) FakeProcess > writes a partial line without a newline [0.10ms]\n(pass) FakeProcess > replays stdout, stderr, hooks and the exit, moving the clock by recorded deltas [0.22ms]\n(pass) FakeProcess > ends with exit 143 and no result on SIGTERM [0.06ms]\n(pass) FakeProcess > jumps to the recorded post-interrupt tail on SIGINT [0.10ms]\n(pass) FakeProcess > is a contract ChildProcess handed out by an injected Spawn [0.05ms]\n\npackages/testkit/src/listener-guard.test.ts:\n(pass) the uncaught-error listener guard > sees a listener a test leaves on the real process [0.04ms]\n(pass) the uncaught-error listener guard > is preloaded for every test [0.09ms]\n(pass) the uncaught-error listener guard > reports a changed listener count and nothing when the counts are back [0.02ms]\n\n10 tests skipped:\n(skip) a test daemon's runtime directory > stays under the test's temp directory when DIPO_RUNTIME_DIR is unusable\n(skip) a test daemon's runtime directory > is its DIPO_RUNTIME_DIR on darwin for the longest temp root testkit accepts\n(skip) a test daemon's runtime directory > is its DIPO_RUNTIME_DIR on linux for the longest temp root testkit accepts\n(skip) (unit) the gate on local sockets > forwards a registry CONNECT to that ecosystem's Safe-Chain and refuses the rest\n(skip) the merge slot on GitHub > waits for ci-ok and pr-title, then squash-merges the backlog PR without a reviewer\n(skip) the backlog PR on GitHub > opens a chore(backlog) PR whose pr-title check passes and whose structural check passes\n(skip) withTempDir > uses $DIPO_TMP when set and /tmp otherwise\n(skip) withTempDir > keeps the directory when DIPO_TEST_KEEP=1\n(skip) the temp root limit (DIPO-109) > accepts a temp root of exactly the longest length, and refuses one byte more\n(skip) system probe > reads the same as /bin/ps on macOS: live, child and zombie\n\n\n3 tests failed:\n(fail) (engine) the review kind's launch checks (DIPO-145, 0019 section 4) > holds the adapter when the worktree took the self-test's write [130561.28ms]\n  ^ this test timed out after 5000ms.\n(fail) setting up a worktree > copies files, takes slot 1 and runs install, setup and post_create in order with the run environment [28052.69ms]\n  ^ this test timed out after 5000ms.\n(fail) the worktree root > is refused inside the main checkout [499485.86ms]\n  ^ this test timed out after 5000ms.\n\n --seed=4245707292\n 4069 pass\n 10 skip\n 3 fail\n 2 errors\n 29895 expect() calls\nRan 4082 tests across 368 files. [804.72s]\nerror: script \"verify\" exited with code 1"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
