@@ -14,7 +14,11 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { SoftwareStream } from "../../src/software-stream/stream";
 import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID } from "../../src/workers/claude-cli/plan";
-import { REVIEW_PROBES, selfTestLayout } from "../../src/workers/claude-cli/self-test";
+import {
+  REVIEW_PROBES,
+  selfTestLayout,
+  type StartHostStandIn,
+} from "../../src/workers/claude-cli/self-test";
 import {
   AdapterHolds,
   gateLaunch,
@@ -25,10 +29,13 @@ import { PlanError } from "../../src/workers/types";
 import {
   ADMIN_DIR,
   BLOCKED_RESULTS,
+  CLI_NO_APPROVAL_TEXT,
   context,
+  fakeStandIn,
   HOME,
   MAIN,
   MemoryFs,
+  reachedStandIn,
   REVIEW_BLOCKED_RESULTS,
   reviewSpec,
   RUN_DIR,
@@ -111,6 +118,7 @@ describe("(engine) Claude launch checks", () => {
       spawn: claudeWith(clock, fs, results).spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin" as const,
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -152,6 +160,7 @@ describe("(engine) Claude launch checks", () => {
       spawn: fake.spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin" as const,
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -168,9 +177,56 @@ describe("(engine) Claude launch checks", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatchObject({
       message: "the launch self-test session ran another Bash command",
-      fields: { run: "run-0001", commands: ["ls -la"] },
+      fields: { run: "run-0001", commands: ["ls -la", "cd .; ls"] },
     });
     expect(String(warnings[0]?.fields["reason"])).toContain('"ls -la"');
+  });
+
+  it("holds the adapter when the CLI denied the approval call before dipo decided, and a later pass lifts it (DIPO-231)", async () => {
+    const { clock, holds, notices } = setup();
+    const run = (session: Parameters<typeof selfTestSession>[1], standIn: StartHostStandIn) => {
+      const fs = new MemoryFs();
+      const fake = scriptedClaude(clock, {
+        session: selfTestSession([LAYOUT.command], session),
+        onSession: () => {
+          fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
+          fs.files.set(LAYOUT.controlFile, "");
+        },
+      });
+      return prepareLaunch(spec(), context(), holds, {
+        spawn: fake.spawn,
+        clock,
+        selfTestSessionId: SELF_TEST_SESSION,
+        standIn,
+        platform: "darwin" as const,
+        runStep: credentialSteps().runStep,
+        uid: 501,
+        allowProjectSettings: [],
+        readText: async () => undefined,
+        fs,
+      });
+    };
+    // The CLI's own denial: the call never reached the stand-in.
+    const refused = await run(
+      { approvalResult: CLI_NO_APPROVAL_TEXT, cliDenied: true },
+      fakeStandIn({ reached: false }).start,
+    );
+    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
+      check: "self-test",
+      key: "approval",
+    });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("no approval surface");
+    expect(notices.at(-1)?.data).toMatchObject({ code: HOLD_NOTICE_CODE });
+    // A call that never reached dipo is inconclusive and holds it just the same.
+    const silent = await run(undefined, fakeStandIn({ reached: false }).start);
+    expect(silent).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("never reached dipo");
+    // A session where dipo's deny arrived passes and lifts the hold.
+    const passed = await run(undefined, reachedStandIn());
+    expect(passed.ok).toBe(true);
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+    expect(notices.at(-1)?.data).toMatchObject({ code: RELEASE_NOTICE_CODE });
   });
 
   it("writes no Bash warn line for a self-test session that passes (DIPO-230)", async () => {
@@ -182,6 +238,7 @@ describe("(engine) Claude launch checks", () => {
       spawn: fake.spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin" as const,
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -213,6 +270,7 @@ describe("(engine) Claude launch checks", () => {
         spawn: fake.spawn,
         clock,
         selfTestSessionId: SELF_TEST_SESSION,
+        standIn: reachedStandIn(),
         platform: "darwin" as const,
         runStep: credentialSteps().runStep,
         uid: 501,
@@ -240,6 +298,7 @@ describe("(engine) Claude launch checks", () => {
       spawn: fake.spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin" as const,
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -263,6 +322,7 @@ describe("(engine) Claude launch checks", () => {
       spawn: fake.spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin" as const,
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -295,6 +355,7 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
         spawn: fake.spawn,
         clock,
         selfTestSessionId: SELF_TEST_SESSION,
+        standIn: reachedStandIn(),
         platform: "darwin" as const,
         runStep: credentialSteps().runStep,
         uid: 501,
@@ -372,6 +433,7 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
       spawn: fake.spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin" as const,
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -428,6 +490,7 @@ describe("(engine) roles with unchecked tools", () => {
           spawn: fake.spawn,
           clock,
           selfTestSessionId: SELF_TEST_SESSION,
+          standIn: reachedStandIn(),
           platform: "darwin" as const,
           runStep: credentialSteps().runStep,
           uid: 501,
@@ -454,6 +517,7 @@ async function runCredentials(
     spawn: fake.spawn,
     clock,
     selfTestSessionId: SELF_TEST_SESSION,
+    standIn: reachedStandIn(),
     platform,
     runStep: steps.runStep,
     uid: 501,
@@ -548,6 +612,7 @@ function proxyDeps(
     }).spawn,
     clock,
     selfTestSessionId: SELF_TEST_SESSION,
+    standIn: reachedStandIn(),
     platform: "darwin" as const,
     runStep: credentialSteps().runStep,
     uid: 501,
@@ -674,6 +739,7 @@ describe("(engine) plugins in the self-test session (DIPO-108)", () => {
       spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
+      standIn: reachedStandIn(),
       platform: "darwin",
       runStep: credentialSteps().runStep,
       uid: 501,
@@ -754,6 +820,7 @@ describe("(engine) npm auth keys the worker sandbox can read (DIPO-172)", () => 
             spawn: fake.spawn,
             clock,
             selfTestSessionId: SELF_TEST_SESSION,
+            standIn: reachedStandIn(),
             platform: "darwin" as const,
             runStep: credentialSteps().runStep,
             uid: 501,
@@ -825,6 +892,7 @@ describe("(engine) verify tools the worker sandbox cannot start (DIPO-173)", () 
         spawn: fake.spawn,
         clock,
         selfTestSessionId: SELF_TEST_SESSION,
+        standIn: reachedStandIn(),
         platform: "darwin" as const,
         runStep: credentialSteps().runStep,
         uid: 501,
