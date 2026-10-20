@@ -41,7 +41,12 @@ import { openPark, PARK_NOTICES, reopenParkedRun } from "./park";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { capsStartedAt, findRun, type StoredRun } from "./records";
 import { resumeVia } from "./resume-policy";
-import { type HeldRunResumer, type ResumeWaitOutcome, WorkResumeCommand } from "./work-resume";
+import {
+  type HeldRunResumer,
+  type HoldResumer,
+  type ResumeWaitOutcome,
+  WorkResumeCommand,
+} from "./work-resume";
 
 export {
   PARK_RESUME_POLICY,
@@ -68,6 +73,11 @@ export interface ResumptionOptions {
    * resume whose place is blocked waits for it; without them a resume starts at once.
    */
   readonly places?: () => Places | undefined;
+  /**
+   * The planning lane's resume of an on-hold park (DIPO-160); read when needed. `work.resume` of
+   * an on-hold story needs it.
+   */
+  readonly holds?: () => HoldResumer | undefined;
 }
 
 type ResumeArgs = z.output<typeof workResume.args>;
@@ -105,7 +115,7 @@ export class Resumption {
     this.#deps = parts.support.deps;
     this.#guard = parts.support.guard;
     this.#sessions = parts.sessions;
-    this.#command = new WorkResumeCommand(options.planLimits);
+    this.#command = new WorkResumeCommand(options.planLimits, options.holds);
     this.#places = options.places ?? (() => undefined);
   }
 
