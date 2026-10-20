@@ -1,10 +1,10 @@
 ---
 id: DIPO-229
 title: Serialize a direct park resume with work.run's claim of the worker place
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:29'
+updated_date: '2026-10-20 14:37'
 labels:
   - 'tier:S'
   - cutover
@@ -43,8 +43,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In the direct park-resume path of packages/engine/src/run/resumption.ts, the places.blocked check, the reopen write with the answer and the intent, and the waitForPlace row are one step in places.serialized for the run's office; the drain fired for a queued resume stays a call that is not awaited, after that step
-- [ ] #2 startQueued and recoverParkResumes never await Places.serialized from inside a drain, and without places the path runs as today
-- [ ] #3 A test holds work.run's claim open with claimGate, as the DIPO-208 test does, answers a park inside the window and shows one session start: the pickup's story holds the worker place and the resume waits in waitingStarts with the queued notice
-- [ ] #4 A second test resumes the park first and shows the pickup that follows skipped for the worker place
+- [x] #1 In the direct park-resume path of packages/engine/src/run/resumption.ts, the places.blocked check, the reopen write with the answer and the intent, and the waitForPlace row are one step in places.serialized for the run's office; the drain fired for a queued resume stays a call that is not awaited, after that step
+- [x] #2 startQueued and recoverParkResumes never await Places.serialized from inside a drain, and without places the path runs as today
+- [x] #3 A test holds work.run's claim open with claimGate, as the DIPO-208 test does, answers a park inside the window and shows one session start: the pickup's story holds the worker place and the resume waits in waitingStarts with the queued notice
+- [x] #4 A second test resumes the park first and shows the pickup that follows skipped for the worker place
 <!-- AC:END -->
