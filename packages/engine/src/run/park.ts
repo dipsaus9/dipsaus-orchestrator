@@ -44,7 +44,7 @@ import { repoPath } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
-import { reopenRun, type StoredRun } from "./records";
+import { appendRunStep, reopenRun, type StoredRun } from "./records";
 
 /** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
 export const WORKTREE_TAMPERED = "git.worktreeTampered";
@@ -394,6 +394,8 @@ export interface ParkRequest {
   readonly detail: string;
   /** How the run ends (`runs.end_kind`), for example `stopped` or `capped`. */
   readonly endKind: string;
+  /** The `cap` run step value of a done turn that crossed a cap, written with the run's end (DIPO-222). */
+  readonly capStep?: string;
 }
 
 export interface ParkOutcome {
@@ -490,6 +492,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
          $commit, $at)`,
       { key, story, run: run.runId, reason, cause, from, detail, commit: lastGoodCommit, at },
     );
+    if (request.capStep !== undefined) appendRunStep(office, run.runId, "cap", request.capStep, at);
     endRunMarked(office, run.runId, at, request.endKind);
     // The agent ends when its exit is ingested; the reason it ended is known now.
     office.run(
