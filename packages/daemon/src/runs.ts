@@ -400,6 +400,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           runStep,
           localSettings: worker.localSettings,
           warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
+          debug: (message, fields) => options.logger.debug(message, { office, ...fields }),
         },
         {
           claim,
