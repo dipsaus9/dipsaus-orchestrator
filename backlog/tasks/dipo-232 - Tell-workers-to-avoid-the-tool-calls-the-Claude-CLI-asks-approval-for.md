@@ -1,10 +1,10 @@
 ---
 id: DIPO-232
 title: Tell workers to avoid the tool calls the Claude CLI asks approval for
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 11:02'
+updated_date: '2026-10-20 11:04'
 labels:
   - 'tier:S'
   - cutover
@@ -45,8 +45,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/prompts/contract/implement.md has a section `## Calls that need approval` right after `## Working directory`, which says that the worker's tool layer asks for approval of some calls, that nobody answers that question in a run, so such a call is denied and later calls that need approval can be denied too, and that the worker therefore avoids these calls
-- [ ] #2 That section tells the worker to make the edits it writes itself with its file editing and writing tools, never with `sed -i`, a heredoc, a shell redirection such as `>` or `>>` into a file, `tee`, or a script it writes to change files; a project command that rewrites files (the formatter, a golden update, a code generator) and removing or moving a file are fine, each as one command
-- [ ] #3 That section tells the worker to run one command per shell call: no chain with `&&`, `||` or `;`, no `cd` in front of a command (it runs in the directory it is in), and a pipe only to cut one command's output with `head`, `tail` or `grep`, never into `sed`, `awk`, `xargs` or a shell
-- [ ] #4 packages/engine/test/prompts/golden/system-implement-developer.md holds the new text, packages/engine/test/prompts/system.test.ts checks the heading and the rules of the two criteria before with toContain, and the existing tests that the system file holds no digit and no path but /tmp keep passing, so the new text has no digit and no slash
+- [x] #1 packages/engine/src/prompts/contract/implement.md has a section `## Calls that need approval` right after `## Working directory`, which says that the worker's tool layer asks for approval of some calls, that nobody answers that question in a run, so such a call is denied and later calls that need approval can be denied too, and that the worker therefore avoids these calls
+- [x] #2 That section tells the worker to make the edits it writes itself with its file editing and writing tools, never with `sed -i`, a heredoc, a shell redirection such as `>` or `>>` into a file, `tee`, or a script it writes to change files; a project command that rewrites files (the formatter, a golden update, a code generator) and removing or moving a file are fine, each as one command
+- [x] #3 That section tells the worker to run one command per shell call: no chain with `&&`, `||` or `;`, no `cd` in front of a command (it runs in the directory it is in), and a pipe only to cut one command's output with `head`, `tail` or `grep`, never into `sed`, `awk`, `xargs` or a shell
+- [x] #4 packages/engine/test/prompts/golden/system-implement-developer.md holds the new text, packages/engine/test/prompts/system.test.ts checks the heading and the rules of the two criteria before with toContain, and the existing tests that the system file holds no digit and no path but /tmp keep passing, so the new text has no digit and no slash
 <!-- AC:END -->
