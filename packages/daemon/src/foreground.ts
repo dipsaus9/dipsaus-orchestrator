@@ -735,6 +735,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       offices,
       clock,
       ids,
+      index: storyIndex,
     });
     // The run profile (DIPO-72): scanned at load after the story index fetched, and on
     // `office.rescan`, which also indexes the stories again.

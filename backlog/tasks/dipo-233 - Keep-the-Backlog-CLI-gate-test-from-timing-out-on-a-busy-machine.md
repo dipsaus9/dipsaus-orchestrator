@@ -1,10 +1,10 @@
 ---
 id: DIPO-233
 title: Keep the Backlog CLI gate test from timing out on a busy machine
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 14:01'
+updated_date: '2026-10-20 14:55'
 labels:
   - 'tier:S'
   - cutover
@@ -43,7 +43,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/test/gate/story-gate.test.ts the test "story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes" passes a limit of 30000 ms as the third argument of it(), as 0017's Timeouts rule sets for a slower integration test, and it stays in that local file with no DIPO_TEST_CI guard
-- [ ] #2 The file comment of story-gate.test.ts says why that test has its own limit: it runs real git and the pinned Backlog CLI several times, took about 4 seconds on an idle machine and timed out at 5 seconds on a busy one
-- [ ] #3 `bun test packages/engine/test/gate` passes
+- [x] #1 In packages/engine/test/gate/story-gate.test.ts the test "story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes" passes a limit of 30000 ms as the third argument of it(), as 0017's Timeouts rule sets for a slower integration test, and it stays in that local file with no DIPO_TEST_CI guard
+- [x] #2 The file comment of story-gate.test.ts says why that test has its own limit: it runs real git and the pinned Backlog CLI several times, took about 4 seconds on an idle machine and timed out at 5 seconds on a busy one
+- [x] #3 `bun test packages/engine/test/gate` passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CWE5378MZ3QE5K80MNMSEA (Haiku, 8 turns, about $0.01, under a minute) reported done, In Review, with no denied call and no write outside the References. As the maintainer answered (2026-10-20, 30 s limit for this test): the story.gate test in story-gate.test.ts passes 30000 ms as it()'s third argument (0017, Timeouts) and stays local; the file comment says why (real git and the pinned Backlog CLI several times, about 4 s idle, timed out at 5 s busy). Most of the diff is oxfmt re-indentation. Fixed on top after review: the comment names the story.gate test instead of 'the first test'. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4059 tests; DIPO_TEST_CI=1 gate tests pass (117).
+<!-- SECTION:NOTES:END -->

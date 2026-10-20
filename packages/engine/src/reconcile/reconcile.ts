@@ -248,7 +248,9 @@ export async function reconcileOffice(
   const first = await releaseDoneOnBase(deps, pass, record);
   if (first.released > 0 || first.baseMoved > 0) pass = await input.reindex();
   if (first.baseMoved > 0) {
-    const retry = await releaseDoneOnBase(deps, pass, record);
+    // Only the claims the first pass skipped: the others were already looked at, and a kept one
+    // would otherwise get its notice a second time.
+    const retry = await releaseDoneOnBase(deps, pass, record, new Set(first.skippedRuns));
     if (retry.released > 0) pass = await input.reindex();
   }
 

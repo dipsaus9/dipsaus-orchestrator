@@ -25,7 +25,7 @@ import type { FeatureModule } from "../../commands/registry";
 import type { OfficeConfig } from "../../config";
 import type { OfficeHandle } from "../../db/office";
 import type { GitSession, OfficeGit } from "../../git/office";
-import { indexPass } from "../../stories/index-stories";
+import type { IndexResult } from "../../stories/index-stories";
 import { findStoryByKey } from "../../stories/keys";
 import { evaluateGate } from "../evaluate";
 import type { GateConfig, GateMode, GateResult, GateTask } from "../types";
@@ -46,6 +46,10 @@ export interface GateStoreDeps {
   };
   readonly clock: Clock;
   readonly ids: IdSource;
+  /** The stories index; the pass that brings a stale mirror up to date goes through it (DIPO-201). */
+  readonly index: {
+    indexInSession(office: OfficeId, session: GitSession, basePath: string): Promise<IndexResult>;
+  };
 }
 
 /** The `_base` checkout a gate reads: its path and the base branch it is at. */
@@ -129,6 +133,7 @@ export class GateStore {
     story: StoryId,
     mode: GateMode,
     at?: BaseCheckout,
+    held?: GitSession,
   ): Promise<GateEvaluation> {
     const git = this.#deps.git.forOffice(office);
     if (git === undefined) {
@@ -147,7 +152,7 @@ export class GateStore {
       );
     }
     const base = at ?? (await git.ensureBaseWorktree());
-    const read = async (session?: GitSession) => {
+    const read = async (session: GitSession | undefined = held) => {
       const others = await this.#otherTasks(office, git, base.path, session);
       return readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config), others);
     };
@@ -183,8 +188,7 @@ export class GateStore {
     if (handle === undefined || sha === null) return undefined;
     const fresh = cachedGateTasks(handle, sha);
     if (fresh !== null || session === undefined) return fresh ?? undefined;
-    const { clock, ids, cli } = this.#deps;
-    const pass = await indexPass({ office: handle, git, cli, clock, ids }, session, basePath);
+    const pass = await this.#deps.index.indexInSession(office, session, basePath);
     return pass.sha === sha ? (cachedGateTasks(handle, sha) ?? undefined) : undefined;
   }
 
@@ -194,19 +198,21 @@ export class GateStore {
    *
    * With `checkout`, the caller runs inside the office's git queue item (the pickup re-check inside the
    * claim, DIPO-48) and names the `_base` checkout to read; no queue item of its own is started.
+   * `session` is that item's git session, so a stale mirror is brought up to date in one pass.
    */
   async recordGateDecision(
     office: OfficeId,
     key: StoryKey,
     mode: GateMode,
     checkout?: BaseCheckout,
+    session?: GitSession,
   ): Promise<GateDecisionRecord & { readonly story: StoryId; readonly result: GateResult }> {
     const handle = this.#handle(office);
     const identity = findStoryByKey(handle, key);
     if (identity === null) {
       throw new CommandError("story.unknown", `No story has the key ${key}.`, { story: key });
     }
-    const evaluation = await this.#evaluate(office, identity.story, mode, checkout);
+    const evaluation = await this.#evaluate(office, identity.story, mode, checkout, session);
     const at = this.#deps.clock.now();
     const stored = handle.immediate(() =>
       storeGateDecision(handle, this.#deps.ids, {

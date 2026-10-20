@@ -92,6 +92,42 @@ export function runTotals(
 }
 
 /**
+ * What one reviewer session has used (0019 sections 4 and 13): the run's budget tokens, every
+ * agent's, since the story's budget pays for the review; the turns of the reviewer agent `agent`
+ * alone; and the wall-clock time since its session started.
+ */
+export function reviewTotals(
+  office: OfficeHandle,
+  runId: RunId,
+  agent: string,
+  startedAt: number,
+  now: number,
+): RunTotals {
+  const row = office.get<{ budget: number; turns: number }>(
+    `select coalesce(sum(input + output + cache_create), 0) as budget,
+       coalesce(sum(case when agent_id = $agent then turns else 0 end), 0) as turns
+     from usage_totals where office_id = $office_id and run_id = $run`,
+    { run: runId, agent },
+  );
+  return {
+    budgetTokens: row?.budget ?? 0,
+    turns: row?.turns ?? 0,
+    elapsedMs: Math.max(0, now - startedAt),
+  };
+}
+
+/** The review rounds the run started: its `review` steps (0019 section 6). */
+function reviewRoundsStarted(office: OfficeHandle, runId: RunId): number {
+  return (
+    office.get<{ n: number }>(
+      `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'review'`,
+      { run: runId },
+    )?.n ?? 0
+  );
+}
+
+/**
  * The caps a run counts against: the `Caps` the workers get, plus the loop cap and the review
  * loop's caps (0019 sections 4 and 8). A review loop cap is null for a run that has none: a session
  * run, or a run started before it was kept (DIPO-146).
@@ -117,10 +153,12 @@ function granted(cap: number | null | undefined, grant: number): number | null {
  * The caps of a run now (ADR 0020 section 5, DIPO-143): its start snapshot plus the sum of its
  * grants of each kind. A budget grant raises tokens, turns and minutes; a `loop` grant the loop
  * cap; a `reviewRound` grant the review round cap; `ciAttempt` and `conflictHandoff` grants the CI
- * and conflict caps; a `reviewCap` grant the reviewer's turn and minute caps (DIPO-146). The tier
- * of the office is never read for a snapshot, so an edit of the tier reaches new runs only.
- * `legacy` supplies turns and minutes for a run started before they were kept; without it those
- * are unbounded.
+ * and conflict caps; a `reviewCap` grant the reviewer's turn and minute caps (DIPO-146). Each
+ * review round started (its `review` step) grows the budget by the snapshot `review_allowance`
+ * (0019 section 4, DIPO-219); a retried session of the same round writes no step, so it adds
+ * nothing. The tier of the office is never read for a snapshot, so an edit of the tier reaches new
+ * runs only. `legacy` supplies turns and minutes for a run started before they were kept; without
+ * it those are unbounded.
  */
 export function runCaps(
   office: OfficeHandle,
@@ -128,8 +166,9 @@ export function runCaps(
   legacy?: Pick<Caps, "maxTurns" | "maxMinutes">,
 ): RunCaps {
   const grants = grantTotals(office, run.runId);
+  const allowance = (run.reviewAllowance ?? 0) * reviewRoundsStarted(office, run.runId);
   return {
-    budgetTokens: run.budgetLimit + grants.budget.tokens,
+    budgetTokens: run.budgetLimit + grants.budget.tokens + allowance,
     maxTurns: (run.maxTurns ?? legacy?.maxTurns ?? Number.POSITIVE_INFINITY) + grants.budget.turns,
     maxMinutes:
       (run.maxMinutes ?? legacy?.maxMinutes ?? Number.POSITIVE_INFINITY) + grants.budget.minutes,
