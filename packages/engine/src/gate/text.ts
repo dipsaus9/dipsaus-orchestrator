@@ -43,15 +43,17 @@ const MASK = "\u0000";
 
 /**
  * The text with every code span and path token masked out, so no match can lie inside one. A path
- * token is masked without its wrapping brackets, quotes and sentence punctuation (DIPO-218). Code
- * spans are found in the original text, so a slash inside one still makes its run a path token.
+ * token is masked without its wrapping brackets, quotes and sentence punctuation (DIPO-218). A code
+ * span ends a run (DIPO-221): the runs are taken from a copy with each code span blanked, so a word
+ * written right before or after a code span is never part of a path token.
  */
 function outsideCodeAndPaths(text: string): string {
   const units = text.split("");
   for (const match of text.matchAll(CODE_SPAN)) {
     units.fill(MASK, match.index, match.index + match[0].length);
   }
-  for (const match of text.matchAll(RUN)) {
+  const runsOnly = text.replace(CODE_SPAN, (span) => " ".repeat(span.length));
+  for (const match of runsOnly.matchAll(RUN)) {
     const run = match[0];
     const lead = WRAP_START.exec(run)?.[0].length ?? 0;
     const rest = run.slice(lead);
