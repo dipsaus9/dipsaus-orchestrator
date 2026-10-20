@@ -1,10 +1,10 @@
 ---
 id: DIPO-136
 title: Change the privacy settings from the TUI
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 19:09'
-updated_date: '2026-10-20 14:01'
+updated_date: '2026-10-20 15:24'
 labels:
   - 'tier:M'
   - 'slice:m1b'
