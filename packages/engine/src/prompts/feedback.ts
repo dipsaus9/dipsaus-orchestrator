@@ -2,13 +2,34 @@
 // signature for send-once handling (M1). M0 builds verify items; DIPO-49 sends them. A verify item
 // holds the failing step and command, the exit code, the last output lines and the `file:line`
 // locations parsed from tsc, oxlint and bun test output.
+//
+// The reviewer's two correction turns (0019 section 4, DIPO-219) are built here too: a report
+// missing or invalid against the review schema (`feedback/review-report.md`), and blocking
+// findings whose evidence did not check out, each named with why (`feedback/review-evidence.md`).
 
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
 import { formatCount } from "../context/truncate";
 import { cutTailLines } from "./cut";
+import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
+import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "./templates";
+
+/** The reviewer's correction turn for a report missing or invalid against its schema. */
+export function reviewReportFeedback(why: string): string {
+  return renderTemplate(reviewReportTemplate, { why });
+}
+
+/**
+ * The reviewer's correction turn naming the blocking findings whose evidence failed, one line
+ * each as `evidenceProblems` gives them (`finding 2 (security): ...`).
+ */
+export function reviewEvidenceFeedback(problems: readonly string[]): string {
+  return renderTemplate(reviewEvidenceTemplate, {
+    findings: problems.map((problem) => `- ${problem}`).join("\n"),
+  });
+}
 
 /** The 0014 default: a log tail of at most 60 lines. */
 export const FEEDBACK_LOG_LINES_DEFAULT = 60;
