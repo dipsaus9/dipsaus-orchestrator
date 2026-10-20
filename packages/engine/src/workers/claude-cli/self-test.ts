@@ -1055,13 +1055,6 @@ function standInOutput(payload: string, requests: StandInRequest[]): string {
 }
 
 /**
- * Binds `socketPath` and speaks the worker host's hook protocol (DIPO-231): the handshake of
- * version 2, then `hook` ops. Every hook gets an answer with no output, except the PermissionRequest
- * of the approval call, which gets the self-test deny. The path is the self-test's own
- * (`selfTestSocketPath`), never the run host's, so a leftover file there is the self-test's and is
- * removed first.
- */
-/**
  * The socket the self-test session's hooks reach (DIPO-231): next to the run host's, with `.self`
  * in place of `.sock`, so it is no longer. A resume runs its self-test while the earlier host may
  * still be ending and removing its own socket, so the stand-in never binds the host's path.
@@ -1070,6 +1063,13 @@ export function selfTestSocketPath(hostSocket: string): string {
   return hostSocket.endsWith(".sock") ? `${hostSocket.slice(0, -5)}.self` : `${hostSocket}.self`;
 }
 
+/**
+ * Binds `socketPath` and speaks the worker host's hook protocol (DIPO-231): the handshake of
+ * version 2, then `hook` ops. Every hook gets an answer with no output, except the PermissionRequest
+ * of the approval call, which gets the self-test deny. The path is the self-test's own
+ * (`selfTestSocketPath`), never the run host's, so a leftover file there is the self-test's and is
+ * removed first.
+ */
 export const startHostStandIn: StartHostStandIn = async ({ socketPath, run }) => {
   ensurePrivateDir(dirname(socketPath));
   removeSocketFile(socketPath);
