@@ -4,11 +4,12 @@ title: Report the real active run count in dipo daemon status
 status: Refined
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-16 14:16'
+updated_date: '2026-10-20 20:46'
 labels:
   - 'tier:S'
 milestone: m-1
-dependencies: []
+dependencies:
+  - DIPO-257
 references:
   - packages/daemon/src/control.ts
   - packages/daemon/test
