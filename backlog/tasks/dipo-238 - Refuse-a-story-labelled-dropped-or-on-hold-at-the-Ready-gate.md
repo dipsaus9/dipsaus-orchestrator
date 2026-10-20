@@ -1,10 +1,10 @@
 ---
 id: DIPO-238
 title: Refuse a story labelled dropped or on-hold at the Ready gate
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:45'
+updated_date: '2026-10-20 22:52'
 labels:
   - 'tier:S'
   - cutover
@@ -45,7 +45,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/gate/rules.ts has a rule R28, evaluated in both modes after R27, that fails a story whose labels include `dropped` or `on-hold` with the reason `labelled <label>: the maintainer set it aside; remove the label to make it Ready`, one failure per such label
-- [ ] #2 A story with neither label gets no R28 failure, and the other rules' failures and their order are unchanged
-- [ ] #3 packages/engine/test/gate/gate.test.ts covers both labels in ready and pickup mode, a story with both labels (two failures) and a story with neither
+- [x] #1 packages/engine/src/gate/rules.ts has a rule R28, evaluated in both modes after R27, that fails a story whose labels include `dropped` or `on-hold` with the reason `labelled <label>: the maintainer set it aside; remove the label to make it Ready`, one failure per such label
+- [x] #2 A story with neither label gets no R28 failure, and the other rules' failures and their order are unchanged
+- [x] #3 packages/engine/test/gate/gate.test.ts covers both labels in ready and pickup mode, a story with both labels (two failures) and a story with neither
 <!-- AC:END -->
