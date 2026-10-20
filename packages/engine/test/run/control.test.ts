@@ -43,7 +43,7 @@ import {
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
-import type { Caps, HostOp, ParseState, WorkerEvent } from "../../src/workers/types";
+import type { Caps, HostOp, ParseState, WorkerEvent, WorkerReport } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
 import {
@@ -1070,5 +1070,140 @@ describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
     expect(w.sent).toEqual([]);
     expect(runIntents(w.f.office, w.f.run)).toEqual([]);
     expect(w.control.live(w.f.run)).toBe(true);
+  });
+});
+
+// ---- a capped done turn the finisher lets continue (DIPO-222) --------------------------------------
+
+const MODEL = "claude-haiku-5-5";
+const DONE_REPORT: WorkerReport = {
+  status: "done",
+  criteria: [],
+  summary: "Done.",
+  commitSubject: "print a greeting",
+};
+const turn = (extra: { capped?: string } = {}): WorkerEvent => ({
+  t: "turn",
+  report: DONE_REPORT,
+  totals: {},
+  numTurns: 1,
+  terminal: extra.capped === undefined ? "success" : "max_turns",
+  ...(extra.capped === undefined ? {} : { capped: extra.capped }),
+});
+const capSteps = () =>
+  w.f.office.all<{ value: string }>(
+    `select value from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'cap'`,
+    { run: w.f.run },
+  );
+
+/** A control whose finisher answers continue for every turn, as for a run without a worktree. */
+function continuing(): RunControl {
+  const control = new RunControl({
+    clock: w.f.t.clock,
+    offices: { get: () => w.f.office },
+    writer: {
+      write: async (): Promise<BranchPark> => ({
+        commit: "c".repeat(40),
+        lastGoodCommit: "a".repeat(40),
+        from: "In Progress",
+        pushed: true,
+        pushError: null,
+      }),
+    },
+    steering: {
+      send: async (_office, _run, ops) => {
+        w.sent.push([...ops]);
+        return { ok: true };
+      },
+    },
+    encode,
+    finisher: {
+      afterTurn: async () => ({ kind: "continue" }),
+      summarize: async () => {},
+    },
+    warn: (message, fields) => w.warnings.push({ message, fields }),
+  });
+  control.track(w.f.office.officeId, {
+    runId: w.f.run,
+    work: w.work,
+    caps: ROOMY,
+    startedAt: w.f.t.clock.now(),
+  });
+  return control;
+}
+
+describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
+  it("parks budget-exceeded at the CLI turn cap, with no In Review end and no cap step", async () => {
+    const control = continuing();
+    try {
+      control.onWorkerEvents(w.f.run, [turn({ capped: "turn cap (--max-turns) after 61 turns" })]);
+      await control.idle();
+      expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+        ["budget-exceeded", "build", "turn cap (--max-turns) after 61 turns"],
+      ]);
+      expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
+      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+      expect(capSteps()).toEqual([]);
+    } finally {
+      control.close();
+    }
+  });
+
+  // A story run always has a worktree (the runs check). The stub stands in for any RunFinisher that
+  // answers continue while no other ending holds the run; with VerifyCommit a story run reaches
+  // continue only when another ending holds it, and then the fallback leaves that ending in place.
+  it("parks budget-exceeded at the engine turn cap of a story run whose finisher answers continue", async () => {
+    w.f.office.immediate(() => {
+      w.f.office.run(
+        `update runs set max_turns = 1 where office_id = $office_id and run_id = $run`,
+        { run: w.f.run },
+      );
+      w.f.office.run(
+        `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
+         values ($office_id, $agent, $run, 'developer', $model, 's-1', 0)`,
+        { agent: w.f.agent, run: w.f.run, model: MODEL },
+      );
+      w.f.office.run(
+        `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input, turns,
+           updated_at)
+         values ($office_id, $run, $agent, $model, 'developer', 'M', 10, 1, 0)`,
+        { agent: w.f.agent, run: w.f.run, model: MODEL },
+      );
+    });
+    const control = continuing();
+    try {
+      const done = turn();
+      control.onEventApplied(w.f.run, done);
+      control.onWorkerEvents(w.f.run, [done]);
+      await control.idle();
+      expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+        ["budget-exceeded", "build", "turn cap reached: 1 of 1 turns"],
+      ]);
+      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+      expect(capSteps()).toEqual([]);
+    } finally {
+      control.close();
+    }
+  });
+
+  it("ends a session run at the cap: the cap intent is stored and the stop sent, no In Review end", async () => {
+    w.f.t.state.connection.exec("pragma foreign_keys = off");
+    w.f.office.run(
+      `update runs set kind = 'session', key = null, story_id = null, branch = null,
+         worktree = null where office_id = $office_id and run_id = $run`,
+      { run: w.f.run },
+    );
+    const control = continuing();
+    try {
+      control.onWorkerEvents(w.f.run, [turn({ capped: "turn cap (--max-turns) after 61 turns" })]);
+      await control.idle();
+      expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
+      expect(w.sent).toEqual([encode({ kind: "stop" })]);
+      expect(findRun(w.f.office, w.f.run)?.endKind).not.toBe("in-review");
+      expect(capSteps()).toEqual([]);
+    } finally {
+      control.close();
+    }
   });
 });

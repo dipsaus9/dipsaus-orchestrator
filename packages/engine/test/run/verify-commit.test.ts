@@ -191,6 +191,8 @@ interface World {
   branchScripts: string | null;
   config?: OfficeConfig;
   scanFails?: boolean;
+  /** Called inside every verify step, while the capped done path is running. */
+  duringStep?: () => void;
   pushRejected: boolean;
   /** A push failure that is not a rejection, such as a network error. */
   pushError?: string;
@@ -260,6 +262,7 @@ beforeEach(async () => {
     mainCheckout: () => join(dir, "main"),
     runStep: async (request): Promise<StepResult> => {
       w.steps.push(request);
+      w.duringStep?.();
       if (w.startFailed !== null) return { outcome: "startFailed", reason: w.startFailed };
       const code = w.exitCodes.shift() ?? 0;
       const text =
@@ -843,6 +846,27 @@ describe("a done report on the turn that crosses a cap (DIPO-205)", () => {
     ]);
     expect(w.calls).toEqual([]);
     expect(capSteps()).toEqual([]);
+  });
+
+  it("writes no cap step while verify runs, and exactly one with the In Review end", async () => {
+    setRun("max_turns", 1);
+    const during: number[] = [];
+    w.duringStep = () => during.push(capSteps().length);
+    await pass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(during).toEqual([0]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(capSteps()).toHaveLength(1);
+  });
+
+  it("writes no cap step while verify runs, and exactly one with the verify-failing park", async () => {
+    setRun("max_turns", 1);
+    w.exitCodes = [1];
+    const during: number[] = [];
+    w.duringStep = () => during.push(capSteps().length);
+    await pass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(during).toEqual([0]);
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "capped"]]);
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap reached: 1 of 1 turns" }]);
   });
 
   it("ends no run for a cap while the capped done path runs", async () => {
