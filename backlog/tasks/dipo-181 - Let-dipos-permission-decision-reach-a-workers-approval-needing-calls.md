@@ -1,10 +1,10 @@
 ---
 id: DIPO-181
 title: Let dipo's permission decision reach a worker's approval-needing calls
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-20 09:10'
+updated_date: '2026-10-20 09:27'
 labels:
   - 'tier:M'
   - cutover
@@ -73,3 +73,9 @@ test_plan:
 - [x] #2 A PermissionRequest call with --wait is held by the host until the engine's hookReply, the wait passing or the worker's exit; the engine's output reaches relayHookPayload and `dipo hook PermissionRequest --wait` prints it, and a later waiting call in the same session is held and answered the same way, shown by a test from the hook op to the printed output in which no hookReply fails with hook.unknown
 - [x] #3 When the host answers a call that carries waitMs with no output before the wait passes (no engine watches, the host is not running, the engine's connection closed, the worker exited), it writes an info line to host.log with the reason, the hook id and waitMs, and tests in packages/engine/test/host/hook-relay.test.ts check the line for each reason
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C8E1YP1NAN7WCDAFFQEV0H (Sonnet, 28 turns, about $0.64, 8 min, binary e68c5d7) reported done, In Review; it could not stash its fix to show the test failing (git writes are refused), so that was checked outside. Cause, confirmed: OfficeIngest.start (packages/engine/src/run/hosts.ts) made one connect attempt right after the detached worker host was spawned, before the host bound its socket; the attempt found no socket, the engine never watched the host, and the host answered every waiting PermissionRequest at once with no decision, which the Claude CLI turned into its own deny (G7 since the cutover). The engine now retries an unreachable socket every 25 ms on the injected clock for up to 5 s (#connectWhenBound, comment names the condition). The host writes an info line to host.log with the reason, hook id and waitMs for each early answer of a waiting call. host-watch.test.ts starts the ingest before the in-process host binds and shows the call held and the engine's reply printed; it fails with main's hosts.ts and main.ts. A second waiting call in the same session works the same (daemon hook.test.ts). Fixed on top after review: the engine warns in daemon.log when it still cannot watch a host after the window (with two ManualClock tests), each attempt gives the host's hello at least 1 s, and close() stops a connect still under way. The self-test approval call moved to DIPO-231. Verify outside the sandbox: 3940+ tests, 0 fail; DIPO_TEST_CI=1 host, run, workers and daemon tests pass. Review and re-review passed.
+<!-- SECTION:NOTES:END -->
