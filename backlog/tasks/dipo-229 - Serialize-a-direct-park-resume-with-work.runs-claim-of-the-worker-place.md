@@ -1,10 +1,10 @@
 ---
 id: DIPO-229
 title: Serialize a direct park resume with work.run's claim of the worker place
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 08:20'
+updated_date: '2026-10-20 11:24'
 labels:
   - 'tier:S'
   - cutover

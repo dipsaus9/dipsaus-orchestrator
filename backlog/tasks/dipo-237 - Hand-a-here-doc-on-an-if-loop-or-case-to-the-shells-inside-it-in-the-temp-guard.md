@@ -3,10 +3,10 @@ id: DIPO-237
 title: >-
   Hand a here-doc on an if, loop or case to the shells inside it in the temp
   guard
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 10:40'
+updated_date: '2026-10-20 11:24'
 labels:
   - 'tier:S'
   - cutover

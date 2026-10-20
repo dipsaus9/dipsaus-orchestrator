@@ -1,10 +1,10 @@
 ---
 id: DIPO-161
 title: Discard a story's work
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-20 11:24'
 labels:
   - 'tier:M'
   - 'slice:m1a'

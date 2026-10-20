@@ -1,10 +1,10 @@
 ---
 id: DIPO-182
 title: Keep worker session transcripts under the run directory and its retention
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-18 09:51'
+updated_date: '2026-10-20 11:24'
 labels:
   - 'tier:S'
   - cutover
