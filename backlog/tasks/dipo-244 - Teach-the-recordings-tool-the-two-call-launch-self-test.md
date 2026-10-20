@@ -4,13 +4,14 @@ title: Teach the recordings tool the two-call launch self-test
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 18:47'
+updated_date: '2026-10-20 20:25'
 labels:
   - 'tier:S'
   - cutover
 milestone: m-1
 dependencies:
   - DIPO-231
+  - DIPO-250
 references:
   - tools/recordings/scenarios.ts
   - tools/recordings/checks.ts

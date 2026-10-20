@@ -6,13 +6,15 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 18:47'
+updated_date: '2026-10-20 20:25'
 labels:
   - 'tier:S'
   - cutover
 milestone: m-1
 dependencies:
   - DIPO-231
+  - DIPO-250
+  - DIPO-257
 references:
   - packages/engine/src/workers/claude-cli/launch-checks.ts
   - packages/engine/src/workers/claude-cli/self-test.ts
