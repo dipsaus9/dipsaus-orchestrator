@@ -9,7 +9,8 @@
 //    launch file may have a host that started without its row: it only gets a notice.
 // 1b. A live claim whose run has ended and whose story is Done on `_base` (finished through another
 //    branch) is released as `done` and its clean worktree removed; a dirty one is kept with a notice
-//    (`done-on-base.ts`). No branch is touched. The stories are indexed again after a release.
+//    (`done-on-base.ts`). No branch is touched. The stories are indexed again after a release; a
+//    claim skipped because `_base` moved is retried once after a reindex.
 // 2. Git: `git worktree list` and the claimed branches. A running story whose worktree or branch
 //    changed by hand parks `scope-violation` with the evidence; a claimed story that is not running
 //    gets a notice. Prunable worktrees get a notice; `git worktree prune` runs only after the
@@ -242,8 +243,14 @@ export async function reconcileOffice(
     if (released > 0) pass = await input.reindex();
   }
 
-  // 1b. Claims of stories Done on `_base` (DIPO-216), at start and on every rescan.
-  if ((await releaseDoneOnBase(deps, pass, record)) > 0) pass = await input.reindex();
+  // 1b. Claims of stories Done on `_base` (DIPO-216), at start and on every rescan. A claim skipped
+  // because `_base` moved since the pass is tried once more after one reindex (DIPO-226).
+  const first = await releaseDoneOnBase(deps, pass, record);
+  if (first.released > 0 || first.baseMoved > 0) pass = await input.reindex();
+  if (first.baseMoved > 0) {
+    const retry = await releaseDoneOnBase(deps, pass, record);
+    if (retry.released > 0) pass = await input.reindex();
+  }
 
   // 2. Git facts of the live claims.
   const claims = liveClaims(office).filter(readsOnBranch);

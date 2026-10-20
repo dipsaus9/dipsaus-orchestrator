@@ -53,7 +53,7 @@ import { background } from "../platform/background";
 import type { WorkerEvent, WorkerReport } from "../workers/types";
 
 import { type CapName, type FiredCap, firedCap, runCaps, type RunCaps, runTotals } from "./caps";
-import { RunEndings } from "./control-endings";
+import { capDetail, capEnding, RunEndings } from "./control-endings";
 import { ReconcileStops } from "./control-reconcile";
 import {
   CAP_TICK_MS,
@@ -66,7 +66,6 @@ import {
   type RunEnding,
   type StopArgs,
   type StopResult,
-  messageOf,
   type Tracked,
   type TrackedRun,
   viewOf,
@@ -76,7 +75,7 @@ import { Interventions } from "./intervene";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkOutcome } from "./park";
-import { appendRunStep, findRun, type StoredRun } from "./records";
+import { findRun, type StoredRun } from "./records";
 
 export {
   CAP_TICK_MS,
@@ -361,25 +360,6 @@ export class RunControl implements RunEnder {
   #cappedDone(tracked: Tracked, report: WorkerReport, crossed: FiredCap): void {
     tracked.capped = crossed;
     disarm(this.#deps.clock, tracked);
-    const office = this.#deps.offices.get(tracked.office);
-    if (office !== undefined) {
-      try {
-        office.immediate(() =>
-          appendRunStep(
-            office,
-            tracked.runId,
-            "cap",
-            `${crossed.cap}: ${crossed.detail}`,
-            this.#deps.clock.now(),
-          ),
-        );
-      } catch (error) {
-        this.#deps.warn?.("recording the cap a done turn crossed failed", {
-          run: tracked.runId,
-          reason: messageOf(error),
-        });
-      }
-    }
     this.#turns.queue(tracked, report, undefined, crossed);
   }
 
@@ -559,18 +539,6 @@ export class RunControl implements RunEnder {
   }
 
   #cap(tracked: Tracked, cap: CapName, detail: string): void {
-    this.#endings.begin(tracked, {
-      intent: "cap",
-      ops: this.#deps.encode({ kind: "stop" }),
-      reason: "budget-exceeded",
-      cause: PARK_CAUSES.build,
-      detail: capDetail(cap, detail),
-      endKind: "capped",
-    });
+    this.#endings.begin(tracked, capEnding(this.#deps.encode, cap, detail));
   }
-}
-
-/** The detail a cap is named with; the CLI backstop's own detail gets the turn cap prefix. */
-function capDetail(cap: CapName, detail: string): string {
-  return cap === "maxTurns" && !detail.startsWith("turn cap") ? `turn cap: ${detail}` : detail;
 }
