@@ -10,7 +10,14 @@ import type { PriceBook } from "../pricing/estimate";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
-import type { Caps, HostOp, PlanLimitScope, SteerOp, TurnProblem } from "../workers/types";
+import type {
+  Caps,
+  HostOp,
+  PlanLimitScope,
+  ReviewReport,
+  SteerOp,
+  TurnProblem,
+} from "../workers/types";
 import type { ClaimRecord } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
@@ -228,6 +235,11 @@ export interface RunOutcomesPort {
   onModelSwitched(view: RunView, model: string): void;
   /** A turn arrived: an open report feedback is answered. */
   answered(view: RunView): void;
+  /**
+   * A reviewer session's turn carried a report valid against the review schema (0019 section 5),
+   * after the backstop let the turn continue (DIPO-219).
+   */
+  onReview?(view: RunView, report: ReviewReport): Promise<void>;
   onExit(exit: ExitContext): Promise<void>;
   /** The run's host died without an exit file or an exit line (DIPO-57). */
   onHostLost?(lost: HostLostContext): Promise<void>;
@@ -241,8 +253,15 @@ export interface HostLostContext {
   readonly ending: Promise<unknown> | null;
 }
 
-/** The ending of a rejected init (0008 sections 2 and 7). */
-export function initRejectedEnding(story: string, reason: string): RunEnding {
+/**
+ * The ending of a rejected init (0008 sections 2 and 7); `cause` is the session's, the
+ * reviewer's `review` for a reviewer session (0019 section 4).
+ */
+export function initRejectedEnding(
+  story: string,
+  reason: string,
+  cause: string = PARK_CAUSES.build,
+): RunEnding {
   return {
     intent: "stop",
     intentDetail: `${INTENT_TAGS.initRejected} ${reason}`,
@@ -252,7 +271,7 @@ export function initRejectedEnding(story: string, reason: string): RunEnding {
       { signal: "SIGKILL", afterMs: INIT_REJECTED_SIGKILL_AFTER_MS },
     ],
     reason: "worker-failed",
-    cause: PARK_CAUSES.build,
+    cause,
     detail: `the worker failed its start checks: ${reason}`,
     endKind: OUTCOME_ENDS.initRejected,
     notice: {

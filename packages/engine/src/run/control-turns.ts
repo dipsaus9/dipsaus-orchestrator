@@ -3,11 +3,11 @@
 
 import { background } from "../platform/background";
 import { withWorkViews } from "../views/work";
-import type { TurnProblem, WorkerReport } from "../workers/types";
+import type { ReviewReport, TurnProblem, WorkerReport } from "../workers/types";
 
 import type { FiredCap } from "./caps";
 import { capEnding, type RunEndings } from "./control-endings";
-import { disarm, type RunControlDeps, type Tracked, viewOf } from "./control-types";
+import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { ParkOutcome } from "./park";
 import { openPause } from "./pauses";
 import { findRun } from "./records";
@@ -24,15 +24,19 @@ export class AfterTurns {
     this.#inflight = inflight;
   }
 
-  /** Queues the after-turn work of one turn; turns of a run are handled one at a time. */
+  /**
+   * Queues the after-turn work of one turn; turns of a run are handled one at a time. `review` is
+   * a reviewer session's valid report (DIPO-219).
+   */
   queue(
     tracked: Tracked,
     report: WorkerReport | null,
     problem?: TurnProblem,
     capped: FiredCap | null = null,
+    review?: ReviewReport,
   ): void {
     tracked.turns = background(
-      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped)),
+      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review)),
       {
         failed: "verify and commit after a turn failed",
         fields: { run: tracked.runId },
@@ -47,13 +51,28 @@ export class AfterTurns {
     report: WorkerReport | null,
     problem: TurnProblem | undefined,
     capped: FiredCap | null,
+    review: ReviewReport | undefined,
   ): Promise<void> {
     if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
-    const decided =
-      finisher === undefined
-        ? "continue"
-        : await this.#finishTurn(tracked, finisher, report, capped);
+    let decided: "continue" | "decided" = "continue";
+    if (finisher !== undefined) {
+      try {
+        decided = await this.#finishTurn(tracked, finisher, report, capped);
+      } catch (thrown: unknown) {
+        // A capped done turn must still end at its cap when the finisher throws (DIPO-235): the
+        // run has no other ending yet, so the cap ending goes in its place.
+        if (capped === null || tracked.ending !== null) throw thrown;
+        this.#deps.warn?.("verify and commit after a capped turn failed; ending at the cap", {
+          run: tracked.runId,
+          cap: capped.cap,
+          detail: capped.detail,
+          reason: messageOf(thrown),
+        });
+        this.#endings.begin(tracked, capEnding(this.#deps.encode, capped.cap, capped.detail));
+        return;
+      }
+    }
     // A done turn that crossed a cap and that the finisher let continue (no worktree, a session
     // run) ends at the cap, as before DIPO-205; the cap run step is only for the done path.
     if (decided === "continue" && capped !== null) {
@@ -64,6 +83,11 @@ export class AfterTurns {
     }
     // A turn the finisher let continue: its problem decides next (DIPO-51).
     const outcomes = this.#deps.outcomes?.();
+    // A reviewer's report the backstop let through is judged by the review rounds (DIPO-219).
+    if (decided === "continue" && review !== undefined && outcomes?.onReview !== undefined) {
+      if (tracked.ending === null) await outcomes.onReview(viewOf(tracked), review);
+      return;
+    }
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
       // The worker's reply to a pause carries no report; it is no problem to feed back (DIPO-163).
       const office = this.#deps.offices.get(tracked.office);

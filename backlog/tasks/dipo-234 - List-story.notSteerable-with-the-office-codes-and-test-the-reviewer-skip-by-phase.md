@@ -3,10 +3,10 @@ id: DIPO-234
 title: >-
   List story.notSteerable with the office codes and test the reviewer skip by
   phase
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 10:49'
+updated_date: '2026-10-20 13:40'
 labels:
   - 'tier:S'
   - cutover
@@ -45,9 +45,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/contract/src/errors.ts story.notSteerable is the last entry of OFFICE_ERROR_CODES, with its since-minor-1 note (DIPO-163, 0020 section 9) moved into that list's comment; STEER_ERROR_CODES and SteerErrorCode are removed, and KnownErrorCode is the union of the four remaining lists
-- [ ] #2 packages/contract/src/index.test.ts expects story.notSteerable as the last entry of OFFICE_ERROR_CODES, with DIPO-163 named in that test's title, and its retryable test, which spreads OFFICE_ERROR_CODES, shows story.notSteerable not retryable
-- [ ] #3 A test in packages/engine/test/run/intervene.test.ts pauses a run, lets its worker exit after the 10 minutes, resumes it while the worker place is taken, moves the clock on while it waits, frees the place and drains, and shows that elapsedMs of runTotals with capsStartedAt of the run after the start leaves out both the paused time and the wait; the file comment of packages/engine/src/run/resume-paused.ts says the wait is left out through the parked_ms that claimPlace adds
-- [ ] #4 A test with the run reopened for a review by reopenForRound (newest phase step review), runs.role developer and no live agent shows a held steer left out of the next session's first message and still pending
-- [ ] #5 A test with the run reopened for a fix round by reopenForRound (newest phase step build) shows the held steer in the first message of the developer session that starts, and the steer resolved
+- [x] #1 In packages/contract/src/errors.ts story.notSteerable is the last entry of OFFICE_ERROR_CODES, with its since-minor-1 note (DIPO-163, 0020 section 9) moved into that list's comment; STEER_ERROR_CODES and SteerErrorCode are removed, and KnownErrorCode is the union of the four remaining lists
+- [x] #2 packages/contract/src/index.test.ts expects story.notSteerable as the last entry of OFFICE_ERROR_CODES, with DIPO-163 named in that test's title, and its retryable test, which spreads OFFICE_ERROR_CODES, shows story.notSteerable not retryable
+- [x] #3 A test in packages/engine/test/run/intervene.test.ts pauses a run, lets its worker exit after the 10 minutes, resumes it while the worker place is taken, moves the clock on while it waits, frees the place and drains, and shows that elapsedMs of runTotals with capsStartedAt of the run after the start leaves out both the paused time and the wait; the file comment of packages/engine/src/run/resume-paused.ts says the wait is left out through the parked_ms that claimPlace adds
+- [x] #4 A test with the run reopened for a review by reopenForRound (newest phase step review), runs.role developer and no live agent shows a held steer left out of the next session's first message and still pending
+- [x] #5 A test with the run reopened for a fix round by reopenForRound (newest phase step build) shows the held steer in the first message of the developer session that starts, and the steer resolved
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CGEXJPTFYCDP7RTQAKV7BJ (Haiku, 27 turns, about $0.03, 4 min) reported done, In Review, with no denied call and no write outside the References. story.notSteerable is in OFFICE_ERROR_CODES (STEER_ERROR_CODES removed; index.test.ts and the retryable test cover it); a test and a resume-paused.ts comment pin that a queued resume's wait for the worker place does not count toward the minute cap (claimPlace adds it to parked_ms); the reviewer-skip test reaches the reviewer place through a real review phase step (run ended In Review, then reopenForRound), and a fix-round case delivers the held steer. Fixed on top after review: the comments now say the queued resume resolves the pause (resume-queued) when queued. Advisory, not done: the fix-round test does not assert the reopen or its build phase step. Verify outside the sandbox: exit 0, 4024 tests; DIPO_TEST_CI=1 run and contract tests pass (692).
+<!-- SECTION:NOTES:END -->

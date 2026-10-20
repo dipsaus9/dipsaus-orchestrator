@@ -269,7 +269,10 @@ export interface PlacesDeps {
   readonly scheduling?: () => boolean;
   /** The reviewer's model in the office; by default the office config's `review.model`. */
   readonly reviewModel?: (office: OfficeId) => string;
-  /** Pending reviews of the office, oldest In Review first (0019 story G); none by default. */
+  /**
+   * Pending reviews of the office, oldest In Review first: stories at In Review whose code tree has
+   * no verdict (`pendingReviews`, DIPO-219, as `composeRuns` wires it); none by default.
+   */
   readonly pending?: (office: OfficeHandle) => readonly PlaceStart[];
   /**
    * Parks a waiting run before its session starts (`RunControl.park`); without it the pre-start

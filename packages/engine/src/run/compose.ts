@@ -1,6 +1,7 @@
 // The one wiring of the run services (DIPO-129): ingestion with the permission wait and the
 // nudges, run control, worker outcomes, the resumer, the plan-limit schedule, the office's session
-// places (DIPO-142), the launcher and re-attach, built from injected ports. The daemon and the engine's run tests both build them
+// places (DIPO-142) with the pending reviews and their starter (DIPO-219), the launcher and
+// re-attach, built from injected ports. The daemon and the engine's run tests both build them
 // here, so a test exercises the wiring the daemon runs. What differs between them is only which
 // ports are injected.
 
@@ -19,6 +20,8 @@ import { Places, type PlacesDeps } from "./places";
 import { PlanLimits, type PlanLimitsDeps } from "./plan-limit";
 import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
+import { gitReviewOps, ReviewLauncher } from "./review-launch";
+import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
 import { afterRunExits } from "./temp-dirs";
 import type { HoldResumer } from "./work-resume";
@@ -98,6 +101,8 @@ export interface ComposedRuns {
   readonly planLimits: PlanLimits | null;
   /** The worker and reviewer places with their start orders (DIPO-142); needs `outcomes`. */
   readonly places: Places | null;
+  /** The review rounds (DIPO-219): pending reviews, their starter and the reviewer's outcomes. */
+  readonly reviews: Reviews | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
 }
@@ -233,6 +238,7 @@ interface Outcomes {
   readonly resumption: Resumption;
   readonly planLimits: PlanLimits | null;
   readonly places: Places;
+  readonly reviews: Reviews;
 }
 
 /**
@@ -298,21 +304,71 @@ function buildOutcomes(
           ...given("scheduling", ports.scheduling),
           ...given("warn", ports.warn),
         });
-  // The places pause by the plan-limit holds and start a queued resume through the resumption.
+  const reviews = buildReviews(ports, control, ingest, planLimits);
+  // The places pause by the plan-limit holds, start a queued resume through the resumption and a
+  // pending review through the review rounds (0019 section 12).
   const places = new Places({
     ...ports.places,
     clock: ports.clock,
     offices: ports.offices,
+    pending: ports.places?.pending ?? ((office) => reviews.pending(office)),
     ...(planLimits === null
       ? {}
       : { held: (adapter: string, model: string | null) => planLimits.held(adapter, model) }),
     park: (office, run, work, ending) => control.park(office, run, work, ending),
-    starters: { resume: (office, run) => resumption.startQueued(office, run) },
+    starters: {
+      resume: (office, run) => resumption.startQueued(office, run),
+      review: (office, run, start) => reviews.start(office, run, start),
+    },
     ...given("scheduling", ports.scheduling),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
-  return { resumer, outcomes, resumption, planLimits, places };
+  return { resumer, outcomes, resumption, planLimits, places, reviews };
+}
+
+/** The review rounds with the real reviewer launcher on the run ports (DIPO-219). */
+function buildReviews(
+  ports: RunPorts,
+  control: RunControl,
+  ingest: OfficeIngest,
+  planLimits: PlanLimits | null,
+): Reviews {
+  const sessions = new ReviewLauncher({
+    clock: ports.clock,
+    ids: ports.ids,
+    offices: ports.offices,
+    worker: ports.worker,
+    git: ports.git,
+    runtimeDir: ports.runtimeDir,
+    tmpRoot: ports.tmpRoot,
+    ...given("tempOwner", ports.tempOwner),
+    hosts: ports.hosts,
+    ingest: ports.resumeIngest?.(ingest) ?? ingest,
+    control: trackerOf(ports, control),
+    // The backstop's snapshot before the review, which only the finisher reads.
+    ...(ports.control?.finisher === undefined
+      ? {}
+      : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+  return new Reviews({
+    clock: ports.clock,
+    ids: ports.ids,
+    offices: ports.offices,
+    git: gitReviewOps(ports.git),
+    story: baseStoryFacts(ports.base),
+    sessions,
+    steering: ports.steering,
+    encode: (op) => ports.worker.encode(op),
+    ender: () => control,
+    adapter: ports.worker.id,
+    ...given("holds", ports.outcomes?.holds),
+    waits: () => planLimits ?? undefined,
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
 }
 
 function buildReattacher(
@@ -390,13 +446,15 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   late.places = built?.places ?? null;
   // Each exit decision of worker outcomes, then the places (a session ended, so its place may be
   // free) and `afterExit` (the run temp directory sweep).
+  // A reviewer session's turns and exit go to the review rounds (DIPO-219).
   if (outcomes !== null) {
     const places = late.places;
     const afterExit = ports.afterExit;
+    const routed = built?.reviews.route(outcomes) ?? outcomes;
     late.exitPort =
       places === null && afterExit === undefined
-        ? outcomes
-        : afterRunExits(outcomes, () => {
+        ? routed
+        : afterRunExits(routed, () => {
             places?.drainAll();
             afterExit?.();
           });
@@ -413,6 +471,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     resumer: built?.resumer ?? null,
     planLimits: late.planLimits,
     places: late.places,
+    reviews: built?.reviews ?? null,
     launcher,
     reattacher,
   };
