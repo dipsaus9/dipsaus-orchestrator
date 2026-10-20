@@ -39,7 +39,8 @@ export const WAITING_HOOK: RegisteredHook = "PermissionRequest";
 export const WEB_HOOK_MATCHER = WEB_TOOLS.toSorted().join("|");
 /**
  * The `PreToolUse` matcher of Bash (0008 amendment of 2026-10-19, DIPO-194): `dipo hook PreToolUse
- * --bash` decides the command in its own process and fails open.
+ * --bash` decides the command in its own process and fails open, except for a gh word when the
+ * check cannot run (`bashHookCommand`, DIPO-241).
  */
 export const BASH_HOOK_MATCHER = "Bash";
 /** The hook of the web gate (fails closed, only with web tools) and of the Bash check. */
@@ -55,6 +56,31 @@ export const GATE_CRASH_REASON = "dipo could not check this web call, so it was 
  * exit code 2). A gate that ran prints its own decision and exits 0.
  */
 export const GATE_CRASH_EXIT = ` || { echo ${shellQuote(GATE_CRASH_REASON)} >&2; exit 2; }`;
+
+/**
+ * The gh words the Bash check's fallback looks for, as `grep -Ei` reads them: a word whose basename
+ * is gh, in any case. The fallback first joins the JSON payload the way the shell joins the command
+ * (`GH_PAYLOAD_JOIN`). The daemon's `GH_WORD` (`hook.ts`) matches the same words in the parsed
+ * command (DIPO-241).
+ */
+export const GH_WORD_PATTERN = "(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])";
+
+/**
+ * Prints the JSON `$payload` joined the way the shell joins the command, for the gh grep. Backslash
+ * pairs are decoded left to right at both levels: a JSON `\\\\` becomes the marker \001 (each JSON
+ * escape starts a pair, so this is aligned), two markers become \002 (an escaped backslash in the
+ * command), a marker before a `\n` escape is a line continuation and goes, every other `\n`, `\t` or
+ * `\r` escape becomes a space, and the markers, quotes and backslashes go. So `g\\h`, `'g'h`, a
+ * continuation and a gh call on a later line are seen, and an escaped backslash before a newline
+ * keeps the line break. It errs toward a gh word, which only refuses more. It assumes the payload
+ * is canonical JSON.stringify output, as Claude Code sends it: a `\uXXXX` escape there is only a
+ * control character or a lone surrogate, never a printable letter or a command separator.
+ */
+export const GH_PAYLOAD_JOIN = String.raw`a=$(printf "\001"); b=$(printf "\002"); printf "%s" "$payload" | sed -e "s/\\\\\\\\/$a/g" -e "s/$a$a/$b/g" -e "s/$a\\\\n//g" -e "s/\\\\[nrt]/ /g" | tr -d "\001\002\047\042\134"`;
+
+/** Told to the worker when the Bash check cannot run on a command that names gh (DIPO-241). */
+export const BASH_GH_CRASH_REASON =
+  "dipo could not check this command, and it names gh: the engine handles the code host, so the call was refused.";
 
 /**
  * The hooks whose call may get a 0014 section 8 nudge (DIPO-60): `dipo hook <event> --nudge` waits
@@ -98,12 +124,35 @@ export const HOOK_BUNFIG_FILE = "hook-bunfig.toml";
  * and no env file, so nothing from the worktree, where Claude runs hooks, can change what runs.
  */
 export function hookCommandLine(command: readonly [string, ...string[]], runDir: string): string {
+  return `cd ${shellQuote(runDir)} && ${hookProgram(command, runDir)}`;
+}
+
+/** The binary with its flags, quoted for `sh`: the part of `hookCommandLine` after its `cd`. */
+export function hookProgram(command: readonly [string, ...string[]], runDir: string): string {
   const [program, ...rest] = command;
   const argv =
     rest.length === 0
       ? [program]
       : [program, "--no-env-file", `--config=${runDir}/${HOOK_BUNFIG_FILE}`, ...rest];
-  return `cd ${shellQuote(runDir)} && ${argv.map(shellQuote).join(" ")}`;
+  return argv.map(shellQuote).join(" ");
+}
+
+/**
+ * The Bash check's command line (DIPO-194, DIPO-241). The payload is read once and piped to `dipo
+ * hook PreToolUse --bash`, whose exit 0 (with or without a deny) and exit 2 stand as they are. When
+ * dipo cannot start or crashes (any other status), the shell looks for a gh word in the payload: a
+ * gh call exits 2 with the reason on stderr, so it never runs unchecked; every other call exits 0,
+ * so the rest of Bash still fails open. A hook that times out is run anyway, the residual risk the
+ * header of this file records.
+ */
+export function bashHookCommand(command: readonly [string, ...string[]], runDir: string): string {
+  const ghWord = `${GH_PAYLOAD_JOIN} | grep -Eiq ${shellQuote(GH_WORD_PATTERN)}`;
+  return [
+    "payload=$(cat);",
+    `{ cd ${shellQuote(runDir)} && printf '%s' "$payload" | ${hookProgram(command, runDir)} hook PreToolUse --bash; };`,
+    `s=$?; [ "$s" = 0 ] && exit 0; [ "$s" = 2 ] && exit 2;`,
+    `${ghWord} && { echo ${shellQuote(BASH_GH_CRASH_REASON)} >&2; exit 2; }; exit 0`,
+  ].join(" ");
 }
 
 /**
@@ -138,13 +187,13 @@ export function hookSettings(
               },
             ]
           : []),
-        // No exit-2 fallback: the Bash check fails open, so a broken check never blocks Bash.
+        // A gh word fails closed when dipo cannot run; the rest of Bash fails open (DIPO-241).
         {
           matcher: BASH_HOOK_MATCHER,
           hooks: [
             {
               type: "command",
-              command: `${prefix} hook ${event} --bash`,
+              command: bashHookCommand(command, runDir),
               timeout: HOOK_TIMEOUT_SECONDS,
             },
           ],
