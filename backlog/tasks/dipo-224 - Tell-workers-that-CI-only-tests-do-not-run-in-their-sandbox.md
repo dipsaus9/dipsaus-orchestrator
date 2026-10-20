@@ -1,10 +1,10 @@
 ---
 id: DIPO-224
 title: Tell workers that CI-only tests do not run in their sandbox
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:35'
+updated_date: '2026-10-20 09:38'
 labels:
   - 'tier:S'
   - cutover
@@ -40,6 +40,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The What the engine does section of packages/engine/src/prompts/contract/implement.md says, right after the sentence on running tests, that tests the project runs only in CI (for example `*.ci.test.ts` files that run only when `DIPO_TEST_CI` is set) do not run in the worker sandbox, that the worker neither runs them nor sets that variable, and that a CI-only test the story asks for is written and left to CI, which runs it
-- [ ] #2 packages/engine/test/prompts/golden/system-implement-developer.md holds the new contract text and packages/engine/test/prompts/system.test.ts checks the new sentence with toContain, and the existing test that the contract holds no id, date, path or count keeps passing, so the new text has no digit
+- [x] #1 The What the engine does section of packages/engine/src/prompts/contract/implement.md says, right after the sentence on running tests, that tests the project runs only in CI (for example `*.ci.test.ts` files that run only when `DIPO_TEST_CI` is set) do not run in the worker sandbox, that the worker neither runs them nor sets that variable, and that a CI-only test the story asks for is written and left to CI, which runs it
+- [x] #2 packages/engine/test/prompts/golden/system-implement-developer.md holds the new contract text and packages/engine/test/prompts/system.test.ts checks the new sentence with toContain, and the existing test that the contract holds no id, date, path or count keeps passing, so the new text has no digit
 <!-- AC:END -->
