@@ -1,10 +1,10 @@
 ---
 id: DIPO-147
 title: Watch CI on story PRs and turn failures into feedback
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 10:03'
+updated_date: '2026-10-20 10:11'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -59,6 +59,10 @@ test_plan:
       check: "(unit) with a fake host, a failed job becomes one CI item with its tail, locations and signature, and ci-ok gets no log"
     - kind: "automated"
       check: "(unit) the second red head parks verify-failing with cause ci at a runs.ci_cap of 2, and with one ciAttempt grant the park comes at the third red head"
+park:
+  reason: "scope-violation"
+  from: "In Progress"
+  note: "Paths written outside the declared scope: packages/engine/src/merge-slot/index.ts, packages/engine/src/prompts/index.ts, packages/engine/src/prompts/templates.ts. Declared scope: packages/engine/src/story-pr/, packages/engine/src/merge-slot/checks.ts, packages/engine/src/run/, packages/engine/src/prompts/feedback.ts, packages/engine/src/prompts/feedback/, packages/daemon/src/, packages/engine/test/story-pr/, packages/engine/test/merge-slot/, packages/engine/test/prompts/, packages/engine/test/run/. The story's own task file, written by dipo, is exempt from scope."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
