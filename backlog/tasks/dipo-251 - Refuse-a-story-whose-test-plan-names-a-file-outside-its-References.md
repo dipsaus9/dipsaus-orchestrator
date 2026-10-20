@@ -1,10 +1,10 @@
 ---
 id: DIPO-251
 title: Refuse a story whose test plan names a file outside its References
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-20 23:43'
 labels:
   - 'tier:S'
   - cutover
