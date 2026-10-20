@@ -48,6 +48,8 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `gate.noteRequired` to the same, still unreleased, minor.
 // DIPO-179 adds the optional `waitingOn` of `story.gate` (the dependencies that are not Done) to the
 // same, still unreleased, minor.
+// DIPO-228 adds the read `story.losses` (the commits and files `story.drop` with `deleteBranch`
+// loses) to the same, still unreleased, minor.
 // DIPO-198 adds the optional `buildCommit` and `engineBehind` of `daemon.status` to the same, still
 // unreleased, minor.
 // DIPO-137 adds the read `work.prompt` (the stored prompt text of an agent's session) to the same,

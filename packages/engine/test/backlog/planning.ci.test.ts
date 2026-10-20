@@ -26,6 +26,7 @@ import { executeCommand } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
+import { executeRead } from "../../src/reads/execute";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
 import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
@@ -34,7 +35,13 @@ import { WorkResumeCommand } from "../../src/run/work-resume";
 import { writeMirror } from "../../src/stories/apply";
 import { addStory } from "../../src/stories/keys";
 import { StoryPlanning } from "../../src/stories/planning";
-import { claimStory, hasLiveClaim, liveClaimOf, releasedBranchFor } from "../../src/worktree";
+import {
+  claimStory,
+  hasLiveClaim,
+  liveClaimOf,
+  releaseClaim,
+  releasedBranchFor,
+} from "../../src/worktree";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
@@ -107,7 +114,16 @@ function world(s: ClaimSetup) {
       },
     );
   };
-  return { lane, closed, send };
+  const read = (args: Record<string, unknown>) =>
+    executeRead(
+      { registry, offices: stateOfficeDirectory(s.t.state), clock: s.t.clock },
+      {
+        requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z00000001"),
+        name: "story.losses",
+        args: { office: s.office.officeId, ...args },
+      },
+    );
+  return { lane, closed, send, read };
 }
 
 /** A story in the index and the mirror at `status`, with its park record when parked. */
@@ -266,6 +282,89 @@ describe("drop through the real planning lane", () => {
       expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
       expect(liveClaimOf(s.office, key)).toBeNull();
       expect(releasedBranchFor(s.office, key, BRANCH_1)).toMatchObject({ reason: "drop" });
+    }, FIXTURE);
+  });
+
+  it("lists the commit and the untracked file a deleteBranch drop loses (DIPO-228)", async () => {
+    await withBareRemote(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const { read } = world(s);
+      const key = indexed(s, TASK_1, "Parked", {
+        reason: "stopped",
+        from: "In Progress",
+        note: "n",
+      });
+      const outcome = await claimStory(s.deps(), s.request(key));
+      if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
+      const { claim } = outcome;
+      writeFileSync(join(claim.worktree, "work.txt"), "work\n");
+      await git(claim.worktree, repo.home, "add", "work.txt");
+      await git(
+        claim.worktree,
+        repo.home,
+        "-c",
+        "user.name=dipo",
+        "-c",
+        "user.email=dipo@example.test",
+        "commit",
+        "-m",
+        "feat(TASK-1): add work",
+      );
+      writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
+
+      const reply = await read({ story: TASK_1 });
+      expect(reply).toMatchObject({
+        ok: true,
+        result: { story: TASK_1, key, files: ["scratch.txt"] },
+      });
+      const commits = reply.ok ? (reply.result as { commits: { subject: string }[] }).commits : [];
+      const subjects = commits.map((commit) => commit.subject);
+      expect(subjects).toContain("feat(TASK-1): add work");
+    }, FIXTURE);
+  });
+
+  it("deletes the kept branch of an unclaimed story locally and on the remote, and reclaims its release", async () => {
+    await withBareRemote(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const { send, read } = world(s);
+      const key = indexed(s, TASK_1, "Parked", {
+        reason: "stopped",
+        from: "In Progress",
+        note: "n",
+      });
+      const outcome = await claimStory(s.deps(), s.request(key));
+      if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
+      const { claim } = outcome;
+      // A release that keeps the branch, its worktree removed as the release does.
+      s.office.immediate(() =>
+        releaseClaim(s.office, claim.runId, {
+          at: s.t.clock.now(),
+          reason: "stopped",
+          keepBranch: true,
+        }),
+      );
+      // The claim locked its worktree; the release unlocks and removes it.
+      await git(repo.dir, repo.home, "worktree", "unlock", claim.worktree);
+      await git(repo.dir, repo.home, "worktree", "remove", "--force", claim.worktree);
+
+      expect(await read({ story: TASK_1 })).toMatchObject({
+        ok: true,
+        result: { commits: expect.any(Array), files: [] },
+      });
+      expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+
+      const dropped = await send("story.drop", { story: TASK_1, deleteBranch: true });
+      expect(dropped).toMatchObject({ ok: true, changed: true });
+      expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
+      const row = s.office.get<{ reclaimed_at: number | null }>(
+        "select reclaimed_at from released_branches where office_id = $office_id and key = $key",
+        { key },
+      );
+      expect(row?.reclaimed_at).not.toBeNull();
     }, FIXTURE);
   });
 });
