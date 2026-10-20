@@ -1,10 +1,10 @@
 ---
 id: DIPO-226
 title: Retry the done-on-base release once when the base moved during reconcile
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 10:01'
+updated_date: '2026-10-20 10:07'
 labels:
   - 'tier:S'
   - cutover
@@ -46,3 +46,9 @@ test_plan:
 - [x] #2 When that skip count is above zero, reconcile in packages/engine/src/reconcile/reconcile.ts reindexes and runs the done-on-base step once more with the new pass; a claim skipped again keeps its claim, worktree and slot for the next rescan with no notice
 - [x] #3 Tests in packages/engine/test/reconcile/done-on-base.test.ts move _base between the index pass and the git queue item and show the claim released in the same reconcile after one reindex, and show one retry only when _base moves again
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CBSZSZHXVN5TVVBABXNQ9Q (Haiku, 20 turns, about $0.03, 4 min) reported done, In Review, with no denied call and no write outside the References. releaseDoneOnBase returns { released, baseMoved }; when a claim was skipped because _base moved after the index pass, reconcile reindexes once and runs the step once more, and a claim skipped again waits for the next rescan with no notice; a release still reindexes, so a retry that releases gives two reindexes. The DIPO-216 safety rules are unchanged. Review passed; advisory to the gap list: the retry rechecks every live claim, so a dirty or foreign-locked claim in the same pass gets its kept notice twice. Verify outside the sandbox: exit 0, 3962 tests; DIPO_TEST_CI=1 reconcile and daemon tests pass (259).
+<!-- SECTION:NOTES:END -->
