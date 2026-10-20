@@ -3,10 +3,10 @@ id: DIPO-231
 title: >-
   Make the launch self-test fail when the CLI denies an approval call before
   dipo decides
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 08:42'
-updated_date: '2026-10-20 14:19'
+updated_date: '2026-10-20 16:40'
 labels:
   - 'tier:M'
   - cutover
