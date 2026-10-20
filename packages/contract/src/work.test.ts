@@ -230,6 +230,7 @@ describe("office commands and reads", () => {
   const shippedLater: Record<string, number> = {
     "office.stats": 1,
     "story.gate": 1,
+    "story.losses": 1,
     "work.preview": 1,
     "work.prompt": 1,
     "office.switch": 1,
@@ -278,6 +279,7 @@ describe("office commands and reads", () => {
         "office.usage",
         "office.digest",
         "story.gate",
+        "story.losses",
         "office.stats",
         "work.preview",
         "work.prompt",

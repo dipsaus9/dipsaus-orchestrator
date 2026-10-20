@@ -282,6 +282,15 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       ],
     },
   },
+  "story.losses": {
+    args: { office: ids.office, story: "DIPO-21" },
+    result: {
+      story: "DIPO-21",
+      key: ids.storyKey,
+      commits: [{ sha: "3f9a1c2", subject: "feat(DIPO-21): retry the lookup" }],
+      files: ["scratch.txt"],
+    },
+  },
   "story.gate": {
     args: { office: ids.office, story: "DIPO-21" },
     result: {

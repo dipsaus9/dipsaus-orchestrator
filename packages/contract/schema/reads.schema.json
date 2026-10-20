@@ -3155,6 +3155,63 @@
       },
       "required": ["story", "key", "passed", "failures"]
     },
+    "story.losses.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        }
+      },
+      "required": ["office", "story"]
+    },
+    "story.losses.result": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sha": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              }
+            },
+            "required": ["sha", "subject"]
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["story", "key", "commits", "files"]
+    },
     "office.stats.args": {
       "type": "object",
       "properties": {

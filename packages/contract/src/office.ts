@@ -398,6 +398,26 @@ export const storyGate = defineRead({
   since: 1,
 });
 
+// A commit on a story's branch that is not on the base, short sha and subject (DIPO-228).
+export const LostCommit = z.object({ sha: z.string(), subject: z.string() });
+export type LostCommit = z.infer<typeof LostCommit>;
+
+// What `story.drop` with `deleteBranch` loses (DIPO-228; 0020 section 8): the commits on the
+// story's branch that are not on the base, and the uncommitted and untracked files of its worktree.
+// The branch is the live claim's, else the open released branches of the story; the files are the
+// live claim's only. Both are empty for a story with neither. Changes nothing.
+export const storyLosses = defineRead({
+  name: "story.losses",
+  args: z.object({ office: OfficeId, story: StoryRefValue }),
+  result: z.object({
+    story: StoryId,
+    key: StoryKey,
+    commits: z.array(LostCommit),
+    files: z.array(z.string()),
+  }),
+  since: 1,
+});
+
 // The worker launch `work.run` would make for the story it would pick (DIPO-74): the branch and
 // worktree it would create, the launch (absolute program path first in `argv`, the environment
 // variable names without their values, the files written into the run directory, such as the run
@@ -725,6 +745,7 @@ export const officeReads = [
   officeUsage,
   officeDigest,
   storyGate,
+  storyLosses,
   officeStats,
   workPreview,
   workPrompt,

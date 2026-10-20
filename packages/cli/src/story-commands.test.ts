@@ -30,10 +30,32 @@ const NO_LIFECYCLE: DaemonControl = {
 
 type Sent = { name: string; args: unknown; office: unknown };
 
-function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = {}) {
+/** `story.losses` as the engine answers it when nothing is lost. */
+const NOTHING_LOST = () => ({
+  ok: true,
+  result: { story: "DIPO-7", key: KEY, commits: [], files: [] },
+});
+
+/** `story.losses` as the engine answers it for one commit and one untracked file. */
+const LOST = () => ({
+  ok: true,
+  result: {
+    story: "DIPO-7",
+    key: KEY,
+    commits: [{ sha: "3f9a1c2", subject: "feat(DIPO-7): retry" }],
+    files: ["scratch.txt"],
+  },
+});
+
+function fake(
+  reply: (sent: Sent) => unknown,
+  workspace: FakeWorkspaceOptions = {},
+  readReply: () => unknown = NOTHING_LOST,
+) {
   const out: string[] = [];
   const err: string[] = [];
   const sent: Sent[] = [];
+  const reads: string[] = [];
   const ws: FakeWorkspace = fakeWorkspace({ cwd: "/work/app", ...IN_OFFICE, ...workspace });
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
@@ -52,6 +74,10 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
           sent.push(message);
           return reply(message);
         }) as DaemonSession["command"],
+        read: (async (definition: { name: string }) => {
+          reads.push(definition.name);
+          return readReply();
+        }) as DaemonSession["read"],
         close: () => undefined,
       }) as unknown as DaemonSession,
     daemon: NO_LIFECYCLE,
@@ -61,7 +87,7 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
     workspace: ws,
   };
-  return { deps, out, err, sent, ws };
+  return { deps, out, err, sent, reads, ws };
 }
 
 const KEY = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H";
@@ -145,6 +171,73 @@ describe("dipo drop", () => {
     expect(await main(["drop", "DIPO-7", "--delete-branch", "--yes"], script.deps)).toBe(1);
     expect(script.sent).toEqual([]);
     expect(script.err[0]).toContain("typed at a terminal");
+  });
+
+  it("lists the commits and files it loses before the typed id is asked (DIPO-228)", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, LOST);
+    // What was printed when the question was asked: the lists come first.
+    const printedAtQuestion: string[][] = [];
+    const ask = ctx.ws.ask;
+    ctx.ws.ask = async (question) => {
+      printedAtQuestion.push([...ctx.out]);
+      return ask(question);
+    };
+    expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
+    expect(ctx.reads).toEqual(["story.losses"]);
+    expect(ctx.out).toEqual([
+      "commits not on the base (1):",
+      "  3f9a1c2 feat(DIPO-7): retry",
+      "uncommitted or untracked files (1):",
+      "  scratch.txt",
+      "dropped DIPO-7; it is archived, its worktree and branch are removed",
+    ]);
+    expect(printedAtQuestion[0]).toEqual(ctx.out.slice(0, 4));
+    expect(ctx.ws.questions[0]).toContain("cannot be undone");
+    expect(ctx.ws.questions[0]).toContain("Type DIPO-7");
+  });
+
+  it("caps the lists at 20 commits and 50 files with a count of the rest", async () => {
+    const commits = Array.from({ length: 22 }, (_, i) => ({
+      sha: `sha${i}`,
+      subject: `commit ${i}`,
+    }));
+    const files = Array.from({ length: 51 }, (_, i) => `file-${i}.txt`);
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, () => ({
+      ok: true,
+      result: { story: "DIPO-7", key: KEY, commits, files },
+    }));
+    expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
+    expect(ctx.out).toContain("commits not on the base (22):");
+    expect(ctx.out).toContain("  sha19 commit 19");
+    expect(ctx.out).not.toContain("  sha20 commit 20");
+    expect(ctx.out).toContain("  and 2 more");
+    expect(ctx.out).toContain("uncommitted or untracked files (51):");
+    expect(ctx.out).toContain("  file-49.txt");
+    expect(ctx.out).not.toContain("  file-50.txt");
+    expect(ctx.out).toContain("  and 1 more");
+  });
+
+  it("says that no commits or files are lost when the read finds none", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] });
+    expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
+    expect(ctx.out[0]).toBe("no commits or files are lost");
+    expect(ctx.sent.map((s) => s.name)).toEqual(["story.drop"]);
+  });
+
+  it("drops nothing and prints why when the loss read fails", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, () => ({
+      ok: false,
+      error: {
+        code: "git.failed",
+        message: "git could not read the branch DIPO-7/work",
+        retryable: false,
+      },
+    }));
+    expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(1);
+    expect(ctx.err[0]).toContain("git.failed");
+    expect(ctx.err[0]).toContain("could not read the branch");
+    expect(ctx.ws.questions).toEqual([]);
+    expect(ctx.sent).toEqual([]);
   });
 
   it("prints story.dirtyWorktree with the files and exits 1", async () => {

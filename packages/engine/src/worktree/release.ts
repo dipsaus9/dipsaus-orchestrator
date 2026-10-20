@@ -28,7 +28,7 @@ import {
   removeWorktree,
   remoteUrl,
 } from "./teardown";
-import { type ClaimRecord, releaseClaim } from "./records";
+import { type ClaimRecord, markReclaimed, type ReleasedBranch, releaseClaim } from "./records";
 import type { SlotTable } from "./slots";
 
 /** The release reason of a claim `story.drop` released. */
@@ -133,11 +133,33 @@ async function forceRemoveWorktree(
   return { ok: true };
 }
 
+/**
+ * `story.drop` with `deleteBranch` and no live claim (DIPO-228): deletes each branch the story's
+ * open releases keep, locally and on the remote, and marks each release reclaimed, so no later
+ * claim reuses a deleted branch. A branch that fails stops the loop; the ones before it stay done.
+ */
+export async function deleteKeptBranches(
+  deps: DropReleaseDeps,
+  released: readonly ReleasedBranch[],
+): Promise<DropReleaseOutcome> {
+  return deps.git.run(async (git): Promise<DropReleaseOutcome> => {
+    const problems: string[] = [];
+    for (const release of released) {
+      const deleted = await deleteBranches(deps, git, { branch: release.branch });
+      if (!deleted.ok) return deleted;
+      deps.office.immediate(() => markReclaimed(deps.office, release, deps.clock.now(), null));
+      if (deleted.remoteProblem !== null)
+        problems.push(`${release.branch}: ${deleted.remoteProblem}`);
+    }
+    return { ok: true, remoteProblem: problems.length === 0 ? null : problems.join("; ") };
+  });
+}
+
 /** The local branch, then the remote's; a branch already gone is fine. */
 async function deleteBranches(
   deps: DropReleaseDeps,
   git: GitSession,
-  claim: ClaimRecord,
+  claim: Pick<ClaimRecord, "branch">,
 ): Promise<DropReleaseOutcome> {
   const ref = `refs/heads/${claim.branch}`;
   const deleted = await git.step(git.repository, ["update-ref", "-d", ref]);
