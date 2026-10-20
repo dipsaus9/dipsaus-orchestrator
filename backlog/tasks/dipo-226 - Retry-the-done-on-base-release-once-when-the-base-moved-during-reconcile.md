@@ -1,10 +1,10 @@
 ---
 id: DIPO-226
 title: Retry the done-on-base release once when the base moved during reconcile
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-19 23:03'
+updated_date: '2026-10-20 07:59'
 labels:
   - 'tier:S'
   - cutover

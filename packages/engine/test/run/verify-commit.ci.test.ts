@@ -147,7 +147,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(parks(r).map((p) => [p.reason, p.detail])).toEqual([
               [
                 "scope-violation",
-                "Paths written outside the declared scope: README.md. Declared scope: packages/export/.",
+                "Paths written outside the declared scope: README.md. Declared scope: packages/export/. The story's own task file, written by dipo, is exempt from scope.",
               ],
             ]);
             expect((await r.repo.git("log", "--format=%s", "-n", "2", BRANCH)).trim()).toBe(
