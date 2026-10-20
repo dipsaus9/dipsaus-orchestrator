@@ -1,10 +1,10 @@
 ---
 id: DIPO-215
 title: Say the reviewer's init holds only built-in plugins in the review scenarios
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-20 07:41'
+updated_date: '2026-10-20 07:43'
 labels:
   - 'tier:S'
   - cutover
@@ -38,5 +38,5 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The expected text of review-approved-live and review-blocked-live in tools/recordings/scenarios.ts and in their meta.json says no skill and no plugin beyond Claude Code's built-ins, and the recordings tests pass
+- [x] #1 The expected text of review-approved-live and review-blocked-live in tools/recordings/scenarios.ts and in their meta.json says no skill and no plugin beyond Claude Code's built-ins, and the recordings tests pass
 <!-- AC:END -->
