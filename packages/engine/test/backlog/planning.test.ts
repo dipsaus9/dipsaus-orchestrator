@@ -1,0 +1,582 @@
+// `story.hold`, `story.drop` and the on-hold `work.resume` (DIPO-160; 0020 section 8), fast and
+// local: a migrated state database with stories mirrored from a pretend base, a lane that journals
+// into the real journal and records its flushes, a code host that records its PR closes and, for
+// the dirty-worktree check, a git whose one call lists the porcelain status. The real lane, git and
+// Backlog CLI run in planning.ci.test.ts.
+
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+import {
+  type OfficeId,
+  RequestId,
+  type RunId,
+  StoryId,
+  type StoryKey,
+} from "@dipsaus-orchestrator/contract";
+
+import {
+  allEntries,
+  LaneError,
+  type LaneOp,
+  type OfficeLane,
+  pendingLaneOp,
+} from "../../src/backlog/lane";
+import { insertEntry } from "../../src/backlog/lane/journal";
+import { executeCommand } from "../../src/commands/execute";
+import { stateOfficeDirectory } from "../../src/commands/offices";
+import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
+import { MemoryRequestTable } from "../../src/commands/requests";
+import type { OfficeHandle } from "../../src/db/office";
+import type { OfficeGit } from "../../src/git";
+import { insertRun, openPark } from "../../src/run";
+import { WorkResumeCommand } from "../../src/run/work-resume";
+import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
+import { addStory } from "../../src/stories/keys";
+import type { BacklogStory } from "../../src/stories/read";
+import { writeMirror } from "../../src/stories/apply";
+import { StoryPlanning } from "../../src/stories/planning";
+import { insertClaim, liveClaimOf } from "../../src/worktree/records";
+import { CodeHostError } from "../../src/platform/host";
+import { addOffice, openTestState, type TestState } from "../commands/helpers";
+
+interface Closed {
+  repo: string;
+  number: number;
+  comment: string;
+}
+
+interface World {
+  readonly dir: string;
+  readonly t: TestState;
+  readonly office: OfficeHandle;
+  readonly ops: LaneOp[];
+  readonly flushes: { n: number };
+  readonly closed: Closed[];
+  readonly planning: StoryPlanning;
+  readonly registry: ReturnType<typeof buildRegistry>;
+  readonly hooks: { dirty: string[] };
+}
+
+let w: World;
+
+function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { n: number }) {
+  return {
+    journal: async (op: LaneOp) => {
+      // The real lane's refusal of a story with a live claim, unless the caller releases it.
+      if (
+        op.releasesClaim !== true &&
+        op.key !== undefined &&
+        liveClaimOf(office, op.key) !== null
+      ) {
+        throw new LaneError("backlog.lane.liveClaim", "live claim", { key: op.key });
+      }
+      ops.push(op);
+      return office.immediate(() => insertEntry(office, op, t.clock.now()));
+    },
+    flush: async () => {
+      flushes.n += 1;
+      return {};
+    },
+  } as unknown as OfficeLane;
+}
+
+/** A git whose only call reads `git status`: the files in `hooks.dirty`. */
+function fakeGit(dirty: string[]): OfficeGit {
+  const session = { ok: async () => dirty.map((file) => `?? ${file}\0`).join("") };
+  return {
+    run: (item: (git: unknown) => Promise<unknown>) => item(session),
+    adminDirOf: () => "/admin",
+    worktreeLocation: () => ({ kind: "worktree", workTree: "/wt" }),
+    settings: { remote: "origin" },
+  } as unknown as OfficeGit;
+}
+
+beforeEach(async () => {
+  const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "planning-"));
+  const t = await openTestState(dir);
+  const office = addOffice(t);
+  const ops: LaneOp[] = [];
+  const flushes = { n: 0 };
+  const closed: Closed[] = [];
+  const hooks = { dirty: [] as string[] };
+  const planning = new StoryPlanning({
+    lane: () => fakeLane(office, t, ops, flushes),
+    git: () => fakeGit(hooks.dirty),
+    host: {
+      closePr: async (repo, number, comment) => {
+        closed.push({ repo, number, comment });
+      },
+    },
+    implemented: () => true,
+  });
+  const resume = new WorkResumeCommand(undefined, () => planning);
+  const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
+  w = { dir, t, office, ops, flushes, closed, planning, registry, hooks };
+});
+
+afterEach(() => {
+  w.t.state.close();
+  rmSync(w.dir, { recursive: true, force: true });
+});
+
+interface StorySpec {
+  readonly status: string;
+  readonly kind?: "task" | "draft";
+  readonly dependencies?: readonly string[];
+  readonly park?: { reason: string; from: string; note: string };
+}
+
+/** A story in the index and the mirror, as a pass over the base would leave it. */
+function story(id: string, spec: StorySpec): StoryKey {
+  const { office, t } = w;
+  return office.immediate(() => {
+    const { key } = addStory(office, t.ids, { story: StoryId.parse(id) }, t.clock.now());
+    const read: BacklogStory = {
+      kind: spec.kind ?? "task",
+      story: StoryId.parse(id),
+      title: `Title of ${id}`,
+      status: spec.status,
+      labels: ["tier:M"],
+      tier: "M",
+      contentHash: `hash-${id}`,
+      waitingOn: [],
+      ...(spec.park === undefined ? {} : { park: spec.park as never }),
+      ...(spec.dependencies === undefined
+        ? {}
+        : { gateTask: { id, dependencies: [...spec.dependencies] } }),
+    };
+    writeMirror(
+      office,
+      key,
+      read,
+      t.clock.now(),
+      "base",
+      spec.dependencies === undefined ? undefined : "sha",
+    );
+    return key;
+  });
+}
+
+function activeRun(key: StoryKey, id: string): RunId {
+  const { office, t } = w;
+  const runId = t.ids.next("run") as RunId;
+  office.immediate(() =>
+    insertRun(office, {
+      runId,
+      kind: "story",
+      key,
+      story: id,
+      tier: "M",
+      role: "developer",
+      model: "haiku",
+      startSha: "b".repeat(40),
+      branch: `${id}/work`,
+      worktree: join(w.dir, "trees", id),
+      slot: 1,
+      budgetUnit: "tokens",
+      budgetLimit: 1000,
+      loopCap: 3,
+      reviewRoundCap: null,
+      configHash: "h",
+      overrideKeys: null,
+      runProfileId: null,
+      startedAt: t.clock.now(),
+    }),
+  );
+  return runId;
+}
+
+function claim(key: StoryKey, id: string, runId: RunId): void {
+  const { office, t } = w;
+  office.immediate(() =>
+    insertClaim(office, {
+      runId,
+      key,
+      story: id,
+      branch: `${id}/work`,
+      worktree: join(w.dir, "trees", id),
+      base: "main",
+      baseSha: "b".repeat(40),
+      startSha: "b".repeat(40),
+      claimSha: "d".repeat(40),
+      reused: false,
+      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
+      firstFeedback: null,
+      claimedAt: t.clock.now(),
+    }),
+  );
+}
+
+function park(key: StoryKey, id: string, reason: string, from: string, runId: RunId | null): void {
+  const { office, t } = w;
+  office.immediate(() =>
+    office.run(
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
+         where office_id = $office_id), $key, $story, $run, $reason, $from, 'detail', $at)`,
+      { key, story: id, run: runId, reason, from, at: t.clock.now() },
+    ),
+  );
+}
+
+let sequence = 0;
+async function send(name: string, args: Record<string, unknown>) {
+  sequence += 1;
+  return await executeCommand(
+    {
+      registry: w.registry,
+      offices: stateOfficeDirectory(w.t.state),
+      clock: w.t.clock,
+      ids: w.t.ids,
+      softwareRequests: new MemoryRequestTable(w.t.clock),
+    },
+    {
+      requestId: RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${String(sequence).padStart(8, "0")}`),
+      name,
+      args,
+      origin: "cli",
+      confirmed: true,
+      office: w.office.officeId as OfficeId,
+    },
+  );
+}
+
+function errorOf(reply: Awaited<ReturnType<typeof send>>): { code: string; message: string } {
+  if (reply.ok) throw new Error(`expected an error, got ${JSON.stringify(reply)}`);
+  return reply.error;
+}
+
+/** The change-log entries of a type, in order. */
+function entries(type: string): { key: string | null; delta: Record<string, unknown> }[] {
+  return w.office
+    .all<{ key: string | null; delta: string }>(
+      "select key, delta from change_log where office_id = $office_id and type = $type order by seq",
+      { type },
+    )
+    .map((row) => ({ key: row.key, delta: JSON.parse(row.delta) as Record<string, unknown> }));
+}
+
+describe("story.hold", () => {
+  for (const status of ["Refined", "Ready"]) {
+    it(`journals a lane-b hold writing F16 and status Parked for a ${status} story`, async () => {
+      const key = story("DIPO-7", { status });
+      const reply = await send("story.hold", { story: "DIPO-7", note: "after M2" });
+      expect(reply).toMatchObject({ ok: true, changed: true, result: { story: "DIPO-7", key } });
+
+      expect(w.ops).toEqual([
+        {
+          kind: "hold",
+          key,
+          subject: "DIPO-7",
+          target: {
+            from: ["Refined", "Ready", "To Do"],
+            status: "Parked",
+            fields: { park: { reason: "on-hold", from: status, note: "after M2" } },
+          },
+        },
+      ]);
+      // The pending-op skip applies at once, while the base still says the story is `status`.
+      expect(pendingLaneOp(w.office, key)).not.toBeNull();
+      expect(w.flushes.n).toBe(1);
+      expect(openPark(w.office, key)).toMatchObject({
+        reason: "on-hold",
+        from: status,
+        detail: "after M2",
+        runId: null,
+      });
+      expect(entries("story.state").at(-1)?.delta).toMatchObject({
+        from: status,
+        to: "Parked",
+      });
+      expect(entries("story.parked").at(-1)?.delta).toMatchObject({
+        reason: "on-hold",
+        detail: "after M2",
+        from: status,
+        actions: ["work.resume", "work.discard", "story.drop"],
+      });
+    });
+  }
+
+  it("answers a re-run of the same hold with the same result and journals nothing again", async () => {
+    story("DIPO-7", { status: "Ready" });
+    await send("story.hold", { story: "DIPO-7", note: "later" });
+    const again = await send("story.hold", { story: "DIPO-7", note: "later" });
+    expect(again).toMatchObject({ ok: true });
+    expect(w.ops).toHaveLength(1);
+    const other = errorOf(await send("story.hold", { story: "DIPO-7", note: "other" }));
+    expect(other.code).toBe("story.notHoldable");
+  });
+
+  it("refuses a running story, naming dipo stop, and journals nothing", async () => {
+    const key = story("DIPO-7", { status: "In Progress" });
+    claim(key, "DIPO-7", activeRun(key, "DIPO-7"));
+    const error = errorOf(await send("story.hold", { story: "DIPO-7", note: "x" }));
+    expect(error.code).toBe("story.notHoldable");
+    expect(error.message).toContain("dipo stop");
+    expect(w.ops).toEqual([]);
+    expect(allEntries(w.office)).toEqual([]);
+  });
+
+  it("refuses a parked story with a claim, naming resume and discard", async () => {
+    const key = story("DIPO-7", {
+      status: "Parked",
+      park: { reason: "stopped", from: "In Progress", note: "stopped" },
+    });
+    claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
+    park(key, "DIPO-7", "stopped", "In Progress", null);
+    const error = errorOf(await send("story.hold", { story: "DIPO-7", note: "x" }));
+    expect(error.code).toBe("story.notHoldable");
+    expect(error.message).toContain("resume");
+    expect(error.message).toContain("discard");
+    expect(w.ops).toEqual([]);
+  });
+
+  it("refuses a draft and a Done story", async () => {
+    story("DRAFT-1", { status: "Draft", kind: "draft" });
+    story("DIPO-8", { status: "Done" });
+    expect(errorOf(await send("story.hold", { story: "DRAFT-1", note: "x" })).code).toBe(
+      "story.notHoldable",
+    );
+    expect(errorOf(await send("story.hold", { story: "DIPO-8", note: "x" })).code).toBe(
+      "story.notHoldable",
+    );
+  });
+});
+
+describe("work.resume of an on-hold story", () => {
+  it("lifts F16 in lane b, sets park.from, and a story back at Ready is not picked yet", async () => {
+    const key = story("DIPO-7", { status: "Ready" });
+    await send("story.hold", { story: "DIPO-7", note: "later" });
+    w.ops.length = 0;
+    // Merged: the base now says Parked with the hold's F16, as the index would read it.
+    const entry = allEntries(w.office)[0];
+    w.office.immediate(() =>
+      w.office.run(
+        "update backlog_journal set state = 'merged' where office_id = $office_id and op_id = $op",
+        { op: entry?.opId ?? 0 },
+      ),
+    );
+    expect(pendingLaneOp(w.office, key)).toBeNull();
+
+    const reply = await send("work.resume", { story: "DIPO-7", note: "M2 is done" });
+    expect(reply).toMatchObject({
+      ok: true,
+      result: { story: "DIPO-7", key, to: "Ready" },
+    });
+    expect(w.ops).toEqual([
+      {
+        kind: "resume",
+        key,
+        subject: "DIPO-7",
+        target: { from: ["Parked"], status: "Ready", unset: ["park"] },
+      },
+    ]);
+    // The pending-op skip covers the story until the resume merges, then the pickup re-check runs.
+    expect(pendingLaneOp(w.office, key)).not.toBeNull();
+    expect(w.flushes.n).toBe(2);
+    expect(openPark(w.office, key)).toBeNull();
+    expect(
+      w.office.get<{ how: string }>(
+        "select resolved_how as how from parks where office_id = $office_id and key = $key",
+        { key },
+      )?.how,
+    ).toBe("resume");
+    expect(entries("story.state").at(-1)?.delta).toMatchObject({ from: "Parked", to: "Ready" });
+  });
+
+  it("returns a story held at Refined to Refined", async () => {
+    story("DIPO-7", { status: "Refined" });
+    await send("story.hold", { story: "DIPO-7", note: "later" });
+    const reply = await send("work.resume", { story: "DIPO-7" });
+    expect(reply).toMatchObject({ ok: true, result: { to: "Refined" } });
+  });
+
+  it("still answers story.notPausedOrParked for a story that is not held", async () => {
+    story("DIPO-7", { status: "Ready" });
+    expect(errorOf(await send("work.resume", { story: "DIPO-7" })).code).toBe(
+      "story.notPausedOrParked",
+    );
+  });
+});
+
+describe("story.drop", () => {
+  it("journals a drop that releases the claim, and says Removed", async () => {
+    const key = story("DIPO-7", { status: "Ready" });
+    const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
+    expect(reply).toMatchObject({ ok: true, changed: true, result: { story: "DIPO-7", key } });
+    expect(w.ops).toEqual([
+      { kind: "drop", key, subject: "DIPO-7", target: { kind: "task" }, releasesClaim: true },
+    ]);
+    expect(pendingLaneOp(w.office, key)).not.toBeNull();
+    expect(w.flushes.n).toBe(1);
+    expect(entries("story.state").at(-1)?.delta).toMatchObject({ from: "Ready", to: "Removed" });
+    // A re-run finds the target state and writes nothing more.
+    const again = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
+    expect(again).toMatchObject({ ok: true });
+    expect(entries("story.state")).toHaveLength(1);
+  });
+
+  it("archives a draft as a draft", async () => {
+    story("DRAFT-1", { status: "Draft", kind: "draft" });
+    await send("story.drop", { story: "DRAFT-1", deleteBranch: false });
+    expect(w.ops[0]?.target).toEqual({ kind: "draft" });
+  });
+
+  it("resolves the open park of a Parked story with resolved_how drop", async () => {
+    const key = story("DIPO-7", {
+      status: "Parked",
+      park: { reason: "on-hold", from: "Ready", note: "later" },
+    });
+    park(key, "DIPO-7", "on-hold", "Ready", null);
+    expect(openPark(w.office, key)).not.toBeNull();
+    const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
+    expect(reply).toMatchObject({ ok: true });
+    expect(openPark(w.office, key)).toBeNull();
+    expect(
+      w.office.get<{ how: string }>(
+        "select resolved_how as how from parks where office_id = $office_id and key = $key",
+        { key },
+      )?.how,
+    ).toBe("drop");
+    expect(entries("story.state").at(-1)?.delta).toMatchObject({ from: "Parked", to: "Removed" });
+  });
+
+  for (const status of ["In Progress", "In Review"]) {
+    it(`refuses a story that is ${status}, naming dipo stop`, async () => {
+      story("DIPO-7", { status });
+      const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
+      expect(error.code).toBe("story.active");
+      expect(error.message).toContain("dipo stop");
+      expect(w.ops).toEqual([]);
+    });
+  }
+
+  it("refuses a story with a running worker even when the base still says Ready", async () => {
+    const key = story("DIPO-7", { status: "Ready" });
+    claim(key, "DIPO-7", activeRun(key, "DIPO-7"));
+    expect(errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false })).code).toBe(
+      "story.active",
+    );
+  });
+
+  it("refuses a story another active story depends on, and lets it go once that is dropped or Done", async () => {
+    story("DIPO-7", { status: "Ready" });
+    story("DIPO-8", { status: "Ready", dependencies: ["DIPO-7"] });
+    story("DIPO-9", { status: "Done", dependencies: ["DIPO-7"] });
+    const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
+    expect(error.code).toBe("story.hasDependents");
+    expect(error.message).toContain("DIPO-8");
+    expect(error.message).not.toContain("DIPO-9");
+    expect(w.ops).toEqual([]);
+    // Dropping the dependent first (its drop is pending, not merged) lets the dependency go.
+    expect(await send("story.drop", { story: "DIPO-8", deleteBranch: false })).toMatchObject({
+      ok: true,
+    });
+    expect(await send("story.drop", { story: "DIPO-7", deleteBranch: false })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("refuses a dirty worktree listing the files unless --delete-branch is given", async () => {
+    const key = story("DIPO-7", {
+      status: "Parked",
+      park: { reason: "stopped", from: "In Progress", note: "stopped" },
+    });
+    claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
+    park(key, "DIPO-7", "stopped", "In Progress", null);
+    w.hooks.dirty.push("src/new.ts", "notes.txt");
+    const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
+    expect(error.code).toBe("story.dirtyWorktree");
+    expect(error.message).toContain("src/new.ts");
+    expect(error.message).toContain("notes.txt");
+    expect(w.ops).toEqual([]);
+    expect(allEntries(w.office)).toEqual([]);
+    expect(liveClaimOf(w.office, key)).not.toBeNull();
+  });
+
+  it("closes the open story PR with a comment naming the drop", async () => {
+    const key = story("DIPO-7", { status: "Ready" });
+    const run = w.t.ids.next("run") as RunId;
+    w.office.immediate(() =>
+      insertStoryPr(w.office, {
+        runId: run,
+        key,
+        number: 41,
+        url: "https://github.com/acme/app/pull/41",
+        branch: "DIPO-7/work",
+        base: "main",
+        headSha: "c".repeat(40),
+        state: "open",
+        title: "feat(DIPO-7): work",
+        bodyHash: "h",
+        openedAt: w.t.clock.now(),
+        closedAt: null,
+      }),
+    );
+    const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
+    expect(reply).toMatchObject({ ok: true });
+    expect(w.closed).toHaveLength(1);
+    expect(w.closed[0]).toMatchObject({ repo: "acme/app", number: 41 });
+    expect(w.closed[0]?.comment).toContain("DIPO-7");
+    expect(w.closed[0]?.comment).toContain("dropped");
+    expect(latestStoryPr(w.office, key)?.state).toBe("closed");
+    expect(entries("story.pr").at(-1)?.delta).toMatchObject({
+      pr: { number: 41, state: "closed" },
+    });
+  });
+
+  it("does not close a PR that is not open, and withdraws its journal entry when the close fails", async () => {
+    const key = story("DIPO-7", { status: "Ready" });
+    w.office.immediate(() =>
+      insertStoryPr(w.office, {
+        runId: w.t.ids.next("run") as RunId,
+        key,
+        number: 41,
+        url: "https://github.com/acme/app/pull/41",
+        branch: "DIPO-7/work",
+        base: "main",
+        headSha: "c".repeat(40),
+        state: "open",
+        title: "t",
+        bodyHash: "h",
+        openedAt: w.t.clock.now(),
+        closedAt: null,
+      }),
+    );
+    const failing = new StoryPlanning({
+      lane: () => fakeLane(w.office, w.t, w.ops, w.flushes),
+      git: () => fakeGit([]),
+      host: {
+        closePr: async () => {
+          throw new CodeHostError("failed", "gh down");
+        },
+      },
+      implemented: () => true,
+    });
+    const registry = buildRegistry([failing.feature]);
+    const reply = await executeCommand(
+      {
+        registry,
+        offices: stateOfficeDirectory(w.t.state),
+        clock: w.t.clock,
+        ids: w.t.ids,
+        softwareRequests: new MemoryRequestTable(w.t.clock),
+      },
+      {
+        requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z99999999"),
+        name: "story.drop",
+        args: { story: "DIPO-7", deleteBranch: false },
+        origin: "cli",
+        confirmed: true,
+        office: w.office.officeId as OfficeId,
+      },
+    );
+    expect(errorOf(reply).code).toBe("story.prNotClosed");
+    // Nothing was archived, and the story is not held back by the failed drop.
+    expect(allEntries(w.office).map((e) => e.state)).toEqual(["withdrawn"]);
+    expect(pendingLaneOp(w.office, key)).toBeNull();
+    expect(latestStoryPr(w.office, key)?.state).toBe("open");
+  });
+});

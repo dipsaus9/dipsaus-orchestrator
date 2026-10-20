@@ -394,7 +394,7 @@ async function removeAll(
 }
 
 /** The files `git status` lists in the worktree; empty when it cannot be read. */
-async function dirtyFiles(
+export async function dirtyFiles(
   deps: Pick<TeardownDeps, "git">,
   git: GitSession,
   path: string,
@@ -439,11 +439,11 @@ export function lockInList(output: string, path: string): string | null {
 }
 
 /** stderr of a `push --delete` of a branch the remote does not have. */
-function remoteRefMissing(stderr: string): boolean {
+export function remoteRefMissing(stderr: string): boolean {
   return stderr.includes("remote ref does not exist");
 }
 
-async function remoteUrl(git: GitSession, remote: string): Promise<string | null> {
+export async function remoteUrl(git: GitSession, remote: string): Promise<string | null> {
   const result = await git.step(git.repository, ["config", "--get", `remote.${remote}.url`]);
   const url = result.stdout.trim();
   return result.code === 0 && url !== "" ? url : null;

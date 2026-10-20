@@ -7,6 +7,9 @@
 // The built-in kind `edit` sets a story's status, field-block keys and labels. Later stories add
 // their own kinds with `editKind(name)` (for example `hold` or `ready`) or a kind of their own.
 
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import { FieldBlockError } from "../fields/block";
@@ -141,3 +144,46 @@ export function editKind(name: string): LaneOpKind {
 
 /** The built-in `edit` kind. */
 export const EDIT_KIND = "edit";
+
+/** The kinds of hold, resume and drop (0020 section 8); the commit's verb is the kind. */
+export const HOLD_KIND = "hold";
+export const RESUME_KIND = "resume";
+export const DROP_KIND = "drop";
+
+/** The target state of a `drop`: the story is archived. */
+export const DropTarget = z.object({ kind: z.enum(["task", "draft"]).optional() }).strict();
+export type DropTarget = z.infer<typeof DropTarget>;
+
+/**
+ * The `drop` kind: archives the story (`task archive` or `draft archive`). The CLI fails without
+ * its archive folder (DIPO-32), so the folder is created first. A story that is gone already is
+ * the target state, so the operation is dropped with its reason rather than failing.
+ */
+export const dropKind: LaneOpKind = {
+  kind: DROP_KIND,
+  async apply(ctx, raw) {
+    const parsed = DropTarget.safeParse(raw);
+    if (!parsed.success) {
+      return { applies: false, reason: `the target is not a valid drop: ${parsed.error.message}` };
+    }
+    const kind = parsed.data.kind ?? "task";
+    const story = { cli: ctx.cli, cwd: ctx.cwd, id: ctx.story, kind };
+    try {
+      await viewStory(story);
+    } catch (error) {
+      if (isNotFound(error)) return { applies: false, reason: `${ctx.story} no longer exists` };
+      throw error;
+    }
+    mkdirSync(join(ctx.cwd, "backlog", "archive", kind === "task" ? "tasks" : "drafts"), {
+      recursive: true,
+    });
+    await runBacklog(ctx.cli, ctx.cwd, [kind, "archive", ctx.story]);
+    try {
+      await viewStory(story);
+    } catch (error) {
+      if (isNotFound(error)) return { applies: true };
+      throw error;
+    }
+    throw new FieldWriteError(ctx.story, "the story is still there after it was archived");
+  },
+};

@@ -30,5 +30,14 @@ export type {
   Waiting,
   WaitingReason,
 } from "./lane";
-export { EDIT_KIND, EditTarget, editKind } from "./ops";
+export {
+  DROP_KIND,
+  DropTarget,
+  dropKind,
+  EDIT_KIND,
+  EditTarget,
+  editKind,
+  HOLD_KIND,
+  RESUME_KIND,
+} from "./ops";
 export type { ApplyContext, ApplyOutcome, LaneOpKind } from "./ops";

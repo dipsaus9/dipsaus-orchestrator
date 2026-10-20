@@ -234,6 +234,8 @@ describe("office commands and reads", () => {
     "work.prompt": 1,
     "office.switch": 1,
     "work.resume": 1,
+    "story.hold": 1,
+    "story.drop": 1,
     "gate.approve": 1,
     "gate.reject": 1,
   };
@@ -242,8 +244,6 @@ describe("office commands and reads", () => {
     "work.pause",
     "work.reassign",
     "work.discard",
-    "story.hold",
-    "story.drop",
     "test.start",
     "test.record",
     "office.usage",
