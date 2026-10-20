@@ -17,6 +17,7 @@ import { WorkerHost } from "../../src/host/main";
 import {
   EVENTS_FILE,
   HOOK_PROTOCOL_VERSIONS,
+  HOST_LOG_FILE,
   hostSocketPath,
   LAUNCH_FILE,
   type HostLaunch,
@@ -28,15 +29,23 @@ const RUN = "run_01JZ0000000000000000000009";
 const PAYLOAD = JSON.stringify({ hook_event_name: "PermissionRequest", tool_name: "Bash" });
 
 /** A worker that runs until `end` is called. */
-function heldWorker(): { spawn: Spawn; end: () => void } {
+function heldWorker(holdOutput = false): { spawn: Spawn; end: () => void; release: () => void } {
   let end!: () => void;
+  let release!: () => void;
   const exited = new Promise<ChildExit>((resolve) => {
     end = () => resolve({ code: 0, signal: null });
   });
+  // With `holdOutput` the output stays open after the exit until `release`: the host is "exiting".
+  const outputDone = holdOutput
+    ? new Promise<void>((resolve) => {
+        release = resolve;
+      })
+    : exited.then(() => undefined);
+  if (!holdOutput) release = () => undefined;
   const closed = () =>
     new ReadableStream<Uint8Array>({
       async start(controller) {
-        await exited;
+        await outputDone;
         controller.close();
       },
     });
@@ -48,12 +57,18 @@ function heldWorker(): { spawn: Spawn; end: () => void } {
     exited,
     kill: () => undefined,
   };
-  return { spawn: () => child, end };
+  return { spawn: () => child, end, release };
 }
 
 async function withHost(
-  fn: (ctx: { host: WorkerHost; socket: string; runDir: string }) => Promise<void>,
+  fn: (ctx: {
+    host: WorkerHost;
+    socket: string;
+    runDir: string;
+    worker: ReturnType<typeof heldWorker>;
+  }) => Promise<void>,
   token?: string,
+  holdOutput = false,
 ): Promise<void> {
   await withTempDir(async (dir) => {
     const runDir = join(dir, "run");
@@ -68,7 +83,7 @@ async function withHost(
       ...(token === undefined ? {} : { token }),
     };
     writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(launch), { mode: 0o600 });
-    const worker = heldWorker();
+    const worker = heldWorker(holdOutput);
     const host = WorkerHost.start({
       runId: RUN,
       runDir,
@@ -78,9 +93,10 @@ async function withHost(
       pid: 777,
     });
     try {
-      await fn({ host, socket, runDir });
+      await fn({ host, socket, runDir, worker });
     } finally {
       worker.end();
+      worker.release();
       await host.done;
     }
   });
@@ -231,4 +247,98 @@ describe("only the engine answers a hook call (DIPO-59 review)", () => {
       expect(await call).toBe("ok");
       for (const client of [stranger, real, guess]) client.close();
     }, TOKEN));
+});
+
+/** The `host.log` lines about a call answered early, as `{ reason, hook, waitMs }`. */
+function earlyLines(runDir: string): { reason: string; hook: number | null; waitMs: number }[] {
+  return readFileSync(join(runDir, HOST_LOG_FILE), "utf8")
+    .split("\n")
+    .filter((line) => line.includes("answered early with no output"))
+    .map((line) => {
+      const fields = JSON.parse(line) as { reason: string; hook: number | null; waitMs: number };
+      return { reason: fields.reason, hook: fields.hook, waitMs: fields.waitMs };
+    });
+}
+
+describe("a waiting call answered early is logged (DIPO-181)", () => {
+  it("holds a later waiting call in the same session and answers it the same way", () =>
+    withHost(async ({ host, socket, runDir }) => {
+      const client = await engine(socket);
+      await client.watch(() => undefined);
+      for (const output of ['{"first":1}', '{"second":2}']) {
+        const call = relay(socket, { waitMs: 5000 });
+        for (let i = 0; i < 100 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+        const [hook] = host.pendingHooks;
+        expect(await client.request({ op: "hookReply", hook: hook ?? 0, output })).toEqual({
+          ok: true,
+          result: undefined,
+        });
+        expect(await call).toBe(output);
+      }
+      expect(earlyLines(runDir)).toEqual([]);
+      client.close();
+    }));
+
+  it("logs no engine watching, with the hook id and waitMs", () =>
+    withHost(async ({ socket, runDir }) => {
+      expect(await relay(socket, { waitMs: 5000 })).toBe("");
+      const [line] = hookLines(runDir);
+      expect(earlyLines(runDir)).toEqual([
+        { reason: "no-engine-watching", hook: line?.end ?? -1, waitMs: 5000 },
+      ]);
+    }));
+
+  it("logs the engine's connection closing", () =>
+    withHost(async ({ host, socket, runDir }) => {
+      const client = await engine(socket);
+      await client.watch(() => undefined);
+      const call = relay(socket, { waitMs: 4000 });
+      for (let i = 0; i < 100 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+      const [hook] = host.pendingHooks;
+      client.close();
+      expect(await call).toBe("");
+      expect(earlyLines(runDir)).toEqual([
+        { reason: "engine-connection-closed", hook: hook ?? -1, waitMs: 4000 },
+      ]);
+    }));
+
+  it("logs the worker exiting", () =>
+    withHost(async ({ host, socket, runDir, worker }) => {
+      const client = await engine(socket);
+      await client.watch(() => undefined);
+      const call = relay(socket, { waitMs: 3000 });
+      for (let i = 0; i < 100 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
+      const [hook] = host.pendingHooks;
+      worker.end();
+      expect(await call).toBe("");
+      await host.done;
+      expect(earlyLines(runDir)).toEqual([
+        { reason: "worker-exited", hook: hook ?? -1, waitMs: 3000 },
+      ]);
+    }));
+
+  it("logs a call that reaches a host that is no longer running", () =>
+    withHost(
+      async ({ socket, runDir, worker }) => {
+        const client = await engine(socket);
+        await client.watch(() => undefined);
+        // The worker exited but its output is still open: the host is exiting, not running.
+        worker.end();
+        await Bun.sleep(50);
+        expect(await relay(socket, { waitMs: 2000 })).toBe("");
+        const [line] = hookLines(runDir);
+        expect(earlyLines(runDir)).toEqual([
+          { reason: "host-not-running", hook: line?.end ?? -1, waitMs: 2000 },
+        ]);
+        client.close();
+      },
+      undefined,
+      true,
+    ));
+
+  it("logs nothing for a call that does not wait", () =>
+    withHost(async ({ socket, runDir }) => {
+      expect(await relay(socket)).toBe("");
+      expect(earlyLines(runDir)).toEqual([]);
+    }));
 });

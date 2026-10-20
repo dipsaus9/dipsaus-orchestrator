@@ -169,7 +169,15 @@ interface PendingHook {
   /** The `hook` op's request id, which the reply answers. */
   readonly id: number;
   readonly timer: TimerHandle;
+  readonly waitMs: number;
 }
+
+/** Why the host answered a call that carries `waitMs` with no output before the wait passed. */
+export type EarlyAnswer =
+  | "host-not-running"
+  | "no-engine-watching"
+  | "engine-connection-closed"
+  | "worker-exited";
 
 /** Compares a presented token with the launch's in constant time. */
 function tokenMatches(presented: string | undefined, token: string): boolean {
@@ -461,7 +469,7 @@ export class WorkerHost {
     this.#offTerminate?.();
     this.#offTerminate = null;
     // A hook call still waiting gets no decision: the worker it asked for has gone.
-    this.#answerAllHooks("");
+    this.#answerAllHooks("", "worker-exited");
     const inferred = exit.signalInferred === true ? { signalInferred: true } : {};
     this.#append("exit", JSON.stringify({ code: exit.code, signal: exit.signal, ...inferred }));
     const record: HostExitFile = {
@@ -499,7 +507,9 @@ export class WorkerHost {
         }
         // The last engine stopped watching (the daemon is down): nobody will answer, so every
         // waiting call gets no decision now.
-        if (client.watching && this.#isEngine(client) && !this.#watched()) this.#answerAllHooks("");
+        if (client.watching && this.#isEngine(client) && !this.#watched()) {
+          this.#answerAllHooks("", "engine-connection-closed");
+        }
       },
     };
   }
@@ -516,18 +526,28 @@ export class WorkerHost {
   }
 
   /** Answers the waiting hook call `hook` with `output`; false when none waits under that id. */
-  #answerHook(hook: number, output: string): boolean {
+  #answerHook(hook: number, output: string, early?: EarlyAnswer): boolean {
     const pending = this.#pendingHooks.get(hook);
     if (pending === undefined) return false;
+    if (early !== undefined) this.#logEarly(early, hook, pending.waitMs);
     this.#pendingHooks.delete(hook);
     this.#options.clock.clearTimeout(pending.timer);
     this.#send(pending.client, { kind: "reply", id: pending.id, ok: true, result: { output } });
     return true;
   }
 
-  #answerAllHooks(output: string): void {
+  #answerAllHooks(output: string, early?: EarlyAnswer): void {
     // A Map iterates safely while `#answerHook` deletes the entry it answered.
-    for (const hook of this.#pendingHooks.keys()) this.#answerHook(hook, output);
+    for (const hook of this.#pendingHooks.keys()) this.#answerHook(hook, output, early);
+  }
+
+  /** Records, in `host.log`, that a waiting call was answered with no output before its wait passed. */
+  #logEarly(reason: EarlyAnswer, hook: number | null, waitMs: number): void {
+    this.#logger.info("a hook call with a wait was answered early with no output", {
+      reason,
+      hook,
+      waitMs,
+    });
   }
 
   /** The `hook` op: append the payload, then answer at once or hold the call (file comment). */
@@ -535,11 +555,22 @@ export class WorkerHost {
     const answer = (output: string) =>
       this.#send(client, { kind: "reply", id, ok: true, result: { output } });
     const hook = this.relayHook(payload);
+    const waits = waitMs !== undefined && waitMs > 0;
     if (hook === null) {
+      if (waits) this.#logEarly("host-not-running", null, waitMs);
       answer("");
       return;
     }
-    if (waitMs === undefined || waitMs === 0 || this.#state !== "running" || !this.#watched()) {
+    if (!waits) {
+      answer("");
+      return;
+    }
+    if (this.#state !== "running" || !this.#watched()) {
+      this.#logEarly(
+        this.#state !== "running" ? "host-not-running" : "no-engine-watching",
+        hook,
+        waitMs,
+      );
       answer("");
       return;
     }
@@ -550,7 +581,7 @@ export class WorkerHost {
       });
       this.#answerHook(hook, "");
     }, waitMs);
-    this.#pendingHooks.set(hook, { client, id, timer });
+    this.#pendingHooks.set(hook, { client, id, timer, waitMs });
   }
 
   #send(client: Client, frame: HostFrame): void {
