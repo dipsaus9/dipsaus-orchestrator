@@ -9,6 +9,8 @@
 //   (`waitForPlace`, `queued: true`), and the place's starter, `startQueued`, starts the session.
 //
 // The paused time ends when the pause is resolved, so the minute cap leaves it out (`pausedMs`).
+// The wait for the worker place is not counted either: the queued resume resolves nothing, and
+// when the place frees, `claimPlace` adds that wait to `parked_ms` (`capsStartedAt` adds it).
 
 import type { OfficeId, workResume } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";

@@ -22,6 +22,7 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import {
   CAP_TICK_MS,
+  capsStartedAt,
   createRunOutcomes,
   endRun,
   findRun,
@@ -36,6 +37,7 @@ import { runTotals } from "../../src/run/caps";
 import { PAUSE_CLOSE_MS, openPause, pausedMs } from "../../src/run/pauses";
 import { placeHolders, Places } from "../../src/run/places";
 import type { NextSessionRequest } from "../../src/run/resume";
+import { reopenForRound, type RoundKind } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { workView } from "../../src/views/work";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -242,8 +244,8 @@ function steers(): { state: string; detail: string }[] {
     .map((intent) => ({ state: intent.state, detail: intent.detail }));
 }
 
-/** Parks the story at the current time and ends its run. */
-function park(): void {
+/** Parks the story at the current time and ends its run with `endKind`. */
+function park(endKind = "blocked"): void {
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
@@ -252,8 +254,69 @@ function park(): void {
        values ($office_id, 1, $key, 'DIPO-1', $run, 'ambiguous-spec', 'In Progress', 'x', $at)`,
       { key: w.work.key, run, at },
     );
-    endRun(office, run, at, "blocked");
+    endRun(office, run, at, endKind);
   });
+}
+
+/** Reopens the ended run for a round, as the review or the fix round does (`reopenForRound`). */
+function reopen(kind: RoundKind): void {
+  const { office, run, t } = w.f;
+  const stored = findRun(office, run);
+  if (stored === null) throw new Error("no run");
+  office.immediate(() => reopenForRound(office, stored, kind, t.clock.now()));
+}
+
+/** Another story's run takes the worker place with a live session; returns its run. */
+function occupyWorkerPlace(): RunId {
+  const other = w.f.t.ids.next("run") as RunId;
+  const { office } = w.f;
+  const key = office.immediate(
+    () => addStory(office, w.f.t.ids, { story: StoryId.parse("DIPO-2") }, w.f.t.clock.now()).key,
+  );
+  office.immediate(() => {
+    insertRun(office, {
+      runId: other,
+      kind: "story",
+      key,
+      story: "DIPO-2",
+      tier: "M",
+      role: "developer",
+      model: "haiku",
+      startSha: "b".repeat(40),
+      branch: "DIPO-2/x",
+      worktree: join(w.dir, "trees", "DIPO-2"),
+      slot: 2,
+      budgetUnit: "tokens",
+      budgetLimit: CAPS.budgetTokens,
+      loopCap: 3,
+      reviewRoundCap: null,
+      configHash: "h",
+      overrideKeys: null,
+      runProfileId: null,
+      startedAt: w.f.t.clock.now(),
+    });
+    insertClaim(office, {
+      runId: other,
+      key,
+      story: "DIPO-2",
+      branch: "DIPO-2/x",
+      worktree: join(w.dir, "trees", "DIPO-2"),
+      base: "main",
+      baseSha: "b".repeat(40),
+      startSha: "b".repeat(40),
+      claimSha: "d".repeat(40),
+      reused: false,
+      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
+      firstFeedback: null,
+      claimedAt: w.f.t.clock.now(),
+    });
+    office.run(
+      `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
+       values ($office_id, 'agt_other', $run, 'developer', 'haiku', 's2', $at)`,
+      { run: other, at: w.f.t.clock.now() },
+    );
+  });
+  return other;
 }
 
 describe("registration", () => {
@@ -353,6 +416,27 @@ describe("work.steer", () => {
     await startSession();
     expect(w.sessions[0]?.message ?? "").not.toContain("Mind the edge case.");
     expect(steers().map((s) => s.state)).toEqual(["pending"]);
+  });
+
+  it("keeps a held steer out of a review session's first message (reopened for a review)", async () => {
+    park("in-review");
+    expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
+    reopen("review");
+    exitWorker();
+    expect(await startSession()).toBe(true);
+    expect(w.sessions).toHaveLength(1);
+    expect(w.sessions[0]?.message ?? "").not.toContain("Mind the edge case.");
+    expect(steers().map((s) => s.state)).toEqual(["pending"]);
+  });
+
+  it("sends a held steer with the developer session's first message (reopened for a fix round)", async () => {
+    park("in-review");
+    expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
+    reopen("fix");
+    exitWorker();
+    expect(await startSession()).toBe(true);
+    expect(w.sessions[0]?.message).toContain("The maintainer says: Mind the edge case.");
+    expect(steers().map((s) => s.state)).toEqual(["resolved"]);
   });
 
   it("answers story.notRunning for a story with neither a run nor a park", async () => {
@@ -550,55 +634,8 @@ describe("work.resume of a paused run", () => {
     w.f.t.clock.advance(1_000);
     ok(await pause());
     exitWorker();
-    // Another story's run holds the worker place with a live session.
-    const other = w.f.t.ids.next("run") as RunId;
+    const other = occupyWorkerPlace();
     const { office } = w.f;
-    const key = office.immediate(
-      () => addStory(office, w.f.t.ids, { story: StoryId.parse("DIPO-2") }, w.f.t.clock.now()).key,
-    );
-    office.immediate(() => {
-      insertRun(office, {
-        runId: other,
-        kind: "story",
-        key,
-        story: "DIPO-2",
-        tier: "M",
-        role: "developer",
-        model: "haiku",
-        startSha: "b".repeat(40),
-        branch: "DIPO-2/x",
-        worktree: join(w.dir, "trees", "DIPO-2"),
-        slot: 2,
-        budgetUnit: "tokens",
-        budgetLimit: CAPS.budgetTokens,
-        loopCap: 3,
-        reviewRoundCap: null,
-        configHash: "h",
-        overrideKeys: null,
-        runProfileId: null,
-        startedAt: w.f.t.clock.now(),
-      });
-      insertClaim(office, {
-        runId: other,
-        key,
-        story: "DIPO-2",
-        branch: "DIPO-2/x",
-        worktree: join(w.dir, "trees", "DIPO-2"),
-        base: "main",
-        baseSha: "b".repeat(40),
-        startSha: "b".repeat(40),
-        claimSha: "d".repeat(40),
-        reused: false,
-        snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-        firstFeedback: null,
-        claimedAt: w.f.t.clock.now(),
-      });
-      office.run(
-        `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
-         values ($office_id, 'agt_other', $run, 'developer', 'haiku', 's2', $at)`,
-        { run: other, at: w.f.t.clock.now() },
-      );
-    });
 
     const result = ok(await resume());
     expect(result).toMatchObject({ to: "In Progress", queued: true });
@@ -629,6 +666,50 @@ describe("work.resume of a paused run", () => {
     expect(w.sessions).toHaveLength(1);
     expect(w.sessions[0]?.mode).toBe("resume");
     expect(findRun(office, w.f.run)?.waiting).toBeNull();
+  });
+
+  it("leaves the wait for the worker place out of the minute cap", async () => {
+    track();
+    w.f.t.clock.advance(5 * 60_000);
+    ok(await pause());
+    // The worker exits after the 10 minutes; the pause lasts until the resume.
+    w.f.t.clock.advance(PAUSE_CLOSE_MS);
+    exitWorker();
+    const other = occupyWorkerPlace();
+    const { office } = w.f;
+
+    expect(ok(await resume())).toMatchObject({ to: "In Progress", queued: true });
+    // The queued resume waits for the place and resolves nothing meanwhile.
+    expect(openPause(office, w.f.run)).toBeNull();
+    w.f.t.clock.advance(4 * 60_000);
+    office.immediate(() => {
+      office.run(
+        "update agents set ended_at = $at where office_id = $office_id and agent_id = 'agt_other'",
+        { at: w.f.t.clock.now() },
+      );
+      endRun(office, other, w.f.t.clock.now(), "in-review");
+    });
+    const starting = new Places({
+      clock: w.f.t.clock,
+      offices: { get: () => office, config: () => undefined },
+      starters: { resume: (officeId, run) => w.resumption.startQueued(officeId, run) },
+    });
+    try {
+      expect(await starting.drain(office.officeId as OfficeId)).toBe(1);
+    } finally {
+      starting.close();
+    }
+    expect(w.sessions).toHaveLength(1);
+
+    const now = w.f.t.clock.now();
+    const run = findRun(office, w.f.run);
+    if (run === null) throw new Error("no run");
+    expect(run.parkedMs).toBe(4 * 60_000);
+    expect(pausedMs(office, w.f.run, now)).toBe(10 * 60_000);
+    // Five minutes of work: the 10 minutes paused and the 4 minutes waiting stay out.
+    expect(runTotals(office, w.f.run, capsStartedAt(run, undefined), now).elapsedMs).toBe(
+      5 * 60_000,
+    );
   });
 
   it("answers story.notPausedOrParked for a story that is not paused", async () => {
