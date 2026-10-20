@@ -1,10 +1,10 @@
 ---
 id: DIPO-221
 title: End a path token run at a code span written right next to a word
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:59'
+updated_date: '2026-10-20 09:18'
 labels:
   - 'tier:S'
   - cutover
