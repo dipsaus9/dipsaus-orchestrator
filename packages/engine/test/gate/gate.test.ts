@@ -614,9 +614,20 @@ describe("R10 word matches", () => {
   it("masks code spans and path tokens in the original text (DIPO-170)", () => {
     // A masked span does not join the words around it into a phrase.
     expect(hits("The export works`x`well today")).toEqual([]);
-    // The run etc`a/b` does not look like a path (no leading /, ~, ./ or ../, no trailing /, no
-    // extension), so etc is matched (DIPO-218).
+    // A code span ends a run, so etc is its own run and is matched (DIPO-221).
     expect(hits("Writes etc`a/b` to the rows")).toEqual(['"etc"']);
+  });
+
+  it("matches a banned phrase glued to a code span that holds a path (DIPO-221)", () => {
+    expect(hits("Writes etc`a/b.ts` to the rows")).toEqual(['"etc"']);
+    expect(hits("Writes `a/b.ts`etc to the rows")).toEqual(['"etc"']);
+    expect(hits("Writes `a/b.ts` to the rows")).toEqual([]);
+    expect(hits("Writes src/etc.ts")).toEqual([]);
+  });
+
+  it("keeps the DIPO-170 results for an unclosed backtick and a code span between words (DIPO-221)", () => {
+    expect(hits("Writes `etc after the rows")).toEqual(['"etc"']);
+    expect(hits("The export works`x`well today")).toEqual([]);
   });
 });
 
@@ -761,6 +772,10 @@ describe("R27 maintainer steps", () => {
   it("matches a phrase inside a slash run that does not look like a path (DIPO-218)", () => {
     expect(stepHits("Write the task notes/later")).toHaveLength(1);
     expect(stepHits("Write the task notes/x.md")).toEqual([]);
+  });
+
+  it("matches a phrase glued before a code span that holds a path (DIPO-221)", () => {
+    expect(stepHits("Write the task notes`notes/x.md`")).toHaveLength(1);
   });
 
   it.each([
