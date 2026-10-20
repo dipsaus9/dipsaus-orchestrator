@@ -1,10 +1,10 @@
 ---
 id: DIPO-183
 title: Give the worker the base commit's known verify failures
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 14:35'
+updated_date: '2026-10-20 18:26'
 labels:
   - 'tier:M'
   - cutover
