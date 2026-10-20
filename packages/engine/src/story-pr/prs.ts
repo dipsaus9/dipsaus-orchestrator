@@ -515,7 +515,7 @@ export class StoryPrs {
   }
 
   /**
-   * A red head: builds its CI items (one log read per failed check, once per head), appends the
+   * A red head: builds its CI items (one log read per failed check, once per head per poller, so again after a restart), appends the
    * head's `ci` step unless an earlier poll did, and parks the story `verify-failing` with cause
    * `ci` when the run's CI cap is reached. False when that park failed, so the head stays open.
    */
