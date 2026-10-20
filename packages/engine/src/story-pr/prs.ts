@@ -394,7 +394,7 @@ export class StoryPrs {
 
   /**
    * Reads one open PR on the host (`viewPr`). A PR merged or closed there gets its state and close
-   * time written and one `story.pr` with the new state; an open PR changes nothing. A failed read is
+   * time written and one `story.pr` with the new state; an open PR goes on to the CI watch. A failed read is
    * logged and the next poll reads again.
    */
   async #poll(officeId: OfficeId, state: Polled, stored: StoryPrRecord): Promise<void> {
@@ -506,15 +506,15 @@ export class StoryPrs {
     }
     if (verdict.state === "passed") watch.final = true;
     if (verdict.state === "failed" && (final || waited)) {
-      watch.final = true;
-      await this.#red(officeId, state, run, stored, repo, reports);
+      // A park that failed leaves the head open, so the next poll tries the park again.
+      watch.final = await this.#red(officeId, state, run, stored, repo, reports);
     }
   }
 
   /**
    * A red head: builds its CI items (one log read per failed check, once per head), appends the
    * head's `ci` step unless an earlier poll did, and parks the story `verify-failing` with cause
-   * `ci` when the run's CI cap is reached.
+   * `ci` when the run's CI cap is reached. False when that park failed, so the head stays open.
    */
   async #red(
     officeId: OfficeId,
@@ -523,7 +523,7 @@ export class StoryPrs {
     stored: StoryPrRecord,
     repo: string,
     reports: readonly RequiredCheck[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     const office = state.office;
     const watch = state.watch.get(run.runId) as Watch;
     const recorded = runSteps(office, run.runId).some(
@@ -538,9 +538,9 @@ export class StoryPrs {
     }
     const cap = runCaps(office, run).ciCap;
     const attempts = runRoundCounts(office, run.runId).ciAttempts;
-    if (cap === null || attempts < cap || runParked(office, run.runId)) return;
+    if (cap === null || attempts < cap || runParked(office, run.runId)) return true;
     const park = this.#deps.park;
-    if (park === undefined) return;
+    if (park === undefined) return true;
     const items = (watch.items ?? []).map((item) => item.text).join("\n\n");
     const detail = `required checks were red on ${attempts} pushed heads (the CI cap is ${cap}).${
       items === "" ? "" : ` ${cutHead(items, CI_DETAIL_MAX, cutMarker).text}`
@@ -562,12 +562,14 @@ export class StoryPrs {
           endKind: "verify-failing",
         },
       );
+      return true;
     } catch (error) {
       this.#deps.logger?.warn("parking the story on red checks failed", {
         office: officeId,
         run: run.runId,
         reason: messageOf(error),
       });
+      return false;
     }
   }
 
