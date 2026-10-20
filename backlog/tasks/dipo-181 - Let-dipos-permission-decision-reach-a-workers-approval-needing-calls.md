@@ -1,10 +1,10 @@
 ---
 id: DIPO-181
 title: Let dipo's permission decision reach a worker's approval-needing calls
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-20 08:57'
+updated_date: '2026-10-20 09:10'
 labels:
   - 'tier:M'
   - cutover
@@ -69,7 +69,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The condition that made the host answer the waiting PermissionRequest calls of the cited runs early is named in a code comment next to the fix, in whichever referenced file holds it, and a regression test reproduces that sequence through the real engine path (for example OfficeIngest.start called before the in-process WorkerHost binds its socket, then a hook call with waitMs 310000 and the engine's hookReply for its id) and fails without the fix
-- [ ] #2 A PermissionRequest call with --wait is held by the host until the engine's hookReply, the wait passing or the worker's exit; the engine's output reaches relayHookPayload and `dipo hook PermissionRequest --wait` prints it, and a later waiting call in the same session is held and answered the same way, shown by a test from the hook op to the printed output in which no hookReply fails with hook.unknown
-- [ ] #3 When the host answers a call that carries waitMs with no output before the wait passes (no engine watches, the host is not running, the engine's connection closed, the worker exited), it writes an info line to host.log with the reason, the hook id and waitMs, and tests in packages/engine/test/host/hook-relay.test.ts check the line for each reason
+- [x] #1 The condition that made the host answer the waiting PermissionRequest calls of the cited runs early is named in a code comment next to the fix, in whichever referenced file holds it, and a regression test reproduces that sequence through the real engine path (for example OfficeIngest.start called before the in-process WorkerHost binds its socket, then a hook call with waitMs 310000 and the engine's hookReply for its id) and fails without the fix
+- [x] #2 A PermissionRequest call with --wait is held by the host until the engine's hookReply, the wait passing or the worker's exit; the engine's output reaches relayHookPayload and `dipo hook PermissionRequest --wait` prints it, and a later waiting call in the same session is held and answered the same way, shown by a test from the hook op to the printed output in which no hookReply fails with hook.unknown
+- [x] #3 When the host answers a call that carries waitMs with no output before the wait passes (no engine watches, the host is not running, the engine's connection closed, the worker exited), it writes an info line to host.log with the reason, the hook id and waitMs, and tests in packages/engine/test/host/hook-relay.test.ts check the line for each reason
 <!-- AC:END -->
