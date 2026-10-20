@@ -1,10 +1,10 @@
 ---
 id: DIPO-230
 title: Show the Bash command a refused launch self-test session ran
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:00'
+updated_date: '2026-10-20 14:30'
 labels:
   - 'tier:S'
   - cutover
@@ -53,3 +53,9 @@ test_plan:
 - [x] #3 A session refused for its Bash calls writes the warn line "the launch self-test session ran another Bash command" with the run, the reason and the commands, through an optional warn of ClaudeWorkerPortDeps that packages/daemon/src/runs.ts passes
 - [x] #4 Tests in packages/engine/test/workers/launch-checks.test.ts with a fake spawn show a session with another command refusing with that command in the detail and spawning no second session, and the warn line; tests in packages/engine/test/workers/self-test.test.ts show bashCalls returning the commands
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CSDGM3352VXEXGFFAFT68P (Haiku, 54 turns, about $0.05, 4 min) reported done, In Review, with no denied call and no write outside the References. As the maintainer answered (2026-10-20, show the command, no retry): the launch self-test still refuses once, with no retry, when its session ran another Bash command; each of the three Bash refusal reasons now names the commands the session ran (each cut to 300 characters, or none), and the daemon logs a warn line (run, reason, commands) only for that refusal. Tests cover the reason text, the none case, the cut, one spawned session, and no warn on a passing session. Review passed with no blocking finding. Advisory, not done: the warn line has no office field; the hold detail now shows model-written commands verbatim (relevant if hold details ever get redaction). Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0.
+<!-- SECTION:NOTES:END -->
