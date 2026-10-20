@@ -407,6 +407,49 @@ describe("work.run picks and claims one Ready story", () => {
     expect(world.claims).toHaveLength(1);
   });
 
+  it("snapshots the review loop caps from the review and merge slot settings at run start (DIPO-146)", async () => {
+    world.config = {
+      ...OFFICE_DEFAULTS,
+      review: {
+        ...OFFICE_DEFAULTS.review,
+        maxRounds: 4,
+        maxTurns: 70,
+        maxMinutes: 25,
+        budgetTokens: 150_000,
+      },
+      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, ciAttempts: 5, conflictAttempts: 3 },
+    };
+    story("TASK-1", "Ready");
+    const runId = RunId.parse(resultOf(await run()).started[0]?.run);
+    const expected = {
+      reviewRoundCap: 4,
+      ciCap: 5,
+      conflictCap: 3,
+      reviewMaxTurns: 70,
+      reviewMaxMinutes: 25,
+      reviewAllowance: 150_000,
+    };
+    expect(findRun(world.office, runId)).toMatchObject(expected);
+    expect(
+      world.office.get<Record<string, unknown>>(
+        `select review_round_cap, ci_cap, conflict_cap, review_max_turns, review_max_minutes,
+           review_allowance from runs where office_id = $office_id and run_id = $run`,
+        { run: runId },
+      ),
+    ).toEqual({
+      review_round_cap: 4,
+      ci_cap: 5,
+      conflict_cap: 3,
+      review_max_turns: 70,
+      review_max_minutes: 25,
+      review_allowance: 150_000,
+    });
+
+    // A config edit after the start never changes the running story's limits.
+    world.config = OFFICE_DEFAULTS;
+    expect(findRun(world.office, runId)).toMatchObject(expected);
+  });
+
   it("counts only the worker place: an open session run takes none (DIPO-142)", async () => {
     story("TASK-1", "Ready");
     world.office.immediate(() =>

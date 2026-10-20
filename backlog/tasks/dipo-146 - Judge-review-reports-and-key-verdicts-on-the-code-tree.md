@@ -1,10 +1,10 @@
 ---
 id: DIPO-146
 title: Judge review reports and key verdicts on the code tree
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:18'
+updated_date: '2026-10-20 07:19'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -25,6 +25,8 @@ references:
   - packages/engine/test/review/
   - packages/engine/test/db/
   - packages/engine/test/run/
+  - packages/engine/src/retention/run.ts
+  - packages/engine/test/retention/
 priority: high
 type: feature
 ordinal: 135000
@@ -57,7 +59,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A report is valid only with exactly one criteria entry per story criterion and evidence for unmet and maintainer; a blocking scope, security or correctness finding needs a changed file, a line inside a hunk of the story's diff and a quote equal to that line after trimming, a blocking test finding needs the number of an automated test-plan entry, and blocking maintainability or other findings are stored as advisory
-- [ ] #2 The verdict is blocked when a criterion is unmet or a validated blocking finding exists, else approved; it is stored in review_verdicts (retention tier S, with validation notes, comment URL, carried-from commit and override) and as a review gate keyed on the code tree key, and story.detail shows it as Verdict.review
-- [ ] #3 A migration adds runs.ci_cap, conflict_cap, review_max_turns, review_max_minutes and review_allowance, and these with review_round_cap are written from review.maxRounds, maxTurns, maxMinutes, budgetTokens and mergeSlot.ciAttempts and conflictAttempts at run start; the new NewRun fields in packages/engine/src/run/records.ts are optional with a null default, as maxTurns and maxMinutes are, so existing NewRun literals still type-check
+- [x] #1 A report is valid only with exactly one criteria entry per story criterion and evidence for unmet and maintainer; a blocking scope, security or correctness finding needs a changed file, a line inside a hunk of the story's diff and a quote equal to that line after trimming, a blocking test finding needs the number of an automated test-plan entry, and blocking maintainability or other findings are stored as advisory
+- [x] #2 The verdict is blocked when a criterion is unmet or a validated blocking finding exists, else approved; it is stored in review_verdicts (retention tier S, with validation notes, comment URL, carried-from commit and override) and as a review gate keyed on the code tree key, and story.detail shows it as Verdict.review
+- [x] #3 A migration adds runs.ci_cap, conflict_cap, review_max_turns, review_max_minutes and review_allowance, and these with review_round_cap are written from review.maxRounds, maxTurns, maxMinutes, budgetTokens and mergeSlot.ciAttempts and conflictAttempts at run start; the new NewRun fields in packages/engine/src/run/records.ts are optional with a null default, as maxTurns and maxMinutes are, so existing NewRun literals still type-check
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5B5FV0Y40H1EKXT3QJBQQN0 (Opus, tier L, 109 turns, about $5.01, 11 min) reported done, In Review; one sed -i was auto-denied (G7). No write outside the References. review/validate.ts checks a report against the L1 schema and 0019 section 5 (criteria numbers, evidence, summary length, quotes against the story diff's new-side hunks, test findings against automated test plan entries; blocking maintainability and other findings demoted by rule); review/verdict.ts judges approved or blocked; review/store.ts records the review gate, its decision keyed on the code tree key, and the review_verdicts row (commit, code tree key, validation notes, comment URL, carried-from, override). Migration 39 adds review_verdicts and five nullable runs cap columns, written at run start and read by runCaps with their grants; story.detail shows Verdict.review. Fixed on top after review: the retention pass now deletes review_verdicts rows with their gate decisions (the policy listed them but no pass deleted them), with a test; References widened at close: packages/engine/src/retention/run.ts and packages/engine/test/retention/. Not here, as planned: DIPO-219 starts reviews and calls these. Verify outside the sandbox: 3856 tests, 0 fail; DIPO_TEST_CI=1 review, db, run, views and daemon tests pass (675). Review and re-review passed apart from the References, now declared.
+<!-- SECTION:NOTES:END -->
