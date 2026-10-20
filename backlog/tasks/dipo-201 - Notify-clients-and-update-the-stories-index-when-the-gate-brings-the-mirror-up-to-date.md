@@ -3,10 +3,10 @@ id: DIPO-201
 title: >-
   Notify clients and update the stories index when the gate brings the mirror up
   to date
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-20 14:17'
+updated_date: '2026-10-20 14:24'
 labels:
   - 'tier:M'
   - cutover
@@ -52,7 +52,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The index pass a gate read runs goes through StoryIndex (one method that takes the caller's git session), so StoryIndex's last sha and last pass are updated, its branchUnread warnings are logged, and onOfficeChanged is called when the pass wrote change-log entries; the method does not wait on StoryIndex's serial chain, since a running poll holds that chain while it waits for the office git queue item the gate read already holds
-- [ ] #2 After such a gate read, the next stories index poll at the same base sha runs no pass; a test counts the passes
-- [ ] #3 The work.run claim recheck with a stale mirror brings the mirror up to date through the same method instead of viewing every task, or the report evidence says why it cannot and the per-view fallback stays
+- [x] #1 The index pass a gate read runs goes through StoryIndex (one method that takes the caller's git session), so StoryIndex's last sha and last pass are updated, its branchUnread warnings are logged, and onOfficeChanged is called when the pass wrote change-log entries; the method does not wait on StoryIndex's serial chain, since a running poll holds that chain while it waits for the office git queue item the gate read already holds
+- [x] #2 After such a gate read, the next stories index poll at the same base sha runs no pass; a test counts the passes
+- [x] #3 The work.run claim recheck with a stale mirror brings the mirror up to date through the same method instead of viewing every task, or the report evidence says why it cannot and the per-view fallback stays
 <!-- AC:END -->
