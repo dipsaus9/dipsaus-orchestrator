@@ -1031,6 +1031,40 @@ describe("(engine) scoped launch holds (DIPO-257)", () => {
     expect(text).not.toContain("every office.");
   });
 
+  it("a refused worker resume keeps its worktree, so its hold is checked again on the timer", async () => {
+    const { clock, holds } = setup();
+    const fs = new MemoryFs();
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([LAYOUT.command], {
+        approvalResult: CLI_NO_APPROVAL_TEXT,
+        cliDenied: true,
+      }),
+      onSession: () => {
+        fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
+        fs.files.set(LAYOUT.controlFile, "");
+      },
+    });
+    const resume = spec({ session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: true } });
+    const refused = await prepareLaunch(resume, context(), holds, {
+      spawn: fake.spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      standIn: fakeStandIn({ reached: false }).start,
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs,
+    });
+    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID, workerKind)).toMatchObject({
+      scope: workerKind,
+      rechecks: true,
+    });
+    expect(holds.scopedAttempts(CLAUDE_CLI_ADAPTER_ID, workerKind)).toBe(1);
+  });
+
   it("every other launch check failure holds every office, so the scoped hold fails closed", async () => {
     const { clock, holds } = setup();
     const fake = scriptedClaude(clock, { auth: '{"loggedIn":true,"authMethod":"api-key"}' });

@@ -206,11 +206,12 @@ export async function prepareLaunch(
   const launch = plan(spec, ctx);
   await checkNpmTokens(ctx);
   if (verify !== undefined) await checkVerifyTools(ctx, spec.workdir, verify);
-  // A self-test that could not run holds only this office's launch kind (DIPO-257). A reviewer's
-  // recheck repeats this launch's checks with a new self-test session: its worktree outlives the
-  // refusal. A worker pickup that is refused rolls its worktree and run directory back, so a
-  // worker hold gets no timed recheck; the next launch of that kind checks again.
-  const rechecks = spec.kind === "review";
+  // A self-test that could not run holds only this office's launch kind (DIPO-257). The recheck
+  // repeats this launch's checks with a new self-test session when its worktree outlives the
+  // refusal: a review, a resume and a fix or conflict start. A new worker pickup that is refused
+  // rolls its worktree and run directory back, so it gets no timed recheck; the next named launch
+  // of that kind checks again.
+  const rechecks = spec.kind === "review" || spec.session.resume;
   const scope: HoldScope = {
     office: ctx.mainCheckout,
     kind: spec.kind === "review" ? "reviewer" : "worker",
