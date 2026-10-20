@@ -1,10 +1,10 @@
 ---
 id: DIPO-207
 title: Start a resumed or re-attached session with the effort its run started with
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-20 07:38'
+updated_date: '2026-10-20 07:54'
 labels:
   - 'tier:M'
   - cutover
@@ -54,3 +54,9 @@ test_plan:
 - [x] #3 When the run's first developer agent has a null effort, the session uses the effort of the run's tier in force, with a test in packages/engine/test/run/
 - [x] #4 Tests edit the office tier between the start and the resume, and between the start and a re-attach, and expect the literal start model and effort in the resumed session's spec (packages/engine/test/run/) and in the re-attached session's initial state (packages/daemon/test/unit/runs.test.ts)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C3JM33QF8BCSEB3CMPX27S (Sonnet, 37 turns, about $0.44, 4 min) reported done, In Review; two sed -i calls were auto-denied (G7). No write outside the References. startTierOf (run/resume.ts) gives the tier in force with the run's model and the effort of its first developer agent (falling back to the tier's effort when none was recorded); the resumer and the daemon's re-attach initialState (startedSessionState in packages/daemon/src/runs.ts) both use it, so a resumed or re-attached session starts with the effort its run started with. Tests edit tier M to opus/high and expect haiku/medium. Review passed; advisories not done: the daemon test's stub handle does not prove the SQL filter (the engine test on a fixture database does), and the daemonRuns initialState wiring is not exercised directly. Verify outside the sandbox: 3850 tests, 0 fail; DIPO_TEST_CI=1 run and daemon tests pass (589).
+<!-- SECTION:NOTES:END -->
