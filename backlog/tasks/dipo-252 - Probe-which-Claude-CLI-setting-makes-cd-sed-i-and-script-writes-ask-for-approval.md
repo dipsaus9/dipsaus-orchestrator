@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:20'
+updated_date: '2026-10-20 20:44'
 labels:
   - 'tier:S'
   - cutover
@@ -27,7 +27,7 @@ Outcome: the facts that decide D1 are known: which Claude CLI setting makes a wo
 
 Type: spike. Why planning cannot settle it: the CLI's approval logic is not documented for these forms and changes between versions, so only live sessions on the pinned CLI with a real worker's settings can show it.
 
-Context: the maintainer's decision D1 of 2026-10-20 (answer B, "container without narrowing"): isolate the worker in its sandbox and let it `cd` and use bash freely inside, gated on this probe; the write list is not narrowed to the References (scope stays checked at the end of the run). In the M1 runs about 418 Bash commands started with `cd` although the contract forbids it, and 44 of 86 run logs had a denied call (docs/research/2026-10-20-dipo-run-gaps.md, section 3.4). The 2026-10-20 DIPO-231 probe found that `cd .; ls` asks 4 of 4 times under the run settings, because the permission layer cannot check a `cd` target against the read block that `blockReadsOutsideWorkingDirectories` sets (packages/engine/src/workers/claude-cli/plan.ts writes it true); the CLI's own write-target checks are the other suspect for `sed -i` and scripted writes. The probe starts live Claude sessions, so it runs only on the scratch repository (dipsaus9/dipo-scratch-backlog) with Haiku, a copy of a real worker's claude-settings.json and the plan's argv, never in a dipo worker. A read probe uses a canary file planted for the probe in a home directory outside the sandbox's read paths, never a real credential file. If both questions hold, D1 approves a dated 0008 section 2 note that switches the duplicate CLI checks off; if the second fails, the answer is explicit Read deny rules or keeping the setting, and the facts go back to the maintainer.
+Context: the maintainer's decision D1 of 2026-10-20 (answer B, "container without narrowing"): isolate the worker in its sandbox and let it `cd` and use bash freely inside, gated on this probe; the write list is not narrowed to the References (scope stays checked at the end of the run). In the M1 runs about 418 Bash commands started with `cd` although the contract forbids it, and 44 of 86 run logs had a denied call (docs/research/2026-10-20-dipo-run-gaps.md, section 3.4). The 2026-10-20 DIPO-231 probe found that `cd .; ls` asks 4 of 4 times under the run settings, because the permission layer cannot check a `cd` target against the read block that `blockReadsOutsideWorkingDirectories` sets (packages/engine/src/workers/claude-cli/plan.ts writes it true); the CLI's own write-target checks are the other suspect for `sed -i` and scripted writes. The probe starts live Claude sessions, so it runs only on the scratch repository (dipsaus9/dipo-scratch-backlog) with Haiku, a worker's claude-settings.json and argv from a plan built under a temp DIPO_HOME (never the real dipo state), never in a dipo worker. The maintainer starts it by hand; never set it Ready for dipo. A read probe uses a canary file planted for the probe in a home directory outside the sandbox's read paths, never a real credential file. If both questions hold, D1 approves a dated 0008 section 2 note that switches the duplicate CLI checks off; if the second fails, the answer is explicit Read deny rules or keeping the setting, and the facts go back to the maintainer.
 
 ```dipo
 branch: "DIPO-252/probe-cli-approval-setting"

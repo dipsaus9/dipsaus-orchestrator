@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:26'
+updated_date: '2026-10-20 20:44'
 labels:
   - 'tier:M'
   - cutover
@@ -40,7 +40,7 @@ ordinal: 136300
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: a worker's done report lists every test-plan entry with a status and evidence and every deviation from the story with its reason; the engine refuses done while an automated entry is not done and tells the worker which, and the reviewer sees both lists.
 
-Context: the maintainer's decision D2 of 2026-10-20 (answer A); dated 0014 section 2 note of 2026-10-20. In the M1 runs 25 of 78 done reports were not quite true and about 10 stories had test-plan items skipped or weakly met (DIPO-227 skipped a daemon test, DIPO-229's "resume first" test passed without the fix; docs/research/2026-10-20-dipo-run-gaps.md sections 3.2 and 3.3). WorkerReport (packages/engine/src/workers/types.ts) has status, criteria, summary, commitSubject, question and notes; its JSON schema is in packages/engine/src/workers/claude-cli/report-schema.ts and it is read in interpret.ts. The test plan is parsed from the story's dipo block (test_plan.entries with kind automated or manual, packages/engine/src/backlog/fields/block.ts). VerifyCommit (packages/engine/src/run/verify-commit.ts) takes a done report, runs verify, checks scope and commits; feedback items are built in packages/engine/src/prompts/feedback.ts with templates in packages/engine/src/prompts/feedback/, and the review task message in packages/engine/src/prompts/review.ts. DIPO-186 adds decisionNotes to the same report; the two are siblings. The desk (DIPO-158) lists deviations once it exists; this story stores them.
+Context: the maintainer's decision D2 of 2026-10-20 (answer A); dated 0014 section 2 note of 2026-10-20. In the M1 runs 25 of 78 done reports were not quite true and about 10 stories had test-plan items skipped or weakly met (DIPO-227 skipped a daemon test, DIPO-229's "resume first" test passed without the fix; docs/research/2026-10-20-dipo-run-gaps.md sections 3.2 and 3.3). WorkerReport (packages/engine/src/workers/types.ts) has status, criteria, summary, commitSubject, question, notes and needsPermission; its JSON schema is in packages/engine/src/workers/claude-cli/report-schema.ts and it is read in interpret.ts. The test plan is parsed from the story's dipo block (test_plan.entries with kind automated or manual, packages/engine/src/backlog/fields/block.ts). VerifyCommit (packages/engine/src/run/verify-commit.ts) takes a done report, runs verify, checks scope and commits; feedback items are built in packages/engine/src/prompts/feedback.ts with templates in packages/engine/src/prompts/feedback/, and the review task message in packages/engine/src/prompts/review.ts. DIPO-186 adds decisionNotes to the same report; the two are siblings. The desk (DIPO-158) lists deviations once it exists; this story stores them.
 
 ```dipo
 branch: "DIPO-254/report-test-plan-and-deviations"

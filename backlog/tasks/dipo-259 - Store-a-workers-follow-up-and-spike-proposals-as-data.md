@@ -4,7 +4,7 @@ title: Store a worker's follow-up and spike proposals as data
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:25'
+updated_date: '2026-10-20 20:44'
 labels:
   - 'tier:S'
   - cutover
@@ -24,6 +24,7 @@ references:
   - packages/engine/test/db/
   - packages/engine/test/run/control.test.ts
   - packages/engine/test/run/verify-commit.test.ts
+  - packages/engine/test/prompts/
 priority: high
 type: feature
 ordinal: 136480

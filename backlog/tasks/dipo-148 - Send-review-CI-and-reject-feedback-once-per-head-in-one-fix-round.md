@@ -4,7 +4,7 @@ title: 'Send review, CI and reject feedback once per head in one fix round'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 20:26'
+updated_date: '2026-10-20 20:44'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -56,6 +56,8 @@ test_plan:
       check: "(unit) review item signatures ignore free text and collapse whitespace in quotes"
     - kind: "automated"
       check: "(migration) feedback_items exists with retention tier S"
+    - kind: "automated"
+      check: "(unit) a reject item has the stored shape (the note verbatim, keyed on the gate id) and goes out through the same send path as review and CI items; before DIPO-151 no reject item is produced"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
