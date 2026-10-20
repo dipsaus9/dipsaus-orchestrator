@@ -4,7 +4,7 @@ title: Release a claim when a story is Done on the base through another branch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 23:03'
+updated_date: '2026-10-20 07:19'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -14,6 +14,7 @@ dependencies:
   - DIPO-158
   - DIPO-161
   - DIPO-216
+  - DIPO-226
 references:
   - packages/engine/src/worktree/
   - packages/engine/src/reconcile/
@@ -41,6 +42,8 @@ branch: "DIPO-162/release-claim-done-elsewhere"
 unknowns: []
 test_plan:
   entries:
+    - kind: "automated"
+      check: "(engine) an own-branch teardown that crashed after removing its worktree, released by the DIPO-216 reconcile step with its branch kept, has that branch deleted locally and remotely when merge-tree shows it adds nothing to the base"
     - kind: "automated"
       check: "(integration, real git) a story Done on the base through another branch releases a parked claim and keeps a dirty worktree as leftovers"
     - kind: "automated"

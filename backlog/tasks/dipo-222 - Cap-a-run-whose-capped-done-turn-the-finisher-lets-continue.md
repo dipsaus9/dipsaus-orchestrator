@@ -4,7 +4,7 @@ title: Cap a run whose capped done turn the finisher lets continue
 status: Refined
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-19 23:03'
+updated_date: '2026-10-20 07:19'
 labels:
   - 'tier:M'
   - cutover
@@ -17,6 +17,7 @@ references:
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/test/run/verify-commit.test.ts
   - packages/engine/test/run/control.test.ts
+  - packages/engine/src/run/park.ts
 priority: high
 type: bug
 ordinal: 222000

@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-19 23:03'
+updated_date: '2026-10-20 07:19'
 labels:
   - 'tier:S'
   - cutover
@@ -49,7 +49,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A here-doc body (after << or <<- with a quoted or unquoted delimiter, up to the delimiter line) is not split as commands, except when the command that reads it is a shell from SHELLS without -c, whose body is checked as a script; `cat > s.sh <<'EOF'` with a body line that sets DIPO_TMP passes and `bash <<'EOF'` with the same body is refused
+- [ ] #1 A here-doc body (after << or <<- with a quoted or unquoted delimiter, up to the delimiter line) is not split as commands, except when the command that reads it is a shell from SHELLS without -c, whose body is checked as a script; `cat > s.sh <<'EOF'` with a body line that sets DIPO_TMP passes and `bash <<'EOF'` with the same body is refused; `<<<` is a here-string, not a here-doc, so `read x <<< y` followed by a line `DIPO_TMP=/x bun test` is still refused
 - [ ] #2 eval's arguments joined by spaces are checked as a command text; local is refused for a guarded assignment as export and declare are; `printf -v` and read are refused when they name DIPO_TMP or TMPDIR as the variable they set (read's -d, -i, -n, -N, -p, -t and -u values skipped, and -a's value checked)
 - [ ] #3 sudo and xargs are followed to the command they run, skipping their options and option values (sudo -u, -g, -C, -D, -h, -p, -R, -T and -U; xargs -I, -L, -n, -P, -s, -E, -d and -a), and sudo's leading NAME=value words are checked as assignments
 - [ ] #4 env's combined short options are read letter by letter: `-iu TMPDIR` and `-iuTMPDIR` clear TMPDIR and are refused, and `-iC /x` takes /x as the -C value
