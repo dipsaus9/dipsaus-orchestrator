@@ -1,10 +1,10 @@
 ---
 id: DIPO-244
 title: Teach the recordings tool the two-call launch self-test
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 20:25'
+updated_date: '2026-10-20 22:28'
 labels:
   - 'tier:S'
   - cutover
@@ -18,6 +18,8 @@ references:
   - packages/engine/test/workers/self-test.test.ts
   - packages/engine/test/recordings/claude-cli/
   - tools/recordings/capture.test.ts
+  - tools/recordings/capture.ts
+  - packages/engine/src/index.ts
 priority: medium
 type: chore
 ordinal: 244000
@@ -29,6 +31,8 @@ ordinal: 244000
 Outcome: `bun run recordings:capture` captures the launch self-test as DIPO-231 runs it, with the probe call and the approval call `cd .; ls` and their approval evidence, so a recaptured safety recording passes the replay test without the synthetic two-call override.
 
 Context: DIPO-231 (finished on 2026-10-20, review advisory) makes the self-test plan two Bash calls and judge an approval evidence (result, cliDenied, reached) from a host-protocol stand-in. tools/recordings/scenarios.ts still calls selfTestBashCalls with the single probe command and judgeSelfTest with no approval, so any new capture of a safety scenario records verdict.ok false (absent approval refuses). The replay test "(unit) live safety recordings" in packages/engine/test/workers/self-test.test.ts reads packages/engine/test/recordings/claude-cli/safety-* and, because those recordings predate the approval call, overrides calls to SELF_TEST_BASH_CALLS and passes a synthetic dipo-denied approval. That keeps their sandbox-probe evidence meaningful but proves nothing about the approval path.
+
+Review note (2026-10-21): the host for a captured session starts in tools/recordings/capture.ts (fixtureHost, only when scenario.hookRelay is set; hostAnswer never answers a PermissionRequest), and the safety scenarios set no hookRelay, so their plan has no hooks; the stand-in that denies the approval call must run during the session, in capture.ts. scenarios.ts imports from packages/engine/src/index.ts, which does not export APPROVAL_COMMAND, approvalFacts, startHostStandIn or selfTestSocketPath yet.
 
 ```dipo
 branch: "DIPO-244/recordings-two-call-self-test"
