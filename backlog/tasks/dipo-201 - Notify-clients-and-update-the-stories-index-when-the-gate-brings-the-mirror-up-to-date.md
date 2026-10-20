@@ -3,10 +3,10 @@ id: DIPO-201
 title: >-
   Notify clients and update the stories index when the gate brings the mirror up
   to date
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-18 08:55'
-updated_date: '2026-10-20 14:24'
+updated_date: '2026-10-20 14:40'
 labels:
   - 'tier:M'
   - cutover
@@ -56,3 +56,9 @@ test_plan:
 - [x] #2 After such a gate read, the next stories index poll at the same base sha runs no pass; a test counts the passes
 - [x] #3 The work.run claim recheck with a stale mirror brings the mirror up to date through the same method instead of viewing every task, or the report evidence says why it cannot and the per-view fallback stays
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CTSE6WWN0Y6YYYAVAHVFGZ (Sonnet, 38 turns, about $0.56, 4 min) reported done, In Review, with no write outside the References. One denied call: a `cd …; sed …; grep …` compound, which the Claude CLI asks approval for (DIPO-232 tells workers to avoid such calls). A gate read that brings the stories mirror up to date now goes through the new StoryIndex.indexInSession: it runs the index pass in the caller's git session and records it like a poll (last sha and pass, onOfficeChanged when the pass has a cursor, branchUnread warnings), without waiting on StoryIndex's serial chain, so a running poll cannot deadlock it; the next poll at the same base runs no pass. work.run's claim recheck passes the claim's git session, so a stale mirror gets one index pass and no per-task view. Fixed on top after review: the work-run fake claim hands its recheck a session sentinel and the gate assertions check it arrives (mutation-checked: dropping the argument fails the test). Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4040 tests; DIPO_TEST_CI=1 gate, stories, run and reconcile tests pass (577).
+<!-- SECTION:NOTES:END -->
