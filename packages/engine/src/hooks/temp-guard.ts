@@ -15,6 +15,8 @@ const KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until"])
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 /** Nesting of `sh -c`, `env -S`, `eval`, here-doc bodies and substitutions that is followed. */
 const MAX_DEPTH = 4;
+/** A here-doc delimiter of digits only is taken for a shift such as `1<<2`, not a here-doc. */
+const NUMBER = /^[0-9]+$/;
 
 /** A simple command: its words with quotes removed, and the here-doc body it reads, if any. */
 interface SimpleCommand {
@@ -22,6 +24,11 @@ interface SimpleCommand {
   body: string | null;
   /** The command before this one when this one follows a pipe `|`. */
   pipedFrom: SimpleCommand | null;
+  /**
+   * For the `}` of a `{ ...; }` group, or the command after the `)` of a `( ... )` group: the
+   * indexes [start, end) of the commands inside the group, which read a here-doc it opens.
+   */
+  group: { start: number; end: number } | null;
 }
 
 /** A here-doc opened by `<<` or `<<-`; its delimiter is the next word, its body follows the line. */
@@ -32,17 +39,103 @@ interface HereDoc {
 }
 
 function emptyCommand(): SimpleCommand {
-  return { words: [], body: null, pipedFrom: null };
+  return { words: [], body: null, pipedFrom: null, group: null };
 }
 
-/** The index of the `)` that closes the `(` at `open`, or the end of the text when it is not closed. */
-function closingParen(text: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < text.length; i++) {
-    if (text.charAt(i) === "(") depth++;
-    else if (text.charAt(i) === ")" && --depth === 0) return i;
+/** The here-doc delimiter word from `start` with its quotes removed, and the index after it. */
+function hereDocWord(text: string, start: number): { delim: string; end: number } {
+  let i = start;
+  while (text.charAt(i) === " " || text.charAt(i) === "\t") i++;
+  let delim = "";
+  for (; i < text.length; i++) {
+    const c = text.charAt(i);
+    if (" \t\r\n;&|()<>".includes(c)) break;
+    if (c === "\\") {
+      i++;
+      delim += text.charAt(i);
+    } else if (c === "'" || c === '"') {
+      const found = text.indexOf(c, i + 1);
+      const stop = found === -1 ? text.length : found;
+      delim += text.slice(i + 1, stop);
+      i = stop;
+    } else {
+      delim += c;
+    }
   }
-  return text.length;
+  return { delim, end: i };
+}
+
+/**
+ * The index of the `)` that closes the `(` at `open` (of a `$(` or `$((`), or -1 when nothing in
+ * the text closes it. A `(` or `)` inside quotes, a backtick, a comment or a here-doc body is not
+ * counted, and `<<` inside an arithmetic `(( ))` opens no here-doc.
+ */
+function closingParen(text: string, open: number): number {
+  // What is open: `(`, arithmetic `((`, a double quote `"` or a backtick.
+  const stack: string[] = [];
+  let arithmetic = 0;
+  const pending: Array<{ delim: string; strip: boolean }> = [];
+  for (let i = open; i < text.length; i++) {
+    const c = text.charAt(i);
+    const top = stack[stack.length - 1];
+    if (c === "\\") {
+      i++;
+    } else if (top === '"' || top === "`") {
+      if (c === top) {
+        stack.pop();
+      } else if (c === "$" && text.charAt(i + 1) === "(") {
+        i++;
+        if (text.charAt(i + 1) === "(") {
+          stack.push("((");
+          arithmetic++;
+          i++;
+        } else {
+          stack.push("(");
+        }
+      } else if (top === '"' && c === "`") {
+        stack.push("`");
+      }
+    } else if (c === "(") {
+      if (text.charAt(i + 1) === "(") {
+        stack.push("((");
+        arithmetic++;
+        i++;
+      } else {
+        stack.push("(");
+      }
+    } else if (c === ")") {
+      if (top === "((") {
+        arithmetic--;
+        if (text.charAt(i + 1) === ")") i++;
+      }
+      stack.pop();
+      if (stack.length === 0) return i;
+    } else if (c === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end === -1) return -1;
+      i = end;
+    } else if (c === '"' || c === "`") {
+      stack.push(c);
+    } else if (c === "#" && " \t\n;&|(".includes(text.charAt(i - 1))) {
+      const end = text.indexOf("\n", i);
+      if (end === -1) return -1;
+      // The line break is left to the loop, which reads a here-doc body.
+      i = end - 1;
+    } else if (c === "<" && text.startsWith("<<<", i)) {
+      i += 2;
+    } else if (c === "<" && text.startsWith("<<", i) && arithmetic === 0) {
+      const strip = text.charAt(i + 2) === "-";
+      const word = hereDocWord(text, i + (strip ? 3 : 2));
+      if (word.delim !== "" && !NUMBER.test(word.delim)) pending.push({ delim: word.delim, strip });
+      i = word.end - 1;
+    } else if (c === "\n" && pending.length > 0) {
+      let next = i;
+      for (const heredoc of pending) next = readHereDoc(text, next + 1, heredoc).next;
+      pending.length = 0;
+      i = next - 1;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -72,23 +165,43 @@ function readHereDoc(
  * Splits the text into simple commands, each a list of words with quotes removed, and collects the
  * text of each command substitution inside double quotes. Unquoted `&&`, `||`, `;`, `|`, `&`,
  * newlines, parentheses and backticks end a command; an unquoted `#` at a word start begins a
- * comment. A here-doc body is not split: it becomes the body of the command that opens it. `<<<`
- * is a here-string and no here-doc.
+ * comment. A here-doc body is not split: it becomes the body of the command that opens it, and of
+ * each command inside a `{ ...; }` or `( ... )` group that opens it. `<<<` is a here-string and no
+ * here-doc, and a `<<` inside an arithmetic `(( ))` or before a number is a shift.
  */
 function simpleCommands(text: string): { commands: SimpleCommand[]; nested: string[] } {
   const commands: SimpleCommand[] = [];
   const nested: string[] = [];
   const heredocs: HereDoc[] = [];
+  // The open `(`, arithmetic `((` and `{` groups, with the index of their first command.
+  const groups: Array<{ kind: string; start: number }> = [];
+  let arithmetic = 0;
   let current = emptyCommand();
+  // True while the current command holds only keywords and `{`, so a `{` opens a group.
+  let listStart = true;
   let word = "";
   let inWord = false;
   // The here-doc whose delimiter is the next word.
   let delimFor: HereDoc | null = null;
+  // Set once a `$(` inside double quotes is not closed: later ones are not scanned again.
+  let unclosed = false;
   const endWord = () => {
-    if (inWord && delimFor !== null) {
+    if (inWord && delimFor !== null && !NUMBER.test(word)) {
       delimFor.delim = word;
       delimFor = null;
     } else if (inWord) {
+      if (delimFor !== null) {
+        // `<<2` is a shift, not a here-doc.
+        heredocs.pop();
+        delimFor = null;
+      }
+      if (word === "{" && listStart) {
+        groups.push({ kind: "{", start: commands.length });
+      } else if (word === "}" && current.words.length === 0 && groups.at(-1)?.kind === "{") {
+        const group = groups.pop();
+        if (group !== undefined) current.group = { start: group.start, end: commands.length };
+      }
+      listStart = listStart && (KEYWORDS.has(word) || word === "{");
       current.words.push(word);
     }
     word = "";
@@ -98,6 +211,7 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
     endWord();
     if (current.words.length > 0) commands.push(current);
     current = emptyCommand();
+    listStart = true;
   };
   for (let i = 0; i < text.length; i++) {
     const c = text.charAt(i);
@@ -118,18 +232,19 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
       inWord = true;
       for (i++; i < text.length && text.charAt(i) !== '"'; i++) {
         const d = text.charAt(i);
-        if (d === "$" && text.charAt(i + 1) === "(") {
-          const close = closingParen(text, i + 1);
-          nested.push(text.slice(i + 2, close));
-          word += text.slice(i, close + 1);
-          i = close;
-        } else if (d === "`") {
-          const found = text.indexOf("`", i + 1);
-          const close = found === -1 ? text.length : found;
-          nested.push(text.slice(i + 1, close));
+        const close =
+          d === "$" && text.charAt(i + 1) === "(" && !unclosed
+            ? closingParen(text, i + 1)
+            : d === "`"
+              ? text.indexOf("`", i + 1)
+              : -1;
+        if (close !== -1) {
+          nested.push(text.slice(d === "$" ? i + 2 : i + 1, close));
           word += text.slice(i, close + 1);
           i = close;
         } else {
+          // A substitution nothing closes is read as plain text.
+          if (d === "$" && text.charAt(i + 1) === "(") unclosed = true;
           if (d === "\\" && i + 1 < text.length) i++;
           word += text.charAt(i);
         }
@@ -141,11 +256,15 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
       endCommand();
     } else if (c === " " || c === "\t" || c === "\r") {
       endWord();
-    } else if (c === "<" && text.startsWith("<<<", i)) {
-      // A here-string: its `<<<` is an ordinary word.
-      word += "<<<";
+    } else if (
+      c === "<" &&
+      (text.startsWith("<<<", i) || (arithmetic > 0 && text.startsWith("<<", i)))
+    ) {
+      // A here-string's `<<<` and an arithmetic shift are ordinary words.
+      const operator = text.startsWith("<<<", i) ? "<<<" : "<<";
+      word += operator;
       inWord = true;
-      i += 2;
+      i += operator.length - 1;
     } else if (c === "<" && text.startsWith("<<", i)) {
       endWord();
       const strip = text.charAt(i + 2) === "-";
@@ -164,12 +283,37 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
         if (heredoc.delim === undefined) continue;
         const read = readHereDoc(text, next + 1, { delim: heredoc.delim, strip: heredoc.strip });
         heredoc.command.body = read.body;
+        const group = heredoc.command.group;
+        for (let k = group?.start ?? 0; k < (group?.end ?? 0); k++) {
+          const inner = commands[k];
+          if (inner !== undefined && inner.body === null) inner.body = read.body;
+        }
         next = read.next;
       }
       heredocs.length = 0;
       // The loop continues at the line break that ends the last delimiter line.
       i = next - 1;
-    } else if (";&\n()`".includes(c)) {
+    } else if (c === "(") {
+      endCommand();
+      if (text.charAt(i + 1) === "(") {
+        groups.push({ kind: "((", start: commands.length });
+        arithmetic++;
+        i++;
+      } else {
+        groups.push({ kind: "(", start: commands.length });
+      }
+    } else if (c === ")") {
+      endCommand();
+      const group = groups.at(-1);
+      if (group?.kind === "((") {
+        groups.pop();
+        arithmetic--;
+        if (text.charAt(i + 1) === ")") i++;
+      } else if (group?.kind === "(") {
+        groups.pop();
+        current.group = { start: group.start, end: commands.length };
+      }
+    } else if (";&\n`".includes(c)) {
       endCommand();
     } else {
       word += c;
@@ -195,12 +339,35 @@ const ENV_SHORT_VALUE_OPTIONS: ReadonlySet<string> = new Set(["u", "C", "P", "S"
 const ENV_LONG_VALUE_OPTIONS = new Set(["--chdir", "--default-path"]);
 /** `sudo` short options that take a value (-u, -g, -C, -D, -h, -p, -R, -T and -U). */
 const SUDO_VALUE_OPTIONS: ReadonlySet<string> = new Set("ugCDhpRTU");
+/** `sudo` long options that take the next word as their value. */
+const SUDO_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  "--user",
+  "--group",
+  "--close-from",
+  "--chdir",
+  "--host",
+  "--prompt",
+  "--chroot",
+  "--role",
+  "--type",
+  "--command-timeout",
+  "--other-user",
+]);
 /** `xargs` short options that take a value (-I, -L, -n, -P, -s, -E, -d and -a). */
 const XARGS_VALUE_OPTIONS: ReadonlySet<string> = new Set("ILnPsEda");
+/** `xargs` long options that take the next word as their value. */
+const XARGS_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  "--arg-file",
+  "--delimiter",
+  "--max-args",
+  "--max-procs",
+  "--max-chars",
+  "--process-slot-var",
+]);
 /** `read` short options that take a value; `-a` takes an array name, which is checked. */
 const READ_VALUE_OPTIONS: ReadonlySet<string> = new Set("adinNptu");
 
-function envRefusal(args: readonly string[], depth: number): string | null {
+function envRefusal(args: readonly string[], depth: number, body: string | null): string | null {
   for (let i = 0; i < args.length; i++) {
     const word = args[i] ?? "";
     if (word === "--") continue;
@@ -235,7 +402,7 @@ function envRefusal(args: readonly string[], depth: number): string | null {
       }
     } else {
       // The command `env` runs: look at it as a command of its own.
-      return commandRefusal(args.slice(i), depth);
+      return commandRefusal(args.slice(i), depth, body);
     }
   }
   return null;
@@ -243,16 +410,21 @@ function envRefusal(args: readonly string[], depth: number): string | null {
 
 /**
  * The index of the command that a wrapper such as `sudo` or `xargs` runs: its options are skipped,
- * and a letter in `valued` takes the rest of its word or the next word as its value.
+ * a letter in `valued` takes the rest of its word or the next word as its value, and a long option
+ * in `longValued` the next word.
  */
-function wrappedCommandAt(args: readonly string[], valued: ReadonlySet<string>): number {
+function wrappedCommandAt(
+  args: readonly string[],
+  valued: ReadonlySet<string>,
+  longValued: ReadonlySet<string>,
+): number {
   let at = 0;
   while (at < args.length) {
     const word = args[at] ?? "";
     if (word === "--") return at + 1;
     if (!word.startsWith("-") || word === "-") return at;
     if (word.startsWith("--")) {
-      at++;
+      at += longValued.has(word) ? 2 : 1;
       continue;
     }
     const letters = word.slice(1).split("");
@@ -296,7 +468,7 @@ function readRefusal(args: readonly string[]): string | null {
 function printfRefusal(args: readonly string[]): string | null {
   for (let at = 0; at < args.length; at++) {
     const word = args[at] ?? "";
-    if (!word.startsWith("-") || word === "-") return null;
+    if (!word.startsWith("-") || word === "-" || word === "--") return null;
     if (word.startsWith("-v")) {
       const hit = guarded(word === "-v" ? args[++at] : word.slice(2));
       if (hit !== null) return hit;
@@ -352,15 +524,18 @@ function commandRefusal(
     }
     return null;
   }
-  if (base === "env") return envRefusal(args, depth);
+  if (base === "env") return envRefusal(args, depth, body);
   if (base === "eval") return refusedIn(args.join(" "), depth + 1);
   if (base === "read") return readRefusal(args);
   if (base === "printf") return printfRefusal(args);
   if (base === "sudo") {
-    return commandRefusal(args.slice(wrappedCommandAt(args, SUDO_VALUE_OPTIONS)), depth);
+    const start = wrappedCommandAt(args, SUDO_VALUE_OPTIONS, SUDO_LONG_VALUE_OPTIONS);
+    return commandRefusal(args.slice(start), depth, body);
   }
   if (base === "xargs") {
-    return commandRefusal(args.slice(wrappedCommandAt(args, XARGS_VALUE_OPTIONS)), depth);
+    // xargs reads its standard input itself, so a here-doc body is not passed on.
+    const start = wrappedCommandAt(args, XARGS_VALUE_OPTIONS, XARGS_LONG_VALUE_OPTIONS);
+    return commandRefusal(args.slice(start), depth);
   }
   if (SHELLS.has(base)) {
     const flag = args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
@@ -374,13 +549,13 @@ function commandRefusal(
 function refusedIn(text: string, depth: number): string | null {
   if (depth > MAX_DEPTH) return null;
   const { commands, nested } = simpleCommands(text);
+  // The here-doc body each command reads: its own, else the one fed to an earlier stage of its pipe.
+  const fed = new Map<SimpleCommand, string | null>();
   for (const command of commands) {
-    // A shell reads a here-doc body fed to it, or one piped into it.
-    const hit = commandRefusal(
-      command.words,
-      depth,
-      command.body ?? command.pipedFrom?.body ?? null,
-    );
+    const piped = command.pipedFrom === null ? null : (fed.get(command.pipedFrom) ?? null);
+    const body = command.body ?? piped;
+    fed.set(command, body);
+    const hit = commandRefusal(command.words, depth, body);
     if (hit !== null) return hit;
   }
   for (const inner of nested) {

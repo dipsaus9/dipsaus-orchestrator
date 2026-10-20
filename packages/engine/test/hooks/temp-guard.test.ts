@@ -69,6 +69,26 @@ const REFUSED: Array<[string, string]> = [
   // Command substitution inside double quotes (DIPO-223 AC #5).
   ['echo "$(DIPO_TMP=/x bun test)"', "DIPO_TMP"],
   ['echo "`TMPDIR=/x bun test`"', "TMPDIR"],
+  // A shell reached through a wrapper, a pipe or a group reads the here-doc body too.
+  ["sudo bash <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["env bash <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["env -i bash <<EOF\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["cat <<'EOF' | sudo bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["cat <<'EOF' | env bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["cat <<'EOF' | grep x | bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["{ bash; } <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["( bash ) <<'EOF'\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // A parenthesis inside quotes or a here-doc body does not hide the rest of the text.
+  ["echo \"$(echo '(')\"; DIPO_TMP=/x bun test", "DIPO_TMP"],
+  ['echo "$(echo :-()" && DIPO_TMP=/x bun test', "DIPO_TMP"],
+  ["git commit -m \"$(cat <<'EOF'\n...(see below\nEOF\n)\" && DIPO_TMP=/x bun test", "DIPO_TMP"],
+  // An arithmetic shift opens no here-doc.
+  ["echo $((1<<2))\nDIPO_TMP=/x bun test", "DIPO_TMP"],
+  ["(( x = 1<<2 ))\nDIPO_TMP=/x bun test", "DIPO_TMP"],
+  ['echo "$((1<<2))"\nDIPO_TMP=/x bun test', "DIPO_TMP"],
+  // Long wrapper options with a separate value.
+  ["sudo --user me TMPDIR=/x bun test", "TMPDIR"],
+  ["xargs --max-args 1 env TMPDIR=/x bun test", "TMPDIR"],
 ];
 
 const PASSED = [
@@ -103,6 +123,12 @@ const PASSED = [
   "sudo -u me env FOO=1 bun test",
   "env -iC /x bun test",
   "echo '$(DIPO_TMP=/x bun test)'",
+  "printf -- -v TMPDIR",
+  'eval "DIPO_TMP_ROOT=/x bun test"',
+  "read DIPO_TMP_ROOT <<< x",
+  "cat > s.sh <<EOF\nDIPO_TMP=/x bun test\nEOF",
+  "git commit -m \"$(cat <<'EOF'\nTMPDIR=/x (\nEOF\n)\"",
+  "{ cat; } <<'EOF'\nDIPO_TMP=/x\nEOF",
 ];
 
 describe("refusedTempVariable (pure)", () => {
@@ -121,6 +147,23 @@ describe("refusedTempVariable (pure)", () => {
       expect(refusedTempVariable(command)).toBeNull();
     });
   }
+
+  it("ends without throwing on unterminated and long input", () => {
+    const texts = [
+      "bash <<'EOF'\nDIPO_TMP=/x\n",
+      "cat <<",
+      "echo 'abc; TMPDIR=/x",
+      'echo "$(abc; TMPDIR=/x',
+      "echo \\",
+      '"$('.repeat(34_000),
+      "(".repeat(100_000),
+      "cat <<E\n".repeat(12_500),
+      "{ ".repeat(25_000) + "} ".repeat(25_000),
+      "a|".repeat(50_000),
+    ];
+    for (const text of texts) expect(() => refusedTempVariable(text)).not.toThrow();
+    expect(refusedTempVariable("bash <<'EOF'\nDIPO_TMP=/x\n")).toBe("DIPO_TMP");
+  });
 
   it("names the variable and the rule in the reason", () => {
     expect(tempVariableRefusal("DIPO_TMP")).toBe(
