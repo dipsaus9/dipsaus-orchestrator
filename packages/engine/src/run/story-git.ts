@@ -70,6 +70,17 @@ export interface StoryGit {
 
 type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
 
+/**
+ * Pure: the code tree key (0010 section 7) of `git ls-tree -r -z HEAD` output: sha256 of its
+ * entries without the story's own task file.
+ */
+export function codeTreeKeyOf(tree: string, taskFile: string): string {
+  const kept = tree
+    .split("\0")
+    .filter((entry) => entry !== "" && entry.slice(entry.indexOf("\t") + 1) !== taskFile);
+  return createHash("sha256").update(kept.join("\0")).digest("hex");
+}
+
 async function commitOrFail(
   run: (args: readonly string[]) => Promise<GitResult>,
   message: string,
@@ -160,13 +171,12 @@ export function gitStoryOps(deps: {
     },
     codeTreeKey: (office, worktree, taskFile) => {
       const git = gitOf(office);
-      return git.run(async (session) => {
-        const tree = await session.ok(at(git, worktree), ["ls-tree", "-r", "-z", "HEAD"]);
-        const kept = tree
-          .split("\0")
-          .filter((entry) => entry !== "" && entry.slice(entry.indexOf("\t") + 1) !== taskFile);
-        return createHash("sha256").update(kept.join("\0")).digest("hex");
-      });
+      return git.run(async (session) =>
+        codeTreeKeyOf(
+          await session.ok(at(git, worktree), ["ls-tree", "-r", "-z", "HEAD"]),
+          taskFile,
+        ),
+      );
     },
     markInReview: (office, input) => {
       const git = gitOf(office);

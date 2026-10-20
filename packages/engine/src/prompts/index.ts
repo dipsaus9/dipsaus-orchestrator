@@ -17,11 +17,15 @@ export type { Section, SectionName } from "./contract";
 export {
   FEEDBACK_LOCATIONS_MAX,
   FEEDBACK_LOG_LINES_DEFAULT,
+  ciFeedback,
+  parseActionsLog,
   parseLocations,
   plainOutput,
   verifyFeedback,
 } from "./feedback";
 export type {
+  CiFailure,
+  CiFeedbackItem,
   FeedbackItem,
   SourceLocation,
   VerifyFailure,

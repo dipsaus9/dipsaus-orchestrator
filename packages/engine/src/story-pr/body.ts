@@ -8,6 +8,8 @@ import { createHash } from "node:crypto";
 
 import type { TestPlan } from "@dipsaus-orchestrator/contract";
 
+import type { RequiredCheckState } from "../merge-slot/checks";
+
 /** GitHub allows 65,536 characters; dipo keeps its bodies well under (0019 section 3). */
 export const STORY_PR_MAX_BODY = 20_000;
 
@@ -28,6 +30,11 @@ export interface PrBodyStory {
 export interface PrBodyStatus {
   /** The commit verify passed at. */
   readonly head: string;
+  /**
+   * The required checks of the head with their states (0019 section 3); the body has no checks
+   * line when this is left out.
+   */
+  readonly checks?: readonly RequiredCheckState[];
 }
 
 const SHORT_SHA = 8;
@@ -54,12 +61,20 @@ function testPlanSection(plan: TestPlan | undefined): string | null {
   ].join("\n");
 }
 
+const checksLine = (checks: readonly RequiredCheckState[]): string =>
+  `- required checks: ${
+    checks.length === 0
+      ? "none"
+      : checks.map((check) => `\`${check.name}\` ${check.state}`).join(", ")
+  }`;
+
 function statusSection(status: PrBodyStatus): string {
   return [
     "## Status",
     "",
     `- verify: passed at \`${status.head.slice(0, SHORT_SHA)}\``,
     "- review: pending",
+    ...(status.checks === undefined ? [] : [checksLine(status.checks)]),
     "- merge: dipo merges after review and green required checks",
   ].join("\n");
 }

@@ -84,6 +84,7 @@ import {
   StoryIndex,
   StoryPlanning,
   StoryPrs,
+  gitParkWriter,
   StoryTeardown,
   systemExecutableStamp,
   systemProcessProbe,
@@ -637,6 +638,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       clock,
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "story-pr" }),
+      // CI on the story PR (DIPO-147): the checks and job logs of a red head, and the park at the
+      // run's CI cap. The registry is built below; a park is only written after it exists.
+      review: host,
+      park: {
+        writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+        implemented: (name) => registry.command(name) !== undefined,
+      },
     });
     held.storyPrs = storyPrs;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this

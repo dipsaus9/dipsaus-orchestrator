@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { evaluateChecks, REQUIRED_CHECKS } from "../../src/merge-slot";
+import {
+  checksFinal,
+  evaluateChecks,
+  REQUIRED_CHECKS,
+  requiredCheckStates,
+} from "../../src/merge-slot";
 import type { CheckBucket } from "../../src/platform/host";
 
 const check = (name: string, bucket: CheckBucket) => ({ name, state: bucket, bucket });
@@ -32,5 +37,35 @@ describe("evaluateChecks", () => {
     expect(
       evaluateChecks([check("ci-ok", "fail"), check("pr-title", "pass"), check("x", "cancel")]),
     ).toEqual({ state: "failed", failed: ["ci-ok", "x"] });
+  });
+});
+
+describe("the required set (DIPO-147)", () => {
+  it("joins the office's names with the checks the host marks required", () => {
+    const names = ["build"];
+    const reported = [check("build", "pass"), check("lint", "pending")];
+    expect(requiredCheckStates(reported, names)).toEqual([
+      { name: "build", state: "pass" },
+      { name: "lint", state: "pending" },
+    ]);
+    expect(evaluateChecks(reported, names)).toEqual({ state: "pending", waiting: ["lint"] });
+    expect(evaluateChecks([check("build", "pass"), check("lint", "pass")], names)).toEqual({
+      state: "passed",
+    });
+  });
+
+  it("counts a check the host has not reported as pending", () => {
+    expect(requiredCheckStates([check("ci-ok", "pass")])).toEqual([
+      { name: "ci-ok", state: "pass" },
+      { name: "pr-title", state: "pending" },
+    ]);
+    expect(checksFinal([check("ci-ok", "pass")])).toBe(false);
+  });
+
+  it("is final when all passed, or when one failed and none is pending", () => {
+    expect(checksFinal([check("ci-ok", "pass"), check("pr-title", "pass")])).toBe(true);
+    expect(checksFinal([check("ci-ok", "fail"), check("pr-title", "pass")])).toBe(true);
+    expect(checksFinal([check("ci-ok", "fail"), check("pr-title", "pending")])).toBe(false);
+    expect(checksFinal([check("ci-ok", "fail")])).toBe(false);
   });
 });
