@@ -1,7 +1,7 @@
 ---
 id: DIPO-183
 title: Give the worker the base commit's known verify failures
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-17 17:24'
 updated_date: '2026-10-20 14:19'
