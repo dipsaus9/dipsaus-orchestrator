@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 18:39'
+updated_date: '2026-10-20 20:46'
 labels:
   - 'tier:S'
   - cutover
@@ -14,6 +14,7 @@ milestone: m-1
 dependencies:
   - DIPO-183
   - DIPO-228
+  - DIPO-257
 references:
   - packages/engine/test/run/work-run.test.ts
   - packages/daemon/src/foreground.ts
