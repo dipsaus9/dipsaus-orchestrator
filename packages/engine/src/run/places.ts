@@ -325,11 +325,18 @@ export class Places {
 
   /** Starts what waits for a free place in the office, once any drain under way finished. */
   drain(officeId: OfficeId): Promise<number> {
+    return this.serialized(officeId, () => this.#drain(officeId, this.#state(officeId)));
+  }
+
+  /**
+   * Runs `fn` once every drain and every earlier serialized step of the office finished, and before
+   * any later one starts (DIPO-208). A step that decides on or takes a worker place runs here, so a
+   * queued start and a new pickup cannot both take it. A step must never await `drain` or
+   * `serialized` of the same office: it would wait on itself. Fire a drain with `void` instead.
+   */
+  serialized<T>(officeId: OfficeId, fn: () => Promise<T>): Promise<T> {
     const state = this.#state(officeId);
-    const run = state.busy.then(
-      () => this.#drain(officeId, state),
-      () => this.#drain(officeId, state),
-    );
+    const run = state.busy.then(fn, fn);
     state.busy = run.catch(() => undefined);
     return run;
   }

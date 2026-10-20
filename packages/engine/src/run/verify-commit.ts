@@ -191,6 +191,7 @@ export function checkScope(input: ScopeInput): ScopeResult {
   const code: string[] = [];
   const outside: string[] = [];
   for (const path of new Set(input.paths)) {
+    // Only the story's own task file is exempt: dipo writes it, so it is never a scope path.
     if (path === input.taskFile) continue;
     if (inScope(path) || paired(path)) code.push(path);
     else outside.push(path);
@@ -200,7 +201,7 @@ export function checkScope(input: ScopeInput): ScopeResult {
 
 /** The park detail of a scope violation at `done` (0014 section 7, scope feedback). */
 export function scopeDetail(outside: readonly string[], scope: readonly string[]): string {
-  return `Paths written outside the declared scope: ${outside.join(", ")}. Declared scope: ${scope.length === 0 ? "none" : scope.join(", ")}.`;
+  return `Paths written outside the declared scope: ${outside.join(", ")}. Declared scope: ${scope.length === 0 ? "none" : scope.join(", ")}. The story's own task file, written by dipo, is exempt from scope.`;
 }
 
 function shownCapability(profile: RunProfile, name: CapabilityName): string {
