@@ -1150,7 +1150,9 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
     }
   });
 
-  it("parks budget-exceeded at the engine turn cap of a story run without a worktree", async () => {
+  // A story run always has a worktree (the runs check); a finisher answers continue for a capped
+  // done turn of one only when another ending holds the run, which the stub finisher stands in for.
+  it("parks budget-exceeded at the engine turn cap of a story run whose finisher answers continue", async () => {
     w.f.office.immediate(() => {
       w.f.office.run(
         `update runs set max_turns = 1 where office_id = $office_id and run_id = $run`,
