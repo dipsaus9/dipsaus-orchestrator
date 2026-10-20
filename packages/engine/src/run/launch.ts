@@ -419,6 +419,8 @@ export class RunLauncher {
         workspace: this.#workspace(git, claim.worktree),
         baseSha: claim.baseSha,
         config: facts.config,
+        // What verify said about the base in the worker's sandbox, read by setup (DIPO-183).
+        ...(setup.baseVerify === undefined ? {} : { baseVerify: setup.baseVerify }),
       });
       ensurePrivateDir(paths.runDir);
       prepareRunTempDirs(paths, facts.runId, this.#deps.tempOwner?.());

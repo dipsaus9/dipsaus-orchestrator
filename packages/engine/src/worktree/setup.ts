@@ -11,7 +11,11 @@
 // 4. runs install from the run profile, then the profile's `setup` script, then each
 //    `worktree.post_create` argument list, each through the sandboxed step runner (DIPO-37) with
 //    the run environment, never through a shell. Install gets the install policy (its registry
-//    hosts); `setup` and `post_create` get the closed-network policy.
+//    hosts); `setup` and `post_create` get the closed-network policy;
+// 5. reads what the office's verify says about the base commit (DIPO-183): the stored result for
+//    this base commit and configuration, else one run of verify in the worktree under the
+//    worker's read fence, stored when it ran to the end (`base-verify.ts`). The worktree is
+//    restored afterwards. A verify that cannot run gives a not-known result and never fails setup.
 //
 // A failure frees the slot and returns `{ ok: false, reason, log }`; `claimStory` then rolls the
 // claim back (worktree removed, a new branch deleted only while it still points at its start,
@@ -33,6 +37,14 @@ import type { LocalSettingsCopy } from "../workers/port";
 import type { CapturedOutput, StepRequest, StepResult } from "../sandbox/step";
 import type { StepPolicyKind } from "../sandbox/policy";
 
+import type { BaseVerifyFacts } from "../prompts/base-verify";
+import {
+  baseVerifyConfigHash,
+  failingTests,
+  findBaseVerify,
+  outputEnd,
+  storeBaseVerify,
+} from "./base-verify";
 import {
   CLAIM_NOTICES,
   type ClaimDeps,
@@ -121,6 +133,11 @@ export interface SetupDone extends ClaimSetupDone {
   readonly env: Readonly<Record<string, string>>;
   readonly files: FileStepResult;
   readonly log: readonly string[];
+  /**
+   * What the office's verify said about the base commit in the worker's sandbox (DIPO-183), from
+   * a run now or the stored result of an earlier run on the same base. Absent means not known.
+   */
+  readonly baseVerify?: BaseVerifyFacts;
 }
 
 export type SetupOutcome = SetupDone | ClaimSetupFailed;
@@ -209,11 +226,14 @@ export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Pro
         `setup left files git does not ignore (${left.slice(0, 5).join(", ")}${left.length > 5 ? ", and more" : ""}); setup steps may change only ignored files. If install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`,
       );
     }
+    // The worktree is installed and, for a new branch, still the base commit: what verify says
+    // about the base is read now, before the worker can change anything (DIPO-183).
+    const baseVerify = await baseVerifyOf(deps, request, env, log);
     log.push("setup: done");
     const release = (): void => {
       deps.slots.free(claim.worktree);
     };
-    return { ok: true, slot, env, files, log, release };
+    return { ok: true, slot, env, files, log, release, baseVerify };
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     if (!(error instanceof SetupFailure)) log.push(`setup: ${why}`);
@@ -225,6 +245,141 @@ export async function setupWorktree(deps: SetupDeps, request: SetupRequest): Pro
     log.push(`setup: failed: ${why}`);
     return { ok: false, reason: why, log: log.join("\n") };
   }
+}
+
+const unknownBecause = (reason: string): BaseVerifyFacts => ({ kind: "unknown", reason });
+
+/**
+ * The base commit's verify result: the stored one for this base and configuration, else one run of
+ * the office's verify in this worktree under the worker's read fence, stored when it ran to the
+ * end. Never fails the setup: a verify that cannot run is a not-known result, logged.
+ */
+async function baseVerifyOf(
+  deps: SetupDeps,
+  request: SetupRequest,
+  env: Readonly<Record<string, string>>,
+  log: string[],
+): Promise<BaseVerifyFacts> {
+  const { claim } = request;
+  const hash = baseVerifyConfigHash(request.config, request.profile);
+  const stored = findBaseVerify(deps.office, claim.baseSha, hash);
+  if (stored !== null) {
+    log.push(`base verify: stored result for ${claim.baseSha.slice(0, 12)}: ${stored.kind}`);
+    return stored;
+  }
+  let result: BaseVerifyFacts;
+  try {
+    result = await runBaseVerify(deps, request, env, log);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    deps.warn?.("the base verify failed", { story: claim.story, reason: why });
+    result = unknownBecause(`the base verify failed: ${why}`);
+  }
+  // A test run may leave files git does not ignore; the worktree must be as setup left it. A
+  // worktree that cannot be restored fails the setup, since the worker would inherit the files.
+  await restoreWorktree(deps, claim.worktree);
+  if (result.kind === "unknown") {
+    log.push(`base verify: not known: ${result.reason}`);
+    return result;
+  }
+  deps.office.immediate(() =>
+    storeBaseVerify(deps.office, {
+      baseSha: claim.baseSha,
+      hash,
+      runId: claim.runId,
+      result,
+      at: deps.clock.now(),
+    }),
+  );
+  log.push(`base verify: ${result.kind}`);
+  return result;
+}
+
+/** Runs verify once at the base commit. The caller restores the worktree afterwards. */
+async function runBaseVerify(
+  deps: SetupDeps,
+  request: SetupRequest,
+  env: Readonly<Record<string, string>>,
+  log: string[],
+): Promise<BaseVerifyFacts> {
+  const { claim, config } = request;
+  const verify = request.profile?.capabilities.verify;
+  if (verify?.status !== "resolved") {
+    return unknownBecause("the run profile has no resolved verify");
+  }
+  if (verify.value.cwd !== ".") {
+    return unknownBecause(`verify runs in ${verify.value.cwd}, not at the worktree root`);
+  }
+  const head = await deps.git.run(async (git) =>
+    (
+      await git.ok(deps.git.worktreeLocation(claim.worktree), [
+        "rev-parse",
+        "--verify",
+        "HEAD^{commit}",
+      ])
+    ).trim(),
+  );
+  if (head !== claim.baseSha) {
+    return unknownBecause(
+      `the worktree is at ${head.slice(0, 12)} after setup, not at the base commit ${claim.baseSha.slice(0, 12)}`,
+    );
+  }
+  let ran = false;
+  for (const command of verify.value.commands) {
+    const [program, ...args] = command;
+    if (program === undefined) continue;
+    log.push(`base verify: $ ${command.join(" ")}`);
+    const result = await deps.runStep({
+      kind: "verify",
+      script: "verify",
+      command: [program, ...args],
+      worktree: claim.worktree,
+      mainCheckout: deps.git.mainWorktree,
+      home: request.host.home,
+      uid: request.host.uid,
+      sandbox: {
+        installCachePaths: config.sandbox.installCachePaths,
+        registryHosts: config.sandbox.registryHosts,
+      },
+      readFence: { readPaths: [...config.sandbox.toolchainReadPaths, ...config.sandbox.allowRead] },
+      scriptMinutes: config.timeouts.scriptMinutes,
+      env: request.host.env,
+      extraEnv: env,
+    });
+    if (result.outcome === "startFailed") {
+      return unknownBecause(`verify did not start: ${result.reason}`);
+    }
+    if (result.timedOut) {
+      return unknownBecause(
+        `verify timed out after ${config.timeouts.scriptMinutes["verify"] ?? "?"} min`,
+      );
+    }
+    if (result.code === null) {
+      return unknownBecause(`verify ended by ${result.signal ?? "a signal"}`);
+    }
+    ran = true;
+    if (result.code !== 0) {
+      const output = `${result.stdout.text}\n${result.stderr.text}`;
+      const failing = failingTests(output);
+      return { kind: "red", failing, tail: failing.length > 0 ? null : outputEnd(output) };
+    }
+  }
+  return ran ? { kind: "green" } : unknownBecause("the run profile's verify has no command");
+}
+
+/**
+ * Puts the worktree back to its commit after the base verify: a test run may write files git does
+ * not ignore, and the worker's scope check at `done` would count them as the worker's. Setup left
+ * only ignored files before the verify, so everything else in the status is the verify's.
+ */
+async function restoreWorktree(deps: SetupDeps, worktree: string): Promise<void> {
+  const left = await changedPaths(deps, worktree);
+  if (left.length === 0) return;
+  await deps.git.run(async (git) => {
+    const location = deps.git.worktreeLocation(worktree);
+    await git.ok(location, ["reset", "--hard", "--quiet", "HEAD"]);
+    await git.ok(location, ["clean", "-fdq"]);
+  });
 }
 
 /** The dev port of the root package, else the first the scan found; null when none. */

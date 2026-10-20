@@ -1,6 +1,8 @@
 // Engine steps on worker-written code inside the bundled sandbox runtime (DIPO-37, 0008 section 2).
 
 export { isRuntimeOptionName, STEP_ENV_ALLOWLIST, stepEnv } from "./env";
+export { fenceDenyRead, listDirOnDisk, workerReadPaths } from "./fence";
+export type { ListDir } from "./fence";
 export {
   DENIED_SOCKET_PATHS,
   DENY_ALL_SETTINGS,
