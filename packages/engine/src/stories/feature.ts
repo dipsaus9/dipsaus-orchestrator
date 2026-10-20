@@ -22,11 +22,17 @@ import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
-import type { OfficeGit } from "../git/office";
+import type { GitSession, OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
 
-import { type IndexResult, indexStories, refreshStory, type RefreshOptions } from "./index-stories";
+import {
+  type IndexResult,
+  indexPass,
+  indexStories,
+  refreshStory,
+  type RefreshOptions,
+} from "./index-stories";
 
 /** The load step's name in the registry. */
 export const INDEX_STEP = "stories.index";
@@ -116,6 +122,37 @@ export class StoryIndex {
       );
     }
     return this.#serial(state, () => this.#pass(office, state));
+  }
+
+  /**
+   * One index pass inside a git queue item the caller already holds with `session` (the Ready gate
+   * and the claim re-check bringing the mirror up to the commit they read, DIPO-201). It records
+   * the pass as any other: the last sha and pass, the branch-unread warnings and the office-changed
+   * callback. It does not wait on the serial chain: a running poll holds that chain while it waits
+   * for the queue item the caller holds. Throws when the office has not loaded.
+   */
+  async indexInSession(
+    office: OfficeId,
+    session: GitSession,
+    basePath: string,
+  ): Promise<IndexResult> {
+    const state = this.#offices.get(office);
+    if (state === undefined) {
+      throw new Error(`Office ${office} has not loaded; its stories are not indexed.`);
+    }
+    const result = await indexPass(
+      {
+        office: state.office,
+        git: this.#git(office),
+        cli: this.#deps.cli,
+        clock: state.clock,
+        ids: state.ids,
+      },
+      session,
+      basePath,
+    );
+    this.#record(office, state, result);
+    return result;
   }
 
   /**
@@ -213,6 +250,11 @@ export class StoryIndex {
       clock: state.clock,
       ids: state.ids,
     });
+    this.#record(office, state, result);
+    return result;
+  }
+
+  #record(office: OfficeId, state: Indexed, result: IndexResult): void {
     state.sha = result.sha;
     state.last = result;
     if (result.cursor !== undefined) this.#deps.onOfficeChanged?.(office);
@@ -223,7 +265,6 @@ export class StoryIndex {
         ...unread,
       });
     }
-    return result;
   }
 
   /**

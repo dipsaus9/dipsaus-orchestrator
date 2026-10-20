@@ -3,10 +3,10 @@ id: DIPO-237
 title: >-
   Hand a here-doc on an if, loop or case to the shells inside it in the temp
   guard
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 13:38'
+updated_date: '2026-10-20 14:40'
 labels:
   - 'tier:S'
   - cutover
@@ -44,8 +44,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/src/hooks/temp-guard.ts an if, while, until, for or case compound is a group as `{ ...; }` is: its opening word counts only where a command starts, its closing `fi`, `done` or `esac` only as the first word of a command, and a here-doc opened on the closing word is the body of each command inside the compound that has none of its own, nested compounds and groups included
-- [ ] #2 refusedTempVariable refuses, with a here-doc body `export DIPO_TMP=/x` and with one setting TMPDIR, `if true; then bash; fi <<'EOF'`, `while read l; do bash; done <<'EOF'`, `until false; do sh; done <<'EOF'`, `for i in a; do bash; done <<'EOF'` and `case x in x) bash ;; esac <<'EOF'`, and passes the same compounds with `cat` in place of the shell and `echo done <<'EOF'`
-- [ ] #3 An unquoted `$(...)` is a command substitution, not a group: the commands inside it are still checked on their own, so `x=$(export DIPO_TMP=/x) true` is refused, but a here-doc of the command it is a word of is not their body, so `x=$(bash ./mk.sh) cat > f <<'EOF'` with a DIPO_TMP body passes; `(bash) <<'EOF'` with that body is still refused
-- [ ] #4 Each case of the two criteria before is a row in the refused or passed table of packages/engine/test/hooks/temp-guard.test.ts, and the rows DIPO-223 added keep passing
+- [x] #1 In packages/engine/src/hooks/temp-guard.ts an if, while, until, for or case compound is a group as `{ ...; }` is: its opening word counts only where a command starts, its closing `fi`, `done` or `esac` only as the first word of a command, and a here-doc opened on the closing word is the body of each command inside the compound that has none of its own, nested compounds and groups included
+- [x] #2 refusedTempVariable refuses, with a here-doc body `export DIPO_TMP=/x` and with one setting TMPDIR, `if true; then bash; fi <<'EOF'`, `while read l; do bash; done <<'EOF'`, `until false; do sh; done <<'EOF'`, `for i in a; do bash; done <<'EOF'` and `case x in x) bash ;; esac <<'EOF'`, and passes the same compounds with `cat` in place of the shell and `echo done <<'EOF'`
+- [x] #3 An unquoted `$(...)` is a command substitution, not a group: the commands inside it are still checked on their own, so `x=$(export DIPO_TMP=/x) true` is refused, but a here-doc of the command it is a word of is not their body, so `x=$(bash ./mk.sh) cat > f <<'EOF'` with a DIPO_TMP body passes; `(bash) <<'EOF'` with that body is still refused
+- [x] #4 Each case of the two criteria before is a row in the refused or passed table of packages/engine/test/hooks/temp-guard.test.ts, and the rows DIPO-223 added keep passing
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CSVV68HMH4V7AJNENT6TZW (Haiku, 18 turns, about $0.03, 4 min) reported done, In Review, with no write outside the References. One denied call: a `tail …; echo; ls …` compound with a runtime path, which the Claude CLI asks approval for (DIPO-232 tells workers to avoid such calls). The temp guard treats an if, while, until, for or case compound as a group: an opening word counts only where a command starts, a closing fi, done or esac only as the first word of a command and only against the matching open group, and a here-doc on the closing word is the body of each command inside that has none of its own, nested compounds and groups included. An unquoted $(...) is its own group kind: its commands are still checked, but it takes no here-doc of the command it is a word of. Fixed on top after review: TMPDIR-body rows for every compound in the refused and passed tables (criterion 2 asks for both bodies), plus a refused row pinning a case pattern written (x). Advisory, not done: a quoted opening or closing word ('if', 'fi') still counts as a keyword, so contrived text running a command literally named if can miss a refusal. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4067 tests; DIPO_TEST_CI=1 hooks tests pass (209).
+<!-- SECTION:NOTES:END -->

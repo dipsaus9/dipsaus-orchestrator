@@ -28,7 +28,7 @@ import { backlog, CLI, key, publish, read, withGatedOffice } from "./gated-offic
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the Ready gate on the Backlog CLI", () => {
     it("answers contract codes with clear messages when the inputs cannot be read", () =>
-      withGatedOffice(async ({ repo, s, engineGit, office, officeId }) => {
+      withGatedOffice(async ({ repo, s, engineGit, index, office, officeId }) => {
         // Indexed, then archived on the base: the key resolves but the story is not there.
         await backlog(repo, ["task", "archive", "TASK-2"]);
         await publish(repo, "archive TASK-2");
@@ -44,7 +44,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           get: (id: OfficeId) => s.manager.get(id),
           config: (id: OfficeId) => s.manager.config(id),
         };
-        const deps = { git: engineGit, offices, clock: s.clock, ids: s.ids };
+        const deps = { git: engineGit, index, offices, clock: s.clock, ids: s.ids };
         const broken = new GateStore({
           ...deps,
           cli: { spawn: systemSpawn, command: ["false"], env: repo.env },
