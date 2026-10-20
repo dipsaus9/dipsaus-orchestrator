@@ -1,14 +1,13 @@
 ---
 id: DIPO-251
 title: Refuse a story whose test plan names a file outside its References
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-20 19:03'
+updated_date: '2026-10-20 20:22'
 labels:
   - 'tier:S'
   - cutover
-  - needs-info
 milestone: m-1
 dependencies:
   - DIPO-238
@@ -17,9 +16,11 @@ references:
   - packages/engine/src/gate/types.ts
   - packages/engine/src/gate/text.ts
   - packages/engine/test/gate/gate.test.ts
+  - packages/engine/src/gate/input.ts
+  - packages/engine/src/gate/evaluate.ts
 priority: medium
 type: enhancement
-ordinal: 251000
+ordinal: 137300
 ---
 
 ## Description
@@ -33,19 +34,23 @@ Context: seen on 2026-10-20 in three M1 runs. DIPO-227's test plan asked for a d
 branch: "DIPO-251/gate-test-plan-paths"
 unknowns:
   - q: "May the Ready gate get a new rule R29, recorded as a dated 0012 section 3 note: every repo-relative path token in a test plan entry's check must be covered by one of the story's References under the prefix rule, else the story fails with 'test plan entry #<n> names <path>, which no Reference covers; add it to the References or drop it from the plan'? (a) add R29 as written (recommended: three stories on 2026-10-20 had a plan their References could not deliver); (b) a warning only, no failure."
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-20): approved; the 0012 section 3 note of 2026-10-20 (DIPO-251) adds R29: a story fails when an automated test-plan entry's check names a path, or a bare *.test.ts file, that no Reference covers; a bare name is matched by file name under the References; manual entries are exempt."
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) gate.test.ts: a story whose test plan names packages/daemon/test/unit/x.test.ts with References that do not cover it fails R29 naming the entry and the path; the same story with packages/daemon/test/ in its References passes"
+      check: "(unit) gate.test.ts: an automated entry naming packages/daemon/test/unit/x.test.ts with References that do not cover it fails R29 naming the entry and the path; with packages/daemon/test/ in the References it passes"
     - kind: "automated"
-      check: "(unit) gate.test.ts: a check that names a directory covered by a Reference, a test plan with no path token, and a spike with no test plan get no R29 failure"
+      check: "(unit) gate.test.ts: an automated entry naming the bare plan.test.ts passes when a Reference is packages/engine/test/workers/plan.test.ts or a Reference directory holds a file of that name, and fails otherwise"
+    - kind: "automated"
+      check: "(unit) gate.test.ts: a manual entry naming a path outside the References, a check with no path token or test file name, and a spike with no test plan get no R29 failure"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/gate/rules.ts has a rule R29, evaluated in both modes after R28 and listed in GATE_RULES in packages/engine/src/gate/types.ts, that finds the repo-relative path tokens in each test plan entry's check with the path token rule of packages/engine/src/gate/text.ts and fails the story once per token that no Reference covers under the prefix rule, with the reason `test plan entry #<n> names <path>, which no Reference covers; add it to the References or drop it from the plan`
-- [ ] #2 A token covered by a Reference, a check with no path token, and a story with no test plan get no R29 failure, and the other rules' failures and their order are unchanged
-- [ ] #3 packages/engine/test/gate/gate.test.ts covers an uncovered file path, the same path covered by a directory Reference, a covered directory, a check with no path token and a spike with no test plan
+- [ ] #1 packages/engine/src/gate/rules.ts has a rule R29, evaluated in both modes after R28 and listed in GATE_RULES in packages/engine/src/gate/types.ts, that reads each automated test plan entry's check and fails the story once for each repo-relative path token (the path token rule of packages/engine/src/gate/text.ts) that no Reference covers under the prefix rule, with the reason `test plan entry #<n> names <path>, which no Reference covers; add it to the References or drop it from the plan`
+- [ ] #2 A bare file name ending in `.test.ts` in an automated entry's check is covered when a Reference is a file of that name or a Reference directory holds a file of that name in the base tree the gate reads; an uncovered bare name fails R29 with the same reason
+- [ ] #3 Manual test plan entries are exempt, and a covered token, a check with no path token or test file name, and a story with no test plan get no R29 failure; the other rules' failures and their order are unchanged
+- [ ] #4 packages/engine/test/gate/gate.test.ts covers an uncovered path, the same path covered by a directory Reference, a bare test file name covered by a file Reference, covered by a directory and uncovered, a manual entry and a spike with no test plan
 <!-- AC:END -->

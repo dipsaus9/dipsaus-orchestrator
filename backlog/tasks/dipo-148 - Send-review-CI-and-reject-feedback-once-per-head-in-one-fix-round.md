@@ -1,18 +1,21 @@
 ---
 id: DIPO-148
 title: 'Send review, CI and reject feedback once per head in one fix round'
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 19:05'
+updated_date: '2026-10-20 20:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
 milestone: m-1
 dependencies:
-  - DIPO-219
   - DIPO-147
   - DIPO-205
+  - DIPO-219
+  - DIPO-259
+  - DIPO-239
+  - DIPO-240
 references:
   - packages/engine/src/run/
   - packages/engine/src/prompts/
@@ -21,6 +24,9 @@ references:
   - packages/engine/src/retention/policy.ts
   - packages/engine/test/run/
   - packages/engine/test/db/
+  - packages/engine/src/story-pr/
+  - packages/engine/test/story-pr/
+  - packages/daemon/src/runs.ts
 priority: high
 type: feature
 ordinal: 137000
@@ -33,7 +39,7 @@ Outcome: feedback items with their text are stored in feedback_items, sent once 
 
 Context: implements ADR 0019 section 8 (sources, one round per head, items and signatures, storage, send-once, caps per source) and the fix-round timing of section 7. Verify items already carry a sha256 signature, but nothing records which were sent (0019 fact 10).
 
-DIPO-142 built the worker place and the reviewer place (packages/engine/src/run/places.ts) and wired only the resume starter (packages/engine/src/run/compose.ts). The fix round runs in the worker place: it registers the fix starter there. It appends no run_steps kind of its own: DIPO-147 appends the ci step, one per red pushed head, which is the count it parks on at the run's CI cap, and DIPO-219 appends review-failed for a blocked round; the final run_outcomes row counts both. work.run checks workerPlaceTaken before its claim while Places.drain is not serialized with it; a fix round that drains into the worker place should not race a pickup.
+The worker place and the reviewer place are in packages/engine/src/run/places.ts; packages/engine/src/run/compose.ts wires the resume and review starters (DIPO-219) and START_KINDS already has fix, and packages/engine/src/run/rounds.ts has RoundKind fix and reopenForRound. The fix round registers the fix starter in the worker place. work.run's place check and the direct park resume both run through Places.serialized (DIPO-208, DIPO-229), so a fix round that drains into the worker place does not race a pickup. The CI items of a red head come from the story PR poll: StoryPrs.ciItems and the checks-final handling in packages/engine/src/story-pr/prs.ts (DIPO-147); review items come from the review rounds (DIPO-219). The fix round appends no run_steps kind of its own: DIPO-147 appends the ci step, one per red pushed head, which is the count it parks on at the run's CI cap, and DIPO-219 appends review-failed for a blocked round; the final run_outcomes row counts both. Places.drain runs the pre-start cap check (#parkedForCaps, DIPO-205) before it calls a starter, so the feedback rows and the intent are written when the fix round is queued. A maintainer reject has no engine handler yet: gate.reject is DIPO-151, which depends on this story and feeds it the reject item.
 
 ```dipo
 branch: "DIPO-148/send-feedback-once-per-head"
@@ -56,8 +62,8 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A feedback_items table (run, item id, source, signature, head commit, round, sent time, the carrying intent, rendered text of at most 3,000 characters; retention tier S) is written in the same transaction as the steer intent that sends the items
-- [ ] #2 Review items carry the section 8 evidence and signature (criterion number and status; or kind, file and the whitespace-collapsed quote; or kind and test-plan entry number), and a maintainer reject item is the note verbatim, keyed on the gate id
+- [ ] #2 Review items carry the section 8 evidence and signature (criterion number and status; or kind, file and the whitespace-collapsed quote; or kind and test-plan entry number), and a maintainer reject item has its stored shape (the note verbatim, keyed on the gate id) and the same send path, built from what DIPO-151's gate.reject records; until DIPO-151 exists no reject item is produced
 - [ ] #3 An item is sent at most once per head commit across polls and daemon restarts; the same signature on a later head is sent again marked still failing after your last change, and two sends in a row of one verify or CI signature raise the same-failure watchdog signal
-- [ ] #4 All feedback for one head goes in one user message; the fix round waits until that head's verdict is in and its required checks are final or past the wait cap, reopens the run in the worker place, commits <ID>: status In Progress, and resumes the developer session when canResume holds, else starts a new session with a handoff; the fix round stores its feedback_items rows before the shared pre-start cap check that DIPO-205 adds, so a round that check parks keeps its feedback for a top-up resume (DIPO-156)
+- [ ] #4 All feedback for one head goes in one user message; the fix round waits until that head's verdict is in and its required checks are final or past the wait cap, reopens the run in the worker place, commits <ID>: status In Progress, and resumes the developer session when canResume holds, else starts a new session with a handoff; the fix round stores its feedback_items rows and its intent when it is queued, before the shared pre-start cap check that DIPO-205 adds, so a round that check parks keeps its feedback for a top-up resume (DIPO-156)
 - [ ] #5 Advisory findings never start a fix round on their own and are listed as optional when a fix round starts for another reason
 <!-- AC:END -->
