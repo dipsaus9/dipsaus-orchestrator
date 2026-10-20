@@ -109,6 +109,10 @@ const REFUSED: Array<[string, string]> = [
   // Long wrapper options with a separate value.
   ["sudo --user me TMPDIR=/x bun test", "TMPDIR"],
   ["xargs --max-args 1 env TMPDIR=/x bun test", "TMPDIR"],
+  // A quoted or escaped keyword is a plain word, so it opens no group that hides the `}` (DIPO-243).
+  ["{ 'if' x; bash; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["{ \\if x; bash; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  ["{ bash; 'fi'; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
 ];
 
 const PASSED = [
@@ -167,6 +171,11 @@ const PASSED = [
   "echo done <<'EOF'\nexport TMPDIR=/x\nEOF",
   // A command substitution is no group: the command it is a word of reads no body (DIPO-237 AC #3).
   "x=$(bash ./mk.sh) cat > f <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  // A quoted or escaped keyword is a plain word: echo 'fi' and echo \done read no group (DIPO-243).
+  "echo 'fi'",
+  "echo \\done",
+  "echo 'fi' <<'EOF'\nexport DIPO_TMP=/x\nEOF",
+  "echo \\done <<'EOF'\nexport TMPDIR=/x\nEOF",
 ];
 
 describe("refusedTempVariable (pure)", () => {

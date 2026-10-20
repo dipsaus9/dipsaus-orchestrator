@@ -1,10 +1,10 @@
 ---
 id: DIPO-243
 title: Read a quoted keyword as a plain word in the Bash command splitter
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:23'
+updated_date: '2026-10-20 23:16'
 labels:
   - 'tier:S'
   - cutover
@@ -39,7 +39,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 simpleCommands in packages/engine/src/hooks/temp-guard.ts records for each word whether any part of it was quoted or escaped, and a word with quoting never counts as an opening keyword, a closing `fi`, `done` or `esac`, or a `{` or `}` group word
-- [ ] #2 `{ 'if' x; bash; } <<'EOF'` with a here-doc body `export DIPO_TMP=/x` is refused, and `echo 'fi'` and `echo \done` pass
-- [ ] #3 Each case of the criterion before is a row in the refused or passed table of packages/engine/test/hooks/temp-guard.test.ts, every row there before keeps its result, and packages/engine/test/hooks/gh-guard.test.ts passes
+- [x] #1 simpleCommands in packages/engine/src/hooks/temp-guard.ts records for each word whether any part of it was quoted or escaped, and a word with quoting never counts as an opening keyword, a closing `fi`, `done` or `esac`, or a `{` or `}` group word
+- [x] #2 `{ 'if' x; bash; } <<'EOF'` with a here-doc body `export DIPO_TMP=/x` is refused, and `echo 'fi'` and `echo \done` pass
+- [x] #3 Each case of the criterion before is a row in the refused or passed table of packages/engine/test/hooks/temp-guard.test.ts, every row there before keeps its result, and packages/engine/test/hooks/gh-guard.test.ts passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DRQ8RZJJHC6FJKKV21246V (Haiku, 17 turns, about $0.02), verified and reviewed by dipo (its reviewer, Opus, approved round 1 with no findings), with no denied call and no write outside the References. The Bash command splitter (simpleCommands in hooks/temp-guard.ts, also used by gh-guard.ts) marks a word that held quoting or an escape, and such a word never opens or closes a compound or group: 'if', \\if, "done" and i'f' are plain words, as in bash. Independent review passed: a 40-command before-and-after comparison found only four lost refusals, all shell syntax errors no shell runs (such as 'if' true; then bash; fi), and eleven gained ones (quoted closers inside real compounds); no gh call inside a compound lost its refusal. Follow-ups: ANSI-C quoting ($'gh') is not decoded, so $'gh' pr merge runs gh unrefused (an existing gap, added to DIPO-242); a passed-table row could document why 'if' true; then bash; fi passes. Verify outside the sandbox: exit 0, 4210 tests; DIPO_TEST_CI=1 hooks tests pass (220).
+<!-- SECTION:NOTES:END -->
