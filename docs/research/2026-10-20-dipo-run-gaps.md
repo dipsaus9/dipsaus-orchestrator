@@ -40,7 +40,7 @@ Terms used:
   - By command shape: `sed -i` was refused in 72% of calls (38 of 53), a leading `cd` in 60% (30 of 50), git writes and `sleep` always.
   - Compound commands themselves are rarely the problem: 6% of 1,593. The denial follows the part inside them.
 - **Scripted file edits:** python heredocs were the file editor in 35 runs (303 calls). That is 26 of 30 Sonnet runs and all 4 Opus runs, but only 5 of the 51 Haiku runs that have events. Both runs that wrote outside their scope did it through such a script: DIPO-147, caught by the engine, and DIPO-134, which reverted the writes itself.
-- **Temp-variable overrides:** in 18 runs. That was 60% of the runs on the first contract version, and 0 to 13% from the third version on, after the contract's Temp files section. The DIPO-194 code guard then refused the attempts that remained.
+- **Temp-variable overrides:** in 18 runs. That was 60% of the runs on the first contract version, and 0 to 13% from the third version on, after the contract's Temp files section. From the seventh version on, the DIPO-194 code guard refuses such attempts; it refused the one it met (DIPO-235).
 - **"Done" while the worker's own notes admit a gap:** 25 of 78 done reports, 12 of them clear-cut.
 - **Turn caps:** 3 runs capped. One more (DIPO-183) ran 185 turns against a cap of 120, and its done report was still taken.
 - **Trend:** denials per run fell from 2.0 on the first contract version to 0.6 on the seventh (0.8 a run on 2026-10-20 as a whole). The largest single drop was from the first to the second version (2.0 to 0.9).
@@ -132,7 +132,7 @@ Stories named an old config version (DIPO-139, 164), described code from before 
 
 - **Flaky and slow tests** under the load of parallel runs (DIPO-136, 229 and 233); local verify takes 96 to 190 s against a 60 s target (DIPO-225).
 - **Criteria a worker can never meet in its session:** CI runs, live sessions and maintainer steps. These caused 4 of the 7 blocked reports.
-- **Workers run the full verify two or three times per run,** although the engine runs it anyway and almost always agrees.
+- **Many workers, mostly on Sonnet and Opus, run the full verify two or three times per run,** although the engine runs it anyway and almost always agrees.
 
 ## 4. Documented against observed
 
@@ -141,7 +141,7 @@ Stories named an old config version (DIPO-139, 164), described code from before 
 | Run every command from the worktree root; never `cd` | 50 measured `cd` calls, 30 of them denied; still seen after DIPO-232 | Habit; the CLI sometimes allows it, which rewards the habit | Clear but unenforced |
 | Change files only with the edit tools (DIPO-232) | Before: `sed -i` and python heredoc edits in most Sonnet and Opus runs. After: DIPO-183 had none; too few runs yet to measure | A script feels faster for edits over many lines | Keep it; scripted writes also skip the scope check |
 | One command per shell call | Chains to save turns; verify output written to a file, then read | Turn economy | Fine; give a cheap way to read long output |
-| Never set DIPO_TMP or TMPDIR | Broken until the code guard; obeyed since | CLAUDE.md said "fallback /tmp" | Fixed in code |
+| Never set DIPO_TMP or TMPDIR | Mostly obeyed after the Temp files section (third contract version); the code guard (DIPO-194) refuses such attempts | CLAUDE.md said "fallback /tmp" | Text cut it; code backs it |
 | Write only the paths in scope, or be rejected | Complied, then parked (good) or bent the design (bad) | No third option, and a park is expensive | Silent on what to do when a needed path is missing |
 | Done when every criterion is met | Done with a test-plan entry unmet, the caveat in notes | The test plan has no slot in the report | Ambiguous; make the test plan part of done, as data |
 | Notes: what is left and what you learned | Hold the most important facts of the run | It is the only free field | Right idea, wrong shape; split into structured fields |
@@ -200,7 +200,7 @@ Each decision was asked one at a time, with its cause and evidence. An answered 
 3. **Test proof.** The engine runs new and changed tests against the base commit's code and sends back any that pass there. *0014 note; DIPO-255.*
 4. **Budget.** A budget line in every feedback and handoff, wrap-up at about 80% of a cap, and higher tier caps: S 90 turns and 45 minutes, M 200 and 90, L 300 and 180, token budgets unchanged. *0020 and 0008 section 9 notes; DIPO-256.*
 5. **Hold scope.** A check that proves the sandbox unsafe still holds every office; a check that could not run holds only that launch kind in that office, with back-off and a notice that names the fix. *0008 note; DIPO-257.*
-6. **Scope requests.** Split: the part a rule can grant inside the story's own packages goes first (DIPO-258, and DIPO-259 for stored proposals). The parts that need the maintainer's answer and the desk stay in DIPO-165 (which also depends on DIPO-143 and 164) and DIPO-166 (which also depends on DIPO-160).
+6. **Scope requests.** Split: the part a rule can grant inside the story's own packages goes first (DIPO-258, and DIPO-259 for stored proposals). The parts that need the maintainer's answer and the desk stay in DIPO-165 (which depends on DIPO-143, 158, 159 and 164) and DIPO-166 (which depends on DIPO-158 and 160).
 7. **Rule R29.** A story fails the gate when an automated test-plan entry names a path, or a bare `*.test.ts` file, that no Reference covers; manual entries are exempt. *0012 note; DIPO-251.*
 8. **Security-sensitive stories.** A rule in this repository's planning guidance and the Ready gate, and a draft of the same rule for the planning plugin's story standard. *0012 note; DIPO-260.*
 
