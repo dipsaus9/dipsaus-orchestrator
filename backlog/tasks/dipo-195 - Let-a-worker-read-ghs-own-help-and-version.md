@@ -1,10 +1,10 @@
 ---
 id: DIPO-195
 title: Let a worker read gh's own help and version
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-20 14:19'
+updated_date: '2026-10-20 14:50'
 labels:
   - 'tier:S'
   - cutover
