@@ -1,10 +1,10 @@
 ---
 id: DIPO-241
 title: Fail the gh part of the Bash hook closed when the check cannot run
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:54'
+updated_date: '2026-10-20 22:58'
 labels:
   - 'tier:S'
   - cutover
@@ -49,8 +49,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When `dipo hook PreToolUse --bash` throws while it checks a command whose text contains a gh word (a word whose basename is gh), it prints nothing on stdout, writes a reason naming the engine and the code host on stderr and exits 2, so the call does not run
-- [ ] #2 The Bash hook entry planned in packages/engine/src/workers/claude-cli/hooks.ts has a fallback for a dipo that cannot start or crashes: it exits 2 when the hook payload's command contains a gh word and exits 0 otherwise, and its comment says the gh part fails closed while the rest fails open
-- [ ] #3 A Bash command with no gh word still fails open when the check throws or cannot start: exit 0 and no output
-- [ ] #4 packages/daemon/src/hook.test.ts covers a throwing check with and without a gh word, and packages/engine/test/workers/hooks.test.ts covers the planned entry and its fallback
+- [x] #1 When `dipo hook PreToolUse --bash` throws while it checks a command whose text contains a gh word (a word whose basename is gh), it prints nothing on stdout, writes a reason naming the engine and the code host on stderr and exits 2, so the call does not run
+- [x] #2 The Bash hook entry planned in packages/engine/src/workers/claude-cli/hooks.ts has a fallback for a dipo that cannot start or crashes: it exits 2 when the hook payload's command contains a gh word and exits 0 otherwise, and its comment says the gh part fails closed while the rest fails open
+- [x] #3 A Bash command with no gh word still fails open when the check throws or cannot start: exit 0 and no output
+- [x] #4 packages/daemon/src/hook.test.ts covers a throwing check with and without a gh word, and packages/engine/test/workers/hooks.test.ts covers the planned entry and its fallback
 <!-- AC:END -->
