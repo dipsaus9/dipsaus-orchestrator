@@ -1,10 +1,10 @@
 ---
 id: DIPO-235
 title: End a capped done turn at its cap when the finisher throws
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 10:44'
+updated_date: '2026-10-20 11:13'
 labels:
   - 'tier:S'
   - cutover
