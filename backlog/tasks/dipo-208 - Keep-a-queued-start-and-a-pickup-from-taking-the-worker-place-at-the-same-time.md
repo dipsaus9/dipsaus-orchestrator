@@ -1,10 +1,10 @@
 ---
 id: DIPO-208
 title: Keep a queued start and a pickup from taking the worker place at the same time
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-19 15:14'
+updated_date: '2026-10-20 07:46'
 labels:
   - 'tier:S'
   - cutover
