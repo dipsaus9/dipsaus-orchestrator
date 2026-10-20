@@ -31,7 +31,9 @@ import {
   gitInputChanges,
   type Logger,
   OfficeIngest,
+  type OfficeHandle,
   type OfficeManager,
+  type ParseState,
   PermissionAsks,
   type Places,
   type Presence,
@@ -58,13 +60,17 @@ import {
   type StoredRun,
   selfCommand,
   setupWorktree,
+  type HoldResumer,
   type SlotTable,
+  type TierCaps,
+  type WorkerPort,
   type StateDatabase,
   type StoryClaims,
   type StoryIndex,
   systemDiskProbe,
   systemHostStarter,
   signalProcess,
+  startTierOf,
   systemProcessProbe,
   systemSandboxHost,
   storyHoldsWork,
@@ -78,6 +84,28 @@ import {
 /** The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
+}
+
+/**
+ * A re-attached session's initial state, built with the model and effort its run started with, not
+ * the office tier in force (DIPO-207).
+ */
+export function startedSessionState(
+  worker: Pick<WorkerPort, "reportSchema" | "initialState">,
+  handle: OfficeHandle,
+  run: StoredRun,
+  agent: string,
+  inForce: TierCaps,
+  paths: Parameters<typeof runWorkerSpec>[2],
+  resume: boolean,
+  previous?: ParseState,
+): ParseState {
+  const tier = startTierOf(handle, run, inForce);
+  const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
+    id: "",
+    resume,
+  });
+  return worker.initialState(spec, previous);
 }
 
 export interface DaemonRunsOptions {
@@ -107,6 +135,8 @@ export interface DaemonRunsOptions {
   readonly implemented: (name: CommandName) => boolean;
   /** The story PR, opened or updated right after each In Review push (DIPO-144). */
   readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
+  /** The planning lane's resume of an on-hold park, for `work.resume` (DIPO-160). */
+  readonly holdResumer?: () => HoldResumer | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
@@ -326,6 +356,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     tmpRoot: realDir(options.tmpRoot),
     // The daemon-start sweep removes a run it does not know only when this daemon made it.
     tempOwner: () => tempDirs.owner(),
+    ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
     ...(refreshStory === undefined
@@ -429,13 +460,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       },
       initialState: ({ office, run, agent, resume, previous }) => {
         const paths = runPaths(office, run);
-        const tier = tierOf(office, run);
-        if (paths === null || tier === undefined) return {};
-        const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
-          id: "",
-          resume,
-        });
-        return worker.initialState(spec, previous);
+        const inForce = tierOf(office, run);
+        const handle = options.offices.get(office);
+        if (paths === null || inForce === undefined || handle === undefined) return {};
+        return startedSessionState(worker, handle, run, agent, inForce, paths, resume, previous);
       },
       caps: capsFor,
     },

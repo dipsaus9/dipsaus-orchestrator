@@ -82,6 +82,7 @@ import {
   SoftwareStream,
   StoryClaims,
   StoryIndex,
+  StoryPlanning,
   StoryPrs,
   StoryTeardown,
   systemExecutableStamp,
@@ -688,6 +689,16 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "merge-slot" }),
     });
     held.mergeSlot = mergeSlot;
+    // `story.hold`, `story.drop` and the on-hold resume of `work.resume` (DIPO-160): lane
+    // operations, the story PR closed through the same `gh` host and the claim released with the
+    // office git.
+    const planning = new StoryPlanning({
+      lane: (office) => lane.forOffice(office),
+      git: (office) => engineGit.forOffice(office),
+      host,
+      slots,
+      implemented: (name) => registry.command(name) !== undefined,
+    });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
@@ -759,6 +770,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "runs" }),
       cli: backlogCli,
       storyPr: storyPrs,
+      holdResumer: () => planning,
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
@@ -847,6 +859,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       gates.feature,
       runProfiles.feature,
       workRun.feature,
+      planning.feature,
       runs.control.feature,
       runs.outcomes.feature,
       runs.permissions.feature,

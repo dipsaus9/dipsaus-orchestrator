@@ -34,6 +34,7 @@ import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
+import { dropCommand, holdCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { systemTui } from "./tui-command";
 import { watchCommand } from "./watch-command";
@@ -137,6 +138,16 @@ Usage:
   dipo stop <id> [--note <text>] [--office <id>] [--yes]
                     stop the story's worker after asking; the story parks as
                     stopped with branch and worktree kept
+  dipo hold <id> --note <text> [--office <id>]
+                    set a Refined or Ready story aside: it parks on-hold through
+                    the backlog PR and no run picks it until it is resumed; a
+                    running or claimed story is refused
+  dipo drop <id> [--delete-branch] [--yes] [--office <id>]
+                    archive a Draft, Refined, Ready or Parked story after asking,
+                    close its open PR and remove its worktree; its branch is
+                    kept unless --delete-branch, which also removes dirty files
+                    and deletes the branch locally and on the remote after you
+                    type the story id
   dipo answer <question> allow|deny [reason] [--office <id>]
                     answer a permission question a worker asked while you were
                     at a client: allow lets its call run once, deny refuses it
@@ -321,6 +332,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "stop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return stopCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "hold") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return holdCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "drop") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return dropCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "answer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

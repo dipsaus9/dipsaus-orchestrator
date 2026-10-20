@@ -32,6 +32,11 @@ export interface LaneOp {
   readonly subject: string;
   /** The target state, as JSON; re-applying it is always safe (0010 section 2). */
   readonly target: unknown;
+  /**
+   * True when the caller releases the story's live claim right after journaling (`story.drop`,
+   * 0010 section 2a: journal first, then the release steps): the live-claim check is skipped.
+   */
+  readonly releasesClaim?: boolean;
 }
 
 export interface JournalEntry {

@@ -282,7 +282,11 @@ export class OfficeLane {
     return this.#git.run(async (git) => {
       await this.#assertBase(git);
       return this.#office.immediate(() => {
-        if (op.key !== undefined && this.#liveClaim(this.#office, op.key)) {
+        if (
+          op.releasesClaim !== true &&
+          op.key !== undefined &&
+          this.#liveClaim(this.#office, op.key)
+        ) {
           throw new LaneError(
             "backlog.lane.liveClaim",
             `${op.subject} has a live claim, so its changes travel in its story PR; stop it with \`work.stop\` first.`,

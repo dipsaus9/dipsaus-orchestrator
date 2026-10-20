@@ -167,7 +167,9 @@ export const workDiscard = defineCommand({
   provisional: true,
 });
 
-// Parks a Refined or Ready story with reason `on-hold`.
+// Parks a Refined or Ready story with reason `on-hold` through the planning lane (0020 section 8).
+// Since minor 1 (DIPO-160). A running story fails `story.notHoldable` naming `dipo stop`; a parked
+// story with a claim fails it naming resume and discard.
 export const storyHold = defineCommand({
   name: "story.hold",
   level: "office",
@@ -175,11 +177,13 @@ export const storyHold = defineCommand({
   result: StoryResult,
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
-// Archives the story; deletes its branch only when asked. Clients ask for typed confirmation when
-// `deleteBranch` is true (0009 section 5); the flag below covers the command as a whole.
+// Archives the story through the planning lane and releases its claim; deletes its branch only
+// when asked (0020 section 8). Since minor 1 (DIPO-160). Clients ask for typed confirmation when
+// `deleteBranch` is true (0009 section 5); `irreversibleWhen` says so in `commands.describe`.
+// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, `story.dirtyWorktree`.
 export const storyDrop = defineCommand({
   name: "story.drop",
   level: "office",
@@ -187,7 +191,8 @@ export const storyDrop = defineCommand({
   result: StoryResult,
   confirm: true,
   irreversible: false,
-  provisional: true,
+  irreversibleWhen: ["deleteBranch"],
+  since: 1,
 });
 
 // Since minor 1 (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits

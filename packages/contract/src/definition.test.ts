@@ -98,6 +98,22 @@ describe("commands.describe", () => {
     expect(args?.required).toEqual(["office"]);
   });
 
+  it("lists story.hold and story.drop since minor 1; drop is irreversible when deleteBranch is set (DIPO-160)", () => {
+    const commands = describeContract().commands;
+    const drop = commands.find((command) => command.name === "story.drop");
+    expect(drop).toMatchObject({
+      since: 1,
+      level: "office",
+      confirm: true,
+      irreversible: false,
+      irreversibleWhen: ["deleteBranch"],
+    });
+    const hold = commands.find((command) => command.name === "story.hold");
+    expect(hold).toMatchObject({ since: 1, confirm: false, irreversible: false });
+    // Only a command that declares it carries the key.
+    expect(hold).not.toHaveProperty("irreversibleWhen");
+  });
+
   it("leaves provisional definitions out", () => {
     const provisional = contractCommands.find((definition) => definition.provisional === true);
     if (provisional === undefined) throw new Error("no provisional command left to check");
