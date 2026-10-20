@@ -41,9 +41,14 @@ import {
   findRun,
   hasActiveRun,
   insertRun,
+  placeHolders,
+  Places,
   runSteps,
+  START_KINDS,
   type BaseRead,
   type NewRun,
+  waitForPlace,
+  waitingStarts,
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
@@ -53,6 +58,8 @@ import { AdapterHolds } from "../../src/workers/hold";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
+
+import { storyRun } from "./rounds-helpers";
 
 const BLOCK = (id: string) =>
   ["```dipo", `branch: "${id}/a-story"`, "unknowns: []", "```"].join("\n");
@@ -119,6 +126,12 @@ interface World {
   slots: SlotEntry[];
   /** Thrown by the slot read instead of returning `slots`, when set. */
   slotsError: SlotTableError | null;
+  /** The office's places: the serialized steps of `work.run` and the drains (DIPO-208). */
+  readonly places: Places;
+  /** The stories the places started as a resume, in order. */
+  readonly resumeStarts: string[];
+  /** Holds the claim open when set: `entered` is called as it starts, `open` lets it go on (DIPO-208). */
+  claimGate: { readonly entered: () => void; readonly open: Promise<void> } | null;
 }
 
 let dir = "";
@@ -135,6 +148,17 @@ beforeEach(async () => {
   const gates: World["gates"] = [];
   const lane = { journaled: [] as LaneOp[], flushes: 0 };
   const holds = new AdapterHolds({ clock: t.clock, notify: () => undefined });
+  const resumeStarts: string[] = [];
+  const places = new Places({
+    clock: t.clock,
+    offices: { get: () => office, config: () => OFFICE_DEFAULTS },
+    starters: {
+      resume: async (_office, started) => {
+        resumeStarts.push(started.story ?? "");
+        return true;
+      },
+    },
+  });
   const w: World = {
     t,
     office,
@@ -156,6 +180,9 @@ beforeEach(async () => {
     planLimit: () => null,
     slots: [],
     slotsError: null,
+    places,
+    resumeStarts,
+    claimGate: null,
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
@@ -164,6 +191,7 @@ beforeEach(async () => {
     checkout: { path: "/base", base: "main" },
   });
   const runDeps: WorkRunDeps = {
+    places,
     offices: {
       get: () => office,
       config: () => w.config,
@@ -194,6 +222,10 @@ beforeEach(async () => {
     claims: {
       claim: async (_office, request): Promise<ClaimOutcome> => {
         claims.push(request);
+        if (w.claimGate !== null) {
+          w.claimGate.entered();
+          await w.claimGate.open;
+        }
         const skip = await request.recheck?.(undefined as never);
         if (skip !== null && skip !== undefined) return skip;
         const claim = {
@@ -868,5 +900,35 @@ describe("port slots (DIPO-197)", () => {
     const result = dry.result as { refusals: { check: string; message: string }[]; story: unknown };
     expect(result.refusals).toEqual([{ check: "slots", message: reason }]);
     expect(result.story).toBeNull();
+  });
+});
+
+describe("a queued resume and a pickup never take the worker place together (DIPO-208)", () => {
+  it("drains a resume queued inside the pickup's claim only after the pickup's run is recorded", async () => {
+    story("TASK-1", "Ready");
+    // Hold work.run's claim open: the pickup has passed its worker place check and not recorded its run.
+    const entered = Promise.withResolvers<void>();
+    const opened = Promise.withResolvers<void>();
+    world.claimGate = { entered: () => entered.resolve(), open: opened.promise };
+    const pickup = run();
+    await entered.promise;
+
+    // A maintainer resume queued and drained inside that window.
+    const resume = storyRun(
+      { dir, t: world.t, office: world.office, close: () => undefined },
+      { story: "DIPO-7" },
+    );
+    world.office.immediate(() => waitForPlace(world.office, resume.run, START_KINDS.resume, 0));
+    const drained = world.places.drain(world.officeId);
+    opened.resolve();
+
+    const result = resultOf(await pickup);
+    await drained;
+    world.places.close();
+
+    expect(world.resumeStarts).toEqual([]);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1"]);
+    expect(waitingStarts(world.office).map((s) => s.runId)).toEqual([resume.run]);
   });
 });

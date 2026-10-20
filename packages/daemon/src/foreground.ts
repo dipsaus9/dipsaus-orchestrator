@@ -820,6 +820,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lane: (office) => lane.forOffice(office),
       launcher: runs.launcher,
       liveSlots: () => slots.live(),
+      // The worker place is decided and taken in the places' serialized steps (DIPO-208).
+      places: runs.places,
     });
     // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
     // loaded, with the `retention.*` periods of the configuration in force.
