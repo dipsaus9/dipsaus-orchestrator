@@ -1,10 +1,10 @@
 ---
 id: DIPO-236
 title: Retry only the claims a moved base skipped in the done-on-base release
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 11:06'
+updated_date: '2026-10-20 11:11'
 labels:
   - 'tier:S'
   - cutover
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 releaseDoneOnBase returns, with its counts, the run ids of the claims it skipped because the HEAD of _base was not the pass's commit, and takes an optional set of run ids that limits it to those claims
-- [ ] #2 The retry in reconcileOffice passes the run ids the first pass skipped, so it looks at no other claim; the reindex before the retry and the one after a retry that released stay as DIPO-226 has them
-- [ ] #3 A test in packages/engine/test/reconcile/done-on-base.test.ts with two claims of Done stories, a dirty one whose queue item runs before _base moves and a clean one skipped because _base moved before its queue item, shows in one reconcile the clean claim released, the dirty claim kept with its claim and slot, and exactly one reconcile.doneOnBaseKept notice, for the dirty claim's key; the test fails without the fix
-- [ ] #4 The DIPO-226 tests in done-on-base.test.ts pass with the new result shape and the same reindex counts
+- [x] #1 releaseDoneOnBase returns, with its counts, the run ids of the claims it skipped because the HEAD of _base was not the pass's commit, and takes an optional set of run ids that limits it to those claims
+- [x] #2 The retry in reconcileOffice passes the run ids the first pass skipped, so it looks at no other claim; the reindex before the retry and the one after a retry that released stay as DIPO-226 has them
+- [x] #3 A test in packages/engine/test/reconcile/done-on-base.test.ts with two claims of Done stories, a dirty one whose queue item runs before _base moves and a clean one skipped because _base moved before its queue item, shows in one reconcile the clean claim released, the dirty claim kept with its claim and slot, and exactly one reconcile.doneOnBaseKept notice, for the dirty claim's key; the test fails without the fix
+- [x] #4 The DIPO-226 tests in done-on-base.test.ts pass with the new result shape and the same reindex counts
 <!-- AC:END -->
