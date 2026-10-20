@@ -4,7 +4,7 @@ title: Fail the gh part of the Bash hook closed when the check cannot run
 status: Ready
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:23'
+updated_date: '2026-10-20 22:28'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,7 @@ references:
   - packages/daemon/src/hook.ts
   - packages/daemon/src/hook.test.ts
   - packages/engine/test/workers/hooks.test.ts
+  - packages/engine/test/workers/plan.test.ts
 priority: medium
 type: enhancement
 ordinal: 241000
@@ -26,6 +27,8 @@ ordinal: 241000
 Outcome: a gh call is never let through only because the Bash PreToolUse check failed to run: when the check throws or cannot start and the command text contains a gh word, the hook exits 2, while every other Bash call still fails open.
 
 Context: DIPO-195 (PR #281) dropped the Bash(gh) and Bash(gh *) deny rules when the hook relay is on, so the PreToolUse Bash check (packages/daemon/src/hook.ts runBash, gh-guard and the temp guard) is now the only barrier to a gh call. That hook is registered with no exit-2 fallback (packages/engine/src/workers/claude-cli/hooks.ts: "the Bash check fails open, so a broken check never blocks Bash"): if the check throws, the hook times out or the dipo binary cannot start, the call runs. Before DIPO-195 a fail-closed deny rule stopped gh. The gate hook (--gate, DIPO-164) already fails closed with exit 2 when it cannot print. The 0008 section 2 note of 2026-10-20 (DIPO-195) moves the refusal into the check but does not say the gh part now fails open. The sandbox still masks ~/.config/gh and GH_TOKEN.
+
+Review note (2026-10-21): packages/engine/test/workers/plan.test.ts asserts the Bash hook command ends with ` hook PreToolUse --bash`, so a fallback appended to that command changes the test. `dipo hook` reads the payload from stdin, so a shell fallback that must see the command after dipo crashed has to keep a copy of stdin before it pipes it to dipo. A hook that times out is run by the Claude CLI anyway; that case stays fail-open, the residual risk the hooks.ts header already records for the web gate.
 
 ```dipo
 branch: "DIPO-241/gh-check-fails-closed"
