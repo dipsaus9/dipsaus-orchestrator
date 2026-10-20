@@ -61,21 +61,34 @@ function stillEligible(deps: ReconcileDeps, claim: ClaimRecord): boolean {
   );
 }
 
+/** What one pass of `releaseDoneOnBase` did: the claims released, and those skipped because `_base` moved. */
+export interface DoneOnBaseResult {
+  readonly released: number;
+  readonly baseMoved: number;
+}
+
+/** The outcome of one claim: released, skipped because `_base` moved since the pass, or left alone. */
+type ClaimOutcome = "released" | "baseMoved" | "none";
+
 /**
- * Releases the claims of stories Done on `_base`; returns how many it released. `record` writes
- * a notice with its facts in one transaction.
+ * Releases the claims of stories Done on `_base`; returns how many it released and how many it
+ * skipped because the HEAD of `_base` was not the pass's commit. `record` writes a notice with its
+ * facts in one transaction.
  */
 export async function releaseDoneOnBase(
   deps: ReconcileDeps,
   pass: IndexResult,
   record: Recorder,
-): Promise<number> {
+): Promise<DoneOnBaseResult> {
   let released = 0;
+  let baseMoved = 0;
   for (const claim of liveClaims(deps.office)) {
     if (claim.claimSha === null || !runEnded(deps, claim)) continue;
     if (!isDoneOnBase(baseStatusOf(pass, claim))) continue;
     try {
-      if (await releaseOne(deps, pass, claim, record)) released += 1;
+      const outcome = await releaseOne(deps, pass, claim, record);
+      if (outcome === "released") released += 1;
+      if (outcome === "baseMoved") baseMoved += 1;
     } catch (error) {
       record({
         code: DONE_ON_BASE_NOTICES.kept,
@@ -84,7 +97,7 @@ export async function releaseDoneOnBase(
       });
     }
   }
-  return released;
+  return { released, baseMoved };
 }
 
 async function releaseOne(
@@ -92,7 +105,7 @@ async function releaseOne(
   pass: IndexResult,
   claim: ClaimRecord,
   record: Recorder,
-): Promise<boolean> {
+): Promise<ClaimOutcome> {
   const { git, office } = deps;
   const gone =
     claim.teardownStartedAt !== null &&
@@ -107,10 +120,11 @@ async function releaseOne(
         .ok(git.worktreeLocation(git.baseWorktreePath()), ["rev-parse", "--verify", "HEAD"])
         .then((out) => out.trim())
         .catch(() => null);
-      if (head !== pass.sha) return "skipped" as const;
+      if (head !== pass.sha) return "baseMoved" as const;
       return removeWorktree({ office, git, clock: deps.clock }, session, claim);
     });
-    if (outcome === "skipped") return false;
+    if (outcome === "skipped") return "none";
+    if (outcome === "baseMoved") return "baseMoved";
     if (!outcome.ok) {
       const files =
         outcome.files.length === 0 ? "" : ` Files git lists there: ${outcome.files.join(", ")}.`;
@@ -119,10 +133,10 @@ async function releaseOne(
         key: claim.key,
         text: `${claim.story} is Done on ${claim.base}, but dipo kept its claim, worktree ${claim.worktree} and port slot: ${outcome.why}.${files} Commit, move or remove those changes; dipo tries again at the next rescan.`,
       });
-      return false;
+      return "none";
     }
   } else if (!stillEligible(deps, claim)) {
-    return false;
+    return "none";
   }
 
   record(
@@ -149,5 +163,5 @@ async function releaseOne(
     "info",
   );
   deps.slots?.free(claim.worktree);
-  return true;
+  return "released";
 }
