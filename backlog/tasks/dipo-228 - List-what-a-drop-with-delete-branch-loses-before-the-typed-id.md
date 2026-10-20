@@ -1,10 +1,10 @@
 ---
 id: DIPO-228
 title: List what a drop with --delete-branch loses before the typed id
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 21:02'
+updated_date: '2026-10-20 21:03'
 labels:
   - 'tier:S'
   - cutover
@@ -55,6 +55,10 @@ test_plan:
       check: "(unit) the contract lists story.losses among the office reads with since 1 and a fixture, and the schema test passes with the regenerated packages/contract/schema/"
     - kind: "automated"
       check: "(unit) story.losses on a story with neither a live claim nor an open released branch returns empty lists, and no read of it journals, commits or removes anything"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "stopped at review: dipo's reviewer cannot start until DIPO-250 lands; reviewed by hand"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
