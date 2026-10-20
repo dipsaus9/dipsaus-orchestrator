@@ -3,10 +3,10 @@ id: DIPO-185
 title: >-
   State the story task file's scope exemption in the scope check and the review
   prompt
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 08:00'
+updated_date: '2026-10-20 08:17'
 labels:
   - 'tier:S'
   - cutover
@@ -51,3 +51,9 @@ test_plan:
 - [x] #3 The worker's L1 Scope section says dipo writes the story's own task file (status, checked criteria) and the worker does not; the golden file is updated
 - [x] #4 The reviewer role (L2) or the review task message from DIPO-145 says the story's own task file is written by dipo, is exempt from scope and is never a scope finding, and the review task message's changed-path list leaves it out or marks it as written by dipo; the review L1 is not changed, and the golden files are updated
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C4TAX5Q74CJCD7VHPSSV86 (Haiku, 34 turns, about $0.03, 5 min) reported done, In Review, with no denied call and no write outside the References. The scope-violation detail now ends 'The story's own task file, written by dipo, is exempt from scope.'; the implement contract's Scope section and the reviewer role say the same; review.ts already leaves the task file out of <changes> and <diff>, so criterion 4 is met through the reviewer role. Fixed on top: the CI-only verify-commit.ci.test.ts pinned the old detail text (the worker cannot run CI-only tests in its sandbox, DIPO-224); it now expects the exemption sentence. Review passed; advisory, not done: the implement contract states the exemption in other words than the detail and the reviewer role ('exempt from scope' is not used there). Verify outside the sandbox: 3900 tests, 0 fail; DIPO_TEST_CI=1 run and prompts tests pass (426).
+<!-- SECTION:NOTES:END -->
