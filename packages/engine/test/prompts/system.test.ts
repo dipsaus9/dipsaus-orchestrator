@@ -39,6 +39,17 @@ describe("system file", () => {
     expect(text).toContain("never fall back to `/tmp`");
   });
 
+  it("tells the worker that CI-only tests do not run in its sandbox and CI runs them", () => {
+    const text = renderSystemFile("implement", "developer");
+    expect(text).toContain(
+      "Tests that the project runs only in CI, such as `*.ci.test.ts` files that run only when `DIPO_TEST_CI` is set, do not run in the worker sandbox",
+    );
+    expect(text).toContain("do not run them and do not set that variable");
+    expect(text).toContain(
+      "If the story asks for a CI-only test, write it and leave it to CI, which runs it.",
+    );
+  });
+
   it("tells the worker to run every command from the worktree root, never cd", () => {
     const text = renderSystemFile("implement", "developer");
     expect(text).toContain("Run every command from the worktree root.");

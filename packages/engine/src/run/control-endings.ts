@@ -24,11 +24,29 @@ import {
   type StopResult,
   type Tracked,
 } from "./control-types";
+import type { CapName } from "./caps";
 import { recordIntent, sendAsIntent } from "./intents";
 import { MAINTAINER_TAGS, openPause } from "./pauses";
 import type { RunAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
 import { activeRuns, findRun, type StoredRun } from "./records";
+
+/** The detail a cap is named with; the CLI backstop's own detail gets the turn cap prefix. */
+export function capDetail(cap: CapName, detail: string): string {
+  return cap === "maxTurns" && !detail.startsWith("turn cap") ? `turn cap: ${detail}` : detail;
+}
+
+/** The ending of a run that reached a cap: the stop sequence and the park `budget-exceeded`. */
+export function capEnding(encode: RunControlDeps["encode"], cap: CapName, detail: string): Ending {
+  return {
+    intent: "cap",
+    ops: encode({ kind: "stop" }),
+    reason: "budget-exceeded",
+    cause: PARK_CAUSES.build,
+    detail: capDetail(cap, detail),
+    endKind: "capped",
+  };
+}
 
 export class RunEndings {
   readonly #deps: RunControlDeps;
@@ -181,7 +199,7 @@ export class RunEndings {
     office: OfficeHandle,
     run: StoredRun,
     work: WorkRef | undefined,
-    ending: Ending,
+    ending: Ending & { readonly capStep?: string },
     commit: (fn: () => readonly NewEntry[]) => void,
     writer: ParkWriter = this.#deps.writer,
   ): Promise<ParkOutcome> {
@@ -254,6 +272,7 @@ export class RunEndings {
           cause: ending.cause,
           detail: ending.detail,
           endKind: ending.endKind,
+          ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
         },
       );
       // The run summary (DIPO-49): every run that ends here gets one.

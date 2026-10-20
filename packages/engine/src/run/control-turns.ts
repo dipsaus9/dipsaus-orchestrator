@@ -6,7 +6,7 @@ import { withWorkViews } from "../views/work";
 import type { TurnProblem, WorkerReport } from "../workers/types";
 
 import type { FiredCap } from "./caps";
-import type { RunEndings } from "./control-endings";
+import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { ParkOutcome } from "./park";
 import { openPause } from "./pauses";
@@ -54,6 +54,14 @@ export class AfterTurns {
       finisher === undefined
         ? "continue"
         : await this.#finishTurn(tracked, finisher, report, capped);
+    // A done turn that crossed a cap and that the finisher let continue (no worktree, a session
+    // run) ends at the cap, as before DIPO-205; the cap run step is only for the done path.
+    if (decided === "continue" && capped !== null) {
+      if (tracked.ending === null) {
+        this.#endings.begin(tracked, capEnding(this.#deps.encode, capped.cap, capped.detail));
+      }
+      return;
+    }
     // A turn the finisher let continue: its problem decides next (DIPO-51).
     const outcomes = this.#deps.outcomes?.();
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
@@ -114,6 +122,7 @@ export class AfterTurns {
               detail: decision.detail,
               endKind: decision.endKind,
               report,
+              ...(capped === null ? {} : { capStep: `${capped.cap}: ${capped.detail}` }),
             },
             write,
           );
