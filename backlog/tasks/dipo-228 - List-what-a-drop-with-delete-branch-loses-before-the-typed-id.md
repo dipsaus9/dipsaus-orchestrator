@@ -1,10 +1,10 @@
 ---
 id: DIPO-228
 title: List what a drop with --delete-branch loses before the typed id
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 21:03'
+updated_date: '2026-10-20 21:12'
 labels:
   - 'tier:S'
   - cutover
@@ -55,10 +55,6 @@ test_plan:
       check: "(unit) the contract lists story.losses among the office reads with since 1 and a fixture, and the schema test passes with the regenerated packages/contract/schema/"
     - kind: "automated"
       check: "(unit) story.losses on a story with neither a live claim nor an open released branch returns empty lists, and no read of it journals, commits or removes anything"
-park:
-  reason: "stopped"
-  from: "In Review"
-  note: "stopped at review: dipo's reviewer cannot start until DIPO-250 lands; reviewed by hand"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -71,3 +67,9 @@ park:
 - [x] #5 story.drop with deleteBranch and no live claim deletes, locally and on the remote, each branch with an open released_branches row for the story's key, and sets reclaimed_at on those rows so no later claim reuses a deleted branch
 - [x] #6 Tests in packages/cli/src/story-commands.test.ts show the lists before the typed-id question, the empty case and a failed read dropping nothing, with the existing checks for "cannot be undone" and "Type DIPO-7" kept; tests in packages/engine/test/backlog/planning.test.ts and planning.ci.test.ts cover criteria 2, 4 and 5, the ci test with a real repository and a bare remote
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DH5MZX815M442CWYNAPB4V (Haiku, 110 turns, about $0.64, 9 min) reported done; stopped at review (dipo's reviewer could not start before DIPO-250) and reviewed by hand. One denied call (a grep compound). New read story.losses { office, story }: the commits not on the base (as last fetched) of the live claim's branch or of each open released branch, and the uncommitted and untracked files of a live claim's worktree; read-only (log, rev-parse, symbolic-ref, status). dipo drop --delete-branch prints those lists (up to 20 commits and 50 files, with an 'and N more' line) before asking for the typed id, says when nothing is lost, and asks nothing when the read fails. A drop without a live claim and with --delete-branch deletes the kept branches locally and on the remote and marks them reclaimed; a closed PR is named in the not-dropped reason. Contract read, fixture and schemas added in the unreleased minor. Fixed on top after review: a kept branch deleted by hand is skipped instead of failing the read (and so the drop). Follow-ups, not done: planning.ci.test.ts has no DIPO_TEST_CI guard (it predates this story); the real-git kept-branch test makes no commit on the branch; the kept-branch failure text says 'the worktree is gone'; remote-only commits are not listed; the fake should throw on log for a gone branch. Verify outside the sandbox: exit 0, 4193 tests; DIPO_TEST_CI=1 backlog, worktree, contract, CLI and client tests pass; planning.ci.test.ts 5/5.
+<!-- SECTION:NOTES:END -->
