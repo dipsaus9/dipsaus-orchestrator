@@ -1,10 +1,10 @@
 ---
 id: DIPO-232
 title: Tell workers to avoid the tool calls the Claude CLI asks approval for
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 10:49'
+updated_date: '2026-10-20 11:02'
 labels:
   - 'tier:S'
   - cutover
