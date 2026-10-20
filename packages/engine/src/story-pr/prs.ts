@@ -12,21 +12,61 @@
 // Work for one office runs one piece at a time, and `sync` never throws: whatever went wrong is
 // the notice.
 //
+// CI on the story PR (DIPO-147; 0019 section 7). The same poll reads, for each open PR of a story
+// still In Review, the required checks of the pushed head (`requiredChecks`: the office's
+// `mergeSlot.requiredChecks` joined with the checks the host marks required) with one call, and
+// only while the head's checks are not final: a final head is not read again until the head
+// changes. The PR itself is still read each interval, so a PR merged or closed on the host is
+// seen. A head whose checks are not final after `mergeSlot.checksWaitMinutes` raises one
+// `ci.stuck` notice and is read every 10 minutes from then on. A head with a failed required check
+// is red once its checks are final (or the wait ran out): the engine lists every check of the
+// head once, reads the failed Actions job logs, builds one CI feedback item per failed check,
+// appends one `ci` run step for the head and, when the run's CI cap (snapshot plus `ciAttempt`
+// grants) is reached, parks the story `verify-failing` with cause `ci`. The items stay in memory
+// for the fix round (`ciItems`); a story run in review holds no session place. The body's status
+// block lists each required check with its state and is rewritten when one changes.
+//
 // An office whose configuration in force sets `storyPr.open: false` (DIPO-210, 0019 amendment of
 // 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
 // no PR is opened, updated, polled or retried and no `pr.openFailed` is raised. The poll timer
 // stays armed, so an office that turns the key back on is picked up at the next interval.
 
-import type { Clock, OfficeId, RunId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type {
+  Clock,
+  CommandName,
+  OfficeId,
+  RunId,
+  StoryKey,
+  TimerHandle,
+} from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
-import { type CodeHost, CodeHostError, type HostPr, repoOfRemoteUrl } from "../platform/host";
-import { findRun } from "../run/records";
+import {
+  checksFinal,
+  evaluateChecks,
+  requiredCheckStates,
+  type RequiredCheckState,
+} from "../merge-slot/checks";
+import {
+  type CodeHost,
+  CodeHostError,
+  type HostPr,
+  type PrCheck,
+  type PrReviewHost,
+  type RequiredCheck,
+  repoOfRemoteUrl,
+} from "../platform/host";
+import { type CiFeedbackItem, ciFeedback, FEEDBACK_LOG_LINES_DEFAULT } from "../prompts/feedback";
+import { cutHead } from "../prompts/cut";
+import { runCaps } from "../run/caps";
+import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
+import { appendRunStep, findRun, runRoundCounts, runSteps, type StoredRun } from "../run/records";
 import { findStoryByKey } from "../stories/keys";
+import { withWorkViews } from "../views/work";
 
 import { storyPrBodyHash, storyPrBody } from "./body";
 import type { StoryPrGit } from "./git";
@@ -34,10 +74,11 @@ import {
   findStoryPr,
   insertStoryPr,
   openStoryPrs,
+  runParked,
   runsWithoutPr,
   setStoryPrState,
+  storyInReview,
   type StoryPrRecord,
-  type StoryPrState,
   updateStoryPr,
 } from "./records";
 import { storyPrTitle } from "./title";
@@ -46,7 +87,11 @@ import { storyPrTitle } from "./title";
 export const STORY_PR_NOTICES = {
   opened: "pr.opened",
   openFailed: "pr.openFailed",
+  ciStuck: "ci.stuck",
 } as const;
+
+/** How often a head whose checks are stuck is read (0019 section 7). */
+export const CI_STUCK_POLL_MS = 10 * 60_000;
 
 /** The load step's name in the registry. */
 export const STORY_PR_STEP = "story-pr.poll";
@@ -62,6 +107,33 @@ export interface StoryPrsDeps {
   readonly clock: Clock;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
+  /**
+   * What the CI feedback reads on the host (every check of a head, failed job logs). Without it a
+   * failed check becomes an item with its name only.
+   */
+  readonly review?: PrReviewHost;
+  /** What a red head at the CI cap parks through; without it that story is not parked. */
+  readonly park?: {
+    readonly writer: ParkWriter;
+    readonly implemented: (name: CommandName) => boolean;
+  };
+}
+
+/** What the poll knows of the pushed head of one story PR. */
+interface Watch {
+  readonly head: string;
+  /** When the engine first saw this head's checks unfinished. */
+  readonly since: number;
+  /** The checks are final and handled: not read again until the head changes. */
+  final: boolean;
+  stuck: boolean;
+  /** Earliest next read of a stuck head. */
+  nextAt: number;
+  /** The last states written to the body. */
+  states: string;
+  /** The reports the body is built from. */
+  reports: readonly RequiredCheck[];
+  items: readonly CiFeedbackItem[] | null;
 }
 
 interface Polled {
@@ -71,6 +143,8 @@ interface Polled {
   busy: Promise<unknown>;
   /** The failure last noticed for each run, so a retry that fails the same way is silent. */
   readonly told: Map<string, string>;
+  /** The CI watch of each run's pushed head. */
+  readonly watch: Map<string, Watch>;
 }
 
 const messageOf = (error: unknown): string =>
@@ -110,6 +184,7 @@ export class StoryPrs {
       timer: null,
       busy: Promise.resolve(),
       told: new Map(),
+      watch: new Map(),
     });
   }
 
@@ -143,9 +218,22 @@ export class StoryPrs {
     });
   }
 
+  /** The CI feedback items built for the red head of a run, or none (DIPO-148 sends them). */
+  ciItems(
+    officeId: OfficeId,
+    runId: RunId,
+  ): { head: string; items: readonly CiFeedbackItem[] } | null {
+    const watch = this.#offices.get(officeId)?.watch.get(runId);
+    return watch?.items == null ? null : { head: watch.head, items: watch.items };
+  }
+
+  #config(officeId: OfficeId): OfficeConfig {
+    return this.#deps.offices.config(officeId) ?? OFFICE_DEFAULTS;
+  }
+
   /** Whether the office's configuration in force lets the engine open story PRs (DIPO-210). */
   #opensPrs(officeId: OfficeId): boolean {
-    return (this.#deps.offices.config(officeId) ?? OFFICE_DEFAULTS).storyPr.open;
+    return this.#config(officeId).storyPr.open;
   }
 
   async #sync(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
@@ -166,7 +254,12 @@ export class StoryPrs {
         );
       }
       const title = storyPrTitle(facts.story);
-      const body = storyPrBody(facts.story, { head: facts.head });
+      const watch = state.watch.get(runId);
+      const checks = requiredCheckStates(
+        watch?.head === facts.head ? watch.reports : [],
+        this.#config(officeId).mergeSlot.requiredChecks,
+      );
+      const body = storyPrBody(facts.story, { head: facts.head, checks });
       const hash = storyPrBodyHash(body);
       const stored = findStoryPr(office, runId);
       if (stored === null) {
@@ -314,9 +407,9 @@ export class StoryPrs {
       });
       return;
     }
-    let hostState: StoryPrState;
+    let viewed: HostPr;
     try {
-      hostState = (await this.#deps.host.viewPr(repo, stored.number)).state;
+      viewed = await this.#deps.host.viewPr(repo, stored.number);
     } catch (error) {
       this.#deps.logger?.warn("reading the story PR failed", {
         office: officeId,
@@ -325,7 +418,11 @@ export class StoryPrs {
       });
       return;
     }
-    if (hostState === stored.state) return;
+    const hostState = viewed.state;
+    if (hostState === stored.state) {
+      if (hostState === "open") await this.#watch(officeId, state, stored, repo, viewed.headSha);
+      return;
+    }
     const closedAt = hostState === "open" ? null : this.#deps.clock.now();
     const next: StoryPrRecord = { ...stored, state: hostState, closedAt };
     const story = findStoryByKey(state.office, stored.key)?.story;
@@ -333,6 +430,214 @@ export class StoryPrs {
       setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
       return story === undefined ? [] : [prEntry(next, story)];
     });
+  }
+
+  /**
+   * The CI watch of one open PR (0019 section 7): reads the required checks of the pushed head
+   * unless they are final or the head is stuck and not due, rewrites the body when a check's
+   * state changed, raises `ci.stuck` once, and handles a red head. A failed read is logged and the
+   * next poll reads again.
+   */
+  async #watch(
+    officeId: OfficeId,
+    state: Polled,
+    stored: StoryPrRecord,
+    repo: string,
+    hostHead: string,
+  ): Promise<void> {
+    const office = state.office;
+    const run = findRun(office, stored.runId);
+    if (run === null || !storyInReview(office, stored.key)) return;
+    const config = this.#config(officeId);
+    const names = config.mergeSlot.requiredChecks;
+    const now = this.#deps.clock.now();
+    let watch = state.watch.get(stored.runId);
+    if (watch?.head !== stored.headSha) {
+      watch = {
+        head: stored.headSha,
+        since: now,
+        final: false,
+        stuck: false,
+        nextAt: 0,
+        states: JSON.stringify(requiredCheckStates([], names)),
+        reports: [],
+        items: null,
+      };
+      state.watch.set(stored.runId, watch);
+    }
+    if (watch.final || now < watch.nextAt) return;
+    // Checks the host reports for another head than the one the engine pushed do not count.
+    let reports: RequiredCheck[] = [];
+    if (hostHead === "" || hostHead === stored.headSha) {
+      try {
+        reports = await this.#deps.host.requiredChecks(repo, stored.number);
+      } catch (error) {
+        this.#deps.logger?.warn("reading the checks of the story PR failed", {
+          office: officeId,
+          run: stored.runId,
+          reason: messageOf(error),
+        });
+        return;
+      }
+    }
+    watch.reports = reports;
+    const states = JSON.stringify(requiredCheckStates(reports, names));
+    if (states !== watch.states) {
+      watch.states = states;
+      await this.#sync(officeId, state, stored.runId);
+    }
+    const verdict = evaluateChecks(reports, names);
+    const final = checksFinal(reports, names);
+    const waited = now - watch.since >= config.mergeSlot.checksWaitMinutes * 60_000;
+    if (!final && waited) {
+      if (!watch.stuck) {
+        watch.stuck = true;
+        this.#write(officeId, state, () => [
+          notice(
+            "warn",
+            STORY_PR_NOTICES.ciStuck,
+            `The required checks of the PR for ${stored.key} are still not final after ${config.mergeSlot.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ")}). dipo keeps watching, now every 10 minutes.`,
+            stored.key,
+            stored.runId,
+          ),
+        ]);
+      }
+      watch.nextAt = now + CI_STUCK_POLL_MS;
+    }
+    if (verdict.state === "passed") watch.final = true;
+    if (verdict.state === "failed" && (final || waited)) {
+      watch.final = true;
+      await this.#red(officeId, state, run, stored, repo, reports);
+    }
+  }
+
+  /**
+   * A red head: builds its CI items (one log read per failed check, once per head), appends the
+   * head's `ci` step unless an earlier poll did, and parks the story `verify-failing` with cause
+   * `ci` when the run's CI cap is reached.
+   */
+  async #red(
+    officeId: OfficeId,
+    state: Polled,
+    run: StoredRun,
+    stored: StoryPrRecord,
+    repo: string,
+    reports: readonly RequiredCheck[],
+  ): Promise<void> {
+    const office = state.office;
+    const watch = state.watch.get(run.runId) as Watch;
+    const recorded = runSteps(office, run.runId).some(
+      (step) => step.kind === "ci" && step.value === stored.headSha,
+    );
+    if (!recorded) {
+      watch.items = await this.#ciItems(officeId, run, stored, repo, reports);
+      this.#write(officeId, state, () => {
+        appendRunStep(office, run.runId, "ci", stored.headSha, this.#deps.clock.now());
+        return [];
+      });
+    }
+    const cap = runCaps(office, run).ciCap;
+    const attempts = runRoundCounts(office, run.runId).ciAttempts;
+    if (cap === null || attempts < cap || runParked(office, run.runId)) return;
+    const park = this.#deps.park;
+    if (park === undefined) return;
+    const items = (watch.items ?? []).map((item) => item.text).join("\n\n");
+    const detail = `required checks were red on ${attempts} pushed heads (the CI cap is ${cap}).${
+      items === "" ? "" : ` ${cutHead(items, CI_DETAIL_MAX, cutMarker).text}`
+    }`;
+    try {
+      await parkStory(
+        {
+          office,
+          writer: park.writer,
+          now: () => this.#deps.clock.now(),
+          write: (fn) => this.#write(officeId, state, () => withWorkViews(office, fn())),
+          implemented: park.implemented,
+        },
+        {
+          run,
+          reason: "verify-failing",
+          cause: PARK_CAUSES.ci,
+          detail,
+          endKind: "verify-failing",
+        },
+      );
+    } catch (error) {
+      this.#deps.logger?.warn("parking the story on red checks failed", {
+        office: officeId,
+        run: run.runId,
+        reason: messageOf(error),
+      });
+    }
+  }
+
+  /** One item per failed check of the head; the host is asked for every check once. */
+  async #ciItems(
+    officeId: OfficeId,
+    run: StoredRun,
+    stored: StoryPrRecord,
+    repo: string,
+    reports: readonly RequiredCheck[],
+  ): Promise<CiFeedbackItem[]> {
+    const config = this.#config(officeId);
+    const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+    const options = {
+      itemMax: (run.tier === null ? undefined : budgets[run.tier]) ?? budgets.M ?? 3_000,
+      logLines: FEEDBACK_LOG_LINES_DEFAULT,
+    };
+    const review = this.#deps.review;
+    let all: readonly PrCheck[] = [];
+    let listFailed = "";
+    if (review !== undefined) {
+      try {
+        all = await review.prChecks(repo, stored.number);
+      } catch (error) {
+        listFailed = messageOf(error);
+      }
+    }
+    const required = new Set(
+      requiredCheckStates(reports, config.mergeSlot.requiredChecks).map((c) => c.name),
+    );
+    const failed = all.filter(isFailed);
+    // A failed required check the full list does not show is named, with no link.
+    for (const report of reports) {
+      if (isFailed(report) && !failed.some((check) => check.name === report.name)) {
+        failed.push({ ...report, link: "", workflow: "" });
+      }
+    }
+    const items: CiFeedbackItem[] = [];
+    for (const check of failed) {
+      const explainedBy = explainingJobs(check, failed, required);
+      if (explainedBy.length > 0) {
+        items.push(
+          ciFeedback(
+            {
+              check: check.name,
+              link: check.link,
+              log: null,
+              noLog: `no log: it failed because other jobs of its workflow run failed (${explainedBy.join(", ")}).`,
+            },
+            options,
+          ),
+        );
+        continue;
+      }
+      let log: string | null = null;
+      let noLog = "no log: the check is not a GitHub Actions job, see its link.";
+      if (review !== undefined && check.link !== "") {
+        try {
+          log = await review.failedJobLog(repo, check.link);
+        } catch (error) {
+          noLog = `no log: reading it failed (${messageOf(error)}).`;
+        }
+      } else if (listFailed !== "") {
+        noLog = `no log: the checks of the head could not be listed (${listFailed}).`;
+      } else if (review === undefined) {
+        noLog = "no log: dipo has no way to read job logs here.";
+      }
+      items.push(ciFeedback({ check: check.name, link: check.link, log, noLog }, options));
+    }
+    return items;
   }
 
   #failed(officeId: OfficeId, state: Polled, runId: RunId, key: StoryKey, error: unknown): void {
@@ -439,4 +744,44 @@ function notice(
   run: RunId,
 ): NewEntry {
   return { type: "engine.notice", key, run, delta: { level, code, text } };
+}
+
+/** The most characters of CI items a park detail holds (0014's per-message budget). */
+const CI_DETAIL_MAX = 8_000;
+
+const cutMarker = (shown: number, total: number): string =>
+  `[dipo: cut, showing ${shown} of ${total} characters.]`;
+
+const isFailed = (check: RequiredCheck): boolean =>
+  check.bucket === "fail" || check.bucket === "cancel";
+
+/** The names of the checks a head still waits for. */
+function waitingFor(reports: readonly RequiredCheck[], names: readonly string[]): string[] {
+  const verdict = evaluateChecks(reports, names);
+  if (verdict.state === "pending") return [...verdict.waiting];
+  return requiredCheckStates(reports, names)
+    .filter(({ state }: RequiredCheckState) => state === "pending")
+    .map(({ name }) => name);
+}
+
+const runOfLink = (link: string): string | null =>
+  /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/(\d+)\/job\/\d+/.exec(link)?.[1] ?? null;
+
+/**
+ * The failed jobs that explain a failed required check: other failed checks of the same workflow
+ * run that are not required themselves, as the jobs `ci-ok` waits for are. Empty when the check
+ * is not an Actions job or no such job failed, so it gets a log of its own.
+ */
+function explainingJobs(
+  check: PrCheck,
+  failed: readonly PrCheck[],
+  required: ReadonlySet<string>,
+): string[] {
+  const run = runOfLink(check.link);
+  if (run === null || !required.has(check.name)) return [];
+  return failed
+    .filter(
+      (other) => other !== check && !required.has(other.name) && runOfLink(other.link) === run,
+    )
+    .map((other) => other.name);
 }
