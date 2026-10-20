@@ -505,14 +505,15 @@ export async function capture(scenario: Scenario): Promise<string> {
             );
       // A launch self-test's hooks reach the engine's stand-in, which denies the approval call as
       // the engine's self-test does (DIPO-231). It listens for the session and records what reached it.
-      const standIn =
-        scenario.standIn === true
-          ? await startHostStandIn({
-              socketPath: sessionSocketOf(scenario, hostSocket),
-              run: "run-0001",
-            })
-          : null;
+      // Started inside the try, so a stand-in that fails to start still stops the fixture host.
+      let standIn: Awaited<ReturnType<typeof startHostStandIn>> | null = null;
       try {
+        if (scenario.standIn === true) {
+          standIn = await startHostStandIn({
+            socketPath: sessionSocketOf(scenario, hostSocket),
+            run: "run-0001",
+          });
+        }
         for (const [launch, processTurns, resume] of launches) {
           for (const file of launch.files) {
             writeFileSync(
