@@ -54,4 +54,7 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // still unreleased, minor.
 // DIPO-142 adds the optional `cause` of `story.parked` (0020 section 2) to the same, still
 // unreleased, minor.
+// DIPO-163 ships the commands `work.steer` (its `delivered` also says `on-resume`) and `work.pause`,
+// the optional `queued` of the `work.resume` result and the office code `story.notSteerable` in the
+// same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

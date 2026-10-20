@@ -26,6 +26,7 @@ import type { OfficeHandle } from "../db/office";
 import { readUsage } from "../ingest/usage";
 import { runCaps } from "../run/caps";
 import { runCriteriaMet } from "../run/criteria";
+import { openPause } from "../run/pauses";
 import { activeRuns, findRun, runRoundCounts, type StoredRun } from "../run/records";
 import { activeSignals } from "../run/signals";
 
@@ -40,7 +41,7 @@ export interface HealthFacts {
   readonly exitUnprocessed: boolean;
   /** An open question or a gate waiting on the maintainer for this run (none in M0). */
   readonly asking?: boolean;
-  /** `work.pause` took effect (not in M0). */
+  /** `work.pause` took effect: an open maintainer pause (DIPO-163). */
   readonly paused?: boolean;
   readonly loop: number;
   readonly loopCap: number;
@@ -195,10 +196,14 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   // A run held for a plan limit (DIPO-51) has an exited worker on purpose: it waits for the
   // reset, so it shows `limited`, not `lost`. A run reopened for a round waits for its place
   // with the last session's agent ended (DIPO-142): not lost either.
-  const waiting = signals.some((signal) => signal.signal === "plan-limit") || run.waiting != null;
+  // A run the maintainer paused (DIPO-163) shows `paused`, also after its worker exited.
+  const paused = run.endedAt === null && openPause(office, run.runId) !== null;
+  const waiting =
+    signals.some((signal) => signal.signal === "plan-limit") || run.waiting != null || paused;
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
     exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,
+    paused,
     loop: progress.loop,
     loopCap: progress.loopCap,
   });

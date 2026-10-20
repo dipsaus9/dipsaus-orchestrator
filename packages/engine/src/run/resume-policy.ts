@@ -18,6 +18,8 @@ export interface ResumePolicyRow {
 export const PARK_RESUME_POLICY: Readonly<Record<string, ResumePolicyRow>> = {
   "needs-permission": { via: "permission-answer" },
   "plan-limit": { via: "work.resume" },
+  // A run the maintainer paused (0020 section 9, DIPO-163): not a park, like `plan-limit`.
+  paused: { via: "work.resume" },
   // A park without a run: the planning lane lifts it (0020 section 8, DIPO-160).
   "on-hold": { via: "work.resume" },
 };

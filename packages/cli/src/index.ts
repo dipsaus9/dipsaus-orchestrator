@@ -34,6 +34,7 @@ import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
+import { pauseCommand, steerCommand } from "./intervene-commands";
 import { dropCommand, holdCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { systemTui } from "./tui-command";
@@ -148,6 +149,14 @@ Usage:
                     kept unless --delete-branch, which also removes dirty files
                     and deletes the branch locally and on the remote after you
                     type the story id
+  dipo steer <id> <text> [--office <id>]
+                    send the story's worker your text as its next message; a
+                    paused or parked story gets it with the first message on
+                    resume; a reviewer session cannot be steered
+  dipo pause <id> [--office <id>]
+                    hold the story's worker: it stays In Progress, shown as
+                    paused, and its process exits after 10 minutes; the paused
+                    time does not count toward its minute cap
   dipo answer <question> allow|deny [reason] [--office <id>]
                     answer a permission question a worker asked while you were
                     at a client: allow lets its call run once, deny refuses it
@@ -340,6 +349,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "drop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return dropCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "steer") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return steerCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "pause") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return pauseCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "answer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

@@ -417,7 +417,7 @@
         },
         "delivered": {
           "type": "string",
-          "const": "next-turn"
+          "enum": ["next-turn", "on-resume"]
         }
       },
       "required": ["run", "delivered"]
@@ -498,6 +498,9 @@
         "run": {
           "type": "string",
           "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "queued": {
+          "type": "boolean"
         }
       },
       "required": ["story", "key", "to"]

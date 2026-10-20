@@ -9,6 +9,7 @@ import type { FiredCap } from "./caps";
 import type { RunEndings } from "./control-endings";
 import { disarm, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { ParkOutcome } from "./park";
+import { openPause } from "./pauses";
 import { findRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -56,7 +57,11 @@ export class AfterTurns {
     // A turn the finisher let continue: its problem decides next (DIPO-51).
     const outcomes = this.#deps.outcomes?.();
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
-      if (tracked.ending === null) await outcomes.onTurnProblem(viewOf(tracked), problem);
+      // The worker's reply to a pause carries no report; it is no problem to feed back (DIPO-163).
+      const office = this.#deps.offices.get(tracked.office);
+      const paused = office !== undefined && openPause(office, tracked.runId) !== null;
+      if (tracked.ending === null && !paused)
+        await outcomes.onTurnProblem(viewOf(tracked), problem);
     }
   }
 

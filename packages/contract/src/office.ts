@@ -99,17 +99,22 @@ export const workAnswer = defineCommand({
   since: 0,
 });
 
+// Since minor 1 (DIPO-163, 0020 section 9): a running worker gets the text as its next user message
+// (`next-turn`); a steer to a paused or parked story is stored once and sent with the first message
+// on resume (`on-resume`). A story whose live session is its reviewer, or whose host is followed
+// only, answers `story.notSteerable`.
 export const workSteer = defineCommand({
   name: "work.steer",
   level: "office",
   args: z.object({ ...StoryRef.shape, text: z.string().min(1) }),
-  result: z.object({ run: RunId, delivered: z.literal("next-turn") }),
+  result: z.object({ run: RunId, delivered: z.enum(["next-turn", "on-resume"]) }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
-// The worker is held at its next safe point.
+// Since minor 1 (DIPO-163, 0020 section 9): the worker is held; the run stays In Progress with
+// health `paused` and keeps its claim, slot and session place until stdin closes after 10 minutes.
 export const workPause = defineCommand({
   name: "work.pause",
   level: "office",
@@ -117,10 +122,11 @@ export const workPause = defineCommand({
   result: RunResult,
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
-// A paused run continues; a parked story returns to `park.from`, and to In Progress or In Review
+// A paused run continues (DIPO-163: at once while its worker lives, else with `--resume`, queued when
+// the worker place is taken); a parked story returns to `park.from`, and to In Progress or In Review
 // it starts or re-attaches a run. Since minor 1 (DIPO-61) the engine implements it for runs held
 // by a plan limit: the held session continues at once and a `credits` hold is lifted. A parked
 // story is not resumed yet; it fails `story.notPausedOrParked` like a story with no held run.
@@ -128,7 +134,14 @@ export const workResume = defineCommand({
   name: "work.resume",
   level: "office",
   args: z.object({ ...StoryRef.shape, note: z.string().optional() }),
-  result: z.object({ story: StoryId, key: StoryKey, to: Lifecycle, run: RunId.optional() }),
+  // `queued` (DIPO-163): the run waits for the office's worker place before its session starts.
+  result: z.object({
+    story: StoryId,
+    key: StoryKey,
+    to: Lifecycle,
+    run: RunId.optional(),
+    queued: z.boolean().optional(),
+  }),
   confirm: false,
   irreversible: false,
   since: 1,

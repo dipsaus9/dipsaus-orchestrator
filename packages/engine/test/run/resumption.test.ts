@@ -55,10 +55,15 @@ describe("the resume policy table", () => {
     expect(resumeVia("on-hold")).toBe("work.resume");
   });
 
-  it("has the rows of M0 and of the hold only; every other park reason has no row", () => {
+  it("resumes a paused run through work.resume (DIPO-163)", () => {
+    expect(resumeVia("paused")).toBe("work.resume");
+  });
+
+  it("has the rows of M0, of the hold and of the pause only; every other park reason has no row", () => {
     expect(Object.keys(PARK_RESUME_POLICY).toSorted()).toEqual([
       "needs-permission",
       "on-hold",
+      "paused",
       "plan-limit",
     ]);
     for (const reason of KNOWN_PARK_REASONS) {

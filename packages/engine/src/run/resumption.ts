@@ -10,7 +10,8 @@
 //   session when the place frees; maintainer resumes go first in the place.
 // - `PARK_RESUME_POLICY` (`resume-policy.ts`) says, per reason a run stands still, which command
 //   resumes it. The rows of M0 are `needs-permission` (the permission answer) and `plan-limit`
-//   (`work.resume` of the held run). `work.resume` itself (`work-resume.ts`) decides through the
+//   (`work.resume` of the held run); `paused` (`work.resume` of a run the maintainer paused,
+//   `resume-paused.ts`, DIPO-163) follows. `work.resume` itself (`work-resume.ts`) decides through the
 //   table, so any other reason answers `story.notPausedOrParked`; later rows extend the table, not
 //   the run outcomes.
 
@@ -26,6 +27,7 @@ import { workRefOf } from "../views/work";
 
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
 import { RunOutcomes, type OutcomeParts } from "./outcomes";
+import { PausedResumes } from "./resume-paused";
 import {
   INTENT_TAGS,
   intentRest,
@@ -106,6 +108,7 @@ export class Resumption {
   readonly #guard: OutcomeParts["support"]["guard"];
   readonly #sessions: OutcomeParts["sessions"];
   readonly #command: WorkResumeCommand;
+  readonly #paused: PausedResumes;
   readonly #places: () => Places | undefined;
   /** Sessions of resumed parks starting after their answer was replied to (DIPO-75). */
   readonly #inflight = new Set<Promise<unknown>>();
@@ -115,8 +118,9 @@ export class Resumption {
     this.#deps = parts.support.deps;
     this.#guard = parts.support.guard;
     this.#sessions = parts.sessions;
-    this.#command = new WorkResumeCommand(options.planLimits, options.holds);
     this.#places = options.places ?? (() => undefined);
+    this.#paused = new PausedResumes(parts, this.#places);
+    this.#command = new WorkResumeCommand(options.planLimits, options.holds, () => this.#paused);
   }
 
   /** Resolves once every session start of a resumed park this started has finished (DIPO-75). */
@@ -429,7 +433,9 @@ export class Resumption {
         order by intent_id desc limit 1`,
       { run: run.runId, tag: `${INTENT_TAGS.parkResume} %` },
     );
-    if (row === null || this.#guard.busy(run.runId)) return false;
+    // No park resume waits: it may be a paused run's resume (DIPO-163).
+    if (row === null) return await this.#paused.startQueued(officeId, run);
+    if (this.#guard.busy(run.runId)) return false;
     let request: ResumeParkRequest;
     try {
       request = JSON.parse(intentRest(row.detail)) as ResumeParkRequest;

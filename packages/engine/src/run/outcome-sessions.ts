@@ -3,6 +3,7 @@
 
 import type { WatchdogSignal, WorkRef } from "@dipsaus-orchestrator/contract";
 
+import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { holdMessage, type AdapterHold } from "../workers/hold";
 import { findClaim, releaseClaim } from "../worktree/records";
 
@@ -15,7 +16,9 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
+import { steerText } from "./intervene";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
+import { heldMessages, markHeldSent } from "./pauses";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
 import { PARK_CAUSES } from "./park";
@@ -56,6 +59,21 @@ export class SessionStarts {
       });
       return false;
     }
+    // The steers and feedback items that waited for this session go with its first message
+    // (0020 section 9, DIPO-163).
+    const held = heldMessages(office, run.runId, steerText);
+    const message =
+      held.texts.length === 0
+        ? request.message
+        : [
+            request.message ??
+              (request.mode === "resume"
+                ? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why })
+                : undefined),
+            ...held.texts,
+          ]
+            .filter((part) => part !== undefined)
+            .join("\n\n");
     let outcome;
     try {
       outcome = await resumer.next({
@@ -64,7 +82,7 @@ export class SessionStarts {
         work: view.work,
         mode: request.mode,
         why: request.why,
-        ...(request.message === undefined ? {} : { message: request.message }),
+        ...(message === undefined ? {} : { message }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
         ...(request.clear === undefined ? {} : { clear: request.clear }),
         caps: view.caps,
@@ -76,6 +94,9 @@ export class SessionStarts {
     }
     switch (outcome.kind) {
       case "started":
+        if (held.ids.length > 0) {
+          office.immediate(() => markHeldSent(office, run.runId, held.ids, this.#deps.clock.now()));
+        }
         return true;
       case "startFailed":
         await this.startFailed(office, run, view.work, holdMessage(outcome.hold), outcome.hold);
