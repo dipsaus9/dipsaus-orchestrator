@@ -1,10 +1,10 @@
 ---
 id: DIPO-148
 title: 'Send review, CI and reject feedback once per head in one fix round'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:06'
+updated_date: '2026-10-20 19:05'
 labels:
   - 'tier:M'
   - 'slice:m1a'
