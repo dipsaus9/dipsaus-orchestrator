@@ -12,6 +12,16 @@ const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)\+?=/;
 const PREFIX_WORDS = new Set(["command", "builtin", "exec", "time", "nohup", "nice"]);
 /** Shell keywords that open a command list: `then export TMPDIR=x` sets the variable too. */
 const KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until"]);
+/** The word that closes each compound that a keyword opens: `if` ... `fi`, `for` ... `done`. */
+const COMPOUND_CLOSERS: ReadonlyMap<string, string> = new Map([
+  ["if", "fi"],
+  ["while", "done"],
+  ["until", "done"],
+  ["for", "done"],
+  ["case", "esac"],
+]);
+/** The words that close a group: `}` of `{ ...; }` and the closing word of each compound. */
+const CLOSERS: ReadonlySet<string> = new Set(["}", "fi", "done", "esac"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 /** Nesting of `sh -c`, `env -S`, `eval`, here-doc bodies and substitutions that is followed. */
 const MAX_DEPTH = 4;
@@ -25,8 +35,9 @@ interface SimpleCommand {
   /** The command before this one when this one follows a pipe `|`. */
   pipedFrom: SimpleCommand | null;
   /**
-   * For the `}` of a `{ ...; }` group, or the command after the `)` of a `( ... )` group: the
-   * indexes [start, end) of the commands inside the group, which read a here-doc it opens.
+   * For the closing word of a `{ ...; }` group or of an if, loop or case compound, or the command
+   * after the `)` of a `( ... )` group: the indexes [start, end) of the commands inside the group,
+   * which read a here-doc it opens.
    */
   group: { start: number; end: number } | null;
 }
@@ -166,14 +177,16 @@ function readHereDoc(
  * text of each command substitution inside double quotes. Unquoted `&&`, `||`, `;`, `|`, `&`,
  * newlines, parentheses and backticks end a command; an unquoted `#` at a word start begins a
  * comment. A here-doc body is not split: it becomes the body of the command that opens it, and of
- * each command inside a `{ ...; }` or `( ... )` group that opens it. `<<<` is a here-string and no
- * here-doc, and a `<<` inside an arithmetic `(( ))` or before a number is a shift.
+ * each command inside a `{ ...; }`, an if, loop or case compound, or a `( ... )` group that opens
+ * it. A `$( ... )` substitution is no group. `<<<` is a here-string and no here-doc, and a `<<`
+ * inside an arithmetic `(( ))` or before a number is a shift.
  */
 function simpleCommands(text: string): { commands: SimpleCommand[]; nested: string[] } {
   const commands: SimpleCommand[] = [];
   const nested: string[] = [];
   const heredocs: HereDoc[] = [];
-  // The open `(`, arithmetic `((` and `{` groups, with the index of their first command.
+  // The open `(`, `$(`, arithmetic `((` and `{` groups, and compounds, with the index of their
+  // first command. A group's kind is its closing word for `{` and compounds.
   const groups: Array<{ kind: string; start: number }> = [];
   let arithmetic = 0;
   let current = emptyCommand();
@@ -195,9 +208,12 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
         heredocs.pop();
         delimFor = null;
       }
+      const closer = listStart ? COMPOUND_CLOSERS.get(word) : undefined;
       if (word === "{" && listStart) {
-        groups.push({ kind: "{", start: commands.length });
-      } else if (word === "}" && current.words.length === 0 && groups.at(-1)?.kind === "{") {
+        groups.push({ kind: "}", start: commands.length });
+      } else if (closer !== undefined) {
+        groups.push({ kind: closer, start: commands.length });
+      } else if (CLOSERS.has(word) && current.words.length === 0 && groups.at(-1)?.kind === word) {
         const group = groups.pop();
         if (group !== undefined) current.group = { start: group.start, end: commands.length };
       }
@@ -300,7 +316,8 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
         arithmetic++;
         i++;
       } else {
-        groups.push({ kind: "(", start: commands.length });
+        // A `$(` substitution is a word of its command: the command after its `)` reads no body.
+        groups.push({ kind: text.charAt(i - 1) === "$" ? "$(" : "(", start: commands.length });
       }
     } else if (c === ")") {
       endCommand();
@@ -312,6 +329,8 @@ function simpleCommands(text: string): { commands: SimpleCommand[]; nested: stri
       } else if (group?.kind === "(") {
         groups.pop();
         current.group = { start: group.start, end: commands.length };
+      } else if (group?.kind === "$(") {
+        groups.pop();
       }
     } else if (";&\n`".includes(c)) {
       endCommand();

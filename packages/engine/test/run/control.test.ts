@@ -1097,8 +1097,11 @@ const capSteps = () =>
     { run: w.f.run },
   );
 
-/** A control whose finisher answers continue for every turn, as for a run without a worktree. */
-function continuing(): RunControl {
+/**
+ * A control whose finisher answers continue for every turn, as for a run without a worktree; with
+ * `throws` its afterTurn throws instead (DIPO-235).
+ */
+function continuing(throws = false): RunControl {
   const control = new RunControl({
     clock: w.f.t.clock,
     offices: { get: () => w.f.office },
@@ -1119,7 +1122,10 @@ function continuing(): RunControl {
     },
     encode,
     finisher: {
-      afterTurn: async () => ({ kind: "continue" }),
+      afterTurn: async () => {
+        if (throws) throw new Error("verify crashed");
+        return { kind: "continue" };
+      },
       summarize: async () => {},
     },
     warn: (message, fields) => w.warnings.push({ message, fields }),
@@ -1132,6 +1138,50 @@ function continuing(): RunControl {
   });
   return control;
 }
+
+describe("a capped done turn whose finisher throws (DIPO-235)", () => {
+  it("ends at the cap: the stop is sent, the story parks budget-exceeded, one warn line", async () => {
+    const control = continuing(true);
+    try {
+      control.onWorkerEvents(w.f.run, [turn({ capped: "turn cap (--max-turns) after 61 turns" })]);
+      await control.idle();
+      expect(w.sent).toEqual([encode({ kind: "stop" })]);
+      expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+        ["budget-exceeded", "build", "turn cap (--max-turns) after 61 turns"],
+      ]);
+      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+      expect(w.warnings).toEqual([
+        {
+          message: "verify and commit after a capped turn failed; ending at the cap",
+          fields: {
+            run: w.f.run,
+            cap: "maxTurns",
+            detail: "turn cap (--max-turns) after 61 turns",
+            reason: "verify crashed",
+          },
+        },
+      ]);
+    } finally {
+      control.close();
+    }
+  });
+
+  it("begins no cap ending on a turn that crossed no cap; the turn failure is logged as before", async () => {
+    const control = continuing(true);
+    try {
+      control.onWorkerEvents(w.f.run, [turn()]);
+      await control.idle();
+      expect(w.sent).toEqual([]);
+      expect(runIntents(w.f.office, w.f.run)).toEqual([]);
+      expect(parks()).toEqual([]);
+      expect(w.warnings.map((warning) => warning.message)).toEqual([
+        "verify and commit after a turn failed",
+      ]);
+    } finally {
+      control.close();
+    }
+  });
+});
 
 describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
   it("parks budget-exceeded at the CLI turn cap, with no In Review end and no cap step", async () => {

@@ -4,7 +4,7 @@ title: Report and clear a park record on a story that is not Parked
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-17 20:36'
+updated_date: '2026-10-20 14:00'
 labels:
   - 'tier:S'
   - cutover
@@ -29,13 +29,14 @@ Outcome: a park: block on a story that is not Parked no longer goes unnoticed: r
 
 Context: DIPO-129 merged to main as Done with "park: reason ambiguous-spec" from its parked run still in its field block, after the maintainer finished it by hand. 0012 F16 and the 0010 section 3 field table say the park record exists only while Parked. Status Done wins (0020), but the task file states a false fact, and nothing flags it. Reconcile step 4 (reconcilePark in packages/engine/src/reconcile/reconcile.ts) records any F16 block with no open park row as a park "recorded by hand", whatever the story's status. The resume path already removes F16 (gitUnparkWriter, 0020 section 1).
 
-The close-out commit that sets Done (0019 section 9 step 1) comes with DIPO-150, so this story depends on it. DIPO-162 releases a claim whose story is Done on the base through another branch and writes nothing to the backlog; a stale park block there gets this story's reconcile notice and stays for the maintainer to remove. DIPO-155 resumes parks and does not touch Done stories. 0007 section 6's reconcile table says, in the row for the current park state: "F16 with no DB park: record a park from Backlog with detail 'recorded by hand'", with no status condition. The narrowing in this story reads that row together with 0012 F16 and 0010 section 3, which allow F16 only while Parked: an F16 block on any other status is a stale fact, not a park. Whether 0007 section 6 gets a dated note that says so is the maintainer's call (unknown below); the maintainer writes it, and this story does not edit docs/decisions/.
+The close-out commit that sets Done (0019 section 9 step 1) comes with DIPO-150, so this story depends on it. DIPO-162 releases a claim whose story is Done on the base through another branch and writes nothing to the backlog; a stale park block there gets this story's reconcile notice and stays for the maintainer to remove. DIPO-155 resumes parks and does not touch Done stories. 0007 section 6's reconcile table says, in the row for the current park state: "F16 with no DB park: record a park from Backlog with detail 'recorded by hand'", with no status condition. The narrowing in this story reads that row together with 0012 F16 and 0010 section 3, which allow F16 only while Parked: an F16 block on any other status is a stale fact, not a park. The 0007 section 6 note of 2026-10-20 (DIPO-190) says so; this story does not edit docs/decisions/.
 
 ```dipo
 branch: "DIPO-190/flag-stale-park-record"
 unknowns:
   - q: "0007 section 6's reconcile row says an F16 with no DB park is recorded as a park by hand, with no status condition. Does 0007 section 6 get a dated note that this applies only to a Parked story, and that an F16 block on any other status is reported as stale instead?"
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-20): yes; the 0007 section 6 note of 2026-10-20 (DIPO-190) says an F16 park block with no database park is recorded as a park by hand only when the story's status is Parked, and on any other status reconcile reports the block as stale with a notice."
 test_plan:
   entries:
     - kind: "automated"
