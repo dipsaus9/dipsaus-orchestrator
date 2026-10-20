@@ -1,10 +1,10 @@
 ---
 id: DIPO-221
 title: End a path token run at a code span written right next to a word
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:18'
+updated_date: '2026-10-20 09:21'
 labels:
   - 'tier:S'
   - cutover
@@ -41,7 +41,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/src/gate/text.ts a code span ends a run: the runs checked for a path token are split at whitespace and at each code span, so a word written right before or after a code span is never part of a path token, and the comment of outsideCodeAndPaths says so
-- [ ] #2 A backtick without a closing one on its line does not end a run, and the DIPO-170 tests for an unclosed backtick and for a code span between two words keep their results
-- [ ] #3 Tests in packages/engine/test/gate/gate.test.ts show R10 failing for a banned phrase glued before and after a code span that holds a file path with an extension, and R27 matching a maintainer-step phrase glued before one; the existing test for a code span written right after a word keeps its R10 failure with its comment naming the new rule
+- [x] #1 In packages/engine/src/gate/text.ts a code span ends a run: the runs checked for a path token are split at whitespace and at each code span, so a word written right before or after a code span is never part of a path token, and the comment of outsideCodeAndPaths says so
+- [x] #2 A backtick without a closing one on its line does not end a run, and the DIPO-170 tests for an unclosed backtick and for a code span between two words keep their results
+- [x] #3 Tests in packages/engine/test/gate/gate.test.ts show R10 failing for a banned phrase glued before and after a code span that holds a file path with an extension, and R27 matching a maintainer-step phrase glued before one; the existing test for a code span written right after a word keeps its R10 failure with its comment naming the new rule
 <!-- AC:END -->
