@@ -1024,7 +1024,10 @@ describe("(engine) scoped launch holds (DIPO-257)", () => {
     expect(text).toContain("worker sessions");
     expect(text).toContain("key approval");
     expect(text).toContain("PermissionRequest hook");
-    expect(text).toContain("after 1, 2, 4 and 8 minutes and then every 30 minutes");
+    // A refused worker pickup rolls its worktree back, so no timed recheck: the next run checks.
+    expect(holds.scopedAttempts(CLAUDE_CLI_ADAPTER_ID, workerKind)).toBeNull();
+    expect(text).toContain("name the story to repeat the launch checks");
+    expect(text).not.toContain("after 1, 2, 4 and 8 minutes");
     expect(text).not.toContain("every office.");
   });
 
@@ -1102,7 +1105,7 @@ describe("(engine) scoped launch holds (DIPO-257)", () => {
     ]);
   });
 
-  it("a recheck that throws keeps the hold on its kind and never widens it", async () => {
+  it("a recheck that throws holds every office, as on a first launch, and ends its schedule", async () => {
     const { clock, holds } = setup();
     const rechecks = new HoldRechecks({ clock, holds });
     let calls = 0;
@@ -1116,9 +1119,36 @@ describe("(engine) scoped launch holds (DIPO-257)", () => {
     clock.advance(60_000);
     await settle();
     expect(calls).toBe(1);
-    expect(holds.adapterHeld("claude-cli", reviewerKind)).toMatchObject({ scope: reviewerKind });
+    // Fail closed: the other kind and other offices are held too, by a hold of every office.
+    expect(holds.adapterHeld("claude-cli", workerKind)).toMatchObject({ check: "launch-checks" });
+    expect(
+      holds.adapterHeld("claude-cli", { office: OTHER, kind: "worker" })?.scope,
+    ).toBeUndefined();
+    expect(holds.scopedAttempts("claude-cli", reviewerKind)).toBeNull();
+    // Nothing is armed any more: the next named run repeats the checks.
+    clock.advance(60 * 60_000);
+    await settle();
+    expect(calls).toBe(1);
+    rechecks.close();
+  });
+
+  it("a worker hold has no timed recheck, and a passing launch of that kind lifts it", async () => {
+    const { clock, holds } = setup();
+    const rechecks = new HoldRechecks({ clock, holds });
+    await gateLaunch("claude-cli", holds, async () => ({ ok: false, failures: [COULD_NOT_RUN] }), {
+      scope: workerKind,
+      recheck: null,
+    });
+    expect(holds.adapterHeld("claude-cli", workerKind)).toMatchObject({ scope: workerKind });
+    expect(holds.scopedAttempts("claude-cli", workerKind)).toBeNull();
+    clock.advance(60 * 60_000);
+    await settle();
+    expect(holds.adapterHeld("claude-cli", workerKind)).toMatchObject({ scope: workerKind });
+    await gateLaunch("claude-cli", holds, async () => ({ ok: true }), {
+      scope: workerKind,
+      recheck: null,
+    });
     expect(holds.adapterHeld("claude-cli", workerKind)).toBeNull();
-    expect(holds.scopedAttempts("claude-cli", reviewerKind)).toBe(2);
     rechecks.close();
   });
 

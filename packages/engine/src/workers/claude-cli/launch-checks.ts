@@ -206,8 +206,11 @@ export async function prepareLaunch(
   const launch = plan(spec, ctx);
   await checkNpmTokens(ctx);
   if (verify !== undefined) await checkVerifyTools(ctx, spec.workdir, verify);
-  // A self-test that could not run holds only this office's launch kind, which its recheck
-  // repeats with this launch's context and a new self-test session (DIPO-257).
+  // A self-test that could not run holds only this office's launch kind (DIPO-257). A reviewer's
+  // recheck repeats this launch's checks with a new self-test session: its worktree outlives the
+  // refusal. A worker pickup that is refused rolls its worktree and run directory back, so a
+  // worker hold gets no timed recheck; the next launch of that kind checks again.
+  const rechecks = spec.kind === "review";
   const scope: HoldScope = {
     office: ctx.mainCheckout,
     kind: spec.kind === "review" ? "reviewer" : "worker",
@@ -222,7 +225,7 @@ export async function prepareLaunch(
       CLAUDE_CLI_ADAPTER_ID,
       holds,
       () => claudeLaunchChecks(spec, ctx, launch, deps),
-      { scope, recheck: () => claudeLaunchChecks(spec, ctx, launch, again()) },
+      { scope, recheck: rechecks ? () => claudeLaunchChecks(spec, ctx, launch, again()) : null },
     );
     return gate.ok ? { ok: true, plan: launch } : gate;
   }
@@ -248,13 +251,15 @@ export async function prepareLaunch(
   const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () => routedChecks(deps), {
     scope,
     // The run's proxy runs only for the check: no worker starts from a recheck.
-    recheck: async () => {
-      try {
-        return await routedChecks(again());
-      } finally {
-        await proxies?.stop(spec.run);
-      }
-    },
+    recheck: rechecks
+      ? async () => {
+          try {
+            return await routedChecks(again());
+          } finally {
+            await proxies?.stop(spec.run);
+          }
+        }
+      : null,
   });
   if (!gate.ok) {
     await proxies?.stop(spec.run);

@@ -60,6 +60,8 @@ export interface AdapterHold {
   readonly since: number;
   /** Set for a could-not-run hold: the one launch kind and office it holds. */
   readonly scope?: HoldScope;
+  /** True when dipo repeats the checks of a scoped hold by itself (a reviewer kind, DIPO-257). */
+  readonly rechecks?: boolean;
 }
 
 /** The `engine.notice` shape (0005 section 6). */
@@ -84,6 +86,12 @@ function describeFailure(failure: LaunchCheckFailure): string {
 /** The text a refusal or the notice shows for a hold. */
 export function holdMessage(hold: AdapterHold): string {
   const lines = hold.failures.map(describeFailure).join(" ");
+  if (hold.scope !== undefined && hold.rechecks !== true) {
+    return (
+      `New ${hold.scope.kind} sessions on ${hold.adapter} are held in this office; other offices and the other session kind still launch: ${lines} ` +
+      "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the hold lifts when they pass."
+    );
+  }
   if (hold.scope !== undefined) {
     return (
       `New ${hold.scope.kind} sessions on ${hold.adapter} are held in this office; other offices and the other session kind still launch: ${lines} ` +
@@ -104,7 +112,8 @@ export interface AdapterHoldsOptions {
 
 interface ScopedEntry {
   hold: AdapterHold;
-  recheck: () => Promise<LaunchCheckOutcome>;
+  /** Null: no timed recheck (a worker kind whose pickup was rolled back); the next run checks. */
+  recheck: (() => Promise<LaunchCheckOutcome>) | null;
   /** Failed checks so far; the next recheck waits `launchRetryMs(attempts)`. */
   attempts: number;
 }
@@ -139,7 +148,12 @@ export class AdapterHolds implements ScopedHoldSource {
     this.#notify = options.notify;
   }
 
-  #build(adapter: string, failures: readonly LaunchCheckFailure[], scope?: HoldScope): AdapterHold {
+  #build(
+    adapter: string,
+    failures: readonly LaunchCheckFailure[],
+    scope?: HoldScope,
+    rechecks?: boolean,
+  ): AdapterHold {
     const [first] = failures;
     if (first === undefined) throw new Error("an adapter hold needs at least one failure");
     return {
@@ -151,6 +165,7 @@ export class AdapterHolds implements ScopedHoldSource {
       failures: [...failures],
       since: this.#clock.now(),
       ...(scope === undefined ? {} : { scope }),
+      ...(rechecks === true ? { rechecks } : {}),
     };
   }
 
@@ -164,16 +179,17 @@ export class AdapterHolds implements ScopedHoldSource {
 
   /**
    * Holds one launch kind in one office (a self-test that could not run). `recheck` runs that
-   * kind's launch checks again with that office's launch context. A hold that is set again keeps
-   * its failed checks count, and raises its notice only when the text changed.
+   * kind's launch checks again with that office's launch context; null schedules none, and the
+   * next launch of that kind checks again. A hold that is set again keeps its failed checks count,
+   * and raises its notice only when the text changed.
    */
   holdScoped(
     adapter: string,
     scope: HoldScope,
     failures: readonly LaunchCheckFailure[],
-    recheck: () => Promise<LaunchCheckOutcome>,
+    recheck: (() => Promise<LaunchCheckOutcome>) | null,
   ): AdapterHold {
-    const hold = this.#build(adapter, failures, scope);
+    const hold = this.#build(adapter, failures, scope, recheck !== null);
     const key = scopeKey(adapter, scope);
     const earlier = this.#scoped.get(key);
     this.#scoped.set(key, { hold, recheck, attempts: earlier?.attempts ?? 1 });
@@ -232,37 +248,29 @@ export class AdapterHolds implements ScopedHoldSource {
   }
 
   scopedAttempts(adapter: string, scope: HoldScope): number | null {
-    return this.#scoped.get(scopeKey(adapter, scope))?.attempts ?? null;
+    const entry = this.#scoped.get(scopeKey(adapter, scope));
+    // A hold with no timed recheck is never armed (DIPO-257).
+    return entry === undefined || entry.recheck === null ? null : entry.attempts;
   }
 
   async recheck(adapter: string, scope: HoldScope): Promise<boolean> {
-    const entry = this.#scoped.get(scopeKey(adapter, scope));
-    if (entry === undefined) return true;
-    // A check that cannot even run keeps this hold where it is; it never widens it.
-    const checks = async (): Promise<LaunchCheckOutcome> => {
-      try {
-        return await entry.recheck();
-      } catch (error) {
-        const why = error instanceof Error ? error.message : String(error);
-        return {
-          ok: false,
-          failures: [
-            {
-              check: "launch-checks",
-              detail: `the launch checks could not run: ${why}`,
-              couldNotRun: true,
-            },
-          ],
-        };
-      }
-    };
-    const gate = await gateLaunch(adapter, this, checks, {
+    const key = scopeKey(adapter, scope);
+    const entry = this.#scoped.get(key);
+    if (entry === undefined || entry.recheck === null) return entry === undefined;
+    // Checks that throw are no could-not-run verdict: gateLaunch holds every office for them, as
+    // on a first launch, so the scoped hold fails closed.
+    const gate = await gateLaunch(adapter, this, entry.recheck, {
       scope,
       recheck: entry.recheck,
       liftsGlobal: false,
     });
     if (gate.ok) return true;
-    const current = this.#scoped.get(scopeKey(adapter, scope));
+    // Widened to every office: the scoped hold and its schedule end; the next run checks again.
+    if (gate.hold.scope === undefined) {
+      this.#scoped.delete(key);
+      return false;
+    }
+    const current = this.#scoped.get(key);
     if (current !== undefined) current.attempts += 1;
     return false;
   }
@@ -350,8 +358,8 @@ export type LaunchGate =
 /** Where a launch is held when its checks only could not run (DIPO-257). */
 export interface GateScope {
   readonly scope: HoldScope;
-  /** What checks that kind again; the checks themselves by default. */
-  readonly recheck?: () => Promise<LaunchCheckOutcome>;
+  /** What checks that kind again; the checks themselves by default; null for no timed recheck. */
+  readonly recheck?: (() => Promise<LaunchCheckOutcome>) | null;
   /** False: a pass lifts only the scoped hold, not an adapter-wide one (a recheck). */
   readonly liftsGlobal?: boolean;
 }
@@ -387,7 +395,8 @@ export async function gateLaunch(
       ? outcome.failures
       : [{ check: "launch-checks", detail: "the launch checks failed without a reason" }];
   if (gate !== undefined && failures.every((failure) => failure.couldNotRun === true)) {
-    const hold = holds.holdScoped(adapter, gate.scope, failures, gate.recheck ?? checks);
+    const recheck = gate.recheck === undefined ? checks : gate.recheck;
+    const hold = holds.holdScoped(adapter, gate.scope, failures, recheck);
     return { ok: false, outcome: "startFailed", hold };
   }
   return { ok: false, outcome: "startFailed", hold: holds.hold(adapter, failures) };
