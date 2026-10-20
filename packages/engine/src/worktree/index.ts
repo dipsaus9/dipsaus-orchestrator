@@ -24,6 +24,7 @@ export {
   keysTrackingBranch,
   liveClaimOf,
   liveClaims,
+  openReleasedBranches,
   releaseClaim,
   releasedBranchFor,
 } from "./records";
@@ -43,7 +44,7 @@ export { MAIN_CHECKOUT_SLOT, SLOTS_FILE, SlotTable, SlotTableError } from "./slo
 export type { SlotEntry, SlotTableOptions } from "./slots";
 export { SWEEP_MARGIN_MS, sweepBranchReads } from "./sweep";
 export type { BranchReadSweep } from "./sweep";
-export { DROP_RELEASE_REASON, dirtyFilesOf, releaseForDrop } from "./release";
+export { DROP_RELEASE_REASON, deleteKeptBranches, dirtyFilesOf, releaseForDrop } from "./release";
 export type { DropReleaseDeps, DropReleaseOutcome } from "./release";
 export { PARKED_STATUS, StoryTeardown, TEARDOWN_STEP } from "./done";
 export type { PollReport, StoryTeardownDeps } from "./done";

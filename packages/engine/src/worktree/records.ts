@@ -285,6 +285,23 @@ export function releasedBranchFor(
       };
 }
 
+/** The open releases (not reclaimed) of the story `key`, oldest first (DIPO-228). */
+export function openReleasedBranches(office: OfficeHandle, key: StoryKey): ReleasedBranch[] {
+  return office
+    .all<{ branch: string; key: string; released_at: number; reason: string }>(
+      `select branch, key, released_at, reason from released_branches
+       where office_id = $office_id and key = $key and reclaimed_at is null
+       order by released_at, branch`,
+      { key },
+    )
+    .map((row) => ({
+      branch: row.branch,
+      key: row.key as StoryKey,
+      releasedAt: row.released_at,
+      reason: row.reason,
+    }));
+}
+
 /** Marks a release reclaimed by `runId`, or (with `at` null) open again. In the caller's transaction. */
 export function markReclaimed(
   office: OfficeHandle,

@@ -5,20 +5,55 @@
 // Hold has no confirmation; its note is required. Drop is `confirm: true` in the contract, so the
 // CLI asks yes or no first (`--yes` answers for a script, and without a terminal it refuses).
 // With `--delete-branch` the command is irreversible (`irreversibleWhen`, 0009 section 5): the CLI
-// says what is lost and asks for the story id typed out, which `--yes` does not replace.
+// reads what is lost (`story.losses`, DIPO-228), lists it, and asks for the story id typed out,
+// which `--yes` does not replace.
 
 import {
+  type LostCommit,
   StoryId,
   StoryKey,
   type StoryRefValue,
   storyDrop,
   storyHold,
+  storyLosses,
 } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 const YES = /^\s*y(es)?\s*$/i;
+
+/** How many commits and files `drop --delete-branch` lists before the typed id (DIPO-228). */
+const LISTED_COMMITS = 20;
+const LISTED_FILES = 50;
+
+/** What `story.losses` answers: the commits not on the base and the files of the worktree. */
+interface StoryLosses {
+  readonly commits: readonly LostCommit[];
+  readonly files: readonly string[];
+}
+
+/** Lists what the drop loses, each list cut to its cap with a count of the rest. */
+function printLosses(deps: OfficeCommandDeps, losses: StoryLosses): void {
+  if (losses.commits.length === 0 && losses.files.length === 0) {
+    deps.writeLine("no commits or files are lost");
+    return;
+  }
+  if (losses.commits.length > 0) {
+    deps.writeLine(`commits not on the base (${losses.commits.length}):`);
+    for (const commit of losses.commits.slice(0, LISTED_COMMITS)) {
+      deps.writeLine(`  ${commit.sha} ${commit.subject}`);
+    }
+    const rest = losses.commits.length - LISTED_COMMITS;
+    if (rest > 0) deps.writeLine(`  and ${rest} more`);
+  }
+  if (losses.files.length > 0) {
+    deps.writeLine(`uncommitted or untracked files (${losses.files.length}):`);
+    for (const file of losses.files.slice(0, LISTED_FILES)) deps.writeLine(`  ${file}`);
+    const rest = losses.files.length - LISTED_FILES;
+    if (rest > 0) deps.writeLine(`  and ${rest} more`);
+  }
+}
 
 /** How long these commands wait: the lane's flush, the PR close and the worktree removal. */
 export const STORY_COMMAND_TIMEOUT_MS = 180_000;
@@ -145,6 +180,29 @@ export async function dropCommand(
     deps.writeLine("nothing dropped");
     return false;
   };
+  if (deleteBranch) {
+    // What is lost is read and listed before the typed id is asked (DIPO-228); a failed read drops
+    // nothing, since this step never reaches the command.
+    const read: { losses?: StoryLosses } = {};
+    const code = await withOffice(
+      deps,
+      options.office,
+      async (session, office) => {
+        const outcome = await session.read(storyLosses, { office, story });
+        if (!outcome.ok) {
+          return outcome.error.code === "office.unknown"
+            ? "unknown"
+            : engineFailure(deps, outcome.error);
+        }
+        read.losses = outcome.result;
+        return 0;
+      },
+      undefined,
+      STORY_COMMAND_TIMEOUT_MS,
+    );
+    if (code !== 0 || read.losses === undefined) return code || 1;
+    printLosses(deps, read.losses);
+  }
   return withOffice(
     deps,
     options.office,
