@@ -1,10 +1,10 @@
 ---
 id: DIPO-244
 title: Teach the recordings tool the two-call launch self-test
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:28'
+updated_date: '2026-10-20 23:08'
 labels:
   - 'tier:S'
   - cutover
