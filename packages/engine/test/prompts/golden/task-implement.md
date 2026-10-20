@@ -32,6 +32,10 @@ This story builds on:
 Context: the greeting follows the tone guide. Customers asked for it in the last survey.
 </background>
 
+<base_verify>
+Not known: dipo has no verify result for this base commit. Whether the base commit passes verify in your sandbox is not recorded; if a failure looks unrelated to your change, check it before you spend turns on it.
+</base_verify>
+
 <story>
 Id: SHOP-12
 Title: Add a greeting to the CLI

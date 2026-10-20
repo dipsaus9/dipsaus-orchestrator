@@ -56,6 +56,11 @@ export interface SandboxRun {
   readonly registryHosts: readonly string[];
   /** Pinned host programs; when given they go into the settings file. */
   readonly tools?: SandboxTools | undefined;
+  /**
+   * More paths the step may not read: the worker's read fence over the home directory
+   * (`fenceDenyRead`, DIPO-183). None by default, so a step has no home-wide block.
+   */
+  readonly fenceDenyRead?: readonly string[] | undefined;
 }
 
 /** The part of the `srt` settings schema (0.0.79) that dipo writes. */
@@ -198,6 +203,7 @@ export function translatePolicy(run: SandboxRun): TranslatedPolicy {
     `/run/user/${run.uid}`,
     ...DENIED_SOCKET_PATHS,
     ...agent,
+    ...(run.fenceDenyRead ?? []),
   ]);
 
   // macOS Seatbelt filters Unix sockets by path. Linux seccomp cannot, so there the only way to let

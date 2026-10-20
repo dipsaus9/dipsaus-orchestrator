@@ -16,6 +16,7 @@ import { sizeClassOfWorkspace } from "../context/size";
 import type { ContextPack, Workspace } from "../context/types";
 import type { NudgeSources } from "../hooks/nudges";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
+import type { BaseVerifyFacts } from "../prompts/base-verify";
 import type { Section } from "../prompts/contract";
 import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
@@ -38,6 +39,8 @@ export interface RunPromptsInput {
   readonly config: Pick<OfficeConfig, "prompt">;
   /** The handoff of a new session for a story with earlier work (0014 section 6, DIPO-51). */
   readonly handoff?: HandoffFacts;
+  /** What verify said about the base commit in the worker's sandbox (DIPO-183); not known if absent. */
+  readonly baseVerify?: BaseVerifyFacts;
 }
 
 export interface RunPrompts {
@@ -100,6 +103,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     budgets: taskBudgetsFor(budgets, size),
     contractMax: config.prompt.contractMax,
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
+    ...(input.baseVerify === undefined ? {} : { baseVerify: input.baseVerify }),
   });
   return {
     systemFile: renderSystemFile("implement", "developer"),

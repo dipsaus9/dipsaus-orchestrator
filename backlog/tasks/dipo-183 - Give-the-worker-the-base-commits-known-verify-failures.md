@@ -1,10 +1,10 @@
 ---
 id: DIPO-183
 title: Give the worker the base commit's known verify failures
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 17:24'
-updated_date: '2026-10-20 14:35'
+updated_date: '2026-10-20 19:14'
 labels:
   - 'tier:M'
   - cutover
@@ -64,14 +64,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 For the base commit a run starts from, the engine runs the office's verify in the story worktree right after setup and before the worker starts, while that worktree is at the base commit, under the worker's sandbox read fence, and stores the result: green, or the failing test names with the output tail when no names can be read; it runs once per base commit and office config hash, and later runs on the same base reuse the stored result without running verify
-- [ ] #2 The task message of a first session and of a handoff has a section that says the base is green, or lists the base's failing tests and says they fail on the base without this story's change; L1 lists the section and the golden files are updated
-- [ ] #3 A base verify that could not run, or a run whose worktree is not at its base commit after setup with no stored result for that base, gives the section's not-known line, and the run still starts
-- [ ] #4 The result is stored in an office-scoped table whose migration is registered in packages/engine/src/db/schema.ts, with a TABLE_RETENTION line in packages/engine/src/retention/policy.ts
+- [x] #1 For the base commit a run starts from, the engine runs the office's verify in the story worktree right after setup and before the worker starts, while that worktree is at the base commit, under the worker's sandbox read fence, and stores the result: green, or the failing test names with the output tail when no names can be read; it runs once per base commit and office config hash, and later runs on the same base reuse the stored result without running verify
+- [x] #2 The task message of a first session and of a handoff has a section that says the base is green, or lists the base's failing tests and says they fail on the base without this story's change; L1 lists the section and the golden files are updated
+- [x] #3 A base verify that could not run, or a run whose worktree is not at its base commit after setup with no stored result for that base, gives the section's not-known line, and the run still starts
+- [x] #4 The result is stored in an office-scoped table whose migration is registered in packages/engine/src/db/schema.ts, with a TABLE_RETENTION line in packages/engine/src/retention/policy.ts
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Hold lifted (maintainer, 2026-10-20, answer A: lift the hold, set Ready). The story had been on hold since 2026-10-18 while main's verify passed in the worker sandbox; the maintainer chose to deliver it so a red or flaky base is named to the worker.
+
+Delivery: dipo run run_01M5D91G9G8T78RZZAJ534WST8 (Sonnet, 185 turns, past its 120-turn cap, about $4.01, 15 min) reported done, with no denied call and no write outside the References; dipo's review round could not start (bun not on the reviewer's PATH, DIPO-250), so the run was stopped at review and reviewed by hand. After setup and before the worker starts, while the story worktree is at the base commit, setup runs the office's verify once under the worker's read fence (sandbox/fence.ts) and stores green, the failing test names, or the output tail in base_verifies (migration 0040, tier P), keyed by office, base commit and a hash of the worktree, timeouts and sandbox settings plus the run profile's verify commands; later runs on the same base reuse the row. The task message of the first session and of a handoff gets a base_verify section (green, the failing tests that fail on the base without this story's change, or not known); L1 lists it and the golden files are updated. A verify that cannot run, or a worktree not at its base with no stored row, gives not known and the run still starts. Fixed on top after review: the key includes the run profile's verify commands, and a handoff hashes with the profile the run started with. Advisory, not done (follow-ups): a timed-out base verify is retried on every run on that base; base_verifies could move from tier P to S; setup's profile and the run's recorded run_profile_id can differ when a rescan lands during setup (worst case not known); the worker's note that the config subset was forced by scope was inaccurate. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4165 tests; DIPO_TEST_CI=1 worktree, prompts, sandbox, db and run tests pass.
 <!-- SECTION:NOTES:END -->

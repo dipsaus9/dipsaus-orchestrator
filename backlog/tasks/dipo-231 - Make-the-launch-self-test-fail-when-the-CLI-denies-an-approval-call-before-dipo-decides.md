@@ -3,10 +3,10 @@ id: DIPO-231
 title: >-
   Make the launch self-test fail when the CLI denies an approval call before
   dipo decides
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 08:42'
-updated_date: '2026-10-20 14:19'
+updated_date: '2026-10-20 19:00'
 labels:
   - 'tier:M'
   - cutover
@@ -58,7 +58,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The self-test session makes, after its planned probe command, one more planned Bash call, exactly `cd .; ls`, which asks for approval under the run settings and writes no file; a short-lived host-protocol stand-in at the session's DIPO_HOST_SOCKET answers that call's PermissionRequest with a deny carrying a fixed self-test reason, and the judge accepts a session with exactly these two planned calls
-- [ ] #2 The self-test refuses the launch as could not run, with its own probe key, when the approval call's tool result does not hold dipo's self-test reason, when the session's stdout holds a permission_denied event with the CLI's no approval surface text, or when no PermissionRequest for that call reached the stand-in (inconclusive, since the CLI's ask list can change between versions, and never a pass), and the refusal holds the adapter as every failed launch check does; unit tests in packages/engine/test/workers/self-test.test.ts cover each case and the pass
-- [ ] #3 The shared self-test fixture in packages/engine/test/workers/launch-fixtures.ts replays the two-call session, and every test that replays a passing self-test (skills.test.ts, launch-checks.test.ts, adapter.test.ts) passes with it
+- [x] #1 The self-test session makes, after its planned probe command, one more planned Bash call, exactly `cd .; ls`, which asks for approval under the run settings and writes no file; a short-lived host-protocol stand-in at the session's DIPO_HOST_SOCKET answers that call's PermissionRequest with a deny carrying a fixed self-test reason, and the judge accepts a session with exactly these two planned calls
+- [x] #2 The self-test refuses the launch as could not run, with its own probe key, when the approval call's tool result does not hold dipo's self-test reason, when the session's stdout holds a permission_denied event with the CLI's no approval surface text, or when no PermissionRequest for that call reached the stand-in (inconclusive, since the CLI's ask list can change between versions, and never a pass), and the refusal holds the adapter as every failed launch check does; unit tests in packages/engine/test/workers/self-test.test.ts cover each case and the pass
+- [x] #3 The shared self-test fixture in packages/engine/test/workers/launch-fixtures.ts replays the two-call session, and every test that replays a passing self-test (skills.test.ts, launch-checks.test.ts, adapter.test.ts) passes with it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5D2Z8VPHBCNJ32DNYXQVQ9M (Sonnet, 146 turns, about $2.93, 14 min) reported done, but dipo's own verify failed during the Mac's sleep stalls, so the run parked verify-failing with the work uncommitted; finished by hand (files copied read-only, unchanged on main since the base). One denied call (a cd compound). The launch self-test makes, after its probe, one more planned Bash call, `cd .; ls`; a short-lived host-protocol stand-in answers that call's PermissionRequest with a deny carrying a fixed self-test reason, and the judge passes only a session with exactly those two calls and dipo's reason in the tool result. It refuses as could not run (probe key approval, adapter held) when the CLI denied the call itself (no approval surface), when the tool result lacks dipo's reason, or when no PermissionRequest reached the stand-in; an absent approval field refuses too. The shared fixture replays the two-call session. Fixed on top after review: the stand-in binds the self-test's own socket (<run>.self next to <run>.sock), so a resume's ending host cannot remove it and cause a false refusal; doc comment order. Live check (test binary from this branch): the worker launch of DIPO-183 passed the new self-test on the pinned CLI, so the CLI copies the hook deny into the tool result. Not yet checked live: a reviewer launch, since review sessions cannot start at all today (bun not on the reviewer's PATH, a separate story). Advisory, not done: tools/recordings/scenarios.ts still captures one call (DIPO-244); the self-test verdict is not kept in the run dir (DIPO-245). Verify outside the sandbox: the story's tests pass (129), lint, tsc and format clean; full local verify only stalled on unrelated tests during machine sleep, CI is the gate.
+<!-- SECTION:NOTES:END -->

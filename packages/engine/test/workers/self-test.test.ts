@@ -3,13 +3,18 @@
 // in-memory disk, and the three live safety recordings replayed once the maintainer captured them.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { hostSocketPath } from "../../src/host/protocol";
+import { relayHookPayload } from "../../src/host/relay";
+import { systemClock } from "../../src/platform/clock";
 import { plan, SETTINGS_FILE } from "../../src/workers/claude-cli/plan";
 import {
+  APPROVAL_COMMAND,
+  approvalFacts,
   bashCalls,
   judgeSelfTest,
   parsePointer,
@@ -18,11 +23,16 @@ import {
   resolveSelfTestTools,
   REVIEW_PROBES,
   runSelfTest,
+  SELF_TEST_BASH_CALLS,
+  SELF_TEST_DENY_REASON,
   SELF_TEST_MODEL,
+  selfTestSocketPath,
+  startHostStandIn,
   selfTestFailure,
   selfTestLayout,
   workerWritableRoots,
   type ProbeName,
+  type SelfTestApproval,
   type SelfTestBashCalls,
   type SelfTestDisk,
   type SelfTestEvidence,
@@ -32,17 +42,22 @@ import {
 import {
   ADMIN_DIR,
   BLOCKED_RESULTS,
+  CLI_NO_APPROVAL_TEXT,
   context,
+  fakeStandIn,
+  type FakeStandIn,
   HOME,
   MAIN,
   MemoryFs,
   POINTER,
+  reachedStandIn,
   REVIEW_BLOCKED_RESULTS,
   reviewSpec,
   RUN_DIR,
   scriptedClaude,
   SELF_TEST_SESSION,
   selfTestSession,
+  type SelfTestSessionOptions,
   SHORT_TMP_DIR,
   spec,
   TMP_DIR,
@@ -71,12 +86,26 @@ function bashLine(id: string, command: string): string {
   });
 }
 
+/** One user stream line with the tool result of the call `t2`. */
+function toolResult(content: unknown): string {
+  return `${JSON.stringify({
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: "t2", content, is_error: true }] },
+  })}\n`;
+}
+
 function evidence(disk: Partial<SelfTestDisk>, more: Partial<SelfTestEvidence> = {}) {
   return {
     probes: selfTestLayout(PATHS).probes,
     outcome: "done" as const,
     denied: [],
-    bash: { calls: 1, exact: true, shape: true, commands: [selfTestLayout(PATHS).command] },
+    bash: {
+      calls: 2,
+      exact: true,
+      shape: true,
+      commands: [selfTestLayout(PATHS).command, APPROVAL_COMMAND],
+    },
+    approval: { result: SELF_TEST_DENY_REASON, cliDenied: false, reached: true },
     disk: {
       results: BLOCKED_RESULTS,
       written: [],
@@ -161,29 +190,36 @@ describe("(unit) self-test layout", () => {
     expect(parsePointer("nonsense", WORKDIR)).toBeNull();
   });
 
-  it("counts Bash calls by tool use id and compares the one command exactly", () => {
-    const planned = "perl -e 1";
-    expect(bashCalls(`${bashLine("t1", planned)}\n`, planned)).toEqual({
-      calls: 1,
+  it("counts Bash calls by tool use id and compares the planned commands exactly, in order", () => {
+    const probe = "perl -e 1";
+    const planned = [probe, APPROVAL_COMMAND];
+    const both = `${bashLine("t1", probe)}\n${bashLine("t2", APPROVAL_COMMAND)}\n`;
+    expect(bashCalls(both, planned)).toEqual({
+      calls: 2,
       exact: true,
       shape: true,
-      commands: [planned],
+      commands: planned,
     });
     // The same message repeated (a stream re-emit) still counts once.
+    expect(bashCalls(`${both}${bashLine("t2", APPROVAL_COMMAND)}\n`, planned).calls).toBe(2);
     expect(
-      bashCalls(`${bashLine("t1", planned)}\n${bashLine("t1", planned)}\n`, planned).calls,
-    ).toBe(1);
-    expect(bashCalls(`${bashLine("t1", `${planned} `)}\n`, planned)).toEqual({
-      calls: 1,
-      exact: false,
-      shape: true,
-      commands: [`${planned} `],
-    });
-    expect(bashCalls(`${bashLine("t1", planned)}\n${bashLine("t2", "ls")}\n`, planned)).toEqual({
+      bashCalls(`${bashLine("t1", `${probe} `)}\n${bashLine("t2", APPROVAL_COMMAND)}\n`, planned),
+    ).toEqual({
       calls: 2,
       exact: false,
-      shape: false,
-      commands: [planned, "ls"],
+      shape: true,
+      commands: [`${probe} `, APPROVAL_COMMAND],
+    });
+    // The right commands in the wrong order, one call short, one call too many.
+    const swapped = `${bashLine("t1", APPROVAL_COMMAND)}\n${bashLine("t2", probe)}\n`;
+    expect(bashCalls(swapped, planned)).toMatchObject({ calls: 2, exact: false });
+    expect(bashCalls(`${bashLine("t1", probe)}\n`, planned)).toMatchObject({
+      calls: 1,
+      exact: false,
+    });
+    expect(bashCalls(`${both}${bashLine("t3", "ls")}\n`, planned)).toMatchObject({
+      calls: 3,
+      exact: false,
     });
     // Each command is cut to 300 characters, the others are kept whole (DIPO-230).
     const long = `echo ${"x".repeat(400)}`;
@@ -191,13 +227,49 @@ describe("(unit) self-test layout", () => {
     const shaped = (input: Record<string, unknown>) =>
       bashCalls(
         `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input }] } })}\n`,
-        planned,
+        [probe],
       );
-    expect(shaped({ command: planned, description: "d", timeout: 1000 }).shape).toBe(true);
-    expect(shaped({ command: planned, run_in_background: false }).shape).toBe(true);
-    expect(shaped({ command: planned, run_in_background: true }).shape).toBe(false);
-    expect(shaped({ command: planned, dangerouslyDisableSandbox: true }).shape).toBe(false);
+    expect(shaped({ command: probe, description: "d", timeout: 1000 }).shape).toBe(true);
+    expect(shaped({ command: probe, run_in_background: false }).shape).toBe(true);
+    expect(shaped({ command: probe, run_in_background: true }).shape).toBe(false);
+    expect(shaped({ command: probe, dangerouslyDisableSandbox: true }).shape).toBe(false);
     expect(bashCalls("", planned)).toEqual({ calls: 0, exact: false, shape: false, commands: [] });
+  });
+
+  it("reads the approval call's tool result and the CLI's own denial from the session", () => {
+    const asked = `${bashLine("t2", APPROVAL_COMMAND)}\n`;
+    expect(approvalFacts(`${asked}${toolResult(SELF_TEST_DENY_REASON)}`, true)).toEqual({
+      result: SELF_TEST_DENY_REASON,
+      cliDenied: false,
+      reached: true,
+    });
+    // A result as text blocks, and one for another call, which is ignored.
+    expect(
+      approvalFacts(
+        `${asked}${toolResult([
+          { type: "text", text: "a" },
+          { type: "text", text: "b" },
+        ])}`,
+        false,
+      ),
+    ).toEqual({
+      result: "a\nb",
+      cliDenied: false,
+      reached: false,
+    });
+    const other = toolResult("x").replace('"t2"', '"t9"');
+    expect(approvalFacts(`${asked}${other}`, true).result).toBeNull();
+    const denied = `${JSON.stringify({
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: "Bash",
+      tool_use_id: "t2",
+      message: "No approval surface in this session; permission request denied automatically",
+    })}\n`;
+    expect(approvalFacts(`${asked}${denied}`, false).cliDenied).toBe(true);
+    // A permission_denied event without that text is not the CLI's own denial.
+    const plain = denied.replace(/No approval surface[^"]*/, "denied by a rule");
+    expect(approvalFacts(`${asked}${plain}`, true).cliDenied).toBe(false);
   });
 });
 
@@ -255,9 +327,13 @@ describe("(unit) self-test verdict", () => {
   it("refuses when the session made no Bash call, extra calls or a different command", () => {
     const cases: [SelfTestBashCalls, string][] = [
       [{ calls: 0, exact: false, shape: false, commands: [] }, "0 Bash calls"],
-      [{ calls: 2, exact: false, shape: false, commands: ["ls", "pwd"] }, "2 Bash calls"],
-      [{ calls: 1, exact: false, shape: true, commands: ["ls"] }, "not the planned command"],
-      [{ calls: 1, exact: true, shape: false, commands: ["perl -e 1"] }, "ran in the background"],
+      [{ calls: 1, exact: false, shape: false, commands: ["ls"] }, "1 Bash calls"],
+      [{ calls: 3, exact: false, shape: false, commands: ["ls", "pwd", "ls"] }, "3 Bash calls"],
+      [{ calls: 2, exact: false, shape: true, commands: ["ls", "pwd"] }, "not the planned command"],
+      [
+        { calls: 2, exact: true, shape: false, commands: ["perl -e 1", "cd .; ls"] },
+        "in the background",
+      ],
     ];
     for (const [bash, text] of cases) {
       const verdict = judgeSelfTest(evidence({}, { bash }));
@@ -268,19 +344,60 @@ describe("(unit) self-test verdict", () => {
 
   it("names each Bash command the session ran in the refusal (DIPO-230)", () => {
     const verdict = judgeSelfTest(
-      evidence({}, { bash: { calls: 1, exact: false, shape: true, commands: ["ls -la"] } }),
+      evidence({}, { bash: { calls: 2, exact: false, shape: true, commands: ["ls -la", "pwd"] } }),
     );
     expect(verdict).toEqual({
       ok: false,
       unsafe: false,
       bash: true,
       reason:
-        'the sandbox self-test could not run: the session\'s Bash call was not the planned command; the commands it ran: "ls -la"',
+        'the sandbox self-test could not run: the session\'s Bash calls were not the planned commands, in order; the commands it ran: "ls -la", "pwd"',
     });
     const none = judgeSelfTest(
       evidence({}, { bash: { calls: 0, exact: false, shape: false, commands: [] } }),
     );
     expect(!none.ok && none.reason).toContain("the commands it ran: none");
+  });
+
+  it("passes a session with exactly the probe call and the approval call that dipo denied (DIPO-231)", () => {
+    expect(judgeSelfTest(evidence({}))).toEqual({ ok: true });
+    // The tool result may carry more than the reason, such as the CLI's wrapper text.
+    const wrapped = {
+      result: `Permission denied: ${SELF_TEST_DENY_REASON}`,
+      cliDenied: false,
+      reached: true,
+    };
+    expect(judgeSelfTest(evidence({}, { approval: wrapped }))).toEqual({ ok: true });
+  });
+
+  it("refuses as could not run, key approval, when the approval call did not get dipo's decision (DIPO-231)", () => {
+    const cases: [SelfTestApproval, string][] = [
+      // The CLI denied it on its own; it never reached dipo either.
+      [{ result: "denied", cliDenied: true, reached: false }, "no approval surface"],
+      // The CLI's own denial wins even when a request reached the stand-in.
+      [{ result: SELF_TEST_DENY_REASON, cliDenied: true, reached: true }, "no approval surface"],
+      // No PermissionRequest for the call reached dipo: inconclusive, never a pass.
+      [{ result: SELF_TEST_DENY_REASON, cliDenied: false, reached: false }, "never reached dipo"],
+      // The tool result does not hold dipo's reason.
+      [{ result: "Permission denied", cliDenied: false, reached: true }, "self-test reason"],
+      [{ result: "", cliDenied: false, reached: true }, "self-test reason"],
+      [{ result: null, cliDenied: false, reached: true }, "self-test reason"],
+    ];
+    for (const [approval, text] of cases) {
+      const verdict = judgeSelfTest(evidence({}, { approval }));
+      expect(verdict).toMatchObject({ ok: false, unsafe: false, probe: "approval" });
+      expect(!verdict.ok && verdict.reason).toStartWith("the sandbox self-test could not run: ");
+      expect(!verdict.ok && verdict.reason).toContain(text);
+    }
+    // What got through the sandbox is still judged first.
+    expect(
+      judgeSelfTest(
+        evidence(
+          { written: ["refs"] },
+          { approval: { result: null, cliDenied: true, reached: false } },
+        ),
+      ),
+    ).toMatchObject({ unsafe: true, probe: "refs" });
   });
 
   it("refuses when the self-test cannot run", () => {
@@ -372,12 +489,15 @@ async function runWith(
     extra?: (fs: MemoryFs) => void;
     fs?: MemoryFs;
     sessionId?: string;
+    session?: SelfTestSessionOptions;
+    standIn?: FakeStandIn;
   } = {},
 ) {
   const clock = new ManualClock();
   const fs = options.fs ?? new MemoryFs();
+  const standIn = options.standIn ?? fakeStandIn();
   const fake = scriptedClaude(clock, {
-    session: selfTestSession(options.commands ?? [RUN_LAYOUT.command]),
+    session: selfTestSession(options.commands ?? [RUN_LAYOUT.command], options.session),
     onSession: () => {
       // What the sandboxed command leaves behind.
       if (results !== null) fs.files.set(RUN_LAYOUT.resultsFile, results);
@@ -393,20 +513,35 @@ async function runWith(
       spawn: fake.spawn,
       clock,
       fs,
+      standIn: standIn.start,
       sessionId: options.sessionId ?? SELF_TEST_SESSION,
     },
   );
-  return { report, fs, fake, runSettings: runSettings?.content ?? "" };
+  return { report, fs, fake, standIn, runSettings: runSettings?.content ?? "" };
 }
 
 describe("(engine) self-test run", () => {
   it("runs one Claude session under the run's own settings file and passes on a blocked disk", async () => {
-    const { report, fs, fake, runSettings } = await runWith(BLOCKED_RESULTS);
+    const { report, fs, fake, standIn, runSettings } = await runWith(BLOCKED_RESULTS);
     expect(report.verdict).toEqual({ ok: true });
-    expect(report.evidence?.bash).toMatchObject({ calls: 1, exact: true, shape: true });
-    expect(report.evidence?.bash.commands).toHaveLength(1);
+    expect(report.evidence?.bash).toMatchObject({ calls: 2, exact: true, shape: true });
+    expect(report.evidence?.bash.commands).toHaveLength(2);
     expect(report.evidence?.bash.commands[0]).toStartWith("'/usr/bin/perl' -e '");
+    expect(report.evidence?.bash.commands[1]).toBe("cd .; ls");
+    expect(report.evidence?.approval).toEqual({
+      result: SELF_TEST_DENY_REASON,
+      cliDenied: false,
+      reached: true,
+    });
+    // The stand-in listened at the self-test's own socket, never the run host's (a resume's earlier
+    // host may still be removing its own), and was stopped.
+    expect(standIn.started).toEqual([{ socketPath: `${RUN_DIR}/host.self`, run: "run-0001" }]);
+    expect(standIn.stopped).toBe(1);
+    // The prompt names both calls.
+    expect(RUN_LAYOUT.prompt).toContain(`\n${APPROVAL_COMMAND}\n`);
     const session = fake.calls.find((call) => call.cmd.includes("-p"));
+    // The session's hooks relay to that same socket.
+    expect(session?.env?.["DIPO_HOST_SOCKET"]).toBe(`${RUN_DIR}/host.self`);
     expect(session?.cmd).toContain("--settings");
     expect(session?.cmd).toContain(`${RUN_DIR}/self-test/${SETTINGS_FILE}`);
     expect(session?.cmd).toContain(SELF_TEST_SESSION);
@@ -426,6 +561,86 @@ describe("(engine) self-test run", () => {
       const { report } = await runWith(BLOCKED_RESULTS, { commands });
       expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
     }
+    // A session of the old one-call shape lacks the approval call.
+    const { report } = await runWith(BLOCKED_RESULTS, { session: { approval: false } });
+    expect(report.verdict).toMatchObject({ ok: false, unsafe: false, bash: true });
+  });
+
+  it("refuses as could not run, key approval, when the CLI denied the approval call before dipo decided (DIPO-231)", async () => {
+    // The CLI's own denial: nothing reached the stand-in, the tool result is the CLI's text.
+    const denied = await runWith(BLOCKED_RESULTS, {
+      session: { approvalResult: CLI_NO_APPROVAL_TEXT, cliDenied: true },
+      standIn: fakeStandIn({ reached: false }),
+    });
+    expect(denied.report.verdict).toMatchObject({ ok: false, unsafe: false, probe: "approval" });
+    expect(!denied.report.verdict.ok && denied.report.verdict.reason).toContain(
+      "no approval surface",
+    );
+    expect(denied.report.evidence?.approval).toMatchObject({ cliDenied: true, reached: false });
+    // It is a launch check failure with its own key, which holds the adapter like any other.
+    expect(selfTestFailure(denied.report)).toMatchObject({
+      check: "self-test",
+      key: "approval",
+    });
+  });
+
+  it("refuses as could not run when the approval call never reached dipo: inconclusive, not a pass (DIPO-231)", async () => {
+    // The session's tool result looks like a denial by dipo, but the stand-in saw no request.
+    const { report, standIn } = await runWith(BLOCKED_RESULTS, {
+      standIn: fakeStandIn({ reached: false }),
+    });
+    expect(report.verdict).toMatchObject({ ok: false, unsafe: false, probe: "approval" });
+    expect(!report.verdict.ok && report.verdict.reason).toContain("never reached dipo");
+    expect(standIn.stopped).toBe(1);
+  });
+
+  it("refuses as could not run when the approval call's tool result lacks dipo's reason (DIPO-231)", async () => {
+    for (const approvalResult of ["The user doesn't want to proceed", ""]) {
+      const { report } = await runWith(BLOCKED_RESULTS, { session: { approvalResult } });
+      expect(report.verdict).toMatchObject({ ok: false, unsafe: false, probe: "approval" });
+      expect(!report.verdict.ok && report.verdict.reason).toContain("self-test reason");
+    }
+  });
+
+  it("cannot run, without a session, when the stand-in cannot listen at the host socket (DIPO-231)", async () => {
+    const standIn = fakeStandIn({ failWith: "EADDRINUSE" });
+    const { report, fake, fs } = await runWith(BLOCKED_RESULTS, { standIn });
+    expect(report.verdict).toMatchObject({ ok: false, unsafe: false, probe: "approval" });
+    expect(!report.verdict.ok && report.verdict.reason).toContain("EADDRINUSE");
+    expect(fake.calls.find((call) => call.cmd.includes("-p"))).toBeUndefined();
+    expect(fs.files.has(RUN_LAYOUT.resultsFile)).toBe(false);
+  });
+
+  it("writes the hook config the run's hooks need into the run directory for the session only", async () => {
+    const hookCommand = ["/opt/dipo/bin/bun", "/opt/dipo/src/main.ts"] as [string, ...string[]];
+    const runCtx = context({ hookCommand });
+    const runSpec = spec({ hookRelay: true });
+    const launch = plan(runSpec, runCtx);
+    const bunfig = `${RUN_DIR}/hook-bunfig.toml`;
+    expect(launch.files.map((file) => file.name)).toContain("hook-bunfig.toml");
+    const clock = new ManualClock();
+    const fs = new MemoryFs();
+    let during: string | undefined;
+    const fake = scriptedClaude(clock, {
+      session: selfTestSession([RUN_LAYOUT.command]),
+      onSession: () => {
+        during = fs.files.get(bunfig);
+        fs.files.set(RUN_LAYOUT.resultsFile, BLOCKED_RESULTS);
+        fs.files.set(RUN_LAYOUT.controlFile, "");
+      },
+    });
+    const report = await runSelfTest(
+      {
+        spec: runSpec,
+        ctx: runCtx,
+        runSettings: launch.files.find((f) => f.name === SETTINGS_FILE)?.content ?? "",
+        runFiles: launch.files,
+      },
+      { spawn: fake.spawn, clock, fs, standIn: fakeStandIn().start, sessionId: SELF_TEST_SESSION },
+    );
+    expect(report.verdict).toEqual({ ok: true });
+    expect(during).toBe("");
+    expect(fs.files.has(bunfig)).toBe(false);
   });
 
   it("refuses and cleans up when a forbidden file was written", async () => {
@@ -493,7 +708,7 @@ describe("(engine) self-test run", () => {
       const runSpec = spec();
       const report = await runSelfTest(
         { spec: runSpec, ctx: context(), runSettings: "{}" },
-        { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+        { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
       );
       expect([label, report.verdict]).toMatchObject([label, { ok: false, unsafe: false }]);
       expect(!report.verdict.ok && report.verdict.reason).toContain(text);
@@ -577,7 +792,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: false });
     expect(fake.calls).toEqual([]);
@@ -589,7 +804,7 @@ describe("(engine) self-test run", () => {
     const fake = scriptedClaude(clock, {});
     const report = await runSelfTest(
       { spec: spec(), ctx: context(), runSettings: "{}" },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "pointer" });
     expect(selfTestFailure(report)?.file).toBe(`${WORKDIR}/.git`);
@@ -618,7 +833,11 @@ describe("(unit) live safety recordings", () => {
         probes: checks.probes,
         outcome: run.result.outcome,
         denied,
-        bash: { commands: [], ...checks.bash },
+        // These recordings predate the approval call (DIPO-231): they prove the sandbox probes.
+        // Their one probe call stands for the two planned calls, and the approval call is given
+        // as dipo-denied; a live recording of the two-call session is the maintainer's check.
+        bash: { commands: [], ...checks.bash, calls: SELF_TEST_BASH_CALLS },
+        approval: { result: SELF_TEST_DENY_REASON, cliDenied: false, reached: true },
         disk: checks.disk,
       });
       expect(verdict.ok).toBe(true);
@@ -720,7 +939,6 @@ describe("(unit) Safe-Chain install check (DIPO-84)", () => {
   it("records both exit codes with the real perl program", async () => {
     const perl = "/usr/bin/perl";
     if (!existsSync(perl)) return;
-    const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
     await withTempDir(async (dir) => {
       const results = join(dir, "results.txt");
       const layout = selfTestLayout({ ...PATHS, safeChainInstall: true });
@@ -779,7 +997,7 @@ describe("(unit) Safe-Chain install check (DIPO-84)", () => {
     const runSettings = runPlan.files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
     const report = await runSelfTest(
       { spec: spec(), ctx, runSettings, runFiles: runPlan.files },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toEqual({ ok: true });
     expect(fs.executableWrites).toEqual(new Set([`${RUN_DIR}/safe-chain/zsh`]));
@@ -794,7 +1012,13 @@ describe("(unit) Safe-Chain install check (DIPO-84)", () => {
     // Without the run's files the check cannot run.
     const missing = await runSelfTest(
       { spec: spec(), ctx, runSettings },
-      { spawn: fake.spawn, clock, fs: new MemoryFs(), sessionId: SELF_TEST_SESSION },
+      {
+        spawn: fake.spawn,
+        clock,
+        fs: new MemoryFs(),
+        standIn: reachedStandIn(),
+        sessionId: SELF_TEST_SESSION,
+      },
     );
     expect(missing.verdict).toMatchObject({ ok: false, unsafe: false, probe: "safe-chain" });
   });
@@ -804,9 +1028,7 @@ describe("(unit) npm-logs probe program (DIPO-98)", () => {
   it("writes $HOME/<path> for the ~> mode with the real perl program", async () => {
     const perl = "/usr/bin/perl";
     if (!existsSync(perl)) return;
-    const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
     await withTempDir(async (dir) => {
-      const { mkdirSync } = await import("node:fs");
       mkdirSync(join(dir, ".npm", "_logs"), { recursive: true });
       const results = join(dir, "results.txt");
       const layout = selfTestLayout({ ...PATHS, home: dir });
@@ -987,7 +1209,7 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
     const runSettings = runPlan.files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
     const report = await runSelfTest(
       { spec: reviewSpec(), ctx, runSettings, runFiles: runPlan.files },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toEqual({ ok: true });
     expect(report.evidence?.probes).toEqual(REVIEW_PROBES);
@@ -1025,7 +1247,7 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
       plan(reviewSpec(), context()).files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
     const report = await runSelfTest(
       { spec: reviewSpec(), ctx: context(), runSettings },
-      { spawn: fake.spawn, clock, fs, sessionId: SELF_TEST_SESSION },
+      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
     );
     expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "install" });
   });
@@ -1033,7 +1255,6 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
   it("records the install exit code with the real perl program", async () => {
     const perl = "/usr/bin/perl";
     if (!existsSync(perl)) return;
-    const { withTempDir } = await import("@dipsaus-orchestrator/testkit");
     await withTempDir(async (dir) => {
       const results = join(dir, "results.txt");
       const layout = selfTestLayout({ ...PATHS, review: true }, REVIEW_PROBES);
@@ -1059,6 +1280,100 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
         kind: "exit",
         code: 1,
       });
+    });
+  });
+});
+
+/** A hook payload of a Bash call, as Claude Code hands it to `dipo hook <event>`. */
+function hook(command: string, event = "PermissionRequest"): string {
+  return JSON.stringify({ hook_event_name: event, tool_name: "Bash", tool_input: { command } });
+}
+
+describe("(engine) self-test stand-in host (DIPO-231)", () => {
+  const RUN = "run_01JZ0000000000000000000009";
+
+  /** The hook relay's call, as `dipo hook <event>` makes it. */
+  const relay = (socket: string, payload: string, waitMs?: number) =>
+    relayHookPayload({
+      socketPath: socket,
+      runId: RUN,
+      payload,
+      clock: systemClock,
+      timeoutMs: 1500,
+      ...(waitMs === undefined ? {} : { waitMs }),
+    });
+
+  it("answers the approval call's PermissionRequest with the self-test deny and every other hook with no output", async () => {
+    await withTempDir(async (dir) => {
+      const socket = hostSocketPath(join(dir, "rt"), RUN);
+      const standIn = await startHostStandIn({ socketPath: socket, run: RUN });
+      try {
+        const denied = await relay(socket, hook(APPROVAL_COMMAND), 5000);
+        expect(JSON.parse(denied ?? "null")).toEqual({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: { behavior: "deny", message: SELF_TEST_DENY_REASON },
+          },
+        });
+        // Non-waiting hooks, and a PermissionRequest for another call, get no output.
+        expect(await relay(socket, hook("ls", "PostToolUse"))).toBe("");
+        expect(await relay(socket, hook("echo hi"), 5000)).toBe("");
+        expect(await relay(socket, "not json")).toBe("");
+        expect(standIn.permissionRequests).toEqual([
+          { tool: "Bash", command: APPROVAL_COMMAND },
+          { tool: "Bash", command: "echo hi" },
+        ]);
+      } finally {
+        await standIn.stop();
+      }
+      // Stopped: the socket file is gone and nothing answers.
+      expect(existsSync(socket)).toBe(false);
+      expect(await relay(socket, hook(APPROVAL_COMMAND), 5000)).toBeNull();
+    });
+  });
+
+  it("binds the self-test's own socket, so the run host's socket file is left alone", async () => {
+    await withTempDir(async (dir) => {
+      const hostSocket = hostSocketPath(join(dir, "rt"), RUN);
+      const selfSocket = selfTestSocketPath(hostSocket);
+      expect(selfSocket).toHaveLength(hostSocket.length);
+      expect(selfSocket).not.toBe(hostSocket);
+      // An earlier host's socket file, as a resume may meet while that host is still ending.
+      mkdirSync(dirname(hostSocket), { recursive: true });
+      writeFileSync(hostSocket, "");
+      const standIn = await startHostStandIn({ socketPath: selfSocket, run: RUN });
+      try {
+        expect(existsSync(hostSocket)).toBe(true);
+        expect(await relay(selfSocket, hook(APPROVAL_COMMAND), 5000)).not.toBe("");
+      } finally {
+        await standIn.stop();
+      }
+      expect(existsSync(hostSocket)).toBe(true);
+    });
+  });
+
+  it("refuses a hello for another run, and replaces a leftover socket file", async () => {
+    await withTempDir(async (dir) => {
+      const socket = hostSocketPath(join(dir, "rt"), RUN);
+      const first = await startHostStandIn({ socketPath: socket, run: RUN });
+      // Not stopped on purpose: the file stays behind, as after a crash.
+      void first;
+      const standIn = await startHostStandIn({ socketPath: socket, run: RUN });
+      try {
+        const other = await relayHookPayload({
+          socketPath: socket,
+          runId: "run_01JZ0000000000000000000008",
+          payload: hook(APPROVAL_COMMAND),
+          clock: systemClock,
+          timeoutMs: 1500,
+        });
+        expect(other).toBeNull();
+        expect(standIn.permissionRequests).toEqual([]);
+        expect(await relay(socket, hook(APPROVAL_COMMAND), 5000)).not.toBe("");
+      } finally {
+        await standIn.stop();
+        await first.stop();
+      }
     });
   });
 });
