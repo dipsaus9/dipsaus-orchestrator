@@ -227,6 +227,8 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows("pricing_checks", "raised_at < $cutoff", { cutoff: stateCutoff });
   // Gate decisions, then the gates they leave without a decision; a gate still waiting is kept.
   await rows("gate_decisions", "decided_at < $cutoff", { cutoff: stateCutoff });
+  // A review verdict goes with its gate decision (DIPO-146).
+  await rows("review_verdicts", "decided_at < $cutoff", { cutoff: stateCutoff });
   await rows(
     "gates",
     `opened_at < $cutoff and waiting_on is null and not exists (select 1 from gate_decisions d

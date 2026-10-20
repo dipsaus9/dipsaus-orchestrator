@@ -88,22 +88,36 @@ export function runTotals(
   };
 }
 
-/** The caps a run counts against: the `Caps` the workers get, plus the loop and review caps. */
+/**
+ * The caps a run counts against: the `Caps` the workers get, plus the loop cap and the review
+ * loop's caps (0019 sections 4 and 8). A review loop cap is null for a run that has none: a session
+ * run, or a run started before it was kept (DIPO-146).
+ */
 export interface RunCaps extends Caps {
   readonly loopCap: number;
   readonly reviewRoundCap: number | null;
+  readonly ciCap: number | null;
+  readonly conflictCap: number | null;
+  /** The reviewer's own session caps (0019 section 4); never the developer's. */
+  readonly reviewMaxTurns: number | null;
+  readonly reviewMaxMinutes: number | null;
+  /** Tokens added to the budget per review round started (0019 section 4); no grant adds to it. */
+  readonly reviewAllowance: number | null;
+}
+
+/** A snapshot cap plus its grants; a cap the run has none of stays null. */
+function granted(cap: number | null | undefined, grant: number): number | null {
+  return cap == null ? null : cap + grant;
 }
 
 /**
  * The caps of a run now (ADR 0020 section 5, DIPO-143): its start snapshot plus the sum of its
  * grants of each kind. A budget grant raises tokens, turns and minutes; a `loop` grant the loop
- * cap; a `reviewRound` grant the review round cap. The tier of the office is never read for a
- * snapshot, so an edit of the tier reaches new runs only. `legacy` supplies turns and minutes for a
- * run started before they were kept; without it those are unbounded.
- *
- * `reviewCap` grants are for the reviewer's own turn and minute caps, which have no cap field yet
- * (DIPO-146 adds them); they are stored but count toward no cap here. `ciAttempt` and
- * `conflictHandoff` grants wait for their caps the same way.
+ * cap; a `reviewRound` grant the review round cap; `ciAttempt` and `conflictHandoff` grants the CI
+ * and conflict caps; a `reviewCap` grant the reviewer's turn and minute caps (DIPO-146). The tier
+ * of the office is never read for a snapshot, so an edit of the tier reaches new runs only.
+ * `legacy` supplies turns and minutes for a run started before they were kept; without it those
+ * are unbounded.
  */
 export function runCaps(
   office: OfficeHandle,
@@ -117,6 +131,11 @@ export function runCaps(
     maxMinutes:
       (run.maxMinutes ?? legacy?.maxMinutes ?? Number.POSITIVE_INFINITY) + grants.budget.minutes,
     loopCap: run.loopCap + grants.loop,
-    reviewRoundCap: run.reviewRoundCap === null ? null : run.reviewRoundCap + grants.reviewRound,
+    reviewRoundCap: granted(run.reviewRoundCap, grants.reviewRound),
+    ciCap: granted(run.ciCap, grants.ciAttempt),
+    conflictCap: granted(run.conflictCap, grants.conflictHandoff),
+    reviewMaxTurns: granted(run.reviewMaxTurns, grants.reviewCap.turns),
+    reviewMaxMinutes: granted(run.reviewMaxMinutes, grants.reviewCap.minutes),
+    reviewAllowance: run.reviewAllowance ?? null,
   };
 }
