@@ -1,10 +1,10 @@
 ---
 id: DIPO-195
 title: Let a worker read gh's own help and version
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-17 23:25'
+updated_date: '2026-10-20 14:01'
 labels:
   - 'tier:S'
   - cutover
@@ -32,13 +32,14 @@ Outcome: a worker can run gh --version, gh help and gh <command> --help to read 
 
 Context: the M1a run of DIPO-141 (run_01M55XPQ4DHJBPZHGHZCSF1SMR). The story was about gh flags. gh --version and gh <cmd> --help were denied by Bash(gh *) (commands("gh") in permissions(), packages/engine/src/workers/claude-cli/plan.ts), and the sandbox network refused raw.githubusercontent.com, so the worker could not read gh's help. In Claude Code a deny rule beats an allow rule, so Bash(gh *) cannot be carved out by an allow, and a deny rule cannot say "except". Denying each gh command by name would still deny gh pr view --help through Bash(gh pr *). So the help forms need the gh deny rules dropped and the refusal moved into the PreToolUse Bash check of DIPO-194, which sees every Bash call. The help forms need neither the network nor credentials: the sandbox masks ~/.config/gh and GH_TOKEN (CREDENTIAL_FILES and CREDENTIAL_VARIABLES in plan.ts). Whether gh starts at all with ~/.config/gh unreadable is not checked; the manual entry shows it. WebFetch from DIPO-164 is another way to gh's manual, but it reads the web docs, not the installed version.
 
-ADR 0014 section 3 says the worker never runs gh, and 0008 section 2 lists Bash(gh *) among the deny rules, so this needs amendments of both that the maintainer approves. This story does not edit docs/decisions/.
+ADR 0014 section 3 said the worker never runs gh, and 0008 section 2 lists Bash(gh *) among the deny rules; their notes of 2026-10-20 (DIPO-195) allow the help forms and move the refusal of every other gh call into the DIPO-194 check (packages/engine/src/hooks/temp-guard.ts today). This story does not edit docs/decisions/.
 
 ```dipo
 branch: "DIPO-195/worker-reads-gh-help"
 unknowns:
   - q: "0014 section 3 says the worker never runs gh, and 0008 section 2 lists Bash(gh *) as a deny rule. Do you approve amendments of both that let the worker run gh --version, gh help <subcommand words> and gh <subcommand words> --help, with every other gh call refused by the PreToolUse Bash check of DIPO-194 instead of a deny rule?"
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-20): approved; the notes of 2026-10-20 in 0014 section 3 and 0008 section 2 (DIPO-195) let a worker run gh --version, gh help <subcommand words> and gh <subcommand words> --help, and every other gh call is refused by the DIPO-194 PreToolUse Bash check instead of the Bash(gh *) deny rule."
 test_plan:
   entries:
     - kind: "automated"
