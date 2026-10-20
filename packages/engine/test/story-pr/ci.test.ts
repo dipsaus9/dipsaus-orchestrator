@@ -10,7 +10,7 @@ import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { CI_STUCK_POLL_MS } from "../../src/story-pr";
+import type { Logger } from "../../src/log/logger";
 import {
   type CheckBucket,
   type CodeHost,
@@ -134,7 +134,12 @@ interface World {
   config: OfficeConfig;
   readonly host: CiHost;
   readonly parks: ParkBranchRequest[];
-  readonly prs: StoryPrs;
+  prs: StoryPrs;
+  /** How many more park writes fail, and what the engine logged. */
+  failParks: number;
+  readonly logged: { level: string; message: string }[];
+  /** A new poller on the same database, as after a daemon restart. */
+  restart(): void;
   readonly run: RunId;
   readonly key: StoryKey;
   readonly office: OfficeHandle;
@@ -207,6 +212,37 @@ async function inWorld(
         };
       },
     };
+    const logged: { level: string; message: string }[] = [];
+    const record = (level: string) => (message: string) => {
+      logged.push({ level, message });
+    };
+    const logger = {
+      error: record("error"),
+      warn: record("warn"),
+      info: record("info"),
+      debug: record("debug"),
+      trace: record("trace"),
+    } as unknown as Logger;
+    const poller = (): StoryPrs =>
+      new StoryPrs({
+        host,
+        review: host,
+        park: {
+          writer,
+          // The park's database write runs this; a throw there makes the park fail.
+          implemented: () => {
+            if (world.failParks > 0) {
+              world.failParks -= 1;
+              throw new Error("database is locked");
+            }
+            return false;
+          },
+        },
+        git: { read: async () => world.facts },
+        offices: { get: () => office, config: () => world.config },
+        clock: t.clock,
+        logger,
+      });
     const world: World = {
       facts: FACTS,
       config: setup.config ?? OFFICE_DEFAULTS,
@@ -216,14 +252,13 @@ async function inWorld(
       key,
       office,
       t,
-      prs: new StoryPrs({
-        host,
-        review: host,
-        park: { writer, implemented: () => false },
-        git: { read: async () => world.facts },
-        offices: { get: () => office, config: () => world.config },
-        clock: t.clock,
-      }),
+      failParks: 0,
+      logged,
+      restart: () => {
+        world.prs.stop();
+        world.prs = poller();
+      },
+      prs: poller(),
     };
     try {
       await fn(world);
@@ -368,7 +403,7 @@ describe("the CI watch of the PR poll", () => {
       w.t.clock.advance(60_000);
       await w.prs.retry(id);
       expect(w.host.count("requiredChecks")).toBe(reads);
-      w.t.clock.advance(CI_STUCK_POLL_MS);
+      w.t.clock.advance(10 * 60_000);
       await w.prs.retry(id);
       expect(w.host.count("requiredChecks")).toBe(reads + 1);
       expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(1);
@@ -387,7 +422,10 @@ describe("the CI watch of the PR poll", () => {
       const items = got?.items ?? [];
       expect(items.map((item) => item.check)).toEqual(["ci-ok", "verify"]);
       const [aggregate, verify] = items;
-      expect(aggregate?.text).toContain("other jobs of its workflow run failed (verify)");
+      expect(aggregate?.job).toBe("ci-ok");
+      expect(aggregate?.text).toContain(
+        "no log: it failed because other jobs of its workflow run failed (verify).",
+      );
       expect(aggregate?.steps).toEqual([]);
       expect(verify).toMatchObject({
         kind: "ci",
@@ -411,6 +449,56 @@ describe("the CI watch of the PR poll", () => {
       expect(w.host.count("prChecks")).toBe(1);
       expect(w.host.count("requiredChecks")).toBe(1);
     });
+  });
+});
+
+describe("the CI watch after a restart and a failing park", () => {
+  it("rebuilds the items of a recorded red head, reading each log once, with no second step", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        redHead(w);
+        await w.prs.retry(id);
+        expect(w.host.count(`failedJobLog ${link(2)}`)).toBe(1);
+
+        w.restart();
+        expect(w.prs.ciItems(id, w.run)).toBeNull();
+        await w.prs.retry(id);
+        const got = w.prs.ciItems(id, w.run);
+        expect(got?.head).toBe(HEAD_A);
+        expect(got?.items.map((item) => item.check)).toEqual(["ci-ok", "verify"]);
+        expect(w.host.count(`failedJobLog ${link(2)}`)).toBe(2);
+        expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(1);
+
+        await w.prs.retry(id);
+        expect(w.host.count(`failedJobLog ${link(2)}`)).toBe(2);
+      },
+      { ciCap: 5 },
+    );
+  });
+
+  it("warns once per head when the park keeps failing, then parks when it succeeds", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        redHead(w);
+        w.failParks = 3;
+        for (let i = 0; i < 3; i++) {
+          await w.prs.retry(id);
+          w.t.clock.advance(60_000);
+        }
+        const failures = w.logged.filter((l) => l.message.includes("parking the story"));
+        expect(failures.map((l) => l.level)).toEqual(["warn", "debug", "debug"]);
+        expect(parked(w.office)).toEqual([]);
+
+        await w.prs.retry(id);
+        expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+        expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(1);
+      },
+      { ciCap: 1 },
+    );
   });
 });
 
