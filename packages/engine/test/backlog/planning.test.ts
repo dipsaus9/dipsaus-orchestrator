@@ -531,8 +531,11 @@ describe("story.drop", () => {
     it(`refuses a parked story whose worker host still runs, and changes nothing (deleteBranch ${deleteBranch})`, async () => {
       const key = parkedClaim("DIPO-7");
       w.hooks.alive.push(4242);
-      const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch }));
-      expect(error.code).toBe("run.hostAlive");
+      // A dirty worktree too: the host check comes before the dirty-files check.
+      w.hooks.dirty.push("src/new.ts");
+      const reply = await send("story.drop", { story: "DIPO-7", deleteBranch });
+      expect(reply).toMatchObject({ ok: false, error: { code: "run.hostAlive", retryable: true } });
+      const error = errorOf(reply);
       expect(error.message).toContain("DIPO-7");
       expect(error.message).toContain("4242");
       expect(error.message).toContain("in a moment");
