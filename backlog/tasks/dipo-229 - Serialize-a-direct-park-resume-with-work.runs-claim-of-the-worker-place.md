@@ -1,10 +1,10 @@
 ---
 id: DIPO-229
 title: Serialize a direct park resume with work.run's claim of the worker place
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:37'
+updated_date: '2026-10-20 14:43'
 labels:
   - 'tier:S'
   - cutover
@@ -48,3 +48,9 @@ test_plan:
 - [x] #3 A test holds work.run's claim open with claimGate, as the DIPO-208 test does, answers a park inside the window and shows one session start: the pickup's story holds the worker place and the resume waits in waitingStarts with the queued notice
 - [x] #4 A second test resumes the park first and shows the pickup that follows skipped for the worker place
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CVEDDATRXW4A05H95A5E5S (Haiku, 46 turns, about $0.10, 6 min) reported done, In Review, with no write outside the References. One denied call: a `cp … && git show …` compound, which the Claude CLI asks approval for (DIPO-232 tells workers to avoid such calls). A direct park resume now checks places.blocked, reopens the parked run, records the answer and the intent and waits for the worker place inside one places.serialized step, so it can no longer take the worker place while work.run's claim holds it; the queued drain is still fired without waiting. A resume started from a drain (startQueued, reopened) never reaches the serialized step, and without places the resume starts at once. Tests: the park answered inside work.run's claim window queues behind the pickup (fails without the fix, checked by the reviewer), the resume-first order skips the pickup on capacity, and a drain-started resume does not wait. Review passed. Advisory, not done: settle() waits a fixed 50 microtask ticks; if a later change puts a macrotask before the serialized step, the claim-window test would stop catching the race without failing. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4040 tests; DIPO_TEST_CI=1 run tests pass (393).
+<!-- SECTION:NOTES:END -->
