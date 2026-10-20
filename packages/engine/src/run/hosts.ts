@@ -6,7 +6,12 @@
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { connectHost, type HostClient, type HostRequest } from "../host/client";
+import {
+  connectHost,
+  type ConnectHostResult,
+  type HostClient,
+  type HostRequest,
+} from "../host/client";
 import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
@@ -28,6 +33,9 @@ import type { Watchdog } from "./watchdog";
 
 /** How long the engine waits for a new host's socket before it relies on the poll alone. */
 export const HOST_CONNECT_TIMEOUT_MS = 5_000;
+
+/** How long the engine waits between connection attempts while a new host has not bound its socket. */
+export const HOST_CONNECT_RETRY_MS = 25;
 
 export interface SystemHostStarterOptions {
   readonly clock: Clock;
@@ -204,13 +212,7 @@ export class OfficeIngest implements RunIngest {
     const ingestor = this.#ingestor(office);
     if (target.work !== undefined) this.#options.watchdog?.track(office, host.runId as RunId);
     ingestor.track(target);
-    void connectHost(host.socketPath, {
-      runId: host.runId,
-      clock: this.#options.clock,
-      timeoutMs: HOST_CONNECT_TIMEOUT_MS,
-      // The engine's watch: only it may answer hook calls and count as the daemon being up.
-      token: host.engineToken ?? null,
-    })
+    void this.#connectWhenBound(host)
       .then(async (connected) => {
         // Without the socket the 1 s poll keeps ingesting.
         if (connected.ok) await ingestor.watch(host.runId, host.agentId, connected.client);
@@ -221,6 +223,31 @@ export class OfficeIngest implements RunIngest {
           reason: error instanceof Error ? error.message : String(error),
         });
       });
+  }
+
+  /**
+   * Connects to a new host's socket, trying again until it is bound. `start` runs right after the
+   * detached host was spawned, and the host binds its socket a moment later (DIPO-181): one attempt
+   * made then found no socket ("unreachable"), the engine never watched the host, and the host
+   * answered every waiting PermissionRequest call at once with no decision. Only "unreachable"
+   * is retried, up to `HOST_CONNECT_TIMEOUT_MS`; a refusal or a silent socket ends it.
+   */
+  async #connectWhenBound(host: LaunchedHost): Promise<ConnectHostResult> {
+    const { clock } = this.#options;
+    const deadline = clock.now() + HOST_CONNECT_TIMEOUT_MS;
+    for (;;) {
+      const left = deadline - clock.now();
+      const connected = await connectHost(host.socketPath, {
+        runId: host.runId,
+        clock,
+        timeoutMs: Math.max(1, left),
+        // The engine's watch: only it may answer hook calls and count as the daemon being up.
+        token: host.engineToken ?? null,
+      });
+      if (connected.ok || connected.reason !== "unreachable") return connected;
+      if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
+      await new Promise<void>((resolve) => clock.setTimeout(resolve, HOST_CONNECT_RETRY_MS));
+    }
   }
 
   /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */
