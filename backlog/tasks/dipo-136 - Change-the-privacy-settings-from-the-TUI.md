@@ -1,10 +1,10 @@
 ---
 id: DIPO-136
 title: Change the privacy settings from the TUI
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 19:09'
-updated_date: '2026-10-16 19:43'
+updated_date: '2026-10-20 14:01'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -36,7 +36,7 @@ ordinal: 126000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: the maintainer turns storing worker commands, prompts and raw events on or off from the TUI, without editing .dipo/office.local.yaml by hand; a change applies from the next output dipo stores, also for a run that is going.
 
-Context: the privacy settings (0007 section 8) are machine-local and accepted only in .dipo/office.local.yaml (0017 section 5). After DIPO-135 and DIPO-137, storeCommandBodies and storePrompts are on by default and keepRawEvents is off. Today the TUI only reads; changing a setting means editing that file. UIs never write engine files (CLAUDE.md, engine is headless), so the TUI sends a contract command and the engine or daemon validates the change with the existing config schema (packages/engine/src/config/) and writes the file. That the daemon rewrites a file the maintainer may have edited by hand is new behaviour: the file keeps every other key it holds (timeouts, retention), its comments are not kept, and the TUI says so before the first write. The engine has a YAML parser (packages/engine/src/platform/yaml.ts) but no writer.
+Context: the privacy settings (0007 section 8) are machine-local and accepted only in .dipo/office.local.yaml (0017 section 5). After DIPO-135 and DIPO-137, storeCommandBodies and storePrompts are on by default and keepRawEvents is off. Today the TUI only reads; changing a setting means editing that file. UIs never write engine files (CLAUDE.md, engine is headless), so the TUI sends a contract command and the engine office feature (packages/engine/src/office/feature.ts, next to office.reloadConfig) validates the change with the existing config schema (packages/engine/src/config/) and writes the file. That the daemon rewrites a file the maintainer may have edited by hand is new behaviour: the file keeps every other key it holds (timeouts, retention), its comments are not kept, and the TUI says so before the first write. The engine has a YAML parser (packages/engine/src/platform/yaml.ts) but no writer; the writer is Bun.YAML.stringify of the pinned Bun, next to the parser, with no new dependency. It writes flow style on one line unless given an indent argument (0017), and it drops comments, so dipo writes a short header comment of its own at the top of the file.
 
 After a valid write the office configuration is reloaded through office.reloadConfig (OfficeManager.reloadConfig in packages/engine/src/office/manager.ts), and the reply carries the new configHash. Privacy is read from the configuration in force on every ingest pass (packages/engine/src/ingest/ingestor.ts, the privacy option; packages/engine/src/run/hosts.ts; the privacy function in packages/daemon/src/runs.ts), so storeCommandBodies applies from the next output dipo stores, also in a run that is going. storePrompts applies from the next session that starts, keepRawEvents at the next retention pass (packages/engine/src/retention/feature.ts reads the configuration in force).
 
@@ -46,25 +46,28 @@ Where a setting comes from: loadOfficeConfig returns localOverrideKeys (the leaf
 branch: "DIPO-136/tui-privacy-settings"
 unknowns:
   - q: "Which YAML serializer writes office.local.yaml: Bun.YAML.stringify from the pinned Bun (no new dependency, drops comments), or a YAML library that keeps comments (a new pinned dependency the maintainer approves)?"
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-20): Bun.YAML.stringify from the pinned Bun, no new dependency; comments are dropped and dipo writes a short header comment back."
   - q: "Does the command live in the engine office feature (packages/engine/src/office/, next to office.reloadConfig) or in the daemon?"
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-20): in the engine office feature, packages/engine/src/office/, next to office.reloadConfig."
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) the command writes the requested privacy value to office.local.yaml, keeps its timeouts and retention keys, creates the file with the current office config version (OFFICE_CONFIG_VERSION) when it is missing, and refuses an unknown key or a non-boolean value with the file and key named and the file unchanged"
+      check: "(unit) the command writes the requested privacy value to office.local.yaml, keeps its timeouts and retention keys, creates the file with the current office config version (OFFICE_CONFIG_VERSION) when it is missing, writes dipo's header comment and block-style YAML that parses back to the same values, and refuses an unknown key or a non-boolean value with the file and key named and the file unchanged"
     - kind: "automated"
       check: "(unit) after a valid write the office configuration is reloaded and the reply carries the new configHash; OfficeSummary.privacy names each setting's effective value and its source, default or office.local.yaml"
     - kind: "automated"
       check: "(unit) the TUI settings view shows the three privacy settings with their effective values and sources, warns once that comments in the file are not kept, and sends the command when one is toggled"
     - kind: "manual"
-      check: "(live) on the scratch repo, start a run that uses Bash, toggle storeCommandBodies off in the TUI while it runs and see the next tool lines without commands; toggle it on and the next tool lines show the commands; office.local.yaml holds the last value"
+      check: "(live) on the scratch repo, start a run that uses Bash and toggle storeCommandBodies off, then on again, in the TUI while it runs"
+      expect: "after off the next tool lines show no commands, after on they show them again, and office.local.yaml holds the last value under dipo's header comment"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A contract command changes one privacy setting (storeCommandBodies, storePrompts or keepRawEvents) of an office; it is validated with the office config schema and written to .dipo/office.local.yaml, keeping the other keys in the file and creating the file with the current office config version when it is missing
+- [ ] #1 A contract command, answered by the engine office feature in packages/engine/src/office/ next to office.reloadConfig, changes one privacy setting (storeCommandBodies, storePrompts or keepRawEvents) of an office; it is validated with the office config schema and written to .dipo/office.local.yaml with Bun.YAML.stringify in block style through packages/engine/src/platform/yaml.ts, under a short header comment that says dipo wrote the file and comments are not kept, keeping the other keys in the file and creating the file with the current office config version when it is missing; package.json gains no dependency
 - [ ] #2 An unknown key, a non-boolean value or an office.local.yaml that does not validate is refused with the file and key named, and the file is left unchanged
 - [ ] #3 After a valid write the office configuration is reloaded (office.reloadConfig in packages/engine/src/office/manager.ts) and the reply carries the new configHash
 - [ ] #4 The office manager keeps the localOverrideKeys of the loaded configuration, and OfficeSummary carries an optional field privacy with each setting key, effective value and source (default or office.local.yaml); packages/contract/schema/ is regenerated
