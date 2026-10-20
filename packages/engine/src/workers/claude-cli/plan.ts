@@ -398,7 +398,9 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     "Read(~/.netrc)",
     ...GIT_WRITE_VERBS.flatMap(gitWriteVerbRules),
     ...commands("backlog"),
-    ...commands("gh"),
+    // With the hook relay the Bash check refuses every gh call but the help forms (DIPO-195): a deny
+    // rule cannot carve them out, and Bash(gh *) would deny `gh pr view --help` too.
+    ...(spec.hookRelay ? [] : commands("gh")),
     ...spec.tools.deny,
   ];
   // A reviewer is read-only (0019 section 4): its tool list has no Edit or Write, and the rules
