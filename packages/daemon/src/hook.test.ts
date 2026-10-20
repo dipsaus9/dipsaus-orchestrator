@@ -573,23 +573,40 @@ describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
         code: 2,
         out: [`err:${BASH_GH_FAILED_REASON}`],
       });
+      // Quotes, escapes and case do not hide gh from the shell, so they do not hide it here.
+      for (const named of [
+        "'g'h pr list",
+        'g"h" pr list',
+        "g\\h pr list",
+        "g\\\nh pr list",
+        "GH pr merge 1",
+      ]) {
+        expect([named, (await bashCall(socket, named, throwingCheck)).code]).toEqual([named, 2]);
+      }
       expect(await bashCall(socket, "echo gh-free", throwingCheck)).toEqual({ code: 0, out: [] });
+      expect(await bashCall(socket, "echo sigh", throwingCheck)).toEqual({ code: 0, out: [] });
       expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
         code: 0,
         out: [],
       });
     }));
 
-  it("prints nothing and exits 0 for a check that throws, a bad payload or no input", () =>
+  it("prints nothing and exits 0 for a check that throws, or a payload with no command", () =>
     withWorkerHost(async ({ socket }) => {
       expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
         code: 0,
         out: [],
       });
       const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-      for (const input of ["not json", "null", '{"tool_input":{"command":5}}', "{}", null]) {
+      for (const input of ["null", '{"tool_input":{"command":5}}', "{}"]) {
         const out: string[] = [];
         expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(0);
+        expect(out).toEqual([]);
+      }
+      // A payload it cannot parse or read exits 3: the shell fallback greps it for gh (DIPO-241).
+      for (const input of ["not json", null]) {
+        const out: string[] = [];
+        expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(3);
         expect(out).toEqual([]);
       }
     }));

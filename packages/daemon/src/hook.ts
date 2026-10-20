@@ -164,16 +164,29 @@ export async function runHookForm(
 export const BASH_GH_FAILED_REASON =
   "dipo could not check this command, and it names gh: the engine handles the code host, so the call was refused.";
 
-/** A word whose basename is gh: the words `GH_WORD_PATTERN` (engine `claude-cli/hooks.ts`) greps. */
-const GH_WORD = /(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])/;
+/** A word whose basename is gh, in any case: the words `GH_WORD_PATTERN` (engine `claude-cli/hooks.ts`) greps. */
+const GH_WORD = /(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])/i;
+
+/**
+ * True when `command` names gh, read as the shell would join it: line continuations and quote and
+ * escape characters are dropped first (`g\\h`, `'g'h`), and the case is ignored (a case-insensitive
+ * file system runs `GH` as gh). It errs toward a gh word, which only refuses more.
+ */
+function namesGh(command: string): boolean {
+  return GH_WORD.test(command.replace(/\\\n/g, "").replace(/['"\\]/g, ""));
+}
+
+/** The status of a `--bash` call that read no command: the shell fallback then greps the payload. */
+export const BASH_UNREAD_EXIT = 3;
 
 /**
  * A `--bash` call (DIPO-194; 0008 amendment of 2026-10-19): decides the command in this process,
  * never contacting the worker host. A command the check refuses (DIPO_TMP or TMPDIR set or cleared,
  * a gh call but the help forms; DIPO-195) prints Claude's deny with the check's reason; anything
- * else, a payload that does not parse and a check that throws print nothing and exit 0 (fails
- * open). The exception is a check that throws on a command with a gh word: it exits 2 with the
- * reason on stderr, so a gh call never runs unchecked (DIPO-241).
+ * else and a check that throws print nothing and exit 0 (fails open). The exception is a check that
+ * throws on a command that names gh: it exits 2 with the reason on stderr, so a gh call never runs
+ * unchecked (DIPO-241). A payload it cannot read (too large, too slow) or parse exits
+ * `BASH_UNREAD_EXIT`, so the shell fallback of the planned command greps the raw payload for gh.
  */
 async function runBash(
   io: DaemonIo,
@@ -184,7 +197,7 @@ async function runBash(
   try {
     const readInput = io.readInput ?? ((max, ms) => readProcessInput(io.clock, max, ms));
     const payload = await readInput(MAX_HOOK_STDIN, HOOK_STDIN_MS);
-    if (payload === null) return 0;
+    if (payload === null) return BASH_UNREAD_EXIT;
     const input = (JSON.parse(payload) as { tool_input?: { command?: unknown } } | null)
       ?.tool_input;
     const text = input?.command;
@@ -193,7 +206,9 @@ async function runBash(
     const reason = check(text);
     if (reason !== null) write(gateDenyOutput(reason));
   } catch {
-    if (command !== undefined && GH_WORD.test(command)) {
+    // No command read (the payload did not parse): the shell fallback decides from the payload.
+    if (command === undefined) return BASH_UNREAD_EXIT;
+    if (namesGh(command)) {
       try {
         io.writeError(BASH_GH_FAILED_REASON);
       } catch {

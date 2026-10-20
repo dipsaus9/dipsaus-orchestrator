@@ -532,12 +532,36 @@ describe("the Bash check's command line fails closed for gh and open otherwise w
       expect([command, ran.code]).toEqual([command, 2]);
       expect(ran.stderr).toContain(BASH_GH_CRASH_REASON);
     }
+    // Quotes, escapes, a line continuation and case do not hide gh from the shell, nor here.
+    for (const command of [
+      "'g'h pr list",
+      'g"h" pr list',
+      "g\\h pr list",
+      "g\\\nh pr list",
+      "GH pr merge 1",
+    ]) {
+      const ran = runBash("/nonexistent/dipo", JSON.stringify({ tool_input: { command } }));
+      expect([command, ran.code]).toEqual([command, 2]);
+    }
     // A word that only ends in gh is no gh call.
     const sigh = runBash(
       "/nonexistent/dipo",
       JSON.stringify({ tool_input: { command: "echo sigh" } }),
     );
     expect(sigh.code).toBe(0);
+  });
+
+  it("greps the raw payload when dipo could not read it (exit 3): gh is refused, the rest passes", () => {
+    const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "bash-hook-"));
+    try {
+      const fake = join(dir, "dipo");
+      writeFileSync(fake, "#!/bin/sh\ncat >/dev/null\nexit 3\n");
+      chmodSync(fake, 0o755);
+      expect(runBash(fake, GH_PAYLOAD).code).toBe(2);
+      expect(runBash(fake, GH_FREE_PAYLOAD)).toEqual({ code: 0, stdout: "", stderr: "" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps dipo's own answer: exit 2 from the check is not followed by the fallback's reason", () => {
