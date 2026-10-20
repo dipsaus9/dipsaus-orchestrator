@@ -3,10 +3,10 @@ id: DIPO-223
 title: >-
   Skip here-doc bodies and follow more setting forms in the worker Bash temp
   guard
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:19'
+updated_date: '2026-10-20 07:59'
 labels:
   - 'tier:S'
   - cutover

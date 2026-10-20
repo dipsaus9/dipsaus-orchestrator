@@ -3,10 +3,10 @@ id: DIPO-219
 title: >-
   Start pending reviews and run review rounds with their allowance, caps and
   failures
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 21:06'
-updated_date: '2026-10-20 07:19'
+updated_date: '2026-10-20 07:59'
 labels:
   - 'tier:L'
   - 'slice:m1a'

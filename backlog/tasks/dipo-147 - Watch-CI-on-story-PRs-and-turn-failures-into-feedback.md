@@ -1,10 +1,10 @@
 ---
 id: DIPO-147
 title: Watch CI on story PRs and turn failures into feedback
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:18'
+updated_date: '2026-10-20 08:42'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -38,7 +38,7 @@ Outcome: the PR poll waits for the office's and the host's required checks on th
 
 Context: implements ADR 0019 section 7 (which checks, timing against the review, polling, logs) and the CI rows of section 8 (items, signatures, caps; maintainer spike answers 2 and 10). The merge slot today waits for hard-coded check names (0019 fact 2), which DIPO-133 makes an office setting.
 
-DIPO-142 added the run_steps kind ci ("a pushed head whose required checks were red", migration 0034) that the final run_outcomes row counts as ci_attempts. This story appends one ci step per red pushed head, the same count it parks on at the run's CI cap: runs.ci_cap, which DIPO-146 snapshots from mergeSlot.ciAttempts at run start, plus the run's ciAttempt grants, read through runCaps (packages/engine/src/run/caps.ts, which counts no ciAttempt grant yet); DIPO-148's fix round appends none.
+DIPO-142 added the run_steps kind ci ("a pushed head whose required checks were red", migration 0034) that the final run_outcomes row counts as ci_attempts. This story appends one ci step per red pushed head, the same count it parks on at the run's CI cap: runs.ci_cap, which DIPO-146 snapshots from mergeSlot.ciAttempts at run start, plus the run's ciAttempt grants, read through runCaps (packages/engine/src/run/caps.ts); DIPO-148's fix round appends none.
 
 The story PR body's status block (DIPO-144, statusSection in packages/engine/src/story-pr/body.ts) has no required-checks line yet; 0019 section 3 gives it one with each check's name and state, which this story adds when it reads the checks.
 
@@ -47,6 +47,8 @@ branch: "DIPO-147/watch-ci-on-story-prs"
 unknowns: []
 test_plan:
   entries:
+    - kind: "automated"
+      check: "(unit) story-pr/body.ts: the status block lists each required check with its state and is rewritten when a check changes"
     - kind: "automated"
       check: "(unit) with storyPr.open false the PR poll makes no gh pr checks call and builds no CI item for the story"
     - kind: "automated"
