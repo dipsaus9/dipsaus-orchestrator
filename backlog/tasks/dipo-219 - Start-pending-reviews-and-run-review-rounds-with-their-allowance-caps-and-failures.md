@@ -3,10 +3,10 @@ id: DIPO-219
 title: >-
   Start pending reviews and run review rounds with their allowance, caps and
   failures
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 21:06'
-updated_date: '2026-10-20 10:13'
+updated_date: '2026-10-20 10:35'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -55,10 +55,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The review starter (START_KINDS.review) is registered for the reviewer place in packages/engine/src/run/compose.ts and fed through PlacesDeps.pending, so a story that reaches In Review gets a pending review that starts a reviewer session when the reviewer place is free, oldest In Review first, with its wait time equal to the In Review time while the reopen and its review phase step keep their own time; the report of each round goes through DIPO-146's validation and its verdict is stored by code tree key
-- [ ] #2 No review starts for a code tree key that already has a verdict in the claim, across a daemon restart; a head whose code tree key has a verdict (commits that change only the story's task file) takes that verdict without a round
-- [ ] #3 Each review round started writes a run_steps review step and grows the run's budget limit by review_allowance; a retried session of the same round adds nothing
-- [ ] #4 The third failed round parks review-blocked with cause rounds and the blocking findings as detail, and each failed round appends a review-failed run_steps row; reviewer failures follow the section 4 table, with causes review, review-cap and backstop and one correction turn for an invalid report or unverified evidence, the latter naming the findings from a template in packages/engine/src/prompts/feedback/
+- [x] #1 The review starter (START_KINDS.review) is registered for the reviewer place in packages/engine/src/run/compose.ts and fed through PlacesDeps.pending, so a story that reaches In Review gets a pending review that starts a reviewer session when the reviewer place is free, oldest In Review first, with its wait time equal to the In Review time while the reopen and its review phase step keep their own time; the report of each round goes through DIPO-146's validation and its verdict is stored by code tree key
+- [x] #2 No review starts for a code tree key that already has a verdict in the claim, across a daemon restart; a head whose code tree key has a verdict (commits that change only the story's task file) takes that verdict without a round
+- [x] #3 Each review round started writes a run_steps review step and grows the run's budget limit by review_allowance; a retried session of the same round adds nothing
+- [x] #4 The third failed round parks review-blocked with cause rounds and the blocking findings as detail, and each failed round appends a review-failed run_steps row; reviewer failures follow the section 4 table, with causes review, review-cap and backstop and one correction turn for an invalid report or unverified evidence, the latter naming the findings from a template in packages/engine/src/prompts/feedback/
 <!-- AC:END -->
 
 ## Implementation Notes
