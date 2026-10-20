@@ -1,10 +1,10 @@
 ---
 id: DIPO-233
 title: Keep the Backlog CLI gate test from timing out on a busy machine
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 14:46'
+updated_date: '2026-10-20 14:49'
 labels:
   - 'tier:S'
   - cutover
@@ -43,7 +43,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/test/gate/story-gate.test.ts the test "story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes" passes a limit of 30000 ms as the third argument of it(), as 0017's Timeouts rule sets for a slower integration test, and it stays in that local file with no DIPO_TEST_CI guard
-- [ ] #2 The file comment of story-gate.test.ts says why that test has its own limit: it runs real git and the pinned Backlog CLI several times, took about 4 seconds on an idle machine and timed out at 5 seconds on a busy one
-- [ ] #3 `bun test packages/engine/test/gate` passes
+- [x] #1 In packages/engine/test/gate/story-gate.test.ts the test "story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes" passes a limit of 30000 ms as the third argument of it(), as 0017's Timeouts rule sets for a slower integration test, and it stays in that local file with no DIPO_TEST_CI guard
+- [x] #2 The file comment of story-gate.test.ts says why that test has its own limit: it runs real git and the pinned Backlog CLI several times, took about 4 seconds on an idle machine and timed out at 5 seconds on a busy one
+- [x] #3 `bun test packages/engine/test/gate` passes
 <!-- AC:END -->
