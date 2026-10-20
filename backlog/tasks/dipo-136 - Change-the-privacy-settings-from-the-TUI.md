@@ -1,10 +1,10 @@
 ---
 id: DIPO-136
 title: Change the privacy settings from the TUI
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-16 19:09'
-updated_date: '2026-10-20 15:24'
+updated_date: '2026-10-20 16:03'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -67,10 +67,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A contract command, answered by the engine office feature in packages/engine/src/office/ next to office.reloadConfig, changes one privacy setting (storeCommandBodies, storePrompts or keepRawEvents) of an office; it is validated with the office config schema and written to .dipo/office.local.yaml with Bun.YAML.stringify in block style through packages/engine/src/platform/yaml.ts, under a short header comment that says dipo wrote the file and comments are not kept, keeping the other keys in the file and creating the file with the current office config version when it is missing; package.json gains no dependency
-- [ ] #2 An unknown key, a non-boolean value or an office.local.yaml that does not validate is refused with the file and key named, and the file is left unchanged
-- [ ] #3 After a valid write the office configuration is reloaded (office.reloadConfig in packages/engine/src/office/manager.ts) and the reply carries the new configHash
-- [ ] #4 The office manager keeps the localOverrideKeys of the loaded configuration, and OfficeSummary carries an optional field privacy with each setting key, effective value and source (default or office.local.yaml); packages/contract/schema/ is regenerated
-- [ ] #5 The TUI has a settings view, opened from the overview, that lists the three privacy settings with their effective values and sources, warns before the first write that comments in office.local.yaml are not kept, and toggles one with a confirmation that names what is stored
-- [ ] #6 A change applies from the next output dipo stores, also for a run that is going: storeCommandBodies from the next stored output line, storePrompts from the next session that starts, keepRawEvents at the next retention pass
+- [x] #1 A contract command, answered by the engine office feature in packages/engine/src/office/ next to office.reloadConfig, changes one privacy setting (storeCommandBodies, storePrompts or keepRawEvents) of an office; it is validated with the office config schema and written to .dipo/office.local.yaml with Bun.YAML.stringify in block style through packages/engine/src/platform/yaml.ts, under a short header comment that says dipo wrote the file and comments are not kept, keeping the other keys in the file and creating the file with the current office config version when it is missing; package.json gains no dependency
+- [x] #2 An unknown key, a non-boolean value or an office.local.yaml that does not validate is refused with the file and key named, and the file is left unchanged
+- [x] #3 After a valid write the office configuration is reloaded (office.reloadConfig in packages/engine/src/office/manager.ts) and the reply carries the new configHash
+- [x] #4 The office manager keeps the localOverrideKeys of the loaded configuration, and OfficeSummary carries an optional field privacy with each setting key, effective value and source (default or office.local.yaml); packages/contract/schema/ is regenerated
+- [x] #5 The TUI has a settings view, opened from the overview, that lists the three privacy settings with their effective values and sources, warns before the first write that comments in office.local.yaml are not kept, and toggles one with a confirmation that names what is stored
+- [x] #6 A change applies from the next output dipo stores, also for a run that is going: storeCommandBodies from the next stored output line, storePrompts from the next session that starts, keepRawEvents at the next retention pass
 <!-- AC:END -->
