@@ -71,6 +71,8 @@ export {
   type NudgesDeps,
   type NudgeSources,
 } from "./nudges";
+export { bashRefusal } from "./bash-check";
+export { GH_REFUSAL, ghHelpCall, ghRefusal } from "./gh-guard";
 export { GUARDED_TEMP_VARIABLES, refusedTempVariable, tempVariableRefusal } from "./temp-guard";
 export {
   findSecret,

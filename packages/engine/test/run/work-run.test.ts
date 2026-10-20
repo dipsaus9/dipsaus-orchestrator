@@ -28,6 +28,7 @@ import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
+import { insertParkQuestion } from "../../src/hooks/questions";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { executeRead } from "../../src/reads/execute";
@@ -38,11 +39,16 @@ import { OfficeManager } from "../../src/office/manager";
 import { systemSpawn } from "../../src/platform/process";
 import { runCriteriaMet } from "../../src/run/criteria";
 import {
+  createRunOutcomes,
+  endRun,
   findRun,
   hasActiveRun,
   insertRun,
   placeHolders,
   Places,
+  PLACE_NOTICES,
+  type Resumption,
+  type RunEnder,
   runSteps,
   START_KINDS,
   type BaseRead,
@@ -52,14 +58,16 @@ import {
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
+import type { StoredRun } from "../../src/run/records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/stories/keys";
 import { AdapterHolds } from "../../src/workers/hold";
+import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
-import { storyRun } from "./rounds-helpers";
+import { addAgent, storyRun } from "./rounds-helpers";
 
 const BLOCK = (id: string) =>
   ["```dipo", `branch: "${id}/a-story"`, "unknowns: []", "```"].join("\n");
@@ -111,7 +119,7 @@ interface World {
   readonly tasks: PlainTask[];
   readonly keys: Map<string, StoryKey>;
   readonly claims: ClaimRequest[];
-  readonly gates: { key: StoryKey; mode: GateMode; inQueue: boolean }[];
+  readonly gates: { key: StoryKey; mode: GateMode; inQueue: boolean; inSession: boolean }[];
   readonly lane: { journaled: LaneOp[]; flushes: number };
   readonly holds: AdapterHolds;
   config: OfficeConfig;
@@ -132,7 +140,12 @@ interface World {
   readonly resumeStarts: string[];
   /** Holds the claim open when set: `entered` is called as it starts, `open` lets it go on (DIPO-208). */
   claimGate: { readonly entered: () => void; readonly open: Promise<void> } | null;
+  /** Starts a queued resume through the park resume when set (DIPO-229); else the place only records it. */
+  queuedStart: ((office: OfficeId, run: StoredRun) => Promise<boolean>) | null;
 }
+
+/** The git session the fake claim hands its recheck, so a test can see the gate got it (DIPO-201). */
+const CLAIM_SESSION = { claimSession: true } as never;
 
 let dir = "";
 let world: World;
@@ -153,9 +166,9 @@ beforeEach(async () => {
     clock: t.clock,
     offices: { get: () => office, config: () => OFFICE_DEFAULTS },
     starters: {
-      resume: async (_office, started) => {
+      resume: async (target, started) => {
         resumeStarts.push(started.story ?? "");
-        return true;
+        return w.queuedStart === null ? true : w.queuedStart(target, started);
       },
     },
   });
@@ -183,6 +196,7 @@ beforeEach(async () => {
     places,
     resumeStarts,
     claimGate: null,
+    queuedStart: null,
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
@@ -226,7 +240,7 @@ beforeEach(async () => {
           w.claimGate.entered();
           await w.claimGate.open;
         }
-        const skip = await request.recheck?.(undefined as never);
+        const skip = await request.recheck?.(CLAIM_SESSION);
         if (skip !== null && skip !== undefined) return skip;
         const claim = {
           runId: request.runId,
@@ -265,8 +279,13 @@ beforeEach(async () => {
       },
     },
     gates: {
-      recordGateDecision: async (_office, key, mode, checkout) => {
-        gates.push({ key, mode, inQueue: checkout !== undefined });
+      recordGateDecision: async (_office, key, mode, checkout, session) => {
+        gates.push({
+          key,
+          mode,
+          inQueue: checkout !== undefined,
+          inSession: session === CLAIM_SESSION,
+        });
         const result = w.gate(key, mode);
         office.immediate(() =>
           storeGateDecision(office, t.ids, { key, result, contentHash: "h", at: t.clock.now() }),
@@ -370,7 +389,7 @@ describe("work.run picks and claims one Ready story", () => {
 
     // The claim got the frozen branch and ran the pickup re-check inside its queue item.
     expect(world.claims.map((c) => [c.story, c.branch])).toEqual([["TASK-3", "TASK-3/a-story"]]);
-    expect(world.gates).toEqual([{ key: key3, mode: "pickup", inQueue: true }]);
+    expect(world.gates).toEqual([{ key: key3, mode: "pickup", inQueue: true, inSession: true }]);
     expect(countRows(world.office, "gate_decisions")).toBe(1);
 
     const runId = RunId.parse(result.started[0]?.run);
@@ -613,7 +632,7 @@ describe("work.run picks and claims one Ready story", () => {
     });
     const result = resultOf(await run());
     expect(result.skipped).toEqual([{ story: "TASK-1", key, reason: "pickupCheckFailed" }]);
-    expect(world.gates).toEqual([{ key, mode: "pickup", inQueue: false }]);
+    expect(world.gates).toEqual([{ key, mode: "pickup", inQueue: false, inSession: false }]);
     expect(world.claims).toEqual([]);
   });
 });
@@ -930,5 +949,164 @@ describe("a queued resume and a pickup never take the worker place together (DIP
     expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
     expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1"]);
     expect(waitingStarts(world.office).map((s) => s.runId)).toEqual([resume.run]);
+  });
+});
+
+/** A story run parked `needs-permission`, ended, with its permission question open (DIPO-229). */
+function parkedRun(id: string): { run: RunId; parkId: number; question: string } {
+  const started = storyRun(
+    { dir, t: world.t, office: world.office, close: () => undefined },
+    { story: id },
+  );
+  const { office, t } = world;
+  const agent = addAgent(
+    { dir, t, office, close: () => undefined },
+    started.run,
+    "developer",
+    false,
+  );
+  const at = t.clock.now();
+  const question = t.ids.next("qst");
+  let parkId = 0;
+  office.immediate(() => {
+    office.run(
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
+         where office_id = $office_id), $key, $story, $run, 'needs-permission', 'In Progress', 'x', $at)`,
+      { key: started.key, story: id, run: started.run, at },
+    );
+    parkId = office.get<{ id: number }>(
+      "select max(park_id) as id from parks where office_id = $office_id",
+    )?.id as number;
+    endRun(office, started.run, at, "blocked");
+    insertParkQuestion(office, {
+      questionId: question,
+      runId: started.run,
+      agentId: agent,
+      parkId,
+      tool: "Bash",
+      action: "docker ps",
+      text: "Bash(docker ps)",
+      at,
+    });
+  });
+  return { run: started.run, parkId, question };
+}
+
+/** The park resumption; a resume's session start counts into `sessions` (DIPO-229). */
+function resumption(sessions: { count: number }): Resumption {
+  const ender = { isTracked: () => false } as unknown as RunEnder;
+  return createRunOutcomes(
+    {
+      clock: world.t.clock,
+      offices: { get: () => world.office },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      ender: () => ender,
+      resumer: {
+        next: async () => {
+          sessions.count += 1;
+          return { kind: "started", agent: "agt_x" as never, resumed: true };
+        },
+      },
+      caps: () => ({ budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 }),
+      unpark: { lift: async () => ({ commit: null, pushed: true, pushError: null }) },
+    },
+    { places: () => world.places },
+  ).resumption;
+}
+
+function answer(of: Resumption, parked: { run: RunId; parkId: number; question: string }) {
+  return of.resumePark(world.officeId, parked.run, {
+    parkId: parked.parkId,
+    question: parked.question,
+    decision: "allow",
+    text: "",
+  });
+}
+
+function noticeCodes(): string[] {
+  return entries()
+    .filter((e) => e.type === "engine.notice")
+    .map((e) => (e.delta as { code?: string }).code ?? "");
+}
+
+/** Lets the pending microtasks run: an answer started before this has reached its serialized step. */
+async function settle(): Promise<void> {
+  for (let tick = 0; tick < 50; tick += 1) await Promise.resolve();
+}
+
+/** Holds work.run's claim open until the answer has queued behind it, then lets the pickup go on. */
+async function pickupWithAnswerInClaim(
+  of: Resumption,
+  parked: { run: RunId; parkId: number; question: string },
+) {
+  const entered = Promise.withResolvers<void>();
+  const opened = Promise.withResolvers<void>();
+  world.claimGate = { entered: () => entered.resolve(), open: opened.promise };
+  const pickup = run();
+  await entered.promise;
+  const reply = answer(of, parked);
+  await settle();
+  opened.resolve();
+  return { pickup, reply };
+}
+
+describe("a park resume and a pickup never take the worker place together (DIPO-229)", () => {
+  it("holds a park answer inside work.run's claim window: the pickup takes the worker place and the resume waits", async () => {
+    story("TASK-1", "Ready");
+    const parked = parkedRun("DIPO-7");
+    const sessions = { count: 0 };
+    const { pickup, reply } = await pickupWithAnswerInClaim(resumption(sessions), parked);
+
+    const result = resultOf(await pickup);
+    expect(await reply).toEqual({ kind: "started", queued: true });
+    await world.places.drain(world.officeId);
+    world.places.close();
+
+    expect(sessions.count).toBe(0);
+    expect(world.resumeStarts).toEqual([]);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1"]);
+    expect(waitingStarts(world.office).map((s) => s.runId)).toEqual([parked.run]);
+    expect(noticeCodes()).toContain(PLACE_NOTICES.queued);
+  });
+
+  it("skips a pickup for the worker place when the park resume went first", async () => {
+    story("TASK-1", "Ready");
+    const parked = parkedRun("DIPO-7");
+    const sessions = { count: 0 };
+    const resuming = resumption(sessions);
+    expect(await answer(resuming, parked)).toEqual({ kind: "started" });
+    await resuming.idle();
+
+    const result = resultOf(await run());
+    world.places.close();
+
+    expect(sessions.count).toBe(1);
+    expect(result.started).toEqual([]);
+    expect(result.skipped.map((s) => [s.story, s.reason])).toEqual([["TASK-1", "capacity"]]);
+  });
+
+  it("starts a queued park resume from a drain without waiting on the office's serialized steps", async () => {
+    story("TASK-1", "Ready");
+    const parked = parkedRun("DIPO-7");
+    const sessions = { count: 0 };
+    const resuming = resumption(sessions);
+    const { pickup, reply } = await pickupWithAnswerInClaim(resuming, parked);
+    const result = resultOf(await pickup);
+    expect(await reply).toEqual({ kind: "started", queued: true });
+
+    // The pickup ends, so the worker place frees; the drain starts the queued resume through startQueued.
+    world.queuedStart = (officeId, started) => resuming.startQueued(officeId, started);
+    expect(result.started).toHaveLength(1);
+    endRun(world.office, RunId.parse(result.started[0]?.run ?? ""), world.t.clock.now(), "done");
+    await world.places.drain(world.officeId);
+    await resuming.idle();
+    world.places.close();
+
+    expect(sessions.count).toBe(1);
+    expect(waitingStarts(world.office)).toEqual([]);
   });
 });

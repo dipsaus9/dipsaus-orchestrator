@@ -75,7 +75,7 @@ import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate/store/feature";
 import type { GateMode, GateResult } from "../gate/types";
 import { writeNudgeSources } from "../hooks/nudges";
-import type { OfficeGit } from "../git/office";
+import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { assembleContract, ContractTooLargeError } from "../prompts/contract";
 import { recordPromptParts, recordPromptTexts } from "../prompts/parts";
@@ -190,6 +190,7 @@ export interface WorkRunDeps {
       key: StoryKey,
       mode: GateMode,
       checkout?: BaseCheckout,
+      session?: GitSession,
     ): Promise<{ readonly passed: boolean; readonly result: GateResult }>;
     /** The gate evaluated on `_base` without storing it (`work.preview`). */
     checkGate?(office: OfficeId, story: StoryId, mode: GateMode): Promise<GateResult>;
@@ -518,12 +519,13 @@ export class WorkRun {
         story,
         branch,
         runId,
-        recheck: async () => {
+        recheck: async (git) => {
           const decision = await this.#deps.gates.recordGateDecision(
             office,
             key,
             "pickup",
             c.checkout,
+            git,
           );
           if (decision.passed) return null;
           failures = [...decision.result.failures];

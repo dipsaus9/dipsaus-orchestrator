@@ -1,10 +1,10 @@
 ---
 id: DIPO-195
 title: Let a worker read gh's own help and version
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-20 14:19'
+updated_date: '2026-10-20 16:07'
 labels:
   - 'tier:S'
   - cutover
@@ -58,8 +58,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Bash check of DIPO-194 in packages/engine/src/hooks/ also refuses every simple command whose program is gh, with a reason saying the engine handles the code host, except exactly these forms: gh --version; gh help followed by zero or more subcommand words; and gh followed by one or more subcommand words and then --help as the last argument. A subcommand word matches [A-Za-z][A-Za-z0-9-]*, so it starts with a letter and no flag can come before the final --help
-- [ ] #2 Unit tests in packages/engine/test/hooks/ allow gh --version, gh help pr, gh pr view --help and gh api --help, and refuse gh api -h, gh, gh pr view 12, gh pr create --title x --help, and the gh auth token part of gh --help && gh auth token
-- [ ] #3 A plan that registers the PreToolUse Bash hook holds no Bash(gh) or Bash(gh *) deny rule, and a plan without the hook relay keeps both; tests in packages/engine/test/workers/plan.test.ts assert both, and the golden plan files in packages/engine/test/workers/golden/ are updated
-- [ ] #4 L1 (packages/engine/src/prompts/contract/implement.md) says gh --version, gh help and gh <command> --help are the only gh calls allowed; packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
+- [x] #1 The Bash check of DIPO-194 in packages/engine/src/hooks/ also refuses every simple command whose program is gh, with a reason saying the engine handles the code host, except exactly these forms: gh --version; gh help followed by zero or more subcommand words; and gh followed by one or more subcommand words and then --help as the last argument. A subcommand word matches [A-Za-z][A-Za-z0-9-]*, so it starts with a letter and no flag can come before the final --help
+- [x] #2 Unit tests in packages/engine/test/hooks/ allow gh --version, gh help pr, gh pr view --help and gh api --help, and refuse gh api -h, gh, gh pr view 12, gh pr create --title x --help, and the gh auth token part of gh --help && gh auth token
+- [x] #3 A plan that registers the PreToolUse Bash hook holds no Bash(gh) or Bash(gh *) deny rule, and a plan without the hook relay keeps both; tests in packages/engine/test/workers/plan.test.ts assert both, and the golden plan files in packages/engine/test/workers/golden/ are updated
+- [x] #4 L1 (packages/engine/src/prompts/contract/implement.md) says gh --version, gh help and gh <command> --help are the only gh calls allowed; packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CWNK6NFH075075G23JK6Q5 (Haiku, 33 turns, about $0.04, 5 min) reported done, In Review, with no denied call and no write outside the References. With the hook relay on, the plan drops Bash(gh) and Bash(gh *) and the PreToolUse Bash check refuses every gh call except gh --version, gh help <words> and gh <words> --help, with a reason naming the engine and the code host; it follows compounds, substitutions, sh -c and eval texts, here-docs fed to a shell, and wrappers. L1 names the help forms as the only gh calls allowed. Golden plan files are unchanged because their spec uses hookRelay false and still holds both rules. Fixed on top over three review rounds: timeout and stdbuf count as wrappers (the Claude CLI strips them before matching, so the old deny rule caught them); trailing redirections are dropped from a help form (gh pr view --help 2>&1 passes), and only trailing ones, never a target starting with a dash, since quotes are gone by then and a quoted '<' mid-command could hide a flag that takes --help. Advisory, not done (none caught by the old deny rule either): a wrapped shell is not re-checked (env bash -c 'gh ...', env -S); function f { gh ...; } and coproc; here-strings or piped input to a shell; a gh call inside a script file; the Bash hook fails open if it throws or cannot start; command -v gh is refused. The test plan's manual live entry (scratch repo, gh pr view --help read and gh pr view 12 denied) is left for the maintainer's wave hand-test. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4069 tests; DIPO_TEST_CI=1 hooks, workers, prompts and daemon tests pass (1012).
+<!-- SECTION:NOTES:END -->

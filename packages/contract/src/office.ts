@@ -196,7 +196,8 @@ export const storyHold = defineCommand({
 // Archives the story through the planning lane and releases its claim; deletes its branch only
 // when asked (0020 section 8). Since minor 1 (DIPO-160). Clients ask for typed confirmation when
 // `deleteBranch` is true (0009 section 5); `irreversibleWhen` says so in `commands.describe`.
-// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, `story.dirtyWorktree`.
+// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, `story.dirtyWorktree`,
+// and `run.hostAlive` while a worker host of the parked run still runs (0020 section 8, DIPO-227).
 export const storyDrop = defineCommand({
   name: "story.drop",
   level: "office",

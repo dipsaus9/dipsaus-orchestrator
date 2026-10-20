@@ -319,40 +319,44 @@ export class Resumption {
             ];
       // The park resolved, the run active again, the answer recorded (an allow is in place before
       // the session's first call) and the intent sent: one transaction. A worker place that is
-      // taken, or paused by a plan limit, leaves the run waiting for it (0020 section 1).
+      // taken, or paused by a plan limit, leaves the run waiting for it (0020 section 1). The place
+      // check and that write are one serialized step of the office (DIPO-229), as a pickup's are
+      // (DIPO-208): a pickup holding its claim open records its run before this check.
       const places = this.#places();
       const place: { queued: string | null } = { queued: null };
-      this.#s.write(office, () => {
-        const reopenedEntries = reopenParkedRun(office, park, run, to, at);
-        const answered = answeredParkQuestion(
-          office,
-          request.question,
-          request.decision,
-          request.text,
-          at,
-        );
-        markIntentSent(office, runId, intentId, at, null);
-        const queued =
-          places?.blocked(
-            officeId,
-            { kind: START_KINDS.resume, runId, since: at },
-            places.modelOf(officeId, "worker", run),
-          ) ?? null;
-        place.queued = queued;
-        if (queued === null) return [...reopenedEntries, ...answered, ...pushNotice];
-        waitForPlace(office, runId, START_KINDS.resume, at);
-        const waits: NewEntry = {
-          type: "engine.notice",
-          key: work.key,
-          run: runId,
-          delta: {
-            level: "info",
-            code: PLACE_NOTICES.queued,
-            text: `${run.story}: resumed; its session starts when the office's worker place frees (${queued}).`,
-          },
-        };
-        return [...reopenedEntries, ...answered, ...pushNotice, waits];
-      });
+      await this.#serialized(officeId, () =>
+        this.#s.write(office, () => {
+          const reopenedEntries = reopenParkedRun(office, park, run, to, at);
+          const answered = answeredParkQuestion(
+            office,
+            request.question,
+            request.decision,
+            request.text,
+            at,
+          );
+          markIntentSent(office, runId, intentId, at, null);
+          const queued =
+            places?.blocked(
+              officeId,
+              { kind: START_KINDS.resume, runId, since: at },
+              places.modelOf(officeId, "worker", run),
+            ) ?? null;
+          place.queued = queued;
+          if (queued === null) return [...reopenedEntries, ...answered, ...pushNotice];
+          waitForPlace(office, runId, START_KINDS.resume, at);
+          const waits: NewEntry = {
+            type: "engine.notice",
+            key: work.key,
+            run: runId,
+            delta: {
+              level: "info",
+              code: PLACE_NOTICES.queued,
+              text: `${run.story}: resumed; its session starts when the office's worker place frees (${queued}).`,
+            },
+          };
+          return [...reopenedEntries, ...answered, ...pushNotice, waits];
+        }),
+      );
       await this.#deps.refreshStory?.(officeId, work.key).catch((error: unknown) => {
         this.#deps.warn?.("reading the resumed story again failed", {
           run: runId,
@@ -416,6 +420,18 @@ export class Resumption {
     this.#inflight.add(job);
     void job.finally(() => this.#inflight.delete(job));
     return { kind: "started" };
+  }
+
+  /**
+   * Runs `fn` as one of the office's serialized steps (DIPO-229), or at once without places. Only
+   * the direct park resume takes this step: `startQueued` runs inside a drain, which must not wait on
+   * it (`places.ts`, `serialized`).
+   */
+  #serialized(officeId: OfficeId, fn: () => void): Promise<void> {
+    const places = this.#places();
+    return places === undefined
+      ? Promise.resolve(fn())
+      : places.serialized(officeId, async () => fn());
   }
 
   /**

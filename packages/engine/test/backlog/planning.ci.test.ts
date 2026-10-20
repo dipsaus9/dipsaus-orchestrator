@@ -26,6 +26,8 @@ import { executeCommand } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
+import { currentPlatform } from "../../src/platform/paths";
+import { systemProcessProbe } from "../../src/platform/process";
 import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
 import { openPark } from "../../src/run";
 import { WorkResumeCommand } from "../../src/run/work-resume";
@@ -78,6 +80,7 @@ function world(s: ClaimSetup) {
       },
     },
     implemented: () => true,
+    probe: systemProcessProbe(currentPlatform()),
   });
   const registry = buildRegistry([
     planning.feature,
