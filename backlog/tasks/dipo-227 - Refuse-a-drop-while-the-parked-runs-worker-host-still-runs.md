@@ -1,10 +1,10 @@
 ---
 id: DIPO-227
 title: Refuse a drop while the parked run's worker host still runs
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:39'
+updated_date: '2026-10-20 14:45'
 labels:
   - 'tier:S'
   - cutover
@@ -44,8 +44,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 story.drop checks every worker host of the live claim's run (workerHostsOf with hostAlive and the engine's process probe) before it journals, closes the story PR or touches the worktree; while one lives it fails with the retryable run.hostAlive naming the story and the host PID and saying to drop again in a moment, with and without deleteBranch, and nothing is journaled, closed or removed
-- [ ] #2 A story without a live claim, or whose claim's hosts have all exited, drops as it does today
-- [ ] #3 StoryPlanningDeps take the process probe, packages/daemon/src/foreground.ts passes the engine's, and the storyDrop comment in packages/contract/src/office.ts names run.hostAlive among its errors
-- [ ] #4 Tests in packages/engine/test/backlog/planning.test.ts show the refusal with a live host for both values of deleteBranch (no journal entry, closePr not called, the fake git's worktree untouched) and the drop passing once the host is gone
+- [x] #1 story.drop checks every worker host of the live claim's run (workerHostsOf with hostAlive and the engine's process probe) before it journals, closes the story PR or touches the worktree; while one lives it fails with the retryable run.hostAlive naming the story and the host PID and saying to drop again in a moment, with and without deleteBranch, and nothing is journaled, closed or removed
+- [x] #2 A story without a live claim, or whose claim's hosts have all exited, drops as it does today
+- [x] #3 StoryPlanningDeps take the process probe, packages/daemon/src/foreground.ts passes the engine's, and the storyDrop comment in packages/contract/src/office.ts names run.hostAlive among its errors
+- [x] #4 Tests in packages/engine/test/backlog/planning.test.ts show the refusal with a live host for both values of deleteBranch (no journal entry, closePr not called, the fake git's worktree untouched) and the drop passing once the host is gone
 <!-- AC:END -->
