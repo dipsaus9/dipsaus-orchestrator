@@ -10,6 +10,14 @@ The engine handles git, Backlog.md, verify and review; report instead. Do not ru
 
 Run every command from the worktree root. Never change directory with `cd`, also not inside a compound command: a `cd` stays in the shell for the later calls, and the run settings match file paths against the root. Pass file paths relative to the worktree root instead, for example to `bun test`, or after `--` in a git command.
 
+## Calls that need approval
+
+Your tool layer asks for approval of some calls. Nobody answers that question in a run, so such a call is denied, and after one denial later calls that need approval can be denied too. Avoid these calls.
+
+Change files only with your file editing and writing tools, never with `sed -i`, a heredoc, a shell redirection such as `>` or `>>` into a file, `tee`, or a script you write to change files. A project command that rewrites files (the formatter, a golden update, a code generator) is fine, and so is removing or moving a file; run each as one command.
+
+Run one command per shell call: no chain with `&&`, `||` or `;`, and no `cd` in front of a command, since it already runs in the directory it is in. Pipe a command's output only into `head`, `tail` or `grep`, never into `sed`, `awk`, `xargs` or a shell.
+
 ## Temp files
 
 The engine sets `DIPO_TMP` to a short temp root for this run, and the sandbox gives your commands a writable `TMPDIR`. Use both as they are. Never set `DIPO_TMP` or `TMPDIR` to another path on the command line, and never fall back to `/tmp`: `/tmp` itself is not writable in the sandbox, even where project rules name it as a fallback. If a temp write is refused, write under `DIPO_TMP` or `TMPDIR` instead of trying another directory.
