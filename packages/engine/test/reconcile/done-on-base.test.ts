@@ -87,19 +87,26 @@ function claimRow(office: OfficeHandle, record: ClaimRecord): ClaimRecord {
 }
 
 /**
- * The office git with one empty commit on `_base` before each of the first `moves` git queue
- * items, so `_base` moves between the index pass and the queue item. `moved()` counts the commits.
+ * The office git with one empty commit on `_base` before each of the git queue items whose
+ * 0-based index is in `at`, so `_base` moves between the index pass and that queue item.
+ * `moved()` counts the commits.
  */
-function movingBase(o: ReconcileOffice, moves: number): { git: OfficeGit; moved: () => number } {
+function movingBase(
+  o: ReconcileOffice,
+  at: readonly number[],
+): { git: OfficeGit; moved: () => number } {
   const real = o.engineGit.forOffice(o.officeId) as OfficeGit;
   const base = real.baseWorktreePath();
   let moved = 0;
+  let item = 0;
   const git = new Proxy(real, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target) as unknown;
       if (prop === "run") {
         return async (fn: Parameters<OfficeGit["run"]>[0]) => {
-          if (moved < moves) {
+          const index = item;
+          item += 1;
+          if (at.includes(index)) {
             moved += 1;
             await o.repo.run(
               [
@@ -146,13 +153,57 @@ describe("releaseDoneOnBase counts the claims it skips because _base moved (DIPO
 
       // A pass whose commit is not the HEAD of `_base`: the queue item skips the claim.
       const stale = { ...pass, sha: "0".repeat(40) };
-      expect(await releaseDoneOnBase(deps, stale, record)).toEqual({ released: 0, baseMoved: 1 });
+      expect(await releaseDoneOnBase(deps, stale, record)).toEqual({
+        released: 0,
+        baseMoved: 1,
+        skippedRuns: [one.runId],
+      });
       expect(liveClaimOf(o.office, one.key)).not.toBeNull();
       expect(existsSync(one.worktree)).toBe(true);
       expect(noticed).toEqual([]);
 
-      expect(await releaseDoneOnBase(deps, pass, record)).toEqual({ released: 1, baseMoved: 0 });
+      expect(await releaseDoneOnBase(deps, pass, record)).toEqual({
+        released: 1,
+        baseMoved: 0,
+        skippedRuns: [],
+      });
       expect(claimRow(o.office, one).releaseReason).toBe("done");
+    }));
+
+  it("with a set of run ids, looks only at those claims", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
+      const two = await claim(o, o.office, "TASK-2", keyOf(o.office, "TASK-2"), { active: false });
+      const s = setupOf(o);
+      s.hold(one);
+      s.hold(two);
+      const deps = {
+        officeId: o.officeId,
+        office: o.office,
+        git: o.engineGit.forOffice(o.officeId) as OfficeGit,
+        clock: o.s.clock,
+        slots: s.slots,
+      };
+      const pass = await o.index.indexStories(o.officeId);
+      const stale = { ...pass, sha: "0".repeat(40) };
+
+      // Both claims are skipped; the set names only `two`, so `one` is not looked at.
+      expect(await releaseDoneOnBase(deps, stale, () => {}, new Set([two.runId]))).toEqual({
+        released: 0,
+        baseMoved: 1,
+        skippedRuns: [two.runId],
+      });
+      expect(liveClaimOf(o.office, one.key)).not.toBeNull();
+      expect(liveClaimOf(o.office, two.key)).not.toBeNull();
+
+      // A set that names no live claim looks at nothing.
+      expect(await releaseDoneOnBase(deps, pass, () => {}, new Set(["run_none"]))).toEqual({
+        released: 0,
+        baseMoved: 0,
+        skippedRuns: [],
+      });
+      expect(liveClaimOf(o.office, one.key)).not.toBeNull();
+      expect(liveClaimOf(o.office, two.key)).not.toBeNull();
     }));
 });
 
@@ -162,7 +213,7 @@ describe("reconcile retries a claim skipped because _base moved, once (DIPO-226)
       const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
       const s = setupOf(o);
       s.hold(one);
-      const { git, moved } = movingBase(o, 1);
+      const { git, moved } = movingBase(o, [0]);
 
       const { reindexed } = await s.reconcile(git);
 
@@ -179,7 +230,7 @@ describe("reconcile retries a claim skipped because _base moved, once (DIPO-226)
       const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
       const s = setupOf(o);
       s.hold(one);
-      const { git, moved } = movingBase(o, 2);
+      const { git, moved } = movingBase(o, [0, 1]);
       const seq = lastSeq(o.office);
 
       const { reindexed } = await s.reconcile(git);
@@ -195,6 +246,44 @@ describe("reconcile retries a claim skipped because _base moved, once (DIPO-226)
         n.code.startsWith("reconcile.doneOnBase"),
       );
       expect(notices).toEqual([]);
+    }));
+
+  it("retries only the skipped claim: a kept claim keeps one notice, the clean one is released", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      // The dirty claim is claimed first, so its queue item runs before `_base` moves.
+      const dirty = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), {
+        active: false,
+      });
+      const clean = await claim(o, o.office, "TASK-2", keyOf(o.office, "TASK-2"), {
+        active: false,
+      });
+      writeFileSync(join(dirty.worktree, "scratch.txt"), "work in progress\n");
+      const s = setupOf(o);
+      s.hold(dirty);
+      s.hold(clean);
+      // `_base` moves before the second queue item, the clean claim's.
+      const { git, moved } = movingBase(o, [1]);
+      const seq = lastSeq(o.office);
+
+      const { reindexed } = await s.reconcile(git);
+
+      expect(moved()).toBe(1);
+      // The clean claim was skipped by the move and released by the retry.
+      expect(claimRow(o.office, clean).releaseReason).toBe("done");
+      expect(existsSync(clean.worktree)).toBe(false);
+      expect(s.slots.slotOf(clean.worktree)).toBeNull();
+      // The dirty claim keeps its worktree, claim, slot and lock.
+      expect(existsSync(dirty.worktree)).toBe(true);
+      expect(liveClaimOf(o.office, dirty.key)).not.toBeNull();
+      expect(s.slots.slotOf(dirty.worktree)).not.toBeNull();
+      expect(await o.repo.git("worktree", "list", "--porcelain")).toContain(
+        `locked dipo ${dirty.runId}`,
+      );
+      // Exactly one kept notice, for the dirty claim's key only; the retry never looked at it.
+      const kept = noticesAfter(o.office, seq).filter((n) => n.code === DONE_ON_BASE_NOTICES.kept);
+      expect(kept.map((n) => n.key)).toEqual([dirty.key]);
+      // One reindex after the skip, one after the retry released the clean claim.
+      expect(reindexed).toBe(2);
     }));
 });
 
