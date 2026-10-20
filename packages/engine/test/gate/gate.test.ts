@@ -364,6 +364,44 @@ const CASES: readonly Case[] = [
       `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
     ],
   },
+  {
+    name: "R28 labelled dropped in ready mode",
+    input: input({ labels: ["tier:M", "dropped"] }),
+    expected: [
+      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
+    ],
+  },
+  {
+    name: "R28 labelled on-hold in ready mode",
+    input: input({ labels: ["tier:M", "on-hold"] }),
+    expected: [
+      `${prefix("R28")}labelled on-hold: the maintainer set it aside; remove the label to make it Ready`,
+    ],
+  },
+  {
+    name: "R28 labelled dropped in pickup mode",
+    input: input({ status: "Ready", labels: ["tier:M", "dropped"] }),
+    mode: "pickup",
+    expected: [
+      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
+    ],
+  },
+  {
+    name: "R28 labelled on-hold in pickup mode",
+    input: input({ status: "Ready", labels: ["tier:M", "on-hold"] }),
+    mode: "pickup",
+    expected: [
+      `${prefix("R28")}labelled on-hold: the maintainer set it aside; remove the label to make it Ready`,
+    ],
+  },
+  {
+    name: "R28 labelled dropped and on-hold, one failure each",
+    input: input({ labels: ["tier:M", "dropped", "on-hold"] }),
+    expected: [
+      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
+      `${prefix("R28")}labelled on-hold: the maintainer set it aside; remove the label to make it Ready`,
+    ],
+  },
 ];
 
 describe("evaluateGate", () => {
@@ -401,6 +439,24 @@ describe("evaluateGate", () => {
       expect(result.passed).toBe(false);
     });
   }
+
+  it("passes a story labelled neither dropped nor on-hold, in both modes (DIPO-238)", () => {
+    expect(messages(evaluateGate(input({ labels: ["tier:M"] }), "ready"))).toEqual([]);
+    expect(
+      messages(evaluateGate(input({ status: "Ready", labels: ["tier:M"] }), "pickup")),
+    ).toEqual([]);
+  });
+
+  it("runs R28 after R27 and keeps both failures (DIPO-238)", () => {
+    const story = input({
+      labels: ["tier:M", "dropped"],
+      acceptanceCriteria: [{ index: 1, checked: false, text: "Writes the task notes" }],
+    });
+    expect(messages(evaluateGate(story, "ready"))).toEqual([
+      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
+      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
+    ]);
+  });
 
   it("passes a story contract of exactly prompt.contractMax characters", () => {
     expect(evaluateGate(input({ implementationPlan: "i".repeat(11_773) }), "ready").passed).toBe(

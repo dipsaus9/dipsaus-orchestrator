@@ -9,6 +9,8 @@ export const LABEL_GRAMMAR = /^[a-z0-9-]+(:[A-Za-z0-9-]+)?$/;
 export const TIER_PREFIX = "tier:";
 export const ROLE_PREFIX = "role:";
 export const TEST_BEFORE_MERGE = "test-before-merge";
+/** The labels that set a story aside; R28 refuses a story that carries one (DIPO-238). */
+export const SET_ASIDE_LABELS: readonly string[] = ["dropped", "on-hold"];
 
 export interface StoryLabels {
   /** The `<T>` of every `tier:<T>` label, in label order. */
