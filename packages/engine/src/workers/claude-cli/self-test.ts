@@ -1380,7 +1380,8 @@ export async function runSelfTest(
     {
       daemonPath: ctx.env["PATH"] ?? "",
       // The plan passes the daemon's PATH through to the worker unchanged (ENV_ALLOWLIST); with
-      // Safe-Chain the wrapper sets its own (DIPO-82).
+      // Safe-Chain the wrapper sets its own (DIPO-82); a reviewer on a Safe-Chain machine gets the
+      // PATH detectSafeChain built (DIPO-250).
       workerPath:
         ctx.safeChain !== undefined
           ? ctx.safeChain.path
