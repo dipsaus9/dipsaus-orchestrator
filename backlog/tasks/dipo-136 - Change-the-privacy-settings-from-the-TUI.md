@@ -1,10 +1,10 @@
 ---
 id: DIPO-136
 title: Change the privacy settings from the TUI
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 19:09'
-updated_date: '2026-10-20 16:03'
+updated_date: '2026-10-20 16:19'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -26,6 +26,7 @@ references:
   - packages/engine/src/views/
   - packages/engine/test/stories/views.test.ts
   - packages/tui/src/
+  - docs/decisions/0005-command-and-event-model.md
 priority: medium
 type: feature
 ordinal: 126000
@@ -74,3 +75,9 @@ test_plan:
 - [x] #5 The TUI has a settings view, opened from the overview, that lists the three privacy settings with their effective values and sources, warns before the first write that comments in office.local.yaml are not kept, and toggles one with a confirmation that names what is stored
 - [x] #6 A change applies from the next output dipo stores, also for a run that is going: storeCommandBodies from the next stored output line, storePrompts from the next session that starts, keepRawEvents at the next retention pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CYD2W4BCP3D7D2MJ0R0NAC (Sonnet, M1b, 56 turns, about $1.37, 12 min) reported done, In Review, with no write outside the References. Two denied calls: a `sed -i` (the temp binary predated DIPO-232's avoid line) and a compound ending in `git stash list`. New command office.setPrivacy { office, key, value } (engine office feature) writes one privacy key of .dipo/office.local.yaml through Bun.YAML (block style, header saying comments are not kept, every other key kept, atomic temp file and rename), refuses an unknown key, a non-boolean value or an invalid file with the file and key named, reloads the configuration and replies with the hash in force; OfficeSummary gains privacy (key, value, source default or office.local.yaml); the TUI settings view ('p' from the overview) lists the three settings, warns about comments before the first write, and toggles one after a confirmation naming what is stored. The schemas, fixtures and version.ts (unreleased minor 1.1) are updated. Fixed on top after review: the maintainer answered (2026-10-20, answer A) that every client asks first, so office.setPrivacy has confirm: true, the TUI sends confirmed: true after its own prompt, and a dated 0005 section 4 amendment records it (References widened to docs/decisions/0005-command-and-event-model.md); a failed write removes its temp file and answers office.refused naming the file, with a test; the settings test waits for the overview after Esc (was flaky, 2 of 6). Advisory, not done: office.refused's comment in errors.ts still describes only a failed office load. The test plan's live entry (toggle storeCommandBodies in the TUI during a run on the scratch repo) is left for the maintainer's wave hand-test. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4077 tests; DIPO_TEST_CI=1 contract, engine config/office/stories, daemon, client and TUI tests pass.
+<!-- SECTION:NOTES:END -->
