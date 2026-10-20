@@ -453,7 +453,7 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
     const safeChain = {
       root: `${HOME}/.safe-chain`,
       shell: "/bin/zsh",
-      path: "/usr/bin:/bin",
+      path: "/opt/detected/bin:/usr/bin:/bin",
       demoted: [],
       dropped: [],
       probe: "bun",
@@ -473,6 +473,8 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
     expect(result.ok).toBe(true);
     expect(started).toEqual([]);
     expect(result.ok && result.plan.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
+    // The reviewer gets the detected PATH (DIPO-250).
+    expect(result.ok && result.plan.env["PATH"]).toBe(safeChain.path);
   });
 });
 

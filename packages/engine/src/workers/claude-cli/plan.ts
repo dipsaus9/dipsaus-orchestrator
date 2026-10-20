@@ -93,14 +93,18 @@ export const EMPTY_MCP_CONFIG = { mcpServers: {} } as const;
 /**
  * The launch context a `spec` is planned with. A `review` session (0019 section 4) runs with no
  * Safe-Chain proxy, since a reviewer installs nothing, and with no plugin the office allows its
- * workers: `worker.plugins` does not apply, so every installed plugin is switched off.
+ * workers: `worker.plugins` does not apply, so every installed plugin is switched off. With the
+ * official Safe-Chain install it keeps the PATH `detectSafeChain` built (`reviewShell`), so bun
+ * resolves in the reviewer sandbox, and closes the CLI's shell snapshot (DIPO-250).
  */
 export function kindContext(
   spec: Pick<WorkerSpec, "kind">,
   ctx: ClaudeLaunchContext,
 ): ClaudeLaunchContext {
   if (spec.kind !== "review") return ctx;
-  const { safeChain: _safeChain, ...rest } = ctx;
+  const { safeChain, ...without } = ctx;
+  const rest: ClaudeLaunchContext =
+    safeChain === undefined ? without : { ...without, reviewShell: { path: safeChain.path } };
   return rest.plugins === undefined ? rest : { ...rest, plugins: { ...rest.plugins, allowed: [] } };
 }
 
@@ -212,6 +216,12 @@ export interface ClaudeLaunchContext {
     readonly shellDir: string;
     readonly route?: SafeChainRoute;
   };
+  /**
+   * Set by `kindContext` for a review session on a machine with the official Safe-Chain install
+   * (DIPO-250): the worker PATH `detectSafeChain` built, which the reviewer gets as its PATH, and
+   * with it the CLI's shell snapshot is read-denied. A reviewer has no Safe-Chain shell, proxy or install.
+   */
+  readonly reviewShell?: { readonly path: string };
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
@@ -343,6 +353,8 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   env.npm_config_logs_dir = `${tmp}/${NPM_LOGS_SUBDIR}`;
   if (ctx.safeChain !== undefined) {
     env.CLAUDE_CODE_SHELL = safeChainShellPath(ctx.safeChain.shellDir, ctx.safeChain);
+  } else if (ctx.reviewShell !== undefined) {
+    env.PATH = ctx.reviewShell.path;
   }
   return env;
 }
@@ -505,9 +517,11 @@ function sandbox(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
       // their CA keys (DIPO-84).
       denyRead: [
         `${home}/Library/Keychains`,
-        ...(ctx.safeChain === undefined
-          ? []
-          : [`${home}/${SHELL_SNAPSHOTS_DIR}`, posix.dirname(safeChainRoute(ctx).dir)]),
+        ...(ctx.safeChain !== undefined
+          ? [`${home}/${SHELL_SNAPSHOTS_DIR}`, posix.dirname(safeChainRoute(ctx).dir)]
+          : ctx.reviewShell !== undefined
+            ? [`${home}/${SHELL_SNAPSHOTS_DIR}`]
+            : []),
       ],
       denyWrite: [
         `${main}/.git`,
