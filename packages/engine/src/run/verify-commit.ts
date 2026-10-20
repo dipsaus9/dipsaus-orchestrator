@@ -723,6 +723,10 @@ export class VerifyCommit implements RunFinisher {
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
       // The In Review push on the remote, at the run's end: the PR poll retries only such a run.
       if (push.pushed) updateClaim(office, run.runId, { pushedAt: at });
+      // A done turn that crossed a cap: its cap step is written with the run's end (DIPO-222).
+      if (ctx.capped != null) {
+        appendRunStep(office, run.runId, "cap", `${ctx.capped.cap}: ${ctx.capped.detail}`, at);
+      }
       endRunMarked(office, run.runId, at, IN_REVIEW_END);
       const key = run.key as StoryKey;
       const current = storyView(office, key);
