@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-19 21:06'
-updated_date: '2026-10-19 21:07'
+updated_date: '2026-10-20 07:19'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -60,3 +60,9 @@ test_plan:
 - [ ] #3 Each review round started writes a run_steps review step and grows the run's budget limit by review_allowance; a retried session of the same round adds nothing
 - [ ] #4 The third failed round parks review-blocked with cause rounds and the blocking findings as detail, and each failed round appends a review-failed run_steps row; reviewer failures follow the section 4 table, with causes review, review-cap and backstop and one correction turn for an invalid report or unverified evidence, the latter naming the findings from a template in packages/engine/src/prompts/feedback/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From the DIPO-146 review (2026-10-20): review/diff.ts parseStoryDiff strips only the default b/ prefix, so build the story diff with --src-prefix=a/ --dst-prefix=b/ (or --no-prefix and parse without stripping); with diff.mnemonicPrefix or a user prefix config every quoted finding would fail as not a changed path. Use: validateReport, then evidenceProblems(findings) for the one correction turn, then judgeReview, then recordReviewVerdict.
+<!-- SECTION:NOTES:END -->
