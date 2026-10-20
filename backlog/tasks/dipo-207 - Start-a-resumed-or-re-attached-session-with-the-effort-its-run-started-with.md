@@ -1,10 +1,10 @@
 ---
 id: DIPO-207
 title: Start a resumed or re-attached session with the effort its run started with
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 14:31'
-updated_date: '2026-10-20 07:32'
+updated_date: '2026-10-20 07:38'
 labels:
   - 'tier:M'
   - cutover
@@ -49,8 +49,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A resumed or handed-off session's worker spec and its agents row take the model from the run row and the effort from the run's first developer agent, not from the office tier in force
-- [ ] #2 A re-attached session's initial state in packages/daemon/src/runs.ts uses the same model and effort
-- [ ] #3 When the run's first developer agent has a null effort, the session uses the effort of the run's tier in force, with a test in packages/engine/test/run/
-- [ ] #4 Tests edit the office tier between the start and the resume, and between the start and a re-attach, and expect the literal start model and effort in the resumed session's spec (packages/engine/test/run/) and in the re-attached session's initial state (packages/daemon/test/unit/runs.test.ts)
+- [x] #1 A resumed or handed-off session's worker spec and its agents row take the model from the run row and the effort from the run's first developer agent, not from the office tier in force
+- [x] #2 A re-attached session's initial state in packages/daemon/src/runs.ts uses the same model and effort
+- [x] #3 When the run's first developer agent has a null effort, the session uses the effort of the run's tier in force, with a test in packages/engine/test/run/
+- [x] #4 Tests edit the office tier between the start and the resume, and between the start and a re-attach, and expect the literal start model and effort in the resumed session's spec (packages/engine/test/run/) and in the re-attached session's initial state (packages/daemon/test/unit/runs.test.ts)
 <!-- AC:END -->
