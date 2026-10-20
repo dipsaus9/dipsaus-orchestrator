@@ -1,10 +1,10 @@
 ---
 id: DIPO-228
 title: List what a drop with --delete-branch loses before the typed id
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 18:39'
+updated_date: '2026-10-20 20:51'
 labels:
   - 'tier:S'
   - cutover
