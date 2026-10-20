@@ -1,10 +1,10 @@
 ---
 id: DIPO-195
 title: Let a worker read gh's own help and version
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 23:16'
-updated_date: '2026-10-20 14:50'
+updated_date: '2026-10-20 14:57'
 labels:
   - 'tier:S'
   - cutover
@@ -58,8 +58,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Bash check of DIPO-194 in packages/engine/src/hooks/ also refuses every simple command whose program is gh, with a reason saying the engine handles the code host, except exactly these forms: gh --version; gh help followed by zero or more subcommand words; and gh followed by one or more subcommand words and then --help as the last argument. A subcommand word matches [A-Za-z][A-Za-z0-9-]*, so it starts with a letter and no flag can come before the final --help
-- [ ] #2 Unit tests in packages/engine/test/hooks/ allow gh --version, gh help pr, gh pr view --help and gh api --help, and refuse gh api -h, gh, gh pr view 12, gh pr create --title x --help, and the gh auth token part of gh --help && gh auth token
-- [ ] #3 A plan that registers the PreToolUse Bash hook holds no Bash(gh) or Bash(gh *) deny rule, and a plan without the hook relay keeps both; tests in packages/engine/test/workers/plan.test.ts assert both, and the golden plan files in packages/engine/test/workers/golden/ are updated
-- [ ] #4 L1 (packages/engine/src/prompts/contract/implement.md) says gh --version, gh help and gh <command> --help are the only gh calls allowed; packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
+- [x] #1 The Bash check of DIPO-194 in packages/engine/src/hooks/ also refuses every simple command whose program is gh, with a reason saying the engine handles the code host, except exactly these forms: gh --version; gh help followed by zero or more subcommand words; and gh followed by one or more subcommand words and then --help as the last argument. A subcommand word matches [A-Za-z][A-Za-z0-9-]*, so it starts with a letter and no flag can come before the final --help
+- [x] #2 Unit tests in packages/engine/test/hooks/ allow gh --version, gh help pr, gh pr view --help and gh api --help, and refuse gh api -h, gh, gh pr view 12, gh pr create --title x --help, and the gh auth token part of gh --help && gh auth token
+- [x] #3 A plan that registers the PreToolUse Bash hook holds no Bash(gh) or Bash(gh *) deny rule, and a plan without the hook relay keeps both; tests in packages/engine/test/workers/plan.test.ts assert both, and the golden plan files in packages/engine/test/workers/golden/ are updated
+- [x] #4 L1 (packages/engine/src/prompts/contract/implement.md) says gh --version, gh help and gh <command> --help are the only gh calls allowed; packages/engine/test/prompts/golden/system-implement-developer.md is updated and its test passes
 <!-- AC:END -->
