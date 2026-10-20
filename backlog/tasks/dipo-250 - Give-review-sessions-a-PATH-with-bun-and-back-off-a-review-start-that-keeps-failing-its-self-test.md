@@ -1,7 +1,7 @@
 ---
 id: DIPO-250
 title: Give review sessions the worker's readable PATH and a closed shell snapshot
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-20 19:03'
 updated_date: '2026-10-20 21:11'
@@ -45,6 +45,10 @@ test_plan:
     - kind: "manual"
       check: "(live) on this repo, let a story reach In Review on the temp office so its review round starts"
       expect: "the reviewer's launch self-test passes, bun resolves in the reviewer sandbox, and a reviewer session starts"
+park:
+  reason: "stopped"
+  from: "In Review"
+  note: "stopped at review: the running binary predates DIPO-250's reviewer fix; reviewed by hand"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
