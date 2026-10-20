@@ -1,10 +1,10 @@
 ---
 id: DIPO-163
 title: Steer and pause a running worker
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 08:07'
+updated_date: '2026-10-20 08:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -63,10 +63,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 work.steer (dipo steer <id> <text>) is stored first as a steer intent and sent as one next-priority user message wrapped in feedback/steer.md, and the reply says delivered next-turn
-- [ ] #2 A steer to a paused or parked story is stored once, keyed by its request, and sent with the first message on resume, and the reply says on-resume
-- [ ] #3 A steer to a story whose live session is its reviewer, or to a follow-only host, answers story.notSteerable
-- [ ] #4 work.pause (dipo pause <id>) stores a pause intent and sends a now-priority message; the run stays In Progress with health paused (viewOf in packages/engine/src/views/work.ts passes paused to deriveHealth) and keeps its claim, slot and session place; after 10 minutes stdin closes and the process exits, and dipo resume <id> continues it with --resume when allowed, and is queued when the worker place is taken (0020 section 9)
-- [ ] #5 Paused time is left out of the minute cap, and a pause that arrives during an engine verify takes effect before the next worker turn
-- [ ] #6 work.steer and work.pause are registered with their since on the waiting command path
+- [x] #1 work.steer (dipo steer <id> <text>) is stored first as a steer intent and sent as one next-priority user message wrapped in feedback/steer.md, and the reply says delivered next-turn
+- [x] #2 A steer to a paused or parked story is stored once, keyed by its request, and sent with the first message on resume, and the reply says on-resume
+- [x] #3 A steer to a story whose live session is its reviewer, or to a follow-only host, answers story.notSteerable
+- [x] #4 work.pause (dipo pause <id>) stores a pause intent and sends a now-priority message; the run stays In Progress with health paused (viewOf in packages/engine/src/views/work.ts passes paused to deriveHealth) and keeps its claim, slot and session place; after 10 minutes stdin closes and the process exits, and dipo resume <id> continues it with --resume when allowed, and is queued when the worker place is taken (0020 section 9)
+- [x] #5 Paused time is left out of the minute cap, and a pause that arrives during an engine verify takes effect before the next worker turn
+- [x] #6 work.steer and work.pause are registered with their since on the waiting command path
 <!-- AC:END -->
