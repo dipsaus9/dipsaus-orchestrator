@@ -21,6 +21,7 @@ import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
 import { createRunOutcomes, type Resumption } from "./resumption";
 import { afterRunExits } from "./temp-dirs";
+import type { HoldResumer } from "./work-resume";
 import type { RunBase } from "./work-run";
 
 type Warn = (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -64,6 +65,8 @@ export interface RunPorts {
     /** The liveness of earlier hosts a next session waits for (DIPO-57). */
     readonly probe?: RunResumerDeps["probe"];
   };
+  /** The planning lane's resume of an on-hold park (DIPO-160), read when `work.resume` runs. */
+  readonly holdResumer?: () => HoldResumer | undefined;
   /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
   /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
@@ -277,7 +280,11 @@ function buildOutcomes(
       ...given("onChanged", ports.onChanged),
       ...given("warn", ports.warn),
     },
-    { planLimits: () => late.planLimits ?? undefined, places: () => late.places ?? undefined },
+    {
+      planLimits: () => late.planLimits ?? undefined,
+      places: () => late.places ?? undefined,
+      ...given("holds", ports.holdResumer),
+    },
   );
   const planLimits =
     ports.planLimits === undefined

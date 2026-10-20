@@ -3,6 +3,8 @@
 // (`resume-policy.ts`) whether `work.resume` resumes that reason, and dispatches on the row. In M0
 // the only `work.resume` row is `plan-limit`, which the plan-limit schedule resumes at once
 // (`PlanLimits.resumeNow`); every other reason, a park included, answers `story.notPausedOrParked`.
+// The park `on-hold` (DIPO-160) is the exception: it has no run, and its row hands the story to the
+// planning lane (`HoldResumer`), which removes F16 and sets `park.from`.
 
 import {
   type Lifecycle,
@@ -40,6 +42,16 @@ export interface HeldRunResumer {
   resumeNow(office: OfficeId, run: RunId): Promise<ResumeWaitOutcome>;
 }
 
+/** The planning lane's resume of an on-hold park (`StoryPlanning.resumeHold`). */
+export interface HoldResumer {
+  resumeHold(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    park: { readonly parkId: number; readonly from: string; readonly detail: string },
+    note: string | undefined,
+  ): Promise<Lifecycle>;
+}
+
 type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
 
@@ -54,8 +66,15 @@ export class WorkResumeCommand {
   /** The plan-limit schedule; read when needed, since it is built after this. */
   readonly #planLimits: () => HeldRunResumer | undefined;
 
-  constructor(planLimits: () => HeldRunResumer | undefined = () => undefined) {
+  /** The planning lane's hold resume; read when needed, since it is built after this. */
+  readonly #holds: () => HoldResumer | undefined;
+
+  constructor(
+    planLimits: () => HeldRunResumer | undefined = () => undefined,
+    holds: () => HoldResumer | undefined = () => undefined,
+  ) {
     this.#planLimits = planLimits;
+    this.#holds = holds;
   }
 
   /** `work.resume` for held runs; read by the plan-limit schedule's feature. */
@@ -95,9 +114,30 @@ export class WorkResumeCommand {
       case "plan-limit":
         if (standing.held === null) throw notHeld();
         return await this.#resumeHeld(handle, identity, standing.held, notHeld);
+      case "on-hold":
+        return await this.#resumeHold(ctx, identity, args.note, notHeld);
       default:
         throw notHeld();
     }
+  }
+
+  /** The `on-hold` row: the planning lane lifts the hold; the story returns to `park.from`. */
+  async #resumeHold(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    note: string | undefined,
+    notHeld: () => CommandError,
+  ): Promise<CommandOutcome<ResumeResult>> {
+    const holds = this.#holds();
+    if (holds === undefined) {
+      throw new Error(
+        `work.resume of ${identity.story} needs the planning lane, and this office has none`,
+      );
+    }
+    const park = openPark(ctx.office, identity.key);
+    if (park === null || park.reason !== "on-hold") throw notHeld();
+    const to = await holds.resumeHold(ctx, identity, park, note);
+    return { result: { story: identity.story, key: identity.key, to } };
   }
 
   /** The `plan-limit` row: the schedule resumes the held run now. */
