@@ -1,10 +1,10 @@
 ---
 id: DIPO-208
 title: Keep a queued start and a pickup from taking the worker place at the same time
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-18 14:32'
-updated_date: '2026-10-20 07:46'
+updated_date: '2026-10-20 07:53'
 labels:
   - 'tier:S'
   - cutover
@@ -42,7 +42,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 work.run and Places.drain decide on and take an office's worker place in one serialized step per office, so at most one developer session holds it
-- [ ] #2 A test in packages/engine/test/run/ holds work.run's claim step open with a fake (the claim, the pickup recheck or launcher.prepare), then queues a resume and drains it inside that window, and expects exactly one developer session, with the other start skipped with `capacity` or requeued, whichever the serialized step decides
-- [ ] #3 The test of criterion #2 fails on the story branch's base commit and passes with the change
+- [x] #1 work.run and Places.drain decide on and take an office's worker place in one serialized step per office, so at most one developer session holds it
+- [x] #2 A test in packages/engine/test/run/ holds work.run's claim step open with a fake (the claim, the pickup recheck or launcher.prepare), then queues a resume and drains it inside that window, and expects exactly one developer session, with the other start skipped with `capacity` or requeued, whichever the serialized step decides
+- [x] #3 The test of criterion #2 fails on the story branch's base commit and passes with the change
 <!-- AC:END -->
