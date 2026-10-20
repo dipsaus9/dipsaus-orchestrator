@@ -72,7 +72,9 @@ export const GH_WORD_PATTERN = "(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])";
  * command), a marker before a `\n` escape is a line continuation and goes, every other `\n`, `\t` or
  * `\r` escape becomes a space, and the markers, quotes and backslashes go. So `g\\h`, `'g'h`, a
  * continuation and a gh call on a later line are seen, and an escaped backslash before a newline
- * keeps the line break. It errs toward a gh word, which only refuses more.
+ * keeps the line break. It errs toward a gh word, which only refuses more. It assumes the payload
+ * is canonical JSON.stringify output, as Claude Code sends it: a `\uXXXX` escape there is only a
+ * control character or a lone surrogate, never a printable letter or a command separator.
  */
 export const GH_PAYLOAD_JOIN = String.raw`a=$(printf "\001"); b=$(printf "\002"); printf "%s" "$payload" | sed -e "s/\\\\\\\\/$a/g" -e "s/$a$a/$b/g" -e "s/$a\\\\n//g" -e "s/\\\\[nrt]/ /g" | tr -d "\001\002\047\042\134"`;
 

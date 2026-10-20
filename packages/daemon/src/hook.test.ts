@@ -573,6 +573,7 @@ describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
         code: 2,
         out: [`err:${BASH_GH_FAILED_REASON}`],
       });
+      expect(BASH_GH_FAILED_REASON).toContain("the engine handles the code host");
       // Quotes, escapes and case do not hide gh from the shell, so they do not hide it here.
       for (const named of [
         "'g'h pr list",

@@ -523,6 +523,7 @@ describe("the Bash check's command line fails closed for gh and open otherwise w
       expect(ran.code).toBe(2);
       expect(ran.stderr).toContain(BASH_GH_CRASH_REASON);
       expect(ran.stdout).toBe("");
+      expect(ran.stderr).toContain("the engine handles the code host");
     }
   });
 
