@@ -40,15 +40,32 @@ export function ghHelpCall(args: readonly string[]): boolean {
   );
 }
 
-/** The words without redirections and their targets: `gh pr view --help 2>&1` is a help form. */
-function withoutRedirections(words: readonly string[]): string[] {
-  const kept: string[] = [];
-  for (let i = 0; i < words.length; i++) {
-    const match = REDIRECTION.exec(words[i] ?? "");
-    if (match === null) kept.push(words[i] ?? "");
-    else if (match[2] === "") i++;
+/**
+ * The words without the redirections at their end: `gh pr view --help 2>&1` is a help form. Only
+ * trailing ones go, since the words come without their quotes and a quoted `'<'` in the middle is
+ * a real argument that could hide a flag taking `--help` as its value; a target that starts with
+ * `-` is never dropped, for the same reason.
+ */
+function withoutTrailingRedirections(words: readonly string[]): string[] {
+  const kept = [...words];
+  for (;;) {
+    const last = REDIRECTION.exec(kept.at(-1) ?? "");
+    if (last !== null && last[2] !== "" && !last[2]?.startsWith("-")) {
+      kept.pop();
+      continue;
+    }
+    const target = kept.at(-1) ?? "";
+    const operator = REDIRECTION.exec(kept.at(-2) ?? "");
+    if (operator !== null && operator[2] === "" && target !== "" && !target.startsWith("-")) {
+      kept.splice(-2, 2);
+      continue;
+    }
+    if (last !== null && last[2] === "") {
+      kept.pop();
+      continue;
+    }
+    return kept;
   }
-  return kept;
 }
 
 function basename(word: string): string {
@@ -94,7 +111,7 @@ function ghCommand(words: readonly string[], depth: number, body: string | null)
   const program = words[at] ?? "";
   const base = basename(program);
   const args = words.slice(at + 1);
-  if (base === "gh") return ghHelpCall(withoutRedirections(args)) ? null : GH_REFUSAL;
+  if (base === "gh") return ghHelpCall(withoutTrailingRedirections(args)) ? null : GH_REFUSAL;
   // A wrapper runs its gh call after its own options (`env -C dir gh ...`), so the words after it
   // are checked too; xargs appends its input to the command, so an xargs gh call is refused.
   const wrapped = WRAPPERS.has(base) || words.slice(0, at).some((word) => PREFIX_WORDS.has(word));
@@ -102,7 +119,7 @@ function ghCommand(words: readonly string[], depth: number, body: string | null)
     const index = words.findIndex((word, i) => i > at && basename(word) === "gh");
     if (index !== -1) {
       if (base === "xargs") return GH_REFUSAL;
-      return ghHelpCall(withoutRedirections(words.slice(index + 1))) ? null : GH_REFUSAL;
+      return ghHelpCall(withoutTrailingRedirections(words.slice(index + 1))) ? null : GH_REFUSAL;
     }
   }
   if (base === "eval") return ghIn(args.join(" "), depth + 1);

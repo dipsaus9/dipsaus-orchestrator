@@ -54,6 +54,14 @@ const REFUSED = [
   "gh pr view 12 2>&1",
   "gh pr view 12 > out.txt",
   "gh pr view > --help",
+  // The words come without quotes: a quoted `<` or `2>` in the middle is a real argument that can
+  // hide a flag taking --help as its value, so only trailing redirections are dropped.
+  "gh pr comment '<' -b --help",
+  "gh gist create '<' -d --help",
+  "gh search repos foo '<' -- --help",
+  "gh pr view \\> -- --help",
+  'gh pr view "2>" -b --help',
+  "gh pr view --help '>' -b",
 ];
 
 describe("ghRefusal", () => {
