@@ -45,6 +45,30 @@ const REFUSED: Array<[string, string]> = [
   ["if true; then export TMPDIR=/x; fi", "TMPDIR"],
   ["for f in a; do DIPO_TMP=x bun test; done", "DIPO_TMP"],
   ["while true; do unset TMPDIR; done", "TMPDIR"],
+  // A shell reads its here-doc body as a script (DIPO-223 AC #1).
+  ["bash <<'EOF'\nDIPO_TMP=/x bun test\nEOF", "DIPO_TMP"],
+  ["sh <<- EOF\nTMPDIR=/x\nEOF", "TMPDIR"],
+  ["cat <<'EOF' | bash\nDIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // A here-string is no here-doc: the next line is a command of its own.
+  ["read x <<< y\nDIPO_TMP=/x bun test", "DIPO_TMP"],
+  // eval, local, printf -v, read and the wrappers (DIPO-223 AC #2, #3).
+  ['eval "DIPO_TMP=/x bun test"', "DIPO_TMP"],
+  ["eval 'TMPDIR=/x' bun test", "TMPDIR"],
+  ["local TMPDIR=/x", "TMPDIR"],
+  ["printf -v TMPDIR %s /x", "TMPDIR"],
+  ["printf -vDIPO_TMP %s /x", "DIPO_TMP"],
+  ["read TMPDIR <<< /x", "TMPDIR"],
+  ["read -a TMPDIR <<< 'a b'", "TMPDIR"],
+  ["sudo TMPDIR=/x bun test", "TMPDIR"],
+  ["sudo -u me env DIPO_TMP=/x bun test", "DIPO_TMP"],
+  ["xargs env TMPDIR=/x bun test", "TMPDIR"],
+  ["xargs -I {} -n 1 env DIPO_TMP={} bun test", "DIPO_TMP"],
+  // Combined env short options (DIPO-223 AC #4).
+  ["env -iu TMPDIR bun test", "TMPDIR"],
+  ["env -iuTMPDIR bun test", "TMPDIR"],
+  // Command substitution inside double quotes (DIPO-223 AC #5).
+  ['echo "$(DIPO_TMP=/x bun test)"', "DIPO_TMP"],
+  ['echo "`TMPDIR=/x bun test`"', "TMPDIR"],
 ];
 
 const PASSED = [
@@ -67,6 +91,18 @@ const PASSED = [
   "# export DIPO_TMP=1\nbun test",
   "bun test --preload TMPDIR=x",
   "git commit -m 'unset TMPDIR'",
+  // A here-doc body is not split, unless a shell reads it (DIPO-223 AC #1).
+  "cat > s.sh <<'EOF'\nDIPO_TMP=/x bun test\nEOF",
+  "cat > s.sh <<-EOF\n\tTMPDIR=/x\n\tEOF",
+  "bash -c 'echo hi' <<'EOF'\nDIPO_TMP=/x\nEOF",
+  "read x <<< y",
+  "printf -v DIPO_TMP_ROOT %s x",
+  "read -d TMPDIR line",
+  "local DIPO_TMP_ROOT=x",
+  'eval "echo DIPO_TMP=1"',
+  "sudo -u me env FOO=1 bun test",
+  "env -iC /x bun test",
+  "echo '$(DIPO_TMP=/x bun test)'",
 ];
 
 describe("refusedTempVariable (pure)", () => {
