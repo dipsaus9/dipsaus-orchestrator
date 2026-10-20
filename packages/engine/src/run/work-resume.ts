@@ -3,6 +3,7 @@
 // (`resume-policy.ts`) whether `work.resume` resumes that reason, and dispatches on the row. In M0
 // the only `work.resume` row is `plan-limit`, which the plan-limit schedule resumes at once
 // (`PlanLimits.resumeNow`); every other reason, a park included, answers `story.notPausedOrParked`.
+// The `paused` row (DIPO-163) is a run the maintainer paused: `PausedResumes` continues it.
 // The park `on-hold` (DIPO-160) is the exception: it has no run, and its row hands the story to the
 // planning lane (`HoldResumer`), which removes F16 and sets `park.from`.
 
@@ -26,6 +27,7 @@ import type { StoryIdentity } from "../stories/keys";
 
 import { openWait } from "./outcome-types";
 import { openPark } from "./park";
+import { openPause } from "./pauses";
 import { activeRuns, type StoredRun } from "./records";
 import { resumeVia } from "./resume-policy";
 
@@ -52,13 +54,26 @@ export interface HoldResumer {
   ): Promise<Lifecycle>;
 }
 
+/** The maintainer-paused run's resume (`PausedResumes`, DIPO-163). */
+export interface PausedResumer {
+  resumePaused(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    run: StoredRun,
+    note: string | undefined,
+  ): Promise<CommandOutcome<z.input<typeof workResume.result>>>;
+}
+
 type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
 
-/** Why a story stands still: its open park's reason, `plan-limit` for a held run, or none. */
+/**
+ * Why a story stands still: its open park's reason, `paused` for a run the maintainer paused,
+ * `plan-limit` for a held run, or none.
+ */
 interface Standing {
   readonly reason: string | null;
-  /** The story's active run held by a plan limit, when it has one. */
+  /** The story's active run held by a plan limit or paused, when it has one. */
   readonly held: StoredRun | null;
 }
 
@@ -69,12 +84,17 @@ export class WorkResumeCommand {
   /** The planning lane's hold resume; read when needed, since it is built after this. */
   readonly #holds: () => HoldResumer | undefined;
 
+  /** The resume of a maintainer-paused run. */
+  readonly #paused: () => PausedResumer | undefined;
+
   constructor(
     planLimits: () => HeldRunResumer | undefined = () => undefined,
     holds: () => HoldResumer | undefined = () => undefined,
+    paused: () => PausedResumer | undefined = () => undefined,
   ) {
     this.#planLimits = planLimits;
     this.#holds = holds;
+    this.#paused = paused;
   }
 
   /** `work.resume` for held runs; read by the plan-limit schedule's feature. */
@@ -111,6 +131,11 @@ export class WorkResumeCommand {
     const standing = standingOf(handle, identity.key);
     if (standing.reason === null || resumeVia(standing.reason) !== "work.resume") throw notHeld();
     switch (standing.reason) {
+      case "paused": {
+        const paused = this.#paused();
+        if (paused === undefined || standing.held === null) throw notHeld();
+        return await paused.resumePaused(ctx, identity, standing.held, args.note);
+      }
       case "plan-limit":
         if (standing.held === null) throw notHeld();
         return await this.#resumeHeld(handle, identity, standing.held, notHeld);
@@ -193,13 +218,14 @@ function standingOf(handle: OfficeHandle, key: string): Standing {
     (candidate) => candidate.kind === "story" && candidate.key === key,
   );
   if (run === undefined) return { reason: openPark(handle, key)?.reason ?? null, held: null };
+  if (openPause(handle, run.runId) !== null) return { reason: "paused", held: run };
   return openWait(handle, run.runId) === null
     ? { reason: null, held: null }
     : { reason: "plan-limit", held: run };
 }
 
 /** Where the story is after a resume that did not start: parked, else released to Ready. */
-function afterFailure(handle: OfficeHandle, runId: RunId): Lifecycle {
+export function afterFailure(handle: OfficeHandle, runId: RunId): Lifecycle {
   const parked = handle.get(
     "select 1 as found from parks where office_id = $office_id and run_id = $run",
     { run: runId },

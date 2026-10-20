@@ -9,6 +9,7 @@ import type { OfficeHandle } from "../db/office";
 import type { Caps } from "../workers/types";
 
 import { grantTotals } from "./grants";
+import { pausedMs } from "./pauses";
 import type { StoredRun } from "./records";
 
 /** The cap that fired, as the park detail and the `cap` intent name it. */
@@ -61,7 +62,8 @@ export const REVIEWER_ROLE = "reviewer";
 
 /**
  * The run's totals from the stored usage, and the wall-clock time from `startedAt` (when its worker
- * host started, moved by the time it stood parked, ended or in review) to `now`. The budget counts
+ * host started, moved by the time it stood parked, ended or in review) to `now`, less the time
+ * the maintainer paused it. The budget counts
  * every agent of the run, the reviewer's too, since the story's budget pays for its review; the
  * turns count only the developer's agents, since a reviewer's turns count only toward its own
  * session cap (0019 sections 4 and 13).
@@ -84,7 +86,8 @@ export function runTotals(
   return {
     budgetTokens: row?.budget ?? 0,
     turns: row?.turns ?? 0,
-    elapsedMs: Math.max(0, now - startedAt),
+    // The time the maintainer paused the run does not count (0020 section 9, DIPO-163).
+    elapsedMs: Math.max(0, now - startedAt - pausedMs(office, runId, now)),
   };
 }
 

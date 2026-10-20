@@ -234,14 +234,14 @@ describe("office commands and reads", () => {
     "work.prompt": 1,
     "office.switch": 1,
     "work.resume": 1,
+    "work.steer": 1,
+    "work.pause": 1,
     "story.hold": 1,
     "story.drop": 1,
     "gate.approve": 1,
     "gate.reject": 1,
   };
   const provisional = [
-    "work.steer",
-    "work.pause",
     "work.reassign",
     "work.discard",
     "test.start",

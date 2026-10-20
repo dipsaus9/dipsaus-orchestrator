@@ -30,6 +30,7 @@ import {
   type WaitFact,
 } from "./outcome-types";
 import { PARK_CAUSES } from "./park";
+import { MAINTAINER_TAGS } from "./pauses";
 import { findRun, type StoredRun } from "./records";
 import { raiseSignal } from "./signals";
 
@@ -239,6 +240,11 @@ export class ExitOutcomes {
         mode: "resume",
         why: `an execution error (${intentRest(intent.detail)})`,
       });
+      return;
+    }
+    if (intent.kind === "pause" && tag === MAINTAINER_TAGS.pause) {
+      // The maintainer's pause: the process exited after the 10 minutes. The run stays paused,
+      // without a session and a place, until `work.resume` (DIPO-163).
       return;
     }
     if (intent.kind === "pause" && tag === INTENT_TAGS.planLimit) {
