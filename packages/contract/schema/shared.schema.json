@@ -256,6 +256,26 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "privacy": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": "string",
+                "enum": ["default", "office.local.yaml"]
+              }
+            },
+            "required": ["key", "value", "source"]
+          }
         }
       },
       "required": ["office", "name", "path", "running", "parked", "onHold", "waitingOnMaintainer"]

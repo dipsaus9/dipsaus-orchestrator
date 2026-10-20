@@ -10,6 +10,7 @@ import type { ChildExit, ChildProcess, Spawn } from "@dipsaus-orchestrator/contr
 import {
   CLAUDE_GATE_NO_DECISION_MARKER,
   connectHost,
+  GH_REFUSAL,
   hostSocketPath,
   LAUNCH_FILE,
   listenLineSocket,
@@ -554,6 +555,15 @@ describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
       } finally {
         client.close();
       }
+    }));
+
+  it("refuses a gh call other than the help forms with the engine's reason (DIPO-195)", () =>
+    withWorkerHost(async ({ socket }) => {
+      expect(await bashCall(socket, "gh pr view 12")).toEqual({
+        code: 0,
+        out: [gateDenyOutput(GH_REFUSAL)],
+      });
+      expect(await bashCall(socket, "gh pr view --help")).toEqual({ code: 0, out: [] });
     }));
 
   it("prints nothing and exits 0 for a check that throws, a bad payload or no input", () =>

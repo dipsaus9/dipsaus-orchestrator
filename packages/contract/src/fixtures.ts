@@ -30,6 +30,11 @@ export const officeSummary = {
   optIns: ["privacy.storeCommandBodies"],
   ready: 2,
   outputRetentionDays: 7,
+  privacy: [
+    { key: "privacy.storePrompts", value: true, source: "default" },
+    { key: "privacy.storeCommandBodies", value: false, source: "office.local.yaml" },
+    { key: "privacy.keepRawEvents", value: false, source: "default" },
+  ],
 };
 
 // The story and work model.
@@ -512,6 +517,17 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
           message: ".dipo/office.yaml: caps.maxAgents: expected integer, got string",
         },
       ],
+      configHash: "9f2c4e0b7a1d3f5e8c6b4a2d0e1f3a5c7b9d1e3f5a7c9e1b3d5f7a9c1e3b5d7f",
+    },
+  },
+  "office.setPrivacy": {
+    args: { office: ids.office, key: "storeCommandBodies", value: false },
+    result: {
+      office: ids.office,
+      key: "storeCommandBodies",
+      value: false,
+      valid: true,
+      errors: [],
       configHash: "9f2c4e0b7a1d3f5e8c6b4a2d0e1f3a5c7b9d1e3f5a7c9e1b3d5f7a9c1e3b5d7f",
     },
   },

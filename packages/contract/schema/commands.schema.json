@@ -205,6 +205,64 @@
       },
       "required": ["office", "valid", "errors"]
     },
+    "office.setPrivacy.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {}
+      },
+      "required": ["office", "key", "value"]
+    },
+    "office.setPrivacy.result": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "boolean"
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "expected": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["file", "path", "expected", "message"]
+          }
+        },
+        "configHash": {
+          "type": "string"
+        }
+      },
+      "required": ["office", "key", "value", "valid", "errors"]
+    },
     "daemon.stop.args": {
       "type": "object",
       "properties": {

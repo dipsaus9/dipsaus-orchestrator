@@ -13,11 +13,10 @@
 // Claude's deny, and a gate that cannot print exits 2, so the call never proceeds unchecked.
 
 import {
+  bashRefusal,
   claudeGateOutput,
   encodeClaudeOp,
-  refusedTempVariable,
   relayHookPayload,
-  tempVariableRefusal,
 } from "@dipsaus-orchestrator/engine";
 
 import { type DaemonIo, readProcessInput } from "./io";
@@ -138,7 +137,7 @@ export function parseHookArgs(args: readonly string[]): HookArgs | null {
 export async function runHookForm(
   args: readonly string[],
   io: DaemonIo,
-  bashCheck: (command: string) => string | null = refusedTempVariable,
+  bashCheck: (command: string) => string | null = bashRefusal,
 ): Promise<number> {
   const parsed = parseHookArgs(args);
   const write = io.write ?? ((text: string) => process.stdout.write(text));
@@ -163,8 +162,9 @@ export async function runHookForm(
 
 /**
  * A `--bash` call (DIPO-194; 0008 amendment of 2026-10-19): decides the command in this process,
- * never contacting the worker host. A command that sets or clears DIPO_TMP or TMPDIR prints
- * Claude's deny with the reason; anything else, a payload that does not parse and a check that
+ * never contacting the worker host. A command the check refuses (DIPO_TMP or TMPDIR set or cleared,
+ * a gh call but the help forms; DIPO-195) prints Claude's deny with the check's reason; anything
+ * else, a payload that does not parse and a check that
  * throws print nothing. It always exits 0 (fails open), so a broken check never blocks Bash.
  */
 async function runBash(
@@ -180,8 +180,8 @@ async function runBash(
       ?.tool_input;
     const command = input?.command;
     if (typeof command !== "string") return 0;
-    const variable = check(command);
-    if (variable !== null) write(gateDenyOutput(tempVariableRefusal(variable)));
+    const reason = check(command);
+    if (reason !== null) write(gateDenyOutput(reason));
   } catch {
     // Fails open: no output means no decision.
   }

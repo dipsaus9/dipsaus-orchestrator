@@ -181,7 +181,7 @@ function readHereDoc(
  * it. A `$( ... )` substitution is no group. `<<<` is a here-string and no here-doc, and a `<<`
  * inside an arithmetic `(( ))` or before a number is a shift.
  */
-function simpleCommands(text: string): { commands: SimpleCommand[]; nested: string[] } {
+export function simpleCommands(text: string): { commands: SimpleCommand[]; nested: string[] } {
   const commands: SimpleCommand[] = [];
   const nested: string[] = [];
   const heredocs: HereDoc[] = [];

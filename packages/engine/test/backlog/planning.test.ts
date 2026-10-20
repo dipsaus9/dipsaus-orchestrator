@@ -56,10 +56,13 @@ interface World {
   readonly closed: Closed[];
   readonly planning: StoryPlanning;
   readonly registry: ReturnType<typeof buildRegistry>;
-  readonly hooks: { dirty: string[] };
+  readonly hooks: { dirty: string[]; alive: number[]; worktreeGone: boolean };
 }
 
 let w: World;
+
+/** The start time of the worker host the fake probe knows. */
+const HOST_START = 1_767_225_600_000;
 
 function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { n: number }) {
   return {
@@ -82,12 +85,16 @@ function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { 
   } as unknown as OfficeLane;
 }
 
-/** A git whose only call reads `git status`: the files in `hooks.dirty`. */
-function fakeGit(dirty: string[]): OfficeGit {
+/**
+ * A git whose only call reads `git status`: the files in `hooks.dirty`. With `worktreeGone` it
+ * knows no worktree at the claim's path, so a drop releases the claim without git.
+ */
+function fakeGit(dirty: string[], worktreeGone: boolean): OfficeGit {
   const session = { ok: async () => dirty.map((file) => `?? ${file}\0`).join("") };
   return {
     run: (item: (git: unknown) => Promise<unknown>) => item(session),
-    adminDirOf: () => "/admin",
+    adminDirOf: () => (worktreeGone ? null : "/admin"),
+    unpinWorktree: () => undefined,
     worktreeLocation: () => ({ kind: "worktree", workTree: "/wt" }),
     settings: { remote: "origin" },
   } as unknown as OfficeGit;
@@ -100,16 +107,20 @@ beforeEach(async () => {
   const ops: LaneOp[] = [];
   const flushes = { n: 0 };
   const closed: Closed[] = [];
-  const hooks = { dirty: [] as string[] };
+  const hooks = { dirty: [] as string[], alive: [] as number[], worktreeGone: false };
   const planning = new StoryPlanning({
     lane: () => fakeLane(office, t, ops, flushes),
-    git: () => fakeGit(hooks.dirty),
+    git: () => fakeGit(hooks.dirty, hooks.worktreeGone),
     host: {
       closePr: async (repo, number, comment) => {
         closed.push({ repo, number, comment });
       },
     },
     implemented: () => true,
+    probe: async (pid) =>
+      hooks.alive.includes(pid)
+        ? { pid, startTimeMs: HOST_START, zombie: false, command: "dipo daemon worker-host" }
+        : null,
   });
   const resume = new WorkResumeCommand(undefined, () => planning);
   const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
@@ -241,6 +252,26 @@ async function send(name: string, args: Record<string, unknown>) {
       office: w.office.officeId as OfficeId,
     },
   );
+}
+
+/** A parked story with a claim whose run has one worker host, PID 4242, recorded. */
+function parkedClaim(id: string): StoryKey {
+  const key = story(id, {
+    status: "Parked",
+    park: { reason: "stopped", from: "In Progress", note: "stopped" },
+  });
+  const runId = w.t.ids.next("run") as RunId;
+  claim(key, id, runId);
+  park(key, id, "stopped", "In Progress", null);
+  w.office.immediate(() =>
+    w.office.run(
+      `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
+         protocol_version, run_dir, event_file, started_at)
+       values ($office_id, $run, 'agent-1', 4242, $start, '/s', 1, '/d', '/e', 0)`,
+      { run: runId, start: HOST_START },
+    ),
+  );
+  return key;
 }
 
 function errorOf(reply: Awaited<ReturnType<typeof send>>): { code: string; message: string } {
@@ -496,6 +527,42 @@ describe("story.drop", () => {
     expect(liveClaimOf(w.office, key)).not.toBeNull();
   });
 
+  for (const deleteBranch of [false, true]) {
+    it(`refuses a parked story whose worker host still runs, and changes nothing (deleteBranch ${deleteBranch})`, async () => {
+      const key = parkedClaim("DIPO-7");
+      w.hooks.alive.push(4242);
+      // A dirty worktree too: the host check comes before the dirty-files check.
+      w.hooks.dirty.push("src/new.ts");
+      const reply = await send("story.drop", { story: "DIPO-7", deleteBranch });
+      expect(reply).toMatchObject({ ok: false, error: { code: "run.hostAlive", retryable: true } });
+      const error = errorOf(reply);
+      expect(error.message).toContain("DIPO-7");
+      expect(error.message).toContain("4242");
+      expect(error.message).toContain("in a moment");
+      expect(w.ops).toEqual([]);
+      expect(allEntries(w.office)).toEqual([]);
+      expect(w.closed).toEqual([]);
+      expect(w.flushes.n).toBe(0);
+      // The claim is still live: the worktree was not released.
+      expect(liveClaimOf(w.office, key)).not.toBeNull();
+    });
+  }
+
+  it("drops a parked story once its worker host has exited", async () => {
+    const key = parkedClaim("DIPO-7");
+    w.hooks.alive.push(4242);
+    expect(errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false })).code).toBe(
+      "run.hostAlive",
+    );
+    // The host has exited and its worktree is gone, so the release makes no git call.
+    w.hooks.alive.length = 0;
+    w.hooks.worktreeGone = true;
+    const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
+    expect(reply).toMatchObject({ ok: true, changed: true });
+    expect(liveClaimOf(w.office, key)).toBeNull();
+    expect(entries("story.state").at(-1)?.delta).toMatchObject({ from: "Parked", to: "Removed" });
+  });
+
   it("closes the open story PR with a comment naming the drop", async () => {
     const key = story("DIPO-7", { status: "Ready" });
     const run = w.t.ids.next("run") as RunId;
@@ -547,13 +614,14 @@ describe("story.drop", () => {
     );
     const failing = new StoryPlanning({
       lane: () => fakeLane(w.office, w.t, w.ops, w.flushes),
-      git: () => fakeGit([]),
+      git: () => fakeGit([], false),
       host: {
         closePr: async () => {
           throw new CodeHostError("failed", "gh down");
         },
       },
       implemented: () => true,
+      probe: async () => null,
     });
     const registry = buildRegistry([failing.feature]);
     const reply = await executeCommand(

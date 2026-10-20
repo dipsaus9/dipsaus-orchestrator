@@ -8,11 +8,12 @@ import {
   OfficeId,
   type GateView,
   type OfficeSummary,
+  type PrivacySetting,
   type QueueColumn,
   RunId,
 } from "@dipsaus-orchestrator/contract";
 
-import { type OfficeConfig, privacyOptIns } from "../config";
+import { type OfficeConfig, PRIVACY_KEYS, privacyOptIns } from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { openQuestions } from "../hooks/questions";
@@ -83,6 +84,8 @@ export interface OfficeIdentity {
 export interface SummarySettings {
   readonly optIns: readonly string[];
   readonly outputRetentionDays?: number;
+  /** Each privacy setting with its value and source, absent without a valid configuration. */
+  readonly privacy?: readonly PrivacySetting[];
 }
 
 /** The summary settings of an office, from its configuration in force (`summarySettings`). */
@@ -90,11 +93,28 @@ export type SummarySettingsOf = (office: OfficeId) => SummarySettings;
 
 const noSettings: SummarySettingsOf = () => ({ optIns: [] });
 
-/** The summary settings of a configuration: `privacyOptIns` and `retention.shortDays`. */
-export function summarySettings(config: OfficeConfig | undefined): SummarySettings {
+/**
+ * The summary settings of a configuration: `privacyOptIns`, `retention.shortDays` and each privacy
+ * setting with its source, `office.local.yaml` when `localOverrideKeys` names it, else `default`.
+ */
+export function summarySettings(
+  config: OfficeConfig | undefined,
+  localOverrideKeys: readonly string[] = [],
+): SummarySettings {
   return {
     optIns: privacyOptIns(config),
-    ...(config === undefined ? {} : { outputRetentionDays: config.retention.shortDays }),
+    ...(config === undefined
+      ? {}
+      : {
+          outputRetentionDays: config.retention.shortDays,
+          privacy: PRIVACY_KEYS.map((name) => ({
+            key: `privacy.${name}`,
+            value: config.privacy[name],
+            source: localOverrideKeys.includes(`privacy.${name}`)
+              ? ("office.local.yaml" as const)
+              : ("default" as const),
+          })),
+        }),
   };
 }
 
@@ -111,7 +131,7 @@ export function deriveOfficeSummary(
   office: OfficeHandle,
   settings: SummarySettings = { optIns: [] },
 ): OfficeSummary {
-  const { optIns, outputRetentionDays } = settings;
+  const { optIns, outputRetentionDays, privacy } = settings;
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
   const held = counts.held ?? 0;
@@ -127,6 +147,7 @@ export function deriveOfficeSummary(
     ready: counts.ready ?? 0,
     ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),
     ...(outputRetentionDays === undefined ? {} : { outputRetentionDays }),
+    ...(privacy === undefined ? {} : { privacy: [...privacy] }),
   };
 }
 

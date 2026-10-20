@@ -12,6 +12,8 @@ export {
   resolveOfficeConfig,
 } from "./load";
 export type { ConfigError, OfficeConfigResult, OfficeConfigSources } from "./load";
+export { LOCAL_FILE_HEADER, updateLocalPrivacy } from "./local-write";
+export type { LocalPrivacyUpdate } from "./local-write";
 export { canonicalJson, configHash, mergeLayer } from "./merge";
 export { schemaKeyPaths } from "./keys";
 export { loadSoftwareConfig, softwareConfigPath } from "./software";
@@ -55,6 +57,7 @@ export {
   OfficeOverridesV6,
   OfficeOverridesV7,
   OfficeOverridesV8,
+  PRIVACY_KEYS,
   privacyOptIns,
 } from "./schema";
 export type {

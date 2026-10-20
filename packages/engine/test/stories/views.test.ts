@@ -171,6 +171,24 @@ describe("office summary", () => {
       expect(officeSummaryOfSource(() => t.state)(office.officeId)).not.toHaveProperty("optIns");
     }));
 
+  it("names each privacy setting with its value and source (DIPO-136)", () =>
+    withOffice(async (t, office) => {
+      const config = {
+        ...OFFICE_DEFAULTS,
+        privacy: { storePrompts: true, storeCommandBodies: false, keepRawEvents: false },
+      };
+      const settingsOf = () => summarySettings(config, ["privacy.storeCommandBodies"]);
+      const summary = officeSummaryOfSource(() => t.state, settingsOf)(office.officeId);
+      expect(summary?.privacy).toEqual([
+        { key: "privacy.storePrompts", value: true, source: "default" },
+        { key: "privacy.storeCommandBodies", value: false, source: "office.local.yaml" },
+        { key: "privacy.keepRawEvents", value: false, source: "default" },
+      ]);
+      expect(OfficeSummary.parse(summary)).toEqual(summary as OfficeSummary);
+      const without = officeSummaryOfSource(() => t.state)(office.officeId);
+      expect(without).not.toHaveProperty("privacy");
+    }));
+
   it("sends the office's stored-output retention period, absent without a config (DIPO-97)", () =>
     withOffice(async (t, office) => {
       const config = { ...OFFICE_DEFAULTS, retention: { shortDays: 3, stateDays: 365 } };

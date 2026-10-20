@@ -1,10 +1,10 @@
 ---
 id: DIPO-227
 title: Refuse a drop while the parked run's worker host still runs
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 14:01'
+updated_date: '2026-10-20 14:53'
 labels:
   - 'tier:S'
   - cutover
@@ -44,8 +44,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 story.drop checks every worker host of the live claim's run (workerHostsOf with hostAlive and the engine's process probe) before it journals, closes the story PR or touches the worktree; while one lives it fails with the retryable run.hostAlive naming the story and the host PID and saying to drop again in a moment, with and without deleteBranch, and nothing is journaled, closed or removed
-- [ ] #2 A story without a live claim, or whose claim's hosts have all exited, drops as it does today
-- [ ] #3 StoryPlanningDeps take the process probe, packages/daemon/src/foreground.ts passes the engine's, and the storyDrop comment in packages/contract/src/office.ts names run.hostAlive among its errors
-- [ ] #4 Tests in packages/engine/test/backlog/planning.test.ts show the refusal with a live host for both values of deleteBranch (no journal entry, closePr not called, the fake git's worktree untouched) and the drop passing once the host is gone
+- [x] #1 story.drop checks every worker host of the live claim's run (workerHostsOf with hostAlive and the engine's process probe) before it journals, closes the story PR or touches the worktree; while one lives it fails with the retryable run.hostAlive naming the story and the host PID and saying to drop again in a moment, with and without deleteBranch, and nothing is journaled, closed or removed
+- [x] #2 A story without a live claim, or whose claim's hosts have all exited, drops as it does today
+- [x] #3 StoryPlanningDeps take the process probe, packages/daemon/src/foreground.ts passes the engine's, and the storyDrop comment in packages/contract/src/office.ts names run.hostAlive among its errors
+- [x] #4 Tests in packages/engine/test/backlog/planning.test.ts show the refusal with a live host for both values of deleteBranch (no journal entry, closePr not called, the fake git's worktree untouched) and the drop passing once the host is gone
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5CW14PKENKEYDHAFQSKEA9W (Haiku, 51 turns, about $0.04, 4 min) reported done, In Review, with no denied call and no write outside the References. story.drop now checks every worker host of the live claim's run (workerHostsOf, hostAlive, the engine's process probe) before the dirty-files check, the journal, closing the story PR or releasing the worktree; while one lives it answers the retryable run.hostAlive naming the story and the host PID and saying to drop again in a moment, with and without deleteBranch, as the 0020 section 8 note of 2026-10-20 sets. It answers at once, with no wait like the resume's HOST_EXIT_WAIT, as that note asks. StoryPlanningDeps take a required probe, foreground.ts passes systemProcessProbe, and the storyDrop comment names run.hostAlive. Fixed on top after review: the refusal tests also carry a dirty file and assert the answer is retryable, which pins the host check before the dirty-files check. Not done: the test plan's daemon unit test (no daemon test builds serve()'s dependencies and packages/daemon/test was outside the References; the required probe field makes tsc enforce the wiring); the fake git keeps no call log. Verify outside the sandbox on the finish worktree with origin/main merged in: exit 0, 4040 tests; DIPO_TEST_CI=1 backlog and contract tests pass (484), including planning.ci.test.ts.
+<!-- SECTION:NOTES:END -->

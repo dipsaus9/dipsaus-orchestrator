@@ -16,6 +16,7 @@ import {
   type EngineError,
   type OfficeId,
   officeOpen,
+  officeSetPrivacy,
   storyDetail,
   workOutputRange,
   workPrompt,
@@ -153,6 +154,24 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
         try {
           const outcome = await connected.command(daemonResumeScheduling, {});
           if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
+          return { ok: true, value: null };
+        } catch (error) {
+          return { ok: false, message: errorText(error) };
+        }
+      },
+      setPrivacy: async (request) => {
+        try {
+          const outcome = await connected.command(
+            officeSetPrivacy,
+            { office: request.office, key: request.key, value: request.value },
+            // `office.setPrivacy` has `confirm: true`; the maintainer answered yes before this is sent.
+            { requestId: request.requestId, confirmed: true },
+          );
+          if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
+          if (!outcome.result.valid) {
+            const errors = outcome.result.errors.map((error) => error.message).join("; ");
+            return { ok: false, message: `written, but the configuration is invalid: ${errors}` };
+          }
           return { ok: true, value: null };
         } catch (error) {
           return { ok: false, message: errorText(error) };

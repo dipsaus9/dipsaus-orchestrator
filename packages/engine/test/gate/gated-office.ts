@@ -9,6 +9,7 @@ import { type OfficeId, type ReadReply, StoryKey } from "@dipsaus-orchestrator/c
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeHandle } from "../../src/db/office";
+import type { Logger } from "../../src/log/logger";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -25,7 +26,31 @@ import {
 } from "../office/helpers";
 import { keyOf } from "../stories/helpers";
 
+export interface Warning {
+  readonly message: string;
+  readonly fields: unknown;
+}
+
+/** A logger that keeps what the index warns about. */
+function recordingLogger(warnings: Warning[]): Logger {
+  const logger: Logger = {
+    error: () => {},
+    warn: (message, fields) => void warnings.push({ message, fields }),
+    info: () => {},
+    debug: () => {},
+    trace: () => {},
+    child: () => logger,
+    setLevel: () => {},
+    level: () => "warn",
+  };
+  return logger;
+}
+
 export interface Gated {
+  /** The offices the index reported as changed, one entry per call. */
+  readonly changed: readonly OfficeId[];
+  /** The warnings the index logged. */
+  readonly warnings: readonly Warning[];
   readonly repo: TempRepoWithRemote;
   readonly s: OfficeSetup;
   readonly engineGit: EngineGit;
@@ -68,7 +93,15 @@ export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> 
         get: (office: OfficeId) => setup?.manager.get(office),
         config: (office: OfficeId) => setup?.manager.config(office),
       };
-      const index = new StoryIndex({ git: engineGit, cli: CLI(repo), offices });
+      const changed: OfficeId[] = [];
+      const warnings: Warning[] = [];
+      const index = new StoryIndex({
+        git: engineGit,
+        cli: CLI(repo),
+        offices,
+        onOfficeChanged: (office) => changed.push(office),
+        logger: recordingLogger(warnings),
+      });
       const loaded = (): OfficeSetup => {
         if (setup === undefined) throw new Error("the office setup is not built yet");
         return setup;
@@ -78,6 +111,7 @@ export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> 
         git: engineGit,
         cli: CLI(repo),
         offices,
+        index,
         get clock() {
           return loaded().clock;
         },
@@ -95,7 +129,17 @@ export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> 
         );
         const access = await s.manager.load(officeId);
         if (!access.ok) throw new Error(`${access.error.code}: ${access.error.message}`);
-        await fn({ repo, s, engineGit, index, gates, officeId, office: access.office });
+        await fn({
+          changed,
+          warnings,
+          repo,
+          s,
+          engineGit,
+          index,
+          gates,
+          officeId,
+          office: access.office,
+        });
       } finally {
         index.stop();
         s.state.close();
