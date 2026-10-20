@@ -3,10 +3,10 @@ id: DIPO-219
 title: >-
   Start pending reviews and run review rounds with their allowance, caps and
   failures
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 21:06'
-updated_date: '2026-10-20 10:35'
+updated_date: '2026-10-20 11:08'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -65,4 +65,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 From the DIPO-146 review (2026-10-20): review/diff.ts parseStoryDiff strips only the default b/ prefix, so build the story diff with --src-prefix=a/ --dst-prefix=b/ (or --no-prefix and parse without stripping); with diff.mnemonicPrefix or a user prefix config every quoted finding would fail as not a changed path. Use: validateReport, then evidenceProblems(findings) for the one correction turn, then judgeReview, then recordReviewVerdict.
+
+Delivery: dipo run run_01M5CCTE60SRHWT50ZPEVTMT8H (Opus, tier L, 106 turns, about $9.74, 20 min) reported done, In Review; one sed -i was denied (no decision while the maintainer is away; DIPO-232). No write outside the References. The review starter is registered for the reviewer place and starts pending reviews oldest In Review first; a review is skipped when a verdict exists for the HEAD's code tree key (also after a restart and for a task-file-only change); each round appends a review step and grows the budget by the run's review allowance (a retried session adds nothing); review turn and minute caps come from the run snapshot through runCaps; reports go validateReport, evidenceProblems (one correction turn naming the findings), judgeReview and recordReviewVerdict; every row of the 0019 section 4 failure table is handled, and the round cap parks review-blocked with cause rounds and the blocking findings. Fixed on top after review (blocking): the story diff is built with fixed --src-prefix=a/ --dst-prefix=b/, so a user's diff.noprefix or prefix config cannot break parseStoryDiff (real-git test under DIPO_TMP); a doc comment moved back to gitReviewOps. Advisories to the gap list: reviewerSettings falls back to the current config caps when the snapshot is null; a PlanError reviewer launch only warns (no engine.notice); no tests for the reviewer's host-lost and minute-cap rows. Verify outside the sandbox: exit 0, 3990 tests; DIPO_TEST_CI=1 review, run, prompts, workers and daemon tests pass (1243). Review and re-review passed.
 <!-- SECTION:NOTES:END -->
