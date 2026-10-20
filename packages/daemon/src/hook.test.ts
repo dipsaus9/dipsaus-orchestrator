@@ -509,3 +509,64 @@ describe("dipo hook --gate against the real worker host (DIPO-164 review)", () =
       }
     }));
 });
+
+/** One `dipo hook PreToolUse --bash` call for a Bash `command`, with the host socket in the env. */
+async function bashCall(
+  socket: string,
+  command: string,
+  check?: (command: string) => string | null,
+): Promise<{ code: number; out: string[] }> {
+  const out: string[] = [];
+  const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+  const payload = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+  });
+  const code = await runHookForm(["PreToolUse", "--bash"], io(env, payload, out), check);
+  return { code, out };
+}
+
+function throwingCheck(): string | null {
+  throw new Error("boom");
+}
+
+describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
+  it("parses --bash without a value", () => {
+    expect(parseHookArgs(["PreToolUse", "--bash"])).toEqual({ event: "PreToolUse", bash: true });
+    expect(parseHookArgs(["PreToolUse", "--bash", "5"])).toBeNull();
+  });
+
+  it("denies a DIPO_TMP command, passes another, and never reaches the worker host", () =>
+    withWorkerHost(async ({ host, socket }) => {
+      const client = await watchingEngine(socket);
+      try {
+        const denied = await bashCall(socket, "export DIPO_TMP=$TMPDIR && bun run verify");
+        expect(denied.code).toBe(0);
+        expect(denied.out).toEqual([
+          gateDenyOutput(
+            "dipo refused this command because it sets or clears DIPO_TMP; dipo sets DIPO_TMP and the sandbox sets TMPDIR for the run, so never set or clear them (contract rule Temp files); run the command without it.",
+          ),
+        ]);
+        expect(host.pendingHooks).toHaveLength(0);
+        expect(await bashCall(socket, "bun run verify")).toEqual({ code: 0, out: [] });
+        expect(host.pendingHooks).toHaveLength(0);
+      } finally {
+        client.close();
+      }
+    }));
+
+  it("prints nothing and exits 0 for a check that throws, a bad payload or no input", () =>
+    withWorkerHost(async ({ socket }) => {
+      expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
+        code: 0,
+        out: [],
+      });
+      const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
+      for (const input of ["not json", "null", '{"tool_input":{"command":5}}', "{}", null]) {
+        const out: string[] = [];
+        expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(0);
+        expect(out).toEqual([]);
+      }
+    }));
+});

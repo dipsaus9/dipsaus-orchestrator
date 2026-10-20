@@ -76,3 +76,54 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }));
   });
 }
+
+// The Bash check as a real process (DIPO-194 AC #7): decided in its own process, no worker host.
+if (process.env["DIPO_TEST_CI"] === "1") {
+  describe("dipo hook PreToolUse --bash process", () => {
+    for (const [command, denied] of [
+      ["export DIPO_TMP=$TMPDIR && bun run verify", true],
+      ["bun run verify", false],
+    ] as const) {
+      it(
+        `${denied ? "denies" : "passes"} ${command} with exit 0 within 2 s and no host`,
+        () =>
+          withTempDir(async (dir) => {
+            const started = performance.now();
+            const payload = JSON.stringify({
+              hook_event_name: "PreToolUse",
+              tool_name: "Bash",
+              tool_input: { command },
+            });
+            const proc = Bun.spawn([process.execPath, CLI_MAIN, "hook", "PreToolUse", "--bash"], {
+              stdin: new TextEncoder().encode(`${payload}\n`),
+              stdout: "pipe",
+              stderr: "pipe",
+              env: {
+                PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+                HOME: dir,
+                DIPO_HOST_SOCKET: join(dir, "missing.sock"),
+                DIPO_RUN: RUN,
+              },
+            });
+            const code = await proc.exited;
+            const stdout = await new Response(proc.stdout).text();
+            expect(code).toBe(0);
+            if (denied) {
+              const output = JSON.parse(stdout) as {
+                hookSpecificOutput: {
+                  permissionDecision: string;
+                  permissionDecisionReason: string;
+                };
+              };
+              expect(output.hookSpecificOutput.permissionDecision).toBe("deny");
+              expect(output.hookSpecificOutput.permissionDecisionReason).toContain("DIPO_TMP");
+            } else {
+              expect(stdout).toBe("");
+            }
+            expect(performance.now() - started).toBeLessThan(2000);
+          }),
+        10_000,
+      );
+    }
+  });
+}

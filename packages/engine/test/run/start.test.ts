@@ -539,7 +539,7 @@ describe("work.run starts the worker of a claimed run", () => {
     ]);
   });
 
-  it("plans the M0 developer tools and no PreToolUse hook with worker.web false (DIPO-164)", async () => {
+  it("plans the M0 developer tools and only the Bash PreToolUse entry with worker.web false (DIPO-164)", async () => {
     world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
     story("TASK-1", "Ready");
     expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
@@ -548,8 +548,11 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit,Write,Glob,Grep,Bash");
     const settings = JSON.parse(
       host?.plan.files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
-    ) as { hooks: Record<string, unknown>; permissions: { allow: string[] } };
-    expect(Object.keys(settings.hooks)).not.toContain("PreToolUse");
+    ) as {
+      hooks: Record<string, Array<{ matcher?: string }>>;
+      permissions: { allow: string[] };
+    };
+    expect(settings.hooks["PreToolUse"]?.map((entry) => entry.matcher)).toEqual(["Bash"]);
     expect(Object.keys(settings.hooks)).toContain("PermissionRequest");
     expect(settings.permissions.allow.filter((rule) => rule.startsWith("Web"))).toEqual([]);
   });

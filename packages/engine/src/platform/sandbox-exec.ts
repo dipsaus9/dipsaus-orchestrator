@@ -18,7 +18,7 @@
 // sandboxed command cannot write, and to stderr for people; the engine trusts only the file.
 
 import { constants } from "node:os";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { SandboxManager, SandboxRuntimeConfigSchema } from "@anthropic-ai/sandbox-runtime";
@@ -33,6 +33,7 @@ import {
   type SrtSettings,
 } from "../sandbox/policy";
 import { refusalPathFor, SANDBOX_REFUSED_EXIT_CODE, SANDBOX_REFUSED_MARKER } from "../sandbox/step";
+import { prepareStepDir, removeStepDir } from "./mktemp-shim";
 import { currentPlatform, passwdHome } from "./paths";
 import {
   checkTrust,
@@ -137,17 +138,28 @@ export async function runSandboxExec(options: SandboxExecOptions): Promise<numbe
       socat: config.socatPath ?? resolved.socat,
     };
     const view = trustView(config, homes[0] ?? "/");
-    const distrust = await checkTrust({
-      settings: view,
-      homes,
-      PATH: env["PATH"],
-      tools,
-      binary: process.execPath,
-      // From source, Bun runs this repository's code: the step may not be able to write it.
-      code: isCompiled()
-        ? []
-        : sourceCodeRoots(resolve(import.meta.dir, "../../../cli/src/main.ts")),
+    // The private directory comes first: on macOS it holds the mktemp shim, whose directory leads
+    // the step's PATH, so the trust check vets it too (DIPO-200).
+    const stepDir = await prepareStepDir({
+      platform,
+      baseDir: "/tmp",
+      path: env["PATH"],
+      trust: (PATH) =>
+        checkTrust({
+          settings: view,
+          homes,
+          PATH,
+          tools,
+          binary: process.execPath,
+          // From source, Bun runs this repository's code: the step may not be able to write it.
+          code: isCompiled()
+            ? []
+            : sourceCodeRoots(resolve(import.meta.dir, "../../../cli/src/main.ts")),
+        }),
     });
+    privateDir = stepDir.privateDir;
+    if (stepDir.path !== undefined) env["PATH"] = stepDir.path;
+    const distrust = stepDir.distrust;
     if (distrust.length > 0) throw new Refusal(`untrusted paths: ${distrust.join("; ")}`);
     // A read deny over the working directory, the temp root or a write path would hide it.
     const roots = [
@@ -181,7 +193,6 @@ export async function runSandboxExec(options: SandboxExecOptions): Promise<numbe
 
     // srt puts its bridge sockets and scratch files in os.tmpdir(); keep them out of the step's
     // writable temp root.
-    privateDir = await mkdtemp("/tmp/dipo-sx-");
     process.env["TMPDIR"] = privateDir;
     if (platform === "linux") {
       config.seccomp = { applyPath: await resolveApplySeccomp(privateDir) };
@@ -244,7 +255,7 @@ export async function runSandboxExec(options: SandboxExecOptions): Promise<numbe
     if (initialised) await SandboxManager.reset().catch(() => undefined);
     if (savedTmpdir === undefined) delete process.env["TMPDIR"];
     else process.env["TMPDIR"] = savedTmpdir;
-    if (privateDir !== null) await rm(privateDir, { recursive: true, force: true }).catch(() => {});
+    if (privateDir !== null) await removeStepDir(privateDir);
   }
 }
 

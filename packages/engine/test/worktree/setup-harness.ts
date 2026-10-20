@@ -112,6 +112,8 @@ export interface Options {
   readonly worktree?: Partial<SetupRequest["config"]["worktree"]>;
   /** Receives setup's warn lines. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** Receives setup's debug lines. */
+  readonly debug?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface Harness {
@@ -134,6 +136,7 @@ export async function harness(repo: TempRepo): Promise<Harness> {
         runStep: (options.steps ?? fakeSteps()).runStep,
         localSettings: CLAUDE_LOCAL_SETTINGS,
         ...(options.warn === undefined ? {} : { warn: options.warn }),
+        ...(options.debug === undefined ? {} : { debug: options.debug }),
       },
       {
         claim,

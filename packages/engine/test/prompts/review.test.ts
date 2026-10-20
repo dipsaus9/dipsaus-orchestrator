@@ -143,6 +143,15 @@ describe("the reviewer's system file (L1 + L2)", () => {
     expect(text).not.toContain("Write only the paths");
   });
 
+  it("flags tests that take expected values from the code under test as blocking test findings", () => {
+    const text = renderSystemFile("review", "reviewer");
+    expect(text).toContain("expected values read from the code under test");
+    expect(text).toContain("a constant, list or function of the module it tests");
+    expect(text).toContain(
+      "report it as a blocking finding of kind `test`, with the number of the automated test plan entry it does not really check",
+    );
+  });
+
   it("differs from the developer's", () => {
     expect(renderSystemFile("review", "reviewer")).not.toBe(
       renderSystemFile("implement", "developer"),
