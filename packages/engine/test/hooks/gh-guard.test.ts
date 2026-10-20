@@ -16,6 +16,12 @@ const ALLOWED = [
   "gh pr view --help && gh api --help",
   "echo gh pr view 12",
   "gh --version | cat",
+  // Redirections are not gh's arguments: a help form with its output redirected is still one.
+  "gh pr view --help 2>&1",
+  "gh --version 2>&1 | head",
+  "gh pr view --help > help.txt",
+  "gh api --help >help.txt",
+  "timeout 10 gh --version",
 ];
 
 const REFUSED = [
@@ -41,6 +47,13 @@ const REFUSED = [
   "echo $(gh pr list)",
   "cat <<'EOF' | bash\ngh pr list\nEOF",
   "gh pr list <<< x",
+  // The Claude CLI strips timeout and stdbuf before matching, so the old Bash(gh *) rule caught these.
+  "timeout 10 gh pr list",
+  "timeout -s KILL 5 gh pr list",
+  "stdbuf -oL gh pr list",
+  "gh pr view 12 2>&1",
+  "gh pr view 12 > out.txt",
+  "gh pr view > --help",
 ];
 
 describe("ghRefusal", () => {

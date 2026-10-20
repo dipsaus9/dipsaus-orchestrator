@@ -13,8 +13,14 @@ const PREFIX_WORDS = new Set(["command", "builtin", "exec", "time", "nohup", "ni
 /** Shell keywords that open a command list: `then gh pr view` runs gh too. */
 const KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
-/** Programs that run another command after their options; a gh call behind one is checked. */
-const WRAPPERS = new Set(["env", "sudo", "doas", "xargs"]);
+/**
+ * Programs that run another command after their options; a gh call behind one is checked. The
+ * Claude CLI strips timeout and stdbuf before it matches a Bash rule, so the `Bash(gh *)` deny rule
+ * this check replaces caught `timeout 10 gh ...` and `stdbuf -oL gh ...` too.
+ */
+const WRAPPERS = new Set(["env", "sudo", "doas", "xargs", "timeout", "stdbuf"]);
+/** A redirection word (`>`, `2>`, `>out`, `>>`, `<`); with no target of its own the next word is. */
+const REDIRECTION = /^\d*(>>|>\||>|<<<|<<|<)(.*)$/;
 /** Nesting of `sh -c`, `eval`, here-doc bodies and substitutions that is followed. */
 const MAX_DEPTH = 4;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
@@ -32,6 +38,17 @@ export function ghHelpCall(args: readonly string[]): boolean {
     args.at(-1) === "--help" &&
     args.slice(0, -1).every((word) => SUBCOMMAND.test(word))
   );
+}
+
+/** The words without redirections and their targets: `gh pr view --help 2>&1` is a help form. */
+function withoutRedirections(words: readonly string[]): string[] {
+  const kept: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const match = REDIRECTION.exec(words[i] ?? "");
+    if (match === null) kept.push(words[i] ?? "");
+    else if (match[2] === "") i++;
+  }
+  return kept;
 }
 
 function basename(word: string): string {
@@ -77,7 +94,7 @@ function ghCommand(words: readonly string[], depth: number, body: string | null)
   const program = words[at] ?? "";
   const base = basename(program);
   const args = words.slice(at + 1);
-  if (base === "gh") return ghHelpCall(args) ? null : GH_REFUSAL;
+  if (base === "gh") return ghHelpCall(withoutRedirections(args)) ? null : GH_REFUSAL;
   // A wrapper runs its gh call after its own options (`env -C dir gh ...`), so the words after it
   // are checked too; xargs appends its input to the command, so an xargs gh call is refused.
   const wrapped = WRAPPERS.has(base) || words.slice(0, at).some((word) => PREFIX_WORDS.has(word));
@@ -85,7 +102,7 @@ function ghCommand(words: readonly string[], depth: number, body: string | null)
     const index = words.findIndex((word, i) => i > at && basename(word) === "gh");
     if (index !== -1) {
       if (base === "xargs") return GH_REFUSAL;
-      return ghHelpCall(words.slice(index + 1)) ? null : GH_REFUSAL;
+      return ghHelpCall(withoutRedirections(words.slice(index + 1))) ? null : GH_REFUSAL;
     }
   }
   if (base === "eval") return ghIn(args.join(" "), depth + 1);
