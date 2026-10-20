@@ -416,6 +416,8 @@ export interface SelfTestBashCalls {
    * `run_in_background` false): no background run, no other option.
    */
   readonly shape: boolean;
+  /** The command of each Bash call, in order, cut to 300 characters (DIPO-230). */
+  readonly commands: readonly string[];
 }
 
 export type SelfTestVerdict =
@@ -425,6 +427,8 @@ export type SelfTestVerdict =
       /** True when the sandbox let something through; false when the self-test could not run. */
       readonly unsafe: boolean;
       readonly probe?: ProbeName | "control" | "safe-chain" | "install" | "plugins" | "skills";
+      /** True when the session's Bash calls refused it, so the reason names the commands run. */
+      readonly bash?: true;
       readonly reason: string;
     };
 
@@ -447,6 +451,17 @@ function cannotRun(
     unsafe: false,
     reason: `the sandbox self-test could not run: ${reason}`,
     ...(probe === undefined ? {} : { probe }),
+  };
+}
+
+/** A refusal for the session's Bash calls, naming each command it ran (DIPO-230). */
+function bashRefused(reason: string, commands: readonly string[]): SelfTestVerdict {
+  const ran = commands.length === 0 ? "none" : commands.map((c) => JSON.stringify(c)).join(", ");
+  return {
+    ok: false,
+    unsafe: false,
+    bash: true,
+    reason: `the sandbox self-test could not run: ${reason}; the commands it ran: ${ran}`,
   };
 }
 
@@ -510,15 +525,23 @@ export function judgeSelfTest(evidence: SelfTestEvidence): SelfTestVerdict {
     const why = evidence.outcomeDetail === undefined ? "" : `: ${evidence.outcomeDetail}`;
     return cannotRun(`the Claude Code session ended ${evidence.outcome}${why}`);
   }
+  // No retry: a refused Bash call refuses the launch at once (0008 amendment of 2026-10-15).
   if (evidence.bash.calls !== 1) {
-    return cannotRun(`the session made ${evidence.bash.calls} Bash calls instead of exactly one`);
+    return bashRefused(
+      `the session made ${evidence.bash.calls} Bash calls instead of exactly one`,
+      evidence.bash.commands,
+    );
   }
   if (!evidence.bash.exact) {
-    return cannotRun("the session's Bash call was not the planned command");
+    return bashRefused(
+      "the session's Bash call was not the planned command",
+      evidence.bash.commands,
+    );
   }
   if (!evidence.bash.shape) {
-    return cannotRun(
+    return bashRefused(
       "the session's Bash call carried input other than command, description and timeout, or ran in the background",
+      evidence.bash.commands,
     );
   }
   if (lines === null) {
@@ -724,8 +747,16 @@ export function bashCalls(stdout: string, planned: string): SelfTestBashCalls {
     one &&
     Object.keys(only).every((key) => BASH_INPUT_KEYS.includes(key)) &&
     (only["run_in_background"] === undefined || only["run_in_background"] === false);
-  return { calls: inputs.size, exact: one && only["command"] === planned, shape };
+  // The commands as the session ran them, so a refusal can say what ran (DIPO-230).
+  const commands = [...inputs.values()].map((input) => {
+    const command = input?.["command"];
+    return typeof command === "string" ? command.slice(0, BASH_COMMAND_CUT) : "";
+  });
+  return { calls: inputs.size, exact: one && only["command"] === planned, shape, commands };
 }
+
+/** The longest Bash command a refusal names (DIPO-230). */
+const BASH_COMMAND_CUT = 300;
 
 /** Input keys the one Bash call may carry; `run_in_background` only as false. */
 export const BASH_INPUT_KEYS: readonly string[] = [
@@ -1232,7 +1263,7 @@ export async function runSelfTest(
     denied: typeof session === "string" ? [] : session.denied,
     bash:
       typeof session === "string"
-        ? { calls: 0, exact: false, shape: false }
+        ? { calls: 0, exact: false, shape: false, commands: [] }
         : bashCalls(session.stdout, layout.command),
     disk,
     ...(layout.installDir === null || ctx.safeChain === undefined

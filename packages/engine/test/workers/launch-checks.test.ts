@@ -144,6 +144,56 @@ describe("(engine) Claude launch checks", () => {
     expect(notices.at(-1)?.data).toMatchObject({ level: "info", code: RELEASE_NOTICE_CODE });
   });
 
+  it("refuses a session that ran another Bash command at once, names it and warns (DIPO-230)", async () => {
+    const { clock, holds } = setup();
+    const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
+    const fake = scriptedClaude(clock, { session: selfTestSession(["ls -la"]) });
+    const result = await prepareLaunch(spec(), context(), holds, {
+      spawn: fake.spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs: new MemoryFs(),
+      warn: (message, fields) => warnings.push({ message, fields }),
+    });
+    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "self-test" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain('"ls -la"');
+    // No retry: the refused launch ran one self-test session.
+    expect(fake.calls.filter((call) => call.cmd.includes("-p"))).toHaveLength(1);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      message: "the launch self-test session ran another Bash command",
+      fields: { run: "run-0001", commands: ["ls -la"] },
+    });
+    expect(String(warnings[0]?.fields["reason"])).toContain('"ls -la"');
+  });
+
+  it("writes no Bash warn line for a self-test session that passes (DIPO-230)", async () => {
+    const { clock, holds } = setup();
+    const warnings: string[] = [];
+    const fs = new MemoryFs();
+    const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
+    const result = await prepareLaunch(spec(), context(), holds, {
+      spawn: fake.spawn,
+      clock,
+      selfTestSessionId: SELF_TEST_SESSION,
+      platform: "darwin" as const,
+      runStep: credentialSteps().runStep,
+      uid: 501,
+      allowProjectSettings: [],
+      readText: async () => undefined,
+      fs,
+      warn: (message) => warnings.push(message),
+    });
+    expect(result.ok).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
   it('a worktree whose .claude/settings.json holds {"hooks":{}} fails with a notice naming hooks and the file', async () => {
     await withTempDir(async (root) => {
       const workdir = join(root, "shop.worktrees", "DIPO-999");

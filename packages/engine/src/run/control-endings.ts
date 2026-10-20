@@ -29,6 +29,7 @@ import { recordIntent, sendAsIntent } from "./intents";
 import { MAINTAINER_TAGS, openPause } from "./pauses";
 import type { RunAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
+import { placeOfRun } from "./places";
 import { activeRuns, findRun, type StoredRun } from "./records";
 
 /** The detail a cap is named with; the CLI backstop's own detail gets the turn cap prefix. */
@@ -44,6 +45,28 @@ export function capEnding(encode: RunControlDeps["encode"], cap: CapName, detail
     reason: "budget-exceeded",
     cause: PARK_CAUSES.build,
     detail: capDetail(cap, detail),
+    endKind: "capped",
+  };
+}
+
+/**
+ * The ending of a reviewer session that reached a cap (0019 section 4): the story's budget used up
+ * parks `budget-exceeded` with cause `review`; the reviewer's own turn or minute cap parks
+ * `worker-failed` with cause `review-cap`, the detail naming the cap, with no retry.
+ */
+export function reviewCapEnding(
+  encode: RunControlDeps["encode"],
+  cap: CapName,
+  detail: string,
+): Ending {
+  if (cap === "budgetTokens")
+    return { ...capEnding(encode, cap, detail), cause: PARK_CAUSES.review };
+  return {
+    intent: "cap",
+    ops: encode({ kind: "stop" }),
+    reason: "worker-failed",
+    cause: PARK_CAUSES.reviewCap,
+    detail: `the reviewer's ${capDetail(cap, detail)}`,
     endKind: "capped",
   };
 }
@@ -148,7 +171,8 @@ export class RunEndings {
       intent: "stop",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "stopped",
-      cause: PARK_CAUSES.maintainer,
+      // A stop during a review parks with the reviewer's cause (0019 section 4).
+      cause: placeOfRun(handle, run) === "reviewer" ? PARK_CAUSES.review : PARK_CAUSES.maintainer,
       detail: note === undefined || note === "" ? STOPPED_DETAIL : note,
       endKind: "stopped",
     };
