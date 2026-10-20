@@ -3,7 +3,7 @@
 // and inputs that cannot be read answer contract codes, on one office. The pickup-mode decision on
 // the CLI and the contract codes after `backlog task archive` run in CI only, in
 // story-gate.ci.test.ts (DIPO-79); the fast local rules of the decision are in store.test.ts.
-// The first test runs real git and the pinned Backlog CLI several times: it took about 4 seconds
+// The story.gate test runs real git and the pinned Backlog CLI several times: it took about 4 seconds
 // on an idle machine and timed out at 5 seconds on a busy one, so it has its own 30 second limit
 // (0017, Timeouts) and stays local.
 
