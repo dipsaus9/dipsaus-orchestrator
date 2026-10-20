@@ -152,6 +152,12 @@ describe("the reviewer's system file (L1 + L2)", () => {
     );
   });
 
+  it("says the story's own task file is written by dipo and is never a scope finding", () => {
+    const text = renderSystemFile("review", "reviewer");
+    expect(text).toContain("The story's own task file is written by dipo");
+    expect(text).toContain("It is exempt from scope, so it is never a scope finding");
+  });
+
   it("differs from the developer's", () => {
     expect(renderSystemFile("review", "reviewer")).not.toBe(
       renderSystemFile("implement", "developer"),
