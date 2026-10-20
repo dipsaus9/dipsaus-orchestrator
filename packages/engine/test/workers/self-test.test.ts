@@ -812,6 +812,54 @@ describe("(engine) self-test run", () => {
   });
 });
 
+/**
+ * The bash and approval evidence a safety recording is judged with (DIPO-244). A recording that
+ * holds approval evidence is a capture of the two-call session: it is judged with its own evidence
+ * and its recorded call count. A recording without it predates the approval call (DIPO-231): its one
+ * probe call stands for the two planned calls and the approval call is given as dipo-denied, so it
+ * proves the sandbox probes only; a live two-call recording is the maintainer's check.
+ */
+function judgedCalls(checks: {
+  bash: Omit<SelfTestBashCalls, "commands">;
+  approval?: SelfTestApproval;
+}): { bash: SelfTestBashCalls; approval: SelfTestApproval } {
+  if (checks.approval !== undefined) {
+    return { bash: { commands: [], ...checks.bash }, approval: checks.approval };
+  }
+  return {
+    bash: { commands: [], ...checks.bash, calls: SELF_TEST_BASH_CALLS },
+    approval: { result: SELF_TEST_DENY_REASON, cliDenied: false, reached: true },
+  };
+}
+
+describe("(unit) safety recording judgement (DIPO-244)", () => {
+  const GRANTED: SelfTestApproval = {
+    result: SELF_TEST_DENY_REASON,
+    cliDenied: false,
+    reached: true,
+  };
+  const bash = { calls: SELF_TEST_BASH_CALLS, exact: true, shape: true };
+
+  it("judges a recording with approval evidence with that evidence and its own call count", () => {
+    expect(judgedCalls({ bash, approval: GRANTED })).toEqual({
+      bash: { commands: [], ...bash },
+      approval: GRANTED,
+    });
+  });
+
+  it("keeps the two-call override only for a recording without approval evidence", () => {
+    expect(judgedCalls({ bash: { calls: 1, exact: true, shape: true } })).toEqual({
+      bash: { commands: [], calls: SELF_TEST_BASH_CALLS, exact: true, shape: true },
+      approval: GRANTED,
+    });
+  });
+
+  it("refuses a recorded one-call session even when it holds approval evidence", () => {
+    const judged = judgedCalls({ bash: { calls: 1, exact: true, shape: true }, approval: GRANTED });
+    expect(judgeSelfTest(evidence({}, judged))).toMatchObject({ ok: false, bash: true });
+  });
+});
+
 // The live recordings of AC #8. The maintainer captures them on the branch with
 // `bun run recordings:capture <name>`; until a recording is committed its test is skipped.
 // Recordings redact tool inputs, so the exact-command check comes from the capture's checks.
@@ -823,6 +871,7 @@ describe("(unit) live safety recordings", () => {
       const checks = recording.meta["checks"] as {
         disk: SelfTestDisk;
         bash: Omit<SelfTestBashCalls, "commands">;
+        approval?: SelfTestApproval;
         probes: ProbeName[];
         verdict: unknown;
       };
@@ -833,11 +882,7 @@ describe("(unit) live safety recordings", () => {
         probes: checks.probes,
         outcome: run.result.outcome,
         denied,
-        // These recordings predate the approval call (DIPO-231): they prove the sandbox probes.
-        // Their one probe call stands for the two planned calls, and the approval call is given
-        // as dipo-denied; a live recording of the two-call session is the maintainer's check.
-        bash: { commands: [], ...checks.bash, calls: SELF_TEST_BASH_CALLS },
-        approval: { result: SELF_TEST_DENY_REASON, cliDenied: false, reached: true },
+        ...judgedCalls(checks),
         disk: checks.disk,
       });
       expect(verdict.ok).toBe(true);

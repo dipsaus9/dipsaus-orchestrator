@@ -1,10 +1,10 @@
 ---
 id: DIPO-244
 title: Teach the recordings tool the two-call launch self-test
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:28'
+updated_date: '2026-10-20 23:26'
 labels:
   - 'tier:S'
   - cutover
@@ -51,7 +51,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tools/recordings/scenarios.ts plans the self-test's two calls (the probe and APPROVAL_COMMAND), runs the host-protocol stand-in for the captured session at the session's own socket, and writes the approval evidence (result, cliDenied, reached) and the two-call bash evidence into the recording's checks
-- [ ] #2 The replay test in packages/engine/test/workers/self-test.test.ts judges a recording whose checks hold approval evidence with that evidence and its recorded call count, and uses the synthetic two-call override only for a recording without approval evidence, with the reason in a comment
-- [ ] #3 A test in tools/recordings/capture.test.ts shows a captured safety scenario with a passing approval evidence and verdict ok, using a fake session
+- [x] #1 tools/recordings/scenarios.ts plans the self-test's two calls (the probe and APPROVAL_COMMAND), runs the host-protocol stand-in for the captured session at the session's own socket, and writes the approval evidence (result, cliDenied, reached) and the two-call bash evidence into the recording's checks
+- [x] #2 The replay test in packages/engine/test/workers/self-test.test.ts judges a recording whose checks hold approval evidence with that evidence and its recorded call count, and uses the synthetic two-call override only for a recording without approval evidence, with the reason in a comment
+- [x] #3 A test in tools/recordings/capture.test.ts shows a captured safety scenario with a passing approval evidence and verdict ok, using a fake session
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DS0F8KEJHHKR57BHK72JGK (Haiku, 72 turns, about $0.34), verified and reviewed by dipo (its reviewer, Opus, approved round 1), with no denied call and no write outside the References. The recordings tool learns DIPO-231's two-call launch self-test: a safety scenario plans the probe and the approval call cd .; ls, capture.ts starts the engine's host-protocol stand-in at the session's own socket (selfTestSocketPath) during the session and stops it afterwards, and verify builds the approval evidence from what reached the stand-in and passes it to judgeSelfTest; absent approval still refuses. The replay test keeps its synthetic two-call override only for recordings without approval evidence, until the three safety recordings are recaptured live. The self-test pieces the tool needs are exported from the engine index. Fixed on top after review: the stand-in starts inside the try, so a stand-in that fails to start still stops the fixture host. Independent review passed (no test spawns claude; the import-boundary lint passes). Not done: the test plan's manual live recapture of the safety recordings (the maintainer's wave test), after which the no-approval branch of the replay test should be removed; no unit test drives capture() itself. Verify outside the sandbox: exit 0; DIPO_TEST_CI=1 workers and recordings tests pass (860).
+<!-- SECTION:NOTES:END -->

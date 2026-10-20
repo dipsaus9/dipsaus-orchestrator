@@ -5,20 +5,28 @@
 // `PermissionRequest` stays unanswered. No `claude` runs.
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  APPROVAL_COMMAND,
   CLAUDE_GATE_NO_DECISION_MARKER,
+  PROBE_GROUPS,
   refusalText,
   relayHookPayload,
+  SELF_TEST_DENY_REASON,
+  selfTestLayout,
+  selfTestSocketPath,
   systemClock,
 } from "../../packages/engine/src/index";
 import { withTempDir } from "../../packages/testkit/src/index";
-import { fixtureHost, hostAnswer, webGateAnswer } from "./capture";
+import { fixtureHost, hostAnswer, sessionSocketOf, webGateAnswer } from "./capture";
+import type { Envelope } from "./format";
 import type { Scenario } from "./scenarios";
 import {
   findScenario,
+  selfTestPaths,
+  turnText,
   WEB_ENV_FILE,
   WEB_ENV_KEY,
   WEB_ENV_VALUE,
@@ -103,5 +111,122 @@ describe("the web scenario's gate answer (DIPO-164 review)", () => {
       } finally {
         await host.stop();
       }
+    }));
+});
+
+/** One stdout line of a fake session. */
+function line(data: unknown): Envelope {
+  return { t: 0, ch: "stdout", data };
+}
+
+describe("the launch self-test's two calls (DIPO-244)", () => {
+  const scenario = findScenario("safety-gitdir-write") as Scenario;
+  const probes = PROBE_GROUPS["safety-gitdir-write"];
+
+  /** The self-test's paths and layout under a temp directory, laid out as the capture does. */
+  function selfTest(dir: string) {
+    const paths = {
+      root: dir,
+      main: join(dir, "repo"),
+      workdir: join(dir, "repo.worktrees", "story"),
+      runDir: join(dir, "run"),
+    };
+    return { paths, layout: selfTestLayout(selfTestPaths(paths), probes) };
+  }
+
+  it("plans the probe and the approval call, and gives the session its own socket", () =>
+    withTempDir(async (dir) => {
+      expect(scenario.standIn).toBe(true);
+      const { paths, layout } = selfTest(dir);
+      const prompt = turnText(scenario.turns[0] ?? "", paths);
+      expect(prompt).toContain(`\n${layout.command}\n`);
+      expect(prompt).toContain(`\n${APPROVAL_COMMAND}\n`);
+      const hostSocket = join(dir, "host.sock");
+      expect(sessionSocketOf(scenario, hostSocket)).toBe(selfTestSocketPath(hostSocket));
+      expect(sessionSocketOf(findScenario("web") as Scenario, hostSocket)).toBe(hostSocket);
+    }));
+
+  it("writes the approval evidence and judges a session whose approval call reached dipo ok", () =>
+    withTempDir(async (dir) => {
+      const { paths, layout } = selfTest(dir);
+      mkdirSync(paths.workdir, { recursive: true });
+      mkdirSync(join(dir, "tmp"), { recursive: true });
+      writeFileSync(
+        join(paths.workdir, ".git"),
+        `gitdir: ${join(paths.main, ".git", "worktrees", "story")}\n`,
+      );
+      writeFileSync(layout.controlFile, "");
+      writeFileSync(
+        layout.resultsFile,
+        [
+          "control written",
+          ...probes.map((probe) => `${probe} blocked Operation not permitted`),
+          "",
+        ].join("\n"),
+      );
+      // A fake session: the probe, the approval call with dipo's deny, and a done report.
+      const raw: Envelope[] = [
+        line({
+          type: "assistant",
+          message: {
+            content: [
+              { type: "tool_use", id: "t1", name: "Bash", input: { command: layout.command } },
+            ],
+          },
+        }),
+        line({
+          type: "user",
+          message: {
+            content: [{ type: "tool_result", tool_use_id: "t1", content: "", is_error: false }],
+          },
+        }),
+        line({
+          type: "assistant",
+          message: {
+            content: [
+              { type: "tool_use", id: "t2", name: "Bash", input: { command: APPROVAL_COMMAND } },
+            ],
+          },
+        }),
+        line({
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "t2",
+                content: SELF_TEST_DENY_REASON,
+                is_error: true,
+              },
+            ],
+          },
+        }),
+        line({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          session_id: "fake-session",
+          num_turns: 1,
+          usage: { input_tokens: 0, output_tokens: 0 },
+          modelUsage: {},
+          structured_output: {
+            status: "done",
+            criteria: [{ n: 1, met: true, evidence: "fixture" }],
+            summary: "Ran the probes.",
+            commitSubject: "chore: record sandbox probes",
+          },
+        }),
+        { t: 1, ch: "exit", data: { code: 0, signal: null } },
+      ];
+      const reached = [{ tool: "Bash", command: APPROVAL_COMMAND }];
+      const checks = await scenario.verify?.(paths, raw, reached);
+      expect(checks).toMatchObject({
+        approval: { result: SELF_TEST_DENY_REASON, cliDenied: false, reached: true },
+        bash: { calls: 2, exact: true, shape: true },
+        verdict: { ok: true },
+      });
+      // Without the stand-in's PermissionRequest the approval call never reached dipo: refused.
+      const unreached = await scenario.verify?.(paths, raw, []);
+      expect(unreached).toMatchObject({ approval: { reached: false }, verdict: { ok: false } });
     }));
 });
