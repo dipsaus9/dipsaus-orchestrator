@@ -1,10 +1,10 @@
 ---
 id: DIPO-147
 title: Watch CI on story PRs and turn failures into feedback
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:18'
+updated_date: '2026-10-20 07:59'
 labels:
   - 'tier:M'
   - 'slice:m1a'

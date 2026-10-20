@@ -1,10 +1,10 @@
 ---
 id: DIPO-224
 title: Tell workers that CI-only tests do not run in their sandbox
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:19'
+updated_date: '2026-10-20 07:59'
 labels:
   - 'tier:S'
   - cutover
