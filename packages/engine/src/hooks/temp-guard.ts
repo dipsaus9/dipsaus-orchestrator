@@ -169,7 +169,7 @@ function readHereDoc(
  * each command inside a `{ ...; }` or `( ... )` group that opens it. `<<<` is a here-string and no
  * here-doc, and a `<<` inside an arithmetic `(( ))` or before a number is a shift.
  */
-function simpleCommands(text: string): { commands: SimpleCommand[]; nested: string[] } {
+export function simpleCommands(text: string): { commands: SimpleCommand[]; nested: string[] } {
   const commands: SimpleCommand[] = [];
   const nested: string[] = [];
   const heredocs: HereDoc[] = [];

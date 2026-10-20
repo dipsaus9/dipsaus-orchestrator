@@ -535,6 +535,19 @@ describe("claude-cli plan", () => {
     }
   });
 
+  it("holds no gh deny rule with the hook relay, and keeps both without it (DIPO-195)", () => {
+    const withRelay = settingsOf(
+      plan(spec("S", { hookRelay: true }), context({ hookCommand: ["/opt/dipo/bin/dipo"] })),
+    ) as { permissions: { deny: string[] } };
+    expect(withRelay.permissions.deny).not.toContain("Bash(gh)");
+    expect(withRelay.permissions.deny).not.toContain("Bash(gh *)");
+    const withoutRelay = settingsOf(plan(spec("S"), context())) as {
+      permissions: { deny: string[] };
+    };
+    expect(withoutRelay.permissions.deny).toContain("Bash(gh)");
+    expect(withoutRelay.permissions.deny).toContain("Bash(gh *)");
+  });
+
   it("registers the 0008 hooks with the binary's own path when the spec asks for the relay (DIPO-59)", () => {
     const dipo = "/opt/dipo's tools/bin/dipo";
     const launch = plan(
