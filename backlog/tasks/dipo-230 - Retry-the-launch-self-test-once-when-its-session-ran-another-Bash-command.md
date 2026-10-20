@@ -1,10 +1,10 @@
 ---
 id: DIPO-230
 title: Show the Bash command a refused launch self-test session ran
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 13:53'
+updated_date: '2026-10-20 14:00'
 labels:
   - 'tier:S'
   - cutover
@@ -48,8 +48,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A self-test verdict of could not run for the Bash calls (not exactly one call, not the planned command, or input keys other than command, description and timeout) still refuses the launch at once with no second session, as 0008's DIPO-98 amendment says
-- [ ] #2 The refusal text for those reasons names each Bash command the session ran, cut to 300 characters each; bashCalls in packages/engine/src/workers/claude-cli/self-test.ts returns the commands
-- [ ] #3 A session refused for its Bash calls writes the warn line "the launch self-test session ran another Bash command" with the run, the reason and the commands, through an optional warn of ClaudeWorkerPortDeps that packages/daemon/src/runs.ts passes
-- [ ] #4 Tests in packages/engine/test/workers/launch-checks.test.ts with a fake spawn show a session with another command refusing with that command in the detail and spawning no second session, and the warn line; tests in packages/engine/test/workers/self-test.test.ts show bashCalls returning the commands
+- [x] #1 A self-test verdict of could not run for the Bash calls (not exactly one call, not the planned command, or input keys other than command, description and timeout) still refuses the launch at once with no second session, as 0008's DIPO-98 amendment says
+- [x] #2 The refusal text for those reasons names each Bash command the session ran, cut to 300 characters each; bashCalls in packages/engine/src/workers/claude-cli/self-test.ts returns the commands
+- [x] #3 A session refused for its Bash calls writes the warn line "the launch self-test session ran another Bash command" with the run, the reason and the commands, through an optional warn of ClaudeWorkerPortDeps that packages/daemon/src/runs.ts passes
+- [x] #4 Tests in packages/engine/test/workers/launch-checks.test.ts with a fake spawn show a session with another command refusing with that command in the detail and spawning no second session, and the warn line; tests in packages/engine/test/workers/self-test.test.ts show bashCalls returning the commands
 <!-- AC:END -->
