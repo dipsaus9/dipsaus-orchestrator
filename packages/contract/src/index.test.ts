@@ -209,7 +209,7 @@ describe("errors", () => {
     );
   });
 
-  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48, DIPO-59)", () => {
+  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48, DIPO-59, DIPO-163)", () => {
     expect([...OFFICE_ERROR_CODES]).toEqual([
       "config.invalid",
       "backlog.unreadable",
@@ -218,6 +218,7 @@ describe("errors", () => {
       "gate.notWaitingOnMaintainer",
       "gate.handMergeOnly",
       "gate.noteRequired",
+      "story.notSteerable",
     ]);
   });
 
@@ -238,6 +239,7 @@ describe("errors", () => {
       "scheduling.off",
     ]);
     expect(isRetryableErrorCode("internal")).toBe(false);
+    expect(engineError("story.notSteerable", "m").retryable).toBe(false);
   });
 
   it("keeps details only when given", () => {

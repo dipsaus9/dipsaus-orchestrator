@@ -63,6 +63,8 @@ export interface ClaudeLaunchCheckDeps {
    * proxy here; without it such a launch is refused.
    */
   readonly safeChainProxies?: Pick<SafeChainProxies, "start" | "stop" | "awaitHost">;
+  /** Writes the warn line of a session refused for the Bash command it ran (DIPO-230). */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 /**
@@ -155,6 +157,14 @@ export async function claudeLaunchChecks(
     },
   );
   const failure = selfTestFailure(report);
+  const verdict = report.verdict;
+  if (!verdict.ok && verdict.bash === true) {
+    deps.warn?.("the launch self-test session ran another Bash command", {
+      run: spec.run,
+      reason: verdict.reason,
+      commands: report.evidence?.bash.commands ?? [],
+    });
+  }
   return failure === null ? { ok: true } : { ok: false, failures: [failure] };
 }
 

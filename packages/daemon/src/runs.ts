@@ -277,6 +277,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     // Workers run package managers through the official Safe-Chain when it is installed (DIPO-82).
     detectSafeChain: (input) => detectSafeChain(input),
     safeChainProxies,
+    warn: (message, fields) => options.logger.warn(message, fields),
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null

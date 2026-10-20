@@ -22,6 +22,7 @@
 import {
   type CommandName,
   type Lifecycle,
+  type RunId,
   StoryId,
   type StoryKey,
   storyDrop,
@@ -54,8 +55,10 @@ import type {
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import { type CodeHost, CodeHostError, repoOfRemoteUrl } from "../platform/host";
+import type { ProcessProbe } from "../platform/process";
 import { parkActions, openPark } from "../run/park";
 import { activeRuns } from "../run/records";
+import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
 import { dirtyFilesOf, releaseForDrop } from "../worktree/release";
@@ -77,6 +80,8 @@ export interface StoryPlanningDeps {
   readonly slots?: SlotTable;
   /** The commands the engine registered, for the `actions` of `story.parked`. */
   readonly implemented: (name: CommandName) => boolean;
+  /** Reads whether a worker host of the claim's run still runs (0020 section 8). */
+  readonly probe: ProcessProbe;
 }
 
 type StoryResult = { story: StoryId; key: StoryKey };
@@ -92,6 +97,8 @@ export const HAS_DEPENDENTS = "story.hasDependents";
 export const DIRTY_WORKTREE = "story.dirtyWorktree";
 export const PR_NOT_CLOSED = "story.prNotClosed";
 export const NOT_DROPPABLE = "story.notDroppable";
+/** 0005's retryable code: a worker host of the parked run still runs (0020 section 8). */
+export const RUN_HOST_ALIVE = "run.hostAlive";
 
 export class StoryPlanning {
   readonly #deps: StoryPlanningDeps;
@@ -323,6 +330,18 @@ export class StoryPlanning {
     if (claim !== null && git === undefined) {
       throw new Error(`The office ${office.officeId} has no git attached.`);
     }
+    // A worker host of the parked run that still runs owns the worktree: refuse before anything
+    // is journaled, closed or removed, with or without deleteBranch (0020 section 8).
+    if (claim !== null) {
+      const pid = await this.#liveHostPid(office, claim.runId);
+      if (pid !== null) {
+        throw new CommandError(
+          RUN_HOST_ALIVE,
+          `A worker host of ${story} still runs (pid ${pid}), so its worktree is in use. Drop it again in a moment, once the host has exited.`,
+          { story, pid },
+        );
+      }
+    }
     if (claim !== null && git !== undefined && !args.deleteBranch) {
       const files = await dirtyFilesOf({ git }, claim);
       if (files.length > 0) {
@@ -377,6 +396,14 @@ export class StoryPlanning {
     });
     await flushQuietly(lane);
     return { result, changed: true };
+  }
+
+  /** The PID of the first worker host of `runId` that still runs, or null. */
+  async #liveHostPid(office: OfficeHandle, runId: RunId): Promise<number | null> {
+    for (const host of workerHostsOf(office, runId)) {
+      if (await hostAlive(host, this.#deps.probe)) return host.pid;
+    }
+    return null;
   }
 
   /** True when `story.drop` journaled the story's drop and left no claim, PR or park behind. */

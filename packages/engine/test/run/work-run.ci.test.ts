@@ -77,6 +77,7 @@ async function withRunOffice(
         git: engineGit,
         cli: CLI(repo),
         offices,
+        index,
         get clock() {
           return loaded().clock;
         },

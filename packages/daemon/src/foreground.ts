@@ -706,6 +706,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       host,
       slots,
       implemented: (name) => registry.command(name) !== undefined,
+      probe: systemProcessProbe(platform),
     });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
@@ -734,6 +735,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       offices,
       clock,
       ids,
+      index: storyIndex,
     });
     // The run profile (DIPO-72): scanned at load after the story index fetched, and on
     // `office.rescan`, which also indexes the stories again.
