@@ -32,19 +32,22 @@ const ROUND_STARTS: Readonly<Record<RoundKind, StartKind>> = {
  * Inside the caller's transaction: reopens the run `run`, ended at In Review, for `kind` at `at`,
  * and puts it in line for its place: a review waits for the reviewer place, a fix round or a
  * conflict hand-off for the worker place. A review enters phase `review`, a fix round or a
- * hand-off phase `build`. Returns the marker output and `work.phase` entries for the caller to
- * append; none when the run was not ended (or its story is Done).
+ * hand-off phase `build`. `waitingSince` is the time its wait counts from, `at` by default: a
+ * pending review waits from the story's In Review time (0019 section 12, oldest In Review first),
+ * while the reopen and its phase step keep `at`. Returns the marker output and `work.phase`
+ * entries for the caller to append; none when the run was not ended (or its story is Done).
  */
 export function reopenForRound(
   office: OfficeHandle,
   run: StoredRun,
   kind: RoundKind,
   at: number,
+  waitingSince: number = at,
 ): NewEntry[] {
   if (!reopenRun(office, run.runId, at)) return [];
   const phase = kind === "review" ? "review" : "build";
   const markers = markPhase(office, run.runId, phase, at);
-  waitForPlace(office, run.runId, ROUND_STARTS[kind], at);
+  waitForPlace(office, run.runId, ROUND_STARTS[kind], waitingSince);
   const work = workRefOf(office, run.runId);
   const progress = runProgress(office, run.runId);
   return work === null || progress === null

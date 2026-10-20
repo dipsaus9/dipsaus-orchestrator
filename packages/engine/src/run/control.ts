@@ -12,6 +12,10 @@
 //   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
 //   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
 //   no cap ends the run while that path runs.
+//   A reviewer session (DIPO-219, 0019 sections 4 and 13) counts the story's budget, with its review
+//   allowances, and its own turns and minutes against the reviewer's caps: the budget parks
+//   `budget-exceeded` with cause `review`, the reviewer's turn or minute cap `worker-failed` with
+//   cause `review-cap`. Its valid report goes to worker outcomes after the backstop (`onReview`).
 // - Reports. A turn whose report is `blocked` parks the story: `needs-permission` with the tool and
 //   action as detail when it carries `needsPermission` (a call `--permission-prompts none` denied,
 //   0008 section 5), else `ambiguous-spec` with the question. The engine records a `park` intent
@@ -52,8 +56,16 @@ import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { background } from "../platform/background";
 import type { WorkerEvent, WorkerReport } from "../workers/types";
 
-import { type CapName, type FiredCap, firedCap, runCaps, type RunCaps, runTotals } from "./caps";
-import { capDetail, capEnding, RunEndings } from "./control-endings";
+import {
+  type CapName,
+  type FiredCap,
+  firedCap,
+  REVIEWER_ROLE,
+  reviewTotals,
+  runCaps,
+  runTotals,
+} from "./caps";
+import { capDetail, capEnding, reviewCapEnding, RunEndings } from "./control-endings";
 import { ReconcileStops } from "./control-reconcile";
 import {
   CAP_TICK_MS,
@@ -232,12 +244,7 @@ export class RunControl implements RunEnder {
     if (tracked === undefined || tracked.ending !== null || tracked.capped !== null) return;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return;
-    const caps = this.#capsOf(office, tracked);
-    if (caps === null) return;
-    const fired = firedCap(
-      caps,
-      runTotals(office, tracked.runId, tracked.startedAt, this.#deps.clock.now()),
-    );
+    const fired = this.#fired(office, tracked);
     if (fired !== null) this.#crossings.set(event, fired);
   }
 
@@ -326,10 +333,11 @@ export class RunControl implements RunEnder {
           return;
         }
         // The backstop, and verify and commit at `done` (DIPO-49), after the pass, in turn order;
-        // then the turn's problem, if any (DIPO-51).
+        // then the turn's problem, if any (DIPO-51), or a reviewer's valid report (DIPO-219).
         const problem = outcomes === undefined ? undefined : event.problem;
-        if (this.#deps.finisher !== undefined || problem !== undefined) {
-          this.#turns.queue(tracked, report, problem);
+        const review = outcomes === undefined ? undefined : event.review;
+        if (this.#deps.finisher !== undefined || problem !== undefined || review !== undefined) {
+          this.#turns.queue(tracked, report, problem, null, review);
         }
       }
       // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
@@ -451,7 +459,14 @@ export class RunControl implements RunEnder {
   #initRejected(run: string, reason: string): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined || tracked.ending !== null) return;
-    this.#endings.begin(tracked, initRejectedEnding(tracked.work.story, reason));
+    this.#endings.begin(
+      tracked,
+      initRejectedEnding(
+        tracked.work.story,
+        reason,
+        reviewing(tracked) ? PARK_CAUSES.review : PARK_CAUSES.build,
+      ),
+    );
   }
 
   /** `work.stop`: see the file comment. */
@@ -521,24 +536,45 @@ export class RunControl implements RunEnder {
     if (tracked.capped !== null) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return false;
-    const caps = this.#capsOf(office, tracked);
-    if (caps === null) return false;
-    const fired = firedCap(
-      caps,
-      runTotals(office, tracked.runId, tracked.startedAt, this.#deps.clock.now()),
-    );
+    const fired = this.#fired(office, tracked);
     if (fired === null) return false;
     this.#cap(tracked, fired.cap, fired.detail);
     return true;
   }
 
-  /** The caps the run counts against now (DIPO-143); the tracked caps serve for a legacy run. */
-  #capsOf(office: OfficeHandle, tracked: Tracked): RunCaps | null {
+  /**
+   * The first cap the run reached now, or null. The caps it counts against now (DIPO-143), the
+   * tracked caps serving for a legacy run. A reviewer session (0019 sections 4 and 13) counts the
+   * story's budget with its review allowances, and its own turns and minutes against the
+   * reviewer's caps; the developer's turn and minute caps never count the review.
+   */
+  #fired(office: OfficeHandle, tracked: Tracked): FiredCap | null {
     const run = findRun(office, tracked.runId);
-    return run === null ? null : runCaps(office, run, tracked.caps);
+    if (run === null) return null;
+    const caps = runCaps(office, run, tracked.caps);
+    const now = this.#deps.clock.now();
+    if (reviewing(tracked)) {
+      return firedCap(
+        {
+          budgetTokens: caps.budgetTokens,
+          maxTurns: caps.reviewMaxTurns ?? tracked.caps.maxTurns,
+          maxMinutes: caps.reviewMaxMinutes ?? tracked.caps.maxMinutes,
+        },
+        reviewTotals(office, tracked.runId, tracked.work.agent, tracked.startedAt, now),
+      );
+    }
+    return firedCap(caps, runTotals(office, tracked.runId, tracked.startedAt, now));
   }
 
   #cap(tracked: Tracked, cap: CapName, detail: string): void {
-    this.#endings.begin(tracked, capEnding(this.#deps.encode, cap, detail));
+    const ending = reviewing(tracked)
+      ? reviewCapEnding(this.#deps.encode, cap, detail)
+      : capEnding(this.#deps.encode, cap, detail);
+    this.#endings.begin(tracked, ending);
   }
+}
+
+/** True for a reviewer session (0019 section 4): its work names the reviewer role. */
+function reviewing(tracked: Tracked): boolean {
+  return tracked.work.role === REVIEWER_ROLE;
 }

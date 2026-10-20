@@ -1,10 +1,10 @@
 ---
 id: DIPO-230
 title: Show the Bash command a refused launch self-test session ran
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 08:20'
-updated_date: '2026-10-20 08:23'
+updated_date: '2026-10-20 11:24'
 labels:
   - 'tier:S'
   - cutover
