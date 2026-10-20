@@ -8,7 +8,7 @@
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
-import type { StoryLabels } from "../backlog/fields/labels";
+import { SET_ASIDE_LABELS, type StoryLabels } from "../backlog/fields/labels";
 import { characters, clean, wordMatch } from "./text";
 import type {
   GateFailure,
@@ -484,7 +484,19 @@ export const r27: RuleCheck = (context) => {
   );
 };
 
-/** R02 to R27, evaluated in both modes, in rule order. */
+/** R28 (DIPO-238): a story labelled `dropped` or `on-hold` is set aside; one failure per such label. */
+export const r28: RuleCheck = (context) =>
+  context.labels.other
+    .filter((label) => SET_ASIDE_LABELS.includes(label))
+    .flatMap((label) =>
+      fail(
+        context,
+        "R28",
+        `labelled ${label}: the maintainer set it aside; remove the label to make it Ready`,
+      ),
+    );
+
+/** R02 to R28, evaluated in both modes, in rule order. */
 export const SHARED_RULES: readonly RuleCheck[] = [
   r02,
   r03,
@@ -512,4 +524,5 @@ export const SHARED_RULES: readonly RuleCheck[] = [
   r25,
   r26,
   r27,
+  r28,
 ];
