@@ -1,7 +1,7 @@
 // The office merge slot (DIPO-73; 0016 rule 2, 0010 section 7): backlog PRs merge through it in M0.
 
-export { evaluateChecks, REQUIRED_CHECKS } from "./checks";
-export type { ChecksVerdict } from "./checks";
+export { checksFinal, evaluateChecks, REQUIRED_CHECKS, requiredCheckStates } from "./checks";
+export type { RequiredCheckState, ChecksVerdict } from "./checks";
 export { laneSlotGit } from "./git";
 export type { BaseSync, PushOutcome, SlotGit } from "./git";
 export {
