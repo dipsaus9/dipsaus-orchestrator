@@ -37,6 +37,9 @@ export const HOST_CONNECT_TIMEOUT_MS = 5_000;
 /** How long the engine waits between connection attempts while a new host has not bound its socket. */
 export const HOST_CONNECT_RETRY_MS = 25;
 
+/** The least time a connection attempt gives the host's hello, also near the deadline. */
+export const HOST_HELLO_MIN_MS = 1_000;
+
 export interface SystemHostStarterOptions {
   readonly clock: Clock;
   readonly runtimeDir: string;
@@ -119,6 +122,8 @@ export interface OfficeRunListener {
 export class OfficeIngest implements RunIngest {
   readonly #options: OfficeIngestOptions;
   readonly #ingestors = new Map<OfficeId, Ingestor>();
+  /** Set by `close`: a connection attempt still under way stops and watches nothing. */
+  #closed = false;
   /** One per daemon, so a drifting model is warned about once per day across offices (DIPO-89). */
   readonly #costDrift = new CostDriftWarnings();
 
@@ -214,8 +219,22 @@ export class OfficeIngest implements RunIngest {
     ingestor.track(target);
     void this.#connectWhenBound(host)
       .then(async (connected) => {
-        // Without the socket the 1 s poll keeps ingesting.
-        if (connected.ok) await ingestor.watch(host.runId, host.agentId, connected.client);
+        if (connected.ok && this.#closed) {
+          connected.client.close();
+          return;
+        }
+        if (connected.ok) {
+          await ingestor.watch(host.runId, host.agentId, connected.client);
+          return;
+        }
+        // Without the socket the 1 s poll keeps ingesting, but no engine watches the host, so it
+        // answers every waiting hook call with no decision: say so (DIPO-181).
+        if (!this.#closed) {
+          this.#options.warn?.(
+            "the engine does not watch the worker host; waiting hook calls get no decision",
+            { run: host.runId, reason: connected.reason },
+          );
+        }
       })
       .catch((error: unknown) => {
         this.#options.warn?.("watching the worker host failed; ingestion polls", {
@@ -240,11 +259,12 @@ export class OfficeIngest implements RunIngest {
       const connected = await connectHost(host.socketPath, {
         runId: host.runId,
         clock,
-        timeoutMs: Math.max(1, left),
+        // A host that binds late still gets a full second for its hello.
+        timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
         // The engine's watch: only it may answer hook calls and count as the daemon being up.
         token: host.engineToken ?? null,
       });
-      if (connected.ok || connected.reason !== "unreachable") return connected;
+      if (connected.ok || connected.reason !== "unreachable" || this.#closed) return connected;
       if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
       await new Promise<void>((resolve) => clock.setTimeout(resolve, HOST_CONNECT_RETRY_MS));
     }
@@ -257,6 +277,7 @@ export class OfficeIngest implements RunIngest {
 
   /** Stops every ingestor's and the watchdog's timers; what they ingested is stored. */
   close(): void {
+    this.#closed = true;
     this.#options.watchdog?.close();
     for (const ingestor of this.#ingestors.values()) ingestor.close();
     this.#ingestors.clear();
