@@ -1,10 +1,10 @@
 ---
 id: DIPO-222
 title: Cap a run whose capped done turn the finisher lets continue
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:26'
+updated_date: '2026-10-20 09:34'
 labels:
   - 'tier:M'
   - cutover
@@ -46,8 +46,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When the finisher answers continue for a turn queued with a crossed cap and no other ending has claimed the run, run control ends the run for that cap as a crossing turn without a done report does: intent cap, park budget-exceeded with cause build and the cap detail, and no cap run_steps row
-- [ ] #2 Tests show a done report on the turn that reaches max_turns parking budget-exceeded in a session run and in a story run without a worktree, with no In Review end
-- [ ] #3 The cap run_steps row of a capped done turn is written in the same transaction as the end of the run: the In Review end in verify-commit.ts, or the park the done path ends in; the separate write in #cappedDone and its warn-only failure are removed
-- [ ] #4 Tests in packages/engine/test/run/verify-commit.test.ts show no cap run_steps row while the capped done path's verify runs, exactly one after the In Review end and exactly one after the verify-failing park, and the DIPO-205 tests there keep passing
+- [x] #1 When the finisher answers continue for a turn queued with a crossed cap and no other ending has claimed the run, run control ends the run for that cap as a crossing turn without a done report does: intent cap, park budget-exceeded with cause build and the cap detail, and no cap run_steps row
+- [x] #2 Tests show a done report on the turn that reaches max_turns parking budget-exceeded in a session run and in a story run without a worktree, with no In Review end
+- [x] #3 The cap run_steps row of a capped done turn is written in the same transaction as the end of the run: the In Review end in verify-commit.ts, or the park the done path ends in; the separate write in #cappedDone and its warn-only failure are removed
+- [x] #4 Tests in packages/engine/test/run/verify-commit.test.ts show no cap run_steps row while the capped done path's verify runs, exactly one after the In Review end and exactly one after the verify-failing park, and the DIPO-205 tests there keep passing
 <!-- AC:END -->
