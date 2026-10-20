@@ -160,29 +160,47 @@ export async function runHookForm(
   return 0;
 }
 
+/** Told to the worker on stderr when the Bash check cannot run on a command that names gh (DIPO-241). */
+export const BASH_GH_FAILED_REASON =
+  "dipo could not check this command, and it names gh: the engine handles the code host, so the call was refused.";
+
+/** A word whose basename is gh: the words `GH_WORD_PATTERN` (engine `claude-cli/hooks.ts`) greps. */
+const GH_WORD = /(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])/;
+
 /**
  * A `--bash` call (DIPO-194; 0008 amendment of 2026-10-19): decides the command in this process,
  * never contacting the worker host. A command the check refuses (DIPO_TMP or TMPDIR set or cleared,
  * a gh call but the help forms; DIPO-195) prints Claude's deny with the check's reason; anything
- * else, a payload that does not parse and a check that
- * throws print nothing. It always exits 0 (fails open), so a broken check never blocks Bash.
+ * else, a payload that does not parse and a check that throws print nothing and exit 0 (fails
+ * open). The exception is a check that throws on a command with a gh word: it exits 2 with the
+ * reason on stderr, so a gh call never runs unchecked (DIPO-241).
  */
 async function runBash(
   io: DaemonIo,
   write: (text: string) => void,
   check: (command: string) => string | null,
 ): Promise<number> {
+  let command: string | undefined;
   try {
     const readInput = io.readInput ?? ((max, ms) => readProcessInput(io.clock, max, ms));
     const payload = await readInput(MAX_HOOK_STDIN, HOOK_STDIN_MS);
     if (payload === null) return 0;
     const input = (JSON.parse(payload) as { tool_input?: { command?: unknown } } | null)
       ?.tool_input;
-    const command = input?.command;
-    if (typeof command !== "string") return 0;
-    const reason = check(command);
+    const text = input?.command;
+    if (typeof text !== "string") return 0;
+    command = text;
+    const reason = check(text);
     if (reason !== null) write(gateDenyOutput(reason));
   } catch {
+    if (command !== undefined && GH_WORD.test(command)) {
+      try {
+        io.writeError(BASH_GH_FAILED_REASON);
+      } catch {
+        // Exit 2 blocks the call without a reason too.
+      }
+      return 2;
+    }
     // Fails open: no output means no decision.
   }
   return 0;
