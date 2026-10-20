@@ -68,7 +68,9 @@ export const SOFTWARE_ERROR_CODES = [
 // Since minor 1 (DIPO-140, 0019 section 15), all not retryable: `gate.notWaitingOnMaintainer` when
 // `gate.approve` or `gate.reject` names a gate that waits for no maintainer, `gate.handMergeOnly`
 // when the gate is a merge the maintainer merges by hand, and `gate.noteRequired` when a decision
-// that needs a note has none.
+// that needs a note has none. Since minor 1 (DIPO-163, 0020 section 9), not retryable:
+// `story.notSteerable` when `work.steer` or `work.pause` names a story whose live session is its
+// reviewer, or whose worker host is followed only.
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -77,24 +79,18 @@ export const OFFICE_ERROR_CODES = [
   "gate.notWaitingOnMaintainer",
   "gate.handMergeOnly",
   "gate.noteRequired",
+  "story.notSteerable",
 ] as const;
-
-// Specific codes of the maintainer's hand on a worker. Since minor 1 (DIPO-163, 0020 section 9),
-// not retryable: `story.notSteerable` when `work.steer` or `work.pause` names a story whose live
-// session is its reviewer, or whose worker host is followed only.
-export const STEER_ERROR_CODES = ["story.notSteerable"] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];
 export type RetryableErrorCode = (typeof RETRYABLE_ERROR_CODES)[number];
 export type SoftwareErrorCode = (typeof SOFTWARE_ERROR_CODES)[number];
 export type OfficeErrorCode = (typeof OFFICE_ERROR_CODES)[number];
-export type SteerErrorCode = (typeof STEER_ERROR_CODES)[number];
 export type KnownErrorCode =
   | GenericErrorCode
   | RetryableErrorCode
   | SoftwareErrorCode
-  | OfficeErrorCode
-  | SteerErrorCode;
+  | OfficeErrorCode;
 
 export function isRetryableErrorCode(code: string): boolean {
   return (RETRYABLE_ERROR_CODES as readonly string[]).includes(code);
