@@ -1,10 +1,10 @@
 ---
 id: DIPO-241
 title: Fail the gh part of the Bash hook closed when the check cannot run
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:28'
+updated_date: '2026-10-20 22:54'
 labels:
   - 'tier:S'
   - cutover
