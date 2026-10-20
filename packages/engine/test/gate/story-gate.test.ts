@@ -16,7 +16,7 @@ import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gat
 
 describe("the Ready gate on the Backlog CLI", () => {
   it("story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes", () =>
-    withGatedOffice(async ({ repo, s, engineGit, office, officeId }) => {
+    withGatedOffice(async ({ repo, s, engineGit, index, office, officeId }) => {
       const reply = await read(s, { office: officeId, story: "TASK-2" });
       if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
       expect(reply.result).toEqual({
@@ -56,7 +56,7 @@ describe("the Ready gate on the Backlog CLI", () => {
         get: (id: OfficeId) => s.manager.get(id),
         config: (id: OfficeId) => s.manager.config(id),
       };
-      const deps = { git: engineGit, offices, clock: s.clock, ids: s.ids };
+      const deps = { git: engineGit, index, offices, clock: s.clock, ids: s.ids };
       const story = StoryId.parse("TASK-1");
       const broken = new GateStore({
         ...deps,
