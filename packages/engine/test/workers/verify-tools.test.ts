@@ -135,6 +135,61 @@ describe("(unit) verify programs and shebangs", () => {
     },
   );
 
+  // Words pnpm and yarn run themselves, before a root script of the same name.
+  it.each([
+    ["pnpm", "add"],
+    ["pnpm", "install"],
+    ["pnpm", "i"],
+    ["pnpm", "exec"],
+    ["yarn", "add"],
+    ["yarn", "install"],
+    ["yarn", "upgrade"],
+    ["yarn", "info"],
+  ])("leaves %s %s alone when a script of the same name exists", async (runner, word) => {
+    await withTempDir(async (home) => {
+      const root = checkout(home, { verify: "oxfmt --check", [word]: "oxlint --deny-warnings" });
+      expect(await verifyPrograms(root, { commands: [[runner, word]], cwd: "." })).toEqual([
+        runner,
+      ]);
+    });
+  });
+
+  it("checks the runner for pnpm add and yarn install with no root script of that name", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home, { verify: "oxfmt --check" });
+      expect(await verifyPrograms(root, { commands: [["pnpm", "add", "x"]], cwd: "." })).toEqual([
+        "pnpm",
+      ]);
+      expect(await verifyPrograms(root, { commands: [["yarn", "install"]], cwd: "." })).toEqual([
+        "yarn",
+      ]);
+    });
+  });
+
+  it("still follows pnpm test and yarn test through a root test script", async () => {
+    await withTempDir(async (home) => {
+      const root = checkout(home, { verify: "oxfmt --check", test: "oxlint --deny-warnings" });
+      expect(await verifyPrograms(root, { commands: [["pnpm", "test"]], cwd: "." })).toEqual([
+        "oxlint",
+      ]);
+      expect(await verifyPrograms(root, { commands: [["yarn", "test"]], cwd: "." })).toEqual([
+        "oxlint",
+      ]);
+    });
+  });
+
+  it.each([
+    ["npx -p @scope/fmt-pkg oxfmt --check", ["npx", "-p", "@scope/fmt-pkg", "oxfmt", "--check"]],
+    ["npx --package @scope/fmt-pkg oxfmt", ["npx", "--package", "@scope/fmt-pkg", "oxfmt"]],
+    ["npx -p a -p b oxfmt", ["npx", "-p", "a", "-p", "b", "oxfmt"]],
+    ["npx --package=oxfmt oxfmt", ["npx", "--package=oxfmt", "oxfmt"]],
+  ])("checks the bin of `%s`, not its package", async (_label, command) => {
+    await withTempDir(async (home) => {
+      const root = checkout(home, { verify: "oxfmt --check" });
+      expect(await verifyPrograms(root, { commands: [command], cwd: "." })).toEqual(["oxfmt"]);
+    });
+  });
+
   it("reads env, env -S and absolute interpreter lines; others are not scripts", () => {
     expect(shebangInterpreter("#!/usr/bin/env node\nx")).toBe("node");
     expect(shebangInterpreter("#!/usr/bin/env -S node --flag\n")).toBe("node");

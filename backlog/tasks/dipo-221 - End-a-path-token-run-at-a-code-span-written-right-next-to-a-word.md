@@ -1,10 +1,10 @@
 ---
 id: DIPO-221
 title: End a path token run at a code span written right next to a word
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:59'
+updated_date: '2026-10-20 09:34'
 labels:
   - 'tier:S'
   - cutover
@@ -41,7 +41,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/src/gate/text.ts a code span ends a run: the runs checked for a path token are split at whitespace and at each code span, so a word written right before or after a code span is never part of a path token, and the comment of outsideCodeAndPaths says so
-- [ ] #2 A backtick without a closing one on its line does not end a run, and the DIPO-170 tests for an unclosed backtick and for a code span between two words keep their results
-- [ ] #3 Tests in packages/engine/test/gate/gate.test.ts show R10 failing for a banned phrase glued before and after a code span that holds a file path with an extension, and R27 matching a maintainer-step phrase glued before one; the existing test for a code span written right after a word keeps its R10 failure with its comment naming the new rule
+- [x] #1 In packages/engine/src/gate/text.ts a code span ends a run: the runs checked for a path token are split at whitespace and at each code span, so a word written right before or after a code span is never part of a path token, and the comment of outsideCodeAndPaths says so
+- [x] #2 A backtick without a closing one on its line does not end a run, and the DIPO-170 tests for an unclosed backtick and for a code span between two words keep their results
+- [x] #3 Tests in packages/engine/test/gate/gate.test.ts show R10 failing for a banned phrase glued before and after a code span that holds a file path with an extension, and R27 matching a maintainer-step phrase glued before one; the existing test for a code span written right after a word keeps its R10 failure with its comment naming the new rule
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C9MZC3YRKK9WH7ZGHESXC2 (Haiku, 9 turns, about $0.01, 1 min) reported done, In Review, with no denied call and no write outside the References. outsideCodeAndPaths (gate/text.ts) takes path-token runs from a copy of the text with each closed code span blanked, so a code span ends a run: 'Writes etc`a/b.ts` to the rows' matches etc again and 'Write the task notes`notes/x.md`' matches 'task notes'; code spans stay masked, an unclosed backtick does not end a run, and the DIPO-170 and DIPO-218 tests hold. Review passed; advisory, not done: one new test repeats DIPO-170 assertions. Not changed: 0012's wording of a run (the review of PR #249 noted it could get a one-line amendment with the maintainer's approval). Verify outside the sandbox: exit 0, 3935 tests; DIPO_TEST_CI=1 gate tests pass (117).
+<!-- SECTION:NOTES:END -->

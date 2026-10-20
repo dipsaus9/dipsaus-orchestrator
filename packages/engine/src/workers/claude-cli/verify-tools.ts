@@ -69,6 +69,57 @@ const BUN_COMMANDS = new Set([
   "help",
   "feedback",
 ]);
+/** Commands pnpm runs itself, before a root script of the same name. `test` and `start` are not here: pnpm runs those scripts. */
+const PNPM_COMMANDS = new Set([
+  "add",
+  "audit",
+  "create",
+  "dlx",
+  "exec",
+  "i",
+  "init",
+  "install",
+  "link",
+  "outdated",
+  "pack",
+  "patch",
+  "publish",
+  "rebuild",
+  "remove",
+  "rm",
+  "unlink",
+  "up",
+  "update",
+  "why",
+]);
+/** Commands yarn runs itself, before a root script of the same name. `test` and `start` are not here: yarn runs those scripts. */
+const YARN_COMMANDS = new Set([
+  "add",
+  "audit",
+  "cache",
+  "config",
+  "create",
+  "dlx",
+  "exec",
+  "info",
+  "init",
+  "install",
+  "link",
+  "outdated",
+  "pack",
+  "publish",
+  "remove",
+  "unlink",
+  "up",
+  "upgrade",
+  "why",
+]);
+/** The commands each runner runs itself, which a root script of the same name does not shadow. */
+const BUILT_IN_COMMANDS = new Map<string, Set<string>>([
+  ["bun", BUN_COMMANDS],
+  ["pnpm", PNPM_COMMANDS],
+  ["yarn", YARN_COMMANDS],
+]);
 const SEGMENT = /&&|\|\||;|\||\n/;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -101,10 +152,14 @@ function operand(words: readonly string[]): string | undefined {
   return words.find((word) => !word.startsWith("-"));
 }
 
+function isBuiltIn(runner: string, word: string): boolean {
+  return BUILT_IN_COMMANDS.get(runner)?.has(word) ?? false;
+}
+
 /**
  * The root script a command runs, or undefined when it runs none: `bun`, `npm`, `pnpm` and `yarn`
- * `run <script>`, and `bun`, `pnpm` and `yarn <script>`, unless bun runs that word as its own
- * command.
+ * `run <script>`, and `bun`, `pnpm` and `yarn <script>`, unless the runner runs that word as its
+ * own command.
  */
 function scriptOf(words: readonly string[], scripts: Record<string, string>): string | undefined {
   const [runner, verb, ...rest] = words;
@@ -112,22 +167,36 @@ function scriptOf(words: readonly string[], scripts: Record<string, string>): st
   const name =
     verb === "run" ? operand(rest) : SHORTHAND.has(runner) ? operand(words.slice(1)) : undefined;
   if (name === undefined || !Object.hasOwn(scripts, name)) return undefined;
-  return runner === "bun" && verb !== "run" && BUN_COMMANDS.has(name) ? undefined : name;
+  return verb !== "run" && isBuiltIn(runner, name) ? undefined : name;
+}
+
+/**
+ * The bin `npx` starts: the first word that is not a flag, past the value of `-p` and `--package`
+ * (the package it installs, not the bin).
+ */
+function npxBin(args: readonly string[]): string | undefined {
+  for (let at = 0; at < args.length; at++) {
+    const word = args[at] ?? "";
+    if (word === "-p" || word === "--package") at++;
+    else if (!word.startsWith("-")) return word;
+  }
+  return undefined;
 }
 
 /**
  * The program a command starts when it runs no root script: the bin `npx` names, the word a
  * `bun`, `pnpm` or `yarn` shorthand names (checked against `node_modules/.bin` like any program),
- * else the runner itself. A `run` call that names no script starts nothing.
+ * else the runner itself, which is also what a runner's own command starts. A `run` call that
+ * names no script starts nothing.
  */
 function programOf(words: readonly string[]): string | undefined {
   const [runner, verb] = words;
   if (runner === undefined) return undefined;
-  if (runner === "npx") return operand(words.slice(1)) ?? runner;
+  if (runner === "npx") return npxBin(words.slice(1)) ?? runner;
   if (RUNNERS.has(runner) && verb === "run") return undefined;
   if (!SHORTHAND.has(runner)) return runner;
   const word = operand(words.slice(1));
-  return word === undefined || (runner === "bun" && BUN_COMMANDS.has(word)) ? runner : word;
+  return word === undefined || isBuiltIn(runner, word) ? runner : word;
 }
 
 /** The first word of every command in a script body, in order. */
