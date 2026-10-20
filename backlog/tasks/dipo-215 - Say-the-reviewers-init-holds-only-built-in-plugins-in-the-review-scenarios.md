@@ -1,10 +1,10 @@
 ---
 id: DIPO-215
 title: Say the reviewer's init holds only built-in plugins in the review scenarios
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-19 14:43'
-updated_date: '2026-10-20 07:43'
+updated_date: '2026-10-20 07:58'
 labels:
   - 'tier:S'
   - cutover
@@ -40,3 +40,9 @@ test_plan:
 <!-- AC:BEGIN -->
 - [x] #1 The expected text of review-approved-live and review-blocked-live in tools/recordings/scenarios.ts and in their meta.json says no skill and no plugin beyond Claude Code's built-ins, and the recordings tests pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C43N6FKMRJHN9NS8ZFYY9N (Haiku, 13 turns, about $0.01, under 1 min) reported done, In Review, with no denied call and no write outside the References. The review-approved-live and review-blocked-live scenarios in tools/recordings/scenarios.ts and their meta.json now say the reviewer's init holds no skill and no plugin beyond Claude Code's built-ins (the three @builtin plugins accepted on 2026-10-19); only the expected lines changed, no hash or stream line. Review passed with no findings. Verify outside the sandbox: 3865 tests, 0 fail; DIPO_TEST_CI=1 tools tests pass (319); recordings:derive leaves the tree unchanged.
+<!-- SECTION:NOTES:END -->
