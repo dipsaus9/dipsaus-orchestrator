@@ -5,6 +5,7 @@
 
 import implementContract from "./contract/implement.md" with { type: "text" };
 import reviewContract from "./contract/review.md" with { type: "text" };
+import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
 import resumeMessage from "./feedback/resume.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
@@ -75,6 +76,7 @@ export const TASK_TEMPLATES = {
  * missing or invalid report, and the short first message of a resumed session (DIPO-51).
  */
 export const FEEDBACK_TEMPLATES = {
+  ci: ciFeedback,
   verify: verifyFeedback,
   report: reportFeedback,
   resume: resumeMessage,

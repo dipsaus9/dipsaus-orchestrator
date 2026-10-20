@@ -3,10 +3,10 @@ id: DIPO-219
 title: >-
   Start pending reviews and run review rounds with their allowance, caps and
   failures
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-19 21:06'
-updated_date: '2026-10-20 07:59'
+updated_date: '2026-10-20 11:08'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -55,14 +55,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The review starter (START_KINDS.review) is registered for the reviewer place in packages/engine/src/run/compose.ts and fed through PlacesDeps.pending, so a story that reaches In Review gets a pending review that starts a reviewer session when the reviewer place is free, oldest In Review first, with its wait time equal to the In Review time while the reopen and its review phase step keep their own time; the report of each round goes through DIPO-146's validation and its verdict is stored by code tree key
-- [ ] #2 No review starts for a code tree key that already has a verdict in the claim, across a daemon restart; a head whose code tree key has a verdict (commits that change only the story's task file) takes that verdict without a round
-- [ ] #3 Each review round started writes a run_steps review step and grows the run's budget limit by review_allowance; a retried session of the same round adds nothing
-- [ ] #4 The third failed round parks review-blocked with cause rounds and the blocking findings as detail, and each failed round appends a review-failed run_steps row; reviewer failures follow the section 4 table, with causes review, review-cap and backstop and one correction turn for an invalid report or unverified evidence, the latter naming the findings from a template in packages/engine/src/prompts/feedback/
+- [x] #1 The review starter (START_KINDS.review) is registered for the reviewer place in packages/engine/src/run/compose.ts and fed through PlacesDeps.pending, so a story that reaches In Review gets a pending review that starts a reviewer session when the reviewer place is free, oldest In Review first, with its wait time equal to the In Review time while the reopen and its review phase step keep their own time; the report of each round goes through DIPO-146's validation and its verdict is stored by code tree key
+- [x] #2 No review starts for a code tree key that already has a verdict in the claim, across a daemon restart; a head whose code tree key has a verdict (commits that change only the story's task file) takes that verdict without a round
+- [x] #3 Each review round started writes a run_steps review step and grows the run's budget limit by review_allowance; a retried session of the same round adds nothing
+- [x] #4 The third failed round parks review-blocked with cause rounds and the blocking findings as detail, and each failed round appends a review-failed run_steps row; reviewer failures follow the section 4 table, with causes review, review-cap and backstop and one correction turn for an invalid report or unverified evidence, the latter naming the findings from a template in packages/engine/src/prompts/feedback/
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 From the DIPO-146 review (2026-10-20): review/diff.ts parseStoryDiff strips only the default b/ prefix, so build the story diff with --src-prefix=a/ --dst-prefix=b/ (or --no-prefix and parse without stripping); with diff.mnemonicPrefix or a user prefix config every quoted finding would fail as not a changed path. Use: validateReport, then evidenceProblems(findings) for the one correction turn, then judgeReview, then recordReviewVerdict.
+
+Delivery: dipo run run_01M5CCTE60SRHWT50ZPEVTMT8H (Opus, tier L, 106 turns, about $9.74, 20 min) reported done, In Review; one sed -i was denied (no decision while the maintainer is away; DIPO-232). No write outside the References. The review starter is registered for the reviewer place and starts pending reviews oldest In Review first; a review is skipped when a verdict exists for the HEAD's code tree key (also after a restart and for a task-file-only change); each round appends a review step and grows the budget by the run's review allowance (a retried session adds nothing); review turn and minute caps come from the run snapshot through runCaps; reports go validateReport, evidenceProblems (one correction turn naming the findings), judgeReview and recordReviewVerdict; every row of the 0019 section 4 failure table is handled, and the round cap parks review-blocked with cause rounds and the blocking findings. Fixed on top after review (blocking): the story diff is built with fixed --src-prefix=a/ --dst-prefix=b/, so a user's diff.noprefix or prefix config cannot break parseStoryDiff (real-git test under DIPO_TMP); a doc comment moved back to gitReviewOps. Advisories to the gap list: reviewerSettings falls back to the current config caps when the snapshot is null; a PlanError reviewer launch only warns (no engine.notice); no tests for the reviewer's host-lost and minute-cap rows. Verify outside the sandbox: exit 0, 3990 tests; DIPO_TEST_CI=1 review, run, prompts, workers and daemon tests pass (1243). Review and re-review passed.
 <!-- SECTION:NOTES:END -->

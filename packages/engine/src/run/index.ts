@@ -89,6 +89,34 @@ export {
 export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./places";
 export { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
 export type { RoundKind } from "./rounds";
+export {
+  beginReviewRound,
+  failedReviewRounds,
+  openReviewRound,
+  pendingReviews,
+  reviewRounds,
+  takeVerdict,
+  verifiedTreeKey,
+} from "./review-rounds";
+export type { ReviewRound } from "./review-rounds";
+export { gitReviewOps, parseNumstat, ReviewLauncher, reviewerSettings } from "./review-launch";
+export type {
+  ReviewGit,
+  ReviewLauncherDeps,
+  ReviewSessionOutcome,
+  ReviewSessionRequest,
+  ReviewSessions,
+} from "./review-launch";
+export {
+  blockingDetail,
+  REVIEW_BLOCKED_END,
+  REVIEW_CRASHED_END,
+  REVIEW_NOTICES,
+  REVIEW_TAGS,
+  reviewerView,
+  Reviews,
+} from "./reviews";
+export type { ReviewsDeps } from "./reviews";
 export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export {
   afterRunExits,

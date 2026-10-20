@@ -1,14 +1,37 @@
 // Feedback items (0014 section 7): built by code from the failing fact, with the evidence and a
 // signature for send-once handling (M1). M0 builds verify items; DIPO-49 sends them. A verify item
 // holds the failing step and command, the exit code, the last output lines and the `file:line`
-// locations parsed from tsc, oxlint and bun test output.
+// locations parsed from tsc, oxlint and bun test output. A CI item (DIPO-147; 0019 sections 7 and
+// 8) holds a failed check's name, its job, the failing step names, the cut log tail and the
+// locations parsed from it; a check with no log of its own says why.
+//
+// The reviewer's two correction turns (0019 section 4, DIPO-219) are built here too: a report
+// missing or invalid against the review schema (`feedback/review-report.md`), and blocking
+// findings whose evidence did not check out, each named with why (`feedback/review-evidence.md`).
 
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
 import { formatCount } from "../context/truncate";
 import { cutTailLines } from "./cut";
+import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
+import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "./templates";
+
+/** The reviewer's correction turn for a report missing or invalid against its schema. */
+export function reviewReportFeedback(why: string): string {
+  return renderTemplate(reviewReportTemplate, { why });
+}
+
+/**
+ * The reviewer's correction turn naming the blocking findings whose evidence failed, one line
+ * each as `evidenceProblems` gives them (`finding 2 (security): ...`).
+ */
+export function reviewEvidenceFeedback(problems: readonly string[]): string {
+  return renderTemplate(reviewEvidenceTemplate, {
+    findings: problems.map((problem) => `- ${problem}`).join("\n"),
+  });
+}
 
 /** The 0014 default: a log tail of at most 60 lines. */
 export const FEEDBACK_LOG_LINES_DEFAULT = 60;
@@ -31,7 +54,7 @@ export interface VerifyFailure {
 }
 
 export interface FeedbackItem {
-  readonly kind: "verify";
+  readonly kind: "verify" | "ci";
   /** sha256 over the failing fact, the same for the same failure (idea 17). */
   readonly signature: string;
   /** The rendered evidence. */
@@ -39,6 +62,7 @@ export interface FeedbackItem {
 }
 
 export interface VerifyFeedbackItem extends FeedbackItem {
+  readonly kind: "verify";
   readonly step: string;
   readonly command: string;
   readonly exitCode: number;
@@ -170,6 +194,101 @@ export function verifyFeedback(
     step: failure.step,
     command: failure.command,
     exitCode: failure.exitCode,
+    tail,
+    locations,
+  };
+}
+
+/** One failed check of a pushed head, as the code host reports it (0019 section 7). */
+export interface CiFailure {
+  /** The check's name. */
+  readonly check: string;
+  /** The check's link, or "" when it has none. */
+  readonly link: string;
+  /**
+   * The failed-step log of the check's Actions job as `gh run view --log-failed` prints it
+   * (`job<TAB>step<TAB>timestamp line`); null when no log was read.
+   */
+  readonly log: string | null;
+  /** Why there is no log: the line the item shows in its place. Used only when `log` is null. */
+  readonly noLog?: string;
+}
+
+export interface CiFeedbackItem extends FeedbackItem {
+  readonly kind: "ci";
+  readonly check: string;
+  /** The job the log names; the check's name when there is no log. */
+  readonly job: string;
+  /** The names of the failing steps, in order of first appearance. */
+  readonly steps: readonly string[];
+  readonly link: string;
+  /** The last log lines, at most the log-line budget; the `noLog` line when there is none. */
+  readonly tail: string;
+  readonly locations: readonly SourceLocation[];
+}
+
+/** The workspace prefix of a hosted runner's path (`/home/runner/work/REPO/REPO/`). */
+const RUNNER_ROOT = /(?:\/home\/runner|\/Users\/runner)\/work\/[^/\s]+\/[^/\s]+\//g;
+const LOG_TIMESTAMP = /^\uFEFF?\d{4}-\d\d-\d\dT[\d:.]+Z ?/;
+
+/** The job, the failing step names and the log text of a `--log-failed` output. */
+export function parseActionsLog(log: string): {
+  job: string | null;
+  steps: string[];
+  text: string;
+} {
+  const steps: string[] = [];
+  let job: string | null = null;
+  const text: string[] = [];
+  for (const line of plainOutput(log).replace(RUNNER_ROOT, "").split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length < 3) {
+      text.push(line);
+      continue;
+    }
+    const [name = "", step = ""] = parts;
+    job ??= name;
+    if (step !== "" && step !== "UNKNOWN STEP" && !steps.includes(step)) steps.push(step);
+    text.push(parts.slice(2).join("\t").replace(LOG_TIMESTAMP, ""));
+  }
+  return { job, steps, text: text.join("\n") };
+}
+
+/** A CI feedback item from a failed check (0019 sections 7 and 8). */
+export function ciFeedback(
+  failure: CiFailure,
+  options: VerifyFeedbackOptions = {},
+): CiFeedbackItem {
+  const logLines = options.logLines ?? FEEDBACK_LOG_LINES_DEFAULT;
+  const itemMax = options.itemMax ?? 3_000;
+  const parsed = failure.log === null ? null : parseActionsLog(failure.log);
+  const job = parsed?.job ?? failure.check;
+  const steps = parsed?.steps ?? [];
+  const output =
+    parsed === null ? (failure.noLog ?? "no log was read for this check") : parsed.text;
+  const locations = parsed === null ? [] : parseLocations(output, options.root);
+  const values = (tail: string) => ({
+    check: failure.check,
+    job,
+    steps: steps.length === 0 ? "none found" : steps.join(", "),
+    link: failure.link === "" ? "none" : failure.link,
+    locations: locationList(locations),
+    output: tail === "" ? "(no output)" : tail,
+  });
+  const frame = renderTemplate(FEEDBACK_TEMPLATES.ci, values(""));
+  const room = Math.max(0, itemMax - (frame.length - "(no output)".length));
+  const tail = parsed === null ? output : cutTailLines(output, logLines, room, tailMarker).text;
+  const signature = createHash("sha256")
+    .update(JSON.stringify(["ci", failure.check, job, steps, locations.map(formatLocation)]))
+    .digest("hex");
+  return {
+    kind: "ci",
+    signature,
+    text: renderTemplate(FEEDBACK_TEMPLATES.ci, values(tail)),
+    check: failure.check,
+    job,
+    steps,
+    link: failure.link,
     tail,
     locations,
   };
