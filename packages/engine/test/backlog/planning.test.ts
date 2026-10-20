@@ -64,6 +64,7 @@ interface World {
     commits: string[];
     lockedBy: string | undefined;
     calls: string[][];
+    goneBranches: string[];
   };
 }
 
@@ -101,6 +102,8 @@ interface FakeGitOptions {
   readonly path?: string;
   /** Every step's arguments, in order. */
   readonly calls?: string[][];
+  /** Local branches deleted by hand: `rev-parse --verify` of them fails. */
+  readonly goneBranches?: readonly string[];
 }
 
 /**
@@ -123,7 +126,13 @@ function fakeGit(dirty: string[], worktreeGone: boolean, options: FakeGitOptions
     },
     step: async (_location: unknown, args: string[]) => {
       options.calls?.push(args);
-      return { code: args[0] === "rev-parse" ? 1 : 0, stdout: "", stderr: "" };
+      // A local branch exists unless it is listed as gone; the remote base never does here.
+      const ref = args.at(-1) ?? "";
+      const branch = ref.startsWith("refs/heads/")
+        ? ref.slice(11).replace(/\^\{commit\}$/, "")
+        : null;
+      const found = branch !== null && !(options.goneBranches ?? []).includes(branch);
+      return { code: args[0] === "rev-parse" && !found ? 1 : 0, stdout: "", stderr: "" };
     },
   };
   return {
@@ -150,6 +159,7 @@ beforeEach(async () => {
     commits: [] as string[],
     lockedBy: undefined as string | undefined,
     calls: [] as string[][],
+    goneBranches: [] as string[],
   };
   const planning = new StoryPlanning({
     lane: () => fakeLane(office, t, ops, flushes),
@@ -159,6 +169,7 @@ beforeEach(async () => {
         lockedBy: hooks.lockedBy,
         path: join(dir, "trees", "DIPO-7"),
         calls: hooks.calls,
+        goneBranches: hooks.goneBranches,
       }),
     host: {
       closePr: async (repo, number, comment) => {
@@ -784,6 +795,17 @@ describe("story.losses and the kept branch of a story (DIPO-228)", () => {
     expect(await losses("DIPO-7")).toMatchObject({
       ok: true,
       result: { commits: [{ sha: "9b2e4d0", subject: "fix: lookup" }], files: [] },
+    });
+  });
+
+  it("skips a kept branch that was deleted by hand instead of failing the read", async () => {
+    const key = story("DIPO-7", { status: "Ready" });
+    keepBranch(key, "DIPO-7/work");
+    w.hooks.commits = ["9b2e4d0\tfix: lookup"];
+    w.hooks.goneBranches.push("DIPO-7/work");
+    expect(await losses("DIPO-7")).toMatchObject({
+      ok: true,
+      result: { commits: [], files: [] },
     });
   });
 

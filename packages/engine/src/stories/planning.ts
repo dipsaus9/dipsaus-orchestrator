@@ -168,6 +168,14 @@ export class StoryPlanning {
       const base = await baseRefOf(git, session);
       const found = new Map<string, LostCommit>();
       for (const branch of branches) {
+        // A kept branch deleted by hand has nothing left to lose: skip it, never fail the read.
+        const ref = await session.step(session.repository, [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `refs/heads/${branch}^{commit}`,
+        ]);
+        if (ref.code !== 0) continue;
         const log = await session.ok(session.repository, [
           "log",
           "--format=%h%x09%s",
