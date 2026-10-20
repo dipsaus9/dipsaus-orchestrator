@@ -22,6 +22,7 @@ import {
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  BASH_GH_FAILED_REASON,
   GATE_FAILED_REASON,
   GATE_NO_ANSWER_REASON,
   gateDenyOutput,
@@ -566,16 +567,50 @@ describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
       expect(await bashCall(socket, "gh pr view --help")).toEqual({ code: 0, out: [] });
     }));
 
-  it("prints nothing and exits 0 for a check that throws, a bad payload or no input", () =>
+  it("exits 2 with the reason on stderr when the check throws on a gh command, and 0 otherwise (DIPO-241)", () =>
+    withWorkerHost(async ({ socket }) => {
+      expect(await bashCall(socket, "/usr/local/bin/gh pr list", throwingCheck)).toEqual({
+        code: 2,
+        out: [`err:${BASH_GH_FAILED_REASON}`],
+      });
+      expect(BASH_GH_FAILED_REASON).toContain("the engine handles the code host");
+      // Quotes, escapes and case do not hide gh from the shell, so they do not hide it here.
+      for (const named of [
+        "'g'h pr list",
+        'g"h" pr list',
+        "g\\h pr list",
+        "g\\\nh pr list",
+        "GH pr merge 1",
+        "x\\\\\ngh pr merge 1",
+        "x\\\\\ng\\\nh pr list",
+        "true\\\\\ngh api /user",
+      ]) {
+        expect([named, (await bashCall(socket, named, throwingCheck)).code]).toEqual([named, 2]);
+      }
+      expect(await bashCall(socket, "echo gh-free", throwingCheck)).toEqual({ code: 0, out: [] });
+      expect(await bashCall(socket, "echo sigh", throwingCheck)).toEqual({ code: 0, out: [] });
+      expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
+        code: 0,
+        out: [],
+      });
+    }));
+
+  it("prints nothing and exits 0 for a check that throws, or a payload with no command", () =>
     withWorkerHost(async ({ socket }) => {
       expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
         code: 0,
         out: [],
       });
       const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-      for (const input of ["not json", "null", '{"tool_input":{"command":5}}', "{}", null]) {
+      for (const input of ["null", '{"tool_input":{"command":5}}', "{}"]) {
         const out: string[] = [];
         expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(0);
+        expect(out).toEqual([]);
+      }
+      // A payload it cannot parse or read exits 3: the shell fallback greps it for gh (DIPO-241).
+      for (const input of ["not json", null]) {
+        const out: string[] = [];
+        expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(3);
         expect(out).toEqual([]);
       }
     }));

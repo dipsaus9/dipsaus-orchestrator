@@ -1171,7 +1171,7 @@ describe("web tools (DIPO-164)", () => {
     );
     const bash = settings.hooks["PreToolUse"]?.[1];
     expect(bash?.matcher).toBe("Bash");
-    expect(bash?.hooks[0]?.command.endsWith(" hook PreToolUse --bash")).toBe(true);
+    expect(bash?.hooks[0]?.command).toContain(" hook PreToolUse --bash; }");
   });
 
   it("keeps the Bash sandbox network closed", () => {

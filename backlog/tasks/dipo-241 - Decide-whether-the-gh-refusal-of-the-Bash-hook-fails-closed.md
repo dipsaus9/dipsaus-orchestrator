@@ -1,10 +1,10 @@
 ---
 id: DIPO-241
 title: Fail the gh part of the Bash hook closed when the check cannot run
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:28'
+updated_date: '2026-10-20 23:34'
 labels:
   - 'tier:S'
   - cutover
@@ -49,8 +49,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When `dipo hook PreToolUse --bash` throws while it checks a command whose text contains a gh word (a word whose basename is gh), it prints nothing on stdout, writes a reason naming the engine and the code host on stderr and exits 2, so the call does not run
-- [ ] #2 The Bash hook entry planned in packages/engine/src/workers/claude-cli/hooks.ts has a fallback for a dipo that cannot start or crashes: it exits 2 when the hook payload's command contains a gh word and exits 0 otherwise, and its comment says the gh part fails closed while the rest fails open
-- [ ] #3 A Bash command with no gh word still fails open when the check throws or cannot start: exit 0 and no output
-- [ ] #4 packages/daemon/src/hook.test.ts covers a throwing check with and without a gh word, and packages/engine/test/workers/hooks.test.ts covers the planned entry and its fallback
+- [x] #1 When `dipo hook PreToolUse --bash` throws while it checks a command whose text contains a gh word (a word whose basename is gh), it prints nothing on stdout, writes a reason naming the engine and the code host on stderr and exits 2, so the call does not run
+- [x] #2 The Bash hook entry planned in packages/engine/src/workers/claude-cli/hooks.ts has a fallback for a dipo that cannot start or crashes: it exits 2 when the hook payload's command contains a gh word and exits 0 otherwise, and its comment says the gh part fails closed while the rest fails open
+- [x] #3 A Bash command with no gh word still fails open when the check throws or cannot start: exit 0 and no output
+- [x] #4 packages/daemon/src/hook.test.ts covers a throwing check with and without a gh word, and packages/engine/test/workers/hooks.test.ts covers the planned entry and its fallback
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DRAPDWXZEEQT7AGT81B3Z3 (Haiku, 33 turns, about $0.27). dipo's own reviewer (Opus) BLOCKED round 1 on a real gap (the shell fallback grepped the JSON payload, where a newline before gh is the escape \\n, so a gh call on a later line was missed); no fix round exists yet (DIPO-148), so it was fixed by hand over three independent review rounds. Result, per the 0008 section 2 note of 2026-10-20 (DIPO-241): when the PreToolUse Bash check throws, the daemon exits 2 with a reason naming the engine and the code host if the command names gh, and 0 otherwise; a payload it cannot read or parse exits 3; the planned hook command keeps dipo's exit 0 and 2, and on any other status (dipo missing, crashed, or exit 3) a shell fallback greps the payload for a gh word and exits 2 for gh, 0 otherwise. Both sides decode backslash pairs left to right as the shell does (a backslash-newline is a continuation, an escaped backslash keeps its line break), drop quotes and backslashes, and ignore case; it errs toward refusing. The last review ran a differential fuzz of over 11,000 commands through sh and zsh with a fake gh: every command that ran gh was refused by both the fallback and the daemon. Advisories, not done: \\uXXXX escapes are not decoded (canonical JSON.stringify never uses them for printable letters; stated in a comment); the daemon and engine hold the reason and the gh-word pattern twice. Normal-path bypasses found here ($'gh', GH) moved to DIPO-242. Verify outside the sandbox: exit 0, 4201 tests; DIPO_TEST_CI=1 workers and daemon tests pass.
+<!-- SECTION:NOTES:END -->
