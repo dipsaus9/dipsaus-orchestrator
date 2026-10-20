@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { SandboxRuntimeConfigSchema } from "@anthropic-ai/sandbox-runtime";
+import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { DipoPlatform } from "../../src/platform/paths";
 import {
@@ -24,6 +25,21 @@ import {
 } from "../../src/sandbox/policy";
 
 const GOLDEN = join(import.meta.dir, "golden");
+const REPO_ROOT = join(import.meta.dir, "../../../..");
+const OXFMT = join(REPO_ROOT, "node_modules/.bin/oxfmt");
+const OXFMT_CONFIG = join(REPO_ROOT, ".oxfmtrc.json");
+
+/** The golden text: JSON in the layout oxfmt gives it, so a regenerated golden passes format:check (DIPO-209). */
+function goldenText(value: unknown, name: string): string {
+  const result = Bun.spawnSync([OXFMT, `--stdin-filepath=${name}`, "-c", OXFMT_CONFIG], {
+    stdin: Buffer.from(`${JSON.stringify(value, null, 2)}\n`),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0)
+    throw new Error(`oxfmt failed on ${name}: ${result.stderr.toString()}`);
+  return result.stdout.toString();
+}
 
 function run(platform: DipoPlatform, kind: StepPolicyKind): SandboxRun {
   return {
@@ -47,13 +63,31 @@ describe("translatePolicy golden files", () => {
     for (const kind of ["install", "verify"] as const) {
       it(`${platform} ${kind}`, () => {
         const translated = translatePolicy(run(platform, kind));
-        const text = `${JSON.stringify(translated, null, 2)}\n`;
-        const file = join(GOLDEN, `${platform}-${kind}.json`);
-        if (process.env["DIPO_UPDATE_GOLDEN"] === "1") writeFileSync(file, text);
+        const name = `${platform}-${kind}.json`;
+        const file = join(GOLDEN, name);
+        if (process.env["DIPO_UPDATE_GOLDEN"] === "1") {
+          writeFileSync(file, goldenText(translated, name));
+        }
         // Compared as values: oxfmt formats the golden files.
         expect(translated).toEqual(JSON.parse(readFileSync(file, "utf8")));
         // The file is one srt 0.0.79 accepts.
         expect(SandboxRuntimeConfigSchema.safeParse(translated.settings).success).toBe(true);
+      });
+
+      it(`writes the ${platform} ${kind} golden in the formatter's layout (DIPO-209)`, () => {
+        const name = `${platform}-${kind}.json`;
+        const dir = makeTempDir();
+        try {
+          const file = join(dir, name);
+          writeFileSync(file, goldenText(translatePolicy(run(platform, kind)), name));
+          const check = Bun.spawnSync([OXFMT, "--check", "-c", OXFMT_CONFIG, file], {
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+          expect(check.exitCode).toBe(0);
+        } finally {
+          removeTempDir(dir);
+        }
       });
     }
   }
