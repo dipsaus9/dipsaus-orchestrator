@@ -1,10 +1,10 @@
 ---
 id: DIPO-238
 title: Refuse a story labelled dropped or on-hold at the Ready gate
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 22:52'
+updated_date: '2026-10-20 22:57'
 labels:
   - 'tier:S'
   - cutover
@@ -49,3 +49,9 @@ test_plan:
 - [x] #2 A story with neither label gets no R28 failure, and the other rules' failures and their order are unchanged
 - [x] #3 packages/engine/test/gate/gate.test.ts covers both labels in ready and pickup mode, a story with both labels (two failures) and a story with neither
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DQNRGF8VCXHQSDC2H74EK1 (Haiku, 24 turns), verified and reviewed by dipo itself (its reviewer, Opus, approved round 1), about $0.16 in total, with no denied call and no write outside the References. New Ready gate rule R28 (0012 section 3 note of 2026-10-20): a story labelled dropped or on-hold fails in both modes with 'labelled <label>: the maintainer set it aside; remove the label to make it Ready', one failure per label, after R27; R28 is in GATE_RULES. Independent review passed; checked on real backlog data: DIPO-182 (dropped) now fails R28 in both modes, and with the label removed it passes R28 (the content hash includes the labels, so a cached decision is redone). Follow-ups: a near-miss label spelling (Dropped, ON-HOLD) lands in labels.invalid, which no rule reads, so it passes silently; scripts/check-ready-gate.ts says R02 to R26. Verify outside the sandbox: exit 0, 4203 tests; DIPO_TEST_CI=1 gate tests pass (127).
+<!-- SECTION:NOTES:END -->
