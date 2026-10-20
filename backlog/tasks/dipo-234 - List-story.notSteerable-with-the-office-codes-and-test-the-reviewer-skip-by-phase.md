@@ -3,10 +3,10 @@ id: DIPO-234
 title: >-
   List story.notSteerable with the office codes and test the reviewer skip by
   phase
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 10:49'
+updated_date: '2026-10-20 11:17'
 labels:
   - 'tier:S'
   - cutover
