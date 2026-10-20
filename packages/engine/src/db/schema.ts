@@ -40,6 +40,7 @@ import { storyPrs } from "./migrations/0036-story-prs";
 import { webCalls } from "./migrations/0037-web-calls";
 import { runStepCap } from "./migrations/0038-run-step-cap";
 import { reviewVerdicts } from "./migrations/0039-review-verdicts";
+import { baseVerifies } from "./migrations/0040-base-verifies";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -115,4 +116,5 @@ create table offices (
   webCalls,
   runStepCap,
   reviewVerdicts,
+  baseVerifies,
 ];

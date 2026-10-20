@@ -81,6 +81,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   },
   story_prs: { tier: "S", rule: "closed more than stateDays ago; an open PR is kept" },
   review_verdicts: { tier: "S", rule: "decided more than stateDays ago" },
+  base_verifies: {
+    tier: "P",
+    rule: "kept until purge: one small row per base commit, read by every later run on that base",
+  },
   runs: { tier: "S", rule: "ended more than stateDays ago; an active run is kept" },
   run_steps: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_grants: { tier: "S", rule: "with its run, ended more than stateDays ago" },

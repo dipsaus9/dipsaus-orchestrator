@@ -18,9 +18,7 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
-import { WORKTREE_ADD_CONFIG } from "../../src/git/hardened";
 import { formatLogLine } from "../../src/log/logger";
-import { readWorktreeSnapshot } from "../../src/git/snapshot";
 import {
   CLAIM_NOTICES,
   type ClaimRecord,
@@ -35,16 +33,16 @@ import {
   StoryClaims,
 } from "../../src/worktree";
 import type { OfficeLoadContext } from "../../src/office/steps";
-import { insertClaim } from "../../src/worktree/records";
 import { outputTail } from "../../src/worktree/setup";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import { BRANCH_1, type ClaimSetup, inRemote, notices, TASK_1, TASK_FILE_1 } from "./helpers";
+import { BRANCH_1, inRemote, notices, TASK_1, TASK_FILE_1 } from "./helpers";
 import {
   exited,
   fakeSteps,
   FIXTURE,
   type Harness,
   harness,
+  localClaim,
   ONE_GB,
   type Options,
   product,
@@ -52,39 +50,6 @@ import {
   SECRET,
   skipped,
 } from "./setup-harness";
-
-/** The state `claimStory` leaves before setup, made with plain git (no Backlog CLI). */
-async function localClaim(repo: TempRepo, s: ClaimSetup): Promise<ClaimRecord> {
-  const start = (await repo.git("rev-parse", "HEAD")).trim();
-  const path = join(s.git.worktreeRoot(), TASK_1);
-  const runId = s.runId();
-  await s.git.run(async (g) => {
-    await g.ok(g.repository, ["worktree", "add", "--quiet", "-b", BRANCH_1, path, start], {
-      config: WORKTREE_ADD_CONFIG,
-    });
-    await g.ok(g.repository, ["worktree", "lock", "--reason", `dipo ${runId}`, path]);
-  });
-  const snapshot = readWorktreeSnapshot(path, s.git.adminDirOf(path) as string);
-  s.git.pinWorktree(snapshot);
-  s.office.immediate(() =>
-    insertClaim(s.office, {
-      runId,
-      key: s.key(),
-      story: TASK_1,
-      branch: BRANCH_1,
-      worktree: path,
-      base: "main",
-      baseSha: start,
-      startSha: start,
-      claimSha: null,
-      reused: false,
-      snapshot,
-      firstFeedback: null,
-      claimedAt: s.t.clock.now(),
-    }),
-  );
-  return findClaim(s.office, runId) as ClaimRecord;
-}
 
 function done(outcome: SetupOutcome): SetupDone {
   if (!outcome.ok) throw new Error(`setup failed: ${outcome.reason}\n${outcome.log}`);
@@ -324,6 +289,8 @@ describe("setting up a worktree", () => {
         ["setup", "verify", ["bun", "run", "setup"]],
         ["post_create", "verify", ["bun", "run", "db:seed"]],
         ["post_create", "verify", ["echo", "$HOME;", "rm -rf /"]],
+        // The base verify (DIPO-183), last: after install, setup and post_create.
+        ["verify", "verify", ["bun", "run", "verify"]],
       ]);
       for (const request of steps.requests) {
         expect(request.extraEnv).toEqual(outcome.env);

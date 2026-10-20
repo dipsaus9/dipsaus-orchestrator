@@ -5,6 +5,12 @@
 export { assembleTaskMessage, taskBudgetsFor } from "./assemble";
 export type { Drop, TaskBudgets, TaskMessage, TaskMessageInput } from "./assemble";
 export {
+  BASE_VERIFY_MAX_NAMES,
+  BASE_VERIFY_UNKNOWN,
+  renderBaseVerify,
+  type BaseVerifyFacts,
+} from "./base-verify";
+export {
   assembleContract,
   CONTRACT_MAX_DEFAULT,
   CONTRACT_SECTIONS,

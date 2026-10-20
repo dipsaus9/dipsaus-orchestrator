@@ -8,6 +8,8 @@ import { join } from "node:path";
 import type { TempRepo, TempRepoWithRemote } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config/schema";
+import { WORKTREE_ADD_CONFIG } from "../../src/git/hardened";
+import { readWorktreeSnapshot } from "../../src/git/snapshot";
 import type { DiskProbe } from "../../src/platform/disk";
 import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import type { CommandSpec, Resolution, RunProfile } from "../../src/scan/detect";
@@ -16,6 +18,7 @@ import {
   type ClaimRecord,
   type ClaimSkip,
   claimStory,
+  findClaim,
   releaseClaim,
   type SetupDone,
   type SetupOutcome,
@@ -24,7 +27,16 @@ import {
   SlotTable,
 } from "../../src/worktree";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
-import { BACKLOG_FIXTURE, claimSetup, type ClaimSetup, publish, ROOMY } from "./helpers";
+import { insertClaim } from "../../src/worktree/records";
+import {
+  BACKLOG_FIXTURE,
+  BRANCH_1,
+  claimSetup,
+  type ClaimSetup,
+  publish,
+  ROOMY,
+  TASK_1,
+} from "./helpers";
 
 export const SECRET = "DEV-SECRET-77b2e0";
 export const FIXTURE = { fixture: BACKLOG_FIXTURE };
@@ -38,7 +50,8 @@ const resolved = (...commands: string[][]): Resolution<CommandSpec> => ({
   evidence: "package.json",
 });
 
-function profile(): RunProfile {
+/** The run profile the harness sets up with: install, setup and verify resolved. */
+export function runProfile(): RunProfile {
   const none: Resolution<CommandSpec> = { status: "unresolved" };
   return {
     fingerprint: "f",
@@ -154,7 +167,7 @@ export async function harness(repo: TempRepo): Promise<Harness> {
           timeouts: OFFICE_DEFAULTS.timeouts,
           sandbox: OFFICE_DEFAULTS.sandbox,
         },
-        profile: options.profile === undefined ? profile() : options.profile,
+        profile: options.profile === undefined ? runProfile() : options.profile,
         host: { home: repo.home, uid: 501, env: { PATH: "/usr/bin:/bin", HOME: repo.home } },
       },
     );
@@ -173,6 +186,39 @@ export async function harness(repo: TempRepo): Promise<Harness> {
 export function skipped(outcome: ClaimOutcome<SetupDone>): ClaimSkip {
   if (outcome.ok) throw new Error("expected the claim to be skipped");
   return outcome;
+}
+
+/** The state `claimStory` leaves before setup, made with plain git (no Backlog CLI). */
+export async function localClaim(repo: TempRepo, s: ClaimSetup): Promise<ClaimRecord> {
+  const start = (await repo.git("rev-parse", "HEAD")).trim();
+  const path = join(s.git.worktreeRoot(), TASK_1);
+  const runId = s.runId();
+  await s.git.run(async (g) => {
+    await g.ok(g.repository, ["worktree", "add", "--quiet", "-b", BRANCH_1, path, start], {
+      config: WORKTREE_ADD_CONFIG,
+    });
+    await g.ok(g.repository, ["worktree", "lock", "--reason", `dipo ${runId}`, path]);
+  });
+  const snapshot = readWorktreeSnapshot(path, s.git.adminDirOf(path) as string);
+  s.git.pinWorktree(snapshot);
+  s.office.immediate(() =>
+    insertClaim(s.office, {
+      runId,
+      key: s.key(),
+      story: TASK_1,
+      branch: BRANCH_1,
+      worktree: path,
+      base: "main",
+      baseSha: start,
+      startSha: start,
+      claimSha: null,
+      reused: false,
+      snapshot,
+      firstFeedback: null,
+      claimedAt: s.t.clock.now(),
+    }),
+  );
+  return findClaim(s.office, runId) as ClaimRecord;
 }
 
 /** Releases the claim the way an amend would, keeping its branch for the story. */

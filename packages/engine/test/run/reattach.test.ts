@@ -81,7 +81,8 @@ import {
   type SessionRef,
   type WorkerAdapter,
 } from "../../src/workers/types";
-import { insertClaim } from "../../src/worktree/records";
+import { baseVerifyConfigHash, storeBaseVerify } from "../../src/worktree/base-verify";
+import { findClaim, insertClaim } from "../../src/worktree/records";
 import {
   appendLines,
   hostLines,
@@ -1788,6 +1789,44 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
       { name: "system", sha256: sha(system), bytes: Buffer.byteLength(system) },
       { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
     ]);
+  });
+});
+
+const tooFull = () => ({ ok: false as const, reason: "the context is too full" });
+
+describe("the base verify section of a handoff (DIPO-183)", () => {
+  it("lists the failing tests stored for the run's base commit and its configuration", async () => {
+    firstSession();
+    const run = findRun(w.f.office, w.f.run);
+    const baseSha = findClaim(w.f.office, w.f.run)?.baseSha ?? run?.startSha ?? "c".repeat(40);
+    w.f.office.immediate(() =>
+      storeBaseVerify(w.f.office, {
+        baseSha,
+        hash: baseVerifyConfigHash(OFFICE_DEFAULTS),
+        runId: w.f.run,
+        result: { kind: "red", failing: ["sandbox > reads home", "worktree > setup"], tail: null },
+        at: 1,
+      }),
+    );
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
+      tooFull,
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(sentText()).toContain("<handoff>");
+    expect(sentText()).toContain("- sandbox > reads home\n- worktree > setup");
+  });
+
+  it("gives the not-known line when nothing is stored for the base, and still starts the session", async () => {
+    firstSession();
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
+      tooFull,
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(sentText()).toContain("<base_verify>\nNot known: dipo has no verify result");
   });
 });
 
