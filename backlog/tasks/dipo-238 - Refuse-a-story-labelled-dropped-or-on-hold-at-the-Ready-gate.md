@@ -1,10 +1,10 @@
 ---
 id: DIPO-238
 title: Refuse a story labelled dropped or on-hold at the Ready gate
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 18:50'
+updated_date: '2026-10-20 22:23'
 labels:
   - 'tier:S'
   - cutover

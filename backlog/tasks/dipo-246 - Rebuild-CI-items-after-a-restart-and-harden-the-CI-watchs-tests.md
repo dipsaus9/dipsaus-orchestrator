@@ -1,10 +1,10 @@
 ---
 id: DIPO-246
 title: Rebuild CI items after a restart and harden the CI watch's tests
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 18:35'
+updated_date: '2026-10-20 22:23'
 labels:
   - 'tier:M'
   - cutover
