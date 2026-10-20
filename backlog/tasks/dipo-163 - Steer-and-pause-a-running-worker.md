@@ -1,10 +1,10 @@
 ---
 id: DIPO-163
 title: Steer and pause a running worker
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 08:26'
+updated_date: '2026-10-20 08:43'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -70,3 +70,9 @@ test_plan:
 - [x] #5 Paused time is left out of the minute cap, and a pause that arrives during an engine verify takes effect before the next worker turn
 - [x] #6 work.steer and work.pause are registered with their since on the waiting command path
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5C5J9PF4Q449H4JCBV9V6ST (Sonnet, 85 turns, about $3.09, 17 min) reported done, In Review, with no denied call and no write outside the References; the first launch was refused by a flaky self-test (gap DIPO-230), the retry passed. work.steer sends a maintainer message to a running worker as a next-priority turn, or stores it once per request for a paused, parked or between-session run and sends it with the next session's first message; it answers story.notSteerable for a reviewer session or a follow-only host. work.pause stops the worker before its next turn (also during an engine verify, holding verify feedback), keeps the claim and the place, shows health paused, closes the worker's stdin after 10 minutes, and paused time does not count toward the minute cap; work.resume continues a live worker or starts a resume session, queued when the worker place is taken. workSteer and workPause are since 1. Fixed on top after review: a held steer or feedback item never goes into a reviewer session's first message (0002); it waits for the next worker session (test shown failing without the fix); the 10-minute test pins the story's value. Advisories, to the gap list: story.notSteerable sits in a separate STEER_ERROR_CODES list rather than OFFICE_ERROR_CODES (index.test.ts was outside scope); a queued resume resolves the pause when queued, so waiting for the place counts toward the minute cap; the pause message names `dipo resume`, which comes with DIPO-155; the reviewer-skip test reaches the reviewer place through runs.role rather than a review phase step. Verify outside the sandbox: 3929 tests, 0 fail; DIPO_TEST_CI=1 run, views, contract, cli and daemon tests pass.
+<!-- SECTION:NOTES:END -->
