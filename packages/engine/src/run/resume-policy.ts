@@ -1,6 +1,7 @@
 // The per-reason resume policy of `resumption.ts` (ADR 0020 section 1, DIPO-138): which command
 // resumes a run standing still for a reason. The rows of M0 are `needs-permission` (the
-// permission answer) and `plan-limit` (`work.resume` of the held run); later rows extend this
+// permission answer) and `plan-limit` (`work.resume` of the held run), and `on-hold` (`work.resume`
+// of a park with no run, DIPO-160); later rows extend this
 // table, not the run outcomes.
 
 /** The command that resumes a run standing still for a reason. */
@@ -17,6 +18,8 @@ export interface ResumePolicyRow {
 export const PARK_RESUME_POLICY: Readonly<Record<string, ResumePolicyRow>> = {
   "needs-permission": { via: "permission-answer" },
   "plan-limit": { via: "work.resume" },
+  // A park without a run: the planning lane lifts it (0020 section 8, DIPO-160).
+  "on-hold": { via: "work.resume" },
 };
 
 /** The command that resumes a run standing still for `reason`, or null without a row. */

@@ -51,10 +51,18 @@ describe("the resume policy table", () => {
     expect(resumeVia("plan-limit")).toBe("work.resume");
   });
 
-  it("has the M0 rows only; every other park reason has no row", () => {
-    expect(Object.keys(PARK_RESUME_POLICY).toSorted()).toEqual(["needs-permission", "plan-limit"]);
+  it("resumes an on-hold park through work.resume (DIPO-160)", () => {
+    expect(resumeVia("on-hold")).toBe("work.resume");
+  });
+
+  it("has the rows of M0 and of the hold only; every other park reason has no row", () => {
+    expect(Object.keys(PARK_RESUME_POLICY).toSorted()).toEqual([
+      "needs-permission",
+      "on-hold",
+      "plan-limit",
+    ]);
     for (const reason of KNOWN_PARK_REASONS) {
-      if (reason === "needs-permission") continue;
+      if (reason === "needs-permission" || reason === "on-hold") continue;
       expect(resumeVia(reason)).toBeNull();
     }
     expect(resumeVia("constructor")).toBeNull();
@@ -241,6 +249,8 @@ async function refusal(of: Resumption): Promise<CommandError | null> {
 
 describe("work.resume through the policy table", () => {
   for (const reason of KNOWN_PARK_REASONS) {
+    // An on-hold park is resumed by the planning lane (planning.test.ts, DIPO-160).
+    if (reason === "on-hold") continue;
     it(`answers story.notPausedOrParked for a story parked ${reason}`, async () => {
       park(reason);
       const error = await refusal(resumption());

@@ -3,7 +3,7 @@
   "source": "live",
   "claude_code_version": "2.1.302",
   "captured_at": "2026-10-19",
-  "expected": "A reviewer's session (0019 section 4) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no installed plugin; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
+  "expected": "A reviewer's session (0019 section 4) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
   "usage_checksum": "4b13af77f212543b7d5afe1eb8404af48ae0975b97e300b8568cd03c95587f7e",
   "fixture": "greeter",
   "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",

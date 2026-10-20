@@ -409,7 +409,7 @@ export interface ParkOutcome {
 
 /**
  * Commands the engine implements, but not yet for a parked story: `work.resume` continues only
- * runs held by a plan limit (DIPO-61).
+ * runs held by a plan limit (DIPO-61) and the park `on-hold` (DIPO-160).
  */
 const NOT_FOR_PARKED: readonly CommandName[] = ["work.resume"] as CommandName[];
 
@@ -421,7 +421,7 @@ export function parkActions(
   return PARK_ACTIONS.filter(
     (name) =>
       (name !== "work.answer" || reason === "needs-permission") &&
-      !NOT_FOR_PARKED.includes(name) &&
+      (reason === "on-hold" || !NOT_FOR_PARKED.includes(name)) &&
       implemented(name),
   );
 }
