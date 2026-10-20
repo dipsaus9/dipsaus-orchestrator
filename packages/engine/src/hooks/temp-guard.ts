@@ -194,6 +194,9 @@ export function simpleCommands(text: string): { commands: SimpleCommand[]; neste
   let listStart = true;
   let word = "";
   let inWord = false;
+  // True once any part of the current word is quoted or escaped: bash then reads it as a plain word,
+  // never as a keyword, a group word or a closer.
+  let quoted = false;
   // The here-doc whose delimiter is the next word.
   let delimFor: HereDoc | null = null;
   // Set once a `$(` inside double quotes is not closed: later ones are not scanned again.
@@ -208,20 +211,26 @@ export function simpleCommands(text: string): { commands: SimpleCommand[]; neste
         heredocs.pop();
         delimFor = null;
       }
-      const closer = listStart ? COMPOUND_CLOSERS.get(word) : undefined;
-      if (word === "{" && listStart) {
+      const closer = listStart && !quoted ? COMPOUND_CLOSERS.get(word) : undefined;
+      if (word === "{" && listStart && !quoted) {
         groups.push({ kind: "}", start: commands.length });
       } else if (closer !== undefined) {
         groups.push({ kind: closer, start: commands.length });
-      } else if (CLOSERS.has(word) && current.words.length === 0 && groups.at(-1)?.kind === word) {
+      } else if (
+        CLOSERS.has(word) &&
+        !quoted &&
+        current.words.length === 0 &&
+        groups.at(-1)?.kind === word
+      ) {
         const group = groups.pop();
         if (group !== undefined) current.group = { start: group.start, end: commands.length };
       }
-      listStart = listStart && (KEYWORDS.has(word) || word === "{");
+      listStart = listStart && !quoted && (KEYWORDS.has(word) || word === "{");
       current.words.push(word);
     }
     word = "";
     inWord = false;
+    quoted = false;
   };
   const endCommand = () => {
     endWord();
@@ -237,15 +246,18 @@ export function simpleCommands(text: string): { commands: SimpleCommand[]; neste
       if (text.charAt(i) !== "\n") {
         word += text.charAt(i);
         inWord = true;
+        quoted = true;
       }
     } else if (c === "'") {
       const end = text.indexOf("'", i + 1);
       const stop = end === -1 ? text.length : end;
       word += text.slice(i + 1, stop);
       inWord = true;
+      quoted = true;
       i = stop;
     } else if (c === '"') {
       inWord = true;
+      quoted = true;
       for (i++; i < text.length && text.charAt(i) !== '"'; i++) {
         const d = text.charAt(i);
         const close =
