@@ -5,6 +5,8 @@
 
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { HookEvent } from "../../src/hooks/types";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -521,6 +523,35 @@ describe("the Bash check's command line fails closed for gh and open otherwise w
       expect(ran.code).toBe(2);
       expect(ran.stderr).toContain(BASH_GH_CRASH_REASON);
       expect(ran.stdout).toBe("");
+    }
+  });
+
+  it("finds a gh call on a later line or after a tab of the command, where the payload holds an escape", () => {
+    for (const command of ["cd x\ngh pr merge 1", "echo hi;\tgh pr list", "true\r\ngh api /user"]) {
+      const ran = runBash("/nonexistent/dipo", JSON.stringify({ tool_input: { command } }));
+      expect([command, ran.code]).toEqual([command, 2]);
+      expect(ran.stderr).toContain(BASH_GH_CRASH_REASON);
+    }
+    // A word that only ends in gh is no gh call.
+    const sigh = runBash(
+      "/nonexistent/dipo",
+      JSON.stringify({ tool_input: { command: "echo sigh" } }),
+    );
+    expect(sigh.code).toBe(0);
+  });
+
+  it("keeps dipo's own answer: exit 2 from the check is not followed by the fallback's reason", () => {
+    const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "bash-hook-"));
+    try {
+      const fake = join(dir, "dipo");
+      writeFileSync(fake, "#!/bin/sh\ncat >/dev/null\necho refused-by-dipo >&2\nexit 2\n");
+      chmodSync(fake, 0o755);
+      const ran = runBash(fake, GH_PAYLOAD);
+      expect(ran.code).toBe(2);
+      expect(ran.stderr).toContain("refused-by-dipo");
+      expect(ran.stderr).not.toContain(BASH_GH_CRASH_REASON);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
