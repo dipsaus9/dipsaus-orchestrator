@@ -3,10 +3,10 @@ id: DIPO-220
 title: >-
   Leave pnpm and yarn built-ins alone and read the npx -p bin in the verify
   tools check
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 07:59'
+updated_date: '2026-10-20 09:12'
 labels:
   - 'tier:S'
   - cutover
