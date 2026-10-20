@@ -57,6 +57,30 @@ describe("system file", () => {
     expect(text).toContain("Pass file paths relative to the worktree root");
   });
 
+  it("puts the calls that need approval right after Working directory and says why they are denied", () => {
+    const text = renderSystemFile("implement", "developer");
+    const heading = text.indexOf("## Calls that need approval");
+    expect(heading).toBeGreaterThan(text.indexOf("## Working directory"));
+    expect(text.indexOf("## Temp files")).toBeGreaterThan(heading);
+    expect(text).toContain(
+      "Your tool layer asks for approval of some calls. Nobody answers that question in a run, so such a call is denied, and after one denial later calls that need approval can be denied too. Avoid these calls.",
+    );
+  });
+
+  it("tells the worker to change files only with Edit and Write, and to run one command per shell call", () => {
+    const text = renderSystemFile("implement", "developer");
+    expect(text).toContain(
+      "Change files only with the Edit and Write tools, never with `sed -i`, a heredoc, a shell redirection such as `>` or `>>` into a file, `tee`, or a script you write to change files.",
+    );
+    expect(text).toContain(
+      "A project command that rewrites files (the formatter, a golden update, a code generator) is fine, and so is removing or moving a file; run each as one command.",
+    );
+    expect(text).toContain("Run one command per shell call: no chain with `&&`, `||` or `;`");
+    expect(text).toContain(
+      "Pipe a command's output only into `head`, `tail` or `grep`, never into `sed`, `awk`, `xargs` or a shell.",
+    );
+  });
+
   it("states the boundary, the precedence and every report field once", () => {
     const text = renderSystemFile("implement", "developer");
     expect(text).toContain(
