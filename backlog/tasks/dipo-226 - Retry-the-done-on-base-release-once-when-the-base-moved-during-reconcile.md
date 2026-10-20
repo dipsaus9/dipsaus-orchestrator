@@ -1,10 +1,10 @@
 ---
 id: DIPO-226
 title: Retry the done-on-base release once when the base moved during reconcile
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-20 09:56'
+updated_date: '2026-10-20 10:01'
 labels:
   - 'tier:S'
   - cutover
@@ -42,7 +42,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 releaseDoneOnBase in packages/engine/src/reconcile/done-on-base.ts returns the number of claims it released and the number it skipped because the HEAD of _base was not the pass's commit
-- [ ] #2 When that skip count is above zero, reconcile in packages/engine/src/reconcile/reconcile.ts reindexes and runs the done-on-base step once more with the new pass; a claim skipped again keeps its claim, worktree and slot for the next rescan with no notice
-- [ ] #3 Tests in packages/engine/test/reconcile/done-on-base.test.ts move _base between the index pass and the git queue item and show the claim released in the same reconcile after one reindex, and show one retry only when _base moves again
+- [x] #1 releaseDoneOnBase in packages/engine/src/reconcile/done-on-base.ts returns the number of claims it released and the number it skipped because the HEAD of _base was not the pass's commit
+- [x] #2 When that skip count is above zero, reconcile in packages/engine/src/reconcile/reconcile.ts reindexes and runs the done-on-base step once more with the new pass; a claim skipped again keeps its claim, worktree and slot for the next rescan with no notice
+- [x] #3 Tests in packages/engine/test/reconcile/done-on-base.test.ts move _base between the index pass and the git queue item and show the claim released in the same reconcile after one reindex, and show one retry only when _base moves again
 <!-- AC:END -->
