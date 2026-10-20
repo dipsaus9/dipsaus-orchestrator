@@ -1,10 +1,10 @@
 ---
 id: DIPO-250
 title: Give review sessions the worker's readable PATH and a closed shell snapshot
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-20 20:27'
+updated_date: '2026-10-20 21:07'
 labels:
   - 'tier:M'
   - cutover
