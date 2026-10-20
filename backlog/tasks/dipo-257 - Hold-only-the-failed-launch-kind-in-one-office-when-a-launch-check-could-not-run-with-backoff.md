@@ -3,10 +3,10 @@ id: DIPO-257
 title: >-
   Hold only the failed launch kind in one office when a launch check could not
   run, with backoff
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:46'
+updated_date: '2026-10-20 21:37'
 labels:
   - 'tier:M'
   - cutover
@@ -58,7 +58,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A launch check whose verdict is unsafe (a probe write or read got through) holds the adapter in every office, as today
-- [ ] #2 A launch check that could not run (a missing tool, a timeout, a session that ended early; a refused approval call counts as one too (design choice, not a maintainer decision; the maintainer may change it before a run)) holds only that launch kind, worker or reviewer, in that office; the other kind and the other offices still launch, and its engine.notice names the probe and the fix
+- [ ] #2 A launch check that could not run (a missing tool, a timeout, a session that ended early; a refused approval call counts as one too (design choice, not a maintainer decision; the maintainer may change it before a run)) holds only that launch kind, worker or reviewer, in that office; the other kind and the other offices still launch, and its engine.notice names the probe and the fix; every launch-check failure other than a self-test could-not-run verdict (the tools, probe, settings, engine credential and Safe-Chain proxy checks, and a CLI start failure) keeps the hold in every office, so the scoped hold fails closed
 - [ ] #3 A could-not-run hold is checked again with backoff, after 1, 2, 4 and 8 minutes and then every 30 minutes (design choice, not a maintainer decision; the maintainer may change it before a run), and lifts when the checks pass; the re-check is scheduled on the engine clock by the run composition in packages/engine/src/run/compose.ts, as the plan-limit schedule is, and runs the held kind's launch checks through gateLaunch with that office's launch context for that kind (the reviewer's for a reviewer hold, the worker's for a worker hold)
 - [ ] #4 In Places.drain a review start that backs off is passed over and the next pending review in order starts in its place; the backed-off review starts again after its wait with no other trigger, and the drain's minute tick keeps running while any start waits for a backoff (design choice, not a maintainer decision; the maintainer may change it before a run)
 - [ ] #5 Tests in packages/engine/test/workers/launch-checks.test.ts, packages/engine/test/run/places.test.ts packages/engine/test/run/reviews.test.ts and packages/engine/test/run/work-run.test.ts cover the unsafe and the could-not-run holds, the backoff with a manual clock, the notice text, the passed-over head and the retry after the wait
