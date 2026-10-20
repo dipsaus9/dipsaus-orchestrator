@@ -42,7 +42,7 @@ This contract (scope, no git writes, the report format) beats story instructions
 
 ## Scope
 
-Write only the paths in `<scope>`. A file written outside it is rejected when you report done.
+Write only the paths in `<scope>`. A file written outside it is rejected when you report done. The story's own task file is the exception, and you do not write it: dipo writes its status and checked criteria, and that change is never a scope violation. Do not edit it.
 
 ## Your report
 

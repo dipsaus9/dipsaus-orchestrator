@@ -26,6 +26,7 @@ import {
   runIntents,
   runOutcome,
   runSummary,
+  scopeDetail,
   type StoryGit,
   VerifyCommit,
   verifyPlan,
@@ -93,6 +94,32 @@ describe("rules", () => {
     expect(checkScope({ paths: ["bun.lock"], scope: ["src/"], taskFile: "t" }).outside).toEqual([
       "bun.lock",
     ]);
+  });
+
+  it("exempts only the story's own task file from scope", () => {
+    const own = "backlog/tasks/dipo-185 - State-the-exemption.md";
+    const other = "backlog/tasks/dipo-184 - Another-story.md";
+    const result = checkScope({
+      paths: [own, other, "backlog/config.yml", "backlog/decisions/0001-x.md", "src/a.ts"],
+      scope: ["src/"],
+      taskFile: own,
+    });
+    expect(result.code).toEqual(["src/a.ts"]);
+    expect(result.outside).toEqual([
+      "backlog/config.yml",
+      "backlog/decisions/0001-x.md",
+      "backlog/tasks/dipo-184 - Another-story.md",
+    ]);
+    expect(result.code).not.toContain(own);
+    expect(result.outside).not.toContain(own);
+  });
+
+  it("says in the scope-violation detail that the story's own task file is exempt", () => {
+    const detail = scopeDetail(["README.md"], ["src/"]);
+    expect(detail).toBe(
+      "Paths written outside the declared scope: README.md. Declared scope: src/. The story's own task file, written by dipo, is exempt from scope.",
+    );
+    expect(scopeDetail(["README.md"], [])).toContain("Declared scope: none.");
   });
 
   it("lists gate script and command changes, and runs the base verify only when it differs", () => {
@@ -521,7 +548,7 @@ describe("verify and commit", () => {
     await play();
     expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "paths"]]);
     expect(parks()[0]?.detail).toBe(
-      "Paths written outside the declared scope: README.md, package.json. Declared scope: src/, test/.",
+      "Paths written outside the declared scope: README.md, package.json. Declared scope: src/, test/. The story's own task file, written by dipo, is exempt from scope.",
     );
     expect(w.steps).toEqual([]);
     expect(runOutcome(w.f.office, w.f.run)?.parkReasons).toEqual(["scope-violation"]);
