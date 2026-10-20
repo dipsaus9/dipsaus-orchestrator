@@ -39,6 +39,7 @@ import {
   selfTestFailure,
   workerWritableRoots,
   type SelfTestFs,
+  type StartHostStandIn,
 } from "./self-test";
 
 export interface ClaudeLaunchCheckDeps {
@@ -50,6 +51,8 @@ export interface ClaudeLaunchCheckDeps {
   readonly allowProjectSettings: readonly string[];
   readonly readText?: ReadOptionalText;
   readonly fs?: SelfTestFs;
+  /** Starts the self-test's stand-in host at the session's host socket (DIPO-231); a test seam. */
+  readonly standIn?: StartHostStandIn;
   readonly probeTimeoutMs?: number;
   readonly selfTestTimeoutMs?: number;
   /** Decides whether the Keychain lookup runs (macOS only). */
@@ -153,6 +156,7 @@ export async function claudeLaunchChecks(
       clock: deps.clock,
       sessionId: deps.selfTestSessionId,
       ...(deps.fs === undefined ? {} : { fs: deps.fs }),
+      ...(deps.standIn === undefined ? {} : { standIn: deps.standIn }),
       ...(deps.selfTestTimeoutMs === undefined ? {} : { timeoutMs: deps.selfTestTimeoutMs }),
     },
   );

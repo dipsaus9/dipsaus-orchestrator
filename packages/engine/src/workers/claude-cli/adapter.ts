@@ -159,7 +159,7 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * The launch checks' file system and settings reader (DIPO-105); a test seam. Default to the
    * real ones.
    */
-  readonly launchCheckSeams?: Pick<ClaudeLaunchCheckDeps, "fs" | "readText">;
+  readonly launchCheckSeams?: Pick<ClaudeLaunchCheckDeps, "fs" | "readText" | "standIn">;
 }
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */

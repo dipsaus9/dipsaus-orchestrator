@@ -35,6 +35,7 @@ import {
   HOME,
   MAIN,
   MemoryFs,
+  reachedStandIn,
   RUN_DIR,
   scriptedClaude,
   SELF_TEST_SESSION,
@@ -281,7 +282,7 @@ describe("the Claude CLI adapter of one run", () => {
         runStep: credentialSteps().runStep,
         uid: 501,
         pluginFiles: { read: () => undefined, dirs: () => [] },
-        launchCheckSeams: { fs, readText: async () => undefined },
+        launchCheckSeams: { fs, readText: async () => undefined, standIn: reachedStandIn() },
       });
       const session = { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume };
       const prepared = await port.prepare(
