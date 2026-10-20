@@ -3,10 +3,10 @@ id: DIPO-234
 title: >-
   List story.notSteerable with the office codes and test the reviewer skip by
   phase
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 10:40'
-updated_date: '2026-10-20 11:17'
+updated_date: '2026-10-20 11:23'
 labels:
   - 'tier:S'
   - cutover
@@ -45,9 +45,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/contract/src/errors.ts story.notSteerable is the last entry of OFFICE_ERROR_CODES, with its since-minor-1 note (DIPO-163, 0020 section 9) moved into that list's comment; STEER_ERROR_CODES and SteerErrorCode are removed, and KnownErrorCode is the union of the four remaining lists
-- [ ] #2 packages/contract/src/index.test.ts expects story.notSteerable as the last entry of OFFICE_ERROR_CODES, with DIPO-163 named in that test's title, and its retryable test, which spreads OFFICE_ERROR_CODES, shows story.notSteerable not retryable
-- [ ] #3 A test in packages/engine/test/run/intervene.test.ts pauses a run, lets its worker exit after the 10 minutes, resumes it while the worker place is taken, moves the clock on while it waits, frees the place and drains, and shows that elapsedMs of runTotals with capsStartedAt of the run after the start leaves out both the paused time and the wait; the file comment of packages/engine/src/run/resume-paused.ts says the wait is left out through the parked_ms that claimPlace adds
-- [ ] #4 A test with the run reopened for a review by reopenForRound (newest phase step review), runs.role developer and no live agent shows a held steer left out of the next session's first message and still pending
-- [ ] #5 A test with the run reopened for a fix round by reopenForRound (newest phase step build) shows the held steer in the first message of the developer session that starts, and the steer resolved
+- [x] #1 In packages/contract/src/errors.ts story.notSteerable is the last entry of OFFICE_ERROR_CODES, with its since-minor-1 note (DIPO-163, 0020 section 9) moved into that list's comment; STEER_ERROR_CODES and SteerErrorCode are removed, and KnownErrorCode is the union of the four remaining lists
+- [x] #2 packages/contract/src/index.test.ts expects story.notSteerable as the last entry of OFFICE_ERROR_CODES, with DIPO-163 named in that test's title, and its retryable test, which spreads OFFICE_ERROR_CODES, shows story.notSteerable not retryable
+- [x] #3 A test in packages/engine/test/run/intervene.test.ts pauses a run, lets its worker exit after the 10 minutes, resumes it while the worker place is taken, moves the clock on while it waits, frees the place and drains, and shows that elapsedMs of runTotals with capsStartedAt of the run after the start leaves out both the paused time and the wait; the file comment of packages/engine/src/run/resume-paused.ts says the wait is left out through the parked_ms that claimPlace adds
+- [x] #4 A test with the run reopened for a review by reopenForRound (newest phase step review), runs.role developer and no live agent shows a held steer left out of the next session's first message and still pending
+- [x] #5 A test with the run reopened for a fix round by reopenForRound (newest phase step build) shows the held steer in the first message of the developer session that starts, and the steer resolved
 <!-- AC:END -->
