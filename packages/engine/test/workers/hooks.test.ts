@@ -5,10 +5,13 @@
 
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { HookEvent } from "../../src/hooks/types";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
+  BASH_GH_CRASH_REASON,
   DEFAULT_DENY_MESSAGE,
   exactAction,
   GATE_CRASH_EXIT,
@@ -383,7 +386,7 @@ describe("the neutral nudge op as Claude's additionalContext (DIPO-60 AC #5)", (
     expect(bashOnly["PreToolUse"]).toHaveLength(1);
     const bash = bashOnly["PreToolUse"]?.[0];
     expect(bash?.matcher).toBe("Bash");
-    expect(bash?.hooks[0].command.endsWith(" hook PreToolUse --bash")).toBe(true);
+    expect(bash?.hooks[0].command).toContain(" hook PreToolUse --bash; }");
     expect(bash?.hooks[0].command).not.toContain(GATE_CRASH_EXIT);
     expect(bash?.hooks[0].timeout).toBe(HOOK_TIMEOUT_SECONDS);
     const hooks = hookSettings(["/opt/dipo"], 300, "/run/dir", true) as Registered;
@@ -499,21 +502,95 @@ describe("the gate's command line fails closed when dipo itself fails (DIPO-164 
   });
 });
 
-describe("the Bash check's command line fails open when dipo itself fails (DIPO-194)", () => {
+describe("the Bash check's command line fails closed for gh and open otherwise when dipo fails (DIPO-194, DIPO-241)", () => {
   type Registered = Record<string, Array<{ matcher?: string; hooks: [{ command: string }] }>>;
+  const GH_PAYLOAD = JSON.stringify({ tool_input: { command: "/usr/local/bin/gh pr list" } });
+  const GH_FREE_PAYLOAD = JSON.stringify({ tool_input: { command: "echo gh-free" } });
 
-  function runBash(program: string): { code: number | null; stdout: string } {
+  function runBash(
+    program: string,
+    payload = "{}",
+  ): { code: number | null; stdout: string; stderr: string } {
     const hooks = hookSettings([program], 300, "/") as Registered;
     const command = hooks["PreToolUse"]?.find((e) => e.matcher === "Bash")?.hooks[0].command ?? "";
-    const done = spawnSync("sh", ["-c", command], { input: "{}", encoding: "utf8" });
-    return { code: done.status, stdout: done.stdout };
+    const done = spawnSync("sh", ["-c", command], { input: payload, encoding: "utf8" });
+    return { code: done.status, stdout: done.stdout, stderr: done.stderr };
   }
 
-  it("never exits 2 and prints nothing when the binary crashes or is missing", () => {
+  it("exits 2 with the reason on stderr for a gh command when the binary crashes or is missing", () => {
     for (const program of ["/usr/bin/false", "/nonexistent/dipo"]) {
-      const ran = runBash(program);
-      expect(ran.code).not.toBe(2);
+      const ran = runBash(program, GH_PAYLOAD);
+      expect(ran.code).toBe(2);
+      expect(ran.stderr).toContain(BASH_GH_CRASH_REASON);
       expect(ran.stdout).toBe("");
+      expect(ran.stderr).toContain("the engine handles the code host");
+    }
+  });
+
+  it("finds a gh call on a later line or after a tab of the command, where the payload holds an escape", () => {
+    for (const command of ["cd x\ngh pr merge 1", "echo hi;\tgh pr list", "true\r\ngh api /user"]) {
+      const ran = runBash("/nonexistent/dipo", JSON.stringify({ tool_input: { command } }));
+      expect([command, ran.code]).toEqual([command, 2]);
+      expect(ran.stderr).toContain(BASH_GH_CRASH_REASON);
+    }
+    // Quotes, escapes, a line continuation and case do not hide gh from the shell, nor here.
+    for (const command of [
+      "'g'h pr list",
+      'g"h" pr list',
+      "g\\h pr list",
+      "g\\\nh pr list",
+      "GH pr merge 1",
+      "x\\\\\ngh pr merge 1",
+      "x\\\\\ng\\\nh pr list",
+      "true\\\\\ngh api /user",
+    ]) {
+      const ran = runBash("/nonexistent/dipo", JSON.stringify({ tool_input: { command } }));
+      expect([command, ran.code]).toEqual([command, 2]);
+    }
+    // A word that only ends in gh is no gh call.
+    const sigh = runBash(
+      "/nonexistent/dipo",
+      JSON.stringify({ tool_input: { command: "echo sigh" } }),
+    );
+    expect(sigh.code).toBe(0);
+  });
+
+  it("greps the raw payload when dipo could not read it (exit 3): gh is refused, the rest passes", () => {
+    const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "bash-hook-"));
+    try {
+      const fake = join(dir, "dipo");
+      writeFileSync(fake, "#!/bin/sh\ncat >/dev/null\nexit 3\n");
+      chmodSync(fake, 0o755);
+      expect(runBash(fake, GH_PAYLOAD).code).toBe(2);
+      expect(runBash(fake, GH_FREE_PAYLOAD)).toEqual({ code: 0, stdout: "", stderr: "" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps dipo's own answer: exit 2 from the check is not followed by the fallback's reason", () => {
+    const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "bash-hook-"));
+    try {
+      const fake = join(dir, "dipo");
+      writeFileSync(fake, "#!/bin/sh\ncat >/dev/null\necho refused-by-dipo >&2\nexit 2\n");
+      chmodSync(fake, 0o755);
+      const ran = runBash(fake, GH_PAYLOAD);
+      expect(ran.code).toBe(2);
+      expect(ran.stderr).toContain("refused-by-dipo");
+      expect(ran.stderr).not.toContain(BASH_GH_CRASH_REASON);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 0 and prints nothing for a command with no gh word when the binary crashes or is missing", () => {
+    for (const program of ["/usr/bin/false", "/nonexistent/dipo"]) {
+      for (const payload of ["{}", GH_FREE_PAYLOAD]) {
+        const ran = runBash(program, payload);
+        expect(ran.code).toBe(0);
+        expect(ran.stdout).toBe("");
+        expect(ran.stderr).not.toContain(BASH_GH_CRASH_REASON);
+      }
     }
   });
 });

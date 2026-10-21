@@ -25,6 +25,8 @@ import {
   refusalText,
   REPORT_JSON_SCHEMAS,
   SETTINGS_FILE,
+  selfTestSocketPath,
+  startHostStandIn,
   systemClock,
   UNCHECKED_TEXT,
 } from "../../packages/engine/src/index";
@@ -347,6 +349,15 @@ export function hostAnswer(
   return scenario.webGate === true ? (payload) => webGateAnswer(workdir, payload) : undefined;
 }
 
+/**
+ * The socket the captured session's hooks reach (DIPO-244): a launch self-test has its own
+ * (`selfTestSocketPath`, where the engine's self-test puts its stand-in), any other session the
+ * run host's socket.
+ */
+export function sessionSocketOf(scenario: Scenario, hostSocket: string): string {
+  return scenario.standIn === true ? selfTestSocketPath(hostSocket) : hostSocket;
+}
+
 /** Adds a diagnostic scenario's extra allow rules to the run settings file. */
 function withExtraAllow(name: string, content: string, scenario: Scenario): string {
   const extra = scenario.extraAllow ?? [];
@@ -442,7 +453,8 @@ export async function capture(scenario: Scenario): Promise<string> {
         tools: { allow: scenario.tools, deny: [] },
         session: { id: sessionId, resume },
         reportSchema: REPORT_JSON_SCHEMAS[scenario.kind ?? "implement"],
-        hookRelay: scenario.hookRelay !== undefined,
+        // A launch self-test runs with hooks as a run does, so its approval call is relayed.
+        hookRelay: scenario.hookRelay !== undefined || scenario.standIn === true,
       });
       const hostSocket = join(repo.root, "host.sock");
       const context = {
@@ -452,7 +464,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         toolVariables: [],
         mainCheckout: repo.dir,
         runDir,
-        hostSocket,
+        hostSocket: sessionSocketOf(scenario, hostSocket),
         tmpDir: sandboxTmp,
         sandbox: OFFICE_DEFAULTS.sandbox,
         // The hooks run this checkout's `dipo` from source with the Bun running the capture.
@@ -491,7 +503,17 @@ export async function capture(scenario: Scenario): Promise<string> {
                 }),
               hostAnswer(scenario, workdir),
             );
+      // A launch self-test's hooks reach the engine's stand-in, which denies the approval call as
+      // the engine's self-test does (DIPO-231). It listens for the session and records what reached it.
+      // Started inside the try, so a stand-in that fails to start still stops the fixture host.
+      let standIn: Awaited<ReturnType<typeof startHostStandIn>> | null = null;
       try {
+        if (scenario.standIn === true) {
+          standIn = await startHostStandIn({
+            socketPath: sessionSocketOf(scenario, hostSocket),
+            run: "run-0001",
+          });
+        }
         for (const [launch, processTurns, resume] of launches) {
           for (const file of launch.files) {
             writeFileSync(
@@ -503,11 +525,14 @@ export async function capture(scenario: Scenario): Promise<string> {
         }
       } finally {
         await host?.stop();
+        await standIn?.stop();
       }
       // Hook lines arrive on the fixture host, stream lines through the process queue: by time.
       run.lines.sort((a, b) => a.t - b.t);
       const checks =
-        scenario.verify === undefined ? undefined : await scenario.verify(paths, run.lines);
+        scenario.verify === undefined
+          ? undefined
+          : await scenario.verify(paths, run.lines, standIn?.permissionRequests ?? []);
 
       const roots: PathRoot[] = [
         { path: workdir, placeholder: "${WORKDIR}" },

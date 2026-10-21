@@ -508,6 +508,8 @@ export {
   stripLocalSettings,
 } from "./workers/claude-cli/settings-check";
 export {
+  APPROVAL_COMMAND,
+  approvalFacts,
   bashCalls as selfTestBashCalls,
   judgeSelfTest,
   resolveSelfTestTools,
@@ -515,16 +517,21 @@ export {
   PROBE_GROUPS,
   REVIEW_PROBES,
   runSelfTest,
+  SELF_TEST_DENY_REASON,
   SELF_TEST_EFFORT,
   SELF_TEST_MODEL,
   SELF_TEST_SYSTEM_PROMPT,
   selfTestLayout,
+  selfTestSocketPath,
+  startHostStandIn,
   type ProbeName,
+  type SelfTestApproval,
   type SelfTestDisk,
   type SelfTestEvidence,
   type SelfTestBashCalls,
   type SelfTestTools,
   type SelfTestVerdict,
+  type StandInRequest,
 } from "./workers/claude-cli/self-test";
 export {
   credentialCommands,
