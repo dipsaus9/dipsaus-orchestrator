@@ -1,10 +1,10 @@
 ---
 id: DIPO-246
 title: Rebuild CI items after a restart and harden the CI watch's tests
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 22:28'
+updated_date: '2026-10-20 23:35'
 labels:
   - 'tier:M'
   - cutover
@@ -41,7 +41,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When a red head's `ci` run step is recorded but no CI items for that head are in memory (after a daemon restart), the next poll rebuilds them, reading each failed job's log once, without appending a second `ci` step, so the CI-cap park detail and the fix round get them
-- [ ] #2 A park on red checks that keeps failing writes its warn once per head and run; later failed attempts for the same head log at debug, and a later success parks as today
-- [ ] #3 packages/engine/test/story-pr/ci.test.ts covers the rebuild after a restart and the park retry with one warn, its stuck-head test advances the clock by a literal 10 minutes, and its aggregate item test asserts the check name, empty steps and the wording that names the failed job
+- [x] #1 When a red head's `ci` run step is recorded but no CI items for that head are in memory (after a daemon restart), the next poll rebuilds them, reading each failed job's log once, without appending a second `ci` step, so the CI-cap park detail and the fix round get them
+- [x] #2 A park on red checks that keeps failing writes its warn once per head and run; later failed attempts for the same head log at debug, and a later success parks as today
+- [x] #3 packages/engine/test/story-pr/ci.test.ts covers the rebuild after a restart and the park retry with one warn, its stuck-head test advances the clock by a literal 10 minutes, and its aggregate item test asserts the check name, empty steps and the wording that names the failed job
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivery: dipo run run_01M5DSS58G4W8XVVWV35ECGV1K (Sonnet, 37 turns, about $0.21), verified and reviewed by dipo (its reviewer, Opus, approved round 1), with no denied call and no write outside the References. In story-pr/prs.ts the CI items of a red head are rebuilt after a daemon restart (a fresh watch with no items reads each failed log once more, without appending a second ci step), so the CI-cap park detail and DIPO-148's later send have them; a park that keeps failing logs one warn and then debug lines for the same watch. Tests: the restart rebuild (one read per process, one ci step), the park retry with warn then debug and a final park, the stuck-head interval written out (10 minutes), and the aggregate-check wording in full. Independent review passed. Fixed on top: the #red comment says the items are built once per head per poller. Follow-up: no test checks that a CI-cap park right after a restart carries the rebuilt items. Verify outside the sandbox: exit 0, 4205 tests; DIPO_TEST_CI=1 story-pr tests pass (31).
+<!-- SECTION:NOTES:END -->

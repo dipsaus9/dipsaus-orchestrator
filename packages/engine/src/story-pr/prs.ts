@@ -134,6 +134,8 @@ interface Watch {
   /** The reports the body is built from. */
   reports: readonly RequiredCheck[];
   items: readonly CiFeedbackItem[] | null;
+  /** The failed park of this head was already warned about. */
+  parkWarned: boolean;
 }
 
 interface Polled {
@@ -462,6 +464,7 @@ export class StoryPrs {
         states: JSON.stringify(requiredCheckStates([], names)),
         reports: [],
         items: null,
+        parkWarned: false,
       };
       state.watch.set(stored.runId, watch);
     }
@@ -512,7 +515,7 @@ export class StoryPrs {
   }
 
   /**
-   * A red head: builds its CI items (one log read per failed check, once per head), appends the
+   * A red head: builds its CI items (one log read per failed check, once per head per poller, so again after a restart), appends the
    * head's `ci` step unless an earlier poll did, and parks the story `verify-failing` with cause
    * `ci` when the run's CI cap is reached. False when that park failed, so the head stays open.
    */
@@ -529,8 +532,11 @@ export class StoryPrs {
     const recorded = runSteps(office, run.runId).some(
       (step) => step.kind === "ci" && step.value === stored.headSha,
     );
-    if (!recorded) {
+    // After a restart the step is recorded but the items are gone: rebuild them, append no step.
+    if (watch.items === null) {
       watch.items = await this.#ciItems(officeId, run, stored, repo, reports);
+    }
+    if (!recorded) {
       this.#write(officeId, state, () => {
         appendRunStep(office, run.runId, "ci", stored.headSha, this.#deps.clock.now());
         return [];
@@ -564,7 +570,10 @@ export class StoryPrs {
       );
       return true;
     } catch (error) {
-      this.#deps.logger?.warn("parking the story on red checks failed", {
+      // One warn per head and run; the retries of the next polls log at debug.
+      const log = watch.parkWarned ? "debug" : "warn";
+      watch.parkWarned = true;
+      this.#deps.logger?.[log]("parking the story on red checks failed", {
         office: officeId,
         run: run.runId,
         reason: messageOf(error),
