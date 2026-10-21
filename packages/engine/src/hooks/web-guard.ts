@@ -7,6 +7,18 @@
 // - the URL or query holds a value from the env files dipo copied into the worktree (the `copy`
 //   entries of `worktree.files`, read as `KEY=value` lines), as written or percent-encoded: deny,
 //   naming the file and the key, never the value;
+// - a WebFetch URL whose host is not on the public internet (DIPO-276): deny. The box web proxy's
+//   address rule (`checkAddress`) decides, so the reviewer, which fetches from the Mac without a
+//   box, reaches neither the Mac nor its local network. Refused are an IP literal in any form (a
+//   bare number such as `2130706433` included), a URL other than http or https, a name that does
+//   not resolve, and a name of which any answer is loopback, private, shared, link-local,
+//   multicast, a documentation or another reserved range, one of the Mac's own addresses, in one
+//   of its on-link prefixes, or on the box network. The name is resolved within
+//   `FETCH_RESOLVE_TIMEOUT_MS`, so the reply stays inside the relay's limit.
+//   Known gap: Claude Code fetches by name itself after the hook allowed it, so a name whose
+//   answers change between dipo's lookup and Claude Code's (DNS rebinding) is not caught. A redirect
+//   to another host is handed back to the model as a new URL, which comes through this check again;
+//   one on the same host is followed by Claude Code without it.
 // - otherwise: let it on (a reply with no decision; the adapter encodes a marker the gate prints
 //   as nothing, so Claude's permission rules decide the call).
 //
@@ -28,11 +40,18 @@
 // Every failure is a deny: an env file that cannot be read, a call that cannot be checked. This
 // module emits only the neutral `toolGate` op; the adapter's `encode` decides what its CLI prints.
 
+import { lookup } from "node:dns/promises";
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
+import {
+  checkAddress,
+  type HostInterfaceAddress,
+  normaliseHost,
+  systemInterfaceAddresses,
+} from "../box/web-proxy";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { oneLineInput } from "../ingest/output";
@@ -273,6 +292,82 @@ export function refusalText(tool: string, hit: SecretHit): string {
   return `The ${what} contains a value from ${hit.file} (${hit.key}); never send env values in a web call. Remove it and try again.`;
 }
 
+/** How long a WebFetch host may take to resolve before the call is refused. */
+export const FETCH_RESOLVE_TIMEOUT_MS = 1_500;
+
+/** What the WebFetch address check reads (file comment); the system's by default. */
+export interface FetchAddressDeps {
+  /** Every address a name resolves to. */
+  readonly resolve: (host: string) => Promise<readonly string[]>;
+  /** Every address of every interface of the Mac, read for each check. */
+  readonly interfaces: () => readonly HostInterfaceAddress[];
+  /** The box network's host address, when dipo knows one. */
+  readonly boxHostAddress: () => string | null;
+  /** Tests only: documentation prefixes that pass as public (`AddressContext.publicStandIns`). */
+  readonly publicStandIns?: readonly string[];
+}
+
+async function systemResolve(host: string): Promise<readonly string[]> {
+  return (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
+}
+
+/** The system resolver and interfaces; no box network address. */
+export const SYSTEM_FETCH_ADDRESSES: FetchAddressDeps = {
+  resolve: systemResolve,
+  interfaces: systemInterfaceAddresses,
+  boxHostAddress: () => null,
+};
+
+/** What the worker is told when a WebFetch URL does not reach only the public internet. */
+export function fetchRefusalText(why: string): string {
+  return `The URL ${why}. A web fetch may reach only the public internet, never this Mac or its local network.`;
+}
+
+/**
+ * Why a WebFetch of `target` is refused by the address rule, or undefined when every address its
+ * host resolves to is public (file comment). Never throws: a failure is a refusal.
+ */
+export async function fetchAddressRefusal(
+  target: string,
+  deps: FetchAddressDeps,
+  resolveWithin: (host: string) => Promise<readonly string[] | "timeout"> = async (host) =>
+    deps.resolve(host),
+): Promise<string | undefined> {
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return fetchRefusalText("cannot be read");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return fetchRefusalText(`uses ${url.protocol}, not http or https`);
+  }
+  // The URL parser has already read numeric forms such as `http://2130706433/` as an IPv4 address.
+  const raw = url.hostname.replace(/^\[(.*)\]$/, "$1");
+  const host = normaliseHost(raw);
+  if (host === null) return fetchRefusalText(`names ${raw}, an IP address or no host name`);
+  let answers: readonly string[] | "timeout";
+  try {
+    answers = await resolveWithin(host);
+  } catch {
+    return fetchRefusalText(`names ${host}, which does not resolve`);
+  }
+  if (answers === "timeout")
+    return fetchRefusalText(`names ${host}, which did not resolve in time`);
+  if (answers.length === 0) return fetchRefusalText(`names ${host}, which does not resolve`);
+  const context = {
+    interfaces: deps.interfaces(),
+    boxHostAddress: deps.boxHostAddress() ?? "",
+    ...(deps.publicStandIns === undefined ? {} : { publicStandIns: deps.publicStandIns }),
+  };
+  // Every answer must pass: a name with one refused address is refused whole.
+  for (const address of answers) {
+    const verdict = checkAddress(address, context);
+    if (!verdict.ok) return fetchRefusalText(`names ${host}, which resolves to ${verdict.reason}`);
+  }
+  return undefined;
+}
+
 /** The reply when the call could not be checked (an env file could not be read). */
 export const UNCHECKED_TEXT =
   "dipo could not check this web call for env values, so it was refused; try again.";
@@ -287,6 +382,8 @@ export interface WebGuardDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** Reads the secrets of a worktree; the env files by default. Tests replace it. */
   readonly secrets?: (worktree: string, files: OfficeConfig["worktree"]["files"]) => EnvSecret[];
+  /** What the WebFetch address check reads; the system's by default. Tests replace it. */
+  readonly fetchAddresses?: FetchAddressDeps;
 }
 
 type WebCall = Extract<HookEvent, { kind: "webCall" }>;
@@ -338,19 +435,26 @@ export class WebGuard {
 
   #check(office: OfficeHandle, run: string, call: WebCall): void {
     const id = call.id ?? 0;
-    let reason: string | undefined;
-    try {
-      reason = this.#refusal(office, run, call);
-    } catch (error) {
-      this.#warn("a web call could not be checked", run, error);
-      reason = UNCHECKED_TEXT;
-    }
-    const reply =
-      reason === undefined
-        ? { hook: id, decision: null }
-        : { hook: id, decision: "deny" as const, reason };
     background(
       async () => {
+        let reason: string | undefined;
+        try {
+          reason = this.#refusal(office, run, call);
+          if (reason === undefined && call.tool === "WebFetch") {
+            reason = await fetchAddressRefusal(
+              call.target,
+              this.#deps.fetchAddresses ?? SYSTEM_FETCH_ADDRESSES,
+              (host) => this.#resolveWithin(host),
+            );
+          }
+        } catch (error) {
+          this.#warn("a web call could not be checked", run, error);
+          reason = UNCHECKED_TEXT;
+        }
+        const reply =
+          reason === undefined
+            ? { hook: id, decision: null }
+            : { hook: id, decision: "deny" as const, reason };
         const sent = await this.#deps.steering.send(
           office,
           run as RunId,
@@ -391,6 +495,20 @@ export class WebGuard {
         return cutWebLine(secrets === null ? redactWebTarget(line) : redactSecrets(line, secrets));
       })
       .join("\n");
+  }
+
+  /** Resolves `host`, or "timeout" after `FETCH_RESOLVE_TIMEOUT_MS`. */
+  async #resolveWithin(host: string): Promise<readonly string[] | "timeout"> {
+    const deps = this.#deps.fetchAddresses ?? SYSTEM_FETCH_ADDRESSES;
+    let timer: TimerHandle | undefined;
+    const timedOut = new Promise<"timeout">((resolve) => {
+      timer = this.#deps.clock.setTimeout(() => resolve("timeout"), FETCH_RESOLVE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([deps.resolve(host), timedOut]);
+    } finally {
+      if (timer !== undefined) this.#deps.clock.clearTimeout(timer);
+    }
   }
 
   /** Why the call is refused, or undefined to let it proceed. Throws when it cannot be checked. */
