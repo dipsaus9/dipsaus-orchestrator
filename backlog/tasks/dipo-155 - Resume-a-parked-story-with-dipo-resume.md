@@ -4,10 +4,11 @@ title: Resume a parked story with dipo resume
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:15'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:M'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-138
@@ -65,3 +66,9 @@ test_plan:
 - [ ] #5 The first message is the reason's delta followed by feedback/maintainer-note.md built from L5 templates, so maintainer text never starts a message
 - [ ] #6 A resume whose place is taken is accepted with its intent stored and the reply says queued; dipo resume <id> [--note <text>] exists, and the contract carries the queued result of work.resume and the resume.* errors used here
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: park and resume keep the story's box (0021 section 6).
+<!-- SECTION:NOTES:END -->

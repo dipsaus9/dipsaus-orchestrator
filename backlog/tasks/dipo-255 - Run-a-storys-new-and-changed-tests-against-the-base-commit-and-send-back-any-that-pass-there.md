@@ -6,11 +6,12 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:M'
   - cutover
   - needs-info
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-254
@@ -66,3 +67,9 @@ test_plan:
 - [ ] #3 As the unknown's answer picks, a base check that cannot run (no base commit, a failed checkout, a timeout) lets the commit go on with a warn line and its name in the review task message, or makes the commit wait with a feedback item to the worker; every test that passed on the base is named in the review task message
 - [ ] #4 Tests in packages/engine/test/run/verify-commit.test.ts, packages/engine/test/git/office-git.test.ts and packages/engine/test/worktree/ cover the checkout and its removal, a test that passes on the base, one that fails there, a missing import, a changed fixture and a base check that cannot run
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the base-commit test run happens in a box (0021 section 9).
+<!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: Let a worker request extra write paths inside its packages
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -18,8 +18,6 @@ dependencies:
   - DIPO-164
   - DIPO-258
   - DIPO-148
-  - DIPO-252
-  - DIPO-253
   - DIPO-260
   - DIPO-244
   - DIPO-247
@@ -76,3 +74,9 @@ test_plan:
 - [ ] #3 A grant also adds the paths to the task file with `backlog task edit --add-ref` in a lane-a commit <ID>: scope add <paths>, and records a closed questions row kind scope decided by rule
 - [ ] #4 Tests cover the restricted wait, the park and the resume with an answer, the lane-a commit, the migration and the office key defaults
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): References are a forecast, not a write fence, so a worker needs no scope request (0021 section 13).
+<!-- SECTION:NOTES:END -->

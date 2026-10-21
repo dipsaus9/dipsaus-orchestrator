@@ -4,10 +4,11 @@ title: 'Resume capped, conflicted and review-loop stories'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:06'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:M'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-155
@@ -64,3 +65,9 @@ test_plan:
 - [ ] #6 No resume raises a cap without a recorded grant, shown by a test that checks every cap change against a grant row
 - [ ] #7 verify-failing/capped (DIPO-205) resumes only with a note, grows all three caps by 50% of the starting caps as one budget grant recorded with who and why, with no confirmation beyond the note, and starts with the verify failure from the park detail, then the note; a resume without a note answers resume.noteRequired
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: park and resume keep the story's box (0021 section 6).
+<!-- SECTION:NOTES:END -->

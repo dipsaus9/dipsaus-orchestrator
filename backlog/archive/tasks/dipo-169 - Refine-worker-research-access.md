@@ -4,7 +4,7 @@ title: Refine worker research access
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:10'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -50,3 +50,9 @@ test_plan:
 - [ ] #2 The Claude adapter enforces the decided domains and cap for WebFetch and WebSearch and refuses a call outside them with a reason shown in the worker output
 - [ ] #3 The office config carries the decided keys with defaults in the next config version with its migration, and the web calls the decision names are stored as facts
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): the maintainer chose full internet access for workers, with registries only through Safe-Chain (0021 section 3).
+<!-- SECTION:NOTES:END -->

@@ -4,10 +4,11 @@ title: Decide how the engine gives a worker the skills and plugins its story nee
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-16 14:16'
+updated_date: '2026-10-21 09:21'
 labels:
   - architecture
   - 'tier:M'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-108
@@ -44,3 +45,9 @@ Context: DIPO-108 switches every user-scope plugin off unless the office names i
 - [ ] #2 A live probe on the scratch repository shows a granted skill loading and being usable in a claude -p worker session and an ungranted one not loading, recorded in the ADR.
 - [ ] #3 Implementation stories for the decision are filed in the milestone the ADR names.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: skills and plugins live inside the box's image from the office config (0021 section 5).
+<!-- SECTION:NOTES:END -->

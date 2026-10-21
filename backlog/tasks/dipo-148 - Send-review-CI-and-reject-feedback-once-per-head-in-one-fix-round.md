@@ -4,10 +4,11 @@ title: 'Send review, CI and reject feedback once per head in one fix round'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:M'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-147
@@ -69,3 +70,9 @@ test_plan:
 - [ ] #4 All feedback for one head goes in one user message; the fix round waits until that head's verdict is in and its required checks are final or past the wait cap, reopens the run in the worker place, commits <ID>: status In Progress, and resumes the developer session when canResume holds, else starts a new session with a handoff; the fix round stores its feedback_items rows and its intent when it is queued, before the shared pre-start cap check that DIPO-205 adds, so a round that check parks keeps its feedback for a top-up resume (DIPO-156)
 - [ ] #5 Advisory findings never start a fix round on their own and are listed as optional when a fix round starts for another reason
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: fix rounds go to the same builder in its kept box, including CI failures and the maintainer's PR comments until merge (0021 sections 6 and 10).
+<!-- SECTION:NOTES:END -->

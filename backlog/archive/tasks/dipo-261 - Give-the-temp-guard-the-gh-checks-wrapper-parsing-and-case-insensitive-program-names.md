@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-21 01:03'
-updated_date: '2026-10-21 01:05'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:S'
   - cutover
@@ -42,3 +42,9 @@ unknowns: []
 - [ ] #2 The wrapper table of packages/engine/src/hooks/gh-guard.ts is shared with the temp guard, and both guards use it, so `timeout 5 env DIPO_TMP=/x ls`, `doas -u me env DIPO_TMP=/x ls`, `nice -n 5 env TMPDIR=/x ls` and `stdbuf -oL env DIPO_TMP=/x ls` are refused
 - [ ] #3 Each case above is a row in packages/engine/test/hooks/temp-guard.test.ts, and every row before in temp-guard.test.ts and gh-guard.test.ts keeps its result
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): there are no per-call Bash guards inside the box (0021 section 7).
+<!-- SECTION:NOTES:END -->

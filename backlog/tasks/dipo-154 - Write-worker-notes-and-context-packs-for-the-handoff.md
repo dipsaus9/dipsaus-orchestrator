@@ -4,10 +4,11 @@ title: Write worker notes and context packs for the handoff
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:S'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-138
@@ -51,3 +52,9 @@ test_plan:
 - [ ] #3 A handoff's feedback lists the run's feedback items not yet answered by a later green verify or approval, read with their text from feedback_items, plus the resume note
 - [ ] #4 A test parks a run mid-turn after an earlier turn reported notes and shows the handoff carries those notes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: with the box kept until merge, handoff notes matter less (0021 section 6).
+<!-- SECTION:NOTES:END -->

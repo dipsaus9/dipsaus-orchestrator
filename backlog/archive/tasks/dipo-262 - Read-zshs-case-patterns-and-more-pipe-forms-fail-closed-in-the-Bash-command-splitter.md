@@ -6,13 +6,12 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-21 01:03'
-updated_date: '2026-10-21 01:05'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:M'
   - cutover
 milestone: m-1
-dependencies:
-  - DIPO-261
+dependencies: []
 references:
   - packages/engine/src/hooks/temp-guard.ts
   - packages/engine/src/hooks/gh-guard.ts
@@ -53,3 +52,9 @@ unknowns: []
 - [ ] #5 The temp guard checks a shell's here-string and its piped stdin as a script, as the gh check does, so `<<< 'DIPO_TMP=/x bun test' bash`, `bash <<< 'export TMPDIR=/x'` and `echo DIPO_TMP=/x bun test | bash` are refused
 - [ ] #6 Each case above is a row in packages/engine/test/hooks/gh-guard.test.ts or packages/engine/test/hooks/temp-guard.test.ts, and every row before in both files keeps its result
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): there are no per-call Bash guards inside the box (0021 section 7).
+<!-- SECTION:NOTES:END -->

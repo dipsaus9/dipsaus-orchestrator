@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 20:25'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:S'
   - cutover
@@ -50,3 +50,9 @@ test_plan:
 - [ ] #2 A failure to write that file is logged as a warn naming the run and the path, and does not change whether the launch passes or is refused
 - [ ] #3 Tests in packages/engine/test/workers/launch-checks.test.ts cover a passing self-test, a refused one and a failed write
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): the launch self-test and its approval call go with the box design; the escape probe replaces them (0021 sections 7 and 16).
+<!-- SECTION:NOTES:END -->

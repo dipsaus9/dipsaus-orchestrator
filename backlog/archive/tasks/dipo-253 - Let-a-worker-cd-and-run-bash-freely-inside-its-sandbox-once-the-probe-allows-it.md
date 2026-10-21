@@ -6,14 +6,13 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:26'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:S'
   - cutover
   - needs-info
 milestone: m-1
 dependencies:
-  - DIPO-252
   - DIPO-148
 references:
   - packages/engine/src/workers/claude-cli/plan.ts
@@ -56,3 +55,9 @@ test_plan:
 - [ ] #2 packages/engine/src/prompts/contract/implement.md no longer forbids `cd` and no longer asks for one command per Bash call; it keeps the rule to stay inside the worktree, and its golden is updated
 - [ ] #3 packages/engine/test/workers/plan.test.ts and the golden files cover the new settings and show the deny rules and sandbox paths unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): inside its box the worker may cd, run sed -i and write files freely (0021 sections 1 and 7).
+<!-- SECTION:NOTES:END -->
