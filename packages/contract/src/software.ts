@@ -246,6 +246,9 @@ export const daemonResumeScheduling = defineCommand({
 
 // Reads
 
+/** The client name `dipo tui` sends in `engine.hello`; the daemon counts such a connection as a TUI (DIPO-279). */
+export const TUI_CLIENT_NAME = "dipo-tui";
+
 export const engineHello = defineRead({
   name: "engine.hello",
   args: z.object({

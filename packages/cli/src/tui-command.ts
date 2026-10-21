@@ -13,12 +13,14 @@ import {
   systemLifecycleDeps,
   versionHint,
 } from "@dipsaus-orchestrator/client/node";
-import { ContractUnsupportedDetails, type OfficeId } from "@dipsaus-orchestrator/contract";
+import {
+  ContractUnsupportedDetails,
+  type OfficeId,
+  TUI_CLIENT_NAME,
+} from "@dipsaus-orchestrator/contract";
 import { runTui, type TuiSession } from "@dipsaus-orchestrator/tui";
 
 import type { Workspace } from "./workspace";
-
-export const TUI_CLIENT_NAME = "dipo-tui";
 
 /** `path` as typed in the TUI, made absolute against `cwd`; `~` is the home directory. */
 export function resolveTypedPath(cwd: string, path: string, home: string = homedir()): string {
