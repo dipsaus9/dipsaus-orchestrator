@@ -1,10 +1,10 @@
 ---
 id: DIPO-287
 title: Make the web proxy tests pass inside the macOS verify sandbox
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 16:05'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 17:50'
 labels:
   - 'tier:S'
   - cutover
@@ -14,6 +14,7 @@ dependencies: []
 references:
   - packages/engine/test/box/web-proxy.test.ts
   - packages/engine/src/box/web-proxy.ts
+  - packages/engine/test/box/model-proxy.test.ts
 type: bug
 ordinal: 276000
 ---
@@ -33,6 +34,6 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The self-verify test (DIPO_TEST_CI=1) passes on macOS
-- [ ] #2 The web proxy tests still exercise real sockets where the environment allows it, or use an in-memory transport, without widening the verify policy beyond what it allows today; the report names which
+- [x] #1 The self-verify test (DIPO_TEST_CI=1) passes on macOS
+- [x] #2 The web proxy tests still exercise real sockets where the environment allows it, or use an in-memory transport, without widening the verify policy beyond what it allows today; the report names which
 <!-- AC:END -->
