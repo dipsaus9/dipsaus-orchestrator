@@ -24,6 +24,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { PermissionAsks, workerAnswerText } from "../../src/hooks/permissions";
 import { findQuestion, openQuestions } from "../../src/hooks/questions";
 import { type BranchPark, insertRun, RunControl } from "../../src/run";
+import { heldMessages } from "../../src/run/pauses";
 import { activeSignals } from "../../src/run/signals";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -261,6 +262,49 @@ describe("a worker's question with a TUI connected (criterion 5)", () => {
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     const late = await answer({ question: question?.questionId, text: "Hello" });
     expect(late.ok).toBe(false);
+  });
+});
+
+describe("a worker's question when its run ends while it waits (DIPO-272)", () => {
+  const capped: WorkerEvent = {
+    t: "turn",
+    report: null,
+    totals: {},
+    numTurns: 1,
+    terminal: "max_turns",
+    capped: "turn cap (--max-turns) after 1 turns",
+  };
+
+  it("becomes the park's question when a cap fires during the live wait, and its answer waits for the next session", async () => {
+    await blockedQuestion();
+    const [question] = openQuestions(w.f.office, w.f.run);
+    w.control.onWorkerEvents(w.f.run, [capped], w.f.agent);
+    await w.control.idle();
+    expect(parks().map((park) => park.reason)).toEqual(["budget-exceeded"]);
+    // The last TUI closing while the run ends, and the worker's exit, leave it to the park.
+    w.tui = false;
+    w.asks.presenceChanged();
+    w.asks.onEnded(w.f.office, w.f.run);
+    const parked = findQuestion(w.f.office, question?.questionId ?? "");
+    expect(parked?.closedAt).toBeNull();
+    const park = w.f.office.get<{ park_id: number }>(
+      "select park_id from parks where office_id = $office_id",
+    );
+    expect(parked?.parkId).toBe(park?.park_id ?? -1);
+    expect(parks()).toHaveLength(1);
+
+    const reply = await answer({ question: question?.questionId, text: "Hello, Ada!" });
+    expect(reply.ok).toBe(true);
+    if (reply.ok) {
+      expect(reply.result).toEqual({ question: question?.questionId, delivered: "on-resume" });
+    }
+    expect(findQuestion(w.f.office, question?.questionId ?? "")).toMatchObject({
+      closedHow: "answered",
+      answer: "Hello, Ada!",
+    });
+    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
+      workerAnswerText("Hello, Ada!"),
+    ]);
   });
 });
 

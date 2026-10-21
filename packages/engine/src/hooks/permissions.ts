@@ -37,6 +37,9 @@
 //   question, as before.
 // - When the last TUI closes while it is live (DIPO-284), `presenceChanged` closes it (`ended`) and
 //   parks the story with the question through `parkQuestion`.
+// - When the run ends while it is live (a cap, a stop), the park takes it over (`run/park.ts`): it
+//   stays open as the park's question, and its answer is held for the first message of the run's
+//   next session, as a steer to a parked story is. The story stays Parked until its park resumes.
 
 import {
   type Clock,
@@ -53,7 +56,11 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background, failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
+import { recordIntent } from "../run/intents";
 import { type LiveQuestions, type Presence, questionRoute } from "../run/live-question";
+import { openPark } from "../run/park";
+import { MAINTAINER_TAGS } from "../run/pauses";
+import { findRun } from "../run/records";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp, WorkerEvent } from "../workers/types";
@@ -165,8 +172,12 @@ export class PermissionAsks implements LiveQuestions {
     for (const [questionId, live] of this.#workerQuestions) {
       if (live.run === run) this.#workerQuestions.delete(questionId);
     }
-    // A park's question (DIPO-75) waits for the maintainer after its worker exited.
-    const open = openQuestions(office, run).filter((question) => question.parkId === null);
+    // A park's question (DIPO-75) waits for the maintainer after its worker exited. So does a live
+    // worker question of a run being ended: its park takes it over (DIPO-272).
+    const ending = this.#deps.ending?.(run) === true;
+    const open = openQuestions(office, run).filter(
+      (question) => question.parkId === null && !(ending && question.kind === "question"),
+    );
     if (open.length === 0) return;
     this.#close(office, open, "ended");
   }
@@ -240,6 +251,8 @@ export class PermissionAsks implements LiveQuestions {
     for (const [questionId, { office: officeId, run }] of live) {
       const office = this.#deps.offices.get(officeId);
       if (office === undefined) continue;
+      // A run being ended already parks: that park takes the question over.
+      if (this.#deps.ending?.(run) === true) continue;
       let closed: StoredQuestion[];
       try {
         const question = findQuestion(office, questionId);
@@ -308,6 +321,63 @@ export class PermissionAsks implements LiveQuestions {
     return true;
   }
 
+  /**
+   * `work.answer { question, text }` on a worker question its run's park took over (DIPO-272):
+   * the answer is recorded and held for the first message of the run's next session, as a steer
+   * to a parked story is (`heldMessages`); the story stays Parked until its park is resumed. A
+   * question whose park ended waits no more.
+   */
+  async #answerParkedWorker(
+    ctx: AsyncCommandContext,
+    question: StoredQuestion,
+    args: { readonly text: string; readonly decision?: "allow" | "deny" | undefined },
+  ): Promise<CommandOutcome<ParkAnswerResult>> {
+    const office = ctx.office;
+    const text = workerAnswerTextOf(args);
+    const run = findRun(office, question.runId as RunId);
+    const park = run?.key == null ? null : openPark(office, run.key);
+    const now = this.#deps.clock.now();
+    if (park === null || park.parkId !== question.parkId) {
+      ctx.commit(() =>
+        closeQuestion(office, question.questionId, "expired", now)
+          ? this.#closingEntries(office, question, now)
+          : [],
+      );
+      throw new CommandError(
+        QUESTION_CLOSED,
+        `${question.questionId} is not waiting: its story is no longer parked for it.`,
+        { question: question.questionId, questionOpen: false },
+      );
+    }
+    let closed = false;
+    ctx.commit(() => {
+      closed = closeQuestion(office, question.questionId, "answered", now, {
+        text,
+        decision: null,
+        delivered: "on-resume",
+      });
+      if (!closed) return [];
+      recordIntent(
+        office,
+        question.runId as RunId,
+        "steer",
+        `${MAINTAINER_TAGS.held} ${workerAnswerText(text)}`,
+        now,
+      );
+      return this.#closingEntries(office, question, now, text);
+    });
+    if (!closed) {
+      throw new CommandError(
+        QUESTION_CLOSED,
+        `${question.questionId} is not waiting for an answer.`,
+        {
+          question: question.questionId,
+        },
+      );
+    }
+    return { result: { question: question.questionId, delivered: "on-resume" } };
+  }
+
   /** `work.answer { question, text }` on a live worker question: the answer goes to the worker now. */
   async #answerWorker(
     ctx: AsyncCommandContext,
@@ -315,21 +385,7 @@ export class PermissionAsks implements LiveQuestions {
     args: { readonly text: string; readonly decision?: "allow" | "deny" | undefined },
   ): Promise<CommandOutcome<ParkAnswerResult>> {
     const office = ctx.office;
-    if (args.decision !== undefined) {
-      throw new CommandError(
-        "args.invalid",
-        "A worker question takes an answer text, not a decision.",
-        {
-          field: "decision",
-        },
-      );
-    }
-    const text = args.text.trim();
-    if (text === "") {
-      throw new CommandError("args.invalid", "A worker question needs an answer text.", {
-        field: "text",
-      });
-    }
+    const text = workerAnswerTextOf(args);
     let closed = false;
     const now = this.#deps.clock.now();
     ctx.commit(() => {
@@ -470,6 +526,10 @@ export class PermissionAsks implements LiveQuestions {
         question,
         { text: args.text, decision: args.decision },
       );
+    }
+    if (question.kind === "question" && question.parkId !== null) {
+      // A live worker question its run's park took over (DIPO-272).
+      return this.#answerParkedWorker(ctx, question, args);
     }
     if (question.kind === "question" && question.parkId === null && question.hook === null) {
       // A worker report's question asked live (DIPO-272).
@@ -758,6 +818,29 @@ export class PermissionAsks implements LiveQuestions {
     );
     this.#deps.onChanged?.(office.officeId);
   }
+}
+
+/** The trimmed answer text of `work.answer` on a worker question; refuses a decision or no text. */
+function workerAnswerTextOf(args: {
+  readonly text: string;
+  readonly decision?: "allow" | "deny" | undefined;
+}): string {
+  if (args.decision !== undefined) {
+    throw new CommandError(
+      "args.invalid",
+      "A worker question takes an answer text, not a decision.",
+      {
+        field: "decision",
+      },
+    );
+  }
+  const text = args.text.trim();
+  if (text === "") {
+    throw new CommandError("args.invalid", "A worker question needs an answer text.", {
+      field: "text",
+    });
+  }
+  return text;
 }
 
 /** `args.invalid` for a permission answer without `decision` (DIPO-59, and DIPO-75 AC #7). */
