@@ -34,6 +34,7 @@ import {
   BoxParts,
   type BoxPartsDeps,
   BoxWorkers,
+  type DoorPart,
   boxName,
   CLAUDE_CLI_ADAPTER_ID,
   ensurePrivateDir,
@@ -297,6 +298,21 @@ export async function sweepBoxTokenChecks(
 }
 
 /**
+ * The door's `onPart` of the daemon's box workers: the part is delivered (DIPO-273), then a
+ * collision check runs, since the part may change the files the story changes (DIPO-277). A part
+ * that was not delivered rejects, stays queued in the box and starts no check.
+ */
+export function deliverThenCheck(
+  deliver: (part: DoorPart) => Promise<void>,
+  check: () => void,
+): (part: DoorPart) => Promise<void> {
+  return async (part) => {
+    await deliver(part);
+    check();
+  };
+}
+
+/**
  * The box workers of the daemon (DIPO-271) and the delivery of their parts (DIPO-273), or null
  * without a box backend. `parts` gives the run facts and run control the delivery needs.
  */
@@ -408,13 +424,7 @@ function daemonBoxWorkers(
     indexDir: join(options.stateDir, BOX_INDEX_DIR),
     // The part queue of each box is read while its session runs (DIPO-272), and each part is
     // delivered (DIPO-273).
-    door: {
-      onPart: async (part) => {
-        await delivery.onPart(part);
-        // A new part may change the files the story changes (DIPO-277).
-        afterPart();
-      },
-    },
+    door: { onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart) },
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
