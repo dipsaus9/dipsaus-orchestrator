@@ -1,0 +1,338 @@
+# 0021 Worker isolation: one real box per story
+
+Status: Accepted (2026-10-21, maintainer). Proposed in spike DIPO-263, written from the maintainer interview of 2026-10-21 (listed under "Maintainer decisions"). It amends 0001, 0008, 0010, 0012, 0014, 0019 and 0020 (see "Amends"). The text says where a point is a proposed detail rather than a maintainer decision.
+
+## Context
+
+### What a worker is today
+
+On 2026-10-21 (checked on `main` at `992a78f7`), a worker is five pieces. Only one of them is sandboxed:
+
+| Piece | What it is | Sandboxed |
+|---|---|---|
+| The model | Claude, deciding the next step | runs at Anthropic, only asks for tool calls |
+| The `claude` program | Claude Code CLI on the maintainer's Mac. It runs the Read, Edit, Write and web tools | **no**, limited only by permission rules and dipo's hooks |
+| Its Bash commands | tests, `ls`, `bun`, and so on | **yes**: Claude Code's srt sandbox, writes only to the worktree, network closed except Safe-Chain |
+| The worktree | the story's folder: a git worktree of the main repository | it is the area the worker may write |
+| The worker host | dipo's process that starts `claude` and relays its hooks | no; it is dipo's code |
+
+The daemon and engine (**dipo** below) run unsandboxed, as the maintainer.
+
+### Why this has to change
+
+- **The security review and its audit of 2026-10-21.** Kept local until the escape below is closed (maintainer, 2026-10-21).
+  - **N-1** and **V-1** were confirmed live: dipo runs a tool unsandboxed with the worker's worktree as its working directory, and that tool takes instructions from files there. So a file the worker writes in its own folder can run code with the maintainer's full access.
+  - **V-2:** post-turn verify reads the home folder.
+  - **V-3:** a permission answer lets a file write outside the worktree through.
+  - **V-6:** temp directories.
+  - **N-2:** a socket in reach of the worker.
+  - All of these follow from the same fact: only Bash is boxed, and the box shares the Mac.
+- **Tonight's run research** (`2026-10-20-dipo-run-gaps.md`).
+  - Workers quietly drop work to stay inside their References: "done, but" appears in 25 of 78 reports.
+  - Prose rules leak: `cd`, `sed -i`, Python heredoc edits.
+  - The Bash guards became a growing shell parser (DIPO-195, 241, 242, 243, 261, 262) for a check that is best-effort by design.
+- **The maintainer's view:** the planner carries 100% of the responsibility and the worker 0%. It should be 50/50. A worker should work like a developer: read the whole repository, run what it needs, decide how to deliver. It may do anything, as long as it cannot leave its box.
+
+### Research (2026-10-21)
+
+- Claude Code's own sandbox covers only Bash and similar commands. Read, Edit, Write, WebFetch, hooks and MCP run outside it.
+- Inside a container, Claude Code with all permissions is the documented pattern, together with egress limits and no mounted credentials.
+- A subscription login for a box:
+  - `claude setup-token` gives a one-year token, limited to model requests, passed as `CLAUDE_CODE_OAUTH_TOKEN`. No revoke command is documented (unconfirmed).
+  - The macOS login lives in the Keychain, which a box cannot read.
+- A mounted git worktree is unsafe for an isolated worker. It shares refs, config and hooks with the main repository, and git config or hooks written there run on the host at dipo's next git command.
+- Apple `container` (macOS 26) runs each container as its own lightweight VM with its own kernel. It is free (Apache-2.0) and launchd-native, but young (0.x), and memory freed inside a box is not returned to the host.
+
+## Maintainer decisions
+
+All taken on 2026-10-21 in the interview, in this order.
+
+1. **References are a forecast.** The worker reads and writes anything in its box and reports what it touched. dipo records the real changed files and checks them against other stories in progress. References remain the planner's forecast for scheduling.
+2. **Runs held until the redesign.** No `dipo run` starts until this design is built. There is no interim hotfix for N-1 and V-1.
+3. **The whole worker goes into one real box,** and the design starts again from three questions: what the worker does, what it has access to, and what it sends back.
+4. **The worker's jobs** (part 1):
+   - It reads and writes code freely and uses the full web.
+   - It installs packages, always through Safe-Chain.
+   - It runs tests and commands.
+   - It delivers its work **in parts** and says when the story is done.
+   - **No git inside the box.** No host environment variables or settings (for example npm settings) in the box.
+   - Verify is a command dipo runs in the worker's box, without AI.
+   - Proposals are allowed, but are guarded against injection.
+5. **Questions:** live and park, but live only while the maintainer has the TUI open at that moment.
+6. **Delivery and review:**
+   - dipo commits and pushes each delivered part to the story branch, before any PR.
+   - The reviewer is separate and has no box. It reviews the branch's diff against the story's goal, through git or GitHub, not only locally.
+   - Important findings go through dipo back to the **same** worker. After a fix the review runs again.
+   - The reviewer is critical on whether tests help, whether the goal is delivered and whether there are security issues, and says when a human should review too.
+7. **Reviewer tools:** read-only plus web. No shell, no writing, no gh.
+8. **Per part:** a secret and protected-file scan before each commit and push. The full verify runs once, when the worker says the story is done.
+9. **Box contents:** only files marked safe. Nothing outside git by default; the office config can list files to copy in, each marked as holding no real secrets.
+10. **Network:**
+    - The whole internet is reachable.
+    - Package registries are reachable only through Safe-Chain.
+    - The Mac and the local network are blocked. Useful local ports can be allowlisted in the office config.
+11. **Login:** first probe whether a dipo proxy outside the box can add the subscription token, so it never enters the box. If that fails, put a one-year setup-token in the box, with token scanning and rotation.
+12. **Environment:**
+    - Described in the office config, outside the reach of stories. dipo detects a default from the repository and builds the image once.
+    - A story that wants a new tool proposes it, and the maintainer adds it.
+13. **Package cache:** one per office, filled by dipo from the lockfile through Safe-Chain. It is read-only inside the boxes; a worker's extra installs stay in its own box.
+14. **Technology:** Apple `container`.
+15. **Lifetime:** from claim to merge, so CI failures and PR comments are fixed in the same box. The box is stopped while waiting, and rebuilt from the delivered parts if lost.
+16. **Limits:** none per box. dipo's budget caps still apply.
+17. **No per-call checks inside the box.** The door is only the listed messages, and they are checked.
+18. **Progress:** the worker's report counts for progress (criteria ticked, tests run). Verify and the reviewer are the check.
+19. **Probe gate:** the escape probe is a hard gate. Nothing else is built on the design until every line passes.
+20. **Collisions:** both stories continue; the second catches up after the first merges.
+
+## Decision
+
+### 1. One real box per story
+
+- Each story's builder runs in its own box: an Apple `container` VM with its own kernel.
+- The whole worker is inside the box: the `claude` program, every tool it runs and its copy of the code.
+- dipo talks to the box only through the door (section 7).
+- dipo code reaches the box technology through one box interface, so another backend can be added later, for Linux, without changing the design.
+
+### 2. Contents
+
+- **The code:** a plain copy of the repository at the story's start commit, with **no `.git`** and no history.
+- **Files outside git:** only those the office config lists *and* marks as holding no real secrets.
+- **Nothing of the maintainer's:**
+  - no environment variables from the host;
+  - no `~/.npmrc` or other settings files;
+  - no Keychain, SSH agent or home folder;
+  - no mounted host directories other than what the door needs (proposed detail: one exchange directory per box that holds no host files).
+- SSH agent forwarding stays off.
+
+### 3. Network
+
+- The whole internet is reachable.
+- Package registries are reachable **only through Safe-Chain**. A direct connection to a registry fails.
+- The maintainer's Mac and local network are blocked. Exceptions are local ports listed in the office config.
+- **The rules are enforced outside the box.** The worker is effectively root inside it, so a rule inside the box would be one it can switch off. How this is done on Apple `container` is proven by the probe (section 16).
+
+### 4. The Claude login
+
+- First choice: the box sends its model requests through a dipo proxy outside the box, which adds the maintainer's subscription token, so **the token never enters the box**. The worker can use the subscription while its box runs, but cannot take the token.
+- Fallback, if the probe shows the proxy cannot carry a subscription login: a one-year `claude setup-token` passed into the box. With it:
+  - dipo scans every delivered part and every output for the token;
+  - the token is rotated on a schedule.
+- Proposed detail: the Claude Code version inside the image is pinned, and auto-update and nonessential traffic are off.
+
+### 5. The ready environment and the cache
+
+- The office config names the box's image or recipe: toolchain, versions and system packages.
+- Stories cannot change it. dipo detects a default from the repository, like today's scan.
+- dipo builds the image once and reuses it. A worker that needs a new tool proposes it (message W5), and the maintainer adds it.
+- **Package cache:** one per office, filled by dipo from the lockfile through Safe-Chain. Boxes mount it read-only. A worker's own installs go through Safe-Chain and stay in its own box.
+
+### 6. Lifetime and limits
+
+- A box is created at claim and **lives until the story's PR merges**, or until the story is dropped or discarded.
+- It runs while the worker works, and is stopped (files kept) while the story waits for a review, an answer, a resume, CI or the maintainer.
+- If a stopped box is lost, dipo rebuilds it from the start commit plus the delivered parts. Only undelivered work is lost.
+- No CPU, memory or disk limits per box. dipo's budget caps (tokens, turns, minutes) still stop the worker.
+
+### 7. The door
+
+The only traffic between the box and dipo is these messages.
+
+**Every message from the worker:**
+- is size-limited and checked against a strict format;
+- is treated as untrusted text, never as an instruction;
+- reaches the maintainer cleaned of terminal control characters.
+
+**Worker to dipo**
+
+| | Message | What dipo does |
+|---|---|---|
+| W1 | **Part done**, with a short message | Section 8: scan, commit, push |
+| W2 | **Story done**, with a report: what it did, criteria it considers met, what it tested, deviations | Runs verify in the box (section 9). The report updates the story's progress (decision 18) |
+| W3 | **Question** | Live while the maintainer's TUI is open at that moment, otherwise the story parks with the question (section 11) |
+| W4 | **Blocked**, with a reason | Parks the story with the reason |
+| W5 | **Proposal**: a follow-up story, or a tool for the environment | Shown to the maintainer as plain text. Nothing happens on its own |
+| W6 | **Live activity**: tool calls, output, token usage | Feeds the budget caps and the live view |
+
+**dipo to worker**
+
+| | Message |
+|---|---|
+| D1 | The task: story, goal, criteria, context |
+| D2 | The maintainer's answer to a question |
+| D3 | Findings to fix: the reviewer's, CI failures, the maintainer's PR comments |
+| D4 | Verify failure output |
+| D5 | Stop: budget reached or stopped by the maintainer. dipo ends the session and stops the box |
+
+**What goes away**
+- No checks on individual tool calls inside the box.
+- No permission prompts and no allow-once answers.
+- No Bash hook, gh guard or temp guard.
+- No `dipo hook` program and no link to dipo's sockets from inside the box.
+
+### 8. Delivery in parts
+
+1. When the worker sends W1, dipo takes the changes since the last delivered part out of the box.
+2. dipo scans them for secrets and protected files:
+   - protected files are the story's task file, CI workflows and dipo's own configuration (proposed list, completed when the stories are written);
+   - a hit stops the push and parks the story.
+3. dipo commits the part on the story branch outside the box, using the worker's message as text only, and pushes the branch.
+4. **Every git operation is dipo's, on dipo's own copy.** dipo never runs git, or any other tool, inside or on files from the box's folder (section 14).
+
+### 9. Verify
+
+- When the worker sends W2, dipo runs the office's verify command in the worker's box, without AI.
+- A red result goes back to the worker as D4.
+- A green result, plus the last part delivered, moves the story to review.
+
+### 10. Review
+
+- The reviewer is a separate session without a box.
+- Its tools are read-only plus web search: the story, the diff of the story branch against the start commit, and a read tool that reads files from the pushed commit (not from the disk). No shell, no writing, no gh.
+- It judges four things:
+  - whether the tests actually help;
+  - whether the code delivers the story's goal;
+  - whether there are security issues;
+  - whether a human should review too.
+- Important findings go through dipo to the same builder (D3). After the fix (new parts, verify green) the review runs again.
+- The PR is opened after the review passes.
+
+### 11. Questions
+
+- A worker's question is shown live only while a TUI is connected **at that moment**. Today's 10-minute presence window no longer applies.
+- Otherwise the story parks with the question, and the answer resumes it in the same box.
+
+### 12. Changed files and collisions
+
+- dipo computes each story's real changed files itself, from the delivered parts against the start commit. It does not rely on the worker's list.
+- When two stories in progress change the same file:
+  - dipo tells the maintainer and both workers;
+  - both continue;
+  - when the first merges, dipo brings the new main into the second story's branch and box;
+  - if git cannot merge cleanly, the second worker gets a fix round to resolve the conflict.
+- Detection uses git's own merge check, with no model calls.
+
+### 13. References
+
+References are the planner's forecast of which files a story will touch. They are used to schedule stories that probably won't collide, and as context for the worker. They are no longer a write fence:
+- the "write only these paths" contract goes;
+- the scope check at done goes;
+- the scope-violation park goes, except for protected files (section 8).
+
+### 14. What dipo never does
+
+- dipo never runs a tool (git, the backlog tooling, a package manager, a test) unsandboxed **in, or on configuration from, a directory the worker can write**.
+- The task file, the story's status and the criteria ticks are written by dipo in its own copy of the repository, never in the box's.
+- This closes N-1 and V-1 at the root.
+
+### 15. Reviewer and builder roles stay separate
+
+- The builder never sees the reviewer's reasoning, only its findings.
+- The reviewer never sees the builder's reasoning or transcript. It gets what 0019 section 4 gives it (story, criteria, test plan, the diff), plus the report evidence DIPO-254 adds.
+
+### 16. Probe gate
+
+The first story of this design is the escape probe. dipo builds a box exactly as designed, then tries the following from inside it as root:
+
+| Attempt from inside the box | Must |
+|---|---|
+| Read a file from the maintainer's home folder | fail |
+| Connect to the Mac: dipo's socket, any local port | fail |
+| Reach the router or another device on the local network | fail |
+| Reach a package registry directly | fail |
+| Install a package through Safe-Chain | work |
+| Reach the internet | work |
+| Find the SSH agent, host environment variables or `.npmrc` | fail |
+| As root, switch off the network rules | fail |
+| Find the Claude token in the box (if the proxy works) | fail |
+
+- The probe is run with the maintainer watching.
+- Nothing else is built until every line passes.
+- If network rules cannot be enforced outside the box on Apple `container`, the technology choice is revisited with the facts.
+
+## Amends
+
+Each ADR below carries a dated amendment entry that points here.
+
+- **0001:**
+  - the `scope-violation` park reason only covers protected files;
+  - the Ready gate's scope check becomes a forecast check.
+- **0008:**
+  - The worker adapter runs the whole worker in a box (sections 1–7).
+  - The Bash sandbox settings, permission rules, PermissionRequest relay, allow-once answers, Bash hook and self-test approval probe go.
+  - The credential check becomes part of the probe.
+  - Line 208 ("cannot lift a sandbox block") and line 156 (values cannot leave except through the model API) are corrected.
+- **0010:**
+  - Commits in parts by dipo (section 8).
+  - The scope check at done becomes changed-file tracking and collision handling (section 12).
+  - No tool is run in, or on configuration from, the worker's folder (section 14).
+- **0012:**
+  - F8 References become a forecast (section 13).
+  - R11 stays as "at least one forecast path".
+  - R29 (DIPO-251) is reconsidered as a forecast-quality check rather than a gate.
+  - Scope requests go: the `needs-scope` park reason, the report's `scopeRequest` field and the rule that adds F8 paths in lane a (amendment of 2026-10-16).
+- **0014:**
+  - The worker contract drops "you may write only these paths", the no-git and no-`cd` rules, and the scope nudges.
+  - It gains the part, done, question, blocked and proposal messages.
+- **0019:**
+  - The reviewer's tools (section 10).
+  - Fix rounds go to the same builder in its kept box, including CI failures and PR comments until merge.
+- **0020:**
+  - Questions are live only while the TUI is open (section 11).
+  - Park and resume keep the box.
+  - Web access is open to the whole internet (decision 10); the §11b allowlist idea is replaced.
+
+## Consequences
+
+**Closed by design** (from the 2026-10-21 reviews):
+- V-1, N-1, H-1, H-9 (section 14);
+- V-2 (verify runs in the box);
+- V-3 (no permission answers);
+- V-6, H-10 (temp directories live in the box);
+- N-2, H-3 for workers (no socket in reach);
+- H-15 and the guard line (no guards).
+
+**Still open, to be filed as stories:**
+- V-5 and N-7: terminal control characters in worker text, now at the door.
+- H-6: the secret scan, now per part.
+- H-8: stored command bodies.
+- V-4: web leaks. Accepted by decision 10: with nothing secret in the box, what can leave is the code copy and the worker's own output.
+- From the architecture review: A-1 (subprocess deadlines), A-4 (stream drift), A-6 (test isolation, including the runtime-dir fall-through found by the audit), A-7 (unpushed In Review), A-2, A-3, A-5, A-8 and A-13 to A-24.
+
+**New risks:**
+- Apple `container` is young.
+- Memory is not returned while boxes run, and boxes live until merge with no limits.
+- The fallback login puts a one-year token in the box.
+- The worker has no git history to read (`git log`, `git blame`).
+- Code the worker delivers still runs later in CI and on the maintainer's machine. Review and CI remain the guard there.
+
+## Backlog impact
+
+Checked against the open stories on 2026-10-21. Each story is re-read before it is changed.
+
+| Effect | Stories |
+|---|---|
+| **Replaced by this design** | DIPO-252 and DIPO-253 (CLI approval settings, `cd` freely: replaced by the box and the probe). DIPO-165 and DIPO-258 (scope requests: References are a forecast). DIPO-261 and DIPO-262 (Bash guards). DIPO-169 (research access: full web). DIPO-245 (self-test approval evidence). |
+| **Reshaped** | DIPO-257 (launch-check holds become box checks). DIPO-148 (fix rounds to the same box, plus CI and PR comments). DIPO-149 (conflicts: the second story catches up). DIPO-155 and DIPO-157 (resume with a kept box). DIPO-159 (live question only while the TUI is open). DIPO-154 (handoff notes, less needed with a kept box). DIPO-240 (installs move into the box and the dipo-filled cache). DIPO-247 (reviewer without a box). DIPO-251 (R29 as a forecast check). DIPO-255 (base-commit test run, now in a box). DIPO-116 (skills and plugins inside the box). DIPO-161 and DIPO-162 (discard and release must also tear down the box). |
+| **Still valid** | DIPO-254 (report entries and deviations). DIPO-256 (budget line and caps). DIPO-259 and DIPO-166 (proposals as data: message W5). DIPO-186 (ADR notes in the report). DIPO-260 (security-sensitive story rule, for the reviewer). DIPO-150 to 153, 156, 158, 167, 168, 239, and the maintenance stories. DIPO-182 stays dropped (closed 2026-10-18); transcripts are revisited with the box design if needed. |
+| **New** | The escape probe (first, the gate). The box interface and Apple `container` backend. The token proxy probe. The door messages. Delivery in parts with the scan. dipo's own copy for Backlog writes. Changed-file tracking and collisions. The reviewer's read-only tools. Plus the open review findings above. |
+
+## Open points for the probe and the stories
+
+- How network rules are enforced outside an Apple `container` box (host proxy, host-only network, or another way).
+- Whether a proxy can carry a subscription login (decision 11).
+- How parts leave the box: an exchange directory or a `container exec` stream (proposed detail).
+- Start-up time of a box, and the cost of keeping boxes until merge without limits.
+- A Linux backend behind the same box interface (not decided).
+
+## Sources
+
+- The security review, the architecture review and their audit of 2026-10-21. Kept local by the maintainer until N-1 and V-1 are closed, then added to `docs/reviews/`.
+- `docs/research/2026-10-20-dipo-run-gaps.md`
+- Claude Code docs:
+  - sandboxing: https://code.claude.com/docs/en/sandboxing
+  - sandbox environments: https://code.claude.com/docs/en/sandbox-environments
+  - devcontainer: https://code.claude.com/docs/en/devcontainer
+  - authentication: https://code.claude.com/docs/en/authentication
+  - network config: https://code.claude.com/docs/en/network-config
+- Apple `container`: https://github.com/apple/container and its technical overview.
+- Git security: https://git-scm.com/docs/git#_security, https://git-scm.com/docs/git-worktree
