@@ -1,10 +1,10 @@
 ---
 id: DIPO-270
 title: Run the Backlog CLI only in a folder that holds no worker-written files
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 15:44'
+updated_date: '2026-10-21 16:18'
 labels:
   - 'tier:M'
   - cutover

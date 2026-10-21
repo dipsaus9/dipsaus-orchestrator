@@ -4,7 +4,7 @@ title: Run the office's verify command inside the worker's box
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 14:38'
 labels:
   - 'tier:S'
   - cutover
@@ -39,4 +39,5 @@ unknowns: []
 - [ ] #2 A red verify sends its output back as the worker's next message, cleaned and cut as today
 - [ ] #3 A green verify with the last part delivered moves the story to review
 - [ ] #4 Tests cover the green and red paths
+- [ ] #5 After a verify timeout dipo ends the command inside the box (by stopping the box or killing the process in it), because a killed container exec leaves its process running in the box (DIPO-265 real-box run of 2026-10-21)
 <!-- AC:END -->

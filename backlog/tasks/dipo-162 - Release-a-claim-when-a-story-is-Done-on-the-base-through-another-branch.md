@@ -4,7 +4,7 @@ title: Release a claim when a story is Done on the base through another branch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 09:27'
+updated_date: '2026-10-21 16:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -16,6 +16,7 @@ dependencies:
   - DIPO-161
   - DIPO-216
   - DIPO-226
+  - DIPO-284
 references:
   - packages/engine/src/worktree/
   - packages/engine/src/reconcile/

@@ -1,10 +1,10 @@
 ---
 id: DIPO-269
 title: Add the maintainer's login to a box's model requests outside the box
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 15:21'
+updated_date: '2026-10-21 15:52'
 labels:
   - 'tier:M'
   - cutover
