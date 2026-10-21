@@ -10,8 +10,8 @@
 //    links. A failed stream kills only the exec client, so the worker's box is kept; the `tar` in
 //    the box runs under `timeout` where the box has it, as the door's read does. Paths git would
 //    ignore leave out early, inside the box, by an exclude list dipo builds from the delivered
-//    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, only when no rule
-//    negates and no tracked path carries the name). The box's filtering is never trusted: the Mac
+//    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, unless a `!` rule
+//    could re-include the name or a tracked path carries it). The box's filtering is never trusted: the Mac
 //    checks every path again.
 // 2. On the Mac. The extractor (`extractArchive`) writes only files and folders into a fresh
 //    folder outside any repository and refuses hostile entries; every symlink or hard link is
@@ -251,15 +251,14 @@ export function comparePart(input: {
 }
 
 /**
- * Pure: the in-box exclude list, `--exclude=<name>` for `tar`: the plain names the delivered rules
- * ignore at any depth, unless a rule negates (an exclude list cannot re-include) or a tracked path
- * has a part of that name (it would go missing from the part). Only an early filter: the Mac
- * checks every path again.
+ * Pure: the in-box exclude list, `--exclude=<name>` for `tar`: the plain names the delivered root
+ * `.gitignore` ignores at any depth, unless a `!` rule could re-include it (an exclude list cannot)
+ * or a tracked path has a part of that name (it would go missing from the part). Only an early
+ * filter: the Mac checks every path again.
  */
 export function inBoxExcludes(rules: IgnoreRules, view: ReadonlyMap<string, TreeEntry>): string[] {
-  if (rules.hasNegation) return [];
   const tracked = new Set([...view.keys()].flatMap((path) => path.split("/")));
-  return rules.plainNames.filter((name) => !tracked.has(name));
+  return rules.plainNames.filter((name) => !tracked.has(name) && !rules.reincludes(name));
 }
 
 /**
@@ -362,10 +361,14 @@ export function secretDetail(kinds: readonly string[], files: number): string {
 }
 
 /** The fixed park detail of a part dipo could not take, by why. */
-export function refusedDetail(why: "cap" | "archive", maxBytes: number): string {
-  return why === "cap"
-    ? `The part the worker delivered is larger than ${maxBytes} bytes, so dipo did not take it; files git should ignore may be missing from .gitignore. dipo committed and pushed nothing.`
-    : "The part the worker delivered holds an entry dipo does not take (a path that leaves its folder, a name twice, a link below which a file sits, or an entry other than a file, folder or link). dipo committed and pushed nothing.";
+export function refusedDetail(why: "cap" | "archive" | "git", maxBytes: number): string {
+  if (why === "cap") {
+    return `The part the worker delivered is larger than ${maxBytes} bytes, so dipo did not take it; files git should ignore may be missing from .gitignore. dipo committed and pushed nothing.`;
+  }
+  if (why === "git") {
+    return "The part the worker delivered holds a path git does not take into a commit. dipo committed and pushed nothing.";
+  }
+  return "The part the worker delivered holds an entry dipo does not take (a path that leaves its folder, a name twice, a link below which a file sits, or an entry other than a file, folder or link). dipo committed and pushed nothing.";
 }
 
 // ---- reading the part on the Mac -----------------------------------------------------------------
@@ -472,8 +475,58 @@ async function partNumber(session: GitSession, startSha: string, tip: string): P
 }
 
 /**
+ * The tree of the part in the temporary index: the tip read, the deleted paths removed first (so a
+ * file that becomes a folder, or a folder a file, leaves room), then the written files added.
+ */
+async function partTree(
+  session: GitSession,
+  changes: readonly PartChange[],
+  ids: ReadonlyMap<string, string>,
+  tip: string,
+  index: { readonly env: Readonly<Record<string, string>> },
+): Promise<string> {
+  const repo = session.repository;
+  await session.ok(repo, ["read-tree", tip], index);
+  const deleted = changes.filter((change) => change.kind === "deleted").map((c) => c.path);
+  for (const group of chunks(deleted)) {
+    await session.ok(
+      repo,
+      [
+        "--literal-pathspecs",
+        "rm",
+        "--cached",
+        "--force",
+        "--quiet",
+        "--ignore-unmatch",
+        "--",
+        ...group,
+      ],
+      index,
+    );
+  }
+  const written = changes.filter((change) => change.kind !== "deleted");
+  for (const group of chunks(written)) {
+    await session.ok(
+      repo,
+      [
+        "update-index",
+        "--add",
+        "--replace",
+        ...group.flatMap((change) => [
+          "--cacheinfo",
+          `${change.mode},${ids.get(change.path)},${change.path}`,
+        ]),
+      ],
+      index,
+    );
+  }
+  return (await session.ok(repo, ["write-tree"], index)).trim();
+}
+
+/**
  * Commits `changes` on top of `view.tip` from dipo's own copy (see the module comment): null when
- * the branch moved since `view` was read, `{ commit: null }` when the tree did not change.
+ * the branch moved since `view` was read, `{ commit: null }` when the tree did not change, and
+ * `refused` when git does not take the part's paths.
  */
 async function commitPart(
   session: GitSession,
@@ -486,7 +539,7 @@ async function commitPart(
     readonly message: string;
     readonly index: string;
   },
-): Promise<{ readonly commit: string | null; readonly n: number } | null> {
+): Promise<{ readonly commit: string | null; readonly n: number } | "refused" | null> {
   const repo = session.repository;
   const { view } = input;
   const ref = `refs/heads/${input.branch}`;
@@ -511,39 +564,14 @@ async function commitPart(
     }
     group.forEach((change, at) => ids.set(change.path, stored[at]!));
   }
-  await session.ok(repo, ["read-tree", view.tip], index);
-  for (const group of chunks(written)) {
-    await session.ok(
-      repo,
-      [
-        "update-index",
-        "--add",
-        ...group.flatMap((change) => [
-          "--cacheinfo",
-          `${change.mode},${ids.get(change.path)},${change.path}`,
-        ]),
-      ],
-      index,
-    );
+  let tree: string;
+  try {
+    tree = await partTree(session, input.changes, ids, view.tip, index);
+  } catch (error) {
+    // git refuses what it will never take (a path it does not allow): the same on every try.
+    if (error instanceof GitError && error.code === "git.failed") return "refused";
+    throw error;
   }
-  const deleted = input.changes.filter((change) => change.kind === "deleted").map((c) => c.path);
-  for (const group of chunks(deleted)) {
-    await session.ok(
-      repo,
-      [
-        "--literal-pathspecs",
-        "rm",
-        "--cached",
-        "--force",
-        "--quiet",
-        "--ignore-unmatch",
-        "--",
-        ...group,
-      ],
-      index,
-    );
-  }
-  const tree = (await session.ok(repo, ["write-tree"], index)).trim();
   const n = await partNumber(session, input.startSha, view.tip);
   if (tree === view.tipTree) return { commit: null, n };
   const message = partCommitMessage(input.story, n, input.message);
@@ -848,6 +876,9 @@ export class BoxParts {
         };
       }
       if (result.committed === null) return null;
+      if (result.committed === "refused") {
+        return { kind: "refused", detail: refusedDetail("git", limits.maxArchiveBytes) };
+      }
       if (result.committed.commit === null) return { kind: "empty" };
       const { commit, n } = result.committed;
       const push = await git

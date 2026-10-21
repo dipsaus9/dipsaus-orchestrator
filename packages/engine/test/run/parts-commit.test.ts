@@ -254,6 +254,23 @@ describe("a part on real git", () => {
       ]);
     }));
 
+  it("commits a file that became a folder and a folder that became a file", () =>
+    inParts(async (w) => {
+      rmSync(join(w.work, "README.md"));
+      write(w.work, { "README.md/index.md": "# Parts\n" });
+      rmSync(join(w.work, "src"), { recursive: true });
+      writeFileSync(join(w.work, "src"), "now a file\n");
+      await w.parts.onPart(part("Swap a file and a folder"));
+      expect(w.parks).toEqual([]);
+      expect(await filesAt(w, await tip(w))).toEqual([
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "README.md/index.md",
+        TASK_FILE,
+        "src",
+      ]);
+    }));
+
   it("runs no hook and no filter of the repository while it commits", () =>
     inParts(async (w) => {
       const marker = join(w.repo.root, "MARKER");

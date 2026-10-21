@@ -22,6 +22,10 @@
 const MAX_PATTERN_CHARS = 256;
 /** The most lines of one `.gitignore` read. */
 const MAX_PATTERNS_PER_FILE = 2_000;
+/** The most patterns of all `.gitignore` files together. */
+const MAX_PATTERNS_TOTAL = 5_000;
+/** The most `.gitignore` files read; the shallowest go first. */
+const MAX_FILES = 500;
 
 /** One `.gitignore` file: its folder (repo-relative, "" for the root) and its text. */
 export interface IgnoreFile {
@@ -220,7 +224,8 @@ function parseLine(raw: string): Pattern | null {
   const parts: Part[] = line
     .split("/")
     .map((part) => (anchored && part === "**" ? "**" : tokens([...part])));
-  const plainName = !anchored && /^[A-Za-z0-9._-]+$/.test(line) ? line : null;
+  const plainName =
+    !anchored && /^[A-Za-z0-9._-]+$/.test(line) && line !== "." && line !== ".." ? line : null;
   return { anchored, parts, negated, dirOnly, plainName };
 }
 
@@ -237,22 +242,39 @@ export class IgnoreRules {
   readonly #files: readonly RuleFile[];
 
   constructor(files: readonly IgnoreFile[]) {
+    // The total is capped too, shallowest files first, so no set of files makes every match
+    // slow; the rules past the cap ignore nothing.
+    let budget = MAX_PATTERNS_TOTAL;
     this.#files = files
-      .map((file) => ({
-        dir: file.dir.replace(/^\/+|\/+$/g, ""),
-        patterns: file.text
+      .map((file) => ({ dir: file.dir.replace(/^\/+|\/+$/g, ""), text: file.text }))
+      .toSorted((a, b) => depth(a.dir) - depth(b.dir))
+      .slice(0, MAX_FILES)
+      .map((file) => {
+        const patterns = file.text
           .split("\n")
-          .slice(0, MAX_PATTERNS_PER_FILE)
+          .slice(0, Math.min(MAX_PATTERNS_PER_FILE, budget))
           .map(parseLine)
-          .filter((pattern) => pattern !== null),
-      }))
+          .filter((pattern) => pattern !== null);
+        budget -= patterns.length;
+        return { dir: file.dir, patterns };
+      })
       .filter((file) => file.patterns.length > 0)
       .toSorted((a, b) => depth(b.dir) - depth(a.dir));
   }
 
-  /** True when any rule negates (`!`), which an in-box exclude list could not honour. */
-  get hasNegation(): boolean {
-    return this.#files.some((file) => file.patterns.some((pattern) => pattern.negated));
+  /**
+   * True when a `!` rule could re-include a path named `name` or below one: its last part matches
+   * the name, or is `**`. An in-box exclude of the name could not honour it.
+   */
+  reincludes(name: string): boolean {
+    const chars = [...name];
+    return this.#files.some((file) =>
+      file.patterns.some((pattern) => {
+        if (!pattern.negated) return false;
+        const last = pattern.parts.at(-1);
+        return last === undefined || last === "**" || matchPart(last, chars);
+      }),
+    );
   }
 
   /**

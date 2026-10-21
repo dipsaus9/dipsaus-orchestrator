@@ -297,9 +297,11 @@ describe("the in-box exclude list", () => {
     expect(inBoxExcludes(rules, view)).toEqual([".cache", "node_modules"]);
   });
 
-  it("uses none when a rule negates", () => {
-    const rules = new IgnoreRules([{ dir: "", text: "node_modules/\n!keep.log\n" }]);
-    expect(inBoxExcludes(rules, new Map())).toEqual([]);
+  it("leaves out a name a `!` rule could re-include, but not for an unrelated `!` rule", () => {
+    const rules = new IgnoreRules([
+      { dir: "", text: "node_modules/\n.env*\n!.env.example\ndist/\n!dist/\n" },
+    ]);
+    expect(inBoxExcludes(rules, new Map())).toEqual(["node_modules"]);
   });
 
   it("streams tar of the work folder with the excludes before the folder, under timeout", () => {

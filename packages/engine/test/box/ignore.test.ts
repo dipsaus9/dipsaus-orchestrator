@@ -64,12 +64,15 @@ describe("one .gitignore", () => {
     expect(r.ignored("a.env")).toBe(true);
     expect(r.ignored("keep.env")).toBe(false);
     expect(r.ignored("dist/keep.js")).toBe(true);
-    expect(r.hasNegation).toBe(true);
+    expect(r.reincludes("dist")).toBe(false);
+    expect(r.reincludes("keep.env")).toBe(true);
+    expect(rules("!vendor/**\n").reincludes("node_modules")).toBe(true);
   });
 
   it("names the plain patterns an in-box exclude list may use", () => {
     const r = rules(["node_modules/", ".cache", "*.log", "/dist", "a/b", "!x"].join("\n"));
     expect(r.plainNames).toEqual([".cache", "node_modules"]);
+    expect(rules(".\n..\nbuild\n").plainNames).toEqual(["build"]);
   });
 
   it("lists no plain name of a deeper .gitignore: it applies only below its folder", () => {
