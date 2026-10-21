@@ -8,8 +8,8 @@ import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 import type { OfficeConfig } from "../../config";
 import type { DipoPlatform } from "../../platform/paths";
 import type { RunStep } from "../credential-check";
-import type { AdapterHolds } from "../hold";
-import type { RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
+import { type AdapterHolds, gateLaunch } from "../hold";
+import type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
 import type {
   AdapterStatus,
   ExitRecord,
@@ -24,6 +24,9 @@ import type {
   WorkerSpec,
 } from "../types";
 import { PlanError } from "../types";
+import { BoxError } from "../../box/port";
+import type { BoxWorkers } from "../../box/workers";
+import { planInBox } from "./box-plan";
 import { encode } from "./encode";
 import { initialState, interpret, nextSessionOptions, type ClaudeParseState } from "./interpret";
 import { prepareLaunch, type ClaudeLaunchCheckDeps } from "./launch-checks";
@@ -80,8 +83,17 @@ function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
  *   allows no plugin whatever `worker.plugins` says (0019 section 4, in the parser);
  * - the skills check (DIPO-130), always: `plan` passes `--disable-slash-commands` to every session.
  */
-function withInitChecks(state: ClaudeParseState, ctx: ClaudeLaunchContext): ClaudeParseState {
-  const checked = { ...state, refuseSkills: true };
+function withInitChecks(
+  state: ClaudeParseState,
+  ctx: ClaudeLaunchContext,
+  boxWorker: boolean,
+): ClaudeParseState {
+  const checked = {
+    ...state,
+    refuseSkills: true,
+    // A box worker has only the placeholder key, which the model proxy replaces (DIPO-271).
+    ...(boxWorker ? { placeholderKey: true } : {}),
+  };
   if (ctx.plugins === undefined) return checked;
   const installed = ctx.plugins.installed;
   return {
@@ -91,11 +103,13 @@ function withInitChecks(state: ClaudeParseState, ctx: ClaudeLaunchContext): Clau
   };
 }
 
-/** The Claude CLI adapter for one run. */
+/** The Claude CLI adapter for one run; `boxWorker` when its developer runs in a box (DIPO-271). */
 export function claudeCliAdapter(
   ctx: ClaudeLaunchContext,
   deps: ClaudeCliAdapterDeps,
+  options: { readonly boxWorker?: boolean } = {},
 ): WorkerAdapter {
+  const boxWorker = options.boxWorker === true;
   return {
     id: CLAUDE_CLI_ADAPTER_ID,
     probe: (): Promise<AdapterStatus> =>
@@ -109,7 +123,10 @@ export function claudeCliAdapter(
     plan: (spec: WorkerSpec) => scrubbed(plan(spec, ctx)),
     encode,
     interpret: (line: HostLine, state: ParseState) =>
-      interpret(line, withInitChecks(state as unknown as ClaudeParseState, ctx)) as unknown as {
+      interpret(
+        line,
+        withInitChecks(state as unknown as ClaudeParseState, ctx, boxWorker),
+      ) as unknown as {
         readonly events: ReturnType<typeof interpret>["events"];
         readonly state: ParseState;
       },
@@ -160,7 +177,55 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
    * real ones.
    */
   readonly launchCheckSeams?: Pick<ClaudeLaunchCheckDeps, "fs" | "readText" | "standIn">;
+  /**
+   * The box workers (DIPO-271): a run whose run directory records a box runs its developer
+   * sessions in that box, with none of the Mac worker's launch checks, settings or hooks. Without
+   * it every run is planned on the Mac.
+   */
+  readonly boxes?: ClaudeBoxWorkers;
 }
+
+/** What the Claude worker port needs of the box workers (`BoxWorkers`). */
+export type ClaudeBoxWorkers = Pick<BoxWorkers, "isBoxRun" | "session">;
+
+/**
+ * Prepares a developer session in the run's box (DIPO-271): the adapter hold first (a sticky
+ * box-token hold refuses here), then the box session, then the plan. A box that cannot be made
+ * ready holds the adapter with the `box` check, as a failed launch check; a run whose box is gone
+ * is refused as a plan (`PlanError`), holding nothing.
+ */
+async function prepareInBox(
+  spec: WorkerSpec,
+  paths: RunLaunchPaths,
+  boxes: ClaudeBoxWorkers,
+  holds: AdapterHolds,
+): Promise<PreparedWorker> {
+  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, async () => ({ ok: true }));
+  if (!gate.ok) return gate;
+  let session;
+  try {
+    session = await boxes.session({
+      runId: spec.run,
+      runDir: paths.runDir,
+      systemFile: spec.systemFile,
+    });
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    if (error instanceof BoxError && error.code === "box.gone") throw new PlanError(why);
+    const hold = holds.hold(CLAUDE_CLI_ADAPTER_ID, [
+      {
+        check: BOX_CHECK,
+        detail: `the worker's box could not be made ready: ${why}`,
+        fix: "Check that Apple container runs (`container system status`) and the daemon log, then name the story again.",
+      },
+    ]);
+    return { ok: false, outcome: "startFailed", hold };
+  }
+  return { ok: true, plan: scrubbed(planInBox(spec, session, paths.runDir)) };
+}
+
+/** The launch check name of a box that could not be made ready for a session. */
+export const BOX_CHECK = "box";
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
 export function claudeLaunchContext(
@@ -213,10 +278,18 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
     id: CLAUDE_CLI_ADAPTER_ID,
     reportSchema: REPORT_JSON_SCHEMAS,
     localSettings: CLAUDE_LOCAL_SETTINGS,
-    adapter: (paths, config) => claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps),
+    adapter: (paths, config) =>
+      claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps, {
+        boxWorker: deps.boxes?.isBoxRun(paths.runDir) === true,
+      }),
     checkVerify: (paths, config, verify, root) =>
       checkVerifyTools(claudeLaunchContext(deps, paths, config), root, verify),
     prepare: async (spec, paths, config, checkSession, verify) => {
+      // A developer session of a box run goes into its box; a reviewer stays on the Mac (0021
+      // section 10).
+      if (spec.kind === "implement" && deps.boxes?.isBoxRun(paths.runDir) === true) {
+        return prepareInBox(spec, paths, deps.boxes, deps.holds);
+      }
       const prepared = await prepareLaunch(
         spec,
         claudeLaunchContext(deps, paths, config),
