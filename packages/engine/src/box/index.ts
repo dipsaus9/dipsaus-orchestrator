@@ -1,5 +1,6 @@
 // One real box per story (0021 sections 1 to 6, DIPO-265): the box interface and its Apple
-// `container` backend, and the box image built from the office config (DIPO-266).
+// `container` backend, the box image built from the office config (DIPO-266), and the office
+// package cache (DIPO-267).
 
 export {
   BOX_IMAGE_LABEL_VALUE,
@@ -69,6 +70,34 @@ export type {
   BoxSpec,
   BoxState,
 } from "./port";
+export {
+  boxCacheInstall,
+  boxCacheTarget,
+  CACHE_LOCKFILES,
+  createBoxWithPackageCache,
+  ensurePackageCache,
+  fillCommand,
+  fillEnvironment,
+  lockfileHash,
+  PACKAGE_CACHE_FILL_TIMEOUT_MS,
+  PACKAGE_CACHE_FORMAT,
+  PACKAGE_CACHE_MAX_MANIFESTS,
+  PACKAGE_CACHE_STAMP,
+  packageCacheKey,
+  readBaseLockfile,
+  resolvePackageCacheMount,
+} from "./cache";
+export type {
+  BaseLockfile,
+  BoxCacheInstall,
+  BoxWithCacheRequest,
+  CacheManager,
+  PackageCache,
+  PackageCacheProxy,
+  PackageCacheRequest,
+  PackageCacheStamp,
+  PackageCacheTarget,
+} from "./cache";
 export {
   BOX_DEFAULTS,
   boxBuildFile,

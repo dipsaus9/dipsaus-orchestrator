@@ -28,28 +28,43 @@
 // loopback, the box network, the Mac's own address, the default gateway and IP literals are refused, plain HTTP proxying is refused, a registry
 // (also with a trailing dot) goes through Safe-Chain, the internet works, and an npm install is
 // checked by Safe-Chain.
+//
+// A third test (DIPO-267) fills the office package cache for a small Bun project on the Mac, through
+// dipo's Safe-Chain proxy (so it also needs `~/.safe-chain` and the internet), mounts it in a box,
+// and checks that every write to it from inside the box fails and the host files stay unchanged,
+// and that a symlink in the cache root never becomes a mount. With the build proxy named as well,
+// the office image then installs the project offline from the read-only cache into the box's own
+// filesystem, and the worker's own Bun cache is not the package cache.
 
 import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { createServer, isIP, type Server } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
 import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { statsArgs } from "../../src/box/apple-args";
+import {
+  boxCacheInstall,
+  createBoxWithPackageCache,
+  ensurePackageCache,
+  fillEnvironment,
+} from "../../src/box/cache";
 import { boxImageTag, describeBox, ensureBoxImage } from "../../src/box/image";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
-import { boxName, isBoxTimedOut } from "../../src/box/port";
+import { BoxError, boxName, isBoxTimedOut } from "../../src/box/port";
 import {
   BoxWebRoute,
   type RunningBoxWebRoute,
@@ -60,6 +75,7 @@ import {
 import { systemClock } from "../../src/platform/clock";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
+import { startSafeChainProxy } from "../../src/platform/safe-chain-proxy";
 
 const IMAGE = "docker.io/library/alpine:3.20";
 /** A first run pulls the image; later calls keep the 60 s default. */
@@ -97,6 +113,14 @@ async function defaultGateway(env: Record<string, string>): Promise<string | nul
   const [out] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   const gateway = /gateway:\s*(\S+)/.exec(out)?.[1] ?? null;
   return gateway !== null && isIP(gateway) === 4 ? gateway : null;
+}
+
+/** Every file below `dir`, relative to it, sorted. */
+function listFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(dir, join(entry.parentPath, entry.name)))
+    .toSorted();
 }
 
 /** A line the maintainer's run shows: one observed behaviour of `container`. */
@@ -150,7 +174,13 @@ if (registers) {
           mkdirSync(code);
           writeFileSync(join(code, "hello.txt"), "hello from the host\n");
           try {
-            await boxes.create(
+            // A package cache must lie under the backend's cache root (DIPO-267): here the temp dir.
+            await new AppleContainerBoxes({
+              spawn: systemSpawn,
+              clock: systemClock,
+              env: cliEnv,
+              packageCacheRoot: dir,
+            }).create(
               { runId, image: IMAGE, network, packageCache: code },
               { timeoutMs: PULL_TIMEOUT_MS },
             );
@@ -250,6 +280,176 @@ if (registers) {
         });
       },
       PULL_TIMEOUT_MS + 120_000,
+    );
+
+    it(
+      "fills the office package cache through Safe-Chain outside the box, and mounts it read-only",
+      async () => {
+        expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
+        const env = cleanEnv();
+        const cliEnv = {
+          PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
+          HOME: env["HOME"] ?? "/",
+        };
+        await withTempDir(async (dir) => {
+          const started = await startSafeChainProxy(
+            {
+              installRoot: SAFE_CHAIN_INSTALL,
+              caFile: join(dir, "safe-chain", "ca.pem"),
+              home: homedir(),
+              uid: process.getuid?.() ?? 0,
+              env: process.env,
+            },
+            { platform: currentPlatform(), clock: systemClock, root: join(dir, "p") },
+          );
+          if (!started.ok) throw new Error(started.reason);
+          const proxy = {
+            url: `http://127.0.0.1:${started.proxy.port}`,
+            caFile: started.proxy.caFile,
+          };
+          const root = join(dir, "package-cache");
+          const boxes = new AppleContainerBoxes({
+            spawn: systemSpawn,
+            clock: systemClock,
+            env: cliEnv,
+            packageCacheRoot: root,
+          });
+          const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+          const name = boxName(runId);
+          try {
+            // A small Bun project; its lockfile is made here, through the same proxy.
+            const project = join(dir, "project");
+            mkdirSync(project);
+            const manifest =
+              '{ "name": "cache-probe", "dependencies": { "is-number": "7.0.0" } }\n';
+            writeFileSync(join(project, "package.json"), manifest);
+            const lock = systemSpawn({
+              cmd: [process.execPath, "install", "--lockfile-only", `--cafile=${proxy.caFile}`],
+              cwd: project,
+              env: fillEnvironment({
+                path: cliEnv.PATH,
+                home: join(dir, "home"),
+                tmp: dir,
+                caFile: proxy.caFile,
+                proxyUrl: proxy.url,
+              }),
+            });
+            expect((await lock.exited).code).toBe(0);
+            const source = {
+              commit: "test",
+              lockfile: {
+                name: "bun.lock",
+                manager: "bun" as const,
+                text: readFileSync(join(project, "bun.lock"), "utf8"),
+              },
+              files: [{ path: "package.json", text: manifest }],
+            };
+            const cacheRequest = {
+              root,
+              proxy,
+              tools: { bun: process.execPath },
+              path: cliEnv.PATH,
+              spawn: systemSpawn,
+              clock: systemClock,
+            };
+            const before = performance.now();
+            const made = await createBoxWithPackageCache({
+              boxes,
+              spec: { runId, image: IMAGE, network: await boxes.network() },
+              readSource: async () => source,
+              cache: cacheRequest,
+              options: { timeoutMs: PULL_TIMEOUT_MS },
+            });
+            fact(`package cache filled in ${Math.round(performance.now() - before)} ms`);
+            expect(made.cache.filled).toBe(true);
+            const again = await ensurePackageCache({ ...cacheRequest, source });
+            expect(again.filled).toBe(false);
+            const hostFiles = listFiles(made.cache.path);
+            expect(hostFiles.some((file) => file.startsWith("bun/is-number@7.0.0"))).toBe(true);
+
+            await boxes.start(name);
+            const listed = await boxes.exec(name, ["ls", "/dipo/package-cache/bun"]);
+            expect(listed.stdout).toContain("is-number@7.0.0");
+            // Every write to the cache fails inside the box.
+            for (const write of [
+              "touch /dipo/package-cache/bun/x",
+              "rm -rf /dipo/package-cache/bun/is-number@7.0.0@@@1",
+              "echo changed > /dipo/package-cache/dipo-cache.json",
+              "mkdir /dipo/package-cache/new",
+            ]) {
+              const tried = await boxes.exec(name, ["sh", "-c", write]);
+              expect(tried.code).not.toBe(0);
+            }
+            expect(listFiles(made.cache.path)).toEqual(hostFiles);
+
+            // A symlink in the cache root that points out of it never becomes a mount.
+            symlinkSync(dir, join(root, "escape"));
+            const escaped = await boxes
+              .create({
+                runId: `${runId}-x`,
+                image: IMAGE,
+                network: await boxes.network(),
+                packageCache: join(root, "escape"),
+              })
+              .then(() => "created")
+              .catch((error: unknown) => (error instanceof BoxError ? error.code : String(error)));
+            expect(escaped).toBe("box.cacheOutsideRoot");
+
+            if (BUILD_PROXY !== undefined && BUILD_CA !== undefined) {
+              // The office image installs the project offline from the read-only cache into the
+              // box's own filesystem; the worker's own cache stays in the box.
+              const { image } = describeBox(
+                { packages: ["jq"] },
+                { bun: { version: "1.4.2", evidence: ".bun-version" } },
+              );
+              const built = await ensureBoxImage({
+                boxes,
+                image,
+                proxy: { url: BUILD_PROXY, caFile: BUILD_CA },
+                scratchRoot: dir,
+              });
+              const officeRun = `test-${crypto.randomUUID().slice(0, 8)}`;
+              const office = boxName(officeRun);
+              try {
+                await createBoxWithPackageCache({
+                  boxes,
+                  spec: { runId: officeRun, image: built.tag, network: await boxes.network() },
+                  readSource: async () => source,
+                  cache: cacheRequest,
+                });
+                await boxes.start(office);
+                await boxes.exec(office, ["mkdir", "-p", "/work"]);
+                await boxes.copyIn(office, join(project, "package.json"), "/work/package.json");
+                await boxes.copyIn(office, join(project, "bun.lock"), "/work/bun.lock");
+                const install = boxCacheInstall("bun");
+                const installed = await boxes.exec(office, install.command, {
+                  cwd: "/work",
+                  env: install.env,
+                  timeoutMs: PULL_TIMEOUT_MS,
+                });
+                fact(`offline install from the cache: ${JSON.stringify(installed)}`);
+                expect(installed.code).toBe(0);
+                const present = await boxes.exec(office, [
+                  "test",
+                  "-f",
+                  "/work/node_modules/is-number/package.json",
+                ]);
+                expect(present.code).toBe(0);
+                const own = await boxes.exec(office, ["bun", "pm", "cache"], { cwd: "/work" });
+                fact(`the worker's own Bun cache in the box: ${own.stdout.trim()}`);
+                expect(own.stdout).not.toContain("/dipo/package-cache");
+                expect(listFiles(made.cache.path)).toEqual(hostFiles);
+              } finally {
+                await boxes.delete(office).catch(() => {});
+              }
+            }
+          } finally {
+            await boxes.delete(name).catch(() => {});
+            await started.proxy.stop();
+          }
+        });
+      },
+      BUILD_TIMEOUT_MS,
     );
 
     if (BUILD_PROXY !== undefined && BUILD_CA !== undefined) {

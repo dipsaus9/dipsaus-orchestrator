@@ -2,11 +2,13 @@
 // host-only network, the lifecycle calls, exec (short and long-running), memory, the list of
 // dipo's own boxes, and the deadline that kills a call with `box.timedOut`.
 
+import { mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { availableParallelism, totalmem } from "node:os";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
 import {
@@ -218,38 +220,69 @@ describe("the box network", () => {
 });
 
 describe("box lifecycle", () => {
-  it("creates a box named dipo-<run id> with the dipo label, the cache read-only and the Mac's resources", async () => {
-    const { port, fake } = boxes(() => ({ stdout: `${BOX}\n` }));
-    const name = await port.create({
-      runId: RUN,
-      image: "docker.io/library/alpine:3.20",
-      network: NETWORK,
-      packageCache: "/Users/someone/dipo-cache/off_1",
-    });
-    expect(name).toBe(BOX);
-    expect(fake.args()).toEqual([
-      [
-        "create",
-        "--name",
-        BOX,
-        "--label",
-        `dipo=${RUN}`,
-        "--network",
-        BOX_NETWORK_NAME,
-        "--memory",
-        "32768M",
-        "--cpus",
-        "12",
-        "--mount",
-        `type=bind,source=/Users/someone/dipo-cache/off_1,target=${BOX_PACKAGE_CACHE_PATH},readonly`,
-        "--entrypoint",
-        "tail",
-        "docker.io/library/alpine:3.20",
-        "-f",
-        "/dev/null",
-      ],
-    ]);
-  });
+  it("creates a box named dipo-<run id> with the dipo label, the cache read-only and the Mac's resources", () =>
+    withTempDir(async (dir) => {
+      const root = join(dir, "package-cache");
+      mkdirSync(join(root, "generation"), { recursive: true });
+      const cache = realpathSync(join(root, "generation"));
+      const { port, fake } = boxes(() => ({ stdout: `${BOX}\n` }), { packageCacheRoot: root });
+      const name = await port.create({
+        runId: RUN,
+        image: "docker.io/library/alpine:3.20",
+        network: NETWORK,
+        packageCache: join(root, "generation"),
+      });
+      expect(name).toBe(BOX);
+      expect(fake.args()).toEqual([
+        [
+          "create",
+          "--name",
+          BOX,
+          "--label",
+          `dipo=${RUN}`,
+          "--network",
+          BOX_NETWORK_NAME,
+          "--memory",
+          "32768M",
+          "--cpus",
+          "12",
+          "--mount",
+          `type=bind,source=${cache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+          "--entrypoint",
+          "tail",
+          "docker.io/library/alpine:3.20",
+          "-f",
+          "/dev/null",
+        ],
+      ]);
+    }));
+
+  it("refuses a package cache without a cache root, or one a symlink points out of the root", () =>
+    withTempDir(async (dir) => {
+      const root = join(dir, "package-cache");
+      const outside = join(dir, "outside");
+      mkdirSync(root);
+      mkdirSync(outside);
+      symlinkSync(outside, join(root, "link"));
+      const { port, fake } = boxes(() => ({}), { packageCacheRoot: root });
+      for (const packageCache of [join(root, "link"), outside, root, join(root, "missing")]) {
+        const error = await rejection(
+          port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK, packageCache }),
+        );
+        expect(error.code).toBe("box.cacheOutsideRoot");
+      }
+      const { port: rootless } = boxes(() => ({}));
+      const error = await rejection(
+        rootless.create({
+          runId: RUN,
+          image: "alpine:3.20",
+          network: NETWORK,
+          packageCache: outside,
+        }),
+      );
+      expect(error.code).toBe("box.cacheOutsideRoot");
+      expect(fake.calls).toHaveLength(0);
+    }));
 
   it("defaults to the Mac's total memory and CPU count", () => {
     expect(systemHostResources()).toEqual({
