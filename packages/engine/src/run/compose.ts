@@ -117,6 +117,7 @@ function given<K extends string, V>(key: K, value: V | undefined): { [P in K]?: 
 /** The services built later that earlier ones call: each is read when called, never before. */
 interface Late {
   ingest: OfficeIngest | null;
+  permissions: PermissionAsks | null;
   outcomes: RunOutcomes | null;
   resumption: Resumption | null;
   exitPort: RunOutcomesPort | null;
@@ -137,6 +138,8 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
     flushOutput: (office, run) => late.ingest?.flushOutput(office, run),
     // Each exit decision may end the run after its worker exited (the temp directory goes).
     outcomes: () => late.exitPort ?? undefined,
+    // A blocked report's question goes through the live-question rule (DIPO-272).
+    questions: () => late.permissions ?? undefined,
     ...given("onChanged", ports.onChanged),
     ...given("refreshStory", ports.refreshStory),
     ...given("warn", ports.warn),
@@ -165,6 +168,10 @@ function buildHookListeners(
     encode: (op) => ports.worker.encode(op),
     presence: ports.presence ?? ABSENT,
     ending,
+    // A live worker question whose last TUI closed parks its story (DIPO-272, DIPO-284).
+    parkQuestion: (_office, run, question) => {
+      control?.parkOnQuestion(run, question);
+    },
     // An answer to a `needs-permission` park resumes its run (DIPO-75).
     parks: {
       resume: (office, run, request) =>
@@ -430,6 +437,7 @@ function snapshotOf(ports: RunPorts, office: OfficeId, worktree: string) {
 export function composeRuns(ports: RunPorts): ComposedRuns {
   const late: Late = {
     ingest: null,
+    permissions: null,
     outcomes: null,
     resumption: null,
     exitPort: null,
@@ -439,6 +447,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const control = buildControl(ports, late);
   const listeners = buildHookListeners(ports, control, late);
   const { permissions, nudges } = listeners;
+  late.permissions = permissions;
   const ingest = buildIngest(ports, control, listeners);
   late.ingest = ingest;
   const built = buildOutcomes(ports, control, ingest, late);

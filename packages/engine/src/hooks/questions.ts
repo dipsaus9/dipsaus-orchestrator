@@ -122,6 +122,39 @@ export function insertPermissionQuestion(
   return row;
 }
 
+export interface NewWorkerQuestion {
+  readonly questionId: string;
+  readonly runId: string;
+  readonly agentId: string;
+  /** The question of the worker's report, cleaned at the door. */
+  readonly text: string;
+  readonly at: number;
+}
+
+/**
+ * Stores the open question of a worker's report that is asked live (kind `question`, DIPO-272):
+ * no tool, no hook call and no park; returns it.
+ */
+export function insertWorkerQuestion(
+  office: OfficeHandle,
+  question: NewWorkerQuestion,
+): StoredQuestion {
+  office.run(
+    `insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at)
+     values ($office_id, $question, $run, $agent, 'question', $text, $at)`,
+    {
+      question: question.questionId,
+      run: question.runId,
+      agent: question.agentId,
+      text: question.text,
+      at: question.at,
+    },
+  );
+  const row = findQuestion(office, question.questionId);
+  if (row === null) throw new Error(`question ${question.questionId} was not stored`);
+  return row;
+}
+
 export interface NewParkQuestion {
   readonly questionId: string;
   readonly runId: string;
