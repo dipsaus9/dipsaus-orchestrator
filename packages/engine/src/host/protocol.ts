@@ -131,6 +131,7 @@ const LaunchPlanSchema = z.object({
   files: z.array(LaunchFileSchema),
   stdin: z.array(z.string()),
   lineScrub: LineScrubSchema.optional(),
+  stopCommand: z.tuple([z.string().startsWith("/")], z.string()).optional(),
 });
 
 /** `launch.json`: everything the host needs besides its run id. */
