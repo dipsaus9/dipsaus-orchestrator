@@ -378,6 +378,19 @@ describe("the end of a box run (criterion 9)", () => {
       expect(w.boxes.boxes.has(BOX)).toBe(false);
     }));
 
+  it("holds the adapter when the check cannot even start, and keeps the box for the next pass", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { modelFails: true });
+      await created(w);
+      const finished = await w.workers.finish(RUN);
+      expect(finished.kind).toBe("failed");
+      const hold = w.holds.adapterHeld(ADAPTER);
+      expect(hold?.check).toBe(BOX_TOKEN_CHECK);
+      expect(hold?.detail).toContain("(token.missing)");
+      expect(w.boxes.boxes.has(BOX)).toBe(true);
+      expect(w.workers.pending()).toEqual([RUN]);
+    }));
+
   it("starts a stopped box for the check, which reads the running box's environment", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);

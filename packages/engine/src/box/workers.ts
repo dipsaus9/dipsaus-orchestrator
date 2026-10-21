@@ -51,7 +51,7 @@ import {
   boxName,
   runIdOfBox,
 } from "./port";
-import { type BoxTokenCheck, checkBoxAfterRun } from "./token-check";
+import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
 /** The run directory's record that the run's developer works in a box. */
@@ -138,6 +138,13 @@ export type BoxFinish =
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The code of `error`, never its message. */
+function codeOf(error: unknown): string {
+  if (error instanceof BoxError) return error.code;
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "error";
 }
 
 /** Reads a run directory's record; null when the run is not a box worker's. */
@@ -384,11 +391,14 @@ export class BoxWorkers {
     const name = boxName(runId);
     const { boxes } = this.#deps;
     let outcome: BoxFinish;
+    let exists = false;
+    let checked = false;
     try {
       const listed = (await boxes.list()).find((box) => box.name === name);
       if (listed === undefined) {
         outcome = { kind: "gone" };
       } else {
+        exists = true;
         // The check reads the environment of the running box, so a stopped box starts first.
         if (listed.state !== "running") await boxes.start(name);
         const model = await this.#model.acquire(name);
@@ -402,6 +412,7 @@ export class BoxWorkers {
           },
           name,
         );
+        checked = true;
         outcome = { kind: "checked", check: result };
         await boxes.delete(name);
       }
@@ -412,6 +423,20 @@ export class BoxWorkers {
         box: name,
         reason: outcome.reason,
       });
+      // A box whose check could not even start proves nothing: it holds as a failed check does.
+      // Only the error's code goes into the hold, never a message that may quote the box.
+      if (exists && !checked) {
+        const failure = tokenCheckFailure(
+          {
+            ok: false,
+            code: "box.tokenCheckFailed",
+            hold: true,
+            reason: `the check could not start (${codeOf(error)}).`,
+          },
+          name,
+        );
+        if (failure !== null) this.#deps.holds.hold(this.#deps.adapter, [failure]);
+      }
     }
     await this.#release(name);
     // A box that could not be deleted stays in the index, for the next pass.
