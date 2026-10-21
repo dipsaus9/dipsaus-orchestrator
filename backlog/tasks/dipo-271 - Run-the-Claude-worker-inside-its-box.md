@@ -49,4 +49,5 @@ unknowns: []
 - [ ] #6 Stopping a worker (cap, budget, stop command or daemon stop) ends its claude process inside the box, not only the exec client on the Mac, shown by a test
 - [ ] #7 The image build's proxy runs only for the length of a build and applies the box web proxy's address rules (0021 amendment of 2026-10-21, DIPO-266)
 - [ ] #8 A box-token hold (DIPO-269) stays until the maintainer replaces the token with dipo login box; a passing launch check alone does not lift it
+- [ ] #9 At the end of every box run dipo calls checkBoxAfterRun (DIPO-269), and at daemon start it calls sweepTokenCheckLeftovers, shown by tests
 <!-- AC:END -->
