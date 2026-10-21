@@ -53,6 +53,11 @@
 // Parts of one run are delivered one at a time. A part that finds the run not live (being parked,
 // stopped, or not followed) is left queued in the box (`onPart` rejects), so it is delivered when
 // the run goes on. A stream or git failure rejects too, and the door hands the part again.
+//
+// Verify at story done (DIPO-274, `verifyLast`) holds the same one-at-a-time turn from the last
+// part to the end of verify, so no part moves the branch while verify runs; after a green verify
+// the box's `/work` is taken out once more and compared with the delivered tree (`delivered`), so a
+// green verify stands only for the tree the branch holds.
 
 import { createHash } from "node:crypto";
 import { appendFileSync, constants } from "node:fs";
@@ -91,6 +96,7 @@ import {
   MatchBudget,
 } from "./ignore";
 import { BoxError, type BoxPort } from "./port";
+import { type BoxCommandRequest, type BoxCommandResult, runBoxCommand } from "./verify";
 
 const GIB = 1024 ** 3;
 /** The caps of one part: 1 GiB of archive, 500,000 entries, 1 GiB unpacked. */
@@ -715,6 +721,13 @@ async function readView(session: GitSession, branch: string, startSha: string): 
   return { tip, tipTree, format, entries, ignores };
 }
 
+/** The commit the story branch points at. */
+async function branchTip(session: GitSession, branch: string): Promise<string> {
+  return (
+    await session.ok(session.repository, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])
+  ).trim();
+}
+
 /**
  * The delivered content of the blobs `ids`, read in the git queue for the scan outside it; null for
  * one larger than `SCAN_FILE_MAX`, so every key of the new content counts.
@@ -905,6 +918,23 @@ export type PartOutcome =
   /** The run is not live; nothing was taken. */
   | { readonly kind: "stopped" };
 
+/** Whether the box still holds the delivered tree; `unknown` when dipo could not read it. */
+export type DeliveredCheck = "same" | "changed" | "unknown";
+
+/** What verify gets of the box while the run's parts are held (`BoxParts.verifyLast`). */
+export interface BoxVerifyAccess {
+  /** Runs one command in the box's `/work` (`runBoxCommand`). */
+  run(request: Omit<BoxCommandRequest, "box">): Promise<BoxCommandResult>;
+  /** Compares the box's `/work` with the tree the last part delivered. */
+  delivered(): Promise<DeliveredCheck>;
+}
+
+/** The last part, and what `verify` returned when it ran. */
+export interface LastPartVerify<T> {
+  readonly outcome: PartOutcome;
+  readonly verified: { readonly result: T } | null;
+}
+
 /** A park a part asks for. */
 export interface PartPark {
   readonly reason: "scope-violation" | "conflict";
@@ -1033,6 +1063,97 @@ export class BoxParts {
     });
   }
 
+  /**
+   * Story done with verify in the box (DIPO-274, 0021 section 9): as `deliverLast`, then, while
+   * the run's part chain is still held, `verify` with the box's exec and the delivered-tree check.
+   * No part of the run is delivered from the moment the last part is taken until `verify` resolves
+   * (a part the door reads meanwhile waits its turn), so the branch tip stays the delivered one, and
+   * `delivered` tells whether the box's `/work` still holds exactly that tree. `verify` runs only
+   * when the last part asks for no park and the run goes on; `verified` is null otherwise.
+   */
+  async verifyLast<T>(
+    runId: string,
+    message: string,
+    verify: (box: BoxVerifyAccess) => Promise<T>,
+  ): Promise<LastPartVerify<T>> {
+    try {
+      await this.#deps.readDoor?.(runId);
+    } catch (error) {
+      this.#deps.warn?.("the box door could not be read before the last part", {
+        run: runId,
+        reason: messageOf(error),
+      });
+    }
+    const stopped: LastPartVerify<T> = { outcome: { kind: "stopped" }, verified: null };
+    if (!this.#deps.live(runId)) return stopped;
+    const run = this.#deps.run(runId);
+    if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
+    return this.#serial(runId, async (): Promise<LastPartVerify<T>> => {
+      if (!this.#deps.live(runId)) return stopped;
+      const outcome = await this.#deliver(run, message);
+      if (partPark(outcome) !== null || !this.#deps.live(runId)) return { outcome, verified: null };
+      const git = this.#gitOf(run);
+      const tip = await git.run((session) => branchTip(session, run.branch));
+      const result = await verify({
+        run: (request) =>
+          runBoxCommand(
+            {
+              boxes: this.#deps.boxes,
+              clock: this.#deps.clock,
+              ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
+            },
+            { ...request, box: run.box },
+          ),
+        delivered: () => this.#delivered(run, tip),
+      });
+      return { outcome, verified: { result } };
+    }).catch((error: unknown): LastPartVerify<T> => {
+      if (error instanceof BoxError && error.code === PART_WAITING) return stopped;
+      throw error;
+    });
+  }
+
+  /**
+   * Whether the box's `/work` holds exactly the delivered tree at `tip`: the branch still at
+   * `tip`, and the box's files compared with it as a part is, with nothing added, changed or
+   * deleted. `unknown` when dipo could not read them.
+   */
+  async #delivered(run: PartRun, tip: string): Promise<DeliveredCheck> {
+    try {
+      const git = this.#gitOf(run);
+      const view = await git.run((session) => readView(session, run.branch, run.startSha));
+      if (view.tip !== tip) return "changed";
+      const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
+      return await this.#inStage(async (stage) => {
+        const taken = await this.#take(run, view, listed, stage);
+        if (taken.kind !== "taken") return "changed";
+        return taken.changes.length === 0 && taken.linkHits.length === 0 ? "same" : "changed";
+      });
+    } catch (error) {
+      this.#deps.warn?.("the box's files could not be compared with the delivered tree", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return "unknown";
+    }
+  }
+
+  #gitOf(run: PartRun): OfficeGit {
+    const git = this.#deps.git(run.office);
+    if (git === undefined) throw new BoxError(PART_FAILED, `office ${run.office} has no git.`);
+    return git;
+  }
+
+  /** Runs `fn` with a fresh stage folder in dipo's temp root, removed after. */
+  async #inStage<T>(fn: (stage: string) => Promise<T>): Promise<T> {
+    const stage = await realpath(await mkdtemp(join(this.#deps.tmpRoot, PART_STAGE_PREFIX)));
+    try {
+      return await fn(stage);
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
+  }
+
   /** Throws `PART_WAITING` when the run no longer goes on, so the part stays queued. */
   #assertLive(run: PartRun): void {
     if (!this.#deps.live(run.runId)) {
@@ -1070,90 +1191,110 @@ export class BoxParts {
     }
   }
 
+  /**
+   * The box's `/work` taken out into `stage` and compared with the delivered tree `view` (steps 1
+   * and 2 of the module comment); `refused` with the outcome when dipo does not take it.
+   */
+  async #take(
+    run: PartRun,
+    view: PartView,
+    listed: ReadonlySet<string>,
+    stage: string,
+  ): Promise<
+    | { readonly kind: "taken"; readonly changes: PartChange[]; readonly linkHits: string[] }
+    | { readonly kind: "refused"; readonly outcome: PartOutcome }
+  > {
+    const limits = this.#deps.limits ?? PART_ARCHIVE_LIMITS;
+    const refused = (why: PartRefusal) => ({
+      kind: "refused" as const,
+      outcome: { kind: "refused" as const, detail: refusedDetail(why, limits.maxArchiveBytes) },
+    });
+    const viewRules = new IgnoreRules(view.ignores);
+    const folder = join(stage, "archive");
+    const dest = join(stage, "files");
+    await mkdir(folder, { mode: 0o700 });
+    await mkdir(dest, { mode: 0o700 });
+    try {
+      await streamFromBox({
+        boxes: this.#deps.boxes,
+        box: run.box,
+        command: partArchiveCommand(inBoxExcludes(viewRules, view.entries)),
+        folder,
+        name: "part.tar",
+        maxBytes: limits.maxArchiveBytes,
+        timeoutMs: this.#deps.timeoutMs ?? PART_STREAM_TIMEOUT_MS,
+        clock: this.#deps.clock,
+        code: PART_FAILED,
+        what: "the part archive",
+        // The worker's box: a failed stream ends only the exec client (the module comment).
+        stopOnFailure: false,
+        // GNU tar exits 1 when a file changed while it read it; the Mac checks every entry again.
+        okExits: [0, 1],
+      });
+    } catch (error) {
+      if (error instanceof BoxError && error.details["reason"] === "cap") return refused("cap");
+      throw error;
+    }
+    let links: readonly ArchiveLink[];
+    try {
+      ({ links } = await extractArchive(folder, dest, {
+        limits,
+        code: PART_REFUSED,
+        what: "the part archive",
+        links: "record",
+      }));
+    } catch (error) {
+      if (!(error instanceof BoxError) || error.code !== PART_REFUSED) throw error;
+      // The message may quote the box's paths: the log only, never the park detail.
+      this.#deps.warn?.("a part's archive was refused", {
+        run: run.runId,
+        reason: error.message,
+      });
+      return refused("archive");
+    }
+    await rm(folder, { recursive: true, force: true });
+    const files = await readPartFiles(dest, view.format);
+    const partIgnores: IgnoreFile[] = [];
+    for (const [path, file] of files) {
+      const dir = ignoreFileDir(path);
+      if (dir === null) continue;
+      // Refused before it is read or split: the worker wrote it.
+      if ((file.size ?? Number.POSITIVE_INFINITY) > IGNORE_FILE_MAX) return refused("ignoreFile");
+      partIgnores.push({ dir, text: await readFile(file.at, "utf8") });
+    }
+    const partRules = new IgnoreRules(partIgnores);
+    const out = await leftOutPaths({
+      paths: [...files.keys(), ...links.map((link) => link.path)],
+      view: view.entries,
+      listed,
+      rules: [viewRules, partRules],
+      budget: this.#deps.ignoreWorkBudget ?? IGNORE_WORK_BUDGET,
+    });
+    if (out === "budget") return refused("ignoreWork");
+    const { changes, linkHits } = comparePart({
+      view: view.entries,
+      files,
+      links,
+      leftOut: (path) => out.has(path),
+      linkId: (target) => blobId(view.format, target),
+    });
+    return { kind: "taken", changes, linkHits };
+  }
+
   /** One try of a part; null when the branch moved meanwhile, so it is taken again. */
   async #attempt(run: PartRun, message: string): Promise<PartOutcome | null> {
-    const git = this.#deps.git(run.office);
-    if (git === undefined) throw new BoxError(PART_FAILED, `office ${run.office} has no git.`);
+    const git = this.#gitOf(run);
     const limits = this.#deps.limits ?? PART_ARCHIVE_LIMITS;
     const view = await git.run((session) => readView(session, run.branch, run.startSha));
     const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
-    const viewRules = new IgnoreRules(view.ignores);
-    const stage = await realpath(await mkdtemp(join(this.#deps.tmpRoot, PART_STAGE_PREFIX)));
-    try {
-      const folder = join(stage, "archive");
-      const dest = join(stage, "files");
-      await mkdir(folder, { mode: 0o700 });
-      await mkdir(dest, { mode: 0o700 });
-      try {
-        await streamFromBox({
-          boxes: this.#deps.boxes,
-          box: run.box,
-          command: partArchiveCommand(inBoxExcludes(viewRules, view.entries)),
-          folder,
-          name: "part.tar",
-          maxBytes: limits.maxArchiveBytes,
-          timeoutMs: this.#deps.timeoutMs ?? PART_STREAM_TIMEOUT_MS,
-          clock: this.#deps.clock,
-          code: PART_FAILED,
-          what: "the part archive",
-          // The worker's box: a failed stream ends only the exec client (the module comment).
-          stopOnFailure: false,
-          // GNU tar exits 1 when a file changed while it read it; the Mac checks every entry again.
-          okExits: [0, 1],
-        });
-      } catch (error) {
-        if (error instanceof BoxError && error.details["reason"] === "cap") {
-          return { kind: "refused", detail: refusedDetail("cap", limits.maxArchiveBytes) };
-        }
-        throw error;
-      }
-      let links: readonly ArchiveLink[];
-      try {
-        ({ links } = await extractArchive(folder, dest, {
-          limits,
-          code: PART_REFUSED,
-          what: "the part archive",
-          links: "record",
-        }));
-      } catch (error) {
-        if (!(error instanceof BoxError) || error.code !== PART_REFUSED) throw error;
-        // The message may quote the box's paths: the log only, never the park detail.
-        this.#deps.warn?.("a part's archive was refused", {
-          run: run.runId,
-          reason: error.message,
-        });
-        return { kind: "refused", detail: refusedDetail("archive", limits.maxArchiveBytes) };
-      }
-      await rm(folder, { recursive: true, force: true });
-      const files = await readPartFiles(dest, view.format);
-      const refused = (why: PartRefusal): PartOutcome => ({
-        kind: "refused",
-        detail: refusedDetail(why, limits.maxArchiveBytes),
-      });
-      const partIgnores: IgnoreFile[] = [];
-      for (const [path, file] of files) {
-        const dir = ignoreFileDir(path);
-        if (dir === null) continue;
-        // Refused before it is read or split: the worker wrote it.
-        if ((file.size ?? Number.POSITIVE_INFINITY) > IGNORE_FILE_MAX) return refused("ignoreFile");
-        partIgnores.push({ dir, text: await readFile(file.at, "utf8") });
-      }
-      const partRules = new IgnoreRules(partIgnores);
-      const out = await leftOutPaths({
-        paths: [...files.keys(), ...links.map((link) => link.path)],
-        view: view.entries,
-        listed,
-        rules: [viewRules, partRules],
-        budget: this.#deps.ignoreWorkBudget ?? IGNORE_WORK_BUDGET,
-      });
-      if (out === "budget") return refused("ignoreWork");
-      const { changes, linkHits } = comparePart({
-        view: view.entries,
-        files,
-        links,
-        leftOut: (path) => out.has(path),
-        linkId: (target) => blobId(view.format, target),
-      });
+    const refused = (why: PartRefusal): PartOutcome => ({
+      kind: "refused",
+      detail: refusedDetail(why, limits.maxArchiveBytes),
+    });
+    return this.#inStage(async (stage): Promise<PartOutcome | null> => {
+      const taken = await this.#take(run, view, listed, stage);
+      if (taken.kind === "refused") return taken.outcome;
+      const { changes, linkHits } = taken;
       if ([...changes.map((change) => change.path), ...linkHits].some(unsafePath)) {
         return refused("path");
       }
@@ -1209,9 +1350,7 @@ export class BoxParts {
         .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));
       this.#deps.info?.("a part was committed", { run: run.runId, part: n, commit });
       return { kind: "committed", n, commit, paths: changes.map((c) => c.path), push };
-    } finally {
-      await rm(stage, { recursive: true, force: true });
-    }
+    });
   }
 
   /** The paths of a hit, cleaned, in the run directory's record only; never in the park detail. */
