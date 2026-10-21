@@ -333,12 +333,15 @@ export class RunEndings {
    * Sends a verify feedback item as the next user message, stored first as a `steer` intent. A run
    * the maintainer paused (also while the engine ran verify) gets no message: the item waits, and
    * the first message after `work.resume` carries it (0020 section 9, DIPO-163).
+   * `what` names the message in its intent and in the notice when it did not reach the worker
+   * (DIPO-277 sends the collision messages this way).
    */
   async sendFeedback(
     office: OfficeHandle,
     run: StoredRun,
     text: string,
     write: (fn: () => readonly NewEntry[]) => void,
+    what = "verify feedback",
   ): Promise<void> {
     const held = office.immediate(() => {
       if (openPause(office, run.runId) === null) return false;
@@ -354,7 +357,7 @@ export class RunEndings {
     if (held) return;
     const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
       kind: "steer",
-      detail: "verify feedback",
+      detail: what,
       ops: this.#deps.encode({ kind: "steer", text }),
       clock: this.#deps.clock,
     });
@@ -368,7 +371,7 @@ export class RunEndings {
           delta: {
             level: "warn",
             code: CONTROL_NOTICES.feedbackNotSent,
-            text: `${run.story ?? run.runId}: dipo could not send the verify feedback to its worker (${error}).`,
+            text: `${run.story ?? run.runId}: dipo could not send the ${what} to its worker (${error}).`,
           },
         },
       ]);

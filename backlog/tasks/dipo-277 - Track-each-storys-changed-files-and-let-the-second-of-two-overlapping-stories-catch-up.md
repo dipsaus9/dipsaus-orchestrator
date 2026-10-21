@@ -3,10 +3,10 @@ id: DIPO-277
 title: >-
   Track each story's changed files and let the second of two overlapping stories
   catch up
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 22:42'
 labels:
   - 'tier:M'
   - cutover
@@ -17,6 +17,14 @@ dependencies:
 references:
   - packages/engine/src/box/collisions.ts
   - packages/engine/test/box/collisions.test.ts
+  - packages/engine/src/box/parts.ts
+  - packages/engine/src/box/code.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/run/control.ts
+  - packages/engine/src/run/control-endings.ts
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
+  - packages/daemon/test/unit/box-runs.test.ts
 priority: high
 type: feature
 ordinal: 266000
@@ -37,8 +45,8 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The changed files come from the delivered parts against the start commit, not from the worker's list
-- [ ] #2 An overlap between in-flight stories is reported to the maintainer and both workers
-- [ ] #3 After the first merges, dipo merges the new main into the second story's branch and copies the result into its box; a conflict starts a fix round
-- [ ] #4 Detection uses git's merge check, with no model call; tests cover overlap, clean catch-up and conflict
+- [x] #1 The changed files come from the delivered parts against the start commit, not from the worker's list
+- [x] #2 An overlap between in-flight stories is reported to the maintainer and both workers
+- [x] #3 After the first merges, dipo merges the new main into the second story's branch and copies the result into its box; a conflict starts a fix round
+- [x] #4 Detection uses git's merge check, with no model call; tests cover overlap, clean catch-up and conflict
 <!-- AC:END -->

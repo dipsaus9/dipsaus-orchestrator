@@ -25,13 +25,16 @@ import type {
 import {
   type AdapterHolds,
   AppleContainerBoxes,
+  appendEntries,
   BOX_INDEX_DIR,
+  BoxCollisions,
   type BoxBuildNetwork,
   type BoxNetwork,
   type BoxPort,
   BoxParts,
   type BoxPartsDeps,
   BoxWorkers,
+  type DoorPart,
   boxName,
   CLAUDE_CLI_ADAPTER_ID,
   ensurePrivateDir,
@@ -229,6 +232,8 @@ export interface DaemonRuns {
   readonly tempDirs: RunTempDirs;
   /** The box workers (DIPO-271); null without a box backend. `close` at daemon stop. */
   readonly boxes: BoxWorkers | null;
+  /** The collision check of the box runs (DIPO-277); null without a box backend. `stop` at daemon stop. */
+  readonly collisions: BoxCollisions | null;
   /**
    * Checks and deletes the box of every run that ended (DIPO-271): after each exit decision
    * here, and at daemon start by the recovery step, which also asks the backend for dipo's boxes
@@ -293,6 +298,21 @@ export async function sweepBoxTokenChecks(
 }
 
 /**
+ * The door's `onPart` of the daemon's box workers: the part is delivered (DIPO-273), then a
+ * collision check runs, since the part may change the files the story changes (DIPO-277). A part
+ * that was not delivered rejects, stays queued in the box and starts no check.
+ */
+export function deliverThenCheck(
+  deliver: (part: DoorPart) => Promise<void>,
+  check: () => void,
+): (part: DoorPart) => Promise<void> {
+  return async (part) => {
+    await deliver(part);
+    check();
+  };
+}
+
+/**
  * The box workers of the daemon (DIPO-271) and the delivery of their parts (DIPO-273), or null
  * without a box backend. `parts` gives the run facts and run control the delivery needs.
  */
@@ -300,7 +320,12 @@ function daemonBoxWorkers(
   options: DaemonRunsOptions,
   tmpRoot: string,
   parts: Pick<BoxPartsDeps, "run" | "live" | "park">,
-): { readonly workers: BoxWorkers; readonly parts: BoxParts } | null {
+  afterPart: () => void = () => {},
+): {
+  readonly workers: BoxWorkers;
+  readonly parts: BoxParts;
+  readonly boxes: BoxPort;
+} | null {
   const { clock, platform, env, home, uid } = options;
   let boxes = options.boxes;
   if (boxes === undefined) {
@@ -399,7 +424,7 @@ function daemonBoxWorkers(
     indexDir: join(options.stateDir, BOX_INDEX_DIR),
     // The part queue of each box is read while its session runs (DIPO-272), and each part is
     // delivered (DIPO-273).
-    door: { onPart: (part) => delivery.onPart(part) },
+    door: { onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart) },
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
@@ -407,7 +432,60 @@ function daemonBoxWorkers(
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
-  return { workers, parts: delivery };
+  return { workers, parts: delivery, boxes };
+}
+
+/**
+ * The collision check of the box runs in progress (DIPO-277): their changed files compared, an
+ * overlap told to the maintainer (an `engine.notice`) and to both workers, and the second story
+ * caught up once the first merged. Null without a box backend.
+ */
+function boxCollisions(
+  options: DaemonRunsOptions,
+  boxed: ReturnType<typeof daemonBoxWorkers>,
+  control: RunControl,
+  partRun: ((runId: string) => PartRun | null) | null,
+): BoxCollisions | null {
+  if (boxed === null) return null;
+  const { clock } = options;
+  return new BoxCollisions({
+    boxes: boxed.boxes,
+    code: { spawn: systemSpawn, clock },
+    tmpRoot: realDir(options.tmpRoot),
+    runs: () =>
+      boxed.workers.pending().flatMap((runId) => {
+        const run = partRun?.(runId) ?? null;
+        return run === null ? [] : [run];
+      }),
+    git: (office) => options.engineGit.forOffice(office),
+    live: (runId) => control.live(runId),
+    parts: boxed.parts,
+    park: (runId, park) => control.parkRun(runId, park),
+    tell: (runId, text) => control.tellWorker(runId, text, "collision message"),
+    notice: (office, runId, notice) => {
+      const handle = options.offices.get(office);
+      if (handle === undefined) return;
+      const key = findRun(handle, runId as RunId)?.key ?? null;
+      const at = clock.now();
+      handle.immediate(() =>
+        appendEntries(
+          handle,
+          [
+            {
+              type: "engine.notice",
+              ...(key === null ? {} : { key }),
+              run: runId as RunId,
+              delta: notice,
+            },
+          ],
+          { at },
+        ),
+      );
+      options.onChanged(office);
+    },
+    warn: (message, fields) => options.logger.warn(message, fields),
+    info: (message, fields) => options.logger.info(message, fields),
+  });
 }
 
 /**
@@ -441,11 +519,18 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   // A part needs the run's facts and run control, both made further down (DIPO-273).
   let runControl: RunControl | null = null;
   let partRun: ((runId: string) => PartRun | null) | null = null;
-  const boxed = daemonBoxWorkers(options, realDir(options.tmpRoot), {
-    run: (runId) => partRun?.(runId) ?? null,
-    live: (runId) => runControl?.live(runId) === true,
-    park: (runId, park) => runControl?.parkRun(runId, park) === true,
-  });
+  // The changed files of the box runs in progress, compared after each part (DIPO-277).
+  let collisions: BoxCollisions | null = null;
+  const boxed = daemonBoxWorkers(
+    options,
+    realDir(options.tmpRoot),
+    {
+      run: (runId) => partRun?.(runId) ?? null,
+      live: (runId) => runControl?.live(runId) === true,
+      park: (runId, park) => runControl?.parkRun(runId, park) === true,
+    },
+    () => void collisions?.check(),
+  );
   const boxWorkers = boxed?.workers ?? null;
   void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
   const finishEndedBoxes = async (
@@ -773,6 +858,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     throw new Error("the daemon's run services are not all wired");
   }
   runControl = control;
+  collisions = boxCollisions(options, boxed, control, partRun);
+  collisions?.start();
   return {
     launcher,
     ingest,
@@ -787,6 +874,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     safeChainProxies,
     tempDirs,
     boxes: boxWorkers,
+    collisions,
     finishEndedBoxes,
   };
 }
