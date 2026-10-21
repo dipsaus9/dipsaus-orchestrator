@@ -123,6 +123,12 @@ const REFUSED: Array<[string, string]> = [
   ["$'\\110\\x4f\\x4f' ; $'\\x44IPO_TMP=/x'", "DIPO_TMP"],
   ["echo $'it\\'s' && DIPO_TMP=/x bun test", "DIPO_TMP"],
   ["echo \"$(echo $'\\')' ) x\" && unset TMPDIR", "TMPDIR"],
+  // `$$` and an escaped `$` open no ANSI-C span (DIPO-242 review).
+  ["echo $$'\\'; DIPO_TMP=/x bun test; echo 'x'", "DIPO_TMP"],
+  ["echo $$'\\'; export DIPO_TMP=/x; echo 'x'", "DIPO_TMP"],
+  ["echo $$'\\'; unset TMPDIR; echo 'x'", "TMPDIR"],
+  ["echo \"$(echo \\$'\\'; DIPO_TMP=/x bun test)\"", "DIPO_TMP"],
+  ["echo \"$(echo \\$'\\'; export DIPO_TMP=/x)\"", "DIPO_TMP"],
 ];
 
 const PASSED = [

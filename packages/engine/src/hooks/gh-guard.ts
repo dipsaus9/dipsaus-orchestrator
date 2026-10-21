@@ -129,25 +129,32 @@ function isPrefixWord(word: string): boolean {
   return ASSIGNMENT.test(word) || KEYWORDS.has(word) || word === "{" || word === "!";
 }
 
-/** The text of a here-string `<<<` (`0<<<` too) among a shell's arguments, else null. */
-function hereString(args: readonly string[]): string[] | null {
+/**
+ * The texts of every here-string `<<<` (`0<<<` too) among a shell's arguments. A word spelled
+ * `<<<` in quotes counts as well, since the words come without their quotes.
+ */
+function hereStrings(args: readonly string[]): string[] {
+  const texts: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const match = /^\d*<<<(.*)$/.exec(args[i] ?? "");
-    if (match !== null) return [match[1] === "" ? (args[i + 1] ?? "") : (match[1] ?? "")];
+    if (match !== null) texts.push(match[1] === "" ? (args[i + 1] ?? "") : (match[1] ?? ""));
   }
-  return null;
+  return texts;
 }
 
 /**
  * The texts that `echo` or `printf` may write to its output, which a shell reading the next stage
  * of its pipe runs: the words as written, with their escapes decoded (`echo -e`, a printf format),
- * and decoded with each word on a line of its own (`printf '%s\n' 'gh pr list'`). Each is checked.
+ * and for printf decoded with each word on a line of its own (`printf '%s\n' 'gh pr list'`).
  */
 function printedTexts(words: readonly string[]): string[] | null {
   const base = basename(words[0] ?? "").toLowerCase();
-  if (base !== "echo" && base !== "printf") return null;
-  const args =
-    base === "echo" ? words.slice(1).filter((word) => !/^-[neE]+$/.test(word)) : words.slice(1);
+  if (base === "echo") {
+    const args = words.slice(1).filter((word) => !/^-[neE]+$/.test(word));
+    return [args.join(" "), ansiCText(args.join(" "))];
+  }
+  if (base !== "printf") return null;
+  const args = words.slice(1);
   return [args.join(" "), ansiCText(args.join(" ")), ansiCText(args.join("\n"))];
 }
 
@@ -155,13 +162,15 @@ function ghIn(text: string, depth: number): string | null {
   // Nesting deeper than is followed is refused when its text holds a gh word at all.
   if (depth > MAX_DEPTH) return GH_WORD.test(text) ? GH_REFUSAL : null;
   const { commands, nested } = simpleCommands(text);
-  // The texts each command writes out, which a later stage of its pipe reads as its stdin; a command
-  // that prints nothing passes on what it reads. The here-doc body a command reads comes first.
+  // The texts each command writes out, which a later stage of its pipe reads as its stdin. A command
+  // passes on what it reads too, since `echo "$(cat)"` prints its stdin. The here-doc body a
+  // command reads comes first.
   const written = new Map<(typeof commands)[number], readonly string[] | null>();
   for (const command of commands) {
     const piped = command.pipedFrom === null ? null : (written.get(command.pipedFrom) ?? null);
     const stdin = command.body === null ? piped : [command.body];
-    written.set(command, printedTexts(command.words) ?? stdin);
+    const printed = printedTexts(command.words);
+    written.set(command, printed === null ? stdin : [...printed, ...(stdin ?? [])]);
     const hit = ghCommand(command.words, depth, stdin);
     if (hit !== null) return hit;
   }
@@ -232,9 +241,10 @@ function ghCommand(
     // The script of -c is the first word after the options, which may come after -c too
     // (`bash -c -- 'gh ...'`), so every word after -c is checked as a script.
     const flag = args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
-    const scripts = flag === -1 ? (hereString(args) ?? stdin) : args.slice(flag + 1);
-    // Without -c a shell reads its script from a here-string, else from its stdin.
-    for (const script of scripts ?? []) {
+    // Without -c a shell reads its script from a here-string or from its stdin; bash takes the
+    // last stdin redirection and zsh feeds them all, so each is checked.
+    const scripts = flag === -1 ? [...hereStrings(args), ...(stdin ?? [])] : args.slice(flag + 1);
+    for (const script of scripts) {
       const hit = ghIn(script, depth + 1);
       if (hit !== null) return hit;
     }

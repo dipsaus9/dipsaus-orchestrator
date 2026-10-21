@@ -37,6 +37,7 @@ const ALLOWED = [
   // The backstop passes over a gh word taken as a known option's value, and printed text with no
   // gh call is no script (DIPO-242 review).
   "sudo -u gh -g gh ls",
+  "echo gh --version | bash",
   "printf '%s\\n' 'gh --version' | bash",
 ];
 
@@ -112,6 +113,21 @@ const REFUSED = [
   "setsid gh pr list",
   // Nesting deeper than is followed is refused when it holds a gh word.
   "eval eval eval eval eval eval 'gh pr list'",
+  // `$$` and an escaped `$` open no ANSI-C span, every stdin text a shell may read is checked,
+  // and an ANSI-C string ends at a NUL (DIPO-242 review).
+  "echo $$'\\'; gh pr list; echo 'x'",
+  "x=$$'\\'; gh pr list; y='z'",
+  "echo \"$(echo \\$'\\'; gh pr list)\"",
+  "echo \"$(echo $$'\\'; gh pr list)\"",
+  "bash <<< 'echo hi' <<EOF\ngh pr list\nEOF",
+  "bash -s -- '<<<' <<EOF\ngh pr list\nEOF",
+  "cat <<EOF | bash -s '<<<'\ngh pr list\nEOF",
+  "bash <<< 'echo hi' <<< 'gh pr list'",
+  'cat <<EOF | echo "$(cat)" | bash\ngh pr list\nEOF',
+  'cat <<EOF | printf "$(cat)" | bash\ngh pr list\nEOF',
+  "$'gh\\0x' pr list",
+  "$'gh\\x00' pr list",
+  "$'gh\\c@' pr list",
 ];
 
 describe("ghRefusal", () => {

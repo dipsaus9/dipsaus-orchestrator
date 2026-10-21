@@ -86,6 +86,8 @@ function closingParen(text: string, open: number): number {
   const stack: string[] = [];
   let arithmetic = 0;
   const pending: Array<{ delim: string; strip: boolean }> = [];
+  // The index of the last `$` that is neither escaped nor half of `$$`: only it opens `$'...'`.
+  let dollar = -1;
   for (let i = open; i < text.length; i++) {
     const c = text.charAt(i);
     const top = stack[stack.length - 1];
@@ -121,9 +123,12 @@ function closingParen(text: string, open: number): number {
       }
       stack.pop();
       if (stack.length === 0) return i;
+    } else if (c === "$") {
+      if (text.charAt(i + 1) === "$") i++;
+      else dollar = i;
     } else if (c === "'") {
       // A `$'...'` span ends at the first quote that no backslash escapes.
-      const ansi = text.charAt(i - 1) === "$";
+      const ansi = dollar === i - 1;
       let end = i + 1;
       while (end < text.length && text.charAt(end) !== "'") {
         end += ansi && text.charAt(end) === "\\" ? 2 : 1;
@@ -243,7 +248,9 @@ function ansiCSpan(text: string, start: number): { value: string; end: number } 
       i++;
     }
   }
-  return { value, end: i };
+  // bash ends the string at a NUL, and so does the program's argument list.
+  const nul = value.indexOf("\0");
+  return { value: nul === -1 ? value : value.slice(0, nul), end: i };
 }
 
 /**
@@ -371,6 +378,11 @@ export function simpleCommands(text: string): { commands: SimpleCommand[]; neste
           word += text.charAt(i);
         }
       }
+    } else if (c === "$" && text.charAt(i + 1) === "$") {
+      // `$$` is one parameter, so a quote after it opens a plain single-quoted span.
+      word += "$$";
+      inWord = true;
+      i++;
     } else if (c === "$" && text.charAt(i + 1) === "'") {
       // ANSI-C quoting: the span's escapes are decoded, as bash decodes them.
       const span = ansiCSpan(text, i + 2);
