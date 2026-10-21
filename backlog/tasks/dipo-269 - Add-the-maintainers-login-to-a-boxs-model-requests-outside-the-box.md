@@ -4,7 +4,7 @@ title: Add the maintainer's login to a box's model requests outside the box
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 15:08'
+updated_date: '2026-10-21 15:21'
 labels:
   - 'tier:M'
   - cutover
@@ -27,6 +27,11 @@ references:
   - packages/daemon/src/index.ts
   - packages/cli/src/index.ts
   - packages/cli/src/index.test.ts
+  - packages/engine/src/box/apple-args.ts
+  - packages/engine/src/box/apple-container.ts
+  - packages/engine/src/box/port.ts
+  - packages/engine/test/box/args.test.ts
+  - packages/engine/test/box/apple-container.test.ts
 priority: high
 type: feature
 ordinal: 258000
