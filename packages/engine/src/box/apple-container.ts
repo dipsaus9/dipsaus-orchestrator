@@ -28,6 +28,7 @@ import {
   systemStatusArgs,
   versionArgs,
 } from "./apple-args";
+import { resolvePackageCacheMount } from "./cache";
 import {
   BOX_BUILD_TIMEOUT_MS,
   BOX_CALL_TIMEOUT_MS,
@@ -74,6 +75,11 @@ export interface AppleContainerDeps {
   readonly host?: HostResources;
   /** The maintainer's home folder, which the package cache may not be; `os.homedir()` by default. */
   readonly home?: string;
+  /**
+   * dipo's own package cache root of the office (DIPO-267). A box's package cache must resolve,
+   * with realpath, to a folder under it; without a root no box gets a package cache.
+   */
+  readonly packageCacheRoot?: string;
   /** The default deadline of a call; `BOX_CALL_TIMEOUT_MS` when absent. */
   readonly timeoutMs?: number;
 }
@@ -310,14 +316,34 @@ export class AppleContainerBoxes implements BoxPort {
   }
 
   async create(spec: BoxSpec, options: BoxCallOptions = {}): Promise<string> {
-    const args = createArgs({
+    const input = {
       runId: spec.runId,
       image: spec.image,
       network: spec.network,
-      ...(spec.packageCache === undefined ? {} : { packageCache: spec.packageCache }),
       host: this.#deps.host ?? systemHostResources(),
       home: this.#deps.home ?? homedir(),
+    };
+    let args = createArgs({
+      ...input,
+      ...(spec.packageCache === undefined ? {} : { packageCache: spec.packageCache }),
     });
+    if (spec.packageCache !== undefined) {
+      // The mount gets the real path, and only one under dipo's cache root: a symlink cannot
+      // point the read-only mount anywhere else (DIPO-267).
+      const root = this.#deps.packageCacheRoot;
+      if (root === undefined) {
+        throw new BoxError(
+          "box.cacheOutsideRoot",
+          "no package cache root is set, so no box may get a package cache.",
+          false,
+          { path: spec.packageCache },
+        );
+      }
+      args = createArgs({
+        ...input,
+        packageCache: await resolvePackageCacheMount(spec.packageCache, root),
+      });
+    }
     await this.#runOk(args, options);
     return boxName(spec.runId);
   }

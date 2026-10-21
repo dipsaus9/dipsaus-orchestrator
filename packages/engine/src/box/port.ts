@@ -95,7 +95,8 @@ export interface BoxSpec {
   readonly network: BoxNetwork;
   /**
    * The host folder of the office package cache (DIPO-267), mounted read-only at
-   * `BOX_PACKAGE_CACHE_PATH`; the only host folder a box ever sees. Absent: nothing is mounted.
+   * `BOX_PACKAGE_CACHE_PATH`; the only host folder a box ever sees. It must resolve, with realpath,
+   * to a folder under dipo's package cache root, or the box is refused. Absent: nothing is mounted.
    */
   readonly packageCache?: string;
 }

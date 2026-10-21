@@ -436,8 +436,8 @@ export function readBaseBox(git: OfficeGit): Promise<BaseBox> {
   });
 }
 
-/** The base branch and the commit `<remote>/<base>` points at. */
-async function baseCommit(
+/** The base branch and the commit `<remote>/<base>` points at (also the package cache, DIPO-267). */
+export async function baseCommit(
   git: OfficeGit,
   session: GitSession,
 ): Promise<{ base: string; commit: string }> {
@@ -449,13 +449,13 @@ async function baseCommit(
   return { base, commit };
 }
 
-/** A root file at a commit: its text when it is a regular file, else only that it is not. */
-interface FileAt {
+/** A file at a commit: its text when it is a regular file, else only that it is not. */
+export interface FileAt {
   readonly text?: string;
 }
 
-/** The root files of `paths` that exist at `commit`, read from git's objects, never a checkout. */
-async function filesAt(
+/** The files of `paths` that exist at `commit`, read from git's objects, never a checkout. */
+export async function filesAt(
   session: GitSession,
   commit: string,
   paths: readonly string[],
