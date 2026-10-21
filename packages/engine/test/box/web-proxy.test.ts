@@ -1,12 +1,13 @@
 // The web route of the boxes (DIPO-268): the address rule over every refused range (IPv6 forms
 // included), host-name normalisation, the registry routing to Safe-Chain, the refusals, that a
 // tunnel goes to the address resolution returned and the rule checked (no second lookup), that
-// plain HTTP proxying is refused, that stop destroys open tunnels, and that the route starts with
-// the first box and stops with the last.
+// plain HTTP proxying is refused, the connection caps and the idle timeout, that stop destroys open
+// tunnels, and that the route starts with the first box and stops with the last.
 //
 // The Mac's interfaces and the public stand-ins are documentation addresses: the Mac has
-// 192.0.2.10/24 and 2001:db8:1::10/64, the box network is 198.51.100.1/24, and 203.0.113.0/24 and
-// 2001:db8:2::/48 play the public internet. The proxy itself listens on loopback, and its
+// 192.0.2.10/25 and 2001:db8:1::10/64, the box network is 198.51.100.1/24, and the rest of the
+// documentation ranges play the public internet. The rule refuses documentation ranges; the tests
+// lift that one refusal with `publicStandIns`. The proxy itself listens on loopback, and its
 // upstream connections are redirected to local test servers while the address asked for is kept.
 
 import { connect, createServer, type Server, type Socket } from "node:net";
@@ -17,15 +18,18 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
   BoxWebRoute,
+  type AddressContext,
   checkAddress,
   type HostInterfaceAddress,
   isRegistryHost,
   normaliseHost,
   parseTunnelRequest,
+  type BoxWebProxyOptions,
   type RunningBoxWebProxy,
   startBoxWebProxy,
   WEB_PROXY_HEAD_LIMIT,
   WEB_PROXY_HEAD_TIMEOUT_MS,
+  WEB_PROXY_LIMITS,
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
 import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/sandbox/safe-chain-proxy";
@@ -33,14 +37,22 @@ import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/sandbox/safe-chain-proxy";
 const LOOPBACK = "127.0.0.1";
 const BOX_HOST = "198.51.100.1";
 const INTERFACES: readonly HostInterfaceAddress[] = [
-  { address: "192.0.2.10", cidr: "192.0.2.10/24" },
+  { address: "192.0.2.10", cidr: "192.0.2.10/25" },
   { address: "2001:db8:1::10", cidr: "2001:db8:1::10/64" },
   { address: BOX_HOST, cidr: `${BOX_HOST}/24` },
   { address: "fe80::1", cidr: "fe80::1/64" },
 ];
-const CONTEXT = { interfaces: INTERFACES, boxHostAddress: BOX_HOST };
+/** Every documentation prefix, as public stand-ins. */
+const STAND_INS = [
+  "192.0.2.0/24",
+  "198.51.100.0/24",
+  "203.0.113.0/24",
+  "2001:db8::/32",
+  "3fff::/20",
+];
+const CONTEXT = { interfaces: INTERFACES, boxHostAddress: BOX_HOST, publicStandIns: STAND_INS };
 
-function refusedBy(address: string, context = CONTEXT): string {
+function refusedBy(address: string, context: AddressContext = CONTEXT): string {
   const verdict = checkAddress(address, context);
   if (verdict.ok) throw new Error(`${address} passed, to ${verdict.connectTo}`);
   return verdict.reason;
@@ -135,15 +147,15 @@ describe("the address rule", () => {
 
   it("refuses the Mac's own addresses and its on-link prefixes", () => {
     expect(refusedBy("192.0.2.10")).toBe("192.0.2.10 is one of the Mac's own addresses");
-    expect(refusedBy("192.0.2.200")).toBe(
-      "192.0.2.200 is in an on-link prefix of the Mac (192.0.2.10/24)",
+    expect(refusedBy("192.0.2.100")).toBe(
+      "192.0.2.100 is in an on-link prefix of the Mac (192.0.2.10/25)",
     );
     expect(refusedBy("2001:db8:1::10")).toBe("2001:db8:1::10 is one of the Mac's own addresses");
     expect(refusedBy("2001:db8:1:0:ffff::1")).toBe(
       "2001:db8:1:0:ffff::1 is in an on-link prefix of the Mac (2001:db8:1::10/64)",
     );
     // Just outside the prefixes.
-    expect(checkAddress("192.0.3.1", CONTEXT)).toEqual({ ok: true, connectTo: "192.0.3.1" });
+    expect(checkAddress("192.0.2.200", CONTEXT)).toEqual({ ok: true, connectTo: "192.0.2.200" });
     expect(checkAddress("2001:db8:1:1::1", CONTEXT)).toEqual({
       ok: true,
       connectTo: "2001:db8:1:1::1",
@@ -154,12 +166,14 @@ describe("the address rule", () => {
     const narrow = {
       interfaces: [{ address: "192.0.2.1", cidr: "192.0.2.1/25" }],
       boxHostAddress: BOX_HOST,
+      publicStandIns: STAND_INS,
     };
     expect(refusedBy("192.0.2.127", narrow)).toContain("on-link prefix");
     expect(checkAddress("192.0.2.128", narrow)).toEqual({ ok: true, connectTo: "192.0.2.128" });
     const v6 = {
       interfaces: [{ address: "2001:db8::1", cidr: "2001:db8::1/63" }],
       boxHostAddress: BOX_HOST,
+      publicStandIns: STAND_INS,
     };
     expect(refusedBy("2001:db8:0:1::1", v6)).toContain("on-link prefix");
     expect(checkAddress("2001:db8:0:2::1", v6)).toEqual({ ok: true, connectTo: "2001:db8:0:2::1" });
@@ -168,9 +182,30 @@ describe("the address rule", () => {
   it("refuses the box network, by its interface's prefix or, without one, a /24", () => {
     expect(refusedBy(BOX_HOST)).toBe(`${BOX_HOST} is on the box network`);
     expect(refusedBy("198.51.100.250")).toBe("198.51.100.250 is on the box network");
-    const unlisted = { interfaces: [], boxHostAddress: BOX_HOST };
+    const unlisted = { interfaces: [], boxHostAddress: BOX_HOST, publicStandIns: STAND_INS };
     expect(refusedBy("198.51.100.250", unlisted)).toBe("198.51.100.250 is on the box network");
-    expect(checkAddress("198.51.101.1", unlisted)).toEqual({ ok: true, connectTo: "198.51.101.1" });
+    expect(checkAddress("203.0.113.1", unlisted)).toEqual({ ok: true, connectTo: "203.0.113.1" });
+  });
+
+  it("refuses the documentation ranges unless a test names them as public stand-ins", () => {
+    const plain = { interfaces: [], boxHostAddress: "2001:db8:ffff::1" };
+    for (const address of [
+      "192.0.2.77",
+      "198.51.100.7",
+      "203.0.113.7",
+      "::ffff:203.0.113.7",
+      "2001:db8::7",
+      "3fff::7",
+      "3fff:fff::7",
+    ]) {
+      expect(refusedBy(address, plain)).toEndWith("a documentation range");
+    }
+    // A stand-in lifts only the documentation refusal, never another range.
+    const lifted = { ...plain, publicStandIns: ["10.0.0.0/8", "fc00::/7", "203.0.113.0/25"] };
+    expect(refusedBy("10.1.2.3", lifted)).toBe("10.1.2.3 is a private range");
+    expect(refusedBy("fd00::1", lifted)).toBe("fd00::1 is a unique local range");
+    expect(checkAddress("203.0.113.7", lifted)).toEqual({ ok: true, connectTo: "203.0.113.7" });
+    expect(refusedBy("203.0.113.200", lifted)).toBe("203.0.113.200 is a documentation range");
   });
 
   it("passes public addresses of both families", () => {
@@ -365,6 +400,7 @@ interface Harness {
 async function harness(
   dns: Record<string, ReadonlyArray<readonly string[]>> = {},
   dead: readonly string[] = [],
+  limits: BoxWebProxyOptions["limits"] = {},
 ): Promise<Harness> {
   const clock = new ManualClock();
   const events: WebProxyEvent[] = [];
@@ -374,9 +410,10 @@ async function harness(
   const upstream = await echoServer();
   const closed = await closedPort();
   const proxy = await startBoxWebProxy(
-    { network: { hostAddress: LOOPBACK }, safeChainPort: safeChain.port },
+    { network: { hostAddress: LOOPBACK }, safeChainPort: safeChain.port, limits },
     {
       clock,
+      publicStandIns: STAND_INS,
       onEvent: (event) => events.push(event),
       interfaces: () => INTERFACES,
       resolve: async (host) => {
@@ -531,7 +568,7 @@ describe("the web proxy", () => {
     expect(reasons).toEqual([
       "mixed.example resolves to 10.0.0.1 is a private range",
       "mac.example resolves to 192.0.2.10 is one of the Mac's own addresses",
-      "lan.example resolves to 192.0.2.33 is in an on-link prefix of the Mac (192.0.2.10/24)",
+      "lan.example resolves to 192.0.2.33 is in an on-link prefix of the Mac (192.0.2.10/25)",
       "loopback.example resolves to ::1 is loopback",
       "nat64.example resolves to 64:ff9b::a00:1 is NAT64 (64:ff9b::/96)",
       "sixtofour.example resolves to 2002:c000:0201::1 is 6to4 (2002::/16)",
@@ -620,6 +657,81 @@ describe("the web proxy", () => {
     h.clock.advance(WEB_PROXY_HEAD_TIMEOUT_MS);
     expect(await slow).toMatchObject({ text: "", closed: true });
     expect(h.connects).toEqual([]);
+  });
+
+  it("caps client connections per box source address, and takes one again once a slot frees", async () => {
+    const h = await harness({ "open.example": [["203.0.113.7"]] }, [], {
+      maxConnectionsPerSource: 1,
+    });
+    const tunnel = (head = connectHead("open.example:443")) =>
+      exchange(h.proxy.port, head, {
+        payload: "ping",
+        until: (text) => text.includes("upstream:ping"),
+      });
+    const first = await tunnel();
+    expect(first.text).toContain("upstream:ping");
+    const second = await tunnel();
+    expect(second.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+    expect(second.closed).toBe(true);
+    expect(h.events.at(-1)).toMatchObject({ kind: "refused" });
+    expect(h.events.at(-1)).toHaveProperty("reason", expect.stringContaining("connections from"));
+    first.socket.destroy();
+    let third = await tunnel();
+    for (let i = 0; i < 50 && third.text.startsWith("HTTP/1.1 503"); i += 1) {
+      await Bun.sleep(10);
+      third = await tunnel();
+    }
+    expect(third.text).toContain("upstream:ping");
+    third.socket.destroy();
+  });
+
+  it("caps client connections over all boxes", async () => {
+    const h = await harness({ "open.example": [["203.0.113.7"]] }, [], { maxConnections: 1 });
+    const first = await exchange(h.proxy.port, connectHead("open.example:443"), {
+      payload: "ping",
+      until: (text) => text.includes("upstream:ping"),
+    });
+    const second = await exchange(h.proxy.port, connectHead("open.example:443"));
+    expect(second.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+    expect(h.events.at(-1)).toEqual({
+      kind: "refused",
+      target: expect.any(String),
+      reason: "over the cap of 1 connections in all",
+    });
+    first.socket.destroy();
+  });
+
+  it("closes a tunnel with no traffic for the idle timeout, counting traffic either way", async () => {
+    expect(WEB_PROXY_LIMITS).toEqual({
+      maxConnections: 512,
+      maxConnectionsPerSource: 128,
+      idleTimeoutMs: 600_000,
+    });
+    const h = await harness({ "idle.example": [["203.0.113.7"]] }, [], { idleTimeoutMs: 1_000 });
+    const result = await exchange(h.proxy.port, connectHead("idle.example:443"), {
+      payload: "ping",
+      until: (text) => text.includes("upstream:ping"),
+    });
+    const socket = result.socket;
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    h.clock.advance(900);
+    const echoed = new Promise<void>((resolve) => {
+      const onData = (chunk: Buffer) => {
+        if (chunk.toString("latin1").includes("upstream:more")) {
+          socket.off("data", onData);
+          resolve();
+        }
+      };
+      socket.on("data", onData);
+    });
+    socket.write("more");
+    await echoed;
+    h.clock.advance(900);
+    await Bun.sleep(20);
+    expect(socket.destroyed).toBe(false);
+    h.clock.advance(100);
+    await closed;
+    expect(socket.destroyed).toBe(true);
   });
 
   it("destroys open tunnels on stop and closes its port", async () => {

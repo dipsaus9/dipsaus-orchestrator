@@ -16,13 +16,20 @@
 // - Plain HTTP proxying (a request for an absolute URL) is refused with 405: the proxy is a tunnel
 //   for CONNECT only and never an open forward proxy. Plain HTTP still works inside a CONNECT
 //   tunnel, under the same rules.
-//
-// Documentation ranges (RFC 5737, RFC 3849) are not refused: nothing routes them, and the tests use
-// them as stand-ins for public addresses.
+// - The documentation ranges (RFC 5737, RFC 3849, 3fff::/20) are refused too. Tests that need a
+//   public stand-in name documentation prefixes in `publicStandIns`, which lifts only that refusal;
+//   dipo itself never passes it.
+// - Client connections are capped, overall and per box source address, and a tunnel with no
+//   traffic either way for the idle timeout is closed (`WEB_PROXY_LIMITS`).
 //
 // `BoxWebRoute` starts the proxy with the first box that uses it and stops it with the last.
-// Known gaps, filed as stories: a registry alias or another name on a registry's CDN reaches the
-// registry directly (DIPO-281); listed local ports of the Mac are not allowed yet (DIPO-282).
+//
+// Known gaps:
+// - A registry alias or another name on a registry's CDN reaches the registry directly (DIPO-281).
+// - Listed local ports of the Mac are not allowed yet (DIPO-282).
+// - The rule knows private hosts only by their address ranges, so two are not recognised (both
+//   from the 0021 amendment of 2026-10-21): a private host on a public range reached through a
+//   VPN's route, and the Mac's own public IPv4 address reached back through the router.
 
 import { lookup } from "node:dns/promises";
 import { connect, createServer, isIP, type Server, type Socket } from "node:net";
@@ -44,6 +51,15 @@ export const WEB_PROXY_HEAD_LIMIT = 8 * 1024;
 export const WEB_PROXY_HEAD_TIMEOUT_MS = 30_000;
 /** How long one upstream connection may take to open. */
 export const WEB_PROXY_CONNECT_TIMEOUT_MS = 30_000;
+/** The connection caps and the idle timeout of a tunnel, unless the caller names others. */
+export const WEB_PROXY_LIMITS = {
+  /** Client connections open at once, over all boxes. */
+  maxConnections: 512,
+  /** Client connections open at once from one box (one source address on the box network). */
+  maxConnectionsPerSource: 128,
+  /** A tunnel with no traffic either way for this long is closed. */
+  idleTimeoutMs: 10 * 60_000,
+} as const;
 /** Where dipo's Safe-Chain proxy listens (`startSafeChainProxy`). */
 const SAFE_CHAIN_HOST = "127.0.0.1";
 
@@ -63,6 +79,11 @@ export interface AddressContext {
   readonly interfaces: readonly HostInterfaceAddress[];
   /** The box network's host address (`BoxNetwork.hostAddress`). */
   readonly boxHostAddress: string;
+  /**
+   * Tests only: documentation prefixes (`address/length`) that pass as public stand-ins. It lifts
+   * only the documentation-range refusal; every other rule still applies. dipo never passes it.
+   */
+  readonly publicStandIns?: readonly string[];
 }
 
 /** The rule's verdict: where to connect (an IP literal), or why not. */
@@ -162,6 +183,9 @@ function parsePrefix(cidr: string): { base: Parsed; bits: number } | null {
 
 type Range = { readonly base: Parsed; readonly bits: number; readonly why: string };
 
+/** The reason of the documentation ranges, the only refusal `publicStandIns` can lift. */
+const DOCUMENTATION = "a documentation range";
+
 function ranges(list: ReadonlyArray<readonly [string, string]>): Range[] {
   return list.map(([cidr, why]) => {
     const prefix = parsePrefix(cidr);
@@ -179,9 +203,12 @@ const REFUSED_V4 = ranges([
   ["169.254.0.0/16", "link-local"],
   ["172.16.0.0/12", "a private range"],
   ["192.0.0.0/24", "the IETF protocol assignments"],
+  ["192.0.2.0/24", DOCUMENTATION],
   ["192.88.99.0/24", "the 6to4 relay anycast range"],
   ["192.168.0.0/16", "a private range"],
   ["198.18.0.0/15", "the benchmarking range"],
+  ["198.51.100.0/24", DOCUMENTATION],
+  ["203.0.113.0/24", DOCUMENTATION],
   ["224.0.0.0/4", "multicast"],
   ["240.0.0.0/4", "a reserved range"],
 ]);
@@ -196,7 +223,9 @@ const REFUSED_V6 = ranges([
   ["64:ff9b:1::/48", "local-use NAT64"],
   ["100::/64", "the discard range"],
   ["2001::/23", "the IETF protocol assignments (Teredo among them)"],
+  ["2001:db8::/32", DOCUMENTATION],
   ["2002::/16", "6to4 (2002::/16)"],
+  ["3fff::/20", DOCUMENTATION],
   ["fc00::/7", "a unique local range"],
   ["fe80::/10", "link-local"],
   ["fec0::/10", "site-local"],
@@ -243,13 +272,17 @@ export function checkAddress(address: string, context: AddressContext): AddressV
       return refuse(`in an on-link prefix of the Mac (${entry.cidr})`);
     }
   }
+  const standIns = (context.publicStandIns ?? []).flatMap((cidr) => parsePrefix(cidr) ?? []);
+  const refusedBy = (range: Range) =>
+    inPrefix(parsed, range.base, range.bits) &&
+    !(range.why === DOCUMENTATION && standIns.some((p) => inPrefix(parsed, p.base, p.bits)));
   const mapped = parsed.family === 4 && isIP(address) === 6 ? "IPv4-mapped, " : "";
   if (parsed.family === 4) {
-    const hit = REFUSED_V4.find((range) => inPrefix(parsed, range.base, range.bits));
+    const hit = REFUSED_V4.find(refusedBy);
     if (hit !== undefined) return refuse(`${mapped}${hit.why}`);
     return { ok: true, connectTo: v4Text(parsed.value) };
   }
-  const hit = REFUSED_V6.find((range) => inPrefix(parsed, range.base, range.bits));
+  const hit = REFUSED_V6.find(refusedBy);
   if (hit !== undefined) return refuse(hit.why);
   if (!inPrefix(parsed, GLOBAL_UNICAST.base, GLOBAL_UNICAST.bits)) {
     return refuse("not a global unicast address");
@@ -357,6 +390,8 @@ export interface BoxWebProxyOptions {
   readonly safeChainPort: number;
   /** The port to listen on; 0 (the default) takes a free one. */
   readonly port?: number;
+  /** Caps and idle timeout; each one left out takes its `WEB_PROXY_LIMITS` value. */
+  readonly limits?: Partial<{ -readonly [K in keyof typeof WEB_PROXY_LIMITS]: number }>;
 }
 
 export interface BoxWebProxyDeps {
@@ -368,6 +403,8 @@ export interface BoxWebProxyDeps {
   /** The Mac's interface addresses, read for each check. */
   readonly interfaces?: () => readonly HostInterfaceAddress[];
   readonly onEvent?: (event: WebProxyEvent) => void;
+  /** Tests only: see `AddressContext.publicStandIns`. */
+  readonly publicStandIns?: readonly string[];
 }
 
 export interface RunningBoxWebProxy {
@@ -388,25 +425,52 @@ function systemConnect(address: string, port: number): Socket {
   return connect({ host: address, port });
 }
 
-function answer(status: 400 | 403 | 405 | 502, extra = ""): string {
+function answer(status: 400 | 403 | 405 | 502 | 503, extra = ""): string {
   const text = {
     400: "Bad Request",
     403: "Forbidden",
     405: "Method Not Allowed",
     502: "Bad Gateway",
+    503: "Service Unavailable",
   };
   return `HTTP/1.1 ${status} ${text[status]}\r\n${extra}Content-Length: 0\r\nConnection: close\r\n\r\n`;
 }
 
-/** Joins a client and its upstream both ways; either side closing closes both. */
-function pipeSockets(client: Socket, upstream: Socket, first: Buffer): void {
+/**
+ * Joins a client and its upstream both ways; either side closing closes both, and so does no
+ * traffic either way for `idleMs`.
+ */
+function pipeSockets(
+  client: Socket,
+  upstream: Socket,
+  first: Buffer,
+  clock: Clock,
+  idleMs: number,
+): void {
   if (first.length > 0) upstream.write(first);
   client.pipe(upstream);
   upstream.pipe(client);
+  let last = clock.now();
+  const touch = () => {
+    last = clock.now();
+  };
+  let timer: TimerHandle | null = null;
+  const arm = (delay: number) => {
+    timer = clock.setTimeout(() => {
+      const idle = clock.now() - last;
+      if (idle >= idleMs) close();
+      else arm(idleMs - idle);
+    }, delay);
+  };
   const close = () => {
+    if (timer !== null) clock.clearTimeout(timer);
+    timer = null;
     client.destroy();
     upstream.destroy();
   };
+  client.on("data", touch);
+  upstream.on("data", touch);
+  arm(idleMs);
   client.on("error", close);
   upstream.on("error", close);
   client.on("close", close);
@@ -438,7 +502,11 @@ export async function startBoxWebProxy(
   const open = deps.connect ?? systemConnect;
   const interfaces = deps.interfaces ?? systemInterfaceAddresses;
   const emit = deps.onEvent ?? (() => {});
+  const limits = { ...WEB_PROXY_LIMITS, ...options.limits };
   const sockets = new Set<Socket>();
+  /** Open client connections per source address. */
+  const clients = new Map<string, number>();
+  let clientCount = 0;
   let stopped = false;
 
   const track = (socket: Socket): Socket => {
@@ -524,14 +592,18 @@ export async function startBoxWebProxy(
           client.end(answer(502));
           return;
         }
-        pipeSockets(client, upstream, forwarded);
+        pipeSockets(client, upstream, forwarded, deps.clock, limits.idleTimeoutMs);
       });
       return;
     }
     resolve(host).then(
       (addresses) => {
         if (stopped || client.destroyed) return;
-        const context = { interfaces: interfaces(), boxHostAddress: listenHost };
+        const context = {
+          interfaces: interfaces(),
+          boxHostAddress: listenHost,
+          ...(deps.publicStandIns === undefined ? {} : { publicStandIns: deps.publicStandIns }),
+        };
         const verdicts = addresses.map((address) => checkAddress(address, context));
         const refused = verdicts.find((verdict) => !verdict.ok);
         if (addresses.length === 0 || (refused !== undefined && !refused.ok)) {
@@ -551,7 +623,7 @@ export async function startBoxWebProxy(
           }
           emit({ kind: "direct", host, port, address });
           client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-          pipeSockets(client, upstream, rest);
+          pipeSockets(client, upstream, rest, deps.clock, limits.idleTimeoutMs);
         });
       },
       () => {
@@ -562,6 +634,26 @@ export async function startBoxWebProxy(
 
   const server: Server = createServer((client) => {
     track(client);
+    const source = client.remoteAddress ?? "unknown";
+    const fromSource = clients.get(source) ?? 0;
+    if (clientCount >= limits.maxConnections || fromSource >= limits.maxConnectionsPerSource) {
+      const which =
+        clientCount >= limits.maxConnections
+          ? `${limits.maxConnections} connections in all`
+          : `${limits.maxConnectionsPerSource} connections from ${source}`;
+      emit({ kind: "refused", target: source, reason: `over the cap of ${which}` });
+      client.on("error", () => client.destroy());
+      client.end(answer(503));
+      return;
+    }
+    clientCount += 1;
+    clients.set(source, fromSource + 1);
+    client.once("close", () => {
+      clientCount -= 1;
+      const left = (clients.get(source) ?? 1) - 1;
+      if (left > 0) clients.set(source, left);
+      else clients.delete(source);
+    });
     let head = Buffer.alloc(0);
     const timer = deps.clock.setTimeout(() => client.destroy(), WEB_PROXY_HEAD_TIMEOUT_MS);
     const onData = (chunk: Buffer) => {

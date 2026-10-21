@@ -14,8 +14,9 @@
 //
 // A second test (DIPO-268) repeats the DIPO-264 network lines through dipo's web proxy and the
 // Safe-Chain proxy behind it, so it also needs the official Safe-Chain install (`~/.safe-chain`)
-// and the internet: no way out without the proxy; through it the Mac's loopback, the box network,
-// the Mac's own address and IP literals are refused, plain HTTP proxying is refused, a registry
+// and the internet: no way out without the proxy (by name, and by IP address to a public address,
+// the Mac's own address and the default gateway, all found at test time); through it the Mac's
+// loopback, the box network, the Mac's own address, the default gateway and IP literals are refused, plain HTTP proxying is refused, a registry
 // (also with a trailing dot) goes through Safe-Chain, the internet works, and an npm install is
 // checked by Safe-Chain.
 
@@ -27,6 +28,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from "node:fs";
+import { lookup } from "node:dns/promises";
 import { createServer, isIP, type Server } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -71,6 +73,14 @@ function listenOn(host: string): Promise<{ server: Server; port: number }> {
       resolve({ server, port: typeof address === "object" && address !== null ? address.port : 0 });
     });
   });
+}
+
+/** The Mac's default IPv4 gateway, as `route` reports it now; null when it names none. */
+async function defaultGateway(env: Record<string, string>): Promise<string | null> {
+  const child = systemSpawn({ cmd: ["/sbin/route", "-n", "get", "default"], env });
+  const [out] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  const gateway = /gateway:\s*(\S+)/.exec(out)?.[1] ?? null;
+  return gateway !== null && isIP(gateway) === 4 ? gateway : null;
 }
 
 /** A line the maintainer's run shows: one observed behaviour of `container`. */
@@ -274,6 +284,12 @@ if (registers) {
               !entry.address.startsWith("127.") &&
               entry.address !== network.hostAddress,
           )?.address;
+          const onMac = macAddress === undefined ? null : await listenOn(macAddress);
+          const gateway = await defaultGateway(cliEnv);
+          const publicAddress = (await lookup("example.com", { family: 4 })).address;
+          fact(
+            `direct targets: a public address of example.com, ${macAddress === undefined ? "no" : "the"} Mac's own address, ${gateway === null ? "no" : "the"} default gateway`,
+          );
           try {
             await boxes.create({ runId, image: IMAGE, network }, { timeoutMs: PULL_TIMEOUT_MS });
             await boxes.start(name);
@@ -287,6 +303,24 @@ if (registers) {
             ]);
             expect(direct.stdout).toContain("internet: no");
             expect(direct.stdout).toContain("registry: no");
+
+            // Nor by IP address: a public address, the Mac's own address (a listener waits there)
+            // and the default gateway.
+            const literals = [
+              `${publicAddress}:443`,
+              ...(onMac === null ? [] : [`${macAddress}:${onMac.port}`]),
+              ...(gateway === null ? [] : [`${gateway}:80`, `${gateway}:443`]),
+            ];
+            for (const target of literals) {
+              const [host, port] = target.split(":");
+              const tried = await boxes.exec(name, [
+                "sh",
+                "-c",
+                `nc -z -w3 ${host} ${port} && echo open || echo closed`,
+              ]);
+              expect(tried.stdout.trim()).toBe("closed");
+            }
+            fact(`${literals.length} direct IP-address attempts without the proxy were closed`);
 
             const route1 = await route.acquire(name);
             expect(route1.host).toBe(network.hostAddress);
@@ -324,8 +358,11 @@ if (registers) {
             expect(
               await through(`https://${network.hostAddress}:${onBoxNetwork.port}/`),
             ).toStartWith("403");
-            if (macAddress !== undefined) {
-              expect(await through(`https://${macAddress}:${loopback.port}/`)).toStartWith("403");
+            if (onMac !== null) {
+              expect(await through(`https://${macAddress}:${onMac.port}/`)).toStartWith("403");
+            }
+            if (gateway !== null) {
+              expect(await through(`https://${gateway}/`)).toStartWith("403");
             }
             // A registry by IP literal (any literal is refused, so a documentation address will do).
             expect(await through("https://203.0.113.10/")).toStartWith("403");
@@ -359,6 +396,7 @@ if (registers) {
             await route.release(name);
             loopback.server.close();
             onBoxNetwork.server.close();
+            onMac?.server.close();
           }
           expect(route.running).toBe(false);
         });
