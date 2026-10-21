@@ -11,7 +11,9 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import {
   AdapterHolds,
+  BoxCollisions,
   currentPlatform,
+  type DoorPart,
   TOKEN_CHECK_DIR_PREFIX,
   type OfficeHandle,
   type WorkerHostRow,
@@ -23,6 +25,7 @@ import {
   containerOnPath,
   daemonRuns,
   type DaemonRunsOptions,
+  deliverThenCheck,
   reviewHostRuns,
   sweepBoxTokenChecks,
 } from "../../src/runs";
@@ -142,5 +145,62 @@ describe("the daemon's box workers", () => {
     expect(reviewHostRuns(offices, "run_1", "agt_old", hosts)).toBe(false);
     expect(reviewHostRuns(offices, "run_1", "agt_gone", hosts)).toBe(false);
     expect(reviewHostRuns(offices, "run_unknown", "agt_live", hosts)).toBe(false);
+  });
+});
+
+describe("the daemon's collision check of box runs (DIPO-277)", () => {
+  const part: DoorPart = {
+    runId: "run_1",
+    box: "dipo-run_1",
+    n: 1,
+    name: "1700000000-1.part",
+    message: "A part",
+    at: 0,
+  };
+
+  it("starts a collision check once a part was delivered, and none for a part left queued", async () => {
+    const clock = new ManualClock();
+    let passes = 0;
+    const collisions = new BoxCollisions({
+      boxes: {
+        copyIn: async () => {},
+        exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+      },
+      code: { spawn: () => Promise.reject(new Error("no tar here")) as never, clock },
+      tmpRoot: "/nonexistent",
+      runs: () => {
+        passes += 1;
+        return [];
+      },
+      git: () => undefined,
+      live: () => true,
+      parts: {
+        deliverLast: async () => ({ kind: "empty" }),
+        deliverInTurn: async () => ({ kind: "empty" }),
+        inTurn: (_runId, fn) => fn(),
+      },
+      park: () => true,
+      tell: async () => {},
+      notice: () => {},
+    });
+    const delivered: string[] = [];
+    const onPart = deliverThenCheck(
+      async (p) => {
+        delivered.push(p.message);
+      },
+      () => void collisions.check(),
+    );
+    await onPart(part);
+    expect(delivered).toEqual(["A part"]);
+    // The delivered part started one pass over the box runs.
+    expect(passes).toBe(1);
+    const after = passes;
+    const queued = deliverThenCheck(
+      () => Promise.reject(new Error("the run is not going on")),
+      () => void collisions.check(),
+    );
+    await expect(queued(part)).rejects.toThrow("not going on");
+    expect(passes).toBe(after);
+    collisions.stop();
   });
 });

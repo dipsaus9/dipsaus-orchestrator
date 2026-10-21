@@ -449,6 +449,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     ingest: { close(): void } | null;
     /** The box workers (DIPO-271): every running box is stopped at daemon stop. */
     boxes: { close(): Promise<void> } | null;
+    /** The collision check of the box runs (DIPO-277): its poll stops at daemon stop. */
+    collisions: { stop(): void } | null;
     engineBehind: EngineBehindCache | null;
     contract: ContractServer | null;
   } = {
@@ -465,6 +467,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     maintenance: null,
     ingest: null,
     boxes: null,
+    collisions: null,
     engineBehind: null,
     contract: null,
   };
@@ -836,6 +839,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
     held.boxes = runs.boxes;
+    held.collisions = runs.collisions;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
     // story index, the run profile, office init's statuses check, the claims, the Ready gate and
     // the planning lane above.
@@ -1194,6 +1198,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.storyPrs?.stop();
     held.mergeSlot?.stop();
     held.ingest?.close();
+    held.collisions?.stop();
     await held.boxes?.close();
     // No more debounced office summaries once the daemon stops.
     held.contract?.close();
