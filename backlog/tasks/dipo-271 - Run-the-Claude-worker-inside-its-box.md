@@ -4,7 +4,7 @@ title: Run the Claude worker inside its box
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 17:29'
+updated_date: '2026-10-21 17:48'
 labels:
   - 'tier:L'
   - cutover
@@ -80,4 +80,6 @@ Box worker chosen per run with `dipo run <ID> --box` (work.run's new optional `b
 - The box-token hold is sticky (hold.ts) and kept in <state>/box-token-hold.json; `dipo login box` removes the record after storing the token, which lifts it at the daemon's next look.
 
 Only a live run can confirm: IS_SANDBOX lets root use bypassPermissions; the system/init key source in a box; `container builder start` on a running builder; the build proxy's listen on the default network's gateway; `container copy dir/.` into an existing /dipo. The opt-in test packages/engine/test/box/worker.box.test.ts (DIPO_TEST_BOX=1) covers them; it was not run.
+
+Review fixes (PR #317): listed box.files are read from the office's main checkout (the registered office path), refusing a symlink on any folder of the way; git archive runs with every configured filter driver switched off plus BASE_CHECKOUT_CONFIG; the pending-box index lives in <state>/dipo-box-runs (private), and the recovery step also finishes ended dipo boxes the backend lists (only where the index folder exists); a sticky hold is set in memory before its record is written and stays when the write fails; a session in a box that already runs (not one create just made) stops and starts the box first, so no orphaned claude survives.
 <!-- SECTION:NOTES:END -->
