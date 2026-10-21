@@ -63,11 +63,14 @@ export type { PromptCriterion, PromptDependency, PromptStory, PromptStoryOptions
 export {
   assembleReviewTaskMessage,
   REVIEW_SECTION_ORDER,
+  reviewCommitSection,
   type ReviewChangedPath,
+  type ReviewCommitCopy,
   type ReviewSection,
   type ReviewSectionName,
   type ReviewTaskInput,
   type ReviewTaskMessage,
+  withReviewCommit,
 } from "./review";
 export { renderSystemFile } from "./system";
 export {

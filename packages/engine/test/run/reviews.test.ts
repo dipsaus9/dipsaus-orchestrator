@@ -203,6 +203,8 @@ interface World {
   readonly sessions: Session[];
   readonly sent: { run: string; ops: readonly HostOp[] }[];
   readonly warned: unknown[];
+  /** The agents whose read-only copy the launcher was told to remove (DIPO-276). */
+  readonly finished: string[];
   /** What the next session start answers; `started` by default. */
   next: (() => ReviewSessionOutcome) | null;
   /** The finisher's backstop parks the next turn when set. */
@@ -216,6 +218,7 @@ function world(): World {
   const sessions: Session[] = [];
   const sent: World["sent"] = [];
   const warned: unknown[] = [];
+  const finished: string[] = [];
   const state: { next: World["next"]; backstop: string | null } = { next: null, backstop: null };
   let reviews: Reviews | null = null;
   const base: RunOutcomesPort = {
@@ -298,6 +301,9 @@ function world(): World {
         sessions.push({ run: request.run.runId, agent, work, message: request.taskMessage });
         return { kind: "started", agent };
       },
+      finish: async (_office, _run, agent) => {
+        finished.push(agent);
+      },
     },
     steering: {
       send: async (_office, run, ops) => {
@@ -334,6 +340,7 @@ function world(): World {
     sessions,
     sent,
     warned,
+    finished,
     get next() {
       return state.next;
     },
@@ -506,6 +513,8 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     expect(runIntents(w.office, older.run)).toEqual([]);
     await exits(session);
     expect(parksOf()).toEqual([]);
+    // The round's read-only copy goes with the session's exit (DIPO-276).
+    expect(x.finished).toEqual([session.agent]);
 
     // The newer story's review starts next.
     await reviewStarts(newer);
@@ -533,6 +542,37 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     w.t.clock.advance(MINUTE);
     await reviewStarts(s);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+
+  it("tells the maintainer once when the reviewer's copy does not match the head, and the review waits (DIPO-276)", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const why =
+      "the read-only copy of the pushed commit could not be made: the copy of eee does not match the commit: 1 of its files missing, 0 files it does not hold";
+    w.t.clock.advance(3 * MINUTE);
+    x.next = () => ({ kind: "failed", reason: why, copyMismatch: true });
+    expect(await x.places.drain(officeId())).toBe(0);
+    // The story stays In Review and its review waits for the place again.
+    expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.review });
+    w.t.clock.advance(MINUTE);
+    expect(await x.places.drain(officeId())).toBe(0);
+    const notices = events("engine.notice").filter((event) =>
+      JSON.stringify(event).includes("review.copyMismatch"),
+    );
+    expect(notices).toHaveLength(1);
+    const text = JSON.stringify(notices[0]);
+    expect(text).toContain("DIPO-1: the review cannot start");
+    expect(text).toContain("differ only in case");
+    expect(text).toContain('"level":"warn"');
+    // A plain failure raises no such notice.
+    x.next = () => ({ kind: "failed", reason: "the host did not start" });
+    w.t.clock.advance(MINUTE);
+    await x.places.drain(officeId());
+    expect(
+      events("engine.notice").filter((event) =>
+        JSON.stringify(event).includes("review.copyMismatch"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("passes the previous round's findings to a re-review", async () => {
@@ -808,6 +848,16 @@ describe("the failure table (0019 section 4)", () => {
     expect(notices).toContain("stays In Review and its review waits");
   });
 
+  it("removes a session's read-only copy when its host is found lost, then starts one fresh session", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const session = await reviewStarts(s);
+    x.control.onHostLost(session.run, session.agent);
+    await x.control.idle();
+    expect(x.finished).toEqual([session.agent]);
+    expect(x.sessions).toHaveLength(2);
+  });
+
   it("ends a session whose turn failed as a crash and starts one fresh session", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
@@ -815,6 +865,8 @@ describe("the failure table (0019 section 4)", () => {
     await problem(session, "error", "API Error: 500");
     await exits(session, 1);
     expect(x.sessions).toHaveLength(2);
+    // The crashed session's read-only copy goes; the fresh session has its own (DIPO-276).
+    expect(x.finished).toEqual([session.agent]);
     expect(parksOf()).toEqual([]);
     expect(
       w.office.get<{ end_reason: string }>(

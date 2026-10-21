@@ -40,6 +40,24 @@
 // 6. The story PR (DIPO-144; 0019 section 3). After a push that reached the remote, `storyPr.sync`
 //    opens the story's ready PR, or updates the one it has. It never fails the commit: a failed
 //    create is a `pr.openFailed` notice and a retry poll, and the story stays In Review.
+//
+// A box run (DIPO-273 and DIPO-274; 0021 sections 8, 9 and 13) has no backstop and no scope check.
+// At done, in one held turn of the run's parts (`BoxParts.verifyLast`), so no part moves the
+// branch meanwhile: the last part is delivered (a hit, a refused part or a rejected push parks
+// before verify), then the verify of the office's stored base profile, never a scan of the box or
+// the story branch, runs in the box's `/work` through the box interface (`runBoxCommand`), with the
+// run environment for `/work` and the verify deadline; no web route is given to verify. Past the
+// deadline dipo ends the command inside the box; when only a box stop could end it, the worker's
+// session ended too and the story parks `interrupted`. The output is cleaned and capped there and
+// stored and emitted as on the Mac. A green verify then counts only when the box's `/work` still
+// holds exactly the delivered tree; else it is red with `BOX_TREE_CHANGED`. A green one claims the
+// run's end while the parts are still held, so a part or catch-up queued meanwhile finds the run
+// not live and stays in the box; just before In Review the branch must still be at the verified
+// commit, else the story parks (`BOX_TIP_MOVED`). Red and green take steps 4 to 6, with nothing
+// staged on green: the parts are the commits.
+//
+// A green verify in the box is the worker's feedback loop, not the gate: the worker is root in its
+// box and can change any program verify runs. The gate is CI's required checks and the reviewer.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -75,7 +93,14 @@ import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress } from "../views/work";
 import type { WorkerReport } from "../workers/types";
-import { type PartOutcome, partPark } from "../box/parts";
+import { BOX_WORKDIR } from "../box/code";
+import {
+  type BoxVerifyAccess,
+  type DeliveredCheck,
+  type LastPartVerify,
+  partPark,
+} from "../box/parts";
+import type { BoxCommandEnd, BoxCommandResult } from "../box/verify";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
@@ -94,12 +119,45 @@ import {
   type VerifyProfile,
 } from "./verify-records";
 
+/** The verify deadline of a box run when the office's `timeouts.scriptMinutes` names none. */
+export const BOX_VERIFY_MINUTES_DEFAULT = 20;
+
 /**
- * The park detail of a box run at done until verify runs in the box (DIPO-274, which removes this
- * guard): its parts are delivered, but nothing verifies them.
+ * The verify output when a box's files changed between the last part and the end of a green
+ * verify (DIPO-274): the result does not stand for the delivered branch.
  */
-export const BOX_VERIFY_NOT_BUILT =
-  "verify in the box is not built yet (DIPO-274); the parts are delivered and pushed, but dipo does not verify a box run, so the story stays out of In Review.";
+export const BOX_TREE_CHANGED =
+  "verify passed, but the files in the box's /work changed after dipo took the last part, so the result does not match the delivered branch. Make sure nothing still writes to /work (stop background processes, and let verify write only files .gitignore covers), then report done again: dipo takes what changed as a new last part and verifies again.";
+
+/**
+ * The park detail when the story branch moved off the verified commit after a green verify in the
+ * box claimed the run's end: the green stands only for the commit it verified.
+ */
+export const BOX_TIP_MOVED =
+  "verify passed in the box, but the story branch moved off the verified commit before In Review, so dipo did not move the story to review; a green verify stands only for the commit it verified.";
+
+/** Why a green verify in the box could not stand: dipo could not read the box's files. */
+export const BOX_TREE_UNREAD =
+  "verify passed in the box, but dipo could not read the box's files to confirm they are the delivered ones";
+
+/**
+ * The park detail when a verify past its deadline could be ended only by stopping the box, or not
+ * at all: the worker's session ended with the box.
+ */
+export function boxEndedDetail(end: "stopped" | "failed", minutes: number): string {
+  return end === "stopped"
+    ? `verify ran past its ${minutes} min deadline and could not be ended inside the box, so dipo stopped the box; the worker's session ended with it.`
+    : `verify ran past its ${minutes} min deadline, and dipo could neither end it inside the box nor stop the box; the daemon log has the reason.`;
+}
+
+/** How verify runs its commands: on the Mac in the sandboxed step, or in a box run's box. */
+interface VerifyRunner {
+  run(command: [string, ...string[]], onOutput: (text: string) => void): Promise<StepResult>;
+  /** The verify deadline in minutes, for the timeout text. */
+  readonly minutes: number;
+  /** A box run: whether the box still holds the delivered tree, asked after the commands pass. */
+  readonly delivered?: () => Promise<DeliveredCheck>;
+}
 
 /** `engine.notice` codes of verify and commit. */
 export const VERIFY_NOTICES = {
@@ -361,13 +419,18 @@ export interface VerifyCommitDeps {
    */
   readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
   /**
-   * Box runs (DIPO-273, 0021 sections 8 and 13): a run whose developer works in a box has no
-   * backstop and no scope check; at done its undelivered changes become a last part first, and a
-   * part hit parks before verify. Without it every run takes the Mac path.
+   * Box runs (DIPO-273 and DIPO-274, 0021 sections 8, 9 and 13): a run whose developer works in a
+   * box has no backstop and no scope check; at done its undelivered changes become a last part
+   * first, a part hit parks before verify, and verify runs in the box while the run's parts are
+   * held (`BoxParts.verifyLast`). Without it every run takes the Mac path.
    */
   readonly parts?: {
     isBoxRun(office: OfficeId, run: StoredRun): boolean;
-    deliverLast(runId: string, message: string): Promise<PartOutcome>;
+    verifyLast<T>(
+      runId: string,
+      message: string,
+      verify: (box: BoxVerifyAccess) => Promise<T>,
+    ): Promise<LastPartVerify<T>>;
   };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -427,21 +490,8 @@ export class VerifyCommit implements RunFinisher {
     if (ctx.report?.status !== "done" || !ctx.live()) return { kind: "continue" };
     const report = ctx.report;
 
-    // 1b. A box run's last part: what changed since the last part, before verify (0021 section 8).
-    if (box) {
-      const decided = await this.#lastPart(ctx, report);
-      if (decided !== null) return decided;
-      if (!ctx.live()) return { kind: "continue" };
-      // Verify in the box is DIPO-274: until then a box run never reaches In Review. The story's
-      // Mac worktree holds the start commit, so a verify there would not test the delivered code.
-      return {
-        kind: "park",
-        reason: "verify-failing",
-        cause: PARK_CAUSES.refused,
-        detail: BOX_VERIFY_NOT_BUILT,
-        endKind: "verify-failing",
-      };
-    }
+    // 1b. A box run: its last part, then verify in its box (0021 sections 8 and 9).
+    if (box) return this.#boxDone(ctx, report);
 
     // 2. The scope check over every changed path, for a worker on the Mac; a box run has none
     // (0021 section 13), only the protected-file check of its parts.
@@ -494,10 +544,31 @@ export class VerifyCommit implements RunFinisher {
     const done = this.#deps.work?.beginVerify();
     let pass: PassResult;
     try {
-      pass = await this.#verify(ctx, config, steps, loop);
+      pass = await this.#verify(ctx, config, steps, loop, this.#macRunner(ctx, config));
     } finally {
       done?.();
     }
+    const red = this.#red(ctx, config, pass, loop, worktree);
+    if (red !== null) return red;
+
+    // 5. Green.
+    if (!ctx.claimEnd()) return { kind: "continue" };
+    return this.#commit(ctx, { report, view, code, loop, box });
+  }
+
+  /**
+   * The red side of a verify pass (step 4), or null for a green one: a verify that could not run
+   * parks at once; a red one is the next message to the worker, or parks at a cap or the loop cap.
+   * `root` is where the output's paths are relative to.
+   */
+  #red(
+    ctx: TurnContext,
+    config: OfficeConfig,
+    pass: PassResult,
+    loop: number,
+    root: string,
+  ): TurnDecision | null {
+    const { run } = ctx;
     if (pass.refused !== null) {
       return {
         kind: "park",
@@ -508,68 +579,114 @@ export class VerifyCommit implements RunFinisher {
       };
     }
     if (!ctx.live()) return { kind: "continue" };
-
-    // 4. Red.
-    if (!pass.passed) {
-      const failure = pass.failure ?? { command: "verify", exitCode: 1, output: "" };
-      const item = verifyFeedback(
-        {
-          step: "verify",
-          command: failure.command,
-          exitCode: failure.exitCode,
-          output: failure.output,
-        },
-        { root: worktree, itemMax: feedbackItemMax(config, run.tier) },
-      );
-      // A done turn that crossed a cap has no turn left for feedback; `capped` wins over `loops`.
-      if (ctx.capped != null) {
-        return {
-          kind: "park",
-          reason: "verify-failing",
-          cause: PARK_CAUSES.capped,
-          detail: item.text,
-          endKind: "verify-failing",
-        };
-      }
-      const loopCap = runCaps(ctx.office, run).loopCap;
-      if (loop + 1 >= loopCap) {
-        return {
-          kind: "park",
-          reason: "verify-failing",
-          cause: PARK_CAUSES.loops,
-          detail: `verify failed ${loop + 1} of ${loopCap} times (the tier loop cap). ${item.text}`,
-          endKind: "verify-failing",
-        };
-      }
-      ctx.write(() => {
-        const at = this.#deps.clock.now();
-        appendRunStep(ctx.office, run.runId, "loop", String(loop + 1), at);
-        const marker = markPhase(ctx.office, run.runId, "build", at);
-        return [...marker, phaseEntry(ctx, "build")];
-      });
-      return { kind: "feedback", text: item.text };
+    if (pass.passed) return null;
+    const failure = pass.failure ?? { command: "verify", exitCode: 1, output: "" };
+    const item = verifyFeedback(
+      {
+        step: "verify",
+        command: failure.command,
+        exitCode: failure.exitCode,
+        output: failure.output,
+      },
+      { root, itemMax: feedbackItemMax(config, run.tier) },
+    );
+    // A done turn that crossed a cap has no turn left for feedback; `capped` wins over `loops`.
+    if (ctx.capped != null) {
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        cause: PARK_CAUSES.capped,
+        detail: item.text,
+        endKind: "verify-failing",
+      };
     }
-
-    // 5. Green.
-    if (!ctx.claimEnd()) return { kind: "continue" };
-    return this.#commit(ctx, { report, view, code, loop, box });
+    const loopCap = runCaps(ctx.office, run).loopCap;
+    if (loop + 1 >= loopCap) {
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        cause: PARK_CAUSES.loops,
+        detail: `verify failed ${loop + 1} of ${loopCap} times (the tier loop cap). ${item.text}`,
+        endKind: "verify-failing",
+      };
+    }
+    ctx.write(() => {
+      const at = this.#deps.clock.now();
+      appendRunStep(ctx.office, run.runId, "loop", String(loop + 1), at);
+      const marker = markPhase(ctx.office, run.runId, "build", at);
+      return [...marker, phaseEntry(ctx, "build")];
+    });
+    return { kind: "feedback", text: item.text };
   }
 
   /**
-   * A box run's last part at done (DIPO-273): queued parts, then what changed since, delivered
-   * through `parts`. A hit, a refused part or a rejected push parks; null lets verify go on. A
-   * failure parks `interrupted` with a fixed text and the error's code: its message may quote the
-   * box's output.
+   * A box run at done (DIPO-273 and DIPO-274; 0021 sections 8 and 9). In one held turn of the run's
+   * parts (`parts.verifyLast`): the parts still queued and then what changed since are delivered
+   * as the last part; then the base branch's verify runs in the box's `/work`, and a green verify
+   * is checked against the delivered tree. A hit, a refused part or a rejected push parks before
+   * verify. A red verify is the worker's next message, a green one moves the story to review.
+   * A failure to take the last part parks `interrupted` with a fixed text and the error's code:
+   * its message may quote the box's output.
    */
-  async #lastPart(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision | null> {
-    const parts = this.#deps.parts;
-    if (parts === undefined) return null;
-    let outcome: PartOutcome;
+  async #boxDone(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision> {
+    const { run } = ctx;
+    const parts = this.#deps.parts as NonNullable<VerifyCommitDeps["parts"]>;
+    const config = this.#deps.config(ctx.office.officeId);
+    if (config === undefined) {
+      throw new Error(`office ${ctx.office.officeId} has no configuration loaded`);
+    }
+    const loop = loopsOf(ctx.office, run.runId);
+    const minutes = config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
+    // What `verify` threw is kept apart from a failure to take the last part.
+    let thrown: { readonly error: unknown } | null = null;
+    let ended: BoxCommandEnd | null = null;
+    // The verified tip and how to read the tip again, for the check before In Review.
+    let verified: Pick<BoxVerifyAccess, "tip" | "branchTip"> | null = null;
+    let claimed = false;
+    let done: LastPartVerify<PassResult | null>;
     try {
-      outcome = await parts.deliverLast(ctx.run.runId, report.commitSubject);
+      done = await parts.verifyLast(run.runId, report.commitSubject, async (access) => {
+        try {
+          if (!ctx.live()) return null;
+          // The base branch's verify only: never a scan of the box or of the story branch.
+          const base = this.#deps.profile(ctx.office);
+          const spec = resolvedVerify(base);
+          await this.#boxGateChanges(ctx, base);
+          ctx.flushOutput();
+          ctx.write(() => {
+            const marker = markPhase(ctx.office, run.runId, "verify", this.#deps.clock.now());
+            return [...marker, phaseEntry(ctx, "verify")];
+          });
+          const awake = this.#deps.work?.beginVerify();
+          try {
+            const runner = this.#boxRunner(ctx, config, access, minutes, (end) => {
+              ended = end;
+            });
+            const pass = await this.#verify(
+              ctx,
+              config,
+              spec === null ? [] : [{ profile: "base", spec }],
+              loop,
+              runner,
+            );
+            // Green: the run's end is claimed while the parts are still held, so a part the door
+            // queued meanwhile, or a catch-up, finds the run not live and stays queued in the box.
+            if (pass.passed && pass.refused === null && ended === null) {
+              verified = access;
+              claimed = ctx.claimEnd();
+            }
+            return pass;
+          } finally {
+            awake?.();
+          }
+        } catch (error) {
+          thrown = { error };
+          return null;
+        }
+      });
     } catch (error) {
       this.#deps.warn?.("the last part could not be delivered", {
-        run: ctx.run.runId,
+        run: run.runId,
         reason: messageOf(error),
       });
       const code = (error as { code?: unknown } | null)?.code;
@@ -581,9 +698,154 @@ export class VerifyCommit implements RunFinisher {
         endKind: "interrupted",
       };
     }
-    const park = partPark(outcome);
-    if (park === null) return null;
-    return { kind: "park", ...park, endKind: park.reason };
+    if (thrown !== null) throw (thrown as { readonly error: unknown }).error;
+    const park = partPark(done.outcome);
+    if (park !== null) return { kind: "park", ...park, endKind: park.reason };
+    const pass = done.verified?.result ?? null;
+    if (pass === null || !ctx.live()) return { kind: "continue" };
+    // A verify past its deadline that only a box stop could end took the worker's session with it.
+    const end = ended as BoxCommandEnd | null;
+    if (end === "stopped" || end === "failed") {
+      return {
+        kind: "park",
+        reason: "interrupted",
+        cause: PARK_CAUSES.build,
+        detail: boxEndedDetail(end, minutes),
+        endKind: "interrupted",
+      };
+    }
+    const red = this.#red(ctx, config, pass, loop, BOX_WORKDIR);
+    if (red !== null) return red;
+
+    // Green, with the last part delivered: the existing path to review.
+    let view: Awaited<ReturnType<StoryGit["story"]>>;
+    try {
+      view = await this.#deps.story.story(ctx.office.officeId, run.worktree as string, run.story!);
+    } catch (error) {
+      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
+      throw error;
+    }
+    if (!claimed || verified === null) return { kind: "continue" };
+    // A second layer: the branch must still be at the verified commit. Run control sends no
+    // feedback once the end is claimed, so a moved tip parks; nothing moves it in the held turn.
+    const tips = verified as Pick<BoxVerifyAccess, "tip" | "branchTip">;
+    const now = await tips.branchTip().catch(() => null);
+    if (now !== tips.tip) {
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        cause: PARK_CAUSES.refused,
+        detail: BOX_TIP_MOVED,
+        endKind: "verify-failing",
+      };
+    }
+    return this.#commit(ctx, { report, view, code: [], loop, box: true });
+  }
+
+  /**
+   * The gate changes of a box run (0013 section 5), recorded on the run: the root `package.json`
+   * gate scripts of the delivered branch tip against the base, read from git's objects. Verify
+   * still runs the base's command; a changed script shows at review.
+   */
+  async #boxGateChanges(ctx: TurnContext, base: RunProfile | null): Promise<void> {
+    const { run } = ctx;
+    if (base === null || run.branch === null) return;
+    const officeId = ctx.office.officeId;
+    const worktree = run.worktree as string;
+    const baseSha = findClaim(ctx.office, run.runId)?.baseSha ?? run.startSha;
+    const show = (sha: string) =>
+      this.#deps.story.showAt(officeId, worktree, sha, "package.json").catch(() => null);
+    const baseScripts = baseSha === null ? {} : scriptsOf(await show(baseSha));
+    const branchScripts = scriptsOf(await show(`refs/heads/${run.branch}`));
+    const changes = gateChanges({ baseScripts, branchScripts, base, branch: base });
+    ctx.office.immediate(() => recordGateChanges(ctx.office, run.runId, changes));
+  }
+
+  /** Verify on the Mac: DIPO-37's sandboxed step with the verify policy, in the worktree. */
+  #macRunner(ctx: TurnContext, config: OfficeConfig): VerifyRunner {
+    const { run } = ctx;
+    const worktree = run.worktree as string;
+    let env: Readonly<Record<string, string>> | null = null;
+    return {
+      // Without a `verify` entry the step does not start, so it never times out.
+      minutes: config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT,
+      run: (command, onOutput) => {
+        env ??= this.#runEnv(ctx, config, worktree);
+        return this.#deps.runStep({
+          kind: "verify",
+          script: "verify",
+          command,
+          worktree,
+          mainCheckout: this.#deps.mainCheckout(ctx.office.officeId),
+          home: this.#deps.host.home,
+          uid: this.#deps.host.uid,
+          sandbox: {
+            installCachePaths: config.sandbox.installCachePaths,
+            registryHosts: config.sandbox.registryHosts,
+          },
+          scriptMinutes: config.timeouts.scriptMinutes,
+          env: this.#deps.host.env,
+          extraEnv: env,
+          onOutput,
+        });
+      },
+    };
+  }
+
+  /**
+   * Verify in the box: each command through the box's exec in `/work` (`runBoxCommand`), with
+   * the run environment for `/work` and nothing of the Mac's, within the verify deadline; then the
+   * delivered-tree check. `onEnded` hears how a command past the deadline was ended.
+   */
+  #boxRunner(
+    ctx: TurnContext,
+    config: OfficeConfig,
+    access: BoxVerifyAccess,
+    minutes: number,
+    onEnded: (end: BoxCommandEnd) => void,
+  ): VerifyRunner {
+    let env: Readonly<Record<string, string>> | null = null;
+    return {
+      minutes,
+      run: async (command, onOutput): Promise<StepResult> => {
+        env ??= this.#runEnv(ctx, config, BOX_WORKDIR);
+        let result: BoxCommandResult;
+        try {
+          result = await access.run({ command, env, timeoutMs: minutes * 60_000, onOutput });
+        } catch (error) {
+          // Only the code: the message may quote the box.
+          const code = (error as { code?: unknown } | null)?.code;
+          return {
+            outcome: "startFailed",
+            reason: `the command could not start in the box (${typeof code === "string" ? code : "error"})`,
+          };
+        }
+        if (result.ended !== null) onEnded(result.ended);
+        return {
+          outcome: "exited",
+          code: result.code,
+          signal: result.signal,
+          timedOut: result.timedOut,
+          stdout: { text: result.output, truncated: result.truncated },
+          stderr: { text: "", truncated: false },
+          warnings: [],
+        };
+      },
+      delivered: () => access.delivered(),
+    };
+  }
+
+  #runEnv(ctx: TurnContext, config: OfficeConfig, worktree: string): Record<string, string> {
+    const { run } = ctx;
+    return buildRunEnv({
+      slot: run.slot ?? 0,
+      stride: config.worktree.ports.stride,
+      story: run.story as string,
+      worktree,
+      named: config.worktree.ports.named,
+      devPort: devPortOf(this.#deps.profile(ctx.office)),
+      env: config.worktree.env,
+    });
   }
 
   async summarize(
@@ -640,27 +902,22 @@ export class VerifyCommit implements RunFinisher {
     return verifyPlan({ base, branch, changed: changes.length > 0 });
   }
 
-  /** Runs every verify step; stops at the first failing command. */
+  /**
+   * Runs every verify step through `runner`; stops at the first failing command. With
+   * `runner.delivered` (a box run), a step whose commands passed counts as passed only when the
+   * box still holds the delivered tree.
+   */
   async #verify(
     ctx: TurnContext,
     config: OfficeConfig,
     steps: readonly VerifyStep[],
     loop: number,
+    runner: VerifyRunner,
   ): Promise<PassResult> {
     const { run } = ctx;
-    const worktree = run.worktree as string;
     if (steps.length === 0) {
       return { passed: false, failure: null, refused: "the run profile has no resolved verify" };
     }
-    const env = buildRunEnv({
-      slot: run.slot ?? 0,
-      stride: config.worktree.ports.stride,
-      story: run.story as string,
-      worktree,
-      named: config.worktree.ports.named,
-      devPort: devPortOf(this.#deps.profile(ctx.office)),
-      env: config.worktree.env,
-    });
     for (const step of steps) {
       if (step.spec.cwd !== ".") {
         return {
@@ -671,45 +928,42 @@ export class VerifyCommit implements RunFinisher {
       }
       const sink = new OutputSink(ctx, this.#deps.clock);
       const started = this.#deps.clock.now();
-      let result: StepResult | null = null;
-      let failed: {
-        command: readonly string[];
-        result: StepResult & { outcome: "exited" };
-      } | null = null;
+      let exited: (StepResult & { outcome: "exited" }) | null = null;
+      let failure: PassResult["failure"] = null;
       for (const command of step.spec.commands) {
         const [program, ...args] = command;
         if (program === undefined) continue;
-        sink.write(`$ ${shownSpec({ commands: [command], cwd: "." })}\n`);
-        result = await this.#deps.runStep({
-          kind: "verify",
-          script: "verify",
-          command: [program, ...args],
-          worktree,
-          mainCheckout: this.#deps.mainCheckout(ctx.office.officeId),
-          home: this.#deps.host.home,
-          uid: this.#deps.host.uid,
-          sandbox: {
-            installCachePaths: config.sandbox.installCachePaths,
-            registryHosts: config.sandbox.registryHosts,
-          },
-          scriptMinutes: config.timeouts.scriptMinutes,
-          env: this.#deps.host.env,
-          extraEnv: env,
-          onOutput: (text) => sink.write(text),
-        });
+        const shown = shownSpec({ commands: [command], cwd: "." });
+        sink.write(`$ ${shown}\n`);
+        const result = await runner.run([program, ...args], (text) => sink.write(text));
         if (result.outcome === "startFailed") {
           sink.write(`dipo: verify did not start: ${result.reason}\n`);
           sink.close();
           return { passed: false, failure: null, refused: result.reason };
         }
+        exited = result;
         if (result.timedOut || result.code !== 0) {
-          failed = { command, result };
+          const why = result.timedOut ? `\n[dipo: timed out after ${runner.minutes} min]` : "";
+          failure = {
+            command: shown,
+            exitCode: result.code ?? -1,
+            output: `${result.stdout.text}${result.stderr.text}${why}`,
+          };
           break;
         }
       }
+      // A box run: green stands only for the delivered tree (`BoxParts.verifyLast`).
+      let unconfirmed = false;
+      if (failure === null && runner.delivered !== undefined) {
+        const check = await runner.delivered();
+        if (check === "unknown") unconfirmed = true;
+        if (check === "changed") {
+          sink.write(`dipo: ${BOX_TREE_CHANGED}\n`);
+          failure = { command: shownSpec(step.spec), exitCode: 0, output: BOX_TREE_CHANGED };
+        }
+      }
       const range = sink.close();
-      const exited = failed?.result ?? (result?.outcome === "exited" ? result : null);
-      const passed = failed === null;
+      const passed = failure === null && !unconfirmed;
       ctx.write(() => {
         insertVerifyResult(ctx.office, run.runId, {
           loop,
@@ -726,21 +980,8 @@ export class VerifyCommit implements RunFinisher {
         });
         return [progressEntry(ctx)];
       });
-      if (failed !== null) {
-        const r = failed.result;
-        const why = r.timedOut
-          ? `\n[dipo: timed out after ${config.timeouts.scriptMinutes["verify"] ?? "?"} min]`
-          : "";
-        return {
-          passed: false,
-          failure: {
-            command: shownSpec({ commands: [failed.command], cwd: "." }),
-            exitCode: r.code ?? -1,
-            output: `${r.stdout.text}${r.stderr.text}${why}`,
-          },
-          refused: null,
-        };
-      }
+      if (unconfirmed) return { passed: false, failure: null, refused: BOX_TREE_UNREAD };
+      if (failure !== null) return { passed: false, failure, refused: null };
     }
     return { passed: true, failure: null, refused: null };
   }

@@ -60,18 +60,36 @@ export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   };
 }
 
-/** A reviewer's spec (0019 section 4): kind review, read-only tools, the ReviewReport schema. */
+/** A reviewer session's folder in dipo's temp root (DIPO-276). */
+export const REVIEW_FOLDER = "/tmp/dipo-review-run-0001-agt-0001";
+/** The reviewer's working directory: an empty folder dipo made. */
+export const REVIEW_SESSION = `${REVIEW_FOLDER}/session`;
+/** The reviewer's read-only copy of the pushed commit. */
+export const REVIEW_COPY = `${REVIEW_FOLDER}/dipo-box-code-abc123/code`;
+
+/**
+ * A reviewer's spec (0021 section 10, DIPO-276): kind review, an empty working directory, the
+ * read-only copy, the read and web tools with the hook relay, the ReviewReport schema.
+ */
 export function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   return spec({
     kind: "review",
+    workdir: REVIEW_SESSION,
+    readOnlyDir: REVIEW_COPY,
     model: "opus",
     effort: "high",
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
     systemFile: `${RUN_DIR}/system-review.md`,
-    tools: { allow: ["Read", "Glob", "Grep", "Bash"], deny: [] },
+    tools: { allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"], deny: [] },
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
+    hookRelay: true,
     ...overrides,
   });
+}
+
+/** The context of a review launch: the hook relay's dipo command, which the web tools need. */
+export function reviewContext(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {
+  return context({ hookCommand: ["/opt/dipo/bin/dipo"], ...overrides });
 }
 
 export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {

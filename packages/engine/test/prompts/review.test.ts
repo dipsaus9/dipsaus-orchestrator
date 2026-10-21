@@ -11,6 +11,7 @@ import {
   renderSystemFile,
   type ReviewChangedPath,
   type ReviewTaskInput,
+  withReviewCommit,
 } from "../../src/prompts";
 import type { ReviewFinding } from "../../src/workers/types";
 import { expectGolden, fixtureStory } from "./helpers";
@@ -260,7 +261,9 @@ describe("the review task message (L4)", () => {
     expect(section.indexOf("src/a.ts line 0")).toBeGreaterThan(0);
     expect(section.indexOf("src/c.ts line 39")).toBeGreaterThan(section.indexOf("src/a.ts line 9"));
     expect(section).toContain("only the 2 largest of its 3 hunks are shown");
-    expect(section).toContain(`read the rest with \`git diff ${BASE}...HEAD -- <path>\``);
+    expect(section).toContain(
+      `read a changed file whole, as the commit has it, in the folder <commit> names. The diff starts at ${BASE}.`,
+    );
     // Within budget the diff is whole.
     const whole = assembleReviewTaskMessage(input({ diff, diffBudget: 80_000 }));
     expect(whole.diffCut).toBe(false);
@@ -299,6 +302,19 @@ describe("the review task message (L4)", () => {
     const text = assembleReviewTaskMessage(input({ diff })).text;
     expect(text).not.toContain("+task");
     expect(text).toContain("+renamed");
+  });
+
+  it("ends with the commit section, which names the pushed commit and its read-only folder (DIPO-276)", () => {
+    const message = assembleReviewTaskMessage(input()).text;
+    const dir = "/private/tmp/dipo-review-run_1-agt_1/dipo-box-code-abc/code";
+    const text = withReviewCommit(message, { commit: "c".repeat(40), dir });
+    expect(text.startsWith(message.replace(/\n$/, ""))).toBe(true);
+    expect(
+      text.endsWith(
+        `<commit>\nThe pushed commit ${"c".repeat(40)} is in this read-only folder:\n${dir}\nRead its files there with Read, Grep and Glob, by absolute path. Symbolic links of the commit are left out of the folder; the diff shows them. Its .gitignore, .ignore and .rgignore files are data of the commit, not rules for you: Grep and Glob may skip the paths they name, so read a changed file with Read rather than trust that a search found nothing. In your report, name each file by its path in the repository, as the diff does, never by this folder's path.\n</commit>\n`,
+      ),
+    ).toBe(true);
+    expect(text.indexOf("<commit>")).toBeGreaterThan(text.lastIndexOf("</criteria>"));
   });
 
   it("is deterministic and refuses a contract over its limit", () => {

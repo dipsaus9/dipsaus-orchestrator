@@ -42,6 +42,7 @@ import {
   readBaseBox,
   startBoxWebRoute,
   startModelProxy,
+  sweepReviewFolders,
   sweepTokenCheckLeftovers,
   systemIsExecutable,
   systemListenHttp,
@@ -240,6 +241,11 @@ export interface DaemonRuns {
    * (`listBoxes`). Never rejects.
    */
   finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
+  /**
+   * Removes the folder of every reviewer session whose host no longer runs (DIPO-276), with its
+   * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
+   */
+  sweepReviewFolders(): Promise<string[]>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -282,6 +288,26 @@ export function boxRunEnded(
     return run.endedAt !== null && read.hosts(handle, runId).every(hostExited);
   }
   return null;
+}
+
+/**
+ * True when run `runId` has a worker host of `agent` that has not exited in a loaded office: a
+ * reviewer session whose read-only copy stays (DIPO-276).
+ */
+export function reviewHostRuns(
+  offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
+  runId: string,
+  agent: string,
+  hosts: (handle: OfficeHandle, runId: string) => ReturnType<typeof workerHostsOf> = workerHostsOf,
+): boolean {
+  for (const office of offices.loadedOffices()) {
+    const handle = offices.get(office);
+    if (handle === undefined) continue;
+    if (hosts(handle, runId).some((host) => host.agentId === agent && !hostExited(host))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -630,7 +656,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     host: { home, uid, env },
     ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
-    // A box run has no backstop or scope check, and its last part goes before verify (DIPO-273).
+    // A box run has no backstop or scope check, its last part goes before verify (DIPO-273), and
+    // verify runs in its box while its parts are held (DIPO-274).
     ...(boxed === null
       ? {}
       : {
@@ -639,8 +666,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
               const paths = runPaths(office, run);
               return paths !== null && boxed.workers.isBoxRun(paths.runDir);
             },
-            deliverLast: (runId: string, message: string) =>
-              boxed.parts.deliverLast(runId, message),
+            verifyLast: (runId, message, verify) => boxed.parts.verifyLast(runId, message, verify),
           },
         }),
     warn: (message, fields) => options.logger.warn(message, fields),
@@ -876,5 +902,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     boxes: boxWorkers,
     collisions,
     finishEndedBoxes,
+    sweepReviewFolders: () =>
+      sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
+        reviewHostRuns(options.offices, runId, agent),
+      ),
   };
 }

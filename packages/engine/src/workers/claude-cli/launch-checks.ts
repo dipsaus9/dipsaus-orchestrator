@@ -84,7 +84,8 @@ function settingsOf(launch: LaunchPlan): string {
 
 /**
  * The three checks in order; a later one runs only when the earlier ones pass, because the
- * self-test starts a Claude Code session and is pointless on a refused login or settings.
+ * self-test starts a Claude Code session and is pointless on a refused login or settings. A
+ * session without Bash stops after the project settings check.
  */
 export async function claudeLaunchChecks(
   spec: WorkerSpec,
@@ -124,6 +125,9 @@ export async function claudeLaunchChecks(
     deps.readText,
   );
   if (settings.length > 0) return { ok: false, failures: settings };
+  // The credential check and the self-test prove what sandboxed Bash commands can reach. A session
+  // without Bash, the reviewer's (0021 section 10, DIPO-276), runs no command, so neither applies.
+  if (!spec.tools.allow.includes("Bash")) return { ok: true };
 
   // The engine runs the credential commands itself, under srt, with no model (0008 amendment).
   const fs = deps.fs ?? nodeSelfTestFs;

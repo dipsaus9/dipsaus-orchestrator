@@ -40,7 +40,7 @@ export interface ReviewChangedPath {
 
 export interface ReviewTaskInput {
   readonly story: PromptStory;
-  /** The merge base the diff starts from; the cut marker names `git diff <base>...HEAD`. */
+  /** The merge base the diff starts from; the cut marker names it and points to the `<commit>` copy. */
   readonly base: string;
   /** Every changed path; the story's task file is left out here. */
   readonly changes: readonly ReviewChangedPath[];
@@ -139,7 +139,7 @@ function budgetedDiff(
   if (whole.length <= budget) return { text: whole === "" ? "No changes." : whole, cut: false };
   const hunks = files.flatMap((file, at) => file.hunks.map((text, index) => ({ at, index, text })));
   const marker = (shown: number) =>
-    `[dipo: the diff is ${formatCount(whole.length)} characters, over its ${formatCount(budget)} character limit, so only the ${formatCount(shown)} largest of its ${formatCount(hunks.length)} hunks are shown. <changes> lists every changed path; read the rest with \`git diff ${base}...HEAD -- <path>\` in the worktree.]`;
+    `[dipo: the diff is ${formatCount(whole.length)} characters, over its ${formatCount(budget)} character limit, so only the ${formatCount(shown)} largest of its ${formatCount(hunks.length)} hunks are shown. <changes> lists every changed path; read a changed file whole, as the commit has it, in the folder <commit> names. The diff starts at ${base}.]`;
   const room = budget - marker(hunks.length).length - 1;
   const chosen = new Set<string>();
   const opened = new Set<number>();
@@ -204,6 +204,27 @@ function findingLine(finding: ReviewFinding): string {
   ];
   const head = `- ${finding.severity} ${finding.kind}${where}${refs.length === 0 ? "" : ` (${refs.join(", ")})`}: ${finding.text.trim()}`;
   return finding.quote === undefined ? head : `${head}\n  quoted line: ${finding.quote.trim()}`;
+}
+
+/** The reviewer's read-only copy of the pushed commit (0021 section 10, DIPO-276). */
+export interface ReviewCommitCopy {
+  /** The pushed commit the copy holds. */
+  readonly commit: string;
+  /** The absolute path of the copy. */
+  readonly dir: string;
+}
+
+/** The `commit` section: where the copy of the pushed commit is, after the other sections. */
+export function reviewCommitSection(copy: ReviewCommitCopy): string {
+  return renderTemplate(TASK_TEMPLATES.reviewCommit, { commit: copy.commit, dir: copy.dir });
+}
+
+/**
+ * The review task message with its `commit` section last: dipo makes the copy when the session
+ * starts, after the rest of the message is built (DIPO-276).
+ */
+export function withReviewCommit(message: string, copy: ReviewCommitCopy): string {
+  return `${message.replace(/\n+$/, "")}\n\n${reviewCommitSection(copy)}\n`;
 }
 
 /**

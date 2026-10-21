@@ -1,10 +1,10 @@
 ---
 id: DIPO-274
 title: Run the office's verify command inside the worker's box
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 14:38'
+updated_date: '2026-10-21 22:28'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,10 @@ dependencies:
 references:
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/test/run/verify-in-box.test.ts
+  - packages/engine/src/box/verify.ts
+  - packages/engine/src/box/parts.ts
+  - packages/engine/test/run/verify-commit.test.ts
+  - packages/daemon/src/runs.ts
 priority: high
 type: feature
 ordinal: 263000
@@ -35,9 +39,9 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Verify runs in the box through the box interface, not in dipo's step sandbox on the Mac
-- [ ] #2 A red verify sends its output back as the worker's next message, cleaned and cut as today
-- [ ] #3 A green verify with the last part delivered moves the story to review
-- [ ] #4 Tests cover the green and red paths
-- [ ] #5 After a verify timeout dipo ends the command inside the box (by stopping the box or killing the process in it), because a killed container exec leaves its process running in the box (DIPO-265 real-box run of 2026-10-21)
+- [x] #1 Verify runs in the box through the box interface, not in dipo's step sandbox on the Mac
+- [x] #2 A red verify sends its output back as the worker's next message, cleaned and cut as today
+- [x] #3 A green verify with the last part delivered moves the story to review
+- [x] #4 Tests cover the green and red paths
+- [x] #5 After a verify timeout dipo ends the command inside the box (by stopping the box or killing the process in it), because a killed container exec leaves its process running in the box (DIPO-265 real-box run of 2026-10-21)
 <!-- AC:END -->
