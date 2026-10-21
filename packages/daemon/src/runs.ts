@@ -145,7 +145,7 @@ export interface DaemonRunsOptions {
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
   readonly work?: WorkTracker;
-  /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
+  /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
   /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
   readonly notify?: (notice: HoldNotice) => void;
