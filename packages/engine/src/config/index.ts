@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { OfficeFileV9 } from "./schema";
+import { OfficeFileV10 } from "./schema";
 
 export {
   FLAGS_SOURCE,
@@ -11,7 +11,7 @@ export {
   OFFICE_LOCAL_FILE,
   resolveOfficeConfig,
 } from "./load";
-export type { ConfigError, OfficeConfigResult, OfficeConfigSources } from "./load";
+export type { ConfigError, ConfigWarning, OfficeConfigResult, OfficeConfigSources } from "./load";
 export { LOCAL_FILE_HEADER, updateLocalPrivacy } from "./local-write";
 export type { LocalPrivacyUpdate } from "./local-write";
 export { canonicalJson, configHash, mergeLayer } from "./merge";
@@ -34,6 +34,7 @@ export {
   OfficeConfigV7,
   OfficeConfigV8,
   OfficeConfigV9,
+  OfficeConfigV10,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -43,6 +44,7 @@ export {
   OfficeFileV7,
   OfficeFileV8,
   OfficeFileV9,
+  OfficeFileV10,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -52,6 +54,7 @@ export {
   OfficeLocalFileV7,
   OfficeLocalFileV8,
   OfficeLocalFileV9,
+  OfficeLocalFileV10,
   OfficeOverridesV1,
   OfficeOverridesV2,
   OfficeOverridesV3,
@@ -61,8 +64,10 @@ export {
   OfficeOverridesV7,
   OfficeOverridesV8,
   OfficeOverridesV9,
+  OfficeOverridesV10,
   PRIVACY_KEYS,
   privacyOptIns,
+  RETIRED_KEYS,
 } from "./schema";
 export type {
   OfficeBoxSection,
@@ -71,6 +76,7 @@ export type {
   OfficeFile,
   OfficeLocalFile,
   OfficeOverrides,
+  RetiredKey,
 } from "./schema";
 
 /**
@@ -79,7 +85,7 @@ export type {
  */
 export function officeJsonSchema(): Record<string, unknown> {
   return {
-    ...(z.toJSONSchema(OfficeFileV9, { io: "input" }) as Record<string, unknown>),
+    ...(z.toJSONSchema(OfficeFileV10, { io: "input" }) as Record<string, unknown>),
     title: "dipo office configuration (.dipo/office.yaml)",
   };
 }

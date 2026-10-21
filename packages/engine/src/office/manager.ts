@@ -305,7 +305,8 @@ export class OfficeManager implements OfficeDirectory {
   /**
    * Reads the office's configuration (DIPO-26). A valid result replaces the one in force and clears
    * the errors; an invalid one keeps it, records the errors and puts an `engine.notice` on the
-   * office stream. Returns whether anything changed.
+   * office stream. A valid result's warnings, such as a retired key it still sets (DIPO-285), each
+   * become a `config.warning` notice there. Returns whether anything changed.
    */
   async #readConfig(instance: OfficeInstance): Promise<boolean> {
     const result = await loadOfficeConfig(instance.path);
@@ -318,6 +319,13 @@ export class OfficeManager implements OfficeDirectory {
         localOverrideKeys: result.localOverrideKeys,
       };
       instance.configErrors = [];
+      for (const warning of result.warnings) {
+        this.#officeNotice(instance, {
+          level: "warn",
+          code: "config.warning",
+          text: warning.message,
+        });
+      }
       return changed;
     }
     const changed = JSON.stringify(instance.configErrors) !== JSON.stringify(result.errors);
