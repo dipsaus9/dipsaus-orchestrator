@@ -1,52 +1,75 @@
 // The office package cache (0021 section 5 and decision 13, DIPO-267): one per office, filled by
-// dipo from the lockfile through Safe-Chain, outside any box, and read-only inside the boxes.
+// dipo from the lockfile through Safe-Chain, and read-only inside the boxes.
 //
 // - The lockfile, and the `package.json` files a frozen install checks it against, are read from
 //   the base branch's git objects (`readBaseLockfile`), never from a story's checkout, so a story
-//   cannot change what the next box gets. The repository's `.npmrc` and `bunfig.toml` are never
-//   read: the fill runs in a folder holding only what dipo wrote there.
-// - The fill runs the office's package manager on the Mac with its install scripts off, its home
-//   and temp folders in that folder, and the network only through dipo's Safe-Chain proxy
-//   (`PackageCacheProxy`). It fetches the packages of the box's platform (Linux on the Mac's CPU).
-// - The cache shape is the package manager's own, so a box installs from it as from any cache:
-//   Bun's install cache (`BUN_INSTALL_CACHE_DIR`), npm's cache (`_cacache`) and pnpm's store. Each
-//   lies in a folder named after its manager inside one generation folder, the folder a box
-//   mounts read-only at `BOX_PACKAGE_CACHE_PATH` (`boxCacheInstall`).
-// - One generation per cache key: a sha256 of the lockfile's name and text and the box platform.
-//   The generation folder is named by the key and holds a stamp (`PACKAGE_CACHE_STAMP`) with the
-//   lockfile's sha256, written last. A lockfile that did not change reuses its generation; a
-//   changed one fills a new generation before the next box starts. A generation is filled in a
-//   temporary folder and renamed into place only when the fill succeeded, so a box never mounts a
-//   half-filled cache, and a box still running on an older generation keeps it unchanged.
+//   cannot change what the next box gets. `checkFillInput` refuses what is not a registry package
+//   or leaves the project before any box starts.
+// - No package manager runs on the Mac. The fill runs in a short-lived fill box, `dipo-fill-<id>`:
+//   the office image (DIPO-266, with the toolchain, no git and no keys), on the host-only box
+//   network, with no package cache mounted. Its only way out is the web route (DIPO-268), acquired
+//   once the box runs, so the registries are reached only through the web proxy and Safe-Chain.
+//   Only the lockfile and the manifests are copied in; the install runs with lifecycle scripts
+//   off, into the manager's cache inside the box. The cache is copied out into a `.fill-*` folder
+//   on the Mac and the fill box is deleted, also on failure. Every box call has a deadline.
+// - `container copy` keeps symlinks as links, so the copied tree is walked with lstat before it is
+//   used: an absolute symlink, one that resolves outside the generation, a dangling one, or
+//   anything but a file, a folder or a link is refused.
+// - The cache shape is the manager's own, so a box installs from it as from any cache: Bun's
+//   install cache (`BUN_INSTALL_CACHE_DIR`), npm's cache (`_cacache`) and pnpm's store. Each lies in
+//   a folder named after its manager inside one generation folder, the folder a box mounts
+//   read-only at `BOX_PACKAGE_CACHE_PATH` (`boxCacheInstall`).
+// - One generation per cache key: a sha256 of the lockfile's name and text, the in-box manager's
+//   version and the cache format. The generation folder is named by the key and holds a stamp
+//   (`PACKAGE_CACHE_STAMP`) with the lockfile's sha256, written last. An unchanged lockfile reuses
+//   its generation; a changed one fills a new generation before the next box starts. A generation
+//   is renamed into place only when the fill succeeded, so a box never mounts a half-filled cache,
+//   and a box still running on an older generation keeps it unchanged.
 // - Any failure refuses the box with a coded `BoxError`: `box.cacheUnsupported`,
 //   `box.cacheFillFailed` or `box.cacheOutsideRoot`. `createBoxWithPackageCache` never creates a
 //   box without its cache.
 // - Before a box is created, the cache path is resolved with realpath and refused unless it lies
 //   under dipo's own cache root (`resolvePackageCacheMount`), so a symlink cannot point the
-//   read-only mount anywhere else.
+//   read-only mount anywhere else. The root must be this user's and writable by no one else.
 // - A worker's own installs use the package manager's default cache in the box's own filesystem,
 //   through the web route and Safe-Chain; nothing in the worker's environment names the cache.
 
-import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-
-import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { dirname, isAbsolute, join, posix } from "node:path";
 
 import type { OfficeGit } from "../git/office";
 import { isCertificateBundle } from "../sandbox/safe-chain-proxy";
 import { LOCKFILES, PNPM_WORKSPACE, ROOT_MANIFEST } from "../scan/detect/manifest";
-import { baseCommit, filesAt } from "./image";
+import {
+  type BaseLockfile,
+  type CacheManager,
+  checkFillInput,
+  isProjectPath,
+  type ProjectFile,
+} from "./cache-input";
+import { baseCommit, type BoxToolchain, filesAt } from "./image";
 import {
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
   type BoxCallOptions,
   type BoxPort,
   type BoxSpec,
+  boxName,
 } from "./port";
 
-/** The package managers whose cache dipo fills. */
-export type CacheManager = "bun" | "npm" | "pnpm";
+export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 
 /** The lockfiles dipo fills a cache from, in the scan's order (0013 section 3). */
 export const CACHE_LOCKFILES: Readonly<Record<string, CacheManager>> = {
@@ -58,38 +81,19 @@ export const CACHE_LOCKFILES: Readonly<Record<string, CacheManager>> = {
 /** The stamp in each generation folder, written last: what the generation was filled from. */
 export const PACKAGE_CACHE_STAMP = "dipo-cache.json";
 /** Bumped when the cache layout changes, so every office refills. */
-export const PACKAGE_CACHE_FORMAT = 1;
-/** The deadline of one fill: a cold cache downloads every package of the lockfile. */
+export const PACKAGE_CACHE_FORMAT = 2;
+/** The deadline of the install in the fill box: a cold cache downloads every package. */
 export const PACKAGE_CACHE_FILL_TIMEOUT_MS = 20 * 60_000;
+/** The deadline of copying the filled cache out of the fill box. */
+export const PACKAGE_CACHE_COPY_TIMEOUT_MS = 10 * 60_000;
 /** The most `package.json` files a fill copies from the base commit. */
 export const PACKAGE_CACHE_MAX_MANIFESTS = 2_000;
+/** Where the fill works inside the fill box. */
+export const FILL_BOX_DIR = "/tmp/dipo-fill";
+/** The fill box's run id prefix: its box is `dipo-fill-<id>`. */
+export const FILL_BOX_RUN_PREFIX = "fill-";
 /** How much of a failed fill's output its error keeps. */
 const FAILED_OUTPUT_CHARS = 4_000;
-
-/** The platform of the boxes, whose packages the fill fetches. */
-export interface PackageCacheTarget {
-  readonly os: "linux";
-  readonly cpu: "arm64" | "x64";
-}
-
-/** The boxes' platform: Linux on the Mac's own CPU. */
-export function boxCacheTarget(arch: string = process.arch): PackageCacheTarget {
-  return { os: "linux", cpu: arch === "x64" ? "x64" : "arm64" };
-}
-
-/** The lockfile and the project files a frozen install needs, as committed on the base. */
-export interface BaseLockfile {
-  /** The base commit everything was read from. */
-  readonly commit: string;
-  /** Null when the base has no lockfile: the cache is empty. */
-  readonly lockfile: {
-    readonly name: string;
-    readonly manager: CacheManager;
-    readonly text: string;
-  } | null;
-  /** Every `package.json` (outside `node_modules`) and, for pnpm, `pnpm-workspace.yaml`. */
-  readonly files: readonly { readonly path: string; readonly text: string }[];
-}
 
 function unsupported(message: string, details: Readonly<Record<string, unknown>> = {}): never {
   throw new BoxError("box.cacheUnsupported", message, false, details);
@@ -101,15 +105,6 @@ function fillFailed(message: string, details: Readonly<Record<string, unknown>> 
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** A repository path dipo may write into its fill folder: relative, no `.`, `..` or empty part. */
-function safeRelative(path: string): boolean {
-  return (
-    !path.startsWith("/") &&
-    path.split("/").every((part) => part !== "" && part !== "." && part !== "..") &&
-    !path.includes("\0")
-  );
 }
 
 /**
@@ -160,7 +155,7 @@ export function readBaseLockfile(git: OfficeGit): Promise<BaseLockfile> {
       const parts = path.split("/");
       if (parts.at(-1) !== ROOT_MANIFEST || parts.includes("node_modules")) continue;
       const [mode, type] = entry.slice(0, tab).split(" ");
-      if (type !== "blob" || (mode !== "100644" && mode !== "100755") || !safeRelative(path)) {
+      if (type !== "blob" || (mode !== "100644" && mode !== "100755") || !isProjectPath(path)) {
         continue;
       }
       manifests.push(path);
@@ -173,7 +168,7 @@ export function readBaseLockfile(git: OfficeGit): Promise<BaseLockfile> {
     }
     const wanted = manager === "pnpm" ? [...manifests, PNPM_WORKSPACE] : manifests;
     const read = await filesAt(session, commit, wanted);
-    const files: { path: string; text: string }[] = [];
+    const files: ProjectFile[] = [];
     for (const path of wanted) {
       const file = read.get(path)?.text;
       if (file !== undefined) files.push({ path, text: file });
@@ -192,20 +187,28 @@ export function lockfileHash(text: string): string {
 }
 
 /**
- * The cache key of a lockfile for a box platform: what names its generation folder. It changes
- * when the lockfile's name or text, the platform or the cache format changes, and nothing else.
+ * The version of `manager` in the office image: Bun's and pnpm's own, npm's by the Node.js release
+ * it comes with. Null when the image has no such manager.
+ */
+export function managerVersion(manager: CacheManager, toolchain: BoxToolchain): string | null {
+  if (manager === "npm") return `node-${toolchain.node}`;
+  return toolchain[manager] ?? null;
+}
+
+/**
+ * The cache key of a lockfile: what names its generation folder. It changes when the lockfile's
+ * name or text, the in-box manager's version or the cache format changes, and nothing else.
  */
 export function packageCacheKey(
   lockfile: BaseLockfile["lockfile"],
-  target: PackageCacheTarget,
+  version: string | null,
 ): string {
   return sha256(
     JSON.stringify({
       format: PACKAGE_CACHE_FORMAT,
       lockfile: lockfile === null ? null : lockfile.name,
       lockfileSha256: lockfile === null ? null : lockfileHash(lockfile.text),
-      os: target.os,
-      cpu: target.cpu,
+      managerVersion: lockfile === null ? null : version,
     }),
   );
 }
@@ -215,34 +218,41 @@ export interface PackageCacheStamp {
   readonly format: number;
   readonly key: string;
   readonly manager: CacheManager | null;
+  readonly managerVersion: string | null;
   readonly lockfile: string | null;
   readonly lockfileSha256: string | null;
   readonly commit: string;
-  readonly target: PackageCacheTarget;
 }
 
-/** dipo's Safe-Chain proxy, the fill's only way to the registries. */
-export interface PackageCacheProxy {
-  /** `http://<host>:<port>` on the Mac, as `startSafeChainProxy` opened it. */
-  readonly url: string;
-  /** Safe-Chain's CA bundle (PEM certificates only). */
-  readonly caFile: string;
+/** The web route of the boxes (`BoxWebRoute` of `startBoxWebRoute`), as the fill uses it. */
+export interface FillRoute {
+  /** Starts the route for `box` when it is the first user; the box must be running. */
+  acquire(box: string): Promise<{ readonly url: string; readonly caFile: string }>;
+  release(box: string): Promise<void>;
+}
+
+/** The box calls a fill makes. */
+export type FillBoxes = Pick<
+  BoxPort,
+  "network" | "create" | "start" | "delete" | "exec" | "copyIn" | "copyOut"
+>;
+
+/** The office image the fill box runs (`ensureBoxImage` of `readBaseBox`'s description). */
+export interface PackageCacheImage {
+  readonly tag: string;
+  readonly toolchain: BoxToolchain;
 }
 
 export interface PackageCacheRequest {
   /** dipo's own cache root for the office, under dipo's data folder; made 0700 when missing. */
   readonly root: string;
   readonly source: BaseLockfile;
-  readonly proxy: PackageCacheProxy;
-  /** The package manager programs on the Mac, as absolute paths. */
-  readonly tools: Readonly<Partial<Record<CacheManager, string>>>;
-  /** The PATH of a fill (npm and pnpm find `node` on it); nothing else of dipo's environment. */
-  readonly path: string;
-  readonly spawn: Spawn;
-  readonly clock: Clock;
-  /** Defaults to `boxCacheTarget()`. */
-  readonly target?: PackageCacheTarget;
-  /** Defaults to `PACKAGE_CACHE_FILL_TIMEOUT_MS`. */
+  readonly boxes: FillBoxes;
+  readonly image: PackageCacheImage;
+  readonly route: FillRoute;
+  /** The fill box's id; random by default. */
+  readonly fillId?: () => string;
+  /** The install's deadline; `PACKAGE_CACHE_FILL_TIMEOUT_MS` by default. */
   readonly timeoutMs?: number;
 }
 
@@ -257,107 +267,58 @@ export interface PackageCache {
   readonly filled: boolean;
 }
 
-const PROXY_URL = /^http:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):\d{1,5}$/;
-
-/** The fill command of one manager, writing its cache to `cacheDir`. */
-export function fillCommand(input: {
-  readonly manager: CacheManager;
-  readonly tool: string;
+/** The install a fill box runs: scripts off, into the manager's cache in the box. */
+export interface FillInstall {
+  readonly command: readonly [string, ...string[]];
+  readonly env: Readonly<Record<string, string>>;
+  /** The cache folder in the fill box that is copied out. */
   readonly cacheDir: string;
-  readonly caFile: string;
-  readonly proxyUrl: string;
-  readonly target: PackageCacheTarget;
-}): readonly [string, ...string[]] {
-  const { tool, cacheDir, caFile, proxyUrl, target } = input;
-  switch (input.manager) {
-    case "bun":
-      return [
-        tool,
-        "install",
-        "--frozen-lockfile",
-        "--ignore-scripts",
-        `--cache-dir=${cacheDir}`,
-        `--cafile=${caFile}`,
-        `--os=${target.os}`,
-        `--cpu=${target.cpu}`,
-      ];
-    case "npm":
-      return [
-        tool,
-        "ci",
-        "--ignore-scripts",
-        "--no-audit",
-        "--no-fund",
-        `--cache=${cacheDir}`,
-        `--cafile=${caFile}`,
-        `--https-proxy=${proxyUrl}`,
-        `--proxy=${proxyUrl}`,
-        `--os=${target.os}`,
-        `--cpu=${target.cpu}`,
-      ];
-    case "pnpm":
-      // `pnpm fetch` reads only the lockfile and runs no scripts.
-      return [tool, "fetch", `--store-dir=${cacheDir}`];
-  }
 }
 
-/** The fill's whole environment: its own home and temp folders, the proxy, the CA. */
-export function fillEnvironment(input: {
-  readonly path: string;
-  readonly home: string;
-  readonly tmp: string;
-  readonly caFile: string;
-  readonly proxyUrl: string;
-}): Record<string, string> {
-  return {
-    PATH: input.path,
-    HOME: input.home,
-    TMPDIR: input.tmp,
-    HTTPS_PROXY: input.proxyUrl,
-    HTTP_PROXY: input.proxyUrl,
-    https_proxy: input.proxyUrl,
-    http_proxy: input.proxyUrl,
-    NODE_EXTRA_CA_CERTS: input.caFile,
-    npm_config_cafile: input.caFile,
-    npm_config_https_proxy: input.proxyUrl,
-    npm_config_proxy: input.proxyUrl,
+/** The fill install of `manager`, through the web route at `proxyUrl`. */
+export function fillInstall(manager: CacheManager, proxyUrl: string): FillInstall {
+  const cacheDir = `${FILL_BOX_DIR}/cache/${manager}`;
+  const caFile = `${FILL_BOX_DIR}/ca.pem`;
+  const env = {
+    https_proxy: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    NODE_EXTRA_CA_CERTS: caFile,
+    npm_config_https_proxy: proxyUrl,
     npm_config_ignore_scripts: "true",
+    pnpm_config_ignore_scripts: "true",
     npm_config_update_notifier: "false",
     DO_NOT_TRACK: "1",
   };
-}
-
-async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
-  return new Response(stream).text();
-}
-
-/** Runs the fill to its end, killed and failed at its deadline. */
-async function runFill(
-  child: ChildProcess,
-  clock: Clock,
-  timeoutMs: number,
-): Promise<{ code: number | null; output: string }> {
-  let timer: TimerHandle | undefined;
-  const timedOut = new Promise<never>((_, reject) => {
-    timer = clock.setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(
-        new BoxError(
-          "box.cacheFillFailed",
-          `the package cache fill did not finish within ${Math.round(timeoutMs / 1000)} s and was killed.`,
-          false,
-          { timeoutMs },
-        ),
-      );
-    }, timeoutMs);
-  });
-  const finished = Promise.all([readAll(child.stdout), readAll(child.stderr), child.exited]).then(
-    ([stdout, stderr, exit]) => ({ code: exit.code, output: `${stdout}${stderr}` }),
-  );
-  try {
-    return await Promise.race([finished, timedOut]);
-  } finally {
-    if (timer !== undefined) clock.clearTimeout(timer);
+  switch (manager) {
+    case "bun":
+      return {
+        command: [
+          "bun",
+          "install",
+          "--frozen-lockfile",
+          "--ignore-scripts",
+          `--cache-dir=${cacheDir}`,
+          `--cafile=${caFile}`,
+        ],
+        env,
+        cacheDir,
+      };
+    case "npm":
+      return {
+        command: [
+          "npm",
+          "ci",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          `--cache=${cacheDir}`,
+        ],
+        env,
+        cacheDir,
+      };
+    case "pnpm":
+      // `pnpm fetch` reads only the lockfile and runs no scripts.
+      return { command: ["pnpm", "fetch", `--store-dir=${cacheDir}`], env, cacheDir };
   }
 }
 
@@ -377,24 +338,131 @@ async function readStamp(dir: string, key: string): Promise<PackageCacheStamp | 
   }
 }
 
-/** Makes the cache root (0700) when missing and returns its real path; refuses anything else. */
+/**
+ * Makes the cache root (0700) when missing and returns its real path. Refuses a root that is not a
+ * folder, not this user's, or writable by its group or others.
+ */
 async function realRoot(root: string): Promise<string> {
-  if (!root.startsWith("/"))
+  if (!root.startsWith("/")) {
     fillFailed("the package cache root must be an absolute path.", { root });
+  }
   await mkdir(root, { recursive: true, mode: 0o700 });
   const real = await realpath(root);
-  if (!(await lstat(real)).isDirectory()) {
-    fillFailed("the package cache root is not a folder.", { root });
+  const info = await lstat(real);
+  if (!info.isDirectory()) fillFailed("the package cache root is not a folder.", { root });
+  const uid = process.getuid?.() ?? info.uid;
+  if (info.uid !== uid || (info.mode & 0o022) !== 0) {
+    fillFailed("the package cache root must be this user's and writable by no one else.", {
+      root,
+      mode: (info.mode & 0o777).toString(8),
+    });
   }
   return real;
+}
+
+/** The refusal of a copied-out cache that holds `path`. */
+function copiedTreeError(path: string, why: string): BoxError {
+  return new BoxError(
+    "box.cacheFillFailed",
+    `the copied package cache holds ${path}, ${why}.`,
+    false,
+    { path },
+  );
+}
+
+/**
+ * Walks a copied-out cache with lstat: only files, folders and symlinks that are relative and
+ * resolve, with realpath, inside `base`. Refuses anything else with `box.cacheFillFailed`.
+ */
+export async function checkCopiedTree(base: string): Promise<void> {
+  const realBase = await realpath(base);
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir)) {
+      const path = join(dir, entry);
+      const info = await lstat(path);
+      if (info.isDirectory()) await walk(path);
+      else if (info.isSymbolicLink()) {
+        const target = await readlink(path);
+        if (isAbsolute(target))
+          throw copiedTreeError(path, `a symlink to the absolute path ${target}`);
+        const resolved = await realpath(path).catch(() => null);
+        if (resolved === null) throw copiedTreeError(path, "a symlink that resolves to nothing");
+        if (resolved !== realBase && !resolved.startsWith(`${realBase}/`)) {
+          throw copiedTreeError(path, "a symlink that resolves outside the cache");
+        }
+      } else if (!info.isFile())
+        throw copiedTreeError(path, "neither a file, a folder nor a symlink");
+    }
+  };
+  await walk(realBase);
+}
+
+/** Runs the fill in a fill box and copies the manager's cache out to `hostCache`. */
+async function fillInBox(
+  request: PackageCacheRequest,
+  manager: CacheManager,
+  files: readonly ProjectFile[],
+  work: string,
+  hostCache: string,
+): Promise<void> {
+  const { boxes } = request;
+  const project = join(work, "project");
+  await mkdir(project, { mode: 0o700 });
+  for (const file of files) {
+    const to = join(project, file.path);
+    await mkdir(dirname(to), { recursive: true, mode: 0o755 });
+    await writeFile(to, file.text, { flag: "wx", mode: 0o644 });
+  }
+  const id = request.fillId?.() ?? randomUUID().replaceAll("-", "").slice(0, 16);
+  const name = boxName(`${FILL_BOX_RUN_PREFIX}${id}`);
+  const network = await boxes.network();
+  let routed = false;
+  try {
+    // No package cache is mounted into the fill box.
+    await boxes.create({ runId: `${FILL_BOX_RUN_PREFIX}${id}`, image: request.image.tag, network });
+    await boxes.start(name);
+    // The route listens on the box network's host address, which exists only while a box runs.
+    const route = await request.route.acquire(name);
+    routed = true;
+    const ca = await readFile(route.caFile, "utf8").catch(() => "");
+    if (!isCertificateBundle(ca)) {
+      fillFailed("the web route's CA bundle is not PEM certificates.", { caFile: route.caFile });
+    }
+    const caFile = join(work, "ca.pem");
+    await writeFile(caFile, ca, { flag: "wx", mode: 0o644 });
+    const made = await boxes.exec(name, ["mkdir", "-p", `${FILL_BOX_DIR}/cache`]);
+    if (made.code !== 0) fillFailed("the fill box could not make its work folder.", { ...made });
+    await boxes.copyIn(name, project, `${FILL_BOX_DIR}/project`);
+    await boxes.copyIn(name, caFile, `${FILL_BOX_DIR}/ca.pem`);
+    const install = fillInstall(manager, route.url);
+    const result = await boxes.exec(name, install.command, {
+      cwd: `${FILL_BOX_DIR}/project`,
+      env: install.env,
+      timeoutMs: request.timeoutMs ?? PACKAGE_CACHE_FILL_TIMEOUT_MS,
+    });
+    if (result.code !== 0) {
+      const output = `${result.stdout}${result.stderr}`.trim().slice(-FAILED_OUTPUT_CHARS);
+      fillFailed(
+        `${manager} could not fill the package cache in the fill box (exit ${result.code}): ${output}`,
+        { manager, code: result.code, output },
+      );
+    }
+    await boxes.copyOut(name, install.cacheDir, hostCache, {
+      timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
+    });
+  } finally {
+    if (routed) await request.route.release(name).catch(() => {});
+    await boxes.delete(name).catch(() => {});
+  }
 }
 
 /** Fills generation `key` in a temporary folder and renames it into place. */
 async function fill(
   request: PackageCacheRequest,
+  files: readonly ProjectFile[],
   root: string,
   key: string,
-  target: PackageCacheTarget,
+  version: string | null,
 ): Promise<PackageCache> {
   const { source } = request;
   const lockfile = source.lockfile;
@@ -407,89 +475,24 @@ async function fill(
     // Readable to any user in the box; the box mounts it read-only.
     await mkdir(cacheOut, { mode: 0o755 });
     if (lockfile !== null) {
-      const tool = request.tools[lockfile.manager];
-      if (tool === undefined || !tool.startsWith("/")) {
-        fillFailed(`no ${lockfile.manager} program to fill the package cache with.`, {
+      const hostCache = join(cacheOut, lockfile.manager);
+      await fillInBox(request, lockfile.manager, files, work, hostCache);
+      if (!(await lstat(hostCache).catch(() => null))?.isDirectory()) {
+        fillFailed(`${lockfile.manager} left no package cache to copy out.`, {
           manager: lockfile.manager,
         });
       }
-      if (!PROXY_URL.test(request.proxy.url)) {
-        fillFailed("the Safe-Chain proxy must be http://<host>:<port>.", {
-          proxyUrl: request.proxy.url,
-        });
-      }
-      const ca = await readFile(request.proxy.caFile, "utf8").catch(() => "");
-      if (!isCertificateBundle(ca)) {
-        fillFailed("the Safe-Chain CA bundle is not PEM certificates.", {
-          caFile: request.proxy.caFile,
-        });
-      }
-      const project = join(work, "project");
-      const home = join(work, "home");
-      const tmp = join(work, "tmp");
-      for (const folder of [project, home, tmp]) await mkdir(folder, { mode: 0o700 });
-      const caFile = join(work, "ca.pem");
-      await writeFile(caFile, ca, { flag: "wx", mode: 0o600 });
-      // Only the lockfile and the manifests: never the repository's .npmrc or bunfig.toml.
-      for (const file of [{ path: lockfile.name, text: lockfile.text }, ...source.files]) {
-        if (!safeRelative(file.path))
-          fillFailed("a project file path is not safe.", { path: file.path });
-        const to = join(project, file.path);
-        await mkdir(dirname(to), { recursive: true, mode: 0o700 });
-        await writeFile(to, file.text, { flag: "wx", mode: 0o600 });
-      }
-      const cacheDir = join(cacheOut, lockfile.manager);
-      const cmd = fillCommand({
-        manager: lockfile.manager,
-        tool,
-        cacheDir,
-        caFile,
-        proxyUrl: request.proxy.url,
-        target,
-      });
-      let child: ChildProcess;
-      try {
-        child = request.spawn({
-          cmd,
-          cwd: project,
-          env: fillEnvironment({
-            path: request.path,
-            home,
-            tmp,
-            caFile,
-            proxyUrl: request.proxy.url,
-          }),
-        });
-      } catch (error) {
-        fillFailed(`${lockfile.manager} could not be started to fill the package cache.`, {
-          error: messageOf(error),
-        });
-      }
-      const result = await runFill(
-        child,
-        request.clock,
-        request.timeoutMs ?? PACKAGE_CACHE_FILL_TIMEOUT_MS,
-      );
-      if (result.code !== 0) {
-        const output = result.output.trim().slice(-FAILED_OUTPUT_CHARS);
-        fillFailed(
-          `${lockfile.manager} could not fill the package cache from ${lockfile.name} (exit ${result.code}): ${output}`,
-          { manager: lockfile.manager, code: result.code, output },
-        );
-      }
-      if (!(await lstat(cacheDir).catch(() => null))?.isDirectory()) {
-        fillFailed(`${lockfile.manager} wrote no package cache.`, { manager: lockfile.manager });
-      }
+      await checkCopiedTree(cacheOut);
     }
     const lockfileSha256 = lockfile === null ? null : lockfileHash(lockfile.text);
     const stamp: PackageCacheStamp = {
       format: PACKAGE_CACHE_FORMAT,
       key,
       manager: lockfile?.manager ?? null,
+      managerVersion: version,
       lockfile: lockfile?.name ?? null,
       lockfileSha256,
       commit: source.commit,
-      target,
     };
     await writeFile(join(cacheOut, PACKAGE_CACHE_STAMP), `${JSON.stringify(stamp, null, 2)}\n`, {
       flag: "wx",
@@ -508,25 +511,44 @@ async function fill(
   }
 }
 
-/** Fills in flight, by generation folder: a second box start waits for the first fill. */
+/** Fills in flight, by root and key: a second box start waits for the first fill. */
 const filling = new Map<string, Promise<PackageCache>>();
 
 /**
  * The office's package cache for `request.source`: its generation reused when the lockfile did
- * not change, filled through the Safe-Chain proxy otherwise. Any failure is a `BoxError` coded
- * `box.cacheFillFailed` (or `box.cacheUnsupported`); nothing half-filled is left to mount.
+ * not change, filled in a fill box otherwise. The input checks run first, before any box. Any
+ * failure is a `BoxError` coded `box.cacheUnsupported` or `box.cacheFillFailed`; nothing
+ * half-filled is left to mount.
  */
 export function ensurePackageCache(request: PackageCacheRequest): Promise<PackageCache> {
-  const target = request.target ?? boxCacheTarget();
-  const key = packageCacheKey(request.source.lockfile, target);
+  const { lockfile } = request.source;
+  let files: readonly ProjectFile[];
+  let version: string | null = null;
+  try {
+    files = checkFillInput(request.source);
+    if (lockfile !== null) {
+      version = managerVersion(lockfile.manager, request.image.toolchain);
+      if (version === null) {
+        unsupported(`the office image has no ${lockfile.manager} to fill the cache with.`, {
+          manager: lockfile.manager,
+        });
+      }
+    }
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  const key = packageCacheKey(lockfile, version);
   // Registered before the first await, so two box starts never fill one generation twice.
   const id = `${request.root}\0${key}`;
   const pending = filling.get(id);
   if (pending !== undefined) return pending;
-  const started = reuseOrFill(request, key, target)
+  const started = reuseOrFill(request, files, key, version)
     .catch((error: unknown) => {
-      if (error instanceof BoxError) throw error;
-      fillFailed(`the package cache could not be filled: ${messageOf(error)}`, { key });
+      if (error instanceof BoxError && error.code.startsWith("box.cache")) throw error;
+      fillFailed(`the package cache could not be filled: ${messageOf(error)}`, {
+        key,
+        ...(error instanceof BoxError ? { cause: error.code } : {}),
+      });
     })
     .finally(() => filling.delete(id));
   filling.set(id, started);
@@ -535,13 +557,14 @@ export function ensurePackageCache(request: PackageCacheRequest): Promise<Packag
 
 async function reuseOrFill(
   request: PackageCacheRequest,
+  files: readonly ProjectFile[],
   key: string,
-  target: PackageCacheTarget,
+  version: string | null,
 ): Promise<PackageCache> {
   const root = await realRoot(request.root);
   const dir = join(root, key);
   const stamp = await readStamp(dir, key);
-  if (stamp === null) return fill(request, root, key, target);
+  if (stamp === null) return fill(request, files, root, key, version);
   return {
     path: await realpath(dir),
     key,
@@ -577,11 +600,12 @@ export async function resolvePackageCacheMount(path: string, root: string): Prom
 
 /** What creating a box with its cache needs; the spec's `packageCache` comes from the fill. */
 export interface BoxWithCacheRequest {
-  readonly boxes: Pick<BoxPort, "create">;
+  /** Makes the fill box when the cache needs filling, and the box itself. */
+  readonly boxes: FillBoxes;
   readonly spec: Omit<BoxSpec, "packageCache">;
   /** Reads the base lockfile; `readBaseLockfile` of the office git. */
   readonly readSource: () => Promise<BaseLockfile>;
-  readonly cache: Omit<PackageCacheRequest, "source">;
+  readonly cache: Omit<PackageCacheRequest, "source" | "boxes">;
   readonly options?: BoxCallOptions;
 }
 
@@ -600,7 +624,7 @@ export async function createBoxWithPackageCache(
     if (error instanceof BoxError) throw error;
     fillFailed(`the base lockfile could not be read: ${messageOf(error)}`);
   }
-  const cache = await ensurePackageCache({ ...request.cache, source });
+  const cache = await ensurePackageCache({ ...request.cache, source, boxes: request.boxes });
   const packageCache = await resolvePackageCacheMount(cache.path, request.cache.root);
   const name = await request.boxes.create({ ...request.spec, packageCache }, request.options);
   return { name, cache };
@@ -616,10 +640,13 @@ export interface BoxCacheInstall {
 /**
  * The box's start install of `manager`: offline, from the read-only cache, copying files into the
  * box's own `node_modules` (a link into a read-only mount would leave packages read-only). Later
- * installs of the worker use the manager's default cache in the box.
+ * installs of the worker use the manager's default cache in the box. pnpm writes to its store
+ * only for new packages and for its side-effects cache; offline there are no new packages, and
+ * the side-effects cache is set read-only (both setting prefixes: pnpm 10 reads `npm_config_`,
+ * pnpm 11 `pnpm_config_`).
  */
 export function boxCacheInstall(manager: CacheManager): BoxCacheInstall {
-  const cache = `${BOX_PACKAGE_CACHE_PATH}/${manager}`;
+  const cache = posix.join(BOX_PACKAGE_CACHE_PATH, manager);
   switch (manager) {
     case "bun":
       return {
@@ -649,7 +676,10 @@ export function boxCacheInstall(manager: CacheManager): BoxCacheInstall {
           `--store-dir=${cache}`,
           "--package-import-method=copy",
         ],
-        env: {},
+        env: {
+          npm_config_side_effects_cache_readonly: "true",
+          pnpm_config_side_effects_cache_readonly: "true",
+        },
       };
   }
 }

@@ -72,13 +72,16 @@ export type {
 } from "./port";
 export {
   boxCacheInstall,
-  boxCacheTarget,
   CACHE_LOCKFILES,
+  checkCopiedTree,
   createBoxWithPackageCache,
   ensurePackageCache,
-  fillCommand,
-  fillEnvironment,
+  FILL_BOX_DIR,
+  FILL_BOX_RUN_PREFIX,
+  fillInstall,
   lockfileHash,
+  managerVersion,
+  PACKAGE_CACHE_COPY_TIMEOUT_MS,
   PACKAGE_CACHE_FILL_TIMEOUT_MS,
   PACKAGE_CACHE_FORMAT,
   PACKAGE_CACHE_MAX_MANIFESTS,
@@ -88,16 +91,24 @@ export {
   resolvePackageCacheMount,
 } from "./cache";
 export type {
-  BaseLockfile,
   BoxCacheInstall,
   BoxWithCacheRequest,
-  CacheManager,
+  FillBoxes,
+  FillInstall,
+  FillRoute,
   PackageCache,
-  PackageCacheProxy,
+  PackageCacheImage,
   PackageCacheRequest,
   PackageCacheStamp,
-  PackageCacheTarget,
 } from "./cache";
+export {
+  checkFillInput,
+  isProjectGlob,
+  isProjectPath,
+  isRegistrySpec,
+  isRegistryTarball,
+} from "./cache-input";
+export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 export {
   BOX_DEFAULTS,
   boxBuildFile,

@@ -1,15 +1,18 @@
-// The office package cache (DIPO-267) with a fake Spawn and temp folders: the cache key and the
-// lockfile hash, the refresh rule, the fill command and its folder, a failed fill that refuses the
-// box, the realpath rule, the read-only attachment, the start install in the box, and the
-// lockfile read from the base branch's git objects.
+// The office package cache (DIPO-267) with a fake fill box and temp folders: the cache key and the
+// lockfile hash, the refresh rule, the fill box and what it gets, a failed fill that refuses the
+// box, the copied-out symlinks, the cache root rule, the realpath rule, the read-only attachment,
+// the start install in the box, and the lockfile read from the base branch's git objects.
 
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -17,7 +20,7 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import type { OfficeId, SpawnOptions } from "@dipsaus-orchestrator/contract";
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
@@ -27,10 +30,11 @@ import {
   boxCacheInstall,
   createBoxWithPackageCache,
   ensurePackageCache,
-  fillCommand,
-  fillEnvironment,
+  FILL_BOX_DIR,
+  type FillBoxes,
+  fillInstall,
   lockfileHash,
-  PACKAGE_CACHE_FILL_TIMEOUT_MS,
+  managerVersion,
   PACKAGE_CACHE_STAMP,
   type PackageCacheRequest,
   packageCacheKey,
@@ -40,22 +44,36 @@ import {
 import {
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
+  type BoxExecOptions,
   type BoxNetwork,
   type BoxSpec,
+  boxName,
 } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { type CliReply, fakeContainer } from "./fake-container";
+import { fakeContainer } from "./fake-container";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000267" as OfficeId;
-const ARM = { os: "linux", cpu: "arm64" } as const;
 const PROXY_URL = "http://192.0.2.1:3128";
 const CA = "-----BEGIN CERTIFICATE-----\nMIIBdGVzdA==\n-----END CERTIFICATE-----\n";
-const PATH = "/usr/bin:/bin";
-const BUN = "/opt/tools/bun";
 const NETWORK: BoxNetwork = { name: BOX_NETWORK_NAME, mode: "hostOnly", hostAddress: "192.0.2.1" };
+const IMAGE = { tag: `dipo-box:${"b".repeat(64)}`, toolchain: { node: "24.22.1", bun: "1.4.2" } };
+const FILL_BOX = boxName("fill-1");
 
-function source(text: string, name = "bun.lock"): BaseLockfile {
+const BUN_LOCK = (version: string) =>
+  JSON.stringify({
+    lockfileVersion: 1,
+    workspaces: {
+      "": { name: "repo", dependencies: { "is-number": version } },
+      "packages/a": { name: "a" },
+    },
+    packages: {
+      a: ["a@workspace:packages/a"],
+      "is-number": [`is-number@${version}`, "", {}, "sha512-x"],
+    },
+  });
+
+function source(text = BUN_LOCK("7.0.0"), name = "bun.lock"): BaseLockfile {
   const manager = name === "bun.lock" ? "bun" : name === "pnpm-lock.yaml" ? "pnpm" : "npm";
   return {
     commit: "a".repeat(40),
@@ -67,56 +85,119 @@ function source(text: string, name = "bun.lock"): BaseLockfile {
   };
 }
 
-/** The cache folder a fill command names (`--cache-dir=`, `--cache=` or `--store-dir=`). */
-function cacheDirOf(cmd: readonly string[]): string | undefined {
-  for (const arg of cmd) {
-    const match = /^--(?:cache-dir|cache|store-dir)=(.+)$/.exec(arg);
-    if (match !== null) return match[1];
-  }
-  return undefined;
-}
-
-/** Every file below `dir`, relative to it, sorted. */
+/** Every file and link below `dir`, relative to it, sorted. */
 function filesBelow(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile())
+    .filter((entry) => !entry.isDirectory())
     .map((entry) => relative(dir, join(entry.parentPath, entry.name)))
     .toSorted();
 }
 
-/** A fake package manager: writes one package into the cache folder it is given. */
-function fakeManager(reply: (options: SpawnOptions) => CliReply = () => ({})) {
-  const seen: { options: SpawnOptions; project: string[] }[] = [];
-  const spawn = (options: SpawnOptions) => {
-    seen.push({ options, project: options.cwd === undefined ? [] : filesBelow(options.cwd) });
-    const answer = reply(options);
-    const cacheDir = cacheDirOf(options.cmd);
-    if (cacheDir !== undefined && (answer.code ?? 0) === 0 && answer.hang !== true) {
-      mkdirSync(join(cacheDir, "is-number@7.0.0@@@1"), { recursive: true });
-      writeFileSync(join(cacheDir, "is-number@7.0.0@@@1", "package.json"), "{}\n");
-    }
-    return fakeContainer(() => answer).spawn(options);
+type InstallResult = { code: number; stdout?: string; stderr?: string } | BoxError;
+
+/**
+ * A fake box port for fill boxes: a host folder stands for the box's files. `copyIn` and
+ * `copyOut` copy into and out of it (keeping symlinks as links, as `container copy` does), and
+ * the install writes into the cache folder it names, through `install`.
+ */
+function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = writePackage) {
+  const boxFs = join(dir, "box-fs");
+  const calls: string[] = [];
+  const specs: BoxSpec[] = [];
+  const installs: { command: readonly string[]; options: BoxExecOptions | undefined }[] = [];
+  let failCreate: BoxError | null = null;
+  const boxes: FillBoxes = {
+    network: async () => {
+      calls.push("network");
+      return NETWORK;
+    },
+    create: async (spec) => {
+      const name = boxName(spec.runId);
+      calls.push(`create ${name}`);
+      specs.push(spec);
+      if (failCreate !== null) throw failCreate;
+      rmSync(boxFs, { recursive: true, force: true });
+      mkdirSync(boxFs);
+      return name;
+    },
+    start: async (name) => {
+      calls.push(`start ${name}`);
+    },
+    delete: async (name) => {
+      calls.push(`delete ${name}`);
+    },
+    exec: async (name, command, options) => {
+      calls.push(`exec ${name} ${command[0]}`);
+      if (command[0] === "mkdir") {
+        mkdirSync(join(boxFs, command[2]!), { recursive: true });
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      installs.push({ command, options });
+      const cacheArg = command.find((arg) => /^--(?:cache-dir|cache|store-dir)=/.test(arg));
+      const result = install(join(boxFs, cacheArg!.split("=")[1]!));
+      if (result instanceof BoxError) throw result;
+      return { stdout: "", stderr: "", ...result };
+    },
+    copyIn: async (name, from, to) => {
+      calls.push(`copyIn ${name} ${to}`);
+      cpSync(from, join(boxFs, to), { recursive: true });
+    },
+    copyOut: async (name, from, to) => {
+      calls.push(`copyOut ${name} ${from}`);
+      if (!existsSync(join(boxFs, from))) {
+        throw new BoxError("box.failed", `container copy: ${from} not found`);
+      }
+      cpSync(join(boxFs, from), to, { recursive: true, verbatimSymlinks: true });
+    },
   };
-  return { spawn, seen };
+  const caFile = join(dir, "ca.pem");
+  writeFileSync(caFile, CA);
+  let failAcquire = false;
+  const route = {
+    acquire: async (box: string) => {
+      calls.push(`acquire ${box}`);
+      if (failAcquire) throw new Error("the web route did not start");
+      return { url: PROXY_URL, caFile };
+    },
+    release: async (box: string) => {
+      calls.push(`release ${box}`);
+    },
+  };
+  return {
+    boxes,
+    route,
+    calls,
+    specs,
+    installs,
+    boxFs,
+    failCreateWith: (error: BoxError) => {
+      failCreate = error;
+    },
+    failAcquire: () => {
+      failAcquire = true;
+    },
+  };
+}
+
+/** The default install: one package in the cache folder. */
+function writePackage(cacheDir: string): InstallResult {
+  mkdirSync(join(cacheDir, "is-number@7.0.0@@@1"), { recursive: true });
+  writeFileSync(join(cacheDir, "is-number@7.0.0@@@1", "package.json"), "{}\n");
+  return { code: 0 };
 }
 
 function request(
   dir: string,
-  spawn: PackageCacheRequest["spawn"],
-  lockfile: BaseLockfile,
-  clock = new ManualClock(),
+  fill: ReturnType<typeof fakeFill>,
+  lockfile: BaseLockfile = source(),
 ): PackageCacheRequest {
-  const caFile = join(dir, "ca.pem");
-  if (!existsSync(caFile)) writeFileSync(caFile, CA);
   return {
     root: join(dir, "package-cache"),
     source: lockfile,
-    proxy: { url: PROXY_URL, caFile },
-    tools: { bun: BUN, npm: "/opt/tools/npm", pnpm: "/opt/tools/pnpm" },
-    path: PATH,
-    spawn,
-    clock,
-    target: ARM,
+    boxes: fill.boxes,
+    image: IMAGE,
+    route: fill.route,
+    fillId: () => "1",
   };
 }
 
@@ -130,47 +211,55 @@ async function rejection(promise: Promise<unknown>): Promise<BoxError> {
   throw new Error("expected the call to fail");
 }
 
-/** A box port that only records the specs it was asked to create. */
-function recordingBoxes() {
-  const created: BoxSpec[] = [];
-  return {
-    created,
-    boxes: {
-      create: async (spec: BoxSpec) => {
-        created.push(spec);
-        return `dipo-${spec.runId}`;
-      },
-    },
-  };
-}
+/** The calls of one whole fill, in order. */
+const FILL_CALLS = [
+  "network",
+  `create ${FILL_BOX}`,
+  `start ${FILL_BOX}`,
+  `acquire ${FILL_BOX}`,
+  `exec ${FILL_BOX} mkdir`,
+  `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/project`,
+  `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/ca.pem`,
+  `exec ${FILL_BOX} bun`,
+  `copyOut ${FILL_BOX} ${FILL_BOX_DIR}/cache/bun`,
+  `release ${FILL_BOX}`,
+  `delete ${FILL_BOX}`,
+];
 
 describe("the cache key and the lockfile hash", () => {
   it("hashes the lockfile with sha256", () => {
     expect(lockfileHash("lock\n")).toBe(createHash("sha256").update("lock\n").digest("hex"));
   });
 
-  it("is a sha256 that changes with the lockfile, its name and the box platform only", () => {
-    const key = packageCacheKey(source("one").lockfile, ARM);
+  it("is a sha256 that changes with the lockfile, its name and the manager's version only", () => {
+    const key = packageCacheKey(source("one").lockfile, "1.4.2");
     expect(key).toMatch(/^[0-9a-f]{64}$/);
-    expect(packageCacheKey(source("one").lockfile, ARM)).toBe(key);
-    // The manifests are not part of the key: only the lockfile is.
-    expect(packageCacheKey({ ...source("one"), files: [] }.lockfile, ARM)).toBe(key);
-    expect(packageCacheKey(source("two").lockfile, ARM)).not.toBe(key);
-    expect(packageCacheKey(source("one", "package-lock.json").lockfile, ARM)).not.toBe(key);
-    expect(packageCacheKey(source("one").lockfile, { os: "linux", cpu: "x64" })).not.toBe(key);
-    expect(packageCacheKey(null, ARM)).not.toBe(key);
+    expect(packageCacheKey(source("one").lockfile, "1.4.2")).toBe(key);
+    expect(packageCacheKey({ ...source("one"), files: [] }.lockfile, "1.4.2")).toBe(key);
+    expect(packageCacheKey(source("two").lockfile, "1.4.2")).not.toBe(key);
+    expect(packageCacheKey(source("one", "package-lock.json").lockfile, "1.4.2")).not.toBe(key);
+    expect(packageCacheKey(source("one").lockfile, "1.5.0")).not.toBe(key);
+    expect(packageCacheKey(null, null)).not.toBe(key);
+  });
+
+  it("takes the manager's version from the office image", () => {
+    const toolchain = { node: "24.22.1", bun: "1.4.2", pnpm: "12.14.0" };
+    expect(managerVersion("bun", toolchain)).toBe("1.4.2");
+    expect(managerVersion("pnpm", toolchain)).toBe("12.14.0");
+    expect(managerVersion("npm", toolchain)).toBe("node-24.22.1");
+    expect(managerVersion("pnpm", { node: "24.22.1" })).toBeNull();
   });
 });
 
 describe("the refresh rule", () => {
   it("fills once, reuses the cache while the lockfile is unchanged, and fills a new one when it changes", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
-      const first = await ensurePackageCache(request(dir, manager.spawn, source("one")));
+      const fill = fakeFill(dir);
+      const first = await ensurePackageCache(request(dir, fill));
       const root = realpathSync(join(dir, "package-cache"));
       expect(first.filled).toBe(true);
-      expect(first.path).toBe(join(root, packageCacheKey(source("one").lockfile, ARM)));
-      expect(first.lockfileSha256).toBe(lockfileHash("one"));
+      expect(first.path).toBe(join(root, packageCacheKey(source().lockfile, "1.4.2")));
+      expect(first.lockfileSha256).toBe(lockfileHash(BUN_LOCK("7.0.0")));
       expect(filesBelow(first.path)).toEqual([
         "bun/is-number@7.0.0@@@1/package.json",
         PACKAGE_CACHE_STAMP,
@@ -179,35 +268,44 @@ describe("the refresh rule", () => {
       expect(stamp).toMatchObject({
         key: first.key,
         manager: "bun",
+        managerVersion: "1.4.2",
         lockfile: "bun.lock",
-        lockfileSha256: lockfileHash("one"),
-        target: ARM,
+        lockfileSha256: first.lockfileSha256,
       });
       // Only the generation stays; the fill folder is gone.
       expect(readdirSync(root)).toEqual([first.key]);
 
-      const again = await ensurePackageCache(request(dir, manager.spawn, source("one")));
+      const again = await ensurePackageCache(request(dir, fill));
       expect(again).toEqual({ ...first, filled: false });
-      expect(manager.seen).toHaveLength(1);
+      expect(fill.installs).toHaveLength(1);
 
-      const changed = await ensurePackageCache(request(dir, manager.spawn, source("two")));
+      const changed = await ensurePackageCache(request(dir, fill, source(BUN_LOCK("7.0.1"))));
       expect(changed.filled).toBe(true);
       expect(changed.path).not.toBe(first.path);
-      expect(manager.seen).toHaveLength(2);
+      expect(fill.installs).toHaveLength(2);
       // A box still running on the older generation keeps it unchanged.
       expect(filesBelow(first.path)).toEqual([
         "bun/is-number@7.0.0@@@1/package.json",
         PACKAGE_CACHE_STAMP,
       ]);
+
+      // A new Bun in the office image fills a new generation as well.
+      const newer = await ensurePackageCache({
+        ...request(dir, fill),
+        image: { ...IMAGE, toolchain: { ...IMAGE.toolchain, bun: "1.5.0" } },
+      });
+      expect(newer.filled).toBe(true);
+      expect(newer.path).not.toBe(first.path);
     }));
 
   it("fills again a generation that has no stamp", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
-      const key = packageCacheKey(source("one").lockfile, ARM);
-      mkdirSync(join(dir, "package-cache", key, "bun"), { recursive: true });
+      const fill = fakeFill(dir);
+      const key = packageCacheKey(source().lockfile, "1.4.2");
+      mkdirSync(join(dir, "package-cache", key, "bun"), { recursive: true, mode: 0o700 });
+      chmodSync(join(dir, "package-cache"), 0o700);
       writeFileSync(join(dir, "package-cache", key, "bun", "half"), "");
-      const cache = await ensurePackageCache(request(dir, manager.spawn, source("one")));
+      const cache = await ensurePackageCache(request(dir, fill));
       expect(cache.filled).toBe(true);
       expect(filesBelow(cache.path)).toEqual([
         "bun/is-number@7.0.0@@@1/package.json",
@@ -217,146 +315,222 @@ describe("the refresh rule", () => {
 
   it("fills one generation once when two boxes start together", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
+      const fill = fakeFill(dir);
       const [a, b] = await Promise.all([
-        ensurePackageCache(request(dir, manager.spawn, source("one"))),
-        ensurePackageCache(request(dir, manager.spawn, source("one"))),
+        ensurePackageCache(request(dir, fill)),
+        ensurePackageCache(request(dir, fill)),
       ]);
       expect(a.path).toBe(b.path);
-      expect(manager.seen).toHaveLength(1);
+      expect(fill.installs).toHaveLength(1);
     }));
 
-  it("makes an empty cache when the base has no lockfile, without running anything", () =>
+  it("makes an empty cache when the base has no lockfile, without a fill box", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
+      const fill = fakeFill(dir);
       const cache = await ensurePackageCache(
-        request(dir, manager.spawn, { commit: "a".repeat(40), lockfile: null, files: [] }),
+        request(dir, fill, { commit: "a".repeat(40), lockfile: null, files: [] }),
       );
       expect(cache).toMatchObject({ filled: true, manager: null, lockfileSha256: null });
       expect(filesBelow(cache.path)).toEqual([PACKAGE_CACHE_STAMP]);
-      expect(manager.seen).toHaveLength(0);
+      expect(fill.calls).toEqual([]);
     }));
 });
 
-describe("the fill", () => {
-  it("runs Bun outside any box with scripts off, through the Safe-Chain proxy, for the box platform", () =>
+describe("the fill box", () => {
+  it("runs the install in a fill box of the office image, after the route, and deletes it", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
-      await ensurePackageCache(request(dir, manager.spawn, source("one")));
-      const [call] = manager.seen;
-      const options = call!.options;
-      const work = join(options.cwd!, "..");
-      expect(options.cmd).toEqual([
-        BUN,
-        "install",
-        "--frozen-lockfile",
-        "--ignore-scripts",
-        `--cache-dir=${join(work, "cache", "bun")}`,
-        `--cafile=${join(work, "ca.pem")}`,
-        "--os=linux",
-        "--cpu=arm64",
-      ]);
-      // Its whole environment is dipo's: its own home and temp folders, the proxy and its CA.
-      expect(options.env).toEqual(
-        fillEnvironment({
-          path: PATH,
-          home: join(work, "home"),
-          tmp: join(work, "tmp"),
-          caFile: join(work, "ca.pem"),
-          proxyUrl: PROXY_URL,
-        }),
-      );
-      expect(options.env?.["HTTPS_PROXY"]).toBe(PROXY_URL);
-      expect(options.env?.["npm_config_ignore_scripts"]).toBe("true");
-      // The fill folder holds only the lockfile and the manifests: no .npmrc or bunfig.toml.
-      expect(call!.project).toEqual(["bun.lock", "package.json", "packages/a/package.json"]);
+      const fill = fakeFill(dir);
+      await ensurePackageCache(request(dir, fill));
+      expect(fill.calls).toEqual(FILL_CALLS);
+      // The office image on the host-only network, and no package cache mounted.
+      expect(fill.specs).toEqual([{ runId: "fill-1", image: IMAGE.tag, network: NETWORK }]);
+      expect(FILL_BOX).toBe("dipo-fill-1");
     }));
 
-  it("runs npm ci and pnpm fetch into their own cache folders", () => {
-    const common = { cacheDir: "/c", caFile: "/ca.pem", proxyUrl: PROXY_URL, target: ARM };
-    expect(fillCommand({ ...common, manager: "npm", tool: "/opt/npm" })).toEqual([
-      "/opt/npm",
+  it("copies in only the lockfile, the manifests and the CA, and installs with scripts off through the route", () =>
+    withTempDir(async (dir) => {
+      const fill = fakeFill(dir);
+      await ensurePackageCache(request(dir, fill));
+      expect(filesBelow(join(fill.boxFs, FILL_BOX_DIR))).toEqual([
+        "ca.pem",
+        "cache/bun/is-number@7.0.0@@@1/package.json",
+        "project/bun.lock",
+        "project/package.json",
+        "project/packages/a/package.json",
+      ]);
+      expect(readFileSync(join(fill.boxFs, FILL_BOX_DIR, "ca.pem"), "utf8")).toBe(CA);
+      const [install] = fill.installs;
+      const expected = fillInstall("bun", PROXY_URL);
+      expect(install?.command).toEqual(expected.command);
+      expect(install?.command).toContain("--ignore-scripts");
+      expect(install?.command).toContain("--frozen-lockfile");
+      expect(install?.options?.cwd).toBe(`${FILL_BOX_DIR}/project`);
+      expect(install?.options?.env).toEqual(expected.env);
+      expect(install?.options?.env?.["HTTPS_PROXY"]).toBe(PROXY_URL);
+      expect(install?.options?.env?.["NODE_EXTRA_CA_CERTS"]).toBe(`${FILL_BOX_DIR}/ca.pem`);
+      expect(install?.options?.timeoutMs).toBeGreaterThan(0);
+    }));
+
+  it("installs npm and pnpm into their own cache folders, with no platform flags", () => {
+    expect(fillInstall("npm", PROXY_URL).command).toEqual([
+      "npm",
       "ci",
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
-      "--cache=/c",
-      "--cafile=/ca.pem",
-      `--https-proxy=${PROXY_URL}`,
-      `--proxy=${PROXY_URL}`,
-      "--os=linux",
-      "--cpu=arm64",
+      `--cache=${FILL_BOX_DIR}/cache/npm`,
     ]);
-    expect(fillCommand({ ...common, manager: "pnpm", tool: "/opt/pnpm" })).toEqual([
-      "/opt/pnpm",
+    expect(fillInstall("pnpm", PROXY_URL).command).toEqual([
+      "pnpm",
       "fetch",
-      "--store-dir=/c",
+      `--store-dir=${FILL_BOX_DIR}/cache/pnpm`,
     ]);
+    for (const manager of ["bun", "npm", "pnpm"] as const) {
+      const { command, env } = fillInstall(manager, PROXY_URL);
+      expect(command.filter((arg) => /^--(?:os|cpu)=/.test(arg))).toEqual([]);
+      expect(env["npm_config_ignore_scripts"]).toBe("true");
+    }
   });
 });
 
 describe("a failed fill", () => {
-  it("refuses with box.cacheFillFailed and the manager's output, and leaves nothing to mount", () =>
+  it("refuses with the install's output, deletes the fill box and leaves nothing to mount", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager(() => ({
-        code: 1,
-        stderr: "error: 403 blocked by safe-chain\n",
-      }));
-      const error = await rejection(ensurePackageCache(request(dir, manager.spawn, source("one"))));
+      const fill = fakeFill(dir, () => ({ code: 1, stderr: "error: 403 blocked by safe-chain\n" }));
+      const error = await rejection(ensurePackageCache(request(dir, fill)));
       expect(error.code).toBe("box.cacheFillFailed");
       expect(error.message).toContain("blocked by safe-chain");
+      expect(fill.calls.slice(-2)).toEqual([`release ${FILL_BOX}`, `delete ${FILL_BOX}`]);
       expect(readdirSync(join(dir, "package-cache"))).toEqual([]);
     }));
 
-  it("kills a fill at its deadline and refuses", () =>
+  it("refuses an install killed at its deadline, and deletes the fill box", () =>
     withTempDir(async (dir) => {
-      const clock = new ManualClock();
-      const manager = fakeManager(() => ({ hang: true }));
-      const pending = rejection(
-        ensurePackageCache(request(dir, manager.spawn, source("one"), clock)),
-      );
-      while (clock.pendingTimers === 0) await Bun.sleep(1);
-      clock.advance(PACKAGE_CACHE_FILL_TIMEOUT_MS);
-      const error = await pending;
+      const fill = fakeFill(dir, () => new BoxError("box.timedOut", "killed"));
+      const error = await rejection(ensurePackageCache(request(dir, fill)));
       expect(error.code).toBe("box.cacheFillFailed");
-      expect(error.message).toContain("killed");
+      expect(error.details).toMatchObject({ cause: "box.timedOut" });
+      expect(fill.calls.at(-1)).toBe(`delete ${FILL_BOX}`);
       expect(readdirSync(join(dir, "package-cache"))).toEqual([]);
     }));
 
-  it("refuses without the manager's program or with a CA bundle that is not certificates", () =>
+  it("deletes the fill box when it cannot be created, and never starts the route", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
-      const base = request(dir, manager.spawn, source("one"));
-      const noTool = await rejection(ensurePackageCache({ ...base, tools: {} }));
-      expect(noTool.code).toBe("box.cacheFillFailed");
-      writeFileSync(join(dir, "bad.pem"), "not a certificate\n");
-      const badCa = await rejection(
-        ensurePackageCache({ ...base, proxy: { url: PROXY_URL, caFile: join(dir, "bad.pem") } }),
+      const fill = fakeFill(dir);
+      fill.failCreateWith(new BoxError("box.timedOut", "create killed"));
+      const error = await rejection(ensurePackageCache(request(dir, fill)));
+      expect(error.code).toBe("box.cacheFillFailed");
+      expect(fill.calls).toEqual(["network", `create ${FILL_BOX}`, `delete ${FILL_BOX}`]);
+    }));
+
+  it("refuses when the route does not start, and deletes the fill box", () =>
+    withTempDir(async (dir) => {
+      const fill = fakeFill(dir);
+      fill.failAcquire();
+      const error = await rejection(ensurePackageCache(request(dir, fill)));
+      expect(error.code).toBe("box.cacheFillFailed");
+      expect(fill.calls.at(-1)).toBe(`delete ${FILL_BOX}`);
+      expect(fill.installs).toEqual([]);
+    }));
+
+  it("refuses an image without the manager, and a lockfile with a git dependency, before any box", () =>
+    withTempDir(async (dir) => {
+      const fill = fakeFill(dir);
+      const noBun = await rejection(
+        ensurePackageCache({
+          ...request(dir, fill),
+          image: { ...IMAGE, toolchain: { node: "24.22.1" } },
+        }),
       );
-      expect(badCa.code).toBe("box.cacheFillFailed");
-      expect(manager.seen).toHaveLength(0);
+      expect(noBun.code).toBe("box.cacheUnsupported");
+      const git = await rejection(
+        ensurePackageCache(
+          request(
+            dir,
+            fill,
+            source(
+              JSON.stringify({
+                workspaces: { "": {} },
+                packages: { x: ["x@git+ssh://git@example.com/x.git#abc"] },
+              }),
+            ),
+          ),
+        ),
+      );
+      expect(git.code).toBe("box.cacheUnsupported");
+      expect(fill.calls).toEqual([]);
     }));
 
   it("never creates the box when the fill or the lockfile read fails", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager(() => ({ code: 1 }));
-      const { boxes, created } = recordingBoxes();
+      const fill = fakeFill(dir, () => ({ code: 1 }));
       const spec = { runId: "run_1", image: "dipo-box:x", network: NETWORK };
-      const { source: _, ...cache } = request(dir, manager.spawn, source("one"));
+      const { source: _, boxes: __, ...cache } = request(dir, fill);
       const failed = await rejection(
-        createBoxWithPackageCache({ boxes, spec, readSource: async () => source("one"), cache }),
+        createBoxWithPackageCache({
+          boxes: fill.boxes,
+          spec,
+          readSource: async () => source(),
+          cache,
+        }),
       );
       expect(failed.code).toBe("box.cacheFillFailed");
       const unread = await rejection(
         createBoxWithPackageCache({
-          boxes,
+          boxes: fill.boxes,
           spec,
           readSource: () => Promise.reject(new Error("git failed")),
           cache,
         }),
       );
       expect(unread.code).toBe("box.cacheFillFailed");
-      expect(created).toEqual([]);
+      expect(fill.specs.map((made) => made.runId)).toEqual(["fill-1"]);
+    }));
+});
+
+/** An install that also leaves a symlink `link` to `target` in the cache. */
+const withLink = (target: string) => (cacheDir: string) => {
+  writePackage(cacheDir);
+  symlinkSync(target, join(cacheDir, "is-number@7.0.0@@@1", "link"));
+  return { code: 0 };
+};
+
+describe("the copied-out symlinks", () => {
+  it("keeps a relative symlink that stays in the cache", () =>
+    withTempDir(async (dir) => {
+      const fill = fakeFill(dir, withLink("package.json"));
+      const cache = await ensurePackageCache(request(dir, fill));
+      expect(filesBelow(cache.path)).toContain("bun/is-number@7.0.0@@@1/link");
+    }));
+
+  for (const [what, target, why] of [
+    ["an absolute symlink", "/etc/hosts", "absolute"],
+    // From <work>/cache/bun/<package>/ up to the temp dir, where `outside` exists.
+    ["a relative symlink out of the generation", "../../../../../outside", "outside the cache"],
+    ["a dangling symlink", "missing.json", "resolves to nothing"],
+  ] as const) {
+    it(`refuses ${what}`, () =>
+      withTempDir(async (dir) => {
+        mkdirSync(join(dir, "outside"));
+        const fill = fakeFill(dir, withLink(target));
+        const error = await rejection(ensurePackageCache(request(dir, fill)));
+        expect(error.code).toBe("box.cacheFillFailed");
+        expect(error.message).toContain(why);
+        expect(readdirSync(join(dir, "package-cache"))).toEqual([]);
+      }));
+  }
+});
+
+describe("the cache root", () => {
+  it("refuses a root its group or others may write, before any box", () =>
+    withTempDir(async (dir) => {
+      const fill = fakeFill(dir);
+      mkdirSync(join(dir, "package-cache"));
+      chmodSync(join(dir, "package-cache"), 0o777);
+      const error = await rejection(ensurePackageCache(request(dir, fill)));
+      expect(error.code).toBe("box.cacheFillFailed");
+      expect(error.message).toContain("writable by no one else");
+      expect(fill.calls).toEqual([]);
     }));
 });
 
@@ -395,42 +569,42 @@ describe("the realpath rule", () => {
 });
 
 describe("the read-only attachment", () => {
-  it("creates the box with the real path of the filled cache, mounted read-only", () =>
+  it("creates the box with the real path of the filled cache, after a changed lockfile refreshed it", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
-      const { boxes, created } = recordingBoxes();
-      const spec = { runId: "run_1", image: "dipo-box:x", network: NETWORK };
-      const { source: _, ...cache } = request(dir, manager.spawn, source("one"));
+      const fill = fakeFill(dir);
+      const spec = { runId: "run_1", image: IMAGE.tag, network: NETWORK };
+      const { source: _, boxes: __, ...cache } = request(dir, fill);
       const made = await createBoxWithPackageCache({
-        boxes,
+        boxes: fill.boxes,
         spec,
-        readSource: async () => source("one"),
+        readSource: async () => source(),
         cache,
       });
       expect(made.name).toBe("dipo-run_1");
-      expect(created).toEqual([{ ...spec, packageCache: made.cache.path }]);
+      expect(fill.specs.at(-1)).toEqual({ ...spec, packageCache: made.cache.path });
 
-      // A changed base lockfile refreshes the cache before the next box is created.
       const next = await createBoxWithPackageCache({
-        boxes,
+        boxes: fill.boxes,
         spec: { ...spec, runId: "run_2" },
-        readSource: async () => source("two"),
+        readSource: async () => source(BUN_LOCK("7.0.1")),
         cache,
       });
       expect(next.cache.filled).toBe(true);
-      expect(created[1]?.packageCache).toBe(next.cache.path);
+      expect(fill.specs.at(-1)?.packageCache).toBe(next.cache.path);
       expect(next.cache.path).not.toBe(made.cache.path);
     }));
 
   it("reaches the backend as the one bind mount of the cache, read-only", () =>
     withTempDir(async (dir) => {
-      const manager = fakeManager();
+      const fill = fakeFill(dir);
+      const { source: _, boxes: __, ...cache } = request(dir, fill);
+      // Filled first; the story box then reuses it, so only `container create` runs.
+      const filled = await ensurePackageCache(request(dir, fill));
       const container = fakeContainer(() => ({ stdout: "dipo-run_1\n" }));
-      const { source: _, ...cache } = request(dir, manager.spawn, source("one"));
       const boxes = new AppleContainerBoxes({
         spawn: container.spawn,
         clock: new ManualClock(),
-        env: { PATH },
+        env: { PATH: "/usr/bin:/bin" },
         host: { memoryBytes: 8 * 1024 ** 3, cpus: 4 },
         home: "/Users/someone",
         packageCacheRoot: cache.root,
@@ -438,10 +612,12 @@ describe("the read-only attachment", () => {
       const made = await createBoxWithPackageCache({
         boxes,
         spec: { runId: "run_1", image: "docker.io/library/alpine:3.20", network: NETWORK },
-        readSource: async () => source("one"),
+        readSource: async () => source(),
         cache,
       });
+      expect(made.cache).toEqual({ ...filled, filled: false });
       const [args] = container.args();
+      expect(container.args()).toHaveLength(1);
       const mounts = args!.flatMap((arg, at) => (arg === "--mount" ? [args![at + 1]] : []));
       expect(mounts).toEqual([
         `type=bind,source=${made.cache.path},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
@@ -458,8 +634,10 @@ describe("the start install in the box", () => {
     });
     expect(boxCacheInstall("npm").command).toContain(`--cache=${BOX_PACKAGE_CACHE_PATH}/npm`);
     expect(boxCacheInstall("npm").command).toContain("--offline");
-    expect(boxCacheInstall("pnpm").command).toContain(`--store-dir=${BOX_PACKAGE_CACHE_PATH}/pnpm`);
-    expect(boxCacheInstall("pnpm").command).toContain("--package-import-method=copy");
+    const pnpm = boxCacheInstall("pnpm");
+    expect(pnpm.command).toContain(`--store-dir=${BOX_PACKAGE_CACHE_PATH}/pnpm`);
+    expect(pnpm.command).toContain("--package-import-method=copy");
+    expect(pnpm.env["pnpm_config_side_effects_cache_readonly"]).toBe("true");
   });
 });
 
