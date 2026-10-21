@@ -4,7 +4,7 @@ title: Fill one read-only package cache per office for the boxes
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 16:22'
+updated_date: '2026-10-21 16:44'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,8 @@ dependencies:
 references:
   - packages/engine/src/box/cache.ts
   - packages/engine/test/box/cache.test.ts
+  - packages/engine/src/box/cache-input.ts
+  - packages/engine/test/box/cache-input.test.ts
   - packages/engine/src/box/apple-container.ts
   - packages/engine/src/box/apple-args.ts
   - packages/engine/src/box/port.ts
