@@ -252,3 +252,12 @@ export type {
   RunningBoxWebRoute,
   WebProxyEvent,
 } from "./web-proxy";
+export {
+  BoxDoor,
+  cleanDoorText,
+  DIPO_PART_PATH,
+  DOOR_QUEUE,
+  DOOR_RECORD_FILE,
+  PART_MESSAGE_MAX_BYTES,
+} from "./door";
+export type { BoxDoorDeps, DoorPart, DoorRead, DoorRefusal, DoorRefused } from "./door";

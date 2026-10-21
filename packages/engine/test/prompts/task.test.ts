@@ -66,6 +66,25 @@ describe("task message", () => {
     await expectGolden("task-implement.md", message.text);
   });
 
+  it("gives a box worker the forecast scope section, never the write fence (DIPO-272)", async () => {
+    const input = { story: fixtureStory(), pack: fixturePack(), budgets: BUDGETS_M };
+    const box = assembleTaskMessage({ ...input, box: true }).text;
+    await expectGolden("task-implement-box.md", box);
+    expect(box).toContain(
+      "<scope>\nThe paths the planner expects this story to change (a forecast, not a fence):\n- src/greet.ts",
+    );
+    expect(box).not.toContain("You may write only these paths");
+    // Only the scope section differs from the Mac worker's message.
+    const mac = assembleTaskMessage(input).text;
+    expect(mac).toContain("You may write only these paths:");
+    expect(
+      box.replace(
+        "The paths the planner expects this story to change (a forecast, not a fence):",
+        "You may write only these paths:",
+      ),
+    ).toBe(mac);
+  });
+
   it("holds every section in the 0014 order, each in its tag, when every condition holds", () => {
     const message = assembleTaskMessage({
       story: fixtureStory(),

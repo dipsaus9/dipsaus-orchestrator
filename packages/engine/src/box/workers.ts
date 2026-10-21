@@ -7,13 +7,14 @@
 //   host-only box network, the box with nothing of the Mac mounted (the office package cache only
 //   when one is given: the DIPO-267 seam), started, and the code copied in (`stageBoxCode`: the
 //   start commit from git's objects plus the listed files from the office's main checkout, never
-//   `.git`).
+//   `.git`), and dipo's `dipo-part` command installed (`installDipoPart`, DIPO-272).
 // - `session` (each developer session): the box running again, dipo's web route and model proxy
 //   for the box network (both started only once a box on it runs, because the network's address
 //   exists on the Mac only then), and dipo's files copied to `BOX_DIPO_DIR`: the system file and
 //   the Safe-Chain CA bundle. A box that already runs when a session starts may still hold an
 //   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
 //   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
+//   With `door`, the box's part queue is read while the session runs (`BoxDoor`, DIPO-272).
 // - `finish` (the run ended): the post-run token check (`checkBoxAfterRun`, which holds the adapter
 //   when the token is found or the check cannot finish), then the box deleted and its routes
 //   released. `discard` deletes a box whose worker never ran, without the check.
@@ -37,6 +38,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
 import { ensureImageWithBuildProxy } from "./build-proxy";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
+import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
 import type { BaseBox } from "./image";
 import { boxModelEnvironment, type RunningModelProxy } from "./model-proxy";
 import {
@@ -128,6 +130,12 @@ export interface BoxWorkersDeps {
    * nothing, which is the default.
    */
   readonly packageCache?: (office: OfficeId) => string | undefined;
+  /**
+   * The box door (DIPO-272): with it, dipo reads each box's part queue while a session runs and
+   * hands each part to `onPart` (DIPO-273 delivers it). Without it no queue is read; `dipo-part` is
+   * installed in every box either way.
+   */
+  readonly door?: Pick<BoxDoorDeps, "onPart" | "onRefused" | "pollMs">;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -186,6 +194,8 @@ export class BoxWorkers {
   readonly #finishing = new Map<string, Promise<BoxFinish>>();
   /** Boxes `create` made and started, in which no session ran yet. */
   readonly #fresh = new Set<string>();
+  /** The part queues read while a session runs (DIPO-272); null without `door`. */
+  readonly #door: BoxDoor | null;
 
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
@@ -198,6 +208,16 @@ export class BoxWorkers {
       return started.route;
     });
     this.#model = new BoxWebRoute(async () => deps.startModelProxy(await this.#networkOf()));
+    this.#door =
+      deps.door === undefined
+        ? null
+        : new BoxDoor({
+            ...deps.door,
+            boxes: deps.boxes,
+            clock: deps.code.clock,
+            ...(deps.warn === undefined ? {} : { warn: deps.warn }),
+            ...(deps.info === undefined ? {} : { info: deps.info }),
+          });
   }
 
   /** True when the run of `runDir` runs its developer in a box. */
@@ -302,6 +322,8 @@ export class BoxWorkers {
       } finally {
         await staged.remove();
       }
+      // The worker's one way to hand dipo a part (0021 W1, DIPO-272): dipo's own command.
+      await installDipoPart({ boxes, tmpRoot: this.#deps.tmpRoot }, name);
       for (const skipped of staged.skipped) {
         this.#deps.warn?.("a listed box file was not copied into the box", {
           run: input.runId,
@@ -345,6 +367,8 @@ export class BoxWorkers {
     const web = await this.#web.acquire(name);
     const model = await this.#model.acquire(name);
     await this.#copyDipoFiles(name, input.systemFile, web.caFile);
+    // The part queue is read while the session runs (DIPO-272).
+    this.#door?.start(input.runId, name, input.runDir);
     const env = {
       ...boxModelEnvironment(model),
       HTTPS_PROXY: web.url,
@@ -407,6 +431,7 @@ export class BoxWorkers {
 
   async #finish(runId: string): Promise<BoxFinish> {
     const name = boxName(runId);
+    this.#door?.stop(runId);
     const { boxes } = this.#deps;
     let outcome: BoxFinish;
     let exists = false;
@@ -469,9 +494,18 @@ export class BoxWorkers {
     return outcome;
   }
 
+  /**
+   * Reads the part queue of `runId`'s box now (DIPO-273 reads it before a story done); null when
+   * no door of the run is read. Rejects with `box.doorFailed` when the box cannot be read.
+   */
+  readDoor(runId: string): Promise<DoorRead> | null {
+    return this.#door?.read(runId) ?? null;
+  }
+
   /** Deletes the box of a run whose worker never ran (a failed launch); no token check. */
   async discard(runId: string): Promise<void> {
     const name = boxName(runId);
+    this.#door?.stop(runId);
     try {
       await this.#deps.boxes.delete(name);
     } catch (error) {
@@ -552,6 +586,7 @@ export class BoxWorkers {
    * session. Never rejects.
    */
   async close(): Promise<void> {
+    this.#door?.close();
     const pending = new Set(this.pending().map((runId) => boxName(runId)));
     if (pending.size > 0) {
       let listed: Awaited<ReturnType<BoxPort["list"]>> = [];

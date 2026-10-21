@@ -55,8 +55,10 @@ import {
   BOX_RUN_FILE,
   BOX_SYSTEM_FILE,
   BoxWorkers,
+  type BoxWorkersDeps,
   readBoxRun,
 } from "../../src/box/workers";
+import { DIPO_PART_PATH } from "../../src/box/door";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
@@ -121,6 +123,8 @@ interface WorldOptions {
   readonly packageCache?: string;
   readonly sticky?: boolean;
   readonly modelFails?: boolean;
+  /** The box door (DIPO-272); no queue is read without it. */
+  readonly door?: BoxWorkersDeps["door"];
 }
 
 /**
@@ -213,6 +217,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     indexDir,
     scratchRoot: tmp,
     ...(options.packageCache === undefined ? {} : { packageCache: () => options.packageCache }),
+    ...(options.door === undefined ? {} : { door: options.door }),
     warn: (message, fields) => warnings.push({ message, fields }),
   });
   const runDir = join(tmp, "runs", RUN);
@@ -387,6 +392,32 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       ]);
       expect(readBoxRun(w.runDir)).toEqual({ runId: RUN, office: OFFICE, box: BOX });
       expect(w.workers.isBoxRun(w.runDir)).toBe(true);
+    }));
+
+  it("installs dipo's own dipo-part command in the box it makes, after the code (DIPO-272)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      expect(w.log.indexOf(`copy in ${BOX} ${DIPO_PART_PATH}`)).toBeGreaterThan(
+        w.log.indexOf(`copy in ${BOX} /work`),
+      );
+      expect(w.log).toContain(`exec ${BOX} /bin/chmod`);
+      // Without the door no queue is read.
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.workers.readDoor(RUN)).toBeNull();
+    }));
+
+  it("reads the box's part queue only while a session runs, when the door is given (DIPO-272)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { door: { pollMs: 60_000 } });
+      await created(w);
+      expect(w.workers.readDoor(RUN)).toBeNull();
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      // The fake backend runs no live exec, so the read reaches the box and fails there.
+      const error = await w.workers.readDoor(RUN)?.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      await w.workers.finish(RUN);
+      expect(w.workers.readDoor(RUN)).toBeNull();
     }));
 
   it("starts no proxy when the box does not start, and deletes the box", () =>

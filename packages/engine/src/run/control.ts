@@ -19,8 +19,10 @@
 // - Reports. A turn whose report is `blocked` parks the story: `needs-permission` with the tool and
 //   action as detail when it carries `needsPermission` (a call `--permission-prompts none` denied,
 //   0008 section 5), else `ambiguous-spec` with the question. The engine records a `park` intent
-//   and closes the worker's stdin; worktree, branch and session are kept. Waiting for an answer
-//   before the park is M1 (DIPO-15, decision D2).
+//   and closes the worker's stdin; worktree, branch and session are kept. A question goes through
+//   the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
+//   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park; if
+//   the last TUI closes while it waits, `parkOnQuestion` parks it then.
 // - `work.stop { story, note? }`. A story with no active run fails `story.notRunning`. Otherwise
 //   the engine records a `stop` intent, sends the stop sequence through the host (the adapter's
 //   `encode`: a now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and
@@ -129,7 +131,7 @@ export class RunControl implements RunEnder {
   get hooks(): IngestHooks {
     return {
       onEventApplied: (run, _agent, event) => this.onEventApplied(run, event),
-      onWorkerEvents: (run, _agent, events) => this.onWorkerEvents(run, events),
+      onWorkerEvents: (run, agent, events) => this.onWorkerEvents(run, events, agent),
       onInitRejected: (run, _agent, reason) => this.#initRejected(run, reason),
       onEnded: (run, agent, end) => this.onEnded(run, agent, end),
       onFileChanged: (report) => this.#fileChanged(report.run),
@@ -248,8 +250,11 @@ export class RunControl implements RunEnder {
     if (fired !== null) this.#crossings.set(event, fired);
   }
 
-  /** The events of one committed ingestion pass, in order. */
-  onWorkerEvents(run: string, events: readonly WorkerEvent[]): void {
+  /**
+   * The events of one committed ingestion pass, in order. `agent` is the session's agent; without
+   * it a blocked report's question parks at once.
+   */
+  onWorkerEvents(run: string, events: readonly WorkerEvent[], agent?: string): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined || tracked.ending !== null) return;
     const outcomes = this.#deps.outcomes?.();
@@ -314,7 +319,10 @@ export class RunControl implements RunEnder {
           outcomes.onPlanLimit(viewOf(tracked), { credits: false });
           return;
         }
-        if (report?.status === "blocked") {
+        // A question asked live: the worker waits on stdin for the answer, so nothing of this turn
+        // decides (DIPO-272).
+        const live = report?.status === "blocked" && this.#askLive(tracked, report, agent);
+        if (report?.status === "blocked" && !live) {
           const permission = report.needsPermission;
           const reason: ParkReason =
             permission === undefined ? "ambiguous-spec" : "needs-permission";
@@ -336,7 +344,10 @@ export class RunControl implements RunEnder {
         // then the turn's problem, if any (DIPO-51), or a reviewer's valid report (DIPO-219).
         const problem = outcomes === undefined ? undefined : event.problem;
         const review = outcomes === undefined ? undefined : event.review;
-        if (this.#deps.finisher !== undefined || problem !== undefined || review !== undefined) {
+        if (
+          !live &&
+          (this.#deps.finisher !== undefined || problem !== undefined || review !== undefined)
+        ) {
           this.#turns.queue(tracked, report, problem, null, review);
         }
       }
@@ -351,6 +362,38 @@ export class RunControl implements RunEnder {
         return;
       }
     }
+  }
+
+  /**
+   * A blocked report's question through the live-question rule (DIPO-272): true when it was asked
+   * live. A permission need, a report without a question or a run without its agent parks.
+   */
+  #askLive(tracked: Tracked, report: WorkerReport, agent: string | undefined): boolean {
+    if (report.needsPermission !== undefined || report.question === undefined) return false;
+    if (agent === undefined) return false;
+    const office = this.#deps.offices.get(tracked.office);
+    const questions = this.#deps.questions?.();
+    if (office === undefined || questions === undefined) return false;
+    return questions.askWorker(office, tracked.runId, agent, report.question);
+  }
+
+  /**
+   * Parks the run `ambiguous-spec` with its worker's question once the question stopped being live
+   * (the last TUI closed, DIPO-284): stdin closes, as at a blocked report. False when the run is not
+   * tracked here or already being ended.
+   */
+  parkOnQuestion(run: string, question: string): boolean {
+    const tracked = this.#tracked.get(run);
+    if (tracked === undefined || tracked.ending !== null) return false;
+    this.#endings.begin(tracked, {
+      intent: "park",
+      ops: [{ closeStdin: true }],
+      reason: "ambiguous-spec",
+      cause: PARK_CAUSES.question,
+      detail: question,
+      endKind: "blocked",
+    });
+    return true;
   }
 
   /** True when the first turn after `index` in the pass carries a done report a finisher handles. */

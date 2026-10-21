@@ -159,7 +159,23 @@ export interface WorkerReportCriterion {
   readonly evidence: string;
 }
 
-/** The report a worker returns at the end of a turn (0008 section 1, 0014). */
+/**
+ * A worker's proposal (0021 section 7, W5): a follow-up story, a spike, or a tool the box lacks.
+ * Data shown to the maintainer; nothing happens on its own.
+ */
+export interface WorkerProposal {
+  readonly kind: "follow-up" | "spike" | "tool";
+  readonly title: string;
+  readonly outcome: string;
+  readonly why: string;
+  readonly paths?: readonly string[];
+}
+
+/**
+ * The report a worker returns at the end of a turn (0008 section 1, 0014): story done (`done`),
+ * a question (`blocked` with `question`), blocked with a reason (`blocked`, the reason in
+ * `summary`) and proposals (0021 section 7, W2 to W5). Every text in it was cleaned at the door.
+ */
 export interface WorkerReport {
   readonly status: "done" | "blocked";
   readonly criteria: readonly WorkerReportCriterion[];
@@ -169,6 +185,8 @@ export interface WorkerReport {
   readonly notes?: string;
   /** Blocked on a denied call (0008 section 5). */
   readonly needsPermission?: { readonly tool: string; readonly action: string };
+  /** At most three proposals (W5). */
+  readonly proposals?: readonly WorkerProposal[];
 }
 
 /** The longest `ReviewReport.summary` (0019 section 5). */

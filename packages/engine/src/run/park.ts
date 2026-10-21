@@ -395,6 +395,28 @@ function askParkQuestion(
     : [{ type: "question.asked", key: run.key, run: run.runId, delta: view }];
 }
 
+/**
+ * Inside the park's transaction, after the park row (DIPO-272): a worker question still asked live
+ * when the run parks (a cap, a stop, or any other end while it waited) becomes this park's question
+ * and stays open, so the maintainer's question is not lost. Its answer then waits for the next
+ * session (`PermissionAsks`). Nothing is emitted: the question was asked already.
+ */
+function carryWorkerQuestions(office: OfficeHandle, run: StoredRun): NewEntry[] {
+  const park = office.get<{ park_id: number }>(
+    `select park_id from parks where office_id = $office_id and run_id = $run
+      order by park_id desc limit 1`,
+    { run: run.runId },
+  );
+  if (park === null) return [];
+  office.run(
+    `update questions set park_id = $park
+      where office_id = $office_id and run_id = $run and kind = 'question' and park_id is null
+        and closed_at is null`,
+    { park: park.park_id, run: run.runId },
+  );
+  return [];
+}
+
 export interface ParkRequest {
   /** The story run that parks; its story, branch and worktree are set. */
   readonly run: StoredRun;
@@ -559,6 +581,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
         },
       },
       ...askParkQuestion(deps, request, reason, detail, at),
+      ...carryWorkerQuestions(deps.office, request.run),
     ];
   });
   return {

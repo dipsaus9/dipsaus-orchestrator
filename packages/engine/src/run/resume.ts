@@ -25,7 +25,7 @@
 //   and an `engine.notice` `run.resumed` or `run.handoff`. Signals the caller names (`clear`, the
 //   `plan-limit` of a held run, DIPO-61) end in the transaction that records the agent.
 
-import { statSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type {
@@ -62,6 +62,7 @@ import {
   recordPromptTexts,
   TASK_PART,
 } from "../prompts/parts";
+import { BOX_RUN_FILE } from "../box/workers";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import { verifyCommands } from "../scan/store";
@@ -314,14 +315,23 @@ export class RunResumer implements NextSession {
     const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
     const facts = previous.state === undefined ? null : deps.worker.sessionFacts(previous.state);
-    const systemFile = renderSystemFile("implement", "developer");
+    // A box worker's run reads the box contract in every session (DIPO-272).
+    const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
+    const systemFile = renderSystemFile(box ? "implement-box" : "implement", "developer");
     const systemHash = systemHashOf(systemFile);
 
     // The handoff message: the new session's task message, and the size a resume is weighed with.
     // Its context pack and input paths are the new session's nudge sources, resumed or not.
     let handoff: { text: string; sources: NudgeSources } | { error: string };
     try {
-      handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null);
+      handoff = await this.#handoffMessage(
+        office,
+        git,
+        run,
+        config,
+        facts?.lastReport ?? null,
+        box,
+      );
     } catch (error) {
       handoff = { error: messageOf(error) };
     }
@@ -638,6 +648,8 @@ export class RunResumer implements NextSession {
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
+    /** A box worker's run: the box scope section (DIPO-272). */
+    box = false,
   ): Promise<{ text: string; sources: NudgeSources }> {
     const deps = this.#deps;
     const worktree = run.worktree ?? "";
@@ -655,6 +667,7 @@ export class RunResumer implements NextSession {
       baseSha,
       config,
       handoff,
+      ...(box ? { box: true } : {}),
       // The result stored for this base when the run started (DIPO-183); a new session runs no verify.
       baseVerify: baseVerifyFactsOf(
         office,

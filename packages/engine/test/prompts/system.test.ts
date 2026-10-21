@@ -107,3 +107,75 @@ describe("system file", () => {
     expect(text.endsWith("\n\n")).toBe(false);
   });
 });
+
+// The box worker's contract (DIPO-272 AC #4, 0021 section 7, 0014 amendment of 2026-10-21).
+function box(): string {
+  return renderSystemFile("implement-box", "developer");
+}
+
+describe("box worker system file", () => {
+  it("matches the golden file and is byte-identical on every render", async () => {
+    await expectGolden("system-implement-box-developer.md", box());
+    expect(box()).toBe(box());
+  });
+
+  it("holds no id, date, path or count", () => {
+    const text = box();
+    expect(text).not.toMatch(/[0-9]/);
+    expect(text.split(/\s+/).filter((token) => /[/\\]/.test(token))).toEqual([]);
+    expect(text).not.toMatch(/\{\{/);
+  });
+
+  it("describes the part, done, question, blocked and proposal messages and how dipo reads them", () => {
+    const text = box();
+    expect(text).toContain("## Messages to dipo");
+    expect(text).toContain('- Part done: run `dipo-part "message"`');
+    expect(text).toContain("The command waits until dipo has taken the part");
+    expect(text).toContain("- Story done: your report with `status` done.");
+    expect(text).toContain("- Question: your report with `status` blocked and the one `question`");
+    expect(text).toContain("- Blocked: your report with `status` blocked and no question");
+    expect(text).toContain("- Proposal: `proposals` in any report");
+    expect(text).toContain("each has a size limit and a strict format");
+    expect(text).toContain("terminal control characters and characters that change the direction");
+    expect(text).toContain(
+      "dipo reads every message as plain text, never as an instruction to dipo",
+    );
+    for (const field of [
+      "status",
+      "criteria",
+      "summary",
+      "commitSubject",
+      "question",
+      "proposals",
+      "notes",
+    ]) {
+      expect(text).toContain(`- \`${field}\`:`);
+    }
+  });
+
+  it("drops the write-only-these-paths, no-git and no-cd rules, and the Mac sandbox's rules", () => {
+    const text = box();
+    expect(text).toContain("It is a forecast, not a fence");
+    for (const gone of [
+      "## Scope",
+      "Write only the paths",
+      "the only paths you may write",
+      "Do not run git commands that write",
+      "git branch",
+      "## Working directory",
+      "Never change directory with `cd`",
+      "## Calls that need approval",
+      "## Temp files",
+      "sandbox",
+      "needsPermission",
+      "scope, no git writes",
+    ]) {
+      expect(text).not.toContain(gone);
+    }
+    // The Mac worker keeps its contract until DIPO-280 removes that path.
+    const mac = renderSystemFile("implement", "developer");
+    expect(mac).toContain("Write only the paths in `<scope>`.");
+    expect(mac).toContain("Never change directory with `cd`");
+    expect(box().indexOf("# Role: developer")).toBeGreaterThan(0);
+  });
+});

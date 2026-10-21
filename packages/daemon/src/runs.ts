@@ -369,6 +369,9 @@ function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorke
     adapter: CLAUDE_CLI_ADAPTER_ID,
     tmpRoot,
     indexDir: join(options.stateDir, BOX_INDEX_DIR),
+    // The part queue of each box is read while its session runs (DIPO-272); delivering a part is
+    // DIPO-273's `onPart`.
+    door: {},
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;

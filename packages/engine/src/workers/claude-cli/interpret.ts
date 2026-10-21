@@ -25,7 +25,7 @@ import { WEB_LINE_PREFIX } from "../types";
 import { flatInput } from "../../ingest/output";
 import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
-import { parseReviewReport, WorkerReportSchema } from "./report-schema";
+import { parseReviewReport, parseWorkerReport } from "./report-schema";
 import { skillRefusal } from "./skills";
 import {
   ApiRetryMessage,
@@ -977,12 +977,9 @@ function readReport(output: unknown, kind: ReportKind | undefined): ReportRead {
       ? { report: null, review: read.report, problem: null }
       : { report: null, problem: read.error };
   }
-  if (output === undefined || output === null)
-    return { report: null, problem: "no structured_output" };
-  const parsed = WorkerReportSchema.safeParse(output);
-  if (!parsed.success)
-    return { report: null, problem: "structured_output fails the report schema" };
-  return { report: parsed.data, problem: null };
+  // The door of W2 to W5 (DIPO-272): size cap, cleaned strings, strict schema.
+  const read = parseWorkerReport(output);
+  return read.ok ? { report: read.report, problem: null } : { report: null, problem: read.error };
 }
 
 function result(value: unknown, state: ClaudeParseState): Step {

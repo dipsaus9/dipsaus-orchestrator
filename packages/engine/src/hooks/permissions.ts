@@ -24,6 +24,22 @@
 // The timeout's own writes run in a timer, outside any command: a database error there is logged
 // once with its error code and the deny is still sent; the question's timer is armed again and
 // only its close is retried (DIPO-123).
+//
+// The question of a worker's report (the door's message W3, DIPO-272) takes the same rule. Run
+// control hands a blocked report's question to `askWorker`, before it parks:
+//
+// - With a TUI connected at that moment (`questionRoute`) and the run not being ended, the question
+//   is live: a question of kind `question` is stored and `question.asked` and `work.observed
+//   input-wait` are emitted. The worker's turn has ended and it waits on stdin, so `work.answer`
+//   with text sends the answer as its next user message (`answer`), and the question closes
+//   `answered`. There is no timeout; the run's caps still run.
+// - Otherwise `askWorker` returns false and run control parks the story `ambiguous-spec` with the
+//   question, as before.
+// - When the last TUI closes while it is live (DIPO-284), `presenceChanged` closes it (`ended`) and
+//   parks the story with the question through `parkQuestion`.
+// - When the run ends while it is live (a cap, a stop), the park takes it over (`run/park.ts`): it
+//   stays open as the park's question, and its answer is held for the first message of the run's
+//   next session, as a steer to a parked story is. The story stays Parked until its park resumes.
 
 import {
   type Clock,
@@ -40,7 +56,11 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background, failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
-import { type Presence, questionRoute } from "../run/live-question";
+import { recordIntent } from "../run/intents";
+import { type LiveQuestions, type Presence, questionRoute } from "../run/live-question";
+import { openPark } from "../run/park";
+import { MAINTAINER_TAGS } from "../run/pauses";
+import { findRun } from "../run/records";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp, WorkerEvent } from "../workers/types";
@@ -56,6 +76,7 @@ import {
   closeQuestion,
   findQuestion,
   insertPermissionQuestion,
+  insertWorkerQuestion,
   openQuestions,
   type QuestionClose,
   questionViewOf,
@@ -96,6 +117,19 @@ export interface PermissionAsksDeps {
   /** Called after change-log entries were appended outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /**
+   * Parks the story of `run` `ambiguous-spec` with its worker's question once that question stopped
+   * being live (the last TUI closed, DIPO-284); run control's `parkOnQuestion`.
+   */
+  readonly parkQuestion?: (office: OfficeId, run: RunId, question: string) => void;
+}
+
+/** The first line of the user message that carries the maintainer's answer to a worker question. */
+export const WORKER_ANSWER_INTRO = "The maintainer answered your question:";
+
+/** The user message that carries the maintainer's answer to the worker's question. */
+export function workerAnswerText(text: string): string {
+  return `${WORKER_ANSWER_INTRO}\n\n${text.trim()}`;
 }
 
 type PermissionRequest = Extract<HookEvent, { kind: "permissionRequest" }>;
@@ -104,8 +138,10 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export class PermissionAsks {
+export class PermissionAsks implements LiveQuestions {
   readonly #deps: PermissionAsksDeps;
+  /** The worker questions asked live by this engine (DIPO-272), with their office and run. */
+  readonly #workerQuestions = new Map<string, { readonly office: OfficeId; readonly run: RunId }>();
   /** Open permission questions this engine waits on (the live ones), with their office and timeout. */
   readonly #timers = new Map<
     string,
@@ -133,8 +169,15 @@ export class PermissionAsks {
 
   /** The worker of `run` exited: its open questions stop waiting. */
   onEnded(office: OfficeHandle, run: string): void {
-    // A park's question (DIPO-75) waits for the maintainer after its worker exited.
-    const open = openQuestions(office, run).filter((question) => question.parkId === null);
+    for (const [questionId, live] of this.#workerQuestions) {
+      if (live.run === run) this.#workerQuestions.delete(questionId);
+    }
+    // A park's question (DIPO-75) waits for the maintainer after its worker exited. So does a live
+    // worker question of a run being ended: its park takes it over (DIPO-272).
+    const ending = this.#deps.ending?.(run) === true;
+    const open = openQuestions(office, run).filter(
+      (question) => question.parkId === null && !(ending && question.kind === "question"),
+    );
     if (open.length === 0) return;
     this.#close(office, open, "ended");
   }
@@ -148,6 +191,7 @@ export class PermissionAsks {
   close(): void {
     for (const { timer } of this.#timers.values()) this.#deps.clock.clearTimeout(timer);
     this.#timers.clear();
+    this.#workerQuestions.clear();
   }
 
   /**
@@ -158,7 +202,9 @@ export class PermissionAsks {
    * warning.
    */
   presenceChanged(): void {
-    if (this.#timers.size === 0 || this.#deps.presence.tuiConnected()) return;
+    if (this.#timers.size + this.#workerQuestions.size === 0) return;
+    if (this.#deps.presence.tuiConnected()) return;
+    this.#endWorkerQuestions();
     const byOffice = new Map<OfficeId, string[]>();
     for (const [questionId, { office }] of this.#timers) {
       const ids = byOffice.get(office) ?? [];
@@ -193,6 +239,213 @@ export class PermissionAsks {
         this.#reply(office, question.runId as RunId, { hook: question.hook, decision: null });
       }
     }
+  }
+
+  /**
+   * The last TUI closed (DIPO-284): every live worker question closes as `ended` and its story parks
+   * with the question. One whose close fails stays live, with a warning.
+   */
+  #endWorkerQuestions(): void {
+    const live = [...this.#workerQuestions];
+    this.#workerQuestions.clear();
+    for (const [questionId, { office: officeId, run }] of live) {
+      const office = this.#deps.offices.get(officeId);
+      if (office === undefined) continue;
+      // A run being ended already parks: that park takes the question over.
+      if (this.#deps.ending?.(run) === true) continue;
+      let closed: StoredQuestion[];
+      try {
+        const question = findQuestion(office, questionId);
+        if (question === null || question.closedAt !== null) continue;
+        closed = this.#close(office, [question], "ended");
+      } catch (error) {
+        this.#workerQuestions.set(questionId, { office: officeId, run });
+        this.#deps.warn?.("ending a live worker question after the last TUI closed failed", {
+          office: officeId,
+          question: questionId,
+          ...failureFields(error),
+        });
+        continue;
+      }
+      for (const question of closed) this.#deps.parkQuestion?.(officeId, run, question.text);
+    }
+  }
+
+  /**
+   * The question of a worker's report (DIPO-272): asked live when a TUI is connected now and the
+   * run is not being ended, and then true; false when the story must park (see the file comment).
+   */
+  askWorker(office: OfficeHandle, run: RunId, agent: string, text: string): boolean {
+    const work = workRefOf(office, run);
+    const allowed = work !== null && this.#deps.ending?.(run) !== true;
+    if (work === null || questionRoute(this.#deps.presence, allowed) === "park") return false;
+    const questionId = this.#deps.ids.next("qst");
+    const now = this.#deps.clock.now();
+    let appended: number;
+    try {
+      appended = office.immediate(() => {
+        const question = insertWorkerQuestion(office, {
+          questionId,
+          runId: run,
+          agentId: agent,
+          text,
+          at: now,
+        });
+        const view = questionViewOf(office, question);
+        const entries: NewEntry[] = [];
+        if (view !== null)
+          entries.push({ type: "question.asked", key: work.key, run, delta: view });
+        const raised = raiseSignal(office, run, "input-wait", now);
+        if (raised !== null) {
+          entries.push({
+            type: "work.observed",
+            key: work.key,
+            run,
+            delta: { work, signal: "input-wait", since: new Date(now).toISOString() },
+          });
+        }
+        const ready = withWorkViews(office, entries);
+        appendEntries(office, ready, { at: now });
+        return ready.length;
+      });
+    } catch (error) {
+      // A question that could not be stored cannot be answered: the story parks with it instead.
+      this.#deps.warn?.("storing a live worker question failed; the story parks", {
+        run,
+        ...failureFields(error),
+      });
+      return false;
+    }
+    this.#workerQuestions.set(questionId, { office: office.officeId, run });
+    if (appended > 0) this.#deps.onChanged?.(office.officeId);
+    return true;
+  }
+
+  /**
+   * `work.answer { question, text }` on a worker question its run's park took over (DIPO-272):
+   * the answer is recorded and held for the first message of the run's next session, as a steer
+   * to a parked story is (`heldMessages`); the story stays Parked until its park is resumed. A
+   * question whose park ended waits no more.
+   */
+  async #answerParkedWorker(
+    ctx: AsyncCommandContext,
+    question: StoredQuestion,
+    args: { readonly text: string; readonly decision?: "allow" | "deny" | undefined },
+  ): Promise<CommandOutcome<ParkAnswerResult>> {
+    const office = ctx.office;
+    const text = workerAnswerTextOf(args);
+    const run = findRun(office, question.runId as RunId);
+    const park = run?.key == null ? null : openPark(office, run.key);
+    const now = this.#deps.clock.now();
+    if (park === null || park.parkId !== question.parkId) {
+      ctx.commit(() =>
+        closeQuestion(office, question.questionId, "expired", now)
+          ? this.#closingEntries(office, question, now)
+          : [],
+      );
+      throw new CommandError(
+        QUESTION_CLOSED,
+        `${question.questionId} is not waiting: its story is no longer parked for it.`,
+        { question: question.questionId, questionOpen: false },
+      );
+    }
+    let closed = false;
+    ctx.commit(() => {
+      closed = closeQuestion(office, question.questionId, "answered", now, {
+        text,
+        decision: null,
+        delivered: "on-resume",
+      });
+      if (!closed) return [];
+      recordIntent(
+        office,
+        question.runId as RunId,
+        "steer",
+        `${MAINTAINER_TAGS.held} ${workerAnswerText(text)}`,
+        now,
+      );
+      return this.#closingEntries(office, question, now, text);
+    });
+    if (!closed) {
+      throw new CommandError(
+        QUESTION_CLOSED,
+        `${question.questionId} is not waiting for an answer.`,
+        {
+          question: question.questionId,
+        },
+      );
+    }
+    return { result: { question: question.questionId, delivered: "on-resume" } };
+  }
+
+  /** `work.answer { question, text }` on a live worker question: the answer goes to the worker now. */
+  async #answerWorker(
+    ctx: AsyncCommandContext,
+    question: StoredQuestion,
+    args: { readonly text: string; readonly decision?: "allow" | "deny" | undefined },
+  ): Promise<CommandOutcome<ParkAnswerResult>> {
+    const office = ctx.office;
+    const text = workerAnswerTextOf(args);
+    let closed = false;
+    const now = this.#deps.clock.now();
+    ctx.commit(() => {
+      closed = closeQuestion(office, question.questionId, "answered", now, {
+        text,
+        decision: null,
+        delivered: "now",
+      });
+      return closed ? this.#closingEntries(office, question, now, text) : [];
+    });
+    if (!closed) {
+      throw new CommandError(
+        QUESTION_CLOSED,
+        `${question.questionId} is not waiting for an answer.`,
+        {
+          question: question.questionId,
+        },
+      );
+    }
+    this.#workerQuestions.delete(question.questionId);
+    const run = question.runId as RunId;
+    let error: string | null = null;
+    try {
+      const sent = await this.#deps.steering.send(
+        office,
+        run,
+        this.#deps.encode({ kind: "answer", text: workerAnswerText(text) }),
+      );
+      if (!sent.ok) error = sent.reason;
+    } catch (thrown) {
+      error = messageOf(thrown);
+    }
+    if (error !== null) {
+      this.#deps.warn?.("a worker question's answer did not reach the worker host", {
+        run,
+        question: question.questionId,
+        reason: error,
+      });
+      const work = workRefOf(office, run);
+      office.immediate(() =>
+        appendEntries(
+          office,
+          [
+            {
+              type: "engine.notice",
+              ...(work === null ? {} : { key: work.key }),
+              run,
+              delta: {
+                level: "warn",
+                code: REPLY_NOT_SENT,
+                text: `${work?.story ?? run}: dipo could not send the answer to its worker (${error}).`,
+              },
+            },
+          ],
+          { at: this.#deps.clock.now() },
+        ),
+      );
+      this.#deps.onChanged?.(office.officeId);
+    }
+    return { result: { question: question.questionId, delivered: "now" } };
   }
 
   /** Asks the maintainer live, or denies at once so the story parks (see the file comment). */
@@ -274,8 +527,20 @@ export class PermissionAsks {
         { text: args.text, decision: args.decision },
       );
     }
+    if (question.kind === "question" && question.parkId !== null) {
+      // A live worker question its run's park took over (DIPO-272).
+      return this.#answerParkedWorker(ctx, question, args);
+    }
+    if (question.kind === "question" && question.parkId === null && question.hook === null) {
+      // A worker report's question asked live (DIPO-272).
+      if (!this.#workerQuestions.has(question.questionId)) {
+        throw new CommandError(QUESTION_CLOSED, `${args.question} is not waiting for an answer.`, {
+          question: args.question,
+        });
+      }
+      return this.#answerWorker(ctx, question, args);
+    }
     if (question.kind !== "permission" || question.hook === null) {
-      // Worker questions (`kind: question`) are asked by later stories; none is stored yet.
       throw new CommandError(
         QUESTION_CLOSED,
         `${args.question} is not a permission question this engine can answer.`,
@@ -325,11 +590,12 @@ export class PermissionAsks {
         });
         // Questions a previous daemon left open: their hook calls were answered by the host.
         registry.registerLoadStep("expire open permission questions", (ctx) => {
+          // Worker questions too (DIPO-272): their worker ended with the previous daemon.
           const stale = openQuestions(ctx.office).filter(
             (question) =>
-              question.kind === "permission" &&
               question.parkId === null &&
-              !this.#timers.has(question.questionId),
+              !this.#timers.has(question.questionId) &&
+              !this.#workerQuestions.has(question.questionId),
           );
           // A park's question whose park ended while no engine listened (DIPO-75).
           stale.push(...staleParkQuestions(ctx.office));
@@ -437,8 +703,8 @@ export class PermissionAsks {
   }
 
   /**
-   * `question.closed`, and `work.observed input-wait` cleared once no permission question of the
-   * run waits any more. Runs inside the caller's transaction, after the question was closed.
+   * `question.closed`, and `work.observed input-wait` cleared once no permission or live worker
+   * question of the run waits any more. Runs inside the caller's transaction, after the question was closed.
    */
   #closingEntries(
     office: OfficeHandle,
@@ -457,7 +723,9 @@ export class PermissionAsks {
       },
     ];
     const waiting = openQuestions(office, run).some(
-      (open) => open.kind === "permission" && open.hook !== null,
+      (open) =>
+        (open.kind === "permission" && open.hook !== null) ||
+        (open.kind === "question" && open.parkId === null),
     );
     if (waiting || !activeSignals(office, run).some((s) => s.signal === "input-wait")) {
       return entries;
@@ -550,6 +818,29 @@ export class PermissionAsks {
     );
     this.#deps.onChanged?.(office.officeId);
   }
+}
+
+/** The trimmed answer text of `work.answer` on a worker question; refuses a decision or no text. */
+function workerAnswerTextOf(args: {
+  readonly text: string;
+  readonly decision?: "allow" | "deny" | undefined;
+}): string {
+  if (args.decision !== undefined) {
+    throw new CommandError(
+      "args.invalid",
+      "A worker question takes an answer text, not a decision.",
+      {
+        field: "decision",
+      },
+    );
+  }
+  const text = args.text.trim();
+  if (text === "") {
+    throw new CommandError("args.invalid", "A worker question needs an answer text.", {
+      field: "text",
+    });
+  }
+  return text;
 }
 
 /** `args.invalid` for a permission answer without `decision` (DIPO-59, and DIPO-75 AC #7). */

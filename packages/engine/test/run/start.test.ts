@@ -35,6 +35,7 @@ import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
 import type { BaseVerifyFacts } from "../../src/prompts/base-verify";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
+import { renderSystemFile } from "../../src/prompts/system";
 import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
@@ -763,6 +764,23 @@ describe("a box worker's run (DIPO-271)", () => {
     expect(world.boxCalls).toEqual([
       `create ${runId} at ${"b".repeat(40)} in ${join(world.dir, "repo", ".git", "dipo", "runs", runId)}`,
     ]);
+  });
+
+  it("gives a box worker the box contract and a Mac worker the Mac one (DIPO-272)", async () => {
+    story("TASK-1", "Ready");
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const runId = boxed.started[0]?.run as string;
+    const system = join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md");
+    expect(readFileSync(system, "utf8")).toBe(renderSystemFile("implement-box", "developer"));
+    expect(renderSystemFile("implement-box", "developer")).not.toBe(
+      renderSystemFile("implement", "developer"),
+    );
+    // Its scope section is the forecast, never the write fence (0021 section 13).
+    const sent = JSON.parse(world.hosts.at(-1)?.plan.stdin[0] ?? "").message.content as string;
+    expect(sent).toContain(
+      "The paths the planner expects this story to change (a forecast, not a fence):",
+    );
+    expect(sent).not.toContain("You may write only these paths");
   });
 
   it("rolls the claim back when the box cannot be made, with nothing left to delete", async () => {
