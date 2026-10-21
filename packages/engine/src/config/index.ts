@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { OfficeFileV8 } from "./schema";
+import { OfficeFileV9 } from "./schema";
 
 export {
   FLAGS_SOURCE,
@@ -33,6 +33,7 @@ export {
   OfficeConfigV6,
   OfficeConfigV7,
   OfficeConfigV8,
+  OfficeConfigV9,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -41,6 +42,7 @@ export {
   OfficeFileV6,
   OfficeFileV7,
   OfficeFileV8,
+  OfficeFileV9,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -49,6 +51,7 @@ export {
   OfficeLocalFileV6,
   OfficeLocalFileV7,
   OfficeLocalFileV8,
+  OfficeLocalFileV9,
   OfficeOverridesV1,
   OfficeOverridesV2,
   OfficeOverridesV3,
@@ -57,10 +60,12 @@ export {
   OfficeOverridesV6,
   OfficeOverridesV7,
   OfficeOverridesV8,
+  OfficeOverridesV9,
   PRIVACY_KEYS,
   privacyOptIns,
 } from "./schema";
 export type {
+  OfficeBoxSection,
   OfficeConfig,
   OfficeConfigVersion,
   OfficeFile,
@@ -74,7 +79,7 @@ export type {
  */
 export function officeJsonSchema(): Record<string, unknown> {
   return {
-    ...(z.toJSONSchema(OfficeFileV8, { io: "input" }) as Record<string, unknown>),
+    ...(z.toJSONSchema(OfficeFileV9, { io: "input" }) as Record<string, unknown>),
     title: "dipo office configuration (.dipo/office.yaml)",
   };
 }

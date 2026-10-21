@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 8
+      "const": 9
     },
     "tiers": {
       "type": "object",
@@ -878,6 +878,103 @@
       },
       "additionalProperties": false,
       "description": "The story PR of this office (0019 section 3, amendment of 2026-10-19)."
+    },
+    "box": {
+      "type": "object",
+      "properties": {
+        "debian": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9.]*$",
+          "description": "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim."
+        },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "node": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Node.js, from nodejs.org; npm comes with it. Every box has Node, because npm installs Claude Code."
+            },
+            "bun": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Bun, from npm through Safe-Chain."
+            },
+            "pnpm": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "pnpm, from npm through Safe-Chain."
+            },
+            "yarn": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^1\\.\\d+\\.\\d+$",
+              "description": "Yarn 1, from npm through Safe-Chain. A Yarn 2+ repository runs its committed yarnPath release through it."
+            },
+            "nodeSha256": {
+              "type": "object",
+              "properties": {
+                "arm64": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "x64": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "additionalProperties": false,
+              "description": "The sha256 of the Node.js tarball (node-v<version>-linux-<arch>.tar.gz) per architecture. dipo pins it for its known Node versions; a Node version it does not know needs it here, or the build is refused."
+            }
+          },
+          "additionalProperties": false,
+          "description": "The toolchain of the box image and its exact versions. A version left out is detected from the repository (.bun-version, packageManager, .node-version, .nvmrc) or takes dipo's default."
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$"
+          },
+          "description": "Extra Debian packages of the box image, installed with apt from Debian's archive."
+        },
+        "claudeCode": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0021 section 4)."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "noRealSecrets": {
+                "type": "boolean",
+                "const": true,
+                "description": "Must be true: the maintainer's mark that the file holds no real secrets (0021 decision 9). An entry without it is refused."
+              }
+            },
+            "required": ["path", "noRealSecrets"],
+            "additionalProperties": false,
+            "description": "A file outside git that a box gets, by its path in the repository."
+          },
+          "description": "Files outside git that a box may get (0021 decision 9). Nothing outside git goes into a box unless it is listed here and marked noRealSecrets: true."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The office's box (0021 section 5, DIPO-266): the image every story's box runs and the files outside git it may get. dipo reads this block from the base branch only, so a story cannot change it. What it leaves out is detected from the repository; the image is built once per description and rebuilt only when the description changes."
     }
   },
   "required": ["version"],
