@@ -29,6 +29,7 @@ import inputs from "./task/inputs.md" with { type: "text" };
 import instructions from "./task/instructions.md" with { type: "text" };
 import outcome from "./task/outcome.md" with { type: "text" };
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
+import reviewCommit from "./task/review-commit.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
 import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
 import scopeBox from "./task/scope-box.md" with { type: "text" };
@@ -84,6 +85,8 @@ export const TASK_TEMPLATES = {
   reviewScope,
   reviewTestPlan,
   previousFindings,
+  // The reviewer's read-only copy of the pushed commit, added at the session's start (DIPO-276).
+  reviewCommit,
 } as const;
 
 /**
