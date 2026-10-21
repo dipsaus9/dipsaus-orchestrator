@@ -53,11 +53,13 @@ function errors(result: OfficeConfigResult): readonly ConfigError[] {
 }
 
 describe("validation", () => {
-  it("parses the 0017 sample", () => {
+  it("parses the 0017 sample, with a warning for its retired presentMinutes (DIPO-285)", () => {
     const result = ok(resolveOfficeConfig({ office: SAMPLE_0017 }));
     expect(result.config.scripts).toEqual({ verify: "bun run verify" });
     expect(result.config.tiers).toEqual(OFFICE_DEFAULTS.tiers);
+    expect(result.config.permissions).toEqual({ ask: "when-present" });
     expect(result.localOverrideKeys).toEqual([]);
+    expect(result.warnings.map((warning) => warning.path)).toEqual(["permissions.presentMinutes"]);
   });
 
   it("parses the 0010 worktree sample and fills entry defaults", () => {
@@ -144,13 +146,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 10\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 11\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 10\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 11\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -481,7 +483,7 @@ describe("office configuration version 2", () => {
   it("loads a version 1 file migrated to version 5, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(9);
+    expect(v1.config.version).toBe(10);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -527,7 +529,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(9);
+      expect(result.config.version).toBe(10);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -730,7 +732,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
       }),
     );
     expect(v4.config).toEqual(v3.config);
-    expect(v4.config.version).toBe(9);
+    expect(v4.config.version).toBe(10);
   });
 });
 
@@ -738,7 +740,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
 describe("office configuration version 6", () => {
   it("gives a version 5 file the default step phrases", () => {
     const v5 = ok(resolveOfficeConfig({ office: "version: 5\n" }));
-    expect(v5.config.version).toBe(9);
+    expect(v5.config.version).toBe(10);
     expect(v5.config.story.maintainerStepPhrases).toEqual(
       OFFICE_DEFAULTS.story.maintainerStepPhrases,
     );
@@ -773,7 +775,7 @@ describe("office configuration version 6", () => {
 describe("office configuration version 7", () => {
   it("migrates a version 6 file in memory and opens the story PR by default", () => {
     const v6 = ok(resolveOfficeConfig({ office: "version: 6\n" }));
-    expect(v6.config.version).toBe(9);
+    expect(v6.config.version).toBe(10);
     expect(v6.config.storyPr).toEqual({ open: true });
     expect(ok(resolveOfficeConfig({})).config.storyPr.open).toBe(true);
   });
@@ -822,7 +824,7 @@ describe("office configuration version 7", () => {
         local: fixture("office-local-v4.yaml"),
       }),
     );
-    expect(result.config.version).toBe(9);
+    expect(result.config.version).toBe(10);
     expect(result.config.storyPr.open).toBe(false);
     expect(result.config.timeouts.workerStallMinutes).toBe(25);
     expect(result.config.privacy.keepRawEvents).toBe(true);
@@ -855,7 +857,7 @@ describe("office configuration version 7", () => {
 describe("office configuration version 8", () => {
   it("migrates a version 7 file in memory and gives the developer web tools by default", () => {
     const v7 = ok(resolveOfficeConfig({ office: "version: 7\nstoryPr: { open: false }\n" }));
-    expect(v7.config.version).toBe(9);
+    expect(v7.config.version).toBe(10);
     expect(v7.config.worker.web).toBe(true);
     expect(v7.config.storyPr.open).toBe(false);
     expect(ok(resolveOfficeConfig({})).config.worker.web).toBe(true);
@@ -909,7 +911,7 @@ describe("office configuration version 8", () => {
 describe("office configuration version 5", () => {
   it("migrates a version 3 file to version 5 and gives the new keys their defaults", () => {
     const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
-    expect(v3.config.version).toBe(9);
+    expect(v3.config.version).toBe(10);
     expect(v3.config.review).toEqual({
       model: "opus",
       effort: "high",
@@ -1076,9 +1078,9 @@ box:
     expect(ok(resolveOfficeConfig({})).config.box).toEqual({});
   });
 
-  it("migrates a version 8 file to version 9 with no box block", () => {
+  it("migrates a version 8 file to the newest version with no box block", () => {
     const result = ok(resolveOfficeConfig({ office: "version: 8\nworker: { web: false }\n" }));
-    expect(result.config.version).toBe(9);
+    expect(result.config.version).toBe(10);
     expect(result.config.box).toEqual({});
   });
 
@@ -1118,5 +1120,80 @@ box:
     expect(rest).toEqual([]);
     expect(error?.file).toBe("command flags");
     expect(error?.path).toBe("box");
+  });
+});
+
+// Version 10 (DIPO-285): permissions.presentMinutes is retired. Nothing reads it since DIPO-279,
+// so an older file that still sets it loads, and the load warns with the key's name.
+describe("office configuration version 10", () => {
+  const RETIRED = "permissions.presentMinutes";
+
+  it("loads a version 9 file that sets presentMinutes, drops it and warns with its name", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: "version: 9\npermissions: { ask: never, presentMinutes: 15 }\n",
+      }),
+    );
+    expect(result.config.version).toBe(10);
+    expect(result.config.permissions).toEqual({ ask: "never" });
+    expect(result.warnings).toEqual([
+      {
+        file: ".dipo/office.yaml",
+        path: RETIRED,
+        message: expect.stringContaining(`.dipo/office.yaml: ${RETIRED}: ignored`),
+      },
+    ]);
+    const [warning] = result.warnings;
+    expect(warning?.message).toContain("version 10 removed this key");
+    expect(warning?.message).toContain("DIPO-279");
+    expect(warning?.message).toContain("Delete it from the file");
+  });
+
+  it("hashes an older file with presentMinutes the same as one without it", () => {
+    const withKey = ok(
+      resolveOfficeConfig({ office: "version: 1\npermissions: { presentMinutes: 10 }\n" }),
+    );
+    const without = ok(resolveOfficeConfig({ office: "version: 1\n" }));
+    expect(withKey.config).toEqual(without.config);
+    expect(withKey.configHash).toBe(without.configHash);
+    expect(withKey.warnings.map((warning) => warning.path)).toEqual([RETIRED]);
+    expect(without.warnings).toEqual([]);
+  });
+
+  it("warns about nothing for a file without the key, or without files", () => {
+    expect(ok(resolveOfficeConfig({ office: "version: 9\n" })).warnings).toEqual([]);
+    expect(ok(resolveOfficeConfig({ office: "version: 10\n" })).warnings).toEqual([]);
+    expect(ok(resolveOfficeConfig({})).warnings).toEqual([]);
+  });
+
+  it("still refuses a wrong presentMinutes in a version 9 file", () => {
+    const [error] = errors(
+      resolveOfficeConfig({ office: "version: 9\npermissions: { presentMinutes: soon }\n" }),
+    );
+    expect(error?.path).toBe(RETIRED);
+  });
+
+  it("refuses presentMinutes in a version 10 file and says why it is gone", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ office: "version: 10\npermissions: { presentMinutes: 10 }\n" }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.path).toBe(RETIRED);
+    expect(error?.message).toContain("version 10 removed it");
+    expect(error?.message).toContain("DIPO-279");
+  });
+
+  it("refuses presentMinutes as a command flag override", () => {
+    const [error] = errors(resolveOfficeConfig({ flags: { permissions: { presentMinutes: 10 } } }));
+    expect(error?.file).toBe("command flags");
+    expect(error?.path).toBe(RETIRED);
+  });
+
+  it("returns the warning from loadOfficeConfig", async () => {
+    await withTempDir(async (dir) => {
+      writeDipo(dir, { "office.yaml": "version: 8\npermissions: { presentMinutes: 10 }\n" });
+      const result = ok(await loadOfficeConfig(dir));
+      expect(result.warnings.map((warning) => warning.path)).toEqual([RETIRED]);
+    });
   });
 });

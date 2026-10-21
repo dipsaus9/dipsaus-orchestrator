@@ -125,6 +125,32 @@ describe("office configuration", () => {
     );
   });
 
+  it("loads a configuration with a retired key and warns with its name on the office stream (DIPO-285)", async () => {
+    await withTempRepo(
+      async (repo) => {
+        writeOfficeYaml(repo.dir, "version: 9\npermissions: { ask: never, presentMinutes: 10 }\n");
+        const s = await officeSetup(repo.root);
+        const office = resultOf<{ office: OfficeId }>(
+          await send(s, "office.open", { path: repo.dir }),
+        ).office;
+        const { r } = await reload(s, office);
+        expect(r.valid).toBe(true);
+        expect(r.errors).toEqual([]);
+        expect(s.manager.configBlocksRuns(office)).toEqual([]);
+        expect(s.manager.config(office)?.permissions).toEqual({ ask: "never" });
+        const [notice, ...rest] = notices(s, office) as {
+          level: string;
+          code: string;
+          text: string;
+        }[];
+        expect(rest).toEqual([]);
+        expect(notice).toMatchObject({ level: "warn", code: "config.warning" });
+        expect(notice?.text).toStartWith(".dipo/office.yaml: permissions.presentMinutes: ignored");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
   it("reports office.unknown for a forgotten office", async () => {
     await withTempRepo(
       async (repo) => {
