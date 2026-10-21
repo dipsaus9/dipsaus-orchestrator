@@ -48,6 +48,7 @@
 import {
   type OfficeId,
   type ParkReason,
+  type RunId,
   type WorkRef,
   workStop,
 } from "@dipsaus-orchestrator/contract";
@@ -493,6 +494,28 @@ export class RunControl implements RunEnder {
       detail: park.detail,
       endKind: park.reason,
     });
+  }
+
+  /**
+   * Sends `text` to a live run's worker as its next message, as a verify feedback item is sent
+   * (DIPO-277: another story changes the same files, or dipo merged the new base into the story):
+   * stored first as a `steer` intent named `what`, and held while the maintainer paused the run.
+   * False when the run is not live here.
+   */
+  async tellWorker(runId: string, text: string, what: string): Promise<boolean> {
+    const tracked = this.#tracked.get(runId);
+    if (tracked === undefined || tracked.ending !== null) return false;
+    const office = this.#deps.offices.get(tracked.office);
+    const run = office === undefined ? null : findRun(office, runId as RunId);
+    if (office === undefined || run === null) return false;
+    await this.#endings.sendFeedback(
+      office,
+      run,
+      text,
+      this.#endings.writer(office, tracked.office),
+      what,
+    );
+    return true;
   }
 
   /**
