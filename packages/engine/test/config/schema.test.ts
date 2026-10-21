@@ -13,6 +13,7 @@ import {
   OfficeConfigV7,
   OfficeConfigV8,
   OfficeConfigV9,
+  OfficeConfigV10,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -22,6 +23,7 @@ import {
   OfficeFileV7,
   OfficeFileV8,
   OfficeFileV9,
+  OfficeFileV10,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -31,7 +33,9 @@ import {
   OfficeLocalFileV7,
   OfficeLocalFileV8,
   OfficeLocalFileV9,
+  OfficeLocalFileV10,
   privacyOptIns,
+  RETIRED_KEYS,
   schemaKeyPaths,
 } from "../../src/config";
 
@@ -403,7 +407,6 @@ function boxV9(box: object): boolean {
 
 describe("version 9 key paths", () => {
   it("are the version 8 paths plus the box block, which office.local.yaml does not take", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(9);
     expect(schemaKeyPaths(OfficeConfigV9)).toEqual(VERSION_9_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV9)).toEqual(
       VERSION_9_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -498,54 +501,106 @@ describe("version 9 key paths", () => {
   });
 });
 
+// Version 10 (DIPO-285): version 9 without permissions.presentMinutes, which nothing reads since
+// DIPO-279.
+const VERSION_10_KEY_PATHS = VERSION_9_KEY_PATHS.filter(
+  (path) => path !== "permissions.presentMinutes",
+);
+
+describe("version 10 key paths", () => {
+  it("are the version 9 paths without permissions.presentMinutes", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(10);
+    expect(VERSION_10_KEY_PATHS).toHaveLength(VERSION_9_KEY_PATHS.length - 1);
+    expect(schemaKeyPaths(OfficeConfigV10)).toEqual(VERSION_10_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV10)).toEqual(
+      VERSION_10_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV10)).toEqual(
+      VERSION_10_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+  });
+
+  it("refuse permissions.presentMinutes, which version 9 still takes", () => {
+    const permissions = { ask: "when-present", presentMinutes: 10 };
+    expect(OfficeFileV10.safeParse({ version: 10, permissions }).success).toBe(false);
+    expect(OfficeFileV10.safeParse({ version: 10, permissions: { ask: "never" } }).success).toBe(
+      true,
+    );
+    expect(OfficeFileV9.safeParse({ version: 9, permissions }).success).toBe(true);
+  });
+
+  it("list permissions.presentMinutes as retired in version 10", () => {
+    expect(RETIRED_KEYS.map((key) => [key.path, key.version])).toEqual([
+      ["permissions.presentMinutes", 10],
+    ]);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 9 as the identity", () => {
+  it("migrates version 1 to 10 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 9 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 10 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 9 as the identity", () => {
+  it("migrates version 2 to 10 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 9 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 10 });
   });
 
-  it("migrates version 3 to 9 as the identity", () => {
+  it("migrates version 3 to 10 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 9 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 10 });
   });
 
-  it("migrates version 4 to 9 as the identity", () => {
+  it("migrates version 4 to 10 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 9 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 10 });
   });
 
-  it("migrates version 5 to 9 as the identity", () => {
+  it("migrates version 5 to 10 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 9 });
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 10 });
   });
 
-  it("migrates version 6 to 9 as the identity", () => {
+  it("migrates version 6 to 10 as the identity", () => {
     const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 9 });
+    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 10 });
   });
 
-  it("migrates version 7 to 9 as the identity", () => {
+  it("migrates version 7 to 10 as the identity", () => {
     const v7 = { version: 7, storyPr: { open: false } };
-    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 9 });
+    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 10 });
   });
 
-  it("migrates version 8 to 9 as the identity", () => {
+  it("migrates version 8 to 10 as the identity", () => {
     const v8 = { version: 8, worker: { web: false } };
-    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 9 });
+    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 10 });
   });
 
-  it("leaves a version 9 document as it is", () => {
-    const v9 = { version: 9, box: { debian: "trixie" } };
-    expect(migrateOfficeDocument(9, v9)).toEqual(v9);
+  it("migrates version 9 to 10 as the identity when permissions.presentMinutes is not set", () => {
+    const v9 = { version: 9, box: { debian: "trixie" }, permissions: { ask: "never" } };
+    expect(migrateOfficeDocument(9, v9)).toEqual({ ...v9, version: 10 });
   });
 
-  it("turns the version 1 defaults into the version 9 defaults but worker.plugins, worker.web, mergeSlot, review, the step phrases, storyPr and box", () => {
+  it("drops permissions.presentMinutes from version 9 and older, and keeps the input", () => {
+    const v9 = { version: 9, permissions: { ask: "never", presentMinutes: 10 }, remote: "up" };
+    expect(migrateOfficeDocument(9, v9)).toEqual({
+      version: 10,
+      permissions: { ask: "never" },
+      remote: "up",
+    });
+    expect(v9.permissions.presentMinutes).toBe(10);
+    const v1 = { version: 1, permissions: { presentMinutes: 5 } };
+    expect(migrateOfficeDocument(1, v1)).toEqual({ version: 10, permissions: {} });
+  });
+
+  it("leaves a version 10 document as it is", () => {
+    const v10 = { version: 10, box: { debian: "trixie" } };
+    expect(migrateOfficeDocument(10, v10)).toEqual(v10);
+  });
+
+  it("turns the version 1 defaults into the version 10 defaults but worker.plugins, worker.web, mergeSlot, review, the step phrases, storyPr and box", () => {
     const { plugins: _plugins, web: _web, ...worker } = OFFICE_DEFAULTS.worker;
     const { maintainerStepPhrases: _phrases, ...story } = OFFICE_DEFAULTS.story;
     const {
@@ -555,9 +610,11 @@ describe("migrateOfficeDocument", () => {
       box: _box,
       ...rest
     } = OFFICE_DEFAULTS;
-    const v1 = OfficeConfigV1.parse({ ...rest, story, version: 1, worker });
+    // Version 1 needs permissions.presentMinutes, which the migration to version 10 drops.
+    const permissions = { ...OFFICE_DEFAULTS.permissions, presentMinutes: 10 };
+    const v1 = OfficeConfigV1.parse({ ...rest, permissions, story, version: 1, worker });
     expect(
-      OfficeConfigV9.parse({
+      OfficeConfigV10.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
@@ -571,8 +628,12 @@ describe("migrateOfficeDocument", () => {
 });
 
 describe("defaults", () => {
-  it("are a complete version 9 configuration", () => {
-    expect(OfficeConfigV9.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 10 configuration", () => {
+    expect(OfficeConfigV10.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("ask permissions when present and set no presentMinutes (DIPO-285)", () => {
+    expect(OFFICE_DEFAULTS.permissions).toEqual({ ask: "when-present" });
   });
 
   it("open the story PR (0019 section 3)", () => {

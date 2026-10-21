@@ -214,8 +214,12 @@ afterEach(async () => {
   rmSync(w.dir, { recursive: true, force: true });
 });
 
-/** Replays the `needs-permission` recording with run control and the permission wait as hooks. */
-async function replayPark(): Promise<StoredQuestion> {
+/**
+ * Replays the `needs-permission` recording with run control and the permission wait as hooks.
+ * With `midway`, the replay stops while the worker's first tool call waits for its result, runs
+ * `midway`, then replays the rest.
+ */
+async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion> {
   const { f, control, asks } = w;
   control.track(f.office.officeId, {
     runId: f.run,
@@ -223,7 +227,13 @@ async function replayPark(): Promise<StoredQuestion> {
     caps: { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 },
     startedAt: f.t.clock.now(),
   });
-  appendLines(f.eventFile, hostLines(RECORDING));
+  const lines = hostLines(RECORDING);
+  const split =
+    midway === undefined
+      ? lines.length
+      : lines.findIndex((line) => line.ch === "stdout" && line.data.includes('"type":"user"'));
+  if (split < 0) throw new Error("the recording has no tool result");
+  appendLines(f.eventFile, lines.slice(0, split));
   const hooks = control.hooks;
   const ingestor = new Ingestor({
     office: f.office,
@@ -247,6 +257,13 @@ async function replayPark(): Promise<StoredQuestion> {
   );
   await control.idle();
   await asks.idle();
+  if (midway !== undefined) {
+    await midway();
+    appendLines(f.eventFile, lines.slice(split));
+    ingestor.pass(f.run, f.agent);
+    await control.idle();
+    await asks.idle();
+  }
   const [question] = openQuestions(f.office).filter((open) => open.parkId !== null);
   if (question === undefined) throw new Error("the park stored no question");
   return question;
@@ -358,6 +375,52 @@ describe("the live needs-permission replay", () => {
       hook: null,
       parkId: openPark(w.f.office, w.work.key)?.parkId,
     });
+  });
+
+  it("parks a live question when the last TUI closes; a reconnect leaves it parked, answered the parked way (DIPO-284)", async () => {
+    let liveId = "";
+    // The worker's call waits on its permission request while a TUI is connected: it is live.
+    const question = await replayPark(async () => {
+      w.tui = true;
+      expect(await decisionOf(request(PERMISSION.tool, PERMISSION.action))).toBe("none");
+      const [live] = openQuestions(w.f.office);
+      expect(live).toMatchObject({ kind: "permission", parkId: null, closedAt: null });
+      liveId = live?.questionId ?? "";
+
+      // The last TUI closes: the question ends with no decision, as if asked with no TUI.
+      w.tui = false;
+      const before = w.sent.length;
+      w.asks.presenceChanged();
+      expect(await decisionOf(w.sent.slice(before))).toBe("no decision");
+      expect(findQuestion(w.f.office, liveId)?.closedHow).toBe("ended");
+      expect(parkReasons()).toEqual([]);
+    });
+    // The call was denied; the worker reports blocked with what it needs (the recording), and
+    // the story parks with the question.
+    expect(parkReasons()).toEqual(["needs-permission"]);
+    expect(question).toMatchObject({ tool: PERMISSION.tool, input: PERMISSION.action });
+
+    // The TUI reconnects: nothing is asked again and the story stays parked with its question.
+    w.tui = true;
+    const sentBefore = w.sent.length;
+    w.asks.presenceChanged();
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(sentBefore);
+    expect(parkReasons()).toEqual(["needs-permission"]);
+    expect(openQuestions(w.f.office).map((open) => open.questionId)).toEqual([question.questionId]);
+
+    // The ended live question cannot be answered; the park's question is, and resumes the run.
+    expect(await answer({ question: liveId, text: "", decision: "allow" })).toMatchObject({
+      ok: false,
+      error: { code: "question.closed" },
+    });
+    expect(w.resumes).toEqual([]);
+    const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
+    expect(reply).toMatchObject({
+      ok: true,
+      result: { question: question.questionId, delivered: "on-resume", run: w.f.run },
+    });
+    expect(w.resumes.map((resumed) => resumed.request.question)).toEqual([question.questionId]);
   });
 
   it("needs a decision: without one the answer fails with args.invalid and the question waits (AC #7)", async () => {

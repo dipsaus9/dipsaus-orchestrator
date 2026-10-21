@@ -23,11 +23,14 @@
 //
 // A second test (DIPO-268) repeats the DIPO-264 network lines through dipo's web proxy and the
 // Safe-Chain proxy behind it, so it also needs the official Safe-Chain install (`~/.safe-chain`)
-// and the internet: no way out without the proxy (by name, and by IP address to a public address,
-// the Mac's own address and the default gateway, all found at test time); through it the Mac's
-// loopback, the box network, the Mac's own address, the default gateway and IP literals are refused, plain HTTP proxying is refused, a registry
-// (also with a trailing dot) goes through Safe-Chain, the internet works, and an npm install is
-// checked by Safe-Chain.
+// and the internet: no way out without the proxy (by name, and by IP address to a public address
+// and the default gateway, all found at test time); through it the Mac's loopback, the box
+// network, the Mac's own address, the default gateway and IP literals are refused, plain HTTP
+// proxying is refused, a registry (also with a trailing dot) goes through Safe-Chain, the internet
+// works, and an npm install is checked by Safe-Chain. A direct connection to a service bound to the
+// Mac's own local-network address is only reported: it is reachable, under the risk the
+// maintainer accepted in the 0021 amendment of 2026-10-21, until DIPO-283. The box network's
+// address exists on the Mac only while a box runs on it, so its listener opens after the box starts.
 
 import {
   existsSync,
@@ -351,7 +354,9 @@ if (registers) {
             return started.route;
           });
           const loopback = await listenOn("127.0.0.1");
-          const onBoxNetwork = await listenOn(network.hostAddress);
+          // The box network's address exists on the Mac only while a box runs on it, so this
+          // listener opens after the box starts.
+          let onBoxNetwork: { server: Server; port: number } | null = null;
           // The Mac's own address on another network than the box network, when it has one.
           const macAddress = systemInterfaceAddresses().find(
             (entry) =>
@@ -368,6 +373,7 @@ if (registers) {
           try {
             await boxes.create({ runId, image: IMAGE, network }, { timeoutMs: PULL_TIMEOUT_MS });
             await boxes.start(name);
+            onBoxNetwork = await listenOn(network.hostAddress);
 
             // Without the proxy there is no way out.
             const direct = await boxes.exec(name, [
@@ -379,23 +385,39 @@ if (registers) {
             expect(direct.stdout).toContain("internet: no");
             expect(direct.stdout).toContain("registry: no");
 
-            // Nor by IP address: a public address, the Mac's own address (a listener waits there)
-            // and the default gateway.
+            // Nor by IP address: a public address and the default gateway. The Mac's own address,
+            // where a listener waits, is reported but not required closed: the accepted risk of the
+            // 0021 amendment of 2026-10-21, until DIPO-283.
             const literals = [
               `${publicAddress}:443`,
               ...(onMac === null ? [] : [`${macAddress}:${onMac.port}`]),
               ...(gateway === null ? [] : [`${gateway}:80`, `${gateway}:443`]),
             ];
-            for (const target of literals) {
+            const kinds = [
+              "a public address on 443",
+              ...(onMac === null ? [] : ["the Mac's own address"]),
+              ...(gateway === null
+                ? []
+                : ["the default gateway on 80", "the default gateway on 443"]),
+            ];
+            const outcomes: string[] = [];
+            for (const [index, target] of literals.entries()) {
               const [host, port] = target.split(":");
               const tried = await boxes.exec(name, [
                 "sh",
                 "-c",
                 `nc -z -w3 ${host} ${port} && echo open || echo closed`,
               ]);
-              expect(tried.stdout.trim()).toBe("closed");
+              outcomes.push(tried.stdout.trim());
+              fact(`direct to ${kinds[index]}: ${tried.stdout.trim()}`);
             }
-            fact(`${literals.length} direct IP-address attempts without the proxy were closed`);
+            const required = outcomes.filter(
+              (_, index) => kinds[index] !== "the Mac's own address",
+            );
+            expect(required.every((outcome) => outcome === "closed")).toBe(true);
+            fact(
+              `${required.length} required direct IP-address attempts without the proxy were closed`,
+            );
 
             const route1 = await route.acquire(name);
             expect(route1.host).toBe(network.hostAddress);
@@ -470,7 +492,7 @@ if (registers) {
             await boxes.delete(name).catch(() => {});
             await route.release(name);
             loopback.server.close();
-            onBoxNetwork.server.close();
+            onBoxNetwork?.server.close();
             onMac?.server.close();
           }
           expect(route.running).toBe(false);
