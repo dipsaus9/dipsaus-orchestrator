@@ -196,7 +196,15 @@ beforeEach(async () => {
   const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "run-start-"));
   const t = await openTestState(dir);
   const office = addOffice(t);
-  const holds = new AdapterHolds({ clock: t.clock, notify: () => undefined });
+  // The box-token check is sticky, as in the daemon (DIPO-271); memory only here.
+  const holds = new AdapterHolds({
+    clock: t.clock,
+    notify: () => undefined,
+    sticky: {
+      checks: new Set(["box-token"]),
+      liftedBy: "Replace the box login with dipo login box.",
+    },
+  });
   const w = {
     t,
     dir,
@@ -765,6 +773,19 @@ describe("a box worker's run (DIPO-271)", () => {
     expect(world.hosts).toEqual([]);
     expect(world.setupReleases).toEqual([3]);
     expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toEqual([]);
+  });
+
+  it("refuses even a named run while the sticky box-token hold stands, claiming nothing", async () => {
+    story("TASK-1", "Ready");
+    world.holds.hold("claude-cli", [
+      { check: "box-token", detail: "the token was found in a box" },
+    ]);
+    const reply = await run({ stories: ["TASK-1"], box: true });
+    expect(reply.ok).toBe(false);
+    if (reply.ok) return;
+    expect(reply.error.message).toContain("Replace the box login with dipo login box.");
+    expect(world.claimCalls).toEqual([]);
+    expect(world.boxCalls).toEqual([]);
   });
 
   it("deletes the box when the launch checks refuse the run or its host does not start", async () => {

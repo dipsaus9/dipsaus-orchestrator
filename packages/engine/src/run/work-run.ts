@@ -331,9 +331,13 @@ export class WorkRun {
       );
     }
     // A run that names its stories is the explicit run that repeats the launch checks (DIPO-43,
-    // DIPO-74): they lift the hold when they pass. Without names the hold refuses the run.
+    // DIPO-74): they lift the hold when they pass. Without names the hold refuses the run, and so
+    // does a sticky hold, which no launch check lifts (DIPO-271: the box-token hold).
     const hold = deps.adapterHeld(config.worker.adapter);
-    if (hold !== null && (args.stories === undefined || deps.launcher === undefined)) {
+    if (
+      hold !== null &&
+      (args.stories === undefined || deps.launcher === undefined || hold.liftedBy !== undefined)
+    ) {
       throw refused(office, "adapter", holdMessage(hold));
     }
     // A plan limit of every model, or `credits`, holds every run, named or not (DIPO-61).
@@ -783,7 +787,11 @@ export class WorkRun {
     // `notes` only when there is one, so the usual reply keeps the shape 0005 names.
     const info = () => (notes.length === 0 ? { refusals } : { refusals, notes });
     if (hold !== null) {
-      if (args.stories !== undefined && deps.launcher !== undefined) {
+      if (
+        args.stories !== undefined &&
+        deps.launcher !== undefined &&
+        hold.liftedBy === undefined
+      ) {
         notes.push(`${holdMessage(hold)} The launch checks will be repeated for the named story.`);
       } else {
         refusals.push({ check: "adapter", message: holdMessage(hold) });
