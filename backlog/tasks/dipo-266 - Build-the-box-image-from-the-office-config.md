@@ -4,7 +4,7 @@ title: Build the box image from the office config
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 13:53'
 labels:
   - 'tier:M'
   - cutover
@@ -42,6 +42,7 @@ unknowns: []
 - [ ] #2 dipo writes the build file itself from that description and builds with container build; a build file inside the repository is never used
 - [ ] #3 The image tag is a hash of the description: an unchanged description reuses the image, a changed one builds a new one
 - [ ] #4 A default is detected from the repository scan (the Bun version from .bun-version, the package manager), so a new office needs no hand-written box section
-- [ ] #5 Claude Code is installed from npm through Safe-Chain at the pinned version
-- [ ] #6 Unit tests cover the build file and the hash; the real build runs in the opt-in real-box test
+- [ ] #5 Unit tests cover the build file and the hash; the real build runs in the opt-in real-box test
+- [ ] #6 Claude Code is installed from npm through Safe-Chain at the pinned version, with its auto-update and nonessential traffic turned off in the image (0021 section 4)
+- [ ] #7 The box section lists the files outside git that a box may get (0021 decision 9), each marked as holding no real secrets; an entry without that mark is refused when the config is read
 <!-- AC:END -->

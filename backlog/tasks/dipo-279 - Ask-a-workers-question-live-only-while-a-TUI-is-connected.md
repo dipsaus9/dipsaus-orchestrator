@@ -4,7 +4,7 @@ title: Ask a worker's question live only while a TUI is connected
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:45'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 13:54'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,8 @@ references:
   - packages/engine/src/hooks/questions.ts
   - packages/engine/src/hooks/permissions.ts
   - packages/engine/test/hooks/
+  - packages/engine/src/run/live-question.ts
+  - packages/engine/test/run/live-question.test.ts
 priority: high
 type: feature
 ordinal: 268000
@@ -38,4 +40,5 @@ unknowns: []
 - [ ] #1 The live path checks for a connected TUI at the moment of the question, not a 10-minute activity window
 - [ ] #2 Without a connected TUI the story parks with the question
 - [ ] #3 Tests cover both paths
+- [ ] #4 The rule is one engine function in packages/engine/src/run/live-question.ts that every question source calls, so the door questions of DIPO-272 use it too
 <!-- AC:END -->

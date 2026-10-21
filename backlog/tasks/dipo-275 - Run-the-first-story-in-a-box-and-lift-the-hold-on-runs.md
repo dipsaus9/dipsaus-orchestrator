@@ -4,7 +4,7 @@ title: Run the first story in a box and lift the hold on runs
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:44'
+updated_date: '2026-10-21 13:54'
 labels:
   - 'tier:S'
   - cutover
@@ -14,6 +14,7 @@ dependencies:
   - DIPO-267
   - DIPO-273
   - DIPO-274
+  - DIPO-276
 references:
   - docs/decisions/0021-worker-isolation.md
   - .dipo/office.yaml

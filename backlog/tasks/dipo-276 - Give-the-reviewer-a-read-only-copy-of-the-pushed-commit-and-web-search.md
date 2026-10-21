@@ -4,7 +4,7 @@ title: Give the reviewer a read-only copy of the pushed commit and web search
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 13:54'
 labels:
   - 'tier:M'
   - cutover
@@ -41,4 +41,5 @@ unknowns: []
 - [ ] #2 The reviewer's tools are read-only on that folder plus web search; no shell, no write, no gh
 - [ ] #3 The reviewer gets what 0019 section 4 gives it plus the report evidence, never the builder's reasoning or transcript
 - [ ] #4 Tests cover the tool set and the folder's lifetime
+- [ ] #5 The reviewer session's working directory is outside the read-only copy, and it loads no settings, hooks or instruction files from it (0021 section 14); the copy is reachable only through the read tools, shown by a test with a copy that holds such files
 <!-- AC:END -->

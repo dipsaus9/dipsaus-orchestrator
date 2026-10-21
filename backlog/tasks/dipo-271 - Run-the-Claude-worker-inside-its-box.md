@@ -4,7 +4,7 @@ title: Run the Claude worker inside its box
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:49'
+updated_date: '2026-10-21 13:53'
 labels:
   - 'tier:L'
   - cutover
@@ -44,5 +44,6 @@ unknowns: []
 - [ ] #1 The worker host starts claude inside the box (a long-running exec) instead of on the Mac, with the stream-json input and output dipo reads today
 - [ ] #2 Inside the box the worker runs with all permissions; dipo's Bash sandbox settings, hooks and permission relay are not used for a box worker
 - [ ] #3 Budgets, turn and minute caps and the live view work as today, shown by tests with a recorded box stream
-- [ ] #4 The box gets the image of DIPO-266 and the web and model routes of DIPO-268 and DIPO-269; no folder of the Mac is mounted, and the Mac is reachable from the box only as the 0021 amendment of 2026-10-21 records (the two proxies, plus the accepted risk for services that listen on all interfaces)
+- [ ] #4 The box gets the image of DIPO-266 and the web and model routes of DIPO-268 and DIPO-269; no folder of the Mac is mounted except the office package cache of DIPO-267, read-only, and the Mac is reachable from the box only as the 0021 amendment of 2026-10-21 records (the two proxies, plus the accepted risk for services that listen on all interfaces)
+- [ ] #5 The box gets a plain copy of the code at the story's start commit with no .git, plus only the files the office config lists and marks as holding no real secrets (DIPO-266); nothing else is copied in, shown by a test that .git and unlisted untracked files are absent from the box
 <!-- AC:END -->
