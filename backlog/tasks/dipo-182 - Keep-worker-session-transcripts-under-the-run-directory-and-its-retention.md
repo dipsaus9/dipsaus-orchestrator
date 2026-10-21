@@ -4,13 +4,14 @@ title: Keep worker session transcripts under the run directory and its retention
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-21 09:27'
+updated_date: '2026-10-21 23:04'
 labels:
   - 'tier:S'
   - cutover
   - dropped
 milestone: m-1
-dependencies: []
+dependencies:
+  - DIPO-292
 references:
   - packages/engine/src/workers/claude-cli/
   - packages/engine/test/workers/

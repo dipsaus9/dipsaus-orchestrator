@@ -6,13 +6,15 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-21 09:20'
+updated_date: '2026-10-21 23:04'
 labels:
   - 'tier:M'
   - cutover
 milestone: m-1
 dependencies:
   - DIPO-257
+  - DIPO-291
+  - DIPO-276
 references:
   - packages/engine/src/workers/types.ts
   - packages/engine/src/workers/claude-cli/report-schema.ts

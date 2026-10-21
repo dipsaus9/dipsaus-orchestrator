@@ -4,7 +4,7 @@ title: Run the first story in a box and lift the hold on runs
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 17:40'
+updated_date: '2026-10-21 23:03'
 labels:
   - 'tier:S'
   - cutover
@@ -42,4 +42,5 @@ unknowns: []
 - [ ] #2 A gap report of the run is written, and every gap is filed
 - [ ] #3 docs/decisions/0021-worker-isolation.md gets a dated amendment with the run's result and whether the hold is lifted
 - [ ] #4 The run covers the box image build through the build proxy and the package cache fill in a fill box, and records in the gap report whether the cache stream arrived intact and whether the managers' caches held any link
+- [ ] #5 The run's reviewer session shows, in its system/init and in a Read outside the copy, that no skills, plugins or settings from the read-only copy loaded and that reads outside the copy are refused, and that its reads of the copy work
 <!-- AC:END -->

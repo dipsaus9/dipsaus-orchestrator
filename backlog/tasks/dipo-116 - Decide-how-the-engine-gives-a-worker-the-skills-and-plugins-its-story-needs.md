@@ -4,7 +4,7 @@ title: Decide how the engine gives a worker the skills and plugins its story nee
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 23:04'
 labels:
   - architecture
   - 'tier:M'
@@ -13,6 +13,7 @@ milestone: m-1
 dependencies:
   - DIPO-108
   - DIPO-285
+  - DIPO-292
 references:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0013-repo-scan-and-script-standard.md

@@ -4,7 +4,7 @@ title: Allow listed local ports of the Mac to a box from the office config
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 14:35'
+updated_date: '2026-10-21 23:04'
 labels:
   - box
   - cutover
@@ -14,6 +14,7 @@ dependencies:
   - DIPO-281
   - DIPO-266
   - DIPO-285
+  - DIPO-292
 references:
   - packages/engine/src/box/web-proxy.ts
   - packages/engine/src/config/schema.ts
