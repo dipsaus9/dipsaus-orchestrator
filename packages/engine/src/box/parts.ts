@@ -10,7 +10,7 @@
 //    links. A failed stream kills only the exec client, so the worker's box is kept; the `tar` in
 //    the box runs under `timeout` where the box has it, as the door's read does. Paths git would
 //    ignore leave out early, inside the box, by an exclude list dipo builds from the delivered
-//    `.gitignore` files (`inBoxExcludes`: plain names such as `node_modules`, only when no rule
+//    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, only when no rule
 //    negates and no tracked path carries the name). The box's filtering is never trusted: the Mac
 //    checks every path again.
 // 2. On the Mac. The extractor (`extractArchive`) writes only files and folders into a fresh
@@ -672,7 +672,16 @@ export class BoxParts {
     }
     const run = this.#deps.run(part.runId);
     if (run === null) throw new BoxError(PART_WAITING, `run ${part.runId} is not known here.`);
-    const outcome = await this.#serial(part.runId, () => this.#deliver(run, part.message));
+    const outcome = await this.#serial(part.runId, () => {
+      // Asked again in turn: a part before it may have parked the run.
+      if (!this.#deps.live(part.runId)) {
+        throw new BoxError(
+          PART_WAITING,
+          `run ${part.runId} is not going on; the part stays queued.`,
+        );
+      }
+      return this.#deliver(run, part.message);
+    });
     const park = partPark(outcome);
     if (park !== null) this.#deps.park?.(part.runId, park);
     else if (outcome.kind === "committed" && outcome.push.error !== null) {
@@ -701,7 +710,11 @@ export class BoxParts {
     if (!this.#deps.live(runId)) return { kind: "stopped" };
     const run = this.#deps.run(runId);
     if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
-    return this.#serial(runId, () => this.#deliver(run, message));
+    return this.#serial(runId, () =>
+      this.#deps.live(runId)
+        ? this.#deliver(run, message)
+        : Promise.resolve<PartOutcome>({ kind: "stopped" }),
+    );
   }
 
   #serial<T>(runId: string, fn: () => Promise<T>): Promise<T> {

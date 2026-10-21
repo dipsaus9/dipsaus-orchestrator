@@ -71,6 +71,26 @@ describe("one .gitignore", () => {
     const r = rules(["node_modules/", ".cache", "*.log", "/dist", "a/b", "!x"].join("\n"));
     expect(r.plainNames).toEqual([".cache", "node_modules"]);
   });
+
+  it("lists no plain name of a deeper .gitignore: it applies only below its folder", () => {
+    const r = new IgnoreRules([
+      { dir: "", text: "node_modules/\n" },
+      { dir: "pkg", text: "dist/\n" },
+    ]);
+    expect(r.plainNames).toEqual(["node_modules"]);
+  });
+
+  it("matches a hostile pattern quickly, and lets a pattern too long ignore nothing", () => {
+    const hostile = rules(`${"*a".repeat(60)}b`);
+    const started = performance.now();
+    for (let i = 0; i < 50; i += 1) hostile.ignored(`src/${"a".repeat(250)}`);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(hostile.ignored(`src/${"a".repeat(250)}`)).toBe(false);
+    expect(hostile.ignored(`x/${"a".repeat(60)}b`)).toBe(true);
+    expect(rules(`${"x".repeat(300)}`).ignored("x".repeat(300))).toBe(false);
+    const deep = rules(`${"**/".repeat(40)}z`);
+    expect(deep.ignored(`${"d/".repeat(60)}z`)).toBe(true);
+  });
 });
 
 describe("nested .gitignore files", () => {
