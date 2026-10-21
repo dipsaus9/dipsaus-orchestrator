@@ -1,10 +1,10 @@
 ---
 id: DIPO-284
 title: Park a live question at once when the last TUI disconnects
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 14:35'
-updated_date: '2026-10-21 16:50'
+updated_date: '2026-10-21 17:39'
 labels:
   - 'tier:S'
   - cutover

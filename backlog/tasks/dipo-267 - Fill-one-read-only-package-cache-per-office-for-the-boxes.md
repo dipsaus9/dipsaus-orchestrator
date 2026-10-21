@@ -1,10 +1,10 @@
 ---
 id: DIPO-267
 title: Fill one read-only package cache per office for the boxes
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 16:58'
+updated_date: '2026-10-21 17:39'
 labels:
   - 'tier:S'
   - cutover
