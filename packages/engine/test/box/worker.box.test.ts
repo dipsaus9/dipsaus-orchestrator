@@ -30,7 +30,7 @@ import { startModelProxy } from "../../src/box/model-proxy";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { SECURITY_CLI, TOKEN_KEYCHAIN_ACCOUNT, TOKEN_KEYCHAIN_SERVICE } from "../../src/box/token";
 import { startBoxWebRoute } from "../../src/box/web-proxy";
-import { BoxWorkers } from "../../src/box/workers";
+import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
@@ -176,6 +176,7 @@ if (registers) {
               holds,
               adapter: "claude-cli",
               tmpRoot: tmp,
+              indexDir: join(tmp, "state", BOX_INDEX_DIR),
               scratchRoot: tmp,
               warn: (message, fields) => fact(`${message} ${JSON.stringify(fields)}`),
             });

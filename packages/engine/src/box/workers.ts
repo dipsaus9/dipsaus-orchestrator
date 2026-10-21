@@ -6,37 +6,34 @@
 //   box block (`ensureImageWithBuildProxy`: a build proxy only for the length of a build), the
 //   host-only box network, the box with nothing of the Mac mounted (the office package cache only
 //   when one is given: the DIPO-267 seam), started, and the code copied in (`stageBoxCode`: the
-//   start commit from git's objects plus the listed files, never `.git`).
+//   start commit from git's objects plus the listed files from the office's main checkout, never
+//   `.git`).
 // - `session` (each developer session): the box running again, dipo's web route and model proxy
 //   for the box network (both started only once a box on it runs, because the network's address
 //   exists on the Mac only then), and dipo's files copied to `BOX_DIPO_DIR`: the system file and
-//   the Safe-Chain CA bundle. It returns how the worker host runs a command in the box and stops it.
+//   the Safe-Chain CA bundle. A box that already runs when a session starts may still hold an
+//   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
+//   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
 // - `finish` (the run ended): the post-run token check (`checkBoxAfterRun`, which holds the adapter
 //   when the token is found or the check cannot finish), then the box deleted and its routes
 //   released. `discard` deletes a box whose worker never ran, without the check.
-// - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start),
-//   and `close` stops every box at daemon stop, which ends the worker inside it.
+// - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start;
+//   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
+//   stop, which ends the worker inside it.
 //
 // Two records: the run directory's `BOX_RUN_FILE` says the run is a box worker's, so every later
-// session of the run plans in its box; the index folder holds one file per box not yet finished,
-// so a daemon after a restart finds them, and a daemon with no box run never calls the backend
-// for `finishEnded` or `close`. Nothing here names a worker CLI.
+// session of the run plans in its box; the index folder in dipo's state folder holds one file per
+// box not yet finished, so a daemon after a restart finds them, and a daemon that never ran a box
+// never calls the backend for `finishEnded` or `close`. Nothing here names a worker CLI.
 
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeGit } from "../git/office";
+import { ensurePrivateDir } from "../platform/paths";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
 import { ensureImageWithBuildProxy } from "./build-proxy";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
@@ -62,7 +59,7 @@ export const BOX_SYSTEM_FILE = `${BOX_DIPO_DIR}/system.md`;
 export const BOX_CA_FILE = `${BOX_DIPO_DIR}/safe-chain-ca.pem`;
 /** The prefix of the host folder dipo's files are staged in for a box. */
 export const BOX_FILES_STAGE_PREFIX = "dipo-box-files-";
-/** The index folder in dipo's temp root: one file per box not yet finished, named by its box. */
+/** The index folder's name in dipo's state folder: one file per box not yet finished. */
 export const BOX_INDEX_DIR = "dipo-box-runs";
 
 type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -117,8 +114,13 @@ export interface BoxWorkersDeps {
   readonly holds: Pick<AdapterHolds, "hold" | "adapterHeld">;
   /** The adapter the boxes run, for its hold. */
   readonly adapter: string;
-  /** dipo's temp root: the index, code and file stages, token check exports. */
+  /** dipo's temp root: code and file stages, token check exports. */
   readonly tmpRoot: string;
+  /**
+   * The index folder of the boxes not yet finished, in dipo's state folder (made private on first
+   * use); `join(<state>, BOX_INDEX_DIR)` in the daemon.
+   */
+  readonly indexDir: string;
   /** dipo's private folder for image build folders. */
   readonly scratchRoot: string;
   /**
@@ -182,10 +184,12 @@ export class BoxWorkers {
   readonly #model: BoxWebRoute<RunningModelProxy>;
   /** Finishes in flight, by run id. */
   readonly #finishing = new Map<string, Promise<BoxFinish>>();
+  /** Boxes `create` made and started, in which no session ran yet. */
+  readonly #fresh = new Set<string>();
 
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
-    this.#index = join(deps.tmpRoot, BOX_INDEX_DIR);
+    this.#index = deps.indexDir;
     this.#web = new BoxWebRoute(async () => {
       const started = await deps.startWebRoute(await this.#networkOf());
       if (!started.ok) {
@@ -274,7 +278,7 @@ export class BoxWorkers {
       office: input.office,
       box: name,
     } satisfies BoxRunRecord);
-    mkdirSync(this.#index, { recursive: true, mode: 0o700 });
+    ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
     const cache = this.#deps.packageCache?.(input.office);
     try {
@@ -289,7 +293,8 @@ export class BoxWorkers {
         git: input.git,
         commit: input.startCommit,
         files: base.description.files,
-        source: input.git.baseWorktreePath(),
+        // The registered office path: the maintainer's checkout, where files outside git live.
+        source: input.git.mainWorktree,
         tmpRoot: this.#deps.tmpRoot,
       });
       try {
@@ -309,6 +314,7 @@ export class BoxWorkers {
       if (error instanceof BoxError) throw error;
       throw new BoxError("box.failed", `the box could not be made: ${messageOf(error)}`);
     }
+    this.#fresh.add(name);
     this.#deps.info?.("box ready", { run: input.runId, box: name, image: image.tag });
     return name;
   }
@@ -356,11 +362,21 @@ export class BoxWorkers {
     };
   }
 
-  /** Starts box `name` when it is not running; throws `box.gone` when it does not exist. */
+  /**
+   * Makes box `name` run with no earlier process in it: a stopped box starts; a running one stops
+   * and starts again, since an earlier session's claude may have outlived its host, unless
+   * `create` just made it. Throws `box.gone` when it does not exist.
+   */
   async #running(name: string): Promise<void> {
+    const fresh = this.#fresh.delete(name);
     const listed = (await this.#deps.boxes.list()).find((box) => box.name === name);
     if (listed === undefined) throw new BoxError("box.gone", `box ${name} does not exist.`);
-    if (listed.state !== "running") await this.#deps.boxes.start(name);
+    if (listed.state === "running") {
+      if (fresh) return;
+      this.#deps.info?.("restarting a running box before a new session", { box: name });
+      await this.#deps.boxes.stop(name);
+    }
+    await this.#deps.boxes.start(name);
   }
 
   /** Copies the system file and the CA bundle into `BOX_DIPO_DIR` through a stage of dipo's. */
@@ -382,7 +398,9 @@ export class BoxWorkers {
   finish(runId: string): Promise<BoxFinish> {
     const pending = this.#finishing.get(runId);
     if (pending !== undefined) return pending;
-    const started = this.#finish(runId).finally(() => this.#finishing.delete(runId));
+    const started = this.#finish(runId)
+      .catch((error: unknown): BoxFinish => ({ kind: "failed", reason: messageOf(error) }))
+      .finally(() => this.#finishing.delete(runId));
     this.#finishing.set(runId, started);
     return started;
   }
@@ -435,7 +453,14 @@ export class BoxWorkers {
           },
           name,
         );
-        if (failure !== null) this.#deps.holds.hold(this.#deps.adapter, [failure]);
+        try {
+          if (failure !== null) this.#deps.holds.hold(this.#deps.adapter, [failure]);
+        } catch (holdError) {
+          this.#deps.warn?.("holding after a failed box run end failed", {
+            run: runId,
+            reason: messageOf(holdError),
+          });
+        }
       }
     }
     await this.#release(name);
@@ -468,10 +493,17 @@ export class BoxWorkers {
   /** Marks the run's record finished and drops it from the index. */
   #forget(runId: string, name: string): void {
     const runDir = this.#runDirOf(runId);
-    rmSync(this.#indexFile(runId), { force: true });
-    if (runDir === undefined || !existsSync(runDir)) return;
-    const record = readBoxRun(runDir);
     try {
+      rmSync(this.#indexFile(runId), { force: true });
+    } catch (error) {
+      this.#deps.warn?.("dropping a box from the index failed", {
+        run: runId,
+        reason: messageOf(error),
+      });
+    }
+    if (runDir === undefined || !existsSync(runDir)) return;
+    try {
+      const record = readBoxRun(runDir);
       writeJson(join(runDir, BOX_RUN_FILE), {
         runId,
         office: record?.office ?? "",
@@ -491,9 +523,22 @@ export class BoxWorkers {
    * with its worker hosts exited, false for one still going, null for a run no loaded office knows
    * (left alone). Never rejects; resolves to the run ids it finished.
    */
-  async finishEnded(ended: (runId: string) => boolean | null): Promise<string[]> {
+  async finishEnded(
+    ended: (runId: string) => boolean | null,
+    options: { readonly listBoxes?: boolean } = {},
+  ): Promise<string[]> {
+    const runs = new Set(this.pending());
+    // The second layer (daemon start): every dipo box the backend lists, in case the index lost
+    // one. Only where boxes ran before, so a daemon that never made a box never calls the backend.
+    if (options.listBoxes === true && existsSync(this.#index)) {
+      try {
+        for (const box of await this.#deps.boxes.list()) runs.add(box.runId);
+      } catch (error) {
+        this.#deps.warn?.("listing the boxes failed", { reason: messageOf(error) });
+      }
+    }
     const finished: string[] = [];
-    for (const runId of this.pending()) {
+    for (const runId of runs) {
       if (ended(runId) !== true) continue;
       await this.finish(runId);
       finished.push(runId);

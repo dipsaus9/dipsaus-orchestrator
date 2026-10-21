@@ -761,6 +761,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       clock,
       notify: (notice) => software.append("engine.notice", notice),
       sticky: boxTokenStickyHolds(boxTokenHoldPath(stateDir), CLAUDE_CLI_ADAPTER_ID),
+      warn: (message, fields) => logger.warn(message, fields),
     });
     const runBase = cliRunBase({
       git: (office) => engineGit.forOffice(office),
@@ -778,6 +779,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       uid,
       runtimeDir: choice.path,
       tmpRoot: tmpBase,
+      stateDir,
       holds,
       engineGit,
       claims,
@@ -1089,7 +1091,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         }
         // The boxes of box runs that ended while no daemon ran are checked and deleted too
         // (DIPO-271).
-        await runs.finishEndedBoxes();
+        await runs.finishEndedBoxes({ listBoxes: true });
       },
     });
     for (const step of options.recoverySteps ?? []) steps.register(step);

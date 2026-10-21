@@ -5,18 +5,24 @@
 //
 // - The tracked files come from git's objects: `git archive` of the start commit into a tar file,
 //   unpacked into the stage folder by the system `tar`, which refuses absolute names, `..` and
-//   writes through a symlink by default. No worktree file is read.
-// - Each listed file comes from dipo's checkout of the base (`_base`), never from a story worktree
-//   or the main checkout. It must be a regular file whose real path stays in that checkout, it may
-//   not replace a tracked file, and no folder on its way into the stage may be a symlink. A listed
-//   file that is missing is skipped and reported; a refused one too.
+//   writes through a symlink by default. No worktree file is read. `git archive` applies the
+//   smudge filters a commit's `.gitattributes` names, so the call switches off every filter driver
+//   git's config defines, with the `_base` checkout's LFS settings (`BASE_CHECKOUT_CONFIG`): no
+//   filter program runs.
+// - Each listed file comes from the office's main checkout, the registered office path: it is the
+//   maintainer's, where files outside git live, and no worker writes it (0021). Never from a story
+//   worktree or `_base`, a clean checkout that holds no file outside git. It must be a regular file
+//   whose real path stays in that checkout, no folder on its way there may be a symlink, it may not
+//   replace a tracked file, and no folder on its way into the stage may be a symlink either. A
+//   listed file that is missing is skipped and reported; a refused one too.
 
 import { copyFile, constants, lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 
 import type { Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import type { OfficeGit } from "../git/office";
+import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../git/hardened";
+import type { GitSession, OfficeGit } from "../git/office";
 import type { BoxFileEntry } from "./image";
 import { BoxError } from "./port";
 
@@ -46,7 +52,7 @@ export interface BoxCodeRequest {
   readonly commit: string;
   /** `box.files` of the base office config (`readBaseBox`). */
   readonly files: readonly BoxFileEntry[];
-  /** dipo's checkout of the base, where the listed files are read. */
+  /** The office's main checkout (the registered office path), where the listed files are read. */
   readonly source: string;
   /** dipo's temp root; the stage folder is made in it. */
   readonly tmpRoot: string;
@@ -131,19 +137,43 @@ async function folderFor(root: string, path: string): Promise<string | null> {
   return null;
 }
 
+/** The reason when a folder on the way to `path` in `root` is a symlink or no folder; else null. */
+async function plainFolders(root: string, path: string): Promise<string | null> {
+  const parts = dirname(path)
+    .split("/")
+    .filter((part) => part !== "" && part !== ".");
+  let at = root;
+  for (const part of parts) {
+    at = join(at, part);
+    let stat;
+    try {
+      stat = await lstat(at);
+    } catch (error) {
+      return codeOf(error) === "ENOENT"
+        ? "missing in the main checkout"
+        : `cannot be read (${codeOf(error)})`;
+    }
+    if (stat.isSymbolicLink()) return `${relative(root, at)} on its way is a symlink`;
+    if (!stat.isDirectory()) return `${relative(root, at)} on its way is not a folder`;
+  }
+  return null;
+}
+
 /** Adds one listed file from `source` to `stage`; the reason when it is left out. */
 async function addListed(
   source: string,
   stage: string,
   entry: BoxFileEntry,
 ): Promise<string | null> {
+  const way = await plainFolders(source, entry.path);
+  if (way !== null) return way;
   const from = join(source, entry.path);
   let stat;
   try {
     stat = await lstat(from);
   } catch (error) {
     return codeOf(error) === "ENOENT"
-      ? "missing in dipo's checkout of the base"
+      ? "missing in the main checkout"
       : `cannot be read (${codeOf(error)})`;
   }
   if (!stat.isFile()) return "not a regular file (a symlink or a folder)";
@@ -153,7 +183,7 @@ async function addListed(
   } catch (error) {
     return `cannot be resolved (${codeOf(error)})`;
   }
-  if (!within(real, source)) return "leads outside dipo's checkout of the base";
+  if (!within(real, source)) return "leads outside the main checkout";
   const folder = await folderFor(stage, entry.path);
   if (folder !== null) return folder;
   try {
@@ -167,9 +197,46 @@ async function addListed(
   return null;
 }
 
+/** A filter driver name a `-c filter.<name>.<key>=` override can name. */
+const DRIVER = /^[^=\n]+$/;
+
+/**
+ * The config that switches off every filter driver git's config defines, with the `_base`
+ * checkout's LFS settings: an empty smudge and process command runs nothing, and `required` false
+ * keeps the archive from failing over it. A driver name the override cannot carry refuses.
+ */
+export async function filtersOffConfig(
+  session: GitSession,
+): Promise<(readonly [string, string])[]> {
+  const listed = await session.step(session.repository, [
+    "config",
+    "--name-only",
+    "--get-regexp",
+    "^filter\\..*\\.(smudge|process|required)$",
+  ]);
+  const drivers = new Set<string>();
+  for (const line of listed.stdout.split("\n")) {
+    const found = /^filter\.(.+)\.(smudge|process|required)$/.exec(line.trim());
+    if (found === null) continue;
+    const name = found[1] ?? "";
+    if (!DRIVER.test(name)) {
+      throw new BoxError("box.refused", "a git filter driver's name cannot be switched off.");
+    }
+    drivers.add(name);
+  }
+  return [
+    ...BASE_CHECKOUT_CONFIG,
+    ...[...drivers].flatMap((name): (readonly [string, string])[] => [
+      [`filter.${name}.smudge`, ""],
+      [`filter.${name}.process`, ""],
+      [`filter.${name}.required`, "false"],
+    ]),
+  ];
+}
+
 /**
  * Stages the code of one box: the start commit from git's objects, plus the listed files from
- * dipo's checkout of the base. The caller copies `dir` into the box and then calls `remove`.
+ * the office's main checkout. The caller copies `dir` into the box and then calls `remove`.
  */
 export async function stageBoxCode(
   deps: BoxCodeDeps,
@@ -184,13 +251,12 @@ export async function stageBoxCode(
     const archive = join(root, "code.tar");
     const dir = join(root, "code");
     await mkdir(dir, { mode: 0o755 });
-    await request.git.run((session) =>
-      session.ok(session.repository, [
-        "archive",
-        "--format=tar",
-        `--output=${archive}`,
-        request.commit,
-      ]),
+    await request.git.run(async (session) =>
+      session.ok(
+        session.repository,
+        ["archive", "--format=tar", `--output=${archive}`, request.commit],
+        { config: await filtersOffConfig(session), env: BASE_CHECKOUT_ENV },
+      ),
     );
     await unpack(deps, archive, dir);
     await rm(archive, { force: true });
@@ -202,9 +268,7 @@ export async function stageBoxCode(
     }
     for (const entry of request.files) {
       const why =
-        source === null
-          ? "dipo's checkout of the base cannot be read"
-          : await addListed(source, dir, entry);
+        source === null ? "the main checkout cannot be read" : await addListed(source, dir, entry);
       if (why === null) added.push(entry.path);
       else skipped.push({ path: entry.path, why });
     }

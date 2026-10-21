@@ -17,6 +17,8 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -47,6 +49,7 @@ import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold"
 import type { BoxWebRouteStart } from "../../src/box/web-proxy";
 import {
   BOX_CA_FILE,
+  BOX_INDEX_DIR,
   BOX_RUN_FILE,
   BOX_SYSTEM_FILE,
   BoxWorkers,
@@ -72,11 +75,15 @@ const IMAGE: BoxImageDescription = {
   packages: [],
   claudeCode: "2.1.303",
 };
-/** The listed files of the base office config: one present, one missing, one a symlink. */
+/**
+ * The listed files of the base office config: one present, one missing, one a symlink, and one
+ * reached through a symlinked folder.
+ */
 const LISTED = [
   { path: "config/local.json", noRealSecrets: true as const },
   { path: "missing.json", noRealSecrets: true as const },
   { path: "linked.json", noRealSecrets: true as const },
+  { path: "via/inner.json", noRealSecrets: true as const },
 ];
 
 function officeGit(dir: string, env: Record<string, string>): OfficeGit {
@@ -103,6 +110,8 @@ interface World {
   readonly runDir: string;
   readonly systemFile: string;
   readonly tmp: string;
+  readonly indexDir: string;
+  readonly base: string;
 }
 
 interface WorldOptions {
@@ -113,25 +122,30 @@ interface WorldOptions {
 }
 
 /**
- * A repository with tracked code and untracked files, dipo's checkout of the base next to it with
- * the listed file, and the box workers on the fake backend with logging routes.
+ * A repository with tracked code, its real `_base` checkout (`ensureBaseWorktree`), files outside
+ * git in the main checkout (listed and unlisted), and the box workers on the fake backend with
+ * logging routes.
  */
 async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): Promise<World> {
   mkdirSync(join(repo.dir, "src"));
   writeFileSync(join(repo.dir, "src", "greet.ts"), "export const greet = () => 'hi';\n");
   writeFileSync(join(repo.dir, "README.md"), "# repo\n");
   const commit = await repo.commitAll("start");
-  // Untracked in the main checkout: never copied in.
+  await repo.git("update-ref", "refs/remotes/origin/main", commit);
+  const git = officeGit(repo.dir, repo.env);
+  // dipo's real `_base` checkout: clean, so it never holds a file outside git.
+  const base = (await git.ensureBaseWorktree()).path;
+  // Outside git in the main checkout: the listed file, unlisted ones, a listed symlink and a
+  // listed file behind a symlinked folder.
+  mkdirSync(join(repo.dir, "config"), { recursive: true });
+  writeFileSync(join(repo.dir, "config", "local.json"), '{"local":true}\n');
   writeFileSync(join(repo.dir, ".env"), "TOKEN=real\n");
   writeFileSync(join(repo.dir, "notes.txt"), "mine\n");
-  const git = officeGit(repo.dir, repo.env);
-  // dipo's checkout of the base, with the listed file, an unlisted one and a listed symlink.
-  const base = git.baseWorktreePath();
-  mkdirSync(join(base, "config"), { recursive: true });
-  writeFileSync(join(base, "config", "local.json"), '{"local":true}\n');
-  writeFileSync(join(base, "unlisted.txt"), "not listed\n");
   writeFileSync(join(tmp, "outside.json"), "{}\n");
-  symlinkSync(join(tmp, "outside.json"), join(base, "linked.json"));
+  symlinkSync(join(tmp, "outside.json"), join(repo.dir, "linked.json"));
+  mkdirSync(join(repo.dir, "real-folder"));
+  writeFileSync(join(repo.dir, "real-folder", "inner.json"), "{}\n");
+  symlinkSync(join(repo.dir, "real-folder"), join(repo.dir, "via"));
 
   const log = options.boxes?.log ?? [];
   const boxes = new FakeBoxes({ ...options.boxes, log });
@@ -164,6 +178,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     };
   const token = new SecretToken(TOKEN);
   const warnings: World["warnings"] = [];
+  const indexDir = join(tmp, "state", BOX_INDEX_DIR);
   const workers = new BoxWorkers({
     boxes,
     startWebRoute: route("web route"),
@@ -193,6 +208,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     holds,
     adapter: ADAPTER,
     tmpRoot: tmp,
+    indexDir,
     scratchRoot: tmp,
     ...(options.packageCache === undefined ? {} : { packageCache: () => options.packageCache }),
     warn: (message, fields) => warnings.push({ message, fields }),
@@ -201,7 +217,21 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   mkdirSync(runDir, { recursive: true });
   const systemFile = join(runDir, "system.md");
   writeFileSync(systemFile, "# system\n");
-  return { boxes, workers, log, holds, notices, warnings, git, commit, runDir, systemFile, tmp };
+  return {
+    boxes,
+    workers,
+    log,
+    holds,
+    notices,
+    warnings,
+    git,
+    commit,
+    runDir,
+    systemFile,
+    tmp,
+    indexDir,
+    base,
+  };
 }
 
 async function created(w: World): Promise<void> {
@@ -219,9 +249,12 @@ function inBoxes(fn: (repo: TempRepo, tmp: string) => Promise<void>): Promise<vo
 }
 
 describe("the code a box gets (criterion 5)", () => {
-  it("is a plain copy of the start commit with no .git, plus only the listed files from dipo's base checkout", () =>
+  it("is a plain copy of the start commit with no .git, plus only the listed files from the main checkout", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
+      // The real `_base` is clean: the listed file was never there to copy.
+      expect(existsSync(join(w.base, "config", "local.json"))).toBe(false);
+      expect(existsSync(join(w.base, "README.md"))).toBe(true);
       // A change after the start commit, committed or not, is not the box's.
       writeFileSync(join(repo.dir, "README.md"), "# changed later\n");
       await created(w);
@@ -235,10 +268,14 @@ describe("the code a box gets (criterion 5)", () => {
         "src/greet.ts",
       ]);
       expect(code?.listing.some((path) => path.startsWith(".git"))).toBe(false);
-      // The listed file that is missing and the listed symlink are left out, and said so.
+      expect(code?.listing).not.toContain(".env");
+      expect(code?.listing).not.toContain("notes.txt");
+      // The listed file that is missing, the listed symlink and the one behind a symlinked folder
+      // are left out, and said so.
       expect(w.warnings.map((warning) => [warning.fields["path"], warning.fields["why"]])).toEqual([
-        ["missing.json", "missing in dipo's checkout of the base"],
+        ["missing.json", "missing in the main checkout"],
         ["linked.json", "not a regular file (a symlink or a folder)"],
+        ["via/inner.json", "via on its way is a symlink"],
       ]);
       // The stage folder is gone again.
       expect(readdirSync(tmp).filter((name) => name.startsWith(CODE_STAGE_PREFIX))).toEqual([]);
@@ -254,6 +291,23 @@ describe("the code a box gets (criterion 5)", () => {
       expect(w.warnings.map((warning) => warning.fields["why"])).toContain(
         "a file of that path is in the start commit",
       );
+    }));
+});
+
+describe("the archive of the start commit", () => {
+  it("runs no filter program a filter= attribute in the commit names", () =>
+    inBoxes(async (repo, tmp) => {
+      const marker = join(tmp, "filter-ran");
+      writeFileSync(join(repo.dir, ".gitattributes"), "* filter=evil\n");
+      const w = await world(repo, tmp);
+      // The repository's own config defines the driver; the archive must run neither command.
+      await repo.git("config", "filter.evil.smudge", `touch ${marker}; cat`);
+      await repo.git("config", "filter.evil.process", `touch ${marker}`);
+      await repo.git("config", "filter.evil.required", "true");
+      await created(w);
+      expect(existsSync(marker)).toBe(false);
+      const code = w.boxes.boxes.get(BOX)?.copies.find((copy) => copy.to === "/work");
+      expect(code?.listing).toContain("src/greet.ts");
     }));
 });
 
@@ -431,6 +485,7 @@ describe("the end of a box run (criterion 9)", () => {
         holds: w.holds,
         adapter: ADAPTER,
         tmpRoot: tmp,
+        indexDir: w.indexDir,
         scratchRoot: tmp,
       });
       expect(restarted.pending()).toEqual([RUN]);
@@ -438,6 +493,28 @@ describe("the end of a box run (criterion 9)", () => {
       expect(w.boxes.boxes.has(BOX)).toBe(false);
       expect(readBoxRun(w.runDir)?.finished).toBe(true);
       expect(restarted.pending()).toEqual([]);
+    }));
+
+  it("finishes, at daemon start, an ended box the index lost, through the backend's list", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      // The index lost the box (its file is gone), the backend still lists it.
+      rmSync(join(w.indexDir, BOX), { force: true });
+      expect(w.workers.pending()).toEqual([]);
+      expect(await w.workers.finishEnded((runId) => runId === RUN)).toEqual([]);
+      expect(await w.workers.finishEnded((runId) => runId === RUN, { listBoxes: true })).toEqual([
+        RUN,
+      ]);
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
+    }));
+
+  it("keeps the index in the state folder, private", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      expect(readdirSync(w.indexDir)).toEqual([BOX]);
+      expect(statSync(w.indexDir).mode & 0o777).toBe(0o700);
     }));
 
   it("deletes the box of a launch whose worker never ran, without the check", () =>
@@ -448,6 +525,39 @@ describe("the end of a box run (criterion 9)", () => {
       await w.workers.discard(RUN);
       expect(w.log).toEqual([`delete ${BOX}`]);
       expect(w.workers.pending()).toEqual([]);
+    }));
+});
+
+describe("a new session in a box that already runs (an orphaned claude)", () => {
+  it("stops and starts the box again, so no earlier process survives into the new session", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      // The first session right after create: no worker ran yet, so the box is not restarted.
+      w.log.length = 0;
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.filter((line) => line.startsWith("stop ") || line.startsWith("start "))).toEqual(
+        [],
+      );
+      // Its host was killed with SIGKILL: claude still runs in the box.
+      const box = w.boxes.boxes.get(BOX)!;
+      box.workerRunning = true;
+      w.log.length = 0;
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.slice(0, 3)).toEqual(["list", `stop ${BOX}`, `start ${BOX}`]);
+      expect(box.workerRunning).toBe(false);
+      expect(box.state).toBe("running");
+    }));
+
+  it("starts a stopped box without stopping it first", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.boxes.stop(BOX);
+      w.log.length = 0;
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.slice(0, 2)).toEqual(["list", `start ${BOX}`]);
     }));
 });
 
@@ -482,9 +592,12 @@ describe("daemon stop (criterion 6)", () => {
         holds: new AdapterHolds({ clock: new ManualClock(), notify: () => {} }),
         adapter: ADAPTER,
         tmpRoot: tmp,
+        indexDir: join(tmp, "state", BOX_INDEX_DIR),
         scratchRoot: tmp,
       });
       expect(await workers.finishEnded(() => true)).toEqual([]);
+      // A state folder whose boxes never ran: the second layer does not ask the backend either.
+      expect(await workers.finishEnded(() => true, { listBoxes: true })).toEqual([]);
       await workers.close();
       expect(log).toEqual([]);
       expect(existsSync(join(tmp, BOX_RUN_FILE))).toBe(false);

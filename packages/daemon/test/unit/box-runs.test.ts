@@ -64,6 +64,7 @@ describe("the daemon's box workers", () => {
         uid: process.getuid?.() ?? 0,
         runtimeDir: join(dir, "rt"),
         tmpRoot: dir,
+        stateDir: join(dir, "state"),
         holds: new AdapterHolds({ clock, notify: () => {} }),
         engineGit: { forOffice: () => undefined },
         claims: {},

@@ -25,6 +25,7 @@ import type {
 import {
   type AdapterHolds,
   AppleContainerBoxes,
+  BOX_INDEX_DIR,
   type BoxBuildNetwork,
   type BoxNetwork,
   type BoxPort,
@@ -146,6 +147,8 @@ export interface DaemonRunsOptions {
   readonly runtimeDir: string;
   /** Where each run's sandbox temp directory is made. */
   readonly tmpRoot: string;
+  /** dipo's state folder: the box workers keep their index of unfinished boxes in it (DIPO-271). */
+  readonly stateDir: string;
   readonly holds: AdapterHolds;
   readonly engineGit: EngineGit;
   readonly claims: StoryClaims;
@@ -224,9 +227,10 @@ export interface DaemonRuns {
   readonly boxes: BoxWorkers | null;
   /**
    * Checks and deletes the box of every run that ended (DIPO-271): after each exit decision
-   * here, and at daemon start by the recovery step. Never rejects.
+   * here, and at daemon start by the recovery step, which also asks the backend for dipo's boxes
+   * (`listBoxes`). Never rejects.
    */
-  finishEndedBoxes(): Promise<void>;
+  finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -364,6 +368,7 @@ function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorke
     holds: options.holds,
     adapter: CLAUDE_CLI_ADAPTER_ID,
     tmpRoot,
+    indexDir: join(options.stateDir, BOX_INDEX_DIR),
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
@@ -403,9 +408,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   // Box workers (DIPO-271); their token check exports a stopped daemon left go first.
   const boxWorkers = daemonBoxWorkers(options, realDir(options.tmpRoot));
   void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
-  const finishEndedBoxes = async (): Promise<void> => {
+  const finishEndedBoxes = async (
+    finishOptions: { readonly listBoxes?: boolean } = {},
+  ): Promise<void> => {
     if (boxWorkers === null) return;
-    const finished = await boxWorkers.finishEnded((runId) => boxRunEnded(options.offices, runId));
+    const finished = await boxWorkers.finishEnded(
+      (runId) => boxRunEnded(options.offices, runId),
+      finishOptions,
+    );
     if (finished.length > 0)
       options.logger.info("ended box runs checked and deleted", { finished });
   };
