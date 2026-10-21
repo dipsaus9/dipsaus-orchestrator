@@ -544,6 +544,37 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     expect(stepsOf(s.run, "review")).toHaveLength(1);
   });
 
+  it("tells the maintainer once when the reviewer's copy does not match the head, and the review waits (DIPO-276)", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const why =
+      "the read-only copy of the pushed commit could not be made: the copy of eee does not match the commit: 1 of its files missing, 0 files it does not hold";
+    w.t.clock.advance(3 * MINUTE);
+    x.next = () => ({ kind: "failed", reason: why, copyMismatch: true });
+    expect(await x.places.drain(officeId())).toBe(0);
+    // The story stays In Review and its review waits for the place again.
+    expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.review });
+    w.t.clock.advance(MINUTE);
+    expect(await x.places.drain(officeId())).toBe(0);
+    const notices = events("engine.notice").filter((event) =>
+      JSON.stringify(event).includes("review.copyMismatch"),
+    );
+    expect(notices).toHaveLength(1);
+    const text = JSON.stringify(notices[0]);
+    expect(text).toContain("DIPO-1: the review cannot start");
+    expect(text).toContain("differ only in case");
+    expect(text).toContain('"level":"warn"');
+    // A plain failure raises no such notice.
+    x.next = () => ({ kind: "failed", reason: "the host did not start" });
+    w.t.clock.advance(MINUTE);
+    await x.places.drain(officeId());
+    expect(
+      events("engine.notice").filter((event) =>
+        JSON.stringify(event).includes("review.copyMismatch"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("passes the previous round's findings to a re-review", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");

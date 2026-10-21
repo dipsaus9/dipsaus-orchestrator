@@ -293,11 +293,14 @@ export async function checkCopyComplete(
   const missing = [...expected].filter((path) => !present.has(path));
   const extra = [...present].filter((path) => !expected.has(path));
   if (missing.length > 0 || extra.length > 0) {
-    throw new Error(
+    throw new ReviewCopyMismatchError(
       `the copy of ${commit} does not match the commit: ${missing.length} of its files missing, ${extra.length} files it does not hold`,
     );
   }
 }
+
+/** The copy does not hold exactly the commit's files: the review of that head cannot start. */
+export class ReviewCopyMismatchError extends Error {}
 
 /** Gives every folder below `dir` its owner's write bit back, so the tree can be removed. */
 async function unlock(dir: string): Promise<void> {
@@ -418,7 +421,15 @@ export type ReviewSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   /** A launch check refused the session; the adapter hold is set. */
   | { readonly kind: "startFailed"; readonly hold: AdapterHold }
-  | { readonly kind: "failed"; readonly reason: string };
+  | {
+      readonly kind: "failed";
+      readonly reason: string;
+      /**
+       * The copy of the head does not match its tree (`ReviewCopyMismatchError`): no session of
+       * this head can start, so the maintainer is told (DIPO-276).
+       */
+      readonly copyMismatch?: true;
+    };
 
 /** Starts a reviewer session (the real one is `ReviewLauncher`). */
 export interface ReviewSessions {
@@ -528,6 +539,7 @@ export class ReviewLauncher implements ReviewSessions {
       return {
         kind: "failed",
         reason: `the read-only copy of the pushed commit could not be made: ${messageOf(error)}`,
+        ...(error instanceof ReviewCopyMismatchError ? { copyMismatch: true as const } : {}),
       };
     }
     let outcome: ReviewSessionOutcome;

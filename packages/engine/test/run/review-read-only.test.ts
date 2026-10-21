@@ -104,6 +104,8 @@ interface World {
   /** The start commit on main, an older head of the story branch. */
   readonly startSha: string;
   readonly launcher: ReviewLauncher;
+  /** The launcher's deps, for a launcher with other code deps. */
+  readonly deps: ConstructorParameters<typeof ReviewLauncher>[0];
   readonly prepared: Prepared[];
   readonly started: LaunchPlan[];
   /** What the next `prepare` does instead of planning; plan by default. */
@@ -199,7 +201,7 @@ async function world(repo: TempRepo): Promise<World> {
       return { ok: true, plan: planned };
     },
   } as unknown as WorkerPort;
-  (w as { launcher: ReviewLauncher }).launcher = new ReviewLauncher({
+  const deps: ConstructorParameters<typeof ReviewLauncher>[0] = {
     clock: rounds.t.clock,
     ids: rounds.t.ids,
     offices: { get: () => rounds.office, config: () => OFFICE_DEFAULTS },
@@ -217,7 +219,9 @@ async function world(repo: TempRepo): Promise<World> {
     },
     ingest: { start: () => undefined },
     control: { track: () => undefined },
-  });
+  };
+  (w as { deps: typeof deps }).deps = deps;
+  (w as { launcher: ReviewLauncher }).launcher = new ReviewLauncher(deps);
   return w;
 }
 
@@ -391,6 +395,29 @@ describe("the reviewer's read-only copy of the pushed commit (DIPO-276)", () => 
         "0 of its files missing, 1 files it does not hold",
       );
       await w.launcher.finish(w.rounds.office.officeId as OfficeId, w.run.runId, s.agent);
+    }));
+
+  it("refuses a copy that lost a file while it was unpacked, marked for the maintainer, leaving nothing", () =>
+    withWorld(async (w) => {
+      // A tar that unpacks and then loses one file, as two paths that differ only in case would on
+      // a file system that folds case.
+      const tar = join(w.repo.root, "lossy-tar");
+      writeFileSync(tar, '#!/bin/sh\n/usr/bin/tar "$@" || exit $?\nrm -f "$5/hidden.txt"\n', {
+        mode: 0o755,
+      });
+      const launcher = new ReviewLauncher({ ...w.deps, code: { spawn: systemSpawn, tar } });
+      const outcome = await launcher.start({
+        office: w.rounds.office.officeId as OfficeId,
+        run: w.run,
+        taskMessage: TASK,
+        head: w.tip,
+      });
+      expect(outcome).toMatchObject({ kind: "failed", copyMismatch: true });
+      expect((outcome as { reason: string }).reason).toContain(
+        "does not match the commit: 1 of its files missing",
+      );
+      expect(folders(w)).toEqual([]);
+      expect(w.prepared).toEqual([]);
     }));
 
   it("tells the reviewer that the copy's ignore files are data", () =>

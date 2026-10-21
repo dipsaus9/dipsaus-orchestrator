@@ -109,6 +109,8 @@ export const REVIEW_NOTICES = {
   /** A reviewer session failed; a fresh one starts, or the review waits. */
   failed: "review.failed",
   startFailed: OUTCOME_NOTICES.startFailed,
+  /** The reviewer's read-only copy of a head does not match its tree: the review cannot start. */
+  copyMismatch: "review.copyMismatch",
 } as const;
 
 export interface ReviewsDeps {
@@ -183,6 +185,8 @@ export class Reviews {
   readonly #deps: ReviewsDeps;
   /** Runs whose reviewer exit is being decided now. */
   readonly #deciding = new Set<string>();
+  /** `<run>:<head>` of each copy mismatch already noticed. */
+  readonly #mismatched = new Set<string>();
 
   constructor(deps: ReviewsDeps) {
     this.#deps = deps;
@@ -308,8 +312,33 @@ export class Reviews {
           run: run.runId,
           reason: outcome.reason,
         });
+        if (outcome.copyMismatch === true) this.#copyMismatch(office, run, head, outcome.reason);
         return false;
     }
+  }
+
+  /**
+   * A copy that does not match its head's tree (DIPO-276), for example two paths that differ only
+   * in case, which the Mac's file system folds into one: a notice for the maintainer, once per head
+   * in this daemon, so a commit cannot stall its own review unseen. The story stays In Review.
+   */
+  #copyMismatch(office: OfficeHandle, run: StoredRun, head: string, why: string): void {
+    const seen = `${run.runId}:${head}`;
+    if (this.#mismatched.has(seen)) return;
+    this.#mismatched.add(seen);
+    const story = run.story ?? run.runId;
+    this.#write(office, () => [
+      {
+        type: "engine.notice",
+        ...(run.key === null ? {} : { key: run.key }),
+        run: run.runId,
+        delta: {
+          level: "warn",
+          code: REVIEW_NOTICES.copyMismatch,
+          text: `${story}: the review cannot start: ${why}. The commit may hold paths that differ only in case, which this Mac's file system folds into one. The story stays In Review until its branch changes; check the commit.`,
+        },
+      },
+    ]);
   }
 
   /** The `startFailed` row of section 4: a notice; the story stays In Review, the review waits. */

@@ -106,6 +106,7 @@ export {
   parseNumstat,
   removeReviewFolder,
   REVIEW_COMMIT_FILE,
+  ReviewCopyMismatchError,
   REVIEW_FOLDER_PREFIX,
   REVIEW_SESSION_DIR,
   reviewFolder,
