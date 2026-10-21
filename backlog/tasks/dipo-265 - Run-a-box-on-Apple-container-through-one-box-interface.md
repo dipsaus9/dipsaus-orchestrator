@@ -1,10 +1,10 @@
 ---
 id: DIPO-265
 title: Run a box on Apple container through one box interface
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 14:20'
+updated_date: '2026-10-21 14:55'
 labels:
   - 'tier:M'
   - cutover

@@ -4,7 +4,7 @@ title: Commit each delivered part after a secret and protected-file scan
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:54'
+updated_date: '2026-10-21 14:38'
 labels:
   - 'tier:M'
   - cutover
@@ -46,4 +46,5 @@ unknowns: []
 - [ ] #4 On story done, undelivered changes become a last part before verify
 - [ ] #5 Tests cover the scan, the protected list, the message cleaning and the last-part rule
 - [ ] #6 For box workers the References scope check at done and the scope-violation park are removed (0021 section 13); only the protected-file park stays, and tests show that a change outside the References commits while a protected file parks
+- [ ] #7 A symlink in the changes copied out of the box is never followed and parks the story as a protected-file hit; container copy keeps symlinks as links, so a box can plant a link to a Mac path (DIPO-265 real-box run of 2026-10-21)
 <!-- AC:END -->

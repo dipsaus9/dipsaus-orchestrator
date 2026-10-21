@@ -1,10 +1,10 @@
 ---
 id: DIPO-266
 title: Build the box image from the office config
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 15:13'
+updated_date: '2026-10-21 16:18'
 labels:
   - 'tier:M'
   - cutover
