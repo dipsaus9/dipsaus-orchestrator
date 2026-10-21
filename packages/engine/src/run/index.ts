@@ -99,8 +99,20 @@ export {
   verifiedTreeKey,
 } from "./review-rounds";
 export type { ReviewRound } from "./review-rounds";
-export { gitReviewOps, parseNumstat, ReviewLauncher, reviewerSettings } from "./review-launch";
+export {
+  gitReviewOps,
+  makeReviewCopy,
+  parseNumstat,
+  removeReviewFolder,
+  REVIEW_FOLDER_PREFIX,
+  REVIEW_SESSION_DIR,
+  reviewFolder,
+  ReviewLauncher,
+  reviewerSettings,
+  sweepReviewFolders,
+} from "./review-launch";
 export type {
+  ReviewCopy,
   ReviewGit,
   ReviewLauncherDeps,
   ReviewSessionOutcome,

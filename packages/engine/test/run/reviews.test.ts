@@ -203,6 +203,8 @@ interface World {
   readonly sessions: Session[];
   readonly sent: { run: string; ops: readonly HostOp[] }[];
   readonly warned: unknown[];
+  /** The agents whose read-only copy the launcher was told to remove (DIPO-276). */
+  readonly finished: string[];
   /** What the next session start answers; `started` by default. */
   next: (() => ReviewSessionOutcome) | null;
   /** The finisher's backstop parks the next turn when set. */
@@ -216,6 +218,7 @@ function world(): World {
   const sessions: Session[] = [];
   const sent: World["sent"] = [];
   const warned: unknown[] = [];
+  const finished: string[] = [];
   const state: { next: World["next"]; backstop: string | null } = { next: null, backstop: null };
   let reviews: Reviews | null = null;
   const base: RunOutcomesPort = {
@@ -298,6 +301,9 @@ function world(): World {
         sessions.push({ run: request.run.runId, agent, work, message: request.taskMessage });
         return { kind: "started", agent };
       },
+      finish: async (_office, _run, agent) => {
+        finished.push(agent);
+      },
     },
     steering: {
       send: async (_office, run, ops) => {
@@ -334,6 +340,7 @@ function world(): World {
     sessions,
     sent,
     warned,
+    finished,
     get next() {
       return state.next;
     },
@@ -506,6 +513,8 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     expect(runIntents(w.office, older.run)).toEqual([]);
     await exits(session);
     expect(parksOf()).toEqual([]);
+    // The round's read-only copy goes with the session's exit (DIPO-276).
+    expect(x.finished).toEqual([session.agent]);
 
     // The newer story's review starts next.
     await reviewStarts(newer);
@@ -815,6 +824,8 @@ describe("the failure table (0019 section 4)", () => {
     await problem(session, "error", "API Error: 500");
     await exits(session, 1);
     expect(x.sessions).toHaveLength(2);
+    // The crashed session's read-only copy goes; the fresh session has its own (DIPO-276).
+    expect(x.finished).toEqual([session.agent]);
     expect(parksOf()).toEqual([]);
     expect(
       w.office.get<{ end_reason: string }>(

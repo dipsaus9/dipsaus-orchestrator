@@ -538,13 +538,25 @@ export class Reviews {
   async onExit(exit: ExitContext): Promise<void> {
     await exit.turns.catch(() => undefined);
     await exit.ending?.catch(() => undefined);
+    await this.#finish(exit.view, exit.agent);
     await this.#decide(exit.view, exit.agent, exit.end);
   }
 
   /** A reviewer host found dead after a restart: as a crash. */
   async onHostLost(lost: HostLostContext): Promise<void> {
     await lost.ending?.catch(() => undefined);
+    await this.#finish(lost.view, lost.agent);
     await this.#decide(lost.view, lost.agent, null);
+  }
+
+  /** The ended session's read-only copy goes (DIPO-276); a failure is left for the start sweep. */
+  async #finish(view: RunView, agent: string): Promise<void> {
+    await this.#deps.sessions.finish?.(view.office, view.runId, agent).catch((error: unknown) => {
+      this.#deps.warn?.("a reviewer's read-only copy could not be removed", {
+        run: view.runId,
+        reason: messageOf(error),
+      });
+    });
   }
 
   async #decide(view: RunView, agent: string, end: IngestedExit | null): Promise<void> {
