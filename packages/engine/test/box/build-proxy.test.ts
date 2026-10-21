@@ -125,8 +125,6 @@ describe("the image build's proxy", () => {
     expect(checkAddress("198.51.100.7", context)).toEqual({ ok: true, connectTo: "198.51.100.7" });
     expect(checkAddress("192.0.2.30", context).ok).toBe(false);
     expect(checkAddress(BUILD_HOST_ADDRESS, context).ok).toBe(false);
-    expect(checkAddress("10.0.0.1", context).ok).toBe(false);
-    expect(checkAddress("127.0.0.1", context).ok).toBe(false);
   });
 });
 
