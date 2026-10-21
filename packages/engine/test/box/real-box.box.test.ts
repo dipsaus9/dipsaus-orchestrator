@@ -21,7 +21,8 @@
 //
 // It builds the office image of a small description (minutes on a cold builder), builds it again
 // to see the image reused, and checks the box it runs: Claude Code at its pinned version, with
-// auto-update and nonessential traffic off, and the build proxy left out of the image.
+// auto-update and nonessential traffic off, and neither the build proxy, the build CA nor git in
+// the image.
 
 import { lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -250,8 +251,9 @@ if (registers) {
               expect(printed).toContain("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1");
               expect(printed).not.toContain("DIPO_PROXY");
               expect(printed).not.toContain(BUILD_PROXY);
-              const ca = await boxes.exec(name, ["sh", "-c", "ls /run/dipo 2>&1 || true"]);
-              fact(`the build CA folder in the box: ${JSON.stringify(ca.stdout.trim())}`);
+              // The build CA was mounted for the npm step only; it is not in the image.
+              const ca = await boxes.exec(name, ["test", "-e", "/run/dipo/safe-chain-ca.pem"]);
+              expect(ca.code).not.toBe(0);
               const git = await boxes.exec(name, ["sh", "-c", "command -v git || echo none"]);
               expect(git.stdout.trim()).toBe("none");
             } finally {

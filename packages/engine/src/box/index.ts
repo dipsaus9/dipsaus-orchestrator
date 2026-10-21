@@ -75,9 +75,12 @@ export {
   checkImageDescription,
   describeBox,
   ensureBoxImage,
+  NODE_TARBALL_SHA256,
+  readBaseBox,
   readBaseBoxSection,
 } from "./image";
 export type {
+  BaseBox,
   BaseBoxSection,
   BoxBuildProxy,
   BoxDescription,
@@ -86,4 +89,6 @@ export type {
   BoxImageRequest,
   BoxImageResult,
   BoxToolchain,
+  NodeArch,
+  NodeSha256,
 } from "./image";

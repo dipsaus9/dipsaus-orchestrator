@@ -41,7 +41,11 @@ function managerVersion(managers: readonly PackageManager[], name: PackageManage
   return exactVersion(managers.find((manager) => manager.name === name)?.version);
 }
 
-/** The tools the repository needs in its box, with the versions it pins. */
+/**
+ * The tools the repository needs in its box, with the versions it pins. The probe must be of the
+ * same base commit the box block was read from (`readBaseBoxSection`), never of a story's checkout
+ * or branch, so a story cannot change its own box; `readBaseBox` reads both from one commit.
+ */
 export function detectBoxToolchain(probe: Probe, toolchain: Toolchain): DetectedBoxToolchain {
   const managers = managersOf(toolchain.packageManager);
   const uses = (name: PackageManagerName) => managers.some((manager) => manager.name === name);

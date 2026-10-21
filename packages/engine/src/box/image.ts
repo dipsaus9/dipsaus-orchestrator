@@ -5,7 +5,10 @@
 // needs no hand-written block.
 //
 // - dipo reads the block from the base branch only (`readBaseBoxSection`), so a story cannot
-//   change its own box.
+//   change its own box; `readBaseBox` also reads the files the toolchain detection needs from that
+//   same commit.
+// - The Node.js tarball is checked against a sha256 dipo pins per version (`NODE_TARBALL_SHA256`).
+// - The build fails when git ends up in the image (0021 decision 4).
 // - dipo writes the build file itself (`boxBuildFile`), in a folder it made, and builds it with the
 //   box backend. A build file in the repository is never read.
 // - The image tag is a sha256 of that build file, which is made from the image description alone:
@@ -25,9 +28,12 @@ import { configError } from "@dipsaus-orchestrator/contract";
 import { OFFICE_FILE, resolveOfficeConfig } from "../config/load";
 import type { ConfigError } from "../config/load";
 import type { OfficeBoxSection } from "../config/schema";
-import type { OfficeGit } from "../git/office";
+import type { GitSession, OfficeGit } from "../git/office";
 import { isCertificateBundle } from "../sandbox/safe-chain-proxy";
-import type { BoxTool, DetectedBoxToolchain } from "../scan/detect/box";
+import { type BoxTool, type DetectedBoxToolchain, detectBoxToolchain } from "../scan/detect/box";
+import { detect } from "../scan/detect/detect";
+import { BUN_VERSION_FILE, LOCKFILES, ROOT_MANIFEST, RUNTIME_FILES } from "../scan/detect/manifest";
+import type { Probe } from "../scan/detect/types";
 import { BUILD_PROXY_ARG } from "./apple-args";
 import {
   BOX_BUILD_CA_FILE,
@@ -52,6 +58,24 @@ export const BOX_DEFAULTS = {
   },
 } as const;
 
+/** The architectures nodejs.org builds Node.js tarballs for that a box can run. */
+export type NodeArch = "arm64" | "x64";
+/** The sha256 of `node-v<version>-linux-<arch>.tar.gz`, per architecture. */
+export type NodeSha256 = Readonly<Partial<Record<NodeArch, string>>>;
+
+/**
+ * The pinned sha256 of the Node.js tarballs dipo knows, by version: what nodejs.org's
+ * SHASUMS256.txt of that release lists. The build checks the download against it, and it is part
+ * of the build file, so of the tag. A Node version not listed here needs `box.toolchain.nodeSha256`
+ * in the office config, or the build is refused.
+ */
+export const NODE_TARBALL_SHA256: Readonly<Record<string, NodeSha256>> = {
+  "24.22.1": {
+    arm64: "33c37be234ba8bee041961047b19160f4d7d0f164e8e246f78bdd10feff148b3",
+    x64: "eb6728e77c576a35162c122c45ccadf224d89ff00abc8dae46cc2897c6002d7c",
+  },
+};
+
 /** The toolchain of a box image: Node always (npm installs Claude Code), the rest as needed. */
 export type BoxToolchain = { readonly node: string } & Partial<
   Readonly<Record<Exclude<BoxTool, "node">, string>>
@@ -61,6 +85,8 @@ export type BoxToolchain = { readonly node: string } & Partial<
 export interface BoxImageDescription {
   readonly debian: string;
   readonly toolchain: BoxToolchain;
+  /** The Node.js tarball's sha256 per architecture; the build refuses an architecture without one. */
+  readonly nodeSha256: NodeSha256;
   /** Extra Debian packages, sorted. */
   readonly packages: readonly string[];
   readonly claudeCode: string;
@@ -81,13 +107,22 @@ export interface BoxDescription {
 const EXACT = /^\d+\.\d+\.\d+$/;
 const DEBIAN = /^[a-z0-9][a-z0-9.]*$/;
 const PACKAGE = /^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 /** The tools after Node, in the order the build file installs them. */
 const NPM_TOOLS = ["bun", "pnpm", "yarn"] as const;
+/** Debian's architecture name for each Node.js tarball architecture. */
+const NODE_ARCHES: readonly NodeArch[] = ["arm64", "x64"];
+const DEBIAN_ARCH: Readonly<Record<NodeArch, string>> = { arm64: "arm64", x64: "amd64" };
 
 /**
  * The box of an office: each key of the committed block wins, then the version the repository
  * pins, then dipo's default. A toolchain tool is in the image when the block names it or the
- * repository needs it; Node always is.
+ * repository needs it; Node always is. The Node tarball's sha256 comes from the block, else from
+ * `NODE_TARBALL_SHA256`.
+ *
+ * Both inputs must come from the same base commit: `section` from `readBaseBoxSection`, and
+ * `detected` from a probe of that commit (the `_base` checkout at the commit it returned), never
+ * from a story's checkout or branch. `readBaseBox` reads both from one commit.
  */
 export function describeBox(
   section: OfficeBoxSection | undefined,
@@ -102,10 +137,17 @@ export function describeBox(
     if (version !== undefined && version !== null) toolchain[tool] = version;
     else if (detected[tool] !== undefined) toolchain[tool] = BOX_DEFAULTS.toolchain[tool];
   }
+  const pinned = committed.nodeSha256;
   return {
     image: {
       debian: section?.debian ?? BOX_DEFAULTS.debian,
       toolchain: toolchain as BoxToolchain,
+      nodeSha256:
+        pinned !== undefined && Object.keys(pinned).length > 0
+          ? (Object.fromEntries(
+              Object.entries(pinned).filter(([, sum]) => sum !== undefined),
+            ) as NodeSha256)
+          : { ...NODE_TARBALL_SHA256[toolchain["node"]!] },
       packages: [...new Set(section?.packages ?? [])].toSorted(),
       claudeCode: section?.claudeCode ?? BOX_DEFAULTS.claudeCode,
     },
@@ -137,6 +179,18 @@ export function checkImageDescription(image: BoxImageDescription): BoxImageDescr
   if (image.toolchain.yarn !== undefined && !image.toolchain.yarn.startsWith("1.")) {
     refuse("only Yarn 1 installs from npm.", { yarn: image.toolchain.yarn });
   }
+  const sums = Object.entries(image.nodeSha256);
+  if (sums.length === 0) {
+    refuse(
+      `Node.js ${image.toolchain.node} has no pinned tarball sha256; set box.toolchain.nodeSha256 in the office config.`,
+      { node: image.toolchain.node },
+    );
+  }
+  for (const [arch, sum] of sums) {
+    if (!(NODE_ARCHES as readonly string[]).includes(arch) || !SHA256.test(sum ?? "")) {
+      refuse(`the Node.js sha256 for ${JSON.stringify(arch)} is not a sha256.`, { arch, sum });
+    }
+  }
   for (const name of image.packages) {
     if (!PACKAGE.test(name) || name.split("=")[0] === "git") {
       refuse(`${JSON.stringify(name)} is not a Debian package a box may get.`, { name });
@@ -165,8 +219,15 @@ const apt = (checked: boolean) =>
  * description always gives the same text, so the image tag (`boxImageTag`) is a hash of it.
  */
 export function boxBuildFile(image: BoxImageDescription): string {
-  const { debian, toolchain, packages, claudeCode } = checkImageDescription(image);
+  const { debian, toolchain, nodeSha256, packages, claudeCode } = checkImageDescription(image);
   const node = toolchain.node;
+  // One case per architecture: its pinned sum, or a refusal when the description has none.
+  const nodeCases = NODE_ARCHES.map((arch) => {
+    const sum = nodeSha256[arch];
+    return sum === undefined
+      ? `${DEBIAN_ARCH[arch]}) echo "no pinned Node.js sha256 for ${arch}" >&2; exit 1 ;;`
+      : `${DEBIAN_ARCH[arch]}) arch=${arch}; sum=${sum} ;;`;
+  }).join(" ");
   const proxy = `"$${BUILD_PROXY_ARG}"`;
   const npmPackages = [
     ...NPM_TOOLS.flatMap((tool) =>
@@ -200,16 +261,15 @@ export function boxBuildFile(image: BoxImageDescription): string {
       "rm -rf /var/lib/apt/lists/*",
     ]),
     "",
-    "# Node.js (with npm) from nodejs.org, checked against its published sha256 sums.",
+    "# Node.js (with npm) from nodejs.org, checked against the sha256 dipo pins for the release.",
     run([
-      'case "$(dpkg --print-architecture)" in arm64) arch=arm64 ;; amd64) arch=x64 ;; *) echo "no Node.js build for this architecture" >&2; exit 1 ;; esac',
+      `case "$(dpkg --print-architecture)" in ${nodeCases} *) echo "no pinned Node.js tarball for this architecture" >&2; exit 1 ;; esac`,
       `name="node-v${node}-linux-$arch.tar.gz"`,
       "cd /tmp",
       `curl --proxy ${proxy} -fsSLO "https://nodejs.org/dist/v${node}/$name"`,
-      `curl --proxy ${proxy} -fsSLO "https://nodejs.org/dist/v${node}/SHASUMS256.txt"`,
-      'grep "  $name\\$" SHASUMS256.txt | sha256sum -c -',
+      'echo "$sum  $name" | sha256sum -c -',
       'tar -xzf "$name" -C /usr/local --strip-components=1 --no-same-owner --exclude="*/CHANGELOG.md" --exclude="*/LICENSE" --exclude="*/README.md"',
-      'rm -f "$name" SHASUMS256.txt',
+      'rm -f "$name"',
       "node --version",
     ]),
     "",
@@ -227,6 +287,9 @@ export function boxBuildFile(image: BoxImageDescription): string {
       ],
       `--mount=type=bind,source=${BOX_BUILD_CA_FILE},target=${CA_IN_BUILD}`,
     ),
+    "",
+    "# No git in a box (0021 decision 4): the build fails when any package brought it in.",
+    'RUN if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
     "",
   ].join("\n");
 }
@@ -319,39 +382,126 @@ export type BaseBoxSection =
  */
 export function readBaseBoxSection(git: OfficeGit): Promise<BaseBoxSection> {
   return git.run(async (session) => {
-    const base = await git.resolveBaseIn(session);
-    const ref = `refs/remotes/${git.settings.remote}/${base}`;
-    const commit = (
-      await session.ok(session.repository, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
-    ).trim();
-    const listed = await session.ok(session.repository, [
-      "ls-tree",
-      "-z",
-      "--full-tree",
-      commit,
-      "--",
-      OFFICE_FILE,
-    ]);
-    const entry = listed.split("\0").find((line) => line.endsWith(`\t${OFFICE_FILE}`));
-    if (entry === undefined) return { ok: true, section: undefined, commit };
-    const [mode, type, object] = entry.split("\t")[0]!.split(" ");
-    if (type !== "blob" || (mode !== "100644" && mode !== "100755") || object === undefined) {
-      return {
-        ok: false,
-        errors: [
-          configError(
-            OFFICE_FILE,
-            "(top level)",
-            "regular file",
-            `the file on ${base} is not a regular file`,
-          ),
-        ],
-      };
-    }
-    const text = await session.ok(session.repository, ["cat-file", "blob", object]);
-    const result = resolveOfficeConfig({ office: text });
-    if (!result.ok) return { ok: false, errors: result.errors };
-    const section = result.config.box;
-    return { ok: true, section: Object.keys(section).length === 0 ? undefined : section, commit };
+    const { base, commit } = await baseCommit(git, session);
+    const files = await filesAt(session, commit, [OFFICE_FILE]);
+    return sectionFrom(files.get(OFFICE_FILE), base, commit);
   });
+}
+
+/** The whole box on the base branch, or why it cannot be read. */
+export type BaseBox =
+  | {
+      readonly ok: true;
+      readonly description: BoxDescription;
+      /** What the repository at that commit asks for, with where each version came from. */
+      readonly detected: DetectedBoxToolchain;
+      /** The base commit both were read from. */
+      readonly commit: string;
+    }
+  | { readonly ok: false; readonly errors: readonly ConfigError[] };
+
+/**
+ * The box of the office as `describeBox` makes it, with both of its inputs read from one base
+ * commit in one queue item: the `box` block (as `readBaseBoxSection`) and the files the toolchain
+ * detection reads (`package.json`, `.bun-version`, `.node-version`, `.nvmrc` and which lockfiles
+ * exist). Nothing comes from a checkout, so a story cannot change its box.
+ */
+export function readBaseBox(git: OfficeGit): Promise<BaseBox> {
+  return git.run(async (session) => {
+    const { base, commit } = await baseCommit(git, session);
+    const lockfiles = LOCKFILES.map(([name]) => name);
+    const files = await filesAt(session, commit, [
+      OFFICE_FILE,
+      ROOT_MANIFEST,
+      BUN_VERSION_FILE,
+      ...RUNTIME_FILES,
+      ...lockfiles,
+    ]);
+    const read = sectionFrom(files.get(OFFICE_FILE), base, commit);
+    if (!read.ok) return read;
+    const texts: Record<string, string> = {};
+    for (const path of [ROOT_MANIFEST, BUN_VERSION_FILE, ...RUNTIME_FILES]) {
+      const file = files.get(path);
+      if (file?.text !== undefined) texts[path] = file.text;
+    }
+    const probe: Probe = {
+      texts,
+      lockfiles: lockfiles.filter((name) => files.get(name)?.text !== undefined),
+      workspaceDirs: [],
+      configImports: {},
+      envFiles: [],
+    };
+    const detected = detectBoxToolchain(probe, detect(probe).toolchain);
+    return { ok: true, description: describeBox(read.section, detected), detected, commit };
+  });
+}
+
+/** The base branch and the commit `<remote>/<base>` points at. */
+async function baseCommit(
+  git: OfficeGit,
+  session: GitSession,
+): Promise<{ base: string; commit: string }> {
+  const base = await git.resolveBaseIn(session);
+  const ref = `refs/remotes/${git.settings.remote}/${base}`;
+  const commit = (
+    await session.ok(session.repository, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
+  ).trim();
+  return { base, commit };
+}
+
+/** A root file at a commit: its text when it is a regular file, else only that it is not. */
+interface FileAt {
+  readonly text?: string;
+}
+
+/** The root files of `paths` that exist at `commit`, read from git's objects, never a checkout. */
+async function filesAt(
+  session: GitSession,
+  commit: string,
+  paths: readonly string[],
+): Promise<Map<string, FileAt>> {
+  const listed = await session.ok(session.repository, [
+    "ls-tree",
+    "-z",
+    "--full-tree",
+    commit,
+    "--",
+    ...paths,
+  ]);
+  const files = new Map<string, FileAt>();
+  for (const entry of listed.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab < 0) continue;
+    const path = entry.slice(tab + 1);
+    if (!paths.includes(path)) continue;
+    const [mode, type, object] = entry.slice(0, tab).split(" ");
+    if (type !== "blob" || (mode !== "100644" && mode !== "100755") || object === undefined) {
+      files.set(path, {});
+      continue;
+    }
+    files.set(path, { text: await session.ok(session.repository, ["cat-file", "blob", object]) });
+  }
+  return files;
+}
+
+/** The `box` block of the office file read at the base commit. */
+function sectionFrom(file: FileAt | undefined, base: string, commit: string): BaseBoxSection {
+  if (file === undefined) return { ok: true, section: undefined, commit };
+  if (file.text === undefined) {
+    return {
+      ok: false,
+      errors: [
+        configError(
+          OFFICE_FILE,
+          "(top level)",
+          "regular file",
+          `the file on ${base} is not a regular file`,
+        ),
+      ],
+    };
+  }
+  const result = resolveOfficeConfig({ office: file.text });
+  if (!result.ok) return { ok: false, errors: result.errors };
+  const section = result.config.box;
+  return { ok: true, section: Object.keys(section).length === 0 ? undefined : section, commit };
 }

@@ -21,6 +21,8 @@ import {
   checkImageDescription,
   describeBox,
   ensureBoxImage,
+  NODE_TARBALL_SHA256,
+  readBaseBox,
   readBaseBoxSection,
 } from "../../src/box/image";
 import {
@@ -44,9 +46,11 @@ const PROXY_URL = "http://192.0.2.1:3128";
 const IMAGE: BoxImageDescription = {
   debian: "trixie",
   toolchain: { node: "24.22.1", bun: "1.4.2" },
+  nodeSha256: NODE_TARBALL_SHA256["24.22.1"]!,
   packages: ["jq", "ripgrep"],
   claudeCode: "2.1.303",
 };
+const ARM64_SUM = "a".repeat(64);
 
 function refused(build: () => unknown): BoxError {
   try {
@@ -70,6 +74,8 @@ describe("the box description", () => {
       image: {
         debian: BOX_DEFAULTS.debian,
         toolchain: { node: "22.12.0", bun: "1.3.0", pnpm: BOX_DEFAULTS.toolchain.pnpm },
+        // dipo pins no sum for 22.12.0: the build file refuses it unless the block gives one.
+        nodeSha256: {},
         packages: [],
         claudeCode: BOX_DEFAULTS.claudeCode,
       },
@@ -79,7 +85,7 @@ describe("the box description", () => {
       describeBox(
         {
           debian: "bookworm",
-          toolchain: { bun: "1.4.2", yarn: "1.22.22" },
+          toolchain: { bun: "1.4.2", yarn: "1.22.22", nodeSha256: { arm64: ARM64_SUM } },
           packages: ["ripgrep", "jq"],
           claudeCode: "2.1.300",
           files: [{ path: ".env.example", noRealSecrets: true }],
@@ -95,6 +101,7 @@ describe("the box description", () => {
           pnpm: BOX_DEFAULTS.toolchain.pnpm,
           yarn: "1.22.22",
         },
+        nodeSha256: { arm64: ARM64_SUM },
         packages: ["jq", "ripgrep"],
         claudeCode: "2.1.300",
       },
@@ -107,6 +114,39 @@ describe("the box description", () => {
     expect(describeBox({ toolchain: { node: "20.0.0" } }, {}).image.toolchain).toEqual({
       node: "20.0.0",
     });
+  });
+
+  it("pins the default Node version's tarball sums, and takes the block's for another version", () => {
+    expect(NODE_TARBALL_SHA256[BOX_DEFAULTS.toolchain.node]).toEqual({
+      arm64: expect.stringMatching(/^[0-9a-f]{64}$/),
+      x64: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(describeBox({}, {}).image.nodeSha256).toEqual(
+      NODE_TARBALL_SHA256[BOX_DEFAULTS.toolchain.node]!,
+    );
+    const other = describeBox(
+      { toolchain: { node: "20.0.0", nodeSha256: { arm64: ARM64_SUM } } },
+      {},
+    );
+    expect(other.image.nodeSha256).toEqual({ arm64: ARM64_SUM });
+    expect(boxBuildFile(other.image)).toContain(`arm64) arch=arm64; sum=${ARM64_SUM} ;;`);
+    expect(boxBuildFile(other.image)).toContain(
+      'amd64) echo "no pinned Node.js sha256 for x64" >&2; exit 1 ;;',
+    );
+  });
+
+  it("refuses a Node version without a pinned or given tarball sha256", () => {
+    const unknown = describeBox({ toolchain: { node: "20.0.0" } }, {}).image;
+    expect(unknown.nodeSha256).toEqual({});
+    const error = refused(() => boxBuildFile(unknown));
+    expect(error.message).toContain("box.toolchain.nodeSha256");
+    refused(() => checkImageDescription({ ...IMAGE, nodeSha256: { arm64: "abc" } }));
+    refused(() =>
+      checkImageDescription({
+        ...IMAGE,
+        nodeSha256: { riscv64: ARM64_SUM } as BoxImageDescription["nodeSha256"],
+      }),
+    );
   });
 
   it("refuses values that could break out of the build file", () => {
@@ -158,13 +198,25 @@ describe("the build file", () => {
     expect(apt[1]).toContain("install -y --no-install-recommends ca-certificates");
     expect(apt[3]).toContain("install -y --no-install-recommends curl jq ripgrep");
     expect(apt[3]).not.toContain("Verify-Peer=false");
-    expect(file).not.toMatch(/\bgit\b/);
   });
 
-  it("installs Node from nodejs.org at its version, checked against the published sums", () => {
+  it("fails the build in its last step when any package brought git in", () => {
+    const steps = file.trimEnd().split("\n\n");
+    expect(steps.at(-1)?.split("\n").at(-1)).toBe(
+      'RUN if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
+    );
+    // git is never asked for: only the check names it.
+    expect(lines.filter((line) => /\bgit\b/.test(line))).toHaveLength(2);
+  });
+
+  it("installs Node from nodejs.org at its version, checked against the sha256 dipo pins", () => {
+    const sums = NODE_TARBALL_SHA256["24.22.1"]!;
     expect(file).toContain('"https://nodejs.org/dist/v24.22.1/$name"');
     expect(file).toContain('name="node-v24.22.1-linux-$arch.tar.gz"');
-    expect(file).toContain('grep "  $name\\$" SHASUMS256.txt | sha256sum -c -');
+    expect(file).toContain(`arm64) arch=arm64; sum=${sums.arm64} ;;`);
+    expect(file).toContain(`amd64) arch=x64; sum=${sums.x64} ;;`);
+    expect(file).toContain('echo "$sum  $name" | sha256sum -c -');
+    expect(file).not.toContain("SHASUMS256");
   });
 
   it("installs Claude Code and the package managers from npm through Safe-Chain at the pinned versions", () => {
@@ -214,6 +266,7 @@ describe("the image tag", () => {
       { ...IMAGE, toolchain: { ...IMAGE.toolchain, pnpm: "12.14.0" } },
       { ...IMAGE, packages: ["jq"] },
       { ...IMAGE, claudeCode: "2.1.304" },
+      { ...IMAGE, nodeSha256: { ...IMAGE.nodeSha256, arm64: ARM64_SUM } },
     ];
     const tags = changed.map(boxImageTag);
     expect(new Set([tag, ...tags]).size).toBe(changed.length + 1);
@@ -463,6 +516,37 @@ box:
       expect(read.ok).toBe(false);
       if (read.ok) return;
       expect(read.errors.map((error) => error.path)).toEqual(["box.files.0.noRealSecrets"]);
+    }));
+
+  it("describes the whole box from one base commit: the block and the toolchain files", () =>
+    withTempRepo(async (repo) => {
+      mkdirSync(join(repo.dir, ".dipo"));
+      writeFileSync(join(repo.dir, ".dipo/office.yaml"), "version: 9\nbox: { packages: [jq] }\n");
+      writeFileSync(join(repo.dir, "package.json"), JSON.stringify({ name: "repo" }));
+      writeFileSync(join(repo.dir, ".bun-version"), "1.4.2\n");
+      writeFileSync(join(repo.dir, "bun.lock"), "{}\n");
+      const base = await repo.commitAll("base");
+      await repo.git("update-ref", "refs/remotes/origin/main", base);
+      // A story changes Bun and switches to pnpm: neither reaches the box.
+      await repo.git("checkout", "--quiet", "-b", "DIPO-1/story");
+      writeFileSync(join(repo.dir, ".bun-version"), "1.5.0\n");
+      writeFileSync(join(repo.dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+      await repo.commitAll("story");
+      writeFileSync(join(repo.dir, ".bun-version"), "1.6.0\n");
+
+      const read = await readBaseBox(officeGit(repo.dir, repo.env));
+      expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.commit).toBe(base);
+      expect(read.detected.bun).toEqual({ version: "1.4.2", evidence: ".bun-version" });
+      expect(read.detected.pnpm).toBeUndefined();
+      expect(read.description.image).toEqual({
+        debian: BOX_DEFAULTS.debian,
+        toolchain: { node: BOX_DEFAULTS.toolchain.node, bun: "1.4.2" },
+        nodeSha256: NODE_TARBALL_SHA256[BOX_DEFAULTS.toolchain.node]!,
+        packages: ["jq"],
+        claudeCode: BOX_DEFAULTS.claudeCode,
+      });
     }));
 });
 
