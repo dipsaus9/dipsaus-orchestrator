@@ -268,30 +268,41 @@ export class PermissionAsks implements LiveQuestions {
     if (work === null || questionRoute(this.#deps.presence, allowed) === "park") return false;
     const questionId = this.#deps.ids.next("qst");
     const now = this.#deps.clock.now();
-    const appended = office.immediate(() => {
-      const question = insertWorkerQuestion(office, {
-        questionId,
-        runId: run,
-        agentId: agent,
-        text,
-        at: now,
-      });
-      const view = questionViewOf(office, question);
-      const entries: NewEntry[] = [];
-      if (view !== null) entries.push({ type: "question.asked", key: work.key, run, delta: view });
-      const raised = raiseSignal(office, run, "input-wait", now);
-      if (raised !== null) {
-        entries.push({
-          type: "work.observed",
-          key: work.key,
-          run,
-          delta: { work, signal: "input-wait", since: new Date(now).toISOString() },
+    let appended: number;
+    try {
+      appended = office.immediate(() => {
+        const question = insertWorkerQuestion(office, {
+          questionId,
+          runId: run,
+          agentId: agent,
+          text,
+          at: now,
         });
-      }
-      const ready = withWorkViews(office, entries);
-      appendEntries(office, ready, { at: now });
-      return ready.length;
-    });
+        const view = questionViewOf(office, question);
+        const entries: NewEntry[] = [];
+        if (view !== null)
+          entries.push({ type: "question.asked", key: work.key, run, delta: view });
+        const raised = raiseSignal(office, run, "input-wait", now);
+        if (raised !== null) {
+          entries.push({
+            type: "work.observed",
+            key: work.key,
+            run,
+            delta: { work, signal: "input-wait", since: new Date(now).toISOString() },
+          });
+        }
+        const ready = withWorkViews(office, entries);
+        appendEntries(office, ready, { at: now });
+        return ready.length;
+      });
+    } catch (error) {
+      // A question that could not be stored cannot be answered: the story parks with it instead.
+      this.#deps.warn?.("storing a live worker question failed; the story parks", {
+        run,
+        ...failureFields(error),
+      });
+      return false;
+    }
     this.#workerQuestions.set(questionId, { office: office.officeId, run });
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
     return true;
