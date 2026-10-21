@@ -1,10 +1,10 @@
 ---
 id: DIPO-285
 title: Remove the unused permissions.presentMinutes setting
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 14:35'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 16:51'
 labels:
   - 'tier:S'
   - cutover
@@ -16,6 +16,10 @@ references:
   - packages/engine/schema/office.schema.json
   - packages/engine/test/config/
   - packages/engine/src/config/load.ts
+  - packages/engine/src/config/index.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/test/office/config.test.ts
+  - packages/engine/test/office/load.test.ts
 type: feature
 ordinal: 274000
 ---
@@ -35,7 +39,7 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 permissions.presentMinutes is gone from packages/engine/src/config/schema.ts, its defaults and packages/engine/schema/office.schema.json
-- [ ] #2 A config that still sets it loads, with a warning that names the key
-- [ ] #3 The config tests are updated and cover the warning
+- [x] #1 permissions.presentMinutes is gone from packages/engine/src/config/schema.ts, its defaults and packages/engine/schema/office.schema.json
+- [x] #2 A config that still sets it loads, with a warning that names the key
+- [x] #3 The config tests are updated and cover the warning
 <!-- AC:END -->
