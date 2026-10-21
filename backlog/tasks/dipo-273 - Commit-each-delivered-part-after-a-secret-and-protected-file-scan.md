@@ -4,7 +4,7 @@ title: Commit each delivered part after a secret and protected-file scan
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 20:35'
+updated_date: '2026-10-21 21:06'
 labels:
   - 'tier:M'
   - cutover
@@ -26,6 +26,7 @@ references:
   - packages/engine/test/box/ignore.test.ts
   - packages/engine/test/box/tar-bytes.ts
   - packages/engine/src/box/door.ts
+  - packages/engine/test/box/door.test.ts
   - packages/engine/src/box/index.ts
   - packages/engine/src/run/control.ts
   - packages/engine/src/run/park.ts
