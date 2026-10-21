@@ -378,7 +378,7 @@ describe("the reply of work.answer (live test of 2026-10-15)", () => {
       offices: { get: () => office, config: () => OFFICE_DEFAULTS },
       steering: { send: async () => ({ ok: true }) },
       encode,
-      presence: { connected: () => false, lastRequestAt: () => null },
+      presence: { tuiConnected: () => false },
       parks: { resume: (o, id, request) => hanging.resumption.resumePark(o, id, request) },
     });
     const reply = await executeCommand(

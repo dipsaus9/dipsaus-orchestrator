@@ -23,6 +23,7 @@ import {
   RequestId,
   type ServerFrame,
   type StreamName,
+  TUI_CLIENT_NAME,
 } from "@dipsaus-orchestrator/contract";
 import {
   argsInvalid,
@@ -150,8 +151,6 @@ export class ContractServer {
   readonly #summaryTimers = new Map<OfficeId, ReturnType<Clock["setTimeout"]>>();
   /** The last summary sent per office, so an unchanged one is not sent again. */
   readonly #lastSummaries = new Map<OfficeId, string>();
-  /** When a client's last command or read arrived (DIPO-59); null before any. */
-  #lastRequestAt: number | null = null;
 
   constructor(deps: ContractServerDeps) {
     this.#deps = deps;
@@ -183,20 +182,9 @@ export class ContractServer {
     return this.#connections.size;
   }
 
-  /**
-   * A client's command or read after its handshake arrived: the maintainer is at a client
-   * (0008 section 5, DIPO-59). Stream heartbeats, subscriptions and the handshake do not count.
-   */
-  noteRequest(): void {
-    this.#lastRequestAt = this.#deps.clock.now();
-  }
-
-  /** Whether the maintainer is present, for the permission wait (0008 section 5). */
+  /** Whether a TUI is connected right now, for live questions (0021 section 11, DIPO-279). */
   get presence(): Presence {
-    return {
-      connected: () => this.#connections.size > 0,
-      lastRequestAt: () => this.#lastRequestAt,
-    };
+    return { tuiConnected: () => [...this.#connections].some((connection) => connection.tui) };
   }
 
   /** The session for one accepted connection; `serveUnixSocket` calls it. */
@@ -262,6 +250,8 @@ class Connection implements ConnectionSession {
   readonly #onClosed: () => void;
   #state: HandshakeState = "new";
   #closed = false;
+  /** True once an `engine.hello` from the TUI was accepted on this connection. */
+  #tui = false;
   readonly #subscriptions = new Map<StreamName, Subscription>();
   /** Frames are taken in order; only the handshake and reads are awaited, commands run alongside. */
   #queue: Promise<void> = Promise.resolve();
@@ -274,6 +264,11 @@ class Connection implements ConnectionSession {
 
   get #deps(): ContractServerDeps {
     return this.#server.deps;
+  }
+
+  /** True while this open connection is a TUI's. */
+  get tui(): boolean {
+    return this.#tui && !this.#closed;
   }
 
   message(text: string): void {
@@ -367,8 +362,10 @@ class Connection implements ConnectionSession {
   async #handshake(frame: ClientFrame): Promise<void> {
     if (frame.kind === "read" && frame.name === "engine.hello") {
       const reply = await this.#read(frame);
-      if (reply.ok) this.#state = "ready";
-      else if (reply.error.code === "contract.unsupported") this.#state = "foreign";
+      if (reply.ok) {
+        this.#state = "ready";
+        this.#tui = isTuiHello(frame.args);
+      } else if (reply.error.code === "contract.unsupported") this.#state = "foreign";
       this.#reply(reply);
       return;
     }
@@ -408,11 +405,9 @@ class Connection implements ConnectionSession {
   async #ready(frame: ClientFrame): Promise<void> {
     switch (frame.kind) {
       case "read":
-        this.#server.noteRequest();
         this.#reply(await this.#read(frame));
         return;
       case "command":
-        this.#server.noteRequest();
         this.#command(frame);
         return;
       case "subscribe":
@@ -685,4 +680,14 @@ class Connection implements ConnectionSession {
     this.#socket.close(code, reason);
     this.closed();
   }
+}
+
+/**
+ * True when `engine.hello` args name the TUI as the client. Any client on the socket can claim the
+ * name; that only keeps a question live until its timeout, and holds while workers cannot reach the
+ * socket (0021).
+ */
+function isTuiHello(args: unknown): boolean {
+  const client = (args as { client?: { name?: unknown } } | null)?.client;
+  return client?.name === TUI_CLIENT_NAME;
 }

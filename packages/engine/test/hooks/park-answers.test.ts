@@ -79,7 +79,8 @@ interface World {
   readonly resumes: { run: string; request: ResumeParkRequest }[];
   readonly work: WorkRef;
   config: OfficeConfig;
-  present: boolean;
+  /** Whether a TUI is connected (DIPO-279); none by default, so questions park. */
+  tui: boolean;
   scheduling: boolean;
   /** What the fake resumer answers; it records the answer first for `started` and `notStarted`. */
   resume: ResumeParkOutcome["kind"];
@@ -99,7 +100,7 @@ beforeEach(async () => {
     sent,
     resumes,
     config: OFFICE_DEFAULTS,
-    present: false,
+    tui: false,
     scheduling: true,
     resume: "started",
     ingestor: null,
@@ -150,10 +151,7 @@ beforeEach(async () => {
     offices: { get: () => f.office, config: () => world.config },
     steering,
     encode,
-    presence: {
-      connected: () => world.present,
-      lastRequestAt: () => (world.present ? f.t.clock.now() : null),
-    },
+    presence: { tuiConnected: () => world.tui },
     parks,
     scheduling: () => world.scheduling,
   });
@@ -348,6 +346,20 @@ describe("the live needs-permission replay", () => {
     expect((parked?.data as { reason: string } | undefined)?.reason).toBe("needs-permission");
   });
 
+  it("without a TUI the request gets no decision at once and the story parks with the question (DIPO-279)", async () => {
+    // A permission request while no TUI is connected: no live question, the call is denied.
+    expect(await decisionOf(request(PERMISSION.tool, PERMISSION.action))).toBe("no decision");
+    expect(openQuestions(w.f.office)).toEqual([]);
+    // The worker then reports blocked with what it needs (the recording): the story parks with it.
+    const question = await replayPark();
+    expect(parkReasons()).toEqual(["needs-permission"]);
+    expect(openQuestions(w.f.office).map((open) => open.questionId)).toEqual([question.questionId]);
+    expect(question).toMatchObject({
+      hook: null,
+      parkId: openPark(w.f.office, w.work.key)?.parkId,
+    });
+  });
+
   it("needs a decision: without one the answer fails with args.invalid and the question waits (AC #7)", async () => {
     const question = await replayPark();
     const reply = await answer({ question: question.questionId, text: "go ahead" });
@@ -478,7 +490,7 @@ describe("a story parked for another reason (AC #4)", () => {
   });
 
   it("fails naming the reason for a waiting hook question of a story parked budget-exceeded", async () => {
-    w.present = true;
+    w.tui = true;
     w.f.office.immediate(() =>
       w.f.office.run(
         `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)

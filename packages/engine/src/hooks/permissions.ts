@@ -2,15 +2,15 @@
 // worker's `PermissionRequest` hook arrives as a neutral `permissionRequest` hook event with the id
 // its worker host holds the call under. The engine decides at once:
 //
-// - With `permissions.ask: when-present`, a connected client and a client command or read within
-//   `permissions.presentMinutes` (stream heartbeats do not count), the maintainer is present: the
-//   engine stores a permission question, emits `question.asked` (kind permission, the tool and a
-//   one-line input summary) and `work.observed input-wait`, and waits up to
-//   `timeouts.permissionWaitSeconds` for `work.answer`. An answer allows or denies the call; no
-//   answer in time denies it.
-// - Otherwise (not present, `never`, a run being ended, no story work), the hook gets no decision at
-//   once, so the call is denied. With the daemon down nobody answers and the worker host itself
-//   returns no decision.
+// - With `permissions.ask: when-present` and a TUI connected at that moment (`questionRoute`, 0021
+//   section 11, DIPO-279), the question is live: the engine stores a permission question, emits
+//   `question.asked` (kind permission, the tool and a one-line input summary) and
+//   `work.observed input-wait`, and waits up to `timeouts.permissionWaitSeconds` for
+//   `work.answer`. An answer allows or denies the call; no answer in time denies it.
+// - Otherwise (no TUI connected, `never`, a run being ended, no story work), the question parks:
+//   the hook gets no decision at once, so the call is denied, the worker reports blocked with the
+//   tool and action it needs, and the story parks `needs-permission` with that question
+//   (DIPO-75). With the daemon down nobody answers and the worker host itself returns no decision.
 //
 // The reply goes to the worker host as the adapter encodes the neutral `HookReply`; this module
 // never names a CLI field. A worker's exit closes its open questions (`ended`), and an office load
@@ -36,6 +36,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background, failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
+import { type Presence, questionRoute } from "../run/live-question";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp, WorkerEvent } from "../workers/types";
@@ -68,16 +69,7 @@ const HOOK_GONE = "hook.unknown";
 /** `engine.notice` code when a decision could not reach the worker host. */
 export const REPLY_NOT_SENT = "run.hookReplyNotSent";
 
-/** Whether the maintainer is at a client (0008 section 5). */
-export interface Presence {
-  /** True while at least one client is connected to the daemon (0006). */
-  connected(): boolean;
-  /** When a client's last command or read arrived, on the engine clock; null before any. */
-  lastRequestAt(): number | null;
-}
-
-/** No client, ever: every request is denied at once. */
-export const ABSENT: Presence = { connected: () => false, lastRequestAt: () => null };
+export { ABSENT, type Presence } from "../run/live-question";
 
 export interface PermissionAsksDeps {
   readonly clock: Clock;
@@ -103,18 +95,6 @@ export interface PermissionAsksDeps {
 }
 
 type PermissionRequest = Extract<HookEvent, { kind: "permissionRequest" }>;
-
-/** True when the maintainer counts as present for `config` at `now` (0008 section 5). */
-export function maintainerPresent(
-  config: OfficeConfig | undefined,
-  presence: Presence,
-  now: number,
-): boolean {
-  if (config === undefined || config.permissions.ask !== "when-present") return false;
-  if (!presence.connected()) return false;
-  const last = presence.lastRequestAt();
-  return last !== null && now - last <= config.permissions.presentMinutes * 60_000;
-}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -163,7 +143,7 @@ export class PermissionAsks {
     this.#timers.clear();
   }
 
-  /** Asks the maintainer, or denies at once (see the file comment). */
+  /** Asks the maintainer live, or denies at once so the story parks (see the file comment). */
   request(office: OfficeHandle, run: RunId, agent: string, hook: PermissionRequest): void {
     if (hook.id === null) return;
     const officeId = office.officeId;
@@ -173,11 +153,8 @@ export class PermissionAsks {
     if (work !== null && this.#deps.ending?.(run) !== true && this.#allowOnce(office, run, hook)) {
       return;
     }
-    if (
-      work === null ||
-      this.#deps.ending?.(run) === true ||
-      !maintainerPresent(config, this.#deps.presence, now)
-    ) {
+    const allowed = this.#deps.ending?.(run) !== true && config?.permissions.ask === "when-present";
+    if (work === null || questionRoute(this.#deps.presence, allowed) === "park") {
       this.#reply(office, run, { hook: hook.id, decision: null });
       return;
     }
