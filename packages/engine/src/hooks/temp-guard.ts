@@ -247,6 +247,26 @@ function ansiCSpan(text: string, start: number): { value: string; end: number } 
 }
 
 /**
+ * The text with every backslash escape decoded as in ANSI-C quoting: how `echo -e` and a printf
+ * format write it out.
+ */
+export function ansiCText(text: string): string {
+  let value = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text.charAt(i) === "\\" && i + 1 < text.length) {
+      const escape = ansiCEscape(text, i);
+      value += escape.value;
+      i = escape.next;
+    } else {
+      value += text.charAt(i);
+      i++;
+    }
+  }
+  return value;
+}
+
+/**
  * Splits the text into simple commands, each a list of words with quotes removed, and collects the
  * text of each command substitution inside double quotes. Unquoted `&&`, `||`, `;`, `|`, `&`,
  * newlines, parentheses and backticks end a command; an unquoted `#` at a word start begins a
@@ -533,20 +553,33 @@ export function wrappedCommandAt(
   valued: ReadonlySet<string>,
   longValued: ReadonlySet<string>,
 ): number {
+  return wrapperOptions(args, valued, longValued).at;
+}
+
+/**
+ * As wrappedCommandAt, and also the indexes of the words taken as an option's value, which the gh
+ * check passes over when it looks for a gh word that an option it does not know could hide.
+ */
+export function wrapperOptions(
+  args: readonly string[],
+  valued: ReadonlySet<string>,
+  longValued: ReadonlySet<string>,
+): { at: number; values: Set<number> } {
+  const values = new Set<number>();
   let at = 0;
   while (at < args.length) {
     const word = args[at] ?? "";
-    if (word === "--") return at + 1;
-    if (!word.startsWith("-") || word === "-") return at;
-    if (word.startsWith("--")) {
-      at += longValued.has(word) ? 2 : 1;
-      continue;
-    }
+    if (word === "--") return { at: at + 1, values };
+    if (!word.startsWith("-") || word === "-") return { at, values };
     const letters = word.slice(1).split("");
     const k = letters.findIndex((letter) => valued.has(letter));
-    at += k !== -1 && k === letters.length - 1 ? 2 : 1;
+    const takesNext = word.startsWith("--")
+      ? longValued.has(word)
+      : k !== -1 && k === letters.length - 1;
+    if (takesNext) values.add(at + 1);
+    at += takesNext ? 2 : 1;
   }
-  return at;
+  return { at, values };
 }
 
 /**

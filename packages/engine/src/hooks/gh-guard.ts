@@ -7,11 +7,13 @@
 // checked as commands of their own (DIPO-242).
 
 import {
+  ansiCText,
   envSplitTexts,
   simpleCommands,
   SUDO_LONG_VALUE_OPTIONS,
   SUDO_VALUE_OPTIONS,
   wrappedCommandAt,
+  wrapperOptions,
   XARGS_LONG_VALUE_OPTIONS,
   XARGS_VALUE_OPTIONS,
 } from "./temp-guard";
@@ -20,7 +22,21 @@ import {
 const SUBCOMMAND = /^[A-Za-z][A-Za-z0-9-]*$/;
 /** Shell keywords that open a command list: `then gh pr view` runs gh too. */
 const KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until"]);
-const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
+const SHELLS = new Set([
+  "sh",
+  "bash",
+  "rbash",
+  "zsh",
+  "dash",
+  "ash",
+  "ksh",
+  "mksh",
+  "yash",
+  "posh",
+  "fish",
+  "csh",
+  "tcsh",
+]);
 /** The options of a wrapper: the short and long ones that take a value, and the operands before its command. */
 interface WrapperOptions {
   short: ReadonlySet<string>;
@@ -45,12 +61,16 @@ const WRAPPERS: ReadonlyMap<string, WrapperOptions> = new Map([
   ["command", NO_OPTIONS],
   ["builtin", NO_OPTIONS],
   ["nohup", NO_OPTIONS],
+  ["setsid", NO_OPTIONS],
+  ["busybox", NO_OPTIONS],
 ]);
 /** A redirection word (`>`, `2>`, `>out`, `>>`, `<`); with no target of its own the next word is. */
 const REDIRECTION = /^\d*(>>|>\||>|<<<|<<|<)(.*)$/;
 /** Nesting of `sh -c`, `eval`, here-doc bodies and substitutions that is followed. */
 const MAX_DEPTH = 4;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
+/** A gh word anywhere in a text, in any letter case. */
+const GH_WORD = /(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])/i;
 
 /** Told to the worker when a gh call is refused. */
 export const GH_REFUSAL =
@@ -109,41 +129,39 @@ function isPrefixWord(word: string): boolean {
   return ASSIGNMENT.test(word) || KEYWORDS.has(word) || word === "{" || word === "!";
 }
 
-/** The text of a here-string `<<<` among a shell's arguments, else null. */
-function hereString(args: readonly string[]): string | null {
+/** The text of a here-string `<<<` (`0<<<` too) among a shell's arguments, else null. */
+function hereString(args: readonly string[]): string[] | null {
   for (let i = 0; i < args.length; i++) {
-    const word = args[i] ?? "";
-    if (word === "<<<") return args[i + 1] ?? "";
-    if (word.startsWith("<<<")) return word.slice("<<<".length);
+    const match = /^\d*<<<(.*)$/.exec(args[i] ?? "");
+    if (match !== null) return [match[1] === "" ? (args[i + 1] ?? "") : (match[1] ?? "")];
   }
   return null;
 }
 
 /**
- * The text that `echo` or `printf` writes to its output, which a shell reading the next stage of
- * its pipe runs. A printf format is not expanded: its own text is read as it is written.
+ * The texts that `echo` or `printf` may write to its output, which a shell reading the next stage
+ * of its pipe runs: the words as written, with their escapes decoded (`echo -e`, a printf format),
+ * and decoded with each word on a line of its own (`printf '%s\n' 'gh pr list'`). Each is checked.
  */
-function printedText(words: readonly string[]): string | null {
+function printedTexts(words: readonly string[]): string[] | null {
   const base = basename(words[0] ?? "").toLowerCase();
-  if (base === "echo")
-    return words
-      .slice(1)
-      .filter((word) => !/^-[neE]+$/.test(word))
-      .join(" ");
-  if (base === "printf") return words.slice(1).join(" ");
-  return null;
+  if (base !== "echo" && base !== "printf") return null;
+  const args =
+    base === "echo" ? words.slice(1).filter((word) => !/^-[neE]+$/.test(word)) : words.slice(1);
+  return [args.join(" "), ansiCText(args.join(" ")), ansiCText(args.join("\n"))];
 }
 
 function ghIn(text: string, depth: number): string | null {
-  if (depth > MAX_DEPTH) return null;
+  // Nesting deeper than is followed is refused when its text holds a gh word at all.
+  if (depth > MAX_DEPTH) return GH_WORD.test(text) ? GH_REFUSAL : null;
   const { commands, nested } = simpleCommands(text);
-  // The text each command writes out, which a later stage of its pipe reads as its stdin; a command
+  // The texts each command writes out, which a later stage of its pipe reads as its stdin; a command
   // that prints nothing passes on what it reads. The here-doc body a command reads comes first.
-  const written = new Map<(typeof commands)[number], string | null>();
+  const written = new Map<(typeof commands)[number], readonly string[] | null>();
   for (const command of commands) {
     const piped = command.pipedFrom === null ? null : (written.get(command.pipedFrom) ?? null);
-    const stdin = command.body ?? piped;
-    written.set(command, printedText(command.words) ?? stdin);
+    const stdin = command.body === null ? piped : [command.body];
+    written.set(command, printedTexts(command.words) ?? stdin);
     const hit = ghCommand(command.words, depth, stdin);
     if (hit !== null) return hit;
   }
@@ -154,8 +172,25 @@ function ghIn(text: string, depth: number): string | null {
   return null;
 }
 
-/** The refusal for one simple command's words, else null; `stdin` is the text it reads, if any. */
-function ghCommand(words: readonly string[], depth: number, stdin: string | null): string | null {
+/**
+ * The refusal for a gh word among a wrapper's arguments that is no option's value, unless a help
+ * form follows it. It backs up the parsed check: an option the tables do not know makes its value
+ * look like the program, and the gh word after it must still be refused, as before DIPO-242.
+ */
+function ghWordRefusal(args: readonly string[], values: ReadonlySet<number>): string | null {
+  for (let j = 0; j < args.length; j++) {
+    if (values.has(j) || !isGh(args[j] ?? "")) continue;
+    if (!ghHelpCall(withoutTrailingRedirections(args.slice(j + 1)))) return GH_REFUSAL;
+  }
+  return null;
+}
+
+/** The refusal for one simple command's words, else null; `stdin` holds the texts it may read. */
+function ghCommand(
+  words: readonly string[],
+  depth: number,
+  stdin: readonly string[] | null,
+): string | null {
   let at = 0;
   while (at < words.length && isPrefixWord(words[at] ?? "")) at++;
   const base = basename(words[at] ?? "").toLowerCase();
@@ -169,8 +204,9 @@ function ghCommand(words: readonly string[], depth: number, stdin: string | null
   }
   // xargs appends its input to the command, so a gh word behind it is refused whatever it is.
   if (base === "xargs") {
+    if (args.some(isGh)) return GH_REFUSAL;
     const rest = args.slice(wrappedCommandAt(args, XARGS_VALUE_OPTIONS, XARGS_LONG_VALUE_OPTIONS));
-    return rest.some(isGh) ? GH_REFUSAL : ghCommand(rest, depth, null);
+    return ghCommand(rest, depth, null);
   }
   if (base === "env") {
     const env = envSplitTexts(args);
@@ -178,25 +214,30 @@ function ghCommand(words: readonly string[], depth: number, stdin: string | null
       const hit = ghIn(text, depth + 1);
       if (hit !== null) return hit;
     }
-    return ghCommand(args.slice(env.at), depth, stdin);
+    return ghCommand(args.slice(env.at), depth, stdin) ?? ghWordRefusal(args, new Set());
   }
   const wrapper = WRAPPERS.get(base);
   if (wrapper !== undefined) {
-    const start = wrappedCommandAt(args, wrapper.short, wrapper.long) + wrapper.operands;
+    const options = wrapperOptions(args, wrapper.short, wrapper.long);
+    const start = options.at + wrapper.operands;
     // `command -v gh` and `command -V gh` only look the program up; they run none.
     if (base === "command" && args.slice(0, start).some((word) => /^-[^-]*[vV]/.test(word))) {
       return null;
     }
     // A wrapper runs its command after its own options (`env -C dir gh ...`), so it is checked again.
-    return ghCommand(args.slice(start), depth, stdin);
+    return ghCommand(args.slice(start), depth, stdin) ?? ghWordRefusal(args, options.values);
   }
   if (base === "eval") return ghIn(args.join(" "), depth + 1);
   if (SHELLS.has(base)) {
+    // The script of -c is the first word after the options, which may come after -c too
+    // (`bash -c -- 'gh ...'`), so every word after -c is checked as a script.
     const flag = args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
-    if (flag !== -1) return ghIn(args[flag + 1] ?? "", depth + 1);
+    const scripts = flag === -1 ? (hereString(args) ?? stdin) : args.slice(flag + 1);
     // Without -c a shell reads its script from a here-string, else from its stdin.
-    const script = hereString(args) ?? stdin;
-    if (script !== null) return ghIn(script, depth + 1);
+    for (const script of scripts ?? []) {
+      const hit = ghIn(script, depth + 1);
+      if (hit !== null) return hit;
+    }
   }
   return null;
 }

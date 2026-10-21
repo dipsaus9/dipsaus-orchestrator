@@ -34,6 +34,10 @@ const ALLOWED = [
   "echo gh pr list | grep x",
   "echo gh pr list | cat",
   "GH --version",
+  // The backstop passes over a gh word taken as a known option's value, and printed text with no
+  // gh call is no script (DIPO-242 review).
+  "sudo -u gh -g gh ls",
+  "printf '%s\\n' 'gh --version' | bash",
 ];
 
 const REFUSED = [
@@ -91,6 +95,23 @@ const REFUSED = [
   "GH pr merge 1",
   "Gh api /user",
   "sudo GH pr list",
+  // An option the tables do not know hides no gh word after it, as before DIPO-242 (DIPO-242 review).
+  "doas -a style gh pr list",
+  "sudo -r role gh pr list",
+  "sudo -t type gh pr list",
+  "stdbuf --output L gh pr list",
+  "env -a name gh pr list",
+  // The -c script may follow other options, and printed text is read with its escapes decoded.
+  "bash -c -- 'gh pr list'",
+  "bash -c -x 'gh pr list'",
+  "printf '%s\\n' 'gh pr list' | bash",
+  "echo -e 'x\\ngh pr list' | bash",
+  "bash 0<<< 'gh pr list'",
+  "mksh -c 'gh pr list'",
+  "busybox sh -c 'gh pr list'",
+  "setsid gh pr list",
+  // Nesting deeper than is followed is refused when it holds a gh word.
+  "eval eval eval eval eval eval 'gh pr list'",
 ];
 
 describe("ghRefusal", () => {
