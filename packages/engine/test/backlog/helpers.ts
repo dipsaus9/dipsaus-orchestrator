@@ -6,11 +6,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ChildProcess, Spawn, SpawnOptions } from "@dipsaus-orchestrator/contract";
+import { tempRoot } from "@dipsaus-orchestrator/testkit";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
 
-/** The pinned CLI: Bun running the package's launcher, which starts the platform binary. */
+/**
+ * The pinned CLI: Bun running the package's launcher, which starts the platform binary. The
+ * runner gives the CLI only PATH and HOME (DIPO-270), so its temporary files go to the system's
+ * default folder, which the verify policy does not let a test write; `env` points it at the test
+ * temp root for the CLI process alone.
+ */
 export const BACKLOG_CLI: readonly [string, ...string[]] = [
+  "/usr/bin/env",
+  `TMPDIR=${tempRoot()}`,
   process.execPath,
   join(REPO_ROOT, "node_modules", "backlog.md", "cli.js"),
 ];

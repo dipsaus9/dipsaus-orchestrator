@@ -1,5 +1,6 @@
 // What the story PR reads from the story's worktree and the repository (DIPO-144): the story as
-// the Backlog CLI shows it, the head commit, the remote URL and the base. Every step is an office
+// the Backlog CLI shows it in dipo's own copy of the story's backlog (`inStoryBacklog`, never the
+// worktree), the head commit, the remote URL and the base. Every step is an office
 // git queue item through the hardened runner, as the steps of verify and commit are.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -10,7 +11,7 @@ import type { BacklogCli } from "../backlog/runner";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { promptStoryOf } from "../prompts/story";
-import { repoPath } from "../worktree/claim";
+import { inStoryBacklog, repoPath } from "../worktree/claim";
 
 import type { PrBodyStory } from "./body";
 
@@ -53,8 +54,17 @@ export function gitStoryPrOps(deps: {
           GitLocation,
           { kind: "worktree" }
         >;
-        const view = await viewStory({ cli: deps.cli, cwd: location.workTree, id: input.story });
-        const taskFile = repoPath(location.workTree, view.file);
+        // In dipo's own copy of the story's backlog, never the worktree (0021 section 14).
+        const { view, taskFile } = await inStoryBacklog(
+          git,
+          session,
+          location,
+          input.story,
+          async (backlog) => {
+            const shown = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id: input.story });
+            return { view: shown, taskFile: repoPath(backlog.cwd, shown.file) };
+          },
+        );
         const fields = parseFieldBlock(view.description).fields;
         const prompt = promptStoryOf(view, { dependencies: [], fields, taskFile });
         const checked = new Map(view.acceptanceCriteria.map((c) => [c.index, c.checked]));

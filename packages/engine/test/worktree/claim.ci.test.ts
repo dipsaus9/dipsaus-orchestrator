@@ -131,12 +131,16 @@ function failing(
   };
 }
 
-/** The `rev-parse --verify HEAD` that reads the claim commit, after `git commit` ran. */
+/**
+ * The `rev-parse --verify HEAD` that reads the claim commit back, after `git commit-tree` made it
+ * and `git update-ref` moved the branch (DIPO-270).
+ */
 function afterClaimCommit(args: readonly string[], seen: readonly (readonly string[])[]): boolean {
   return (
     args.includes("rev-parse") &&
     args.at(-1) === "HEAD" &&
-    seen.some((earlier) => earlier.includes("commit"))
+    seen.some((earlier) => earlier.includes("commit-tree")) &&
+    seen.some((earlier) => earlier.includes("update-ref"))
   );
 }
 

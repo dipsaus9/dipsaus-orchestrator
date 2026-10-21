@@ -42,6 +42,10 @@ describe("fingerprint", () => {
     expect(fingerprint(structuredClone(base))).toBe(original);
   });
 
+  it("does not change with .bun-version, which only the box toolchain reads (DIPO-266)", () => {
+    expect(fingerprint(withText(".bun-version", "1.4.2\n"))).toBe(original);
+  });
+
   it("changes when a root or workspace script changes", () => {
     expect(
       fingerprint(withManifest({ scripts: { test: "bun test --bail", verify: "bun run test" } })),

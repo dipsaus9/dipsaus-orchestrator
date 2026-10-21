@@ -7,8 +7,9 @@
 export interface Probe {
   /**
    * Contents of the files the scan reads: each `package.json` (root and workspace packages),
-   * `pnpm-workspace.yaml`, `.node-version`, `.nvmrc`, `.claude/backlog-workflow.json`, the dev
-   * server and runtime config files, and the modules those configs import. Never an env file.
+   * `pnpm-workspace.yaml`, `.node-version`, `.nvmrc`, `.bun-version`,
+   * `.claude/backlog-workflow.json`, the dev server and runtime config files, and the modules
+   * those configs import. Never an env file.
    */
   readonly texts: Readonly<Record<string, string>>;
   /** Lockfile names present at the root. Their contents are never read. */

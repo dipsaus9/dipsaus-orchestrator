@@ -1,10 +1,13 @@
 // One real box per story (0021 sections 1 to 6, DIPO-265): the box interface and its Apple
-// `container` backend.
+// `container` backend, and the box image built from the office config (DIPO-266).
 
 export {
+  BOX_IMAGE_LABEL_VALUE,
   BOX_KEEPALIVE,
   BOX_NETWORK_LABEL_VALUE,
   BOX_NETWORK_NAME,
+  BUILD_PROXY_ARG,
+  buildArgs,
   checkedBoxName,
   copyInArgs,
   copyOutArgs,
@@ -12,6 +15,7 @@ export {
   deleteArgs,
   execArgs,
   exportArgs,
+  imageInspectArgs,
   listArgs,
   networkCreateArgs,
   networkListArgs,
@@ -21,11 +25,12 @@ export {
   systemStatusArgs,
   versionArgs,
 } from "./apple-args";
-export type { CreateInput, ExecInput, HostResources } from "./apple-args";
+export type { BuildInput, CreateInput, ExecInput, HostResources } from "./apple-args";
 export {
   APPLE_CONTAINER_BACKEND_ID,
   AppleContainerBoxes,
   boxMemory,
+  BUILD_ERROR_LINES,
   compareVersions as compareContainerVersions,
   dipoBoxes,
   findNetwork,
@@ -36,7 +41,11 @@ export {
 } from "./apple-container";
 export type { AppleContainerDeps, BoxNetworkFound } from "./apple-container";
 export {
+  BOX_BUILD_CA_FILE,
+  BOX_BUILD_FILE,
+  BOX_BUILD_TIMEOUT_MS,
   BOX_CALL_TIMEOUT_MS,
+  BOX_IMAGE_REPOSITORY,
   BOX_LABEL,
   BOX_NAME_PREFIX,
   BOX_PACKAGE_CACHE_PATH,
@@ -50,6 +59,7 @@ export type {
   BoxCheck,
   BoxExecOptions,
   BoxExecResult,
+  BoxImageBuild,
   BoxInfo,
   BoxMemory,
   BoxNetwork,
@@ -59,6 +69,30 @@ export type {
   BoxSpec,
   BoxState,
 } from "./port";
+export {
+  BOX_DEFAULTS,
+  boxBuildFile,
+  boxImageTag,
+  checkImageDescription,
+  describeBox,
+  ensureBoxImage,
+  NODE_TARBALL_SHA256,
+  readBaseBox,
+  readBaseBoxSection,
+} from "./image";
+export type {
+  BaseBox,
+  BaseBoxSection,
+  BoxBuildProxy,
+  BoxDescription,
+  BoxFileEntry,
+  BoxImageDescription,
+  BoxImageRequest,
+  BoxImageResult,
+  BoxToolchain,
+  NodeArch,
+  NodeSha256,
+} from "./image";
 export {
   BOX_PLACEHOLDER_API_KEY,
   boxModelEnvironment,

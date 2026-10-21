@@ -21,13 +21,19 @@
 // committed with the repository.
 // Version 8 (DIPO-164) adds `worker.web` (0020 section 11b): whether the developer role gets
 // WebSearch and WebFetch. `office.local.yaml` gains no key.
+// Version 9 (DIPO-266) adds the `box` block (0021 section 5 and decision 9): the image of the
+// office's boxes (a Debian slim release, the toolchain versions, extra system packages and the
+// pinned Claude Code version) and the files outside git a box may get, each marked as holding no
+// real secrets. Every key is optional: what the block leaves out is detected from the repository
+// (`box/image.ts`). dipo reads the block from the base branch only, so a story cannot change it.
+// `office.local.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 8;
+export const OFFICE_CONFIG_VERSION = 9;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -275,7 +281,7 @@ const officeShapeV7 = {
 };
 
 // Version 8: the office keys of version 7 plus `worker.web` (DIPO-164).
-const officeShape = {
+const officeShapeV8 = {
   ...officeShapeV7,
   worker: z.strictObject({
     ...officeShapeV2.worker.shape,
@@ -285,6 +291,107 @@ const officeShape = {
         "Whether the developer role gets WebSearch and WebFetch (0020 section 11b). Every call shows in the worker output and is counted on the run outcome, and a PreToolUse hook refuses a URL or query that holds a value from the copied env files. The Bash sandbox network stays closed and the reviewer gets no web tools. With false the developer keeps the M0 tool list.",
       ),
   }),
+};
+
+// Version 9 (DIPO-266): the `box` block. Versions are exact, so one description always builds the
+// same image and its tag, a hash of the description, stays meaningful.
+const ExactVersion = text().regex(/^\d+\.\d+\.\d+$/, "must be an exact version such as 1.4.2");
+/** A sha256 in lower-case hex. */
+const Sha256 = text().regex(/^[0-9a-f]{64}$/, "must be a sha256 in lower-case hex");
+const DebianRelease = text()
+  .regex(/^[a-z0-9][a-z0-9.]*$/, "must be a Debian release such as trixie, bookworm or 13")
+  .describe(
+    "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim.",
+  );
+const BoxToolchain = z
+  .strictObject({
+    node: ExactVersion.describe(
+      "Node.js, from nodejs.org; npm comes with it. Every box has Node, because npm installs Claude Code.",
+    ),
+    bun: ExactVersion.describe("Bun, from npm through Safe-Chain."),
+    pnpm: ExactVersion.describe("pnpm, from npm through Safe-Chain."),
+    yarn: text()
+      .regex(/^1\.\d+\.\d+$/, "must be a Yarn 1 version such as 1.22.22")
+      .describe(
+        "Yarn 1, from npm through Safe-Chain. A Yarn 2+ repository runs its committed yarnPath release through it.",
+      ),
+    nodeSha256: z
+      .strictObject({ arm64: Sha256, x64: Sha256 })
+      .partial()
+      .describe(
+        "The sha256 of the Node.js tarball (node-v<version>-linux-<arch>.tar.gz) per architecture. dipo pins it for its known Node versions; a Node version it does not know needs it here, or the build is refused.",
+      ),
+  })
+  .partial()
+  .describe(
+    "The toolchain of the box image and its exact versions. A version left out is detected from the repository (.bun-version, packageManager, .node-version, .nvmrc) or takes dipo's default.",
+  );
+// A Debian package name, with an optional `=version`. Never git: there is no git in a box (0021
+// decision 4).
+const DebianPackage = text()
+  .regex(
+    /^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$/,
+    "must be a Debian package name, optionally with =<version>",
+  )
+  .refine(
+    (name) => name.split("=")[0] !== "git",
+    "git is never installed in a box (0021 decision 4)",
+  );
+// 0021 decision 9: a file outside git a box may get, by its path in the repository.
+const BoxFilePath = text()
+  .refine(
+    // oxlint-disable-next-line no-control-regex -- control characters are what this refuses
+    (path) => !/[\u0000-\u001f\u007f\\:]/.test(path),
+    "may hold no control character, backslash or colon",
+  )
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      path.split("/").every((segment) => !["", ".", "..", ".git"].includes(segment.toLowerCase())),
+    "must be a relative path inside the repository, without empty, ., .. or .git segments (in any case)",
+  );
+const BoxFile = z
+  .strictObject({
+    path: BoxFilePath,
+    noRealSecrets: z
+      .literal(true)
+      .describe(
+        "Must be true: the maintainer's mark that the file holds no real secrets (0021 decision 9). An entry without it is refused.",
+      ),
+  })
+  .describe("A file outside git that a box gets, by its path in the repository.");
+const BoxSection = z
+  .strictObject({
+    debian: DebianRelease,
+    toolchain: BoxToolchain,
+    packages: z
+      .array(DebianPackage)
+      .refine((names) => new Set(names).size === names.length, "must not name a package twice")
+      .describe(
+        "Extra Debian packages of the box image, installed with apt from Debian's archive.",
+      ),
+    claudeCode: ExactVersion.describe(
+      "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0021 section 4).",
+    ),
+    files: z
+      .array(BoxFile)
+      .refine(
+        (entries) => new Set(entries.map((entry) => entry.path)).size === entries.length,
+        "must not name a file twice",
+      )
+      .describe(
+        "Files outside git that a box may get (0021 decision 9). Nothing outside git goes into a box unless it is listed here and marked noRealSecrets: true.",
+      ),
+  })
+  .partial()
+  .describe(
+    "The office's box (0021 section 5, DIPO-266): the image every story's box runs and the files outside git it may get. dipo reads this block from the base branch only, so a story cannot change it. What it leaves out is detected from the repository; the image is built once per description and rebuilt only when the description changes.",
+  );
+
+// Version 9: the office keys of version 8 plus `box` (DIPO-266).
+const officeShape = {
+  ...officeShapeV8,
+  box: BoxSection,
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -350,15 +457,30 @@ export const OfficeConfigV7 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
-/** The effective configuration of an office: every key set, after defaults and overrides. */
+/** The effective configuration of an office, version 8 (kept to read version 8 files). */
 export const OfficeConfigV8 = z.strictObject({
+  version: z.literal(8),
+  ...officeShapeV8,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
+/**
+ * The effective configuration of an office: every key set, after defaults and overrides. The
+ * `box` block is the one exception: its keys stay optional, and what it leaves out is detected
+ * from the repository (`box/image.ts`).
+ */
+export const OfficeConfigV9 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV8>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV9>;
+/** The `box` block of an office (version 9, DIPO-266), as committed: every key optional. */
+export type OfficeBoxSection = OfficeConfig["box"];
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T
@@ -387,8 +509,16 @@ function fileShape(shape: Record<string, z.ZodType>): Record<string, z.ZodType> 
   return result;
 }
 
-export type OfficeOverrides = DeepPartial<Omit<OfficeConfig, "version" | "privacy" | "retention">>;
-export type OfficeFileOf<V extends OfficeConfigVersion> = OfficeOverrides & { version: V };
+/**
+ * Overrides from flags on a single command. Never `box`: the box is read from the base branch
+ * only (DIPO-266), so no other source may feed a build.
+ */
+export type OfficeOverrides = DeepPartial<
+  Omit<OfficeConfig, "version" | "privacy" | "retention" | "box">
+>;
+export type OfficeFileOf<V extends OfficeConfigVersion> = DeepPartial<
+  Omit<OfficeConfig, "version" | "privacy" | "retention">
+> & { version: V };
 export type OfficeFile = OfficeFileOf<typeof OFFICE_CONFIG_VERSION>;
 export type OfficeLocalFileOf<V extends OfficeConfigVersion> = DeepPartial<
   Pick<OfficeConfig, "timeouts" | "privacy" | "retention">
@@ -462,6 +592,12 @@ export const OfficeFileV7 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 8: version 7 plus `worker.web` (DIPO-164). */
 export const OfficeFileV8 = z.strictObject({
+  version: z.literal(8),
+  ...fileShape(officeShapeV8),
+}) as unknown as z.ZodType<OfficeFileOf<8>>;
+
+/** `.dipo/office.yaml`, version 9: version 8 plus `box` (DIPO-266). */
+export const OfficeFileV9 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -522,6 +658,15 @@ export const OfficeLocalFileV7 = z.strictObject({
 
 /** `.dipo/office.local.yaml`, version 8: the same keys as version 7 (DIPO-164 adds none here). */
 export const OfficeLocalFileV8 = z.strictObject({
+  version: z.literal(8),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<8>>;
+
+/**
+ * `.dipo/office.local.yaml`, version 9: the same keys as version 8. DIPO-266 adds none here: the
+ * box is read from the base branch, never from a machine-local file.
+ */
+export const OfficeLocalFileV9 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -561,9 +706,17 @@ export const OfficeOverridesV7 = z.strictObject(
   fileShape(officeShapeV7),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/** Overrides from flags on a single command, version 8 keys. */
 export const OfficeOverridesV8 = z.strictObject(
-  fileShape(officeShape),
+  fileShape(officeShapeV8),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/**
+ * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`. The
+ * box is read from the base branch only (DIPO-266), so a flag can never feed a build.
+ */
+export const OfficeOverridesV9 = z.strictObject(
+  fileShape(officeShapeV8),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /** The file schemas of each version, for `resolveOfficeConfig`. */
@@ -576,6 +729,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   6: OfficeFileV6,
   7: OfficeFileV7,
   8: OfficeFileV8,
+  9: OfficeFileV9,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -586,6 +740,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   6: OfficeLocalFileV6,
   7: OfficeLocalFileV7,
   8: OfficeLocalFileV8,
+  9: OfficeLocalFileV9,
 };
 
 /**
@@ -598,6 +753,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
  * their defaults. Version 5 to 6 is the identity: `story.maintainerStepPhrases` takes its
  * default. Version 6 to 7 is the identity too: `storyPr.open` takes its default, true (DIPO-210).
  * Version 7 to 8 is the identity too: `worker.web` takes its default, true (DIPO-164).
+ * Version 8 to 9 is the identity too: without `box` the whole box is detected (DIPO-266).
  * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -612,6 +768,7 @@ export function migrateOfficeDocument(
   if (current.version === 5) current = { ...current, version: 6 };
   if (current.version === 6) current = { ...current, version: 7 };
   if (current.version === 7) current = { ...current, version: 8 };
+  if (current.version === 8) current = { ...current, version: 9 };
   return current;
 }
 
@@ -773,6 +930,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   },
   // M0 review (DIPO-15).
   polling: { prStateSeconds: 60, fetchSeconds: 300 },
+  // 0021 section 5 (DIPO-266): no committed box block; the box is detected from the repository.
+  box: {},
   // 0007 sections 7 and 8; commands and prompts are stored by default (DIPO-135 and DIPO-137,
   // maintainer decision of 2026-10-16), and raw events stay off.
   privacy: { storePrompts: true, storeCommandBodies: true, keepRawEvents: false },

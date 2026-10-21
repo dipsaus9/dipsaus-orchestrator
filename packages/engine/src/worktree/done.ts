@@ -20,11 +20,12 @@ import type { BacklogCli } from "../backlog/runner";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
+import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import type { PrStateHost } from "../platform/host";
 
-import { notice, writeWith } from "./claim";
+import { inStoryBacklog, notice, writeWith } from "./claim";
 import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
 import { detectDone, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
@@ -35,12 +36,14 @@ export const TEARDOWN_STEP = "worktree.teardown";
 /** The Backlog.md status of a parked story (0012). */
 export const PARKED_STATUS = "Parked";
 
+type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
+
 export interface StoryTeardownDeps {
   /** The office's git, attached by the `git.version` load step (DIPO-31). */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   /** The code host; null when the daemon has none, so only `merge-tree` detects Done. */
   readonly host: PrStateHost | null;
-  /** How the Backlog CLI starts; it reads a Done story's status in its worktree. */
+  /** How the Backlog CLI starts; it reads a Done story's status in dipo's copy of its backlog. */
   readonly cli: BacklogCli;
   /** The loaded offices and the configuration in force for each next interval. */
   readonly offices: {
@@ -49,7 +52,7 @@ export interface StoryTeardownDeps {
   };
   /** The machine-wide port slot table; teardown frees the worktree's slot there. */
   readonly slots?: SlotTable;
-  /** The story's status in its worktree, or null when unreadable; the Backlog CLI by default. */
+  /** The story's status on its branch, or null when unreadable; the Backlog CLI by default. */
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
@@ -199,7 +202,7 @@ export class StoryTeardown {
     }
     // A teardown that already started passed this check before it removed anything.
     if (claim.teardownStartedAt === null) {
-      const status = await this.#statusOf(claim);
+      const status = await this.#statusOf(deps.git, claim);
       if (status === null) {
         this.#tell(
           state,
@@ -240,11 +243,23 @@ export class StoryTeardown {
     return "kept";
   }
 
-  async #statusOf(claim: ClaimRecord): Promise<string | null> {
+  /**
+   * The story's status as committed on its branch, read with the Backlog CLI in dipo's own copy of
+   * its backlog, never in the worktree (`inStoryBacklog`, 0021 section 14); null when unreadable.
+   */
+  async #statusOf(git: OfficeGit, claim: ClaimRecord): Promise<string | null> {
     if (this.#deps.statusOf !== undefined) return this.#deps.statusOf(claim);
     try {
-      const view = await viewStory({ cli: this.#deps.cli, cwd: claim.worktree, id: claim.story });
-      return view.status;
+      return await git.run((session) =>
+        inStoryBacklog(
+          git,
+          session,
+          git.worktreeLocation(claim.worktree) as WorktreeLocation,
+          claim.story,
+          async (backlog) =>
+            (await viewStory({ cli: this.#deps.cli, cwd: backlog.cwd, id: claim.story })).status,
+        ),
+      );
     } catch {
       return null;
     }

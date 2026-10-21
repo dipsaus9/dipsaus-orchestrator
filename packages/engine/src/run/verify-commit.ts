@@ -55,6 +55,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
@@ -417,7 +418,13 @@ export class VerifyCommit implements RunFinisher {
       (profile) => ({ profile, error: null }),
       (error: unknown) => ({ profile: null, error }),
     );
-    const view = await this.#deps.story.story(officeId, worktree, story);
+    let view: Awaited<ReturnType<StoryGit["story"]>>;
+    try {
+      view = await this.#deps.story.story(officeId, worktree, story);
+    } catch (error) {
+      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
+      throw error;
+    }
     const paths = await this.#deps.story.changedPaths(officeId, worktree);
     const checked = checkScope({
       paths,
@@ -695,6 +702,7 @@ export class VerifyCommit implements RunFinisher {
         criteria: met,
       });
     } catch (error) {
+      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
       return {
         kind: "park",
         reason: "interrupted",
@@ -790,6 +798,11 @@ export function workspaceDirsOf(base: RunProfile | null, branch: RunProfile): st
 export function feedbackItemMax(config: Pick<OfficeConfig, "prompt">, tier: string | null): number {
   const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
   return (tier === null ? undefined : budgets[tier]) ?? config.prompt.budgets.feedbackItem.M;
+}
+
+/** True when the story's task file was refused for fields dipo does not know (0021 section 14). */
+function isTaskFieldError(error: unknown): error is GitError {
+  return error instanceof GitError && error.code === TASK_FIELD_ERROR;
 }
 
 function scopePark(cause: string, detail: string): TurnDecision {

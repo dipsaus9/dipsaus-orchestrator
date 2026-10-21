@@ -68,6 +68,12 @@ const SHAPES: Readonly<Record<string, Shape>> = {
     positionals: 1,
     passthrough: true,
   },
+  imageInspectArgs: { words: ["image", "inspect"], flags: {}, positionals: 1 },
+  buildArgs: {
+    words: ["build"],
+    flags: { "--file": 1, "--tag": 1, "--label": 1, "--build-arg": 1, "--progress": 1 },
+    positionals: 1,
+  },
 };
 
 /**
@@ -215,6 +221,10 @@ const COMMANDS: (readonly [string, ...string[]])[] = [
   ["bun", "run", "verify"],
   ["ls", "-v", "--volume", "--ssh", "-p", "--publish", "--virtualization"],
 ];
+/** Box image tags and build inputs (DIPO-266). */
+const TAGS = [`dipo-box:${"0".repeat(64)}`, `dipo-box:${"ab12".repeat(16)}`];
+const CONTEXTS = ["/tmp/d266/box-build-x1", "/Users/someone/Library/Caches/dipo/box build"];
+const PROXIES = ["http://192.0.2.1:3128", "http://[2001:db8::1]:8080", "http://proxy.example:1"];
 const ENVS = [undefined, {}, { HTTPS_PROXY: "http://proxy:1", NO_PROXY: "a,b" }];
 const CWDS = [undefined, "/work"];
 
@@ -229,6 +239,12 @@ function everyArgv(): Map<string, string[][]> {
   add("networkListArgs", builders.networkListArgs());
   add("networkCreateArgs", builders.networkCreateArgs());
   add("listArgs", builders.listArgs());
+  for (const tag of TAGS) {
+    add("imageInspectArgs", builders.imageInspectArgs(tag));
+    for (const contextDir of CONTEXTS)
+      for (const proxyUrl of PROXIES)
+        add("buildArgs", builders.buildArgs({ tag, contextDir, proxyUrl }));
+  }
   for (const [input, ok] of createCases()) if (ok) add("createArgs", builders.createArgs(input));
   for (const name of NAMES) {
     add("startArgs", builders.startArgs(name));
@@ -431,5 +447,61 @@ describe("the Apple container argument builder", () => {
       "dipo=network",
       BOX_NETWORK_NAME,
     ]);
+  });
+
+  it("builds only dipo's own build file, with the proxy as the one build argument", () => {
+    const tag = TAGS[0]!;
+    expect(builders.buildArgs({ tag, contextDir: CONTEXTS[0]!, proxyUrl: PROXIES[0]! })).toEqual([
+      "build",
+      "--file",
+      `${CONTEXTS[0]!}/Containerfile`,
+      "--tag",
+      tag,
+      "--label",
+      "dipo=image",
+      "--build-arg",
+      `DIPO_PROXY=${PROXIES[0]!}`,
+      "--progress",
+      "plain",
+      CONTEXTS[0]!,
+    ]);
+    for (const shape of ["--ssh", "--secret", "--output", "-o", "--no-cache", "-f"]) {
+      expect(() => readFlags(["build", shape, "x", "/tmp/ctx"], SHAPES["buildArgs"]!)).toThrow();
+    }
+  });
+
+  it("refuses a build or inspect of anything but a dipo box image tag", () => {
+    const input = { tag: TAGS[0]!, contextDir: CONTEXTS[0]!, proxyUrl: PROXIES[0]! };
+    for (const tag of [
+      "alpine",
+      "dipo-box:latest",
+      `dipo-box:${"0".repeat(63)}`,
+      `dipo-box:${"A".repeat(64)}`,
+      `other:${"0".repeat(64)}`,
+      "--ssh",
+    ]) {
+      refused(() => builders.buildArgs({ ...input, tag }));
+      refused(() => builders.imageInspectArgs(tag));
+    }
+    for (const contextDir of [
+      "relative",
+      "/",
+      "/tmp/a/",
+      "/tmp/a/../b",
+      "/tmp/a:b",
+      "/tmp/\u0007",
+    ]) {
+      refused(() => builders.buildArgs({ ...input, contextDir }));
+    }
+    for (const proxyUrl of [
+      "https://192.0.2.1:3128",
+      "http://user:pw@192.0.2.1:3128",
+      "http://192.0.2.1",
+      "http://192.0.2.1:3128/path",
+      "http://192.0.2.1:3128 --ssh",
+      "",
+    ]) {
+      refused(() => builders.buildArgs({ ...input, proxyUrl }));
+    }
   });
 });
