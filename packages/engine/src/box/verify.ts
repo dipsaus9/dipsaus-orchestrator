@@ -1,6 +1,9 @@
 // One verify command in the worker's box (0021 section 9, DIPO-274): dipo runs the office's verify
-// command in the box's `/work` through the box interface's exec, without AI and without the web
-// route, so verify has no network, as on the Mac.
+// command in the box's `/work` through the box interface's exec, without AI. No web route is given
+// to verify: the command gets no proxy settings.
+//
+// A green verify in the box is the worker's feedback loop, not the gate: the worker is root in its
+// box and can change any program verify runs. The gate is CI's required checks and the reviewer.
 //
 // - The command runs under a small wrapper dipo writes (`boxVerifyCommand`): it records its own
 //   pid in `BOX_VERIFY_PID_FILE` and becomes `timeout`, where the box has it. GNU `timeout` makes
@@ -67,14 +70,17 @@ exec "$@"`,
 /**
  * The kill in the box: the process group the pid file names (the process alone when it leads
  * none) gets SIGKILL, then the command waits up to `BOX_VERIFY_KILL_WAIT_SECONDS` for the process
- * to be gone. Exit 0 when it is gone, 1 when it still runs, 3 when there is no usable pid.
+ * to be gone. Exit 0 when it is gone, 1 when it still runs, 3 when there is no usable pid: none, not
+ * digits, init, one with a leading zero, or one of no running process (stale or forged). dipo then
+ * stops the box.
  */
 export function boxKillCommand(): [string, ...string[]] {
   return [
     "/bin/sh",
     "-c",
     `pid=$(cat '${BOX_VERIFY_PID_FILE}' 2>/dev/null) || exit 3
-case "$pid" in ''|0|1|*[!0-9]*) exit 3 ;; esac
+case "$pid" in ''|0*|1|*[!0-9]*) exit 3 ;; esac
+[ -d "/proc/$pid" ] || exit 3
 kill -s KILL -- "-$pid" 2>/dev/null || kill -s KILL "$pid" 2>/dev/null
 i=0
 while [ -e "/proc/$pid/status" ] && ! grep -q '^State:[[:space:]]*[ZX]' "/proc/$pid/status" 2>/dev/null; do
