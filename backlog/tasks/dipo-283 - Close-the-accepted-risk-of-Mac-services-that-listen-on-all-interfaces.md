@@ -4,7 +4,7 @@ title: Close the accepted risk of Mac services that listen on all interfaces
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 13:54'
+updated_date: '2026-10-21 13:56'
 labels:
   - box
   - cutover
@@ -37,7 +37,13 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Line 2 of the DIPO-264 probe fails for services that listen on all interfaces
-- [ ] #2 The worker inside the box cannot undo the fix
-- [ ] #3 docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
+- [ ] #1 The worker inside the box cannot undo the fix
+- [ ] #2 docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
+- [ ] #3 Line 2 of the DIPO-264 probe fails for Mac services that listen on all interfaces, except the ports the office config allows (DIPO-282)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+To settle in refinement: how the fix holds while the worker runs with all permissions inside the box (DIPO-271), and whether it sits outside the box as 0021 section 3 asks; the amendment calls an in-box rule a second layer.
+<!-- SECTION:NOTES:END -->
