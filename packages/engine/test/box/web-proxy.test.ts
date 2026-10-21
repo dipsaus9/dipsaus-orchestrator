@@ -7,14 +7,16 @@
 // The Mac's interfaces and the public stand-ins are documentation addresses: the Mac has
 // 192.0.2.10/25 and 2001:db8:1::10/64, the box network is 198.51.100.1/24, and the rest of the
 // documentation ranges play the public internet. The rule refuses documentation ranges; the tests
-// lift that one refusal with `publicStandIns`. The proxy itself listens on loopback, and its
-// upstream connections are redirected to local test servers while the address asked for is kept.
+// lift that one refusal with `publicStandIns`. The proxy itself listens on loopback TCP, or on a
+// Unix socket where the sandbox refuses loopback listens (DIPO-287), and its upstream connections
+// are redirected to local test servers while the address asked for is kept.
 
 import { connect, createServer, type Server, type Socket } from "node:net";
+import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
 
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import { guardRuns, makeTempDir, ManualClock, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   BoxWebRoute,
@@ -24,6 +26,7 @@ import {
   isRegistryHost,
   normaliseHost,
   parseTunnelRequest,
+  type BoxWebProxyDeps,
   type BoxWebProxyOptions,
   type RunningBoxWebProxy,
   startBoxWebProxy,
@@ -309,10 +312,132 @@ describe("host names and the request line", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// The proxy over real sockets.
+// The proxy over real sockets, on two transports (DIPO-287): TCP on loopback, the way the proxy
+// listens in dipo, and Unix sockets under the test temp root, through the proxy's `listen` seam.
+// dipo's verify step on macOS runs under Seatbelt with a closed network, which refuses loopback TCP
+// listens but allows Unix sockets under the step's temp root; there only the Unix transport runs.
+// Everywhere else (CI's Linux run, a plain `bun test` on the Mac) both run.
+
+/** Where a test server listens: a loopback TCP port, or a Unix socket path. */
+type Endpoint = number | string;
+
+function dial(endpoint: Endpoint, onConnect?: () => void): Socket {
+  return typeof endpoint === "number"
+    ? connect(endpoint, LOOPBACK, onConnect)
+    : connect(endpoint, onConnect);
+}
+
+interface Transport {
+  readonly name: string;
+  readonly runs: boolean;
+  /** Binds a test server and resolves with where it listens. */
+  listen(server: Server): Promise<Endpoint>;
+  /** An endpoint nothing listens on. */
+  closed(): Promise<Endpoint>;
+  /** Starts the proxy on this transport and resolves with it and where clients reach it. */
+  startProxy(
+    options: BoxWebProxyOptions,
+    deps: BoxWebProxyDeps,
+  ): Promise<{ proxy: RunningBoxWebProxy; endpoint: Endpoint }>;
+}
+
+function tcpListen(server: Server): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, LOOPBACK, () => {
+      server.off("error", reject);
+      const address = server.address();
+      resolve(typeof address === "object" && address !== null ? address.port : 0);
+    });
+  });
+}
+
+function unixListen(server: Server, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(path, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+/**
+ * True only on macOS when a TCP listen on loopback is refused: dipo's verify step there runs under
+ * Seatbelt with a closed network (DIPO-114, DIPO-287). A Linux step gets a loopback of its own, so
+ * on Linux a refused loopback listen still fails the TCP tests. Only the sandbox's refusal (EPERM
+ * or EACCES) counts; any other listen error leaves the TCP tests on, so they fail visibly.
+ */
+async function sandboxRefusesLoopback(): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  const probe = createServer();
+  try {
+    await tcpListen(probe);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "EPERM" || code === "EACCES";
+  }
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return false;
+}
+
+const TCP_RUNS = guardRuns(
+  "SANDBOX_REFUSES_LOOPBACK",
+  "the sandbox refuses loopback TCP listens, so the web proxy runs over Unix sockets only",
+  !(await sandboxRefusesLoopback()),
+);
 
 const servers: Server[] = [];
 const proxies: RunningBoxWebProxy[] = [];
+/** The directory of the Unix sockets, made on first use. */
+let socketDir: string | null = null;
+let socketCount = 0;
+
+/** A fresh, short Unix socket path under the test temp root. */
+function socketPath(): string {
+  socketDir ??= makeTempDir();
+  socketCount += 1;
+  return join(socketDir, `s${socketCount}.sock`);
+}
+
+const TCP: Transport = {
+  name: "TCP on loopback",
+  runs: TCP_RUNS,
+  listen: tcpListen,
+  /** A local port with nothing listening on it. */
+  async closed() {
+    const server = createServer();
+    const port = await tcpListen(server);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    return port;
+  },
+  async startProxy(options, deps) {
+    // No `listen` seam: the proxy's own TCP listen is what this transport tests.
+    const proxy = await startBoxWebProxy(options, deps);
+    return { proxy, endpoint: proxy.port };
+  },
+};
+
+const UNIX: Transport = {
+  name: "Unix sockets",
+  runs: true,
+  async listen(server) {
+    const path = socketPath();
+    await unixListen(server, path);
+    return path;
+  },
+  async closed() {
+    return socketPath();
+  },
+  async startProxy(options, deps) {
+    const path = socketPath();
+    const proxy = await startBoxWebProxy(options, {
+      ...deps,
+      listen: (server) => unixListen(server, path),
+    });
+    return { proxy, endpoint: path };
+  },
+};
 
 afterEach(async () => {
   for (const proxy of proxies.splice(0)) await proxy.stop();
@@ -321,29 +446,28 @@ afterEach(async () => {
   }
 });
 
-function listen(server: Server): Promise<number> {
-  servers.push(server);
-  return new Promise((resolve) => {
-    server.listen(0, LOOPBACK, () => {
-      const address = server.address();
-      resolve(typeof address === "object" && address !== null ? address.port : 0);
-    });
-  });
-}
+afterAll(() => {
+  if (socketDir !== null) removeTempDir(socketDir);
+});
 
 /** An upstream that answers each chunk with `upstream:<chunk>` and keeps the tunnel open. */
-async function echoServer(): Promise<{ port: number; sockets: Socket[] }> {
+async function echoServer(
+  transport: Transport,
+): Promise<{ endpoint: Endpoint; sockets: Socket[] }> {
   const sockets: Socket[] = [];
   const server = createServer((socket) => {
     sockets.push(socket);
     socket.on("data", (chunk) => socket.write(`upstream:${chunk.toString("latin1")}`));
     socket.on("error", () => {});
   });
-  return { port: await listen(server), sockets };
+  servers.push(server);
+  return { endpoint: await transport.listen(server), sockets };
 }
 
 /** A stand-in for dipo's Safe-Chain proxy: records the head it gets, then echoes. */
-async function fakeSafeChain(): Promise<{ port: number; heads: string[] }> {
+async function fakeSafeChain(
+  transport: Transport,
+): Promise<{ endpoint: Endpoint; heads: string[] }> {
   const heads: string[] = [];
   const server = createServer((socket) => {
     let buffer = "";
@@ -364,40 +488,36 @@ async function fakeSafeChain(): Promise<{ port: number; heads: string[] }> {
     });
     socket.on("error", () => {});
   });
-  return { port: await listen(server), heads };
+  servers.push(server);
+  return { endpoint: await transport.listen(server), heads };
 }
 
-/** A local port with nothing listening on it. */
-async function closedPort(): Promise<number> {
-  const server = createServer();
-  const port = await new Promise<number>((resolve) =>
-    server.listen(0, LOOPBACK, () => {
-      const address = server.address();
-      resolve(typeof address === "object" && address !== null ? address.port : 0);
-    }),
-  );
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
+/** The Safe-Chain port the proxy is given when the fake Safe-Chain listens on a Unix socket. */
+const SAFE_CHAIN_STAND_IN_PORT = 1;
 
 interface Harness {
   readonly proxy: RunningBoxWebProxy;
+  /** Where clients reach the proxy. */
+  readonly endpoint: Endpoint;
   readonly clock: ManualClock;
   readonly events: WebProxyEvent[];
   /** Every upstream connection the proxy asked for, as `address:port`. */
   readonly connects: string[];
   /** Every host name the proxy resolved. */
   readonly lookups: string[];
+  /** The fake Safe-Chain, and the port the proxy knows it by. */
   readonly safeChain: { port: number; heads: string[] };
-  readonly upstream: { port: number; sockets: Socket[] };
+  readonly upstream: { endpoint: Endpoint; sockets: Socket[] };
 }
 
 /**
- * A proxy whose resolver answers from `dns` (each entry a list per call, the last repeated), whose
- * Mac has INTERFACES, and whose upstreams land on local test servers: Safe-Chain's port on the fake
- * Safe-Chain, addresses in `dead` on a closed port, anything else on the echo server.
+ * A proxy on `transport` whose resolver answers from `dns` (each entry a list per call, the last
+ * repeated), whose Mac has INTERFACES, and whose upstreams land on local test servers: Safe-Chain's
+ * port on the fake Safe-Chain, addresses in `dead` on an endpoint nothing listens on, anything else
+ * on the echo server. The address and port asked for are kept in `connects`.
  */
 async function harness(
+  transport: Transport,
   dns: Record<string, ReadonlyArray<readonly string[]>> = {},
   dead: readonly string[] = [],
   limits: BoxWebProxyOptions["limits"] = {},
@@ -406,11 +526,13 @@ async function harness(
   const events: WebProxyEvent[] = [];
   const connects: string[] = [];
   const lookups: string[] = [];
-  const safeChain = await fakeSafeChain();
-  const upstream = await echoServer();
-  const closed = await closedPort();
-  const proxy = await startBoxWebProxy(
-    { network: { hostAddress: LOOPBACK }, safeChainPort: safeChain.port, limits },
+  const fake = await fakeSafeChain(transport);
+  const safeChainPort =
+    typeof fake.endpoint === "number" ? fake.endpoint : SAFE_CHAIN_STAND_IN_PORT;
+  const upstream = await echoServer(transport);
+  const closed = await transport.closed();
+  const { proxy, endpoint } = await transport.startProxy(
+    { network: { hostAddress: LOOPBACK }, safeChainPort, limits },
     {
       clock,
       publicStandIns: STAND_INS,
@@ -425,13 +547,22 @@ async function harness(
       },
       connect: (address, port) => {
         connects.push(`${address}:${port}`);
-        if (address === LOOPBACK && port === safeChain.port) return connect(port, LOOPBACK);
-        return connect(dead.includes(address) ? closed : upstream.port, LOOPBACK);
+        if (address === LOOPBACK && port === safeChainPort) return dial(fake.endpoint);
+        return dial(dead.includes(address) ? closed : upstream.endpoint);
       },
     },
   );
   proxies.push(proxy);
-  return { proxy, clock, events, connects, lookups, safeChain, upstream };
+  return {
+    proxy,
+    endpoint,
+    clock,
+    events,
+    connects,
+    lookups,
+    safeChain: { port: safeChainPort, heads: fake.heads },
+    upstream,
+  };
 }
 
 /**
@@ -439,12 +570,12 @@ async function harness(
  * received when `until` matches it or the connection closes, and closes the client.
  */
 function exchange(
-  port: number,
+  endpoint: Endpoint,
   head: string,
   options: { payload?: string; until?: (text: string) => boolean } = {},
 ): Promise<{ text: string; closed: boolean; socket: Socket }> {
   return new Promise((resolve) => {
-    const socket = connect(port, LOOPBACK, () => socket.write(head));
+    const socket = dial(endpoint, () => socket.write(head));
     let text = "";
     let sent = false;
     let done = false;
@@ -471,291 +602,319 @@ function exchange(
   });
 }
 
+/** Whether a new connection to `endpoint` is taken. */
+function reachable(endpoint: Endpoint): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = dial(endpoint);
+    socket.on("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("error", () => resolve(false));
+  });
+}
+
 const connectHead = (target: string, extra = "") =>
   `CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n${extra}\r\n`;
 
-describe("the web proxy", () => {
-  it("listens on the box network's host address and refuses to listen on every interface", async () => {
-    const { proxy } = await harness();
-    expect(proxy.host).toBe(LOOPBACK);
-    expect(proxy.url).toBe(`http://${LOOPBACK}:${proxy.port}`);
-    const clock = new ManualClock();
-    for (const hostAddress of ["0.0.0.0", "::", "", "not-an-address"]) {
-      await expect(
-        startBoxWebProxy({ network: { hostAddress }, safeChainPort: 1 }, { clock }),
-      ).rejects.toThrow("the web proxy cannot listen on");
-    }
-  });
-
-  it("tunnels to the address it resolved and checked, and never resolves the name again", async () => {
-    // A rebinding name: public on the first answer, loopback on every later one.
-    const h = await harness({ "rebind.example": [["203.0.113.7"], [LOOPBACK]] });
-    const result = await exchange(h.proxy.port, connectHead("rebind.example:443"), {
-      payload: "ping",
-      until: (text) => text.includes("upstream:ping"),
+for (const transport of [TCP, UNIX]) {
+  describe.skipIf(!transport.runs)(`the web proxy over ${transport.name}`, () => {
+    it("listens on the box network's host address and refuses to listen on every interface", async () => {
+      const { proxy, endpoint } = await harness(transport);
+      expect(proxy.host).toBe(LOOPBACK);
+      expect(proxy.port).toBe(typeof endpoint === "number" ? endpoint : 0);
+      expect(proxy.url).toBe(`http://${LOOPBACK}:${proxy.port}`);
+      const clock = new ManualClock();
+      for (const hostAddress of ["0.0.0.0", "::", "", "not-an-address"]) {
+        await expect(
+          startBoxWebProxy({ network: { hostAddress }, safeChainPort: 1 }, { clock }),
+        ).rejects.toThrow("the web proxy cannot listen on");
+      }
     });
-    expect(result.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
-    expect(result.text).toContain("upstream:ping");
-    expect(h.lookups).toEqual(["rebind.example"]);
-    expect(h.connects).toEqual(["203.0.113.7:443"]);
-    expect(h.events).toEqual([
-      { kind: "direct", host: "rebind.example", port: 443, address: "203.0.113.7" },
-    ]);
-    result.socket.destroy();
-  });
 
-  it("connects to the IPv4 address of an IPv4-mapped answer, and to an IPv6 one as given", async () => {
-    const h = await harness({
-      "mapped.example": [["::ffff:203.0.113.8"]],
-      "six.example": [["2001:db8:2::8"]],
-    });
-    for (const host of ["mapped.example", "six.example"]) {
-      const result = await exchange(h.proxy.port, connectHead(`${host}:443`), {
-        payload: "x",
-        until: (text) => text.includes("upstream:x"),
-      });
-      result.socket.destroy();
-    }
-    expect(h.connects).toEqual(["203.0.113.8:443", "2001:db8:2::8:443"]);
-  });
-
-  it("tries the next checked address when one does not answer", async () => {
-    const h = await harness({ "two.example": [["203.0.113.9", "203.0.113.10"]] }, ["203.0.113.9"]);
-    const result = await exchange(h.proxy.port, connectHead("two.example:443"), {
-      payload: "ping",
-      until: (text) => text.includes("upstream:ping"),
-    });
-    expect(result.text).toContain("upstream:ping");
-    expect(h.connects).toEqual(["203.0.113.9:443", "203.0.113.10:443"]);
-    result.socket.destroy();
-  });
-
-  it("answers 502 when no checked address answers", async () => {
-    const h = await harness({ "down.example": [["203.0.113.9"]] }, ["203.0.113.9"]);
-    const result = await exchange(h.proxy.port, connectHead("down.example:443"));
-    expect(result.text).toStartWith("HTTP/1.1 502 Bad Gateway");
-  });
-
-  it("refuses a name with any refused address, before connecting", async () => {
-    const h = await harness({
-      "mixed.example": [["203.0.113.7", "10.0.0.1"]],
-      "mac.example": [["192.0.2.10"]],
-      "lan.example": [["192.0.2.33"]],
-      "loopback.example": [["::1"]],
-      "nat64.example": [["64:ff9b::a00:1"]],
-      "sixtofour.example": [["2002:c000:0201::1"]],
-      "mapped.example": [["::ffff:10.0.0.1"]],
-      "empty.example": [[]],
-    });
-    const hosts = [
-      "mixed.example",
-      "mac.example",
-      "lan.example",
-      "loopback.example",
-      "nat64.example",
-      "sixtofour.example",
-      "mapped.example",
-      "empty.example",
-      "nowhere.example",
-    ];
-    for (const host of hosts) {
-      const result = await exchange(h.proxy.port, connectHead(`${host}:443`));
-      expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
-      expect(result.closed).toBe(true);
-    }
-    expect(h.connects).toEqual([]);
-    const reasons = h.events.map((event) => (event.kind === "refused" ? event.reason : event.kind));
-    expect(reasons).toEqual([
-      "mixed.example resolves to 10.0.0.1 is a private range",
-      "mac.example resolves to 192.0.2.10 is one of the Mac's own addresses",
-      "lan.example resolves to 192.0.2.33 is in an on-link prefix of the Mac (192.0.2.10/25)",
-      "loopback.example resolves to ::1 is loopback",
-      "nat64.example resolves to 64:ff9b::a00:1 is NAT64 (64:ff9b::/96)",
-      "sixtofour.example resolves to 2002:c000:0201::1 is 6to4 (2002::/16)",
-      "mapped.example resolves to ::ffff:10.0.0.1 is IPv4-mapped, a private range",
-      "empty.example resolves to no address",
-      "nowhere.example does not resolve",
-    ]);
-  });
-
-  it("refuses IP literals without resolving them", async () => {
-    const h = await harness();
-    for (const target of [
-      "192.0.2.1:443",
-      "[2001:db8::1]:443",
-      "3221225985:443",
-      "203.0.113.7.:443",
-    ]) {
-      const result = await exchange(h.proxy.port, connectHead(target));
-      expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
-    }
-    expect(h.lookups).toEqual([]);
-    expect(h.connects).toEqual([]);
-  });
-
-  it("sends registry tunnels to Safe-Chain with the host name normalised and none of the box's headers", async () => {
-    const h = await harness();
-    const npm = await exchange(
-      h.proxy.port,
-      connectHead("Registry.NPMJS.org.:443", "Proxy-Authorization: Basic c2VjcmV0\r\n"),
-      { payload: "hello", until: (text) => text.includes("safe-chain:hello") },
-    );
-    expect(npm.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
-    npm.socket.destroy();
-    const pypi = await exchange(h.proxy.port, connectHead("files.pythonhosted.org:443"), {
-      payload: "hi",
-      until: (text) => text.includes("safe-chain:hi"),
-    });
-    pypi.socket.destroy();
-    expect(h.safeChain.heads).toEqual([
-      "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n",
-      "CONNECT files.pythonhosted.org:443 HTTP/1.1\r\nHost: files.pythonhosted.org:443\r\n\r\n",
-    ]);
-    expect(h.lookups).toEqual([]);
-    expect(h.connects).toEqual([
-      `${LOOPBACK}:${h.safeChain.port}`,
-      `${LOOPBACK}:${h.safeChain.port}`,
-    ]);
-    expect(h.events).toEqual([
-      { kind: "registry", host: "registry.npmjs.org", port: 443 },
-      { kind: "registry", host: "files.pythonhosted.org", port: 443 },
-    ]);
-  });
-
-  it("refuses a registry on any port but the TLS port, so it never goes direct", async () => {
-    const h = await harness({ "registry.npmjs.org": [["203.0.113.7"]] });
-    const result = await exchange(h.proxy.port, connectHead("registry.npmjs.org:80"));
-    expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
-    expect(h.lookups).toEqual([]);
-    expect(h.connects).toEqual([]);
-  });
-
-  it("refuses plain HTTP proxying with 405, so it is no open forward proxy", async () => {
-    const h = await harness({ "example.com": [["203.0.113.7"]] });
-    const result = await exchange(
-      h.proxy.port,
-      "GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
-    );
-    expect(result.text).toStartWith("HTTP/1.1 405 Method Not Allowed\r\nAllow: CONNECT\r\n");
-    expect(result.closed).toBe(true);
-    expect(h.lookups).toEqual([]);
-    expect(h.connects).toEqual([]);
-  });
-
-  it("closes a client whose head is too long or too slow", async () => {
-    const h = await harness();
-    const long = await exchange(h.proxy.port, `CONNECT ${"a".repeat(WEB_PROXY_HEAD_LIMIT + 10)}`);
-    expect(long).toMatchObject({ text: "", closed: true });
-    // A whole head at once that is still too long.
-    const padded = await exchange(
-      h.proxy.port,
-      connectHead("example.com:443", `X-Pad: ${"a".repeat(WEB_PROXY_HEAD_LIMIT)}\r\n`),
-    );
-    expect(padded).toMatchObject({ text: "", closed: true });
-    const slow = exchange(h.proxy.port, "CONNECT example.com:443 HTTP/1.1\r\n");
-    await Bun.sleep(50);
-    h.clock.advance(WEB_PROXY_HEAD_TIMEOUT_MS);
-    expect(await slow).toMatchObject({ text: "", closed: true });
-    expect(h.connects).toEqual([]);
-  });
-
-  it("caps client connections per box source address, and takes one again once a slot frees", async () => {
-    const h = await harness({ "open.example": [["203.0.113.7"]] }, [], {
-      maxConnectionsPerSource: 1,
-    });
-    const tunnel = (head = connectHead("open.example:443")) =>
-      exchange(h.proxy.port, head, {
+    it("tunnels to the address it resolved and checked, and never resolves the name again", async () => {
+      // A rebinding name: public on the first answer, loopback on every later one.
+      const h = await harness(transport, { "rebind.example": [["203.0.113.7"], [LOOPBACK]] });
+      const result = await exchange(h.endpoint, connectHead("rebind.example:443"), {
         payload: "ping",
         until: (text) => text.includes("upstream:ping"),
       });
-    const first = await tunnel();
-    expect(first.text).toContain("upstream:ping");
-    const second = await tunnel();
-    expect(second.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
-    expect(second.closed).toBe(true);
-    expect(h.events.at(-1)).toMatchObject({ kind: "refused" });
-    expect(h.events.at(-1)).toHaveProperty("reason", expect.stringContaining("connections from"));
-    first.socket.destroy();
-    let third = await tunnel();
-    for (let i = 0; i < 50 && third.text.startsWith("HTTP/1.1 503"); i += 1) {
-      await Bun.sleep(10);
-      third = await tunnel();
-    }
-    expect(third.text).toContain("upstream:ping");
-    third.socket.destroy();
-  });
+      expect(result.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+      expect(result.text).toContain("upstream:ping");
+      expect(h.lookups).toEqual(["rebind.example"]);
+      expect(h.connects).toEqual(["203.0.113.7:443"]);
+      expect(h.events).toEqual([
+        { kind: "direct", host: "rebind.example", port: 443, address: "203.0.113.7" },
+      ]);
+      result.socket.destroy();
+    });
 
-  it("caps client connections over all boxes", async () => {
-    const h = await harness({ "open.example": [["203.0.113.7"]] }, [], { maxConnections: 1 });
-    const first = await exchange(h.proxy.port, connectHead("open.example:443"), {
-      payload: "ping",
-      until: (text) => text.includes("upstream:ping"),
-    });
-    const second = await exchange(h.proxy.port, connectHead("open.example:443"));
-    expect(second.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
-    expect(h.events.at(-1)).toEqual({
-      kind: "refused",
-      target: expect.any(String),
-      reason: "over the cap of 1 connections in all",
-    });
-    first.socket.destroy();
-  });
-
-  it("closes a tunnel with no traffic for the idle timeout, counting traffic either way", async () => {
-    expect(WEB_PROXY_LIMITS).toEqual({
-      maxConnections: 512,
-      maxConnectionsPerSource: 128,
-      idleTimeoutMs: 600_000,
-    });
-    const h = await harness({ "idle.example": [["203.0.113.7"]] }, [], { idleTimeoutMs: 1_000 });
-    const result = await exchange(h.proxy.port, connectHead("idle.example:443"), {
-      payload: "ping",
-      until: (text) => text.includes("upstream:ping"),
-    });
-    const socket = result.socket;
-    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
-    h.clock.advance(900);
-    const echoed = new Promise<void>((resolve) => {
-      const onData = (chunk: Buffer) => {
-        if (chunk.toString("latin1").includes("upstream:more")) {
-          socket.off("data", onData);
-          resolve();
-        }
-      };
-      socket.on("data", onData);
-    });
-    socket.write("more");
-    await echoed;
-    h.clock.advance(900);
-    await Bun.sleep(20);
-    expect(socket.destroyed).toBe(false);
-    h.clock.advance(100);
-    await closed;
-    expect(socket.destroyed).toBe(true);
-  });
-
-  it("destroys open tunnels on stop and closes its port", async () => {
-    const h = await harness({ "open.example": [["203.0.113.7"]] });
-    const client = connect(h.proxy.port, LOOPBACK, () =>
-      client.write(connectHead("open.example:443")),
-    );
-    client.on("error", () => {});
-    await new Promise<void>((resolve) => client.once("data", () => resolve()));
-    const closed = new Promise<void>((resolve) => client.once("close", () => resolve()));
-    await h.proxy.stop();
-    await closed;
-    expect(client.destroyed).toBe(true);
-    const again = await new Promise<string>((resolve) => {
-      const socket = connect(h.proxy.port, LOOPBACK);
-      socket.on("connect", () => {
-        socket.destroy();
-        resolve("connected");
+    it("connects to the IPv4 address of an IPv4-mapped answer, and to an IPv6 one as given", async () => {
+      const h = await harness(transport, {
+        "mapped.example": [["::ffff:203.0.113.8"]],
+        "six.example": [["2001:db8:2::8"]],
       });
-      socket.on("error", () => resolve("refused"));
+      for (const host of ["mapped.example", "six.example"]) {
+        const result = await exchange(h.endpoint, connectHead(`${host}:443`), {
+          payload: "x",
+          until: (text) => text.includes("upstream:x"),
+        });
+        result.socket.destroy();
+      }
+      expect(h.connects).toEqual(["203.0.113.8:443", "2001:db8:2::8:443"]);
     });
-    expect(again).toBe("refused");
+
+    it("tries the next checked address when one does not answer", async () => {
+      const h = await harness(transport, { "two.example": [["203.0.113.9", "203.0.113.10"]] }, [
+        "203.0.113.9",
+      ]);
+      const result = await exchange(h.endpoint, connectHead("two.example:443"), {
+        payload: "ping",
+        until: (text) => text.includes("upstream:ping"),
+      });
+      expect(result.text).toContain("upstream:ping");
+      expect(h.connects).toEqual(["203.0.113.9:443", "203.0.113.10:443"]);
+      result.socket.destroy();
+    });
+
+    it("answers 502 when no checked address answers", async () => {
+      const h = await harness(transport, { "down.example": [["203.0.113.9"]] }, ["203.0.113.9"]);
+      const result = await exchange(h.endpoint, connectHead("down.example:443"));
+      expect(result.text).toStartWith("HTTP/1.1 502 Bad Gateway");
+    });
+
+    it("refuses a name with any refused address, before connecting", async () => {
+      const h = await harness(transport, {
+        "mixed.example": [["203.0.113.7", "10.0.0.1"]],
+        "mac.example": [["192.0.2.10"]],
+        "lan.example": [["192.0.2.33"]],
+        "loopback.example": [["::1"]],
+        "nat64.example": [["64:ff9b::a00:1"]],
+        "sixtofour.example": [["2002:c000:0201::1"]],
+        "mapped.example": [["::ffff:10.0.0.1"]],
+        "empty.example": [[]],
+      });
+      const hosts = [
+        "mixed.example",
+        "mac.example",
+        "lan.example",
+        "loopback.example",
+        "nat64.example",
+        "sixtofour.example",
+        "mapped.example",
+        "empty.example",
+        "nowhere.example",
+      ];
+      for (const host of hosts) {
+        const result = await exchange(h.endpoint, connectHead(`${host}:443`));
+        expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+        expect(result.closed).toBe(true);
+      }
+      expect(h.connects).toEqual([]);
+      const reasons = h.events.map((event) =>
+        event.kind === "refused" ? event.reason : event.kind,
+      );
+      expect(reasons).toEqual([
+        "mixed.example resolves to 10.0.0.1 is a private range",
+        "mac.example resolves to 192.0.2.10 is one of the Mac's own addresses",
+        "lan.example resolves to 192.0.2.33 is in an on-link prefix of the Mac (192.0.2.10/25)",
+        "loopback.example resolves to ::1 is loopback",
+        "nat64.example resolves to 64:ff9b::a00:1 is NAT64 (64:ff9b::/96)",
+        "sixtofour.example resolves to 2002:c000:0201::1 is 6to4 (2002::/16)",
+        "mapped.example resolves to ::ffff:10.0.0.1 is IPv4-mapped, a private range",
+        "empty.example resolves to no address",
+        "nowhere.example does not resolve",
+      ]);
+    });
+
+    it("refuses IP literals without resolving them", async () => {
+      const h = await harness(transport);
+      for (const target of [
+        "192.0.2.1:443",
+        "[2001:db8::1]:443",
+        "3221225985:443",
+        "203.0.113.7.:443",
+      ]) {
+        const result = await exchange(h.endpoint, connectHead(target));
+        expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      }
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([]);
+    });
+
+    it("sends registry tunnels to Safe-Chain with the host name normalised and none of the box's headers", async () => {
+      const h = await harness(transport);
+      const npm = await exchange(
+        h.endpoint,
+        connectHead("Registry.NPMJS.org.:443", "Proxy-Authorization: Basic c2VjcmV0\r\n"),
+        { payload: "hello", until: (text) => text.includes("safe-chain:hello") },
+      );
+      expect(npm.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+      npm.socket.destroy();
+      const pypi = await exchange(h.endpoint, connectHead("files.pythonhosted.org:443"), {
+        payload: "hi",
+        until: (text) => text.includes("safe-chain:hi"),
+      });
+      pypi.socket.destroy();
+      expect(h.safeChain.heads).toEqual([
+        "CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n",
+        "CONNECT files.pythonhosted.org:443 HTTP/1.1\r\nHost: files.pythonhosted.org:443\r\n\r\n",
+      ]);
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([
+        `${LOOPBACK}:${h.safeChain.port}`,
+        `${LOOPBACK}:${h.safeChain.port}`,
+      ]);
+      expect(h.events).toEqual([
+        { kind: "registry", host: "registry.npmjs.org", port: 443 },
+        { kind: "registry", host: "files.pythonhosted.org", port: 443 },
+      ]);
+    });
+
+    it("refuses a registry on any port but the TLS port, so it never goes direct", async () => {
+      const h = await harness(transport, { "registry.npmjs.org": [["203.0.113.7"]] });
+      const result = await exchange(h.endpoint, connectHead("registry.npmjs.org:80"));
+      expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([]);
+    });
+
+    it("refuses plain HTTP proxying with 405, so it is no open forward proxy", async () => {
+      const h = await harness(transport, { "example.com": [["203.0.113.7"]] });
+      const result = await exchange(
+        h.endpoint,
+        "GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
+      );
+      expect(result.text).toStartWith("HTTP/1.1 405 Method Not Allowed\r\nAllow: CONNECT\r\n");
+      expect(result.closed).toBe(true);
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([]);
+    });
+
+    it("closes a client whose head is too long or too slow", async () => {
+      const h = await harness(transport);
+      const long = await exchange(h.endpoint, `CONNECT ${"a".repeat(WEB_PROXY_HEAD_LIMIT + 10)}`);
+      expect(long).toMatchObject({ text: "", closed: true });
+      // A whole head at once that is still too long.
+      const padded = await exchange(
+        h.endpoint,
+        connectHead("example.com:443", `X-Pad: ${"a".repeat(WEB_PROXY_HEAD_LIMIT)}\r\n`),
+      );
+      expect(padded).toMatchObject({ text: "", closed: true });
+      const slow = exchange(h.endpoint, "CONNECT example.com:443 HTTP/1.1\r\n");
+      await Bun.sleep(50);
+      h.clock.advance(WEB_PROXY_HEAD_TIMEOUT_MS);
+      expect(await slow).toMatchObject({ text: "", closed: true });
+      expect(h.connects).toEqual([]);
+    });
+
+    it("caps client connections per box source address, and takes one again once a slot frees", async () => {
+      const h = await harness(transport, { "open.example": [["203.0.113.7"]] }, [], {
+        maxConnectionsPerSource: 1,
+      });
+      const tunnel = (head = connectHead("open.example:443")) =>
+        exchange(h.endpoint, head, {
+          payload: "ping",
+          until: (text) => text.includes("upstream:ping"),
+        });
+      const first = await tunnel();
+      expect(first.text).toContain("upstream:ping");
+      const second = await tunnel();
+      expect(second.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+      expect(second.closed).toBe(true);
+      expect(h.events.at(-1)).toMatchObject({ kind: "refused" });
+      expect(h.events.at(-1)).toHaveProperty("reason", expect.stringContaining("connections from"));
+      first.socket.destroy();
+      let third = await tunnel();
+      for (let i = 0; i < 50 && third.text.startsWith("HTTP/1.1 503"); i += 1) {
+        await Bun.sleep(10);
+        third = await tunnel();
+      }
+      expect(third.text).toContain("upstream:ping");
+      third.socket.destroy();
+    });
+
+    it("caps client connections over all boxes", async () => {
+      const h = await harness(transport, { "open.example": [["203.0.113.7"]] }, [], {
+        maxConnections: 1,
+      });
+      const first = await exchange(h.endpoint, connectHead("open.example:443"), {
+        payload: "ping",
+        until: (text) => text.includes("upstream:ping"),
+      });
+      const second = await exchange(h.endpoint, connectHead("open.example:443"));
+      expect(second.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+      expect(h.events.at(-1)).toEqual({
+        kind: "refused",
+        target: expect.any(String),
+        reason: "over the cap of 1 connections in all",
+      });
+      first.socket.destroy();
+    });
+
+    it("closes a tunnel with no traffic for the idle timeout, counting traffic either way", async () => {
+      expect(WEB_PROXY_LIMITS).toEqual({
+        maxConnections: 512,
+        maxConnectionsPerSource: 128,
+        idleTimeoutMs: 600_000,
+      });
+      const h = await harness(transport, { "idle.example": [["203.0.113.7"]] }, [], {
+        idleTimeoutMs: 1_000,
+      });
+      const result = await exchange(h.endpoint, connectHead("idle.example:443"), {
+        payload: "ping",
+        until: (text) => text.includes("upstream:ping"),
+      });
+      const socket = result.socket;
+      const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+      h.clock.advance(900);
+      const echoed = new Promise<void>((resolve) => {
+        const onData = (chunk: Buffer) => {
+          if (chunk.toString("latin1").includes("upstream:more")) {
+            socket.off("data", onData);
+            resolve();
+          }
+        };
+        socket.on("data", onData);
+      });
+      socket.write("more");
+      await echoed;
+      h.clock.advance(900);
+      await Bun.sleep(20);
+      expect(socket.destroyed).toBe(false);
+      h.clock.advance(100);
+      await closed;
+      expect(socket.destroyed).toBe(true);
+    });
+
+    it("destroys open tunnels on stop and closes its port", async () => {
+      const h = await harness(transport, { "open.example": [["203.0.113.7"]] });
+      const client = dial(h.endpoint, () => client.write(connectHead("open.example:443")));
+      client.on("error", () => {});
+      await new Promise<void>((resolve) => client.once("data", () => resolve()));
+      const closed = new Promise<void>((resolve) => client.once("close", () => resolve()));
+      await h.proxy.stop();
+      await closed;
+      expect(client.destroyed).toBe(true);
+      expect(await reachable(h.endpoint)).toBe(false);
+    });
+
+    it("stops with the last box of its route", async () => {
+      const clock = new ManualClock();
+      const route = new BoxWebRoute(async () => {
+        const started = await transport.startProxy(
+          { network: { hostAddress: LOOPBACK }, safeChainPort: 1 },
+          { clock },
+        );
+        return { endpoint: started.endpoint, stop: () => started.proxy.stop() };
+      });
+      const { endpoint } = await route.acquire("dipo-a");
+      expect(await reachable(endpoint)).toBe(true);
+      await route.release("dipo-a");
+      expect(await reachable(endpoint)).toBe(false);
+    });
   });
-});
+}
 
 /** A route whose start and stop are logged. */
 function counted() {
@@ -807,23 +966,5 @@ describe("the web route of the boxes", () => {
     fail = false;
     await route.acquire("dipo-a");
     expect(route.running).toBe(true);
-  });
-
-  it("stops a real proxy with its last box", async () => {
-    const clock = new ManualClock();
-    const route = new BoxWebRoute(() =>
-      startBoxWebProxy({ network: { hostAddress: LOOPBACK }, safeChainPort: 1 }, { clock }),
-    );
-    const proxy = await route.acquire("dipo-a");
-    await route.release("dipo-a");
-    const state = await new Promise<string>((resolve) => {
-      const socket = connect(proxy.port, LOOPBACK);
-      socket.on("connect", () => {
-        socket.destroy();
-        resolve("listening");
-      });
-      socket.on("error", () => resolve("stopped"));
-    });
-    expect(state).toBe("stopped");
   });
 });
