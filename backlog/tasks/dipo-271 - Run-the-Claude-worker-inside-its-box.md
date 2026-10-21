@@ -4,7 +4,7 @@ title: Run the Claude worker inside its box
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 14:38'
+updated_date: '2026-10-21 15:23'
 labels:
   - 'tier:L'
   - cutover
@@ -47,4 +47,6 @@ unknowns: []
 - [ ] #4 The box gets the image of DIPO-266 and the web and model routes of DIPO-268 and DIPO-269; no folder of the Mac is mounted except the office package cache of DIPO-267, read-only, and the Mac is reachable from the box only as the 0021 amendment of 2026-10-21 records (the two proxies, plus the accepted risk for services that listen on all interfaces)
 - [ ] #5 The box gets a plain copy of the code at the story's start commit with no .git, plus only the files the office config lists and marks as holding no real secrets (DIPO-266); nothing else is copied in, shown by a test that .git and unlisted untracked files are absent from the box
 - [ ] #6 Stopping a worker (cap, budget, stop command or daemon stop) ends its claude process inside the box, not only the exec client on the Mac, shown by a test
+- [ ] #7 The image build's proxy runs only for the length of a build and applies the box web proxy's address rules (0021 amendment of 2026-10-21, DIPO-266)
+- [ ] #8 A box-token hold (DIPO-269) stays until the maintainer replaces the token with dipo login box; a passing launch check alone does not lift it
 <!-- AC:END -->
