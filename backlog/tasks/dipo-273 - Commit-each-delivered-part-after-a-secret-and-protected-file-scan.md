@@ -1,10 +1,10 @@
 ---
 id: DIPO-273
 title: Commit each delivered part after a secret and protected-file scan
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 21:06'
+updated_date: '2026-10-21 21:09'
 labels:
   - 'tier:M'
   - cutover
@@ -52,12 +52,12 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo copies the changed files out of the box and compares them with the last delivered part
-- [ ] #2 A secret scan (content patterns and secret file names) and a protected-file check (the story's task file, CI workflows, dipo configuration) run before every commit; a hit stops the push and parks the story
-- [ ] #3 The commit subject is the worker's message, cleaned and at most 72 characters, with a line naming the story and the part number; only dipo runs git
-- [ ] #4 On story done, undelivered changes become a last part before verify
-- [ ] #5 Tests cover the scan, the protected list, the message cleaning and the last-part rule
-- [ ] #6 For box workers the References scope check at done and the scope-violation park are removed (0021 section 13); only the protected-file park stays, and tests show that a change outside the References commits while a protected file parks
-- [ ] #7 A symlink in the changes copied out of the box is never followed and parks the story as a protected-file hit; container copy keeps symlinks as links, so a box can plant a link to a Mac path (DIPO-265 real-box run of 2026-10-21)
-- [ ] #8 Each part leaves the box as a stream dipo writes itself into a file it creates (O_CREAT|O_EXCL|O_NOFOLLOW, a size cap), never with container copy; the stream helper is shared with the DIPO-267 cache fill and closes the exec's stdin, shown by a test
+- [x] #1 dipo copies the changed files out of the box and compares them with the last delivered part
+- [x] #2 A secret scan (content patterns and secret file names) and a protected-file check (the story's task file, CI workflows, dipo configuration) run before every commit; a hit stops the push and parks the story
+- [x] #3 The commit subject is the worker's message, cleaned and at most 72 characters, with a line naming the story and the part number; only dipo runs git
+- [x] #4 On story done, undelivered changes become a last part before verify
+- [x] #5 Tests cover the scan, the protected list, the message cleaning and the last-part rule
+- [x] #6 For box workers the References scope check at done and the scope-violation park are removed (0021 section 13); only the protected-file park stays, and tests show that a change outside the References commits while a protected file parks
+- [x] #7 A symlink in the changes copied out of the box is never followed and parks the story as a protected-file hit; container copy keeps symlinks as links, so a box can plant a link to a Mac path (DIPO-265 real-box run of 2026-10-21)
+- [x] #8 Each part leaves the box as a stream dipo writes itself into a file it creates (O_CREAT|O_EXCL|O_NOFOLLOW, a size cap), never with container copy; the stream helper is shared with the DIPO-267 cache fill and closes the exec's stdin, shown by a test
 <!-- AC:END -->
