@@ -74,11 +74,16 @@ export { bashRefusal } from "./bash-check";
 export { GH_REFUSAL, ghHelpCall, ghRefusal } from "./gh-guard";
 export { GUARDED_TEMP_VARIABLES, refusedTempVariable, tempVariableRefusal } from "./temp-guard";
 export {
+  FETCH_RESOLVE_TIMEOUT_MS,
+  type FetchAddressDeps,
+  fetchAddressRefusal,
+  fetchRefusalText,
   findSecret,
   MIN_SECRET_CHARS,
   parseEnvText,
   readEnvSecrets,
   refusalText,
+  SYSTEM_FETCH_ADDRESSES,
   UNCHECKED_TEXT,
   WebGuard,
   webCallCounts,

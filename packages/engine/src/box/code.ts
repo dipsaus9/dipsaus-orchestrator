@@ -38,6 +38,8 @@ export const UNPACK_TIMEOUT_MS = 120_000;
 export const CODE_STAGE_PREFIX = "dipo-box-code-";
 
 const COMMIT = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+/** Git's empty tree, as an attribute source that holds no `.gitattributes`. */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 export interface BoxCodeDeps {
   readonly spawn: Spawn;
@@ -56,6 +58,14 @@ export interface BoxCodeRequest {
   readonly source: string;
   /** dipo's temp root; the stage folder is made in it. */
   readonly tmpRoot: string;
+  /**
+   * No `.gitattributes` applies to the archive (the reviewer's copy, DIPO-276), so no
+   * `export-ignore` or `export-subst` can hide or rewrite a file: `--worktree-attributes` stops
+   * git reading the archived tree's own, and `GIT_ATTR_SOURCE` set to the empty tree stops it
+   * reading the index's (a repository without a work tree reads them from its index). Only
+   * `<git dir>/info/attributes`, which no worker writes, still applies. Off by default.
+   */
+  readonly ignoreTreeAttributes?: boolean;
 }
 
 /** A listed file left out, and why. */
@@ -262,8 +272,20 @@ export async function stageBoxCode(
     await request.git.run(async (session) =>
       session.ok(
         session.repository,
-        ["archive", "--format=tar", `--output=${archive}`, request.commit],
-        { config: await filtersOffConfig(session), env: BASE_CHECKOUT_ENV },
+        [
+          "archive",
+          "--format=tar",
+          ...(request.ignoreTreeAttributes === true ? ["--worktree-attributes"] : []),
+          `--output=${archive}`,
+          request.commit,
+        ],
+        {
+          config: await filtersOffConfig(session),
+          env:
+            request.ignoreTreeAttributes === true
+              ? { ...BASE_CHECKOUT_ENV, GIT_ATTR_SOURCE: EMPTY_TREE }
+              : BASE_CHECKOUT_ENV,
+        },
       ),
     );
     await unpack(deps, archive, dir);

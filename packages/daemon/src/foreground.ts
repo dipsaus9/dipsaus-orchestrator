@@ -1096,6 +1096,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         // The boxes of box runs that ended while no daemon ran are checked and deleted too
         // (DIPO-271).
         await runs.finishEndedBoxes({ listBoxes: true });
+        // And the read-only copies of reviewer sessions whose host no longer runs (DIPO-276).
+        const copies = await runs.sweepReviewFolders();
+        if (copies.length > 0) {
+          context.logger.info("removed reviewer copies a stopped daemon left", { removed: copies });
+        }
       },
     });
     for (const step of options.recoverySteps ?? []) steps.register(step);

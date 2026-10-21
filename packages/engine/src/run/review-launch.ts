@@ -8,8 +8,32 @@
 // worktree the review changed parks `scope-violation` with cause `backstop` (0008 backstop).
 // Ingestion starts after what earlier hosts wrote to the run's event file, and run control tracks
 // the session with the reviewer's caps.
+//
+// The reviewer has no box and reads a read-only copy of the pushed commit (0021 sections 10 and
+// 14, DIPO-276). For each session dipo makes a folder of its own in its temp root,
+// `dipo-review-<run>-<agent>`, private to the daemon's user, outside every worktree:
+//
+// - `session/`, empty: the reviewer's working directory. Claude Code reads project settings, hooks
+//   and CLAUDE.md from its working directory and that folder's parents, so the copy is neither.
+// - The copy: exactly the head the review round read (`ReviewSessionRequest.head`), refused when
+//   the story branch has moved since, from git's objects alone (`stageBoxCode`: `git archive` on
+//   the repository without a work tree, the hardened config with every filter driver off, no
+//   `.gitattributes` of the archived tree or the index applied, so `export-ignore` and
+//   `export-subst` hide or rewrite nothing, and the system `tar`). It has no `.git`, its symbolic
+//   links are left out, and every file and folder is made read-only. It is then compared with
+//   `git ls-tree` of the commit: a file of the commit that is missing, or a file the commit does
+//   not hold, refuses it.
+//   The run settings add it as a directory the read tools may read and exclude its CLAUDE.md files
+//   by path; `--disable-slash-commands`, `enabledPlugins` false for every installed plugin and the
+//   `system/init` plugin refusal keep the skills and plugin keys it may hold inert (`plan`).
+// - `commit`: the head the copy holds, read back for the verdict (`reviewedCommit`).
+//
+// The folder goes when the session's start fails, when its exit or lost host is decided
+// (`finish`), and at daemon start for every folder whose reviewer host no longer runs
+// (`sweepReviewFolders`).
 
-import { statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmod, lstat, mkdir, readdir, realpath, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -24,6 +48,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { type BoxCodeDeps, stageBoxCode } from "../box/code";
 import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { sizeClassOfWorkspace } from "../context/size";
@@ -35,8 +60,9 @@ import type { OfficeGit } from "../git/office";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
+import { systemSpawn } from "../platform/process";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
-import type { ReviewChangedPath } from "../prompts/review";
+import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
@@ -64,13 +90,22 @@ import { prepareRunTempDirs } from "./temp-dirs";
 export interface ReviewGit {
   /** The commit the worktree's HEAD names. */
   head(office: OfficeId, worktree: string): Promise<string>;
-  /** sha256 of `git ls-tree -r HEAD` without the story's own task file (0010 section 7). */
-  codeTreeKey(office: OfficeId, worktree: string, taskFile: string): Promise<string>;
-  /** `git diff <base>...HEAD`, unified, and its changed paths with line counts. */
+  /**
+   * sha256 of `git ls-tree -r <commit>` without the story's own task file (0010 section 7);
+   * `commit` is the worktree's HEAD unless given.
+   */
+  codeTreeKey(
+    office: OfficeId,
+    worktree: string,
+    taskFile: string,
+    commit?: string,
+  ): Promise<string>;
+  /** `git diff <base>...<commit>` (HEAD unless given), unified, and its changed paths with counts. */
   diff(
     office: OfficeId,
     worktree: string,
     base: string,
+    commit?: string,
   ): Promise<{ readonly diff: string; readonly changes: readonly ReviewChangedPath[] }>;
   /** The project's size class at the worktree, for the diff budget (0014 section 4). */
   sizeClass(office: OfficeId, worktree: string): Promise<SizeClass>;
@@ -90,6 +125,13 @@ export function parseNumstat(output: string): ReviewChangedPath[] {
       },
     ];
   });
+}
+
+/** A commit id, or HEAD by default; anything else is refused before it reaches git. */
+function revision(commit: string | undefined): string {
+  if (commit === undefined) return "HEAD";
+  if (!COMMIT_ID.test(commit)) throw new Error(`${JSON.stringify(commit)} is not a commit id`);
+  return commit;
 }
 
 function worktreeAt(git: OfficeGit, worktree: string): Extract<GitLocation, { kind: "worktree" }> {
@@ -127,20 +169,22 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
         (await session.ok(worktreeAt(git, worktree), ["rev-parse", "--verify", "HEAD"])).trim(),
       );
     },
-    codeTreeKey: (office, worktree, taskFile) => {
+    codeTreeKey: (office, worktree, taskFile, commit) => {
       const git = attached(office);
+      const rev = revision(commit);
       return git.run(async (session) =>
         codeTreeKeyOf(
-          await session.ok(worktreeAt(git, worktree), ["ls-tree", "-r", "-z", "HEAD"]),
+          await session.ok(worktreeAt(git, worktree), ["ls-tree", "-r", "-z", rev]),
           taskFile,
         ),
       );
     },
-    diff: (office, worktree, base) => {
+    diff: (office, worktree, base, commit) => {
       const git = attached(office);
+      const rev = revision(commit);
       return git.run(async (session) => {
         const location = worktreeAt(git, worktree);
-        const range = `${base}...HEAD`;
+        const range = `${base}...${rev}`;
         const diff = await session.ok(location, storyDiffArgs(range));
         const numstat = await session.ok(location, [
           "diff",
@@ -159,23 +203,241 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
   };
 }
 
+/** The name prefix of a reviewer session's folder in dipo's temp root (DIPO-276). */
+export const REVIEW_FOLDER_PREFIX = "dipo-review-";
+/** The reviewer's working directory in its folder: empty, made by dipo. */
+export const REVIEW_SESSION_DIR = "session";
+/** The file in a reviewer's folder that names the commit its copy holds. */
+export const REVIEW_COMMIT_FILE = "commit";
+
+const COMMIT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+/** Git's modes of a regular file; links (120000) and submodules (160000) have no file in the copy. */
+const FILE_MODES: ReadonlySet<string> = new Set(["100644", "100755"]);
+
+const REVIEW_FOLDER = /^dipo-review-(run_[0-9A-Za-z]+)-(agt_[0-9A-Za-z]+)$/;
+
+/** The folder of one reviewer session: its empty working directory and the copy. */
+export function reviewFolder(tmpRoot: string, runId: string, agent: string): string {
+  return join(tmpRoot, `${REVIEW_FOLDER_PREFIX}${runId}-${agent}`);
+}
+
+/** A reviewer session's read-only copy of the pushed commit and its empty working directory. */
+export interface ReviewCopy {
+  /** The session's folder in dipo's temp root; removing it removes everything below. */
+  readonly root: string;
+  /** The reviewer's working directory: empty, outside the copy. */
+  readonly session: string;
+  /** The read-only copy of `commit`. */
+  readonly copy: string;
+  readonly commit: string;
+}
+
+function errorCodeOf(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "error";
+}
+
+/**
+ * Makes everything below `dir` read-only: files 0444 (0555 when executable), folders 0555. A
+ * symbolic link is removed: the read tools would follow it out of the copy; the diff shows it. So
+ * is anything that is neither a file nor a folder.
+ */
+async function lockReadOnly(dir: string): Promise<void> {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const stat = await lstat(path);
+    if (stat.isDirectory()) {
+      await lockReadOnly(path);
+    } else if (stat.isFile()) {
+      await chmod(path, (stat.mode & 0o111) === 0 ? 0o444 : 0o555);
+    } else {
+      await unlink(path);
+    }
+  }
+  await chmod(dir, 0o555);
+}
+
+/** The paths of every regular file below `dir`, relative to it. */
+async function filesBelow(dir: string, prefix = ""): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) out.push(...(await filesBelow(join(dir, entry.name), rel)));
+    else if (entry.isFile()) out.push(rel);
+  }
+  return out;
+}
+
+/**
+ * Compares the copy with the commit's own file list (`git ls-tree -r -z`, links and submodules
+ * left out): throws when a file of the commit is missing from it or it holds a file the commit
+ * does not, for example one an `export-ignore` attribute left out.
+ */
+export async function checkCopyComplete(
+  git: OfficeGit,
+  commit: string,
+  dir: string,
+): Promise<void> {
+  const listed = await git.run((session) =>
+    session.ok(session.repository, ["ls-tree", "-r", "-z", "--full-tree", commit]),
+  );
+  const expected = new Set(
+    listed.split("\0").flatMap((record) => {
+      const tab = record.indexOf("\t");
+      if (tab === -1) return [];
+      const mode = record.slice(0, record.indexOf(" "));
+      return FILE_MODES.has(mode) ? [record.slice(tab + 1)] : [];
+    }),
+  );
+  const present = new Set(await filesBelow(dir));
+  const missing = [...expected].filter((path) => !present.has(path));
+  const extra = [...present].filter((path) => !expected.has(path));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new ReviewCopyMismatchError(
+      `the copy of ${commit} does not match the commit: ${missing.length} of its files missing, ${extra.length} files it does not hold`,
+    );
+  }
+}
+
+/** The copy does not hold exactly the commit's files: the review of that head cannot start. */
+export class ReviewCopyMismatchError extends Error {}
+
+/** Gives every folder below `dir` its owner's write bit back, so the tree can be removed. */
+async function unlock(dir: string): Promise<void> {
+  await chmod(dir, 0o700);
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && !entry.isSymbolicLink()) await unlock(join(dir, entry.name));
+  }
+}
+
+/** Removes a reviewer session's folder, read-only copy included; nothing when it is not there. */
+export async function removeReviewFolder(root: string): Promise<void> {
+  let stat;
+  try {
+    stat = await lstat(root);
+  } catch (error) {
+    if (errorCodeOf(error) === "ENOENT") return;
+    throw error;
+  }
+  // Never through a link: only the folder dipo made.
+  if (stat.isDirectory()) await unlock(root);
+  await rm(root, { recursive: true, force: true });
+}
+
+/**
+ * Makes the folder of one reviewer session: its empty working directory and a read-only copy of
+ * `commit` from git's objects (`stageBoxCode` with the tree's attributes off, no file of any
+ * worktree read), checked against the commit's file list. A failure leaves no folder behind.
+ */
+export async function makeReviewCopy(
+  deps: BoxCodeDeps,
+  request: {
+    readonly git: OfficeGit;
+    readonly commit: string;
+    readonly tmpRoot: string;
+    readonly runId: string;
+    readonly agent: string;
+  },
+): Promise<ReviewCopy> {
+  if (!COMMIT_ID.test(request.commit)) {
+    throw new Error(`${JSON.stringify(request.commit)} is not a commit id`);
+  }
+  const root = reviewFolder(await realpath(request.tmpRoot), request.runId, request.agent);
+  await removeReviewFolder(root);
+  await mkdir(root, { mode: 0o700 });
+  try {
+    const session = join(root, REVIEW_SESSION_DIR);
+    await mkdir(session, { mode: 0o700 });
+    const staged = await stageBoxCode(deps, {
+      git: request.git,
+      commit: request.commit,
+      files: [],
+      source: root,
+      tmpRoot: root,
+      ignoreTreeAttributes: true,
+    });
+    await lockReadOnly(staged.dir);
+    await checkCopyComplete(request.git, request.commit, staged.dir);
+    writeFileSync(join(root, REVIEW_COMMIT_FILE), `${request.commit}\n`, { mode: 0o400 });
+    return { root, session, copy: staged.dir, commit: request.commit };
+  } catch (error) {
+    await removeReviewFolder(root).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Removes every reviewer session folder in `tmpRoot` whose session `live` does not name (a
+ * crash, a daemon stopped mid-review), at daemon start. Only real folders of this user with a
+ * reviewer folder's name are touched; nothing through a symlink. Never rejects; resolves to the
+ * names removed.
+ */
+export async function sweepReviewFolders(
+  tmpRoot: string,
+  live: (runId: string, agent: string) => boolean,
+  uid: number | undefined = process.getuid?.(),
+): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(tmpRoot);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const name of entries.toSorted()) {
+    const match = REVIEW_FOLDER.exec(name);
+    if (match === null) continue;
+    const path = join(tmpRoot, name);
+    try {
+      const stat = await lstat(path);
+      if (!stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) continue;
+      if (live(match[1] ?? "", match[2] ?? "")) continue;
+      await removeReviewFolder(path);
+      removed.push(name);
+    } catch {
+      // Left for the next sweep.
+    }
+  }
+  return removed;
+}
+
 /** What one reviewer session starts with. */
 export interface ReviewSessionRequest {
   readonly office: OfficeId;
   readonly run: StoredRun;
-  /** The review task message (L4), the session's first message. */
+  /**
+   * The review task message (L4), the session's first message; the launcher adds its `commit`
+   * section, which names the read-only copy (DIPO-276).
+   */
   readonly taskMessage: string;
+  /**
+   * The story branch's head the round read once at its start (DIPO-276): the copy holds exactly
+   * this commit, and the session is refused when the branch has moved since.
+   */
+  readonly head: string;
 }
 
 export type ReviewSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   /** A launch check refused the session; the adapter hold is set. */
   | { readonly kind: "startFailed"; readonly hold: AdapterHold }
-  | { readonly kind: "failed"; readonly reason: string };
+  | {
+      readonly kind: "failed";
+      readonly reason: string;
+      /**
+       * The copy of the head does not match its tree (`ReviewCopyMismatchError`): no session of
+       * this head can start, so the maintainer is told (DIPO-276).
+       */
+      readonly copyMismatch?: true;
+    };
 
 /** Starts a reviewer session (the real one is `ReviewLauncher`). */
 export interface ReviewSessions {
   start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome>;
+  /** Removes what the session of `agent` read, once its exit or lost host is decided. */
+  finish?(office: OfficeId, runId: string, agent: string): Promise<void>;
+  /** The head the session of `agent` was given and reviews, while its copy exists; else null. */
+  reviewedCommit?(office: OfficeId, runId: string, agent: string): Promise<string | null>;
 }
 
 export interface ReviewLauncherDeps {
@@ -188,8 +450,11 @@ export interface ReviewLauncherDeps {
   readonly worker: WorkerPort;
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   readonly runtimeDir: string;
+  /** dipo's temp root: the run temp directories and each reviewer session's folder. */
   readonly tmpRoot: string;
   readonly tempOwner?: () => string | undefined;
+  /** Runs the system `tar` that unpacks the copy; the system spawn by default. */
+  readonly code?: Pick<BoxCodeDeps, "spawn" | "tar">;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /** Run control: the session is tracked before its ingestion starts. */
@@ -233,6 +498,84 @@ export class ReviewLauncher implements ReviewSessions {
   async start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome> {
     const deps = this.#deps;
     const { run } = request;
+    const git = deps.git(request.office);
+    if (git === undefined) {
+      return { kind: "failed", reason: `office ${request.office} is not loaded` };
+    }
+    if (run.branch === null) {
+      return { kind: "failed", reason: `${run.runId} is not a story run with a branch` };
+    }
+    const branch = run.branch;
+    const agent = AgentId.parse(deps.ids.next("agt"));
+    // A fresh read-only copy of exactly the round's head for this session (DIPO-276).
+    let copy: ReviewCopy;
+    try {
+      const tip = (
+        await git.run((session) =>
+          session.ok(session.repository, [
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            `refs/heads/${branch}^{commit}`,
+          ]),
+        )
+      ).trim();
+      if (tip !== request.head) {
+        return {
+          kind: "failed",
+          reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
+        };
+      }
+      const commit = request.head;
+      copy = await makeReviewCopy(
+        {
+          spawn: deps.code?.spawn ?? systemSpawn,
+          clock: deps.clock,
+          ...(deps.code?.tar === undefined ? {} : { tar: deps.code.tar }),
+        },
+        { git, commit, tmpRoot: deps.tmpRoot, runId: run.runId, agent },
+      );
+    } catch (error) {
+      return {
+        kind: "failed",
+        reason: `the read-only copy of the pushed commit could not be made: ${messageOf(error)}`,
+        ...(error instanceof ReviewCopyMismatchError ? { copyMismatch: true as const } : {}),
+      };
+    }
+    let outcome: ReviewSessionOutcome;
+    try {
+      outcome = await this.#launch(request, agent, copy);
+    } catch (error) {
+      await removeReviewFolder(copy.root).catch(() => undefined);
+      throw error;
+    }
+    if (outcome.kind !== "started") await removeReviewFolder(copy.root).catch(() => undefined);
+    return outcome;
+  }
+
+  /** Removes the folder of the session of `agent`: its copy and its working directory. */
+  async finish(_office: OfficeId, runId: string, agent: string): Promise<void> {
+    await removeReviewFolder(reviewFolder(await realpath(this.#deps.tmpRoot), runId, agent));
+  }
+
+  /** The commit the copy of the session of `agent` holds, from its folder; null without one. */
+  async reviewedCommit(_office: OfficeId, runId: string, agent: string): Promise<string | null> {
+    const root = reviewFolder(await realpath(this.#deps.tmpRoot), runId, agent);
+    try {
+      const commit = readFileSync(join(root, REVIEW_COMMIT_FILE), "utf8").trim();
+      return COMMIT_ID.test(commit) ? commit : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async #launch(
+    request: ReviewSessionRequest,
+    agent: AgentId,
+    copy: ReviewCopy,
+  ): Promise<ReviewSessionOutcome> {
+    const deps = this.#deps;
+    const { run } = request;
     const office = deps.offices.get(request.office);
     const config = deps.offices.config(request.office);
     const git = deps.git(request.office);
@@ -245,9 +588,13 @@ export class ReviewLauncher implements ReviewSessions {
     const tier =
       (config.tiers as Readonly<Record<string, TierCaps>>)[run.tier ?? ""] ?? config.tiers.M;
     const settings = reviewerSettings(office, run, config);
-    const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
-    const agent = AgentId.parse(deps.ids.next("agt"));
+    // The reviewer's working directory is the empty folder, never the worktree or the copy.
+    const paths = runLaunchPaths(git, deps, copy.session, run.runId);
     const systemFile = renderSystemFile("review", "reviewer");
+    const taskMessage = withReviewCommit(request.taskMessage, {
+      commit: copy.commit,
+      dir: copy.copy,
+    });
     // The CLI's own budget is what remains of the story's; the reviewer's turns and minutes are
     // its own caps (0019 section 13).
     const now = deps.clock.now();
@@ -258,14 +605,17 @@ export class ReviewLauncher implements ReviewSessions {
       maxTurns: settings.maxTurns,
       maxMinutes: settings.maxMinutes,
     };
-    const spec = runWorkerSpec(
-      deps.worker,
-      { runId: run.runId, agent, caps: tier, reviewer: settings },
-      paths,
-      request.taskMessage,
-      { id: sessionUuid(agent), resume: false },
-      caps,
-    );
+    const spec = {
+      ...runWorkerSpec(
+        deps.worker,
+        { runId: run.runId, agent, caps: tier, reviewer: settings },
+        paths,
+        taskMessage,
+        { id: sessionUuid(agent), resume: false },
+        caps,
+      ),
+      readOnlyDir: copy.copy,
+    };
     try {
       ensurePrivateDir(paths.runDir);
       prepareRunTempDirs(paths, run.runId, deps.tempOwner?.());
@@ -342,7 +692,7 @@ export class ReviewLauncher implements ReviewSessions {
         office,
         run.runId,
         agent,
-        promptParts(systemFile, request.taskMessage, []),
+        promptParts(systemFile, taskMessage, []),
         deps.clock,
       );
       recordPromptTexts(
@@ -351,7 +701,7 @@ export class ReviewLauncher implements ReviewSessions {
         agent,
         [
           { part: "system", text: systemFile },
-          { part: "message", text: request.taskMessage },
+          { part: "message", text: taskMessage },
         ],
         config,
         deps.clock,

@@ -14,11 +14,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { SoftwareStream } from "../../src/software-stream/stream";
 import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
 import { CLAUDE_CLI_ADAPTER_ID } from "../../src/workers/claude-cli/plan";
-import {
-  REVIEW_PROBES,
-  selfTestLayout,
-  type StartHostStandIn,
-} from "../../src/workers/claude-cli/self-test";
+import { selfTestLayout, type StartHostStandIn } from "../../src/workers/claude-cli/self-test";
 import {
   AdapterHolds,
   gateLaunch,
@@ -36,7 +32,7 @@ import {
   MAIN,
   MemoryFs,
   reachedStandIn,
-  REVIEW_BLOCKED_RESULTS,
+  reviewContext,
   reviewSpec,
   RUN_DIR,
   scriptedClaude,
@@ -338,108 +334,51 @@ describe("(engine) Claude launch checks", () => {
   });
 });
 
-describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", () => {
-  const REVIEW_LAYOUT = selfTestLayout({ ...LAYOUT_PATHS, review: true }, REVIEW_PROBES);
-
-  function reviewDeps(clock: ManualClock, fs: MemoryFs, results: string) {
-    const fake = scriptedClaude(clock, {
-      session: selfTestSession([REVIEW_LAYOUT.command]),
-      onSession: () => {
-        fs.files.set(REVIEW_LAYOUT.resultsFile, results);
-        fs.files.set(REVIEW_LAYOUT.controlFile, "");
-      },
-    });
-    return {
-      fake,
-      deps: {
-        spawn: fake.spawn,
-        clock,
-        selfTestSessionId: SELF_TEST_SESSION,
-        standIn: reachedStandIn(),
-        platform: "darwin" as const,
-        runStep: credentialSteps().runStep,
-        uid: 501,
-        allowProjectSettings: [],
-        readText: async () => undefined,
-        fs,
-      },
-    };
-  }
-
-  it("runs probe, credential check and the review self-test, and returns the review plan", async () => {
-    const { clock, holds } = setup();
-    const { fake, deps } = reviewDeps(clock, new MemoryFs(), REVIEW_BLOCKED_RESULTS);
-    const result = await prepareLaunch(reviewSpec(), context(), holds, deps);
-    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
-    expect(result.plan.argv[result.plan.argv.indexOf("--tools") + 1]).toBe("Read,Glob,Grep,Bash");
-    expect(fake.calls.map((call) => call.cmd[1])).toEqual(["--version", "auth", "-p"]);
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-  });
-
-  it("holds the adapter, as for a worker, when the review self-test's install succeeded", async () => {
-    const { clock, holds, notices } = setup();
-    const installed = REVIEW_BLOCKED_RESULTS.replace("install exit 1", "install exit 0");
-    const { deps } = reviewDeps(clock, new MemoryFs(), installed);
-    const result = await prepareLaunch(reviewSpec(), context(), holds, deps);
-    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
-      check: "self-test",
-      key: "install",
-    });
-    expect(notices.at(-1)?.data).toMatchObject({ level: "error", code: HOLD_NOTICE_CODE });
-  });
-
-  it("holds with a reviewer's reason and fix when the review self-test lists a plugin", async () => {
-    const { clock, holds } = setup();
-    const warp = "warp@claude-code-warp";
-    const fs = new MemoryFs();
-    const fake = scriptedClaude(clock, {
-      session: withInitPlugins(selfTestSession([REVIEW_LAYOUT.command]), [warp]),
-      onSession: () => {
-        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
-        fs.files.set(REVIEW_LAYOUT.controlFile, "");
-      },
-    });
-    const { deps } = reviewDeps(clock, fs, REVIEW_BLOCKED_RESULTS);
-    // worker.plugins names the plugin, which a reviewer does not load all the same.
-    const ctx = context({ plugins: { installed: [warp], allowed: [warp] } });
-    const result = await prepareLaunch(reviewSpec(), ctx, holds, { ...deps, spawn: fake.spawn });
-    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.failures[0]).toEqual({
-      check: "self-test",
-      detail:
-        "the sandbox self-test could not run: system/init lists plugin warp@claude-code-warp, but a reviewer session loads no plugin: a plugin's hooks run outside the sandbox, so the session refuses to run (0019 section 4)",
-      key: "plugins",
-      fix: "Claude Code loaded a plugin the run settings did not switch off. A reviewer session loads no plugins (0019 section 4), so worker.plugins does not apply to it; the plugin comes from the user scope or the project. Remove or disable it for this machine or this project, then start the review again.",
-    });
-  });
-
-  it("holds the adapter when the worktree took the self-test's write", async () => {
-    const { clock, holds } = setup();
-    const written = REVIEW_BLOCKED_RESULTS.replace(
-      "worktree blocked Operation not permitted",
-      "worktree written",
-    );
-    const { deps } = reviewDeps(clock, new MemoryFs(), written);
-    const result = await prepareLaunch(reviewSpec(), context(), holds, deps);
-    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ key: "worktree" });
-  });
-
-  it("holds on a refused probe before the review self-test runs, as for a worker", async () => {
-    const { clock, holds } = setup();
-    const fake = scriptedClaude(clock, { auth: '{"loggedIn":true,"authMethod":"api-key"}' });
-    const result = await prepareLaunch(reviewSpec(), context(), holds, {
+/** Launch check deps for a review: a scripted claude and recorded credential steps. */
+function reviewDeps(clock: ManualClock) {
+  const fake = scriptedClaude(clock, {});
+  const steps = credentialSteps();
+  return {
+    fake,
+    steps,
+    deps: {
       spawn: fake.spawn,
       clock,
       selfTestSessionId: SELF_TEST_SESSION,
       standIn: reachedStandIn(),
       platform: "darwin" as const,
-      runStep: credentialSteps().runStep,
+      runStep: steps.runStep,
       uid: 501,
       allowProjectSettings: [],
       readText: async () => undefined,
       fs: new MemoryFs(),
+    },
+  };
+}
+
+describe("(engine) the review kind's launch checks (DIPO-145, DIPO-276)", () => {
+  // The reviewer has no Bash (0021 section 10), so no credential check or sandbox self-test runs
+  // for it: both prove what sandboxed commands can reach, and a reviewer runs none.
+  it("runs the probe and the settings check only, with no self-test session, and returns the review plan", async () => {
+    const { clock, holds } = setup();
+    const { fake, steps, deps } = reviewDeps(clock);
+    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, deps);
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
+    expect(result.plan.argv[result.plan.argv.indexOf("--tools") + 1]).toBe(
+      "Read,Glob,Grep,WebSearch,WebFetch",
+    );
+    expect(fake.calls.map((call) => call.cmd[1])).toEqual(["--version", "auth"]);
+    expect(steps.commands).toEqual([]);
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+  });
+
+  it("holds on a refused probe, as for a worker", async () => {
+    const { clock, holds } = setup();
+    const fake = scriptedClaude(clock, { auth: '{"loggedIn":true,"authMethod":"api-key"}' });
+    const { deps } = reviewDeps(clock);
+    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, {
+      ...deps,
+      spawn: fake.spawn,
     });
     expect(result.ok).toBe(false);
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "probe" });
@@ -448,7 +387,7 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
 
   it("starts no Safe-Chain proxy for a review, even with Safe-Chain installed", async () => {
     const { clock, holds } = setup();
-    const { deps } = reviewDeps(clock, new MemoryFs(), REVIEW_BLOCKED_RESULTS);
+    const { deps } = reviewDeps(clock);
     const started: string[] = [];
     const safeChain = {
       root: `${HOME}/.safe-chain`,
@@ -459,7 +398,7 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
       probe: "bun",
       shellDir: `${RUN_DIR}/safe-chain`,
     };
-    const result = await prepareLaunch(reviewSpec(), context({ safeChain }), holds, {
+    const result = await prepareLaunch(reviewSpec(), reviewContext({ safeChain }), holds, {
       ...deps,
       safeChainProxies: {
         start: async (run) => {
@@ -473,8 +412,6 @@ describe("(engine) the review kind's launch checks (DIPO-145, 0019 section 4)", 
     expect(result.ok).toBe(true);
     expect(started).toEqual([]);
     expect(result.ok && result.plan.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
-    // The reviewer gets the detected PATH (DIPO-250).
-    expect(result.ok && result.plan.env["PATH"]).toBe(safeChain.path);
   });
 });
 
