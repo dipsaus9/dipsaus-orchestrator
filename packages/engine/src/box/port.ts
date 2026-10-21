@@ -159,6 +159,11 @@ export interface BoxPort {
   /** Copies `from` inside the box to the host path `to`. */
   copyOut(name: string, from: string, to: string, options?: BoxCallOptions): Promise<void>;
   /**
+   * Writes the box's whole filesystem as a tar archive to the host path `to`. The backend makes
+   * it from the host, so nothing in the box can shape what it holds (the post-run token check).
+   */
+  exportFiles(name: string, to: string, options?: BoxCallOptions): Promise<void>;
+  /**
    * Runs a command in a running box to its end, within the deadline. On `box.timedOut` only the
    * client was killed: the command may still run inside the box, so the caller stops or deletes
    * the box.
