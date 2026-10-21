@@ -4,7 +4,7 @@ title: Run the Backlog CLI only in a folder that holds no worker-written files
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 14:38'
+updated_date: '2026-10-21 14:48'
 labels:
   - 'tier:M'
   - cutover
@@ -24,6 +24,9 @@ references:
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/test/run/verify-commit.test.ts
   - packages/engine/test/run/control.test.ts
+  - packages/engine/src/stories/branch-read.ts
+  - packages/engine/test/stories/branch.test.ts
+  - packages/engine/test/reconcile/helpers.ts
 priority: high
 type: feature
 ordinal: 259000
