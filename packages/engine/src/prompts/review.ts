@@ -40,7 +40,7 @@ export interface ReviewChangedPath {
 
 export interface ReviewTaskInput {
   readonly story: PromptStory;
-  /** The merge base the diff starts from; the cut marker names `git diff <base>...HEAD`. */
+  /** The merge base the diff starts from; the cut marker names it and points to the `<commit>` copy. */
   readonly base: string;
   /** Every changed path; the story's task file is left out here. */
   readonly changes: readonly ReviewChangedPath[];

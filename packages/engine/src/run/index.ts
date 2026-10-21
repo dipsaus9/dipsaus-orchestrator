@@ -100,10 +100,12 @@ export {
 } from "./review-rounds";
 export type { ReviewRound } from "./review-rounds";
 export {
+  checkCopyComplete,
   gitReviewOps,
   makeReviewCopy,
   parseNumstat,
   removeReviewFolder,
+  REVIEW_COMMIT_FILE,
   REVIEW_FOLDER_PREFIX,
   REVIEW_SESSION_DIR,
   reviewFolder,

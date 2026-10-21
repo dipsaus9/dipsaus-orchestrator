@@ -203,10 +203,13 @@ export class Reviews {
     if (office === undefined || run.worktree === null || run.story === null) return false;
     if (run.endKind === DONE_END) return false;
     let facts: RunStoryFacts;
+    let head: string;
     let tree: string;
     try {
       facts = await this.#deps.story(officeId, run);
-      tree = await this.#deps.git.codeTreeKey(officeId, run.worktree, facts.taskFile);
+      // The head is read once for the round: its tree key, diff, copy and verdict all use it.
+      head = await this.#deps.git.head(officeId, run.worktree);
+      tree = await this.#deps.git.codeTreeKey(officeId, run.worktree, facts.taskFile, head);
     } catch (error) {
       this.#deps.warn?.("reading a story before its review failed; the review waits", {
         run: run.runId,
@@ -240,18 +243,28 @@ export class Reviews {
       },
     );
     if (round === null) return false;
-    return this.#launch(office, findRun(office, run.runId) ?? run, facts);
+    return this.#launch(office, findRun(office, run.runId) ?? run, facts, head);
   }
 
-  /** Builds the review task message and starts a fresh reviewer session; true when it started. */
-  async #launch(office: OfficeHandle, run: StoredRun, facts: RunStoryFacts): Promise<boolean> {
+  /**
+   * Builds the review task message at `head` (read now when not given, for a fresh session after a
+   * failed one) and starts a fresh reviewer session on exactly that head; true when it started.
+   */
+  async #launch(
+    office: OfficeHandle,
+    run: StoredRun,
+    facts: RunStoryFacts,
+    given?: string,
+  ): Promise<boolean> {
     const officeId = office.officeId as OfficeId;
     const config = this.#deps.offices.config(officeId);
     if (config === undefined || run.worktree === null) return false;
     let taskMessage: string;
+    let head: string;
     try {
+      head = given ?? (await this.#deps.git.head(officeId, run.worktree));
       const base = findClaim(office, run.runId)?.baseSha ?? run.startSha ?? "HEAD";
-      const { diff, changes } = await this.#deps.git.diff(officeId, run.worktree, base);
+      const { diff, changes } = await this.#deps.git.diff(officeId, run.worktree, base, head);
       const size = await this.#deps.git.sizeClass(officeId, run.worktree);
       const previous = this.#lastVerdict(office, run.runId);
       taskMessage = assembleReviewTaskMessage({
@@ -280,7 +293,7 @@ export class Reviews {
     }
     let outcome;
     try {
-      outcome = await this.#deps.sessions.start({ office: officeId, run, taskMessage });
+      outcome = await this.#deps.sessions.start({ office: officeId, run, taskMessage, head });
     } catch (error) {
       outcome = { kind: "failed" as const, reason: messageOf(error) };
     }
@@ -337,7 +350,7 @@ export class Reviews {
     const agent = view.work.agent;
     let reviewed: { facts: ReviewFacts; commit: string; tree: string };
     try {
-      reviewed = await this.#reviewed(view.office, run);
+      reviewed = await this.#reviewed(view.office, run, agent);
     } catch (error) {
       this.#crash(view, `the reviewed commit could not be read: ${messageOf(error)}`);
       return;
@@ -399,10 +412,15 @@ export class Reviews {
     });
   }
 
-  /** The facts a report is judged against, at the reviewed commit (the worktree's HEAD). */
+  /**
+   * The facts a report is judged against, at the reviewed commit: the head the session was given
+   * (its copy's, `reviewedCommit`), else the worktree's HEAD. A branch that moved since the session
+   * started throws, so the session ends as a crash and a fresh one reviews the new head.
+   */
   async #reviewed(
     officeId: OfficeId,
     run: StoredRun,
+    agent: string,
   ): Promise<{ facts: ReviewFacts; commit: string; tree: string }> {
     const office = this.#deps.offices.get(officeId);
     const worktree = run.worktree as string;
@@ -411,9 +429,13 @@ export class Reviews {
       (office === undefined ? null : findClaim(office, run.runId)?.baseSha) ??
       run.startSha ??
       "HEAD";
-    const commit = await this.#deps.git.head(officeId, worktree);
-    const tree = await this.#deps.git.codeTreeKey(officeId, worktree, story.taskFile);
-    const { diff } = await this.#deps.git.diff(officeId, worktree, base);
+    const now = await this.#deps.git.head(officeId, worktree);
+    const commit = (await this.#deps.sessions.reviewedCommit?.(officeId, run.runId, agent)) ?? now;
+    if (commit !== now) {
+      throw new Error(`the story branch moved from ${commit} to ${now} during the review`);
+    }
+    const tree = await this.#deps.git.codeTreeKey(officeId, worktree, story.taskFile, commit);
+    const { diff } = await this.#deps.git.diff(officeId, worktree, base, commit);
     const parsed = parseStoryDiff(diff);
     const files: StoryDiff = {
       files: new Map([...parsed.files].filter(([path]) => path !== story.taskFile)),

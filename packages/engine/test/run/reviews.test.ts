@@ -817,6 +817,16 @@ describe("the failure table (0019 section 4)", () => {
     expect(notices).toContain("stays In Review and its review waits");
   });
 
+  it("removes a session's read-only copy when its host is found lost, then starts one fresh session", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const session = await reviewStarts(s);
+    x.control.onHostLost(session.run, session.agent);
+    await x.control.idle();
+    expect(x.finished).toEqual([session.agent]);
+    expect(x.sessions).toHaveLength(2);
+  });
+
   it("ends a session whose turn failed as a crash and starts one fresh session", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
