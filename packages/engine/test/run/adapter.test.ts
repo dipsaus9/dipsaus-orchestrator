@@ -161,7 +161,10 @@ describe("the worker port seam (DIPO-113)", () => {
       maxTurns: 40,
       maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
     });
-    expect(built.tools).toEqual({ allow: ["Read", "Glob", "Grep", "Bash"], deny: [] });
+    expect(built.tools).toEqual({
+      allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
+      deny: [],
+    });
     expect(built.tools.allow).toEqual([...REVIEWER_TOOLS]);
     expect(built.session).toEqual({ id: "s-2", resume: false });
     expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);

@@ -83,8 +83,11 @@ import {
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
 
-/** The tools of the reviewer role (0019 section 4, option B): read-only, no web tools. */
-export const REVIEWER_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "Bash"];
+/**
+ * The tools of the reviewer role (0021 section 10, DIPO-276): read-only on the copy of the pushed
+ * commit, plus web search and fetch. No shell, no write, no gh.
+ */
+export const REVIEWER_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
 
 /**
  * The reviewer's system file in the run directory: a name of its own, so a review never replaces

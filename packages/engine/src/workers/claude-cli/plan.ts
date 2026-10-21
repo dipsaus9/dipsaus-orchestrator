@@ -78,10 +78,10 @@ export function closedWritePaths(home: string): ClosedWritePath[] {
 export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review"];
 
 /**
- * The only tools a `review` session may have (0019 section 4, option B): it reads the worktree and
- * runs read-only commands in the sandbox. No Edit or Write, and no WebSearch or WebFetch.
+ * The only tools a `review` session may have (0021 section 10, DIPO-276): it reads the read-only
+ * copy of the pushed commit and may search the web. No shell, no Edit or Write, and so no git or gh.
  */
-export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "Bash"];
+export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
 
 /**
  * The MCP config file of a `review` session, in the run directory: no server. With
@@ -312,6 +312,13 @@ export function checkSpec(spec: WorkerSpec): void {
     );
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
+  // A reviewer reads only dipo's read-only copy of the pushed commit (DIPO-276); a worker has none.
+  if (spec.kind === "review" && spec.readOnlyDir === undefined) {
+    throw new PlanError("a review session needs the read-only copy of the pushed commit");
+  }
+  if (spec.kind !== "review" && spec.readOnlyDir !== undefined) {
+    throw new PlanError("only a review session reads a read-only copy");
+  }
 }
 
 /** True when the session has a web tool (`worker.web`, 0020 section 11b). */
@@ -381,6 +388,8 @@ function gitWriteVerbRules(verb: string): string[] {
 interface Paths {
   readonly home: string;
   readonly workdir: string;
+  /** A reviewer's read-only copy of the pushed commit (DIPO-276); undefined for a worker. */
+  readonly copy: string | undefined;
   readonly main: string;
   readonly tmp: string;
   readonly shortTmp: string | undefined;
@@ -417,10 +426,26 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     ...(spec.hookRelay ? [] : commands("gh")),
     ...spec.tools.deny,
   ];
-  // A reviewer is read-only (0019 section 4): its tool list has no Edit or Write, and the rules
-  // deny both on the whole worktree as well.
-  const review = spec.kind === "review";
-  if (review) deny.push(`Edit(/${paths.workdir}/**)`, `Write(/${paths.workdir}/**)`);
+  // A reviewer is read-only (0021 section 10): its tool list has no Edit, Write or Bash, and the
+  // rules deny writes on its folder and on the copy as well. It reads only the copy, outside its
+  // working directory, so the copy is an added directory of the run settings: file access only,
+  // no configuration loads from it (DIPO-276).
+  const copy = paths.copy;
+  if (spec.kind === "review" && copy !== undefined) {
+    deny.push(
+      `Edit(/${paths.workdir}/**)`,
+      `Write(/${paths.workdir}/**)`,
+      `Edit(/${copy}/**)`,
+      `Write(/${copy}/**)`,
+      `Read(/${copy}/**/.env*)`,
+    );
+    return {
+      allow: [`Read(/${copy}/**)`, ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool))],
+      deny: unique(deny),
+      additionalDirectories: [copy],
+      blockReadsOutsideWorkingDirectories: true,
+    };
+  }
   return {
     // `Bash` needs an allow rule: under `--permission-prompts none` the permission layer denies
     // every Bash call without one (0008 amendment of 2026-10-12, recording
@@ -428,15 +453,13 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     // backstop stay the boundary.
     // With `worker.web` the two web tools are allowed too: under `--permission-prompts none` a
     // call nothing allows is denied (0020 section 11b). The `PreToolUse` hook is their check.
-    allow: review
-      ? [`Read(/${paths.workdir}/**)`, "Bash"]
-      : [
-          `Read(/${paths.workdir}/**)`,
-          `Edit(/${paths.workdir}/**)`,
-          `Write(/${paths.workdir}/**)`,
-          "Bash",
-          ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool)),
-        ],
+    allow: [
+      `Read(/${paths.workdir}/**)`,
+      `Edit(/${paths.workdir}/**)`,
+      `Write(/${paths.workdir}/**)`,
+      "Bash",
+      ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool)),
+    ],
     deny: unique(deny),
     blockReadsOutsideWorkingDirectories: true,
   };
@@ -528,8 +551,8 @@ function sandbox(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
       denyWrite: [
         `${main}/.git`,
         `${workdir}/.git`,
-        // The story worktree itself for a reviewer (0019 section 4).
-        ...(review ? [workdir] : []),
+        // A reviewer's own folder and its copy of the pushed commit (DIPO-276).
+        ...(review ? [workdir, ...(paths.copy === undefined ? [] : [paths.copy])] : []),
         `${workdir}/backlog`,
         `${workdir}/.dipo`,
         `${workdir}/.claude/settings.json`,
@@ -559,9 +582,9 @@ function sandbox(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
 function hooks(
   spec: WorkerSpec,
   ctx: ClaudeLaunchContext,
-  workdir: string,
-  runDir: string,
+  paths: Paths,
 ): Record<string, unknown> | undefined {
+  const { workdir, runDir } = paths;
   if (!spec.hookRelay) return undefined;
   const command = ctx.hookCommand;
   if (command === undefined) {
@@ -574,6 +597,9 @@ function hooks(
       throw new PlanError(`the hook command ${path} must lie outside the worktree ${workdir}`, {
         path,
       });
+    }
+    if (paths.copy !== undefined && isInside(path, paths.copy)) {
+      throw new PlanError(`the hook command ${path} must lie outside the review copy`, { path });
     }
   }
   const wait = ctx.permissionWaitSeconds ?? DEFAULT_PERMISSION_WAIT_SECONDS;
@@ -607,10 +633,13 @@ function plugins(ctx: ClaudeLaunchContext): Record<string, false> | undefined {
 
 /** The run settings file: rules, sandbox, hooks and git instruction switches (0008 section 2). */
 function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
-  const hookBlock = hooks(spec, ctx, paths.workdir, paths.runDir);
+  const hookBlock = hooks(spec, ctx, paths);
   const enabledPlugins = plugins(ctx);
   return {
     includeGitInstructions: false,
+    // No CLAUDE.md, CLAUDE.local.md or rules file of the copy is ever instructions (DIPO-276): the
+    // copy is neither the working directory nor its parent, and its files are excluded by path too.
+    ...(paths.copy === undefined ? {} : { claudeMdExcludes: [`${paths.copy}/**`] }),
     attribution: { commit: "", pr: "" },
     permissions: permissions(spec, paths),
     sandbox: sandbox(spec, ctx, paths),
@@ -637,6 +666,28 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     throw new PlanError(`the worktree ${workdir} must lie outside the main checkout ${main}`, {
       path: workdir,
     });
+  }
+  const copy =
+    spec.readOnlyDir === undefined
+      ? undefined
+      : ruleSafe("readOnlyDir", absolute("readOnlyDir", spec.readOnlyDir));
+  // A reviewer's working directory is outside its copy and holds no part of it, so Claude Code
+  // finds no project settings, hooks or CLAUDE.md of the commit there or in its parents (0021
+  // section 14); the copy is no checkout and no home either.
+  if (copy !== undefined) {
+    for (const [label, other] of [
+      ["working directory", workdir],
+      ["main checkout", main],
+      ["home directory", home],
+      ["sandbox temp directory", tmp],
+      ...(shortTmp === undefined ? [] : [["short temp root", shortTmp] as const]),
+    ] as const) {
+      if (isInside(copy, other) || isInside(other, copy)) {
+        throw new PlanError(`the review copy ${copy} must lie outside the ${label} ${other}`, {
+          path: copy,
+        });
+      }
+    }
   }
   const closed = closedWritePaths(home);
   for (const [label, dir] of [
@@ -688,8 +739,11 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     if (path !== undefined && isInside(path, workdir)) {
       throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
     }
+    if (path !== undefined && copy !== undefined && isInside(path, copy)) {
+      throw new PlanError(`${label} ${path} must lie outside the review copy ${copy}`);
+    }
   }
-  const paths: Paths = { home, workdir, main, tmp, shortTmp, runDir };
+  const paths: Paths = { home, workdir, copy, main, tmp, shortTmp, runDir };
   const reportSchema = JSON.stringify(spec.reportSchema);
 
   const argv: [string, ...string[]] = [

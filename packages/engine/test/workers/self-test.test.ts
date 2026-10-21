@@ -52,7 +52,6 @@ import {
   POINTER,
   reachedStandIn,
   REVIEW_BLOCKED_RESULTS,
-  reviewSpec,
   RUN_DIR,
   scriptedClaude,
   SELF_TEST_SESSION,
@@ -1109,8 +1108,6 @@ function reviewEvidence(disk: Partial<SelfTestDisk>, more: Partial<SelfTestEvide
 }
 
 describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
-  const REVIEW_LAYOUT = selfTestLayout({ ...PATHS, nonce: NONCE, review: true }, REVIEW_PROBES);
-
   it("writes its control file in the run temp root, probes the worktree, and installs first", () => {
     const layout = selfTestLayout({ ...PATHS, review: true }, REVIEW_PROBES);
     const name = `dipo-self-test-${PATHS.nonce}`;
@@ -1225,79 +1222,9 @@ describe("(unit) review self-test (DIPO-145, 0019 section 4)", () => {
     expect((noControl as { reason: string }).reason).toContain("inside the run temp root");
   });
 
-  it("runs under the review run's settings, control file in the temp root, and cleans up", async () => {
-    const clock = new ManualClock();
-    const fs = new MemoryFs();
-    let installProject: string | null = null;
-    const fake = scriptedClaude(clock, {
-      session: selfTestSession([REVIEW_LAYOUT.command]),
-      onSession: () => {
-        installProject = fs.files.get(`${REVIEW_LAYOUT.installDir}/package.json`) ?? null;
-        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
-        fs.files.set(REVIEW_LAYOUT.controlFile, "");
-      },
-    });
-    // Safe-Chain on the machine gives a reviewer the detected PATH and a closed shell snapshot
-    // (DIPO-250), but no proxy, no wrapper and no install through it.
-    const safeChain = {
-      root: `${HOME}/.safe-chain`,
-      shell: "/bin/zsh",
-      path: "/usr/bin:/bin:/demoted/bin",
-      demoted: [],
-      dropped: [],
-      probe: "bun",
-      shellDir: `${RUN_DIR}/safe-chain`,
-      route: { port: 50123, dir: "/private/tmp/dipo-p/abc123" },
-    };
-    const ctx = context({ safeChain });
-    const runPlan = plan(reviewSpec(), ctx);
-    const runSettings = runPlan.files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
-    const report = await runSelfTest(
-      { spec: reviewSpec(), ctx, runSettings, runFiles: runPlan.files },
-      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
-    );
-    expect(report.verdict).toEqual({ ok: true });
-    expect(report.evidence?.probes).toEqual(REVIEW_PROBES);
-    expect(report.evidence?.installMustFail).toBe(true);
-    expect(report.evidence?.safeChain).toBeUndefined();
-    expect(String(installProject)).toContain("dipo-self-test");
-    // The session runs the review run's own settings file, byte for byte, and its argv.
-    expect(fs.files.get(`${RUN_DIR}/self-test/${SETTINGS_FILE}`)).toBe(runSettings);
-    const session = fake.calls.find((call) => call.cmd.includes("-p"));
-    expect(session?.env?.["CLAUDE_CODE_SHELL"]).toBeUndefined();
-    expect(session?.env?.["PATH"]).toBe(safeChain.path);
-    expect(runSettings).toContain(`${HOME}/.claude/shell-snapshots`);
-    expect(session?.cmd[session.cmd.indexOf("--mcp-config") + 1]).toBe(
-      `${RUN_DIR}/self-test/mcp-empty.json`,
-    );
-    expect(fs.executableWrites.size).toBe(0);
-    // Everything it made is gone: control file, results, worktree probe and install project.
-    expect(fs.files.has(REVIEW_LAYOUT.controlFile)).toBe(false);
-    expect(fs.files.has(REVIEW_LAYOUT.resultsFile)).toBe(false);
-    expect(fs.removedTrees).toEqual([REVIEW_LAYOUT.installDir ?? ""]);
-    expect(fs.files.get(`${WORKDIR}/.git`)).toBe(POINTER);
-  });
-
-  it("refuses the session when the install got through on disk", async () => {
-    const clock = new ManualClock();
-    const fs = new MemoryFs();
-    const installed = `${REVIEW_LAYOUT.installDir}/node_modules/is-number/package.json`;
-    const fake = scriptedClaude(clock, {
-      session: selfTestSession([REVIEW_LAYOUT.command]),
-      onSession: () => {
-        fs.files.set(REVIEW_LAYOUT.resultsFile, REVIEW_BLOCKED_RESULTS);
-        fs.files.set(REVIEW_LAYOUT.controlFile, "");
-        fs.files.set(installed, "{}");
-      },
-    });
-    const runSettings =
-      plan(reviewSpec(), context()).files.find((f) => f.name === SETTINGS_FILE)?.content ?? "";
-    const report = await runSelfTest(
-      { spec: reviewSpec(), ctx: context(), runSettings },
-      { spawn: fake.spawn, clock, fs, standIn: reachedStandIn(), sessionId: SELF_TEST_SESSION },
-    );
-    expect(report.verdict).toMatchObject({ ok: false, unsafe: true, probe: "install" });
-  });
+  // No review session runs this self-test any more: a reviewer has no Bash (0021 section 10,
+  // DIPO-276), so its launch runs no credential check or self-test (launch-checks.test.ts) and a
+  // review plan refuses Bash (plan.test.ts). The judging above stays until DIPO-280 removes it.
 
   it("records the install exit code with the real perl program", async () => {
     const perl = "/usr/bin/perl";

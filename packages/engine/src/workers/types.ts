@@ -41,8 +41,17 @@ export interface WorkerSpec {
   /** Agent id (`agt-...`). */
   readonly agent: string;
   readonly kind: WorkerKind;
-  /** Absolute working directory: the story worktree for `implement` and `review`. */
+  /**
+   * Absolute working directory: the story worktree for `implement`; for `review` an empty folder
+   * dipo made, outside the copy it reads (0021 section 14, DIPO-276).
+   */
   readonly workdir: string;
+  /**
+   * `review` only, and required there: the read-only copy of the pushed commit dipo made for this
+   * session (0021 section 10, DIPO-276). The reviewer reads it with its read tools, never as its
+   * working directory, so no settings, hooks or instruction files load from it.
+   */
+  readonly readOnlyDir?: string;
   readonly model: string;
   readonly effort: string;
   readonly caps: Caps;
