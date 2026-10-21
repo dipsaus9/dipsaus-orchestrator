@@ -3,6 +3,7 @@
 // template never holds a conditional or a loop; `templateProblems` is the check the tests run
 // over every template file.
 
+import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
 import implementContract from "./contract/implement.md" with { type: "text" };
 import reviewContract from "./contract/review.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
@@ -35,8 +36,17 @@ import story from "./task/story.md" with { type: "text" };
 import testPlanNotApplicable from "./task/test-plan-not-applicable.md" with { type: "text" };
 import testPlan from "./task/test-plan.md" with { type: "text" };
 
-/** L1 worker contracts by run kind: `implement` and `review` (0019 section 4). */
-export const CONTRACT_TEMPLATES = { implement: implementContract, review: reviewContract } as const;
+/**
+ * L1 worker contracts by run kind: `implement` and `review` (0019 section 4), and `implement-box`
+ * for a developer in its own box (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272): the door
+ * messages, without the write-only-these-paths, no-git and no-`cd` rules. `implement` stays the Mac
+ * worker's until DIPO-280 removes that path.
+ */
+export const CONTRACT_TEMPLATES = {
+  implement: implementContract,
+  "implement-box": implementBoxContract,
+  review: reviewContract,
+} as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
 /**

@@ -1,5 +1,5 @@
 // The prompts of a run's first session (DIPO-74; 0014 sections 1, 2, 4 and 9): the L1+L2 system
-// file for `implement` and the developer role, and the L4 task message from the story, its
+// file for `implement` (`implement-box` for a box worker, DIPO-272) and the developer role, and the L4 task message from the story, its
 // dependencies and the context pack the default provider gathers from a checkout. A real run reads
 // its new worktree; the dry run reads `_base`, which holds the same commit the worktree would start
 // from. The session id is made here too: a UUID derived from an engine-made id.
@@ -41,6 +41,8 @@ export interface RunPromptsInput {
   readonly handoff?: HandoffFacts;
   /** What verify said about the base commit in the worker's sandbox (DIPO-183); not known if absent. */
   readonly baseVerify?: BaseVerifyFacts;
+  /** The developer works in its own box (DIPO-271): the box worker contract (DIPO-272). */
+  readonly box?: boolean;
 }
 
 export interface RunPrompts {
@@ -106,7 +108,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     ...(input.baseVerify === undefined ? {} : { baseVerify: input.baseVerify }),
   });
   return {
-    systemFile: renderSystemFile("implement", "developer"),
+    systemFile: renderSystemFile(input.box === true ? "implement-box" : "implement", "developer"),
     taskMessage: task.text,
     sections: task.sections,
     ...nudgeSourcesOf(pack, story.inputs),

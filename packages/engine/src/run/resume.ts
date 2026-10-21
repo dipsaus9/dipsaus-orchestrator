@@ -25,7 +25,7 @@
 //   and an `engine.notice` `run.resumed` or `run.handoff`. Signals the caller names (`clear`, the
 //   `plan-limit` of a held run, DIPO-61) end in the transaction that records the agent.
 
-import { statSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type {
@@ -62,6 +62,7 @@ import {
   recordPromptTexts,
   TASK_PART,
 } from "../prompts/parts";
+import { BOX_RUN_FILE } from "../box/workers";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import { verifyCommands } from "../scan/store";
@@ -314,7 +315,9 @@ export class RunResumer implements NextSession {
     const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
     const facts = previous.state === undefined ? null : deps.worker.sessionFacts(previous.state);
-    const systemFile = renderSystemFile("implement", "developer");
+    // A box worker's run reads the box contract in every session (DIPO-272).
+    const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
+    const systemFile = renderSystemFile(box ? "implement-box" : "implement", "developer");
     const systemHash = systemHashOf(systemFile);
 
     // The handoff message: the new session's task message, and the size a resume is weighed with.

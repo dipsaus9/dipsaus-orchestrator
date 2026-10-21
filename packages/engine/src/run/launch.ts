@@ -442,6 +442,8 @@ export class RunLauncher {
         config: facts.config,
         // What verify said about the base in the worker's sandbox, read by setup (DIPO-183).
         ...(setup.baseVerify === undefined ? {} : { baseVerify: setup.baseVerify }),
+        // A box worker reads the box contract (DIPO-272).
+        ...(facts.box === true ? { box: true } : {}),
       });
       ensurePrivateDir(paths.runDir);
       prepareRunTempDirs(paths, facts.runId, this.#deps.tempOwner?.());
