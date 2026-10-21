@@ -529,8 +529,6 @@ export async function installDipoPart(
 export interface DoorPart {
   readonly runId: string;
   readonly box: string;
-  /** The run directory on the Mac, where the door and the parts keep their records. */
-  readonly runDir: string;
   /** The part's number in the run, from 1. */
   readonly n: number;
   /** The queue file's name in the box. */
@@ -750,7 +748,6 @@ export class BoxDoor {
           await this.#deps.onPart?.({
             runId: door.runId,
             box: door.box,
-            runDir: door.runDir,
             n,
             name: part.name,
             message: part.message,
