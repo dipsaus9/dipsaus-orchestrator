@@ -87,6 +87,17 @@ export interface BoxNetwork {
   readonly hostAddress: string;
 }
 
+/**
+ * The network an image build runs on (DIPO-271): Apple `container`'s default network, where its
+ * builder runs, not the host-only box network (0021 amendment of 2026-10-21, DIPO-266). The build
+ * proxy listens on its host address, found as the box network's is.
+ */
+export interface BoxBuildNetwork {
+  readonly name: string;
+  /** The Mac's address on the network, where the build proxy listens for the builder. */
+  readonly hostAddress: string;
+}
+
 /** What one box is made from. Nothing of the maintainer's is attached (0021 section 2). */
 export interface BoxSpec {
   readonly runId: string;
@@ -133,6 +144,16 @@ export interface BoxProcess {
   readonly stderr: ReadableStream<Uint8Array>;
   readonly exited: Promise<ChildExit>;
   kill(signal?: Signal): void;
+}
+
+/**
+ * A backend call another program runs (DIPO-271: the worker host runs a box worker's long-running
+ * exec and its stop): the argv, its program an absolute path, and the client's environment on
+ * the Mac. Nothing in `env` reaches the box; a box gets only what the argv names.
+ */
+export interface BoxClientCommand {
+  readonly argv: readonly [string, ...string[]];
+  readonly env: Readonly<Record<string, string>>;
 }
 
 /** The memory a running box uses. */
@@ -206,10 +227,28 @@ export interface BoxPort {
     command: readonly [string, ...string[]],
     options?: Omit<BoxExecOptions, "timeoutMs">,
   ): BoxProcess;
+  /**
+   * The call `execLive` makes, for another program to run (DIPO-271: the worker host). Killing
+   * that client leaves the command running in the box, so pair it with `stopCommand`.
+   */
+  execLiveCommand(
+    name: string,
+    command: readonly [string, ...string[]],
+    options?: Omit<BoxExecOptions, "timeoutMs">,
+  ): BoxClientCommand;
+  /** The call `stop` makes, for another program to run; it ends every process in the box. */
+  stopCommand(name: string): BoxClientCommand;
   /** The memory a box uses; null when it is not running. Unreadable figures fail the call. */
   memory(name: string, options?: BoxCallOptions): Promise<BoxMemory | null>;
   /** dipo's own boxes, running or stopped; never another program's. */
   list(options?: BoxCallOptions): Promise<BoxInfo[]>;
+  /**
+   * Starts the image builder and returns the network it runs on, with the Mac's address there
+   * (DIPO-271). Like the box network's, that address exists on the Mac only while something runs
+   * on the network, so the builder is started first; a build proxy then listens there for the
+   * length of one build.
+   */
+  buildNetwork(options?: BoxCallOptions): Promise<BoxBuildNetwork>;
   /** True when the image `tag` exists on this machine, so a build can be skipped. */
   hasImage(tag: string, options?: BoxCallOptions): Promise<boolean>;
   /**
