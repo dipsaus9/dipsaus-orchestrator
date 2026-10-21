@@ -4,7 +4,7 @@ title: Give the reviewer a read-only copy of the pushed commit and web search
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 22:30'
+updated_date: '2026-10-21 22:47'
 labels:
   - 'tier:M'
   - cutover
@@ -39,6 +39,12 @@ references:
   - packages/daemon/src/runs.ts
   - packages/daemon/src/foreground.ts
   - packages/daemon/test/unit/box-runs.test.ts
+  - packages/engine/src/hooks/web-guard.ts
+  - packages/engine/src/hooks/index.ts
+  - packages/engine/test/hooks/web-guard.test.ts
+  - packages/engine/src/config/schema.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/box/code.ts
 priority: high
 type: feature
 ordinal: 265000
