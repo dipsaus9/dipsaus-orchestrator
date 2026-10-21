@@ -934,6 +934,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "server" }),
     });
     server = contract;
+    // The last TUI closing ends every live question at once, so its story parks with it (0021
+    // section 11, DIPO-284).
+    contract.onPresenceChanged(() => runs.permissions.presenceChanged());
     held.contract = contract;
     held.socket = serveUnixSocket(socketPath, (connection) => contract.accept(connection));
 

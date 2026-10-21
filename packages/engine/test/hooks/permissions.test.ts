@@ -406,10 +406,119 @@ describe("a TUI at the moment of the question, not an activity window (DIPO-279)
     w.tui = true;
     await ingest(scenario().before);
     expect(openQuestions(w.f.office)).toHaveLength(1);
-    // A TUI closing after the question was asked does not take the question back.
+    // The presence is not polled: only the daemon's `presenceChanged` ends the question (below).
     w.tui = false;
     expect(openQuestions(w.f.office)).toHaveLength(1);
     expect(w.sent).toEqual([]);
+  });
+});
+
+describe("the last TUI closing during a live question (DIPO-284)", () => {
+  it("ends the question at once without a decision, so the call is denied and the story can park", async () => {
+    const { before, after } = scenario();
+    await ingest(before);
+    const [question] = openQuestions(w.f.office);
+    const id = question?.questionId ?? "";
+    const hook = hookId();
+
+    // The last TUI closes: the daemon tells the engine.
+    w.tui = false;
+    w.asks.presenceChanged();
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(1);
+    expect(w.sent[0]?.[0]).toMatchObject({ hookReply: hook });
+    // No decision, exactly the reply of a question asked with no TUI connected.
+    expect(outputOf(w.sent[0])).toBe("");
+    expect(findQuestion(w.f.office, id)).toMatchObject({ closedHow: "ended", decision: null });
+    expect(openQuestions(w.f.office)).toEqual([]);
+    expect(
+      loggedEvents(w.f.office)
+        .filter((event) => event.type === "question.closed")
+        .map((event) => event.data),
+    ).toEqual([{ question: id }]);
+    // The input-wait signal clears with it: the run is no longer asking.
+    expect(
+      loggedEvents(w.f.office).filter(
+        (event) =>
+          event.type === "work.observed" &&
+          (event.data as { clearedAt?: string }).clearedAt !== undefined,
+      ),
+    ).toHaveLength(1);
+    expect(w.f.office.deferred(() => workView(w.f.office, w.f.run))?.health).not.toBe("asking");
+
+    // The wait's timer is gone: no deny follows at the timeout.
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(1);
+    // An answer from a TUI that reconnects finds the question closed.
+    w.tui = true;
+    w.asks.presenceChanged();
+    const late = await answer({ question: id, text: "", decision: "allow" });
+    expect(late).toMatchObject({ ok: false, error: { code: "question.closed" } });
+    expect(w.sent).toHaveLength(1);
+
+    // The worker goes on and exits; nothing more is sent and the question stays `ended`.
+    await ingest(after);
+    expect(w.sent).toHaveLength(1);
+    expect(findQuestion(w.f.office, id)?.closedHow).toBe("ended");
+  });
+
+  it("keeps the question live while another TUI is still connected", async () => {
+    await ingest(scenario().before);
+    const [question] = openQuestions(w.f.office);
+    const id = question?.questionId ?? "";
+
+    // One of two TUIs closed: presence still reads connected.
+    w.asks.presenceChanged();
+    await w.asks.idle();
+    expect(w.sent).toEqual([]);
+    expect(openQuestions(w.f.office).map((open) => open.questionId)).toEqual([id]);
+
+    // The maintainer answers from the TUI that stayed.
+    const reply = await answer({ question: id, text: "", decision: "allow" });
+    expect(reply).toMatchObject({ ok: true, result: { delivered: "now" } });
+    expect(outputOf(w.sent[0])).toEqual({
+      hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } },
+    });
+
+    // The last TUI closing afterwards changes nothing: no live question is left.
+    w.tui = false;
+    w.asks.presenceChanged();
+    await w.asks.idle();
+    expect(w.sent).toHaveLength(1);
+    expect(findQuestion(w.f.office, id)?.closedHow).toBe("answered");
+  });
+
+  it("leaves a question live and logs a warning when ending it fails; its timeout still ends it", async () => {
+    await ingest(scenario().before);
+    const [question] = openQuestions(w.f.office);
+    const id = question?.questionId ?? "";
+    w.tui = false;
+    w.f.t.state.connection.exec(
+      `create trigger end_fails before update of closed_at on questions
+       when new.closed_how = 'ended'
+       begin select raise(abort, 'disk I/O error'); end`,
+    );
+    expect(() => w.asks.presenceChanged()).not.toThrow();
+    await w.asks.idle();
+    expect(w.sent).toEqual([]);
+    expect(w.warnings).toEqual([
+      {
+        message: "ending live permission questions after the last TUI closed failed",
+        fields: {
+          office: w.f.office.officeId,
+          questions: [id],
+          reason: "disk I/O error",
+          errorCode: expect.stringMatching(/^SQLITE_CONSTRAINT/),
+        },
+      },
+    ]);
+    expect(findQuestion(w.f.office, id)?.closedAt).toBeNull();
+    w.f.t.state.connection.exec("drop trigger end_fails");
+    w.f.t.clock.advance(WAIT_SECONDS * 1000);
+    await w.asks.idle();
+    expect(findQuestion(w.f.office, id)?.closedHow).toBe("timeout");
+    expect(w.sent).toHaveLength(1);
   });
 });
 

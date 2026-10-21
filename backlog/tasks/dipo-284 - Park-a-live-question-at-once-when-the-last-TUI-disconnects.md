@@ -1,10 +1,10 @@
 ---
 id: DIPO-284
 title: Park a live question at once when the last TUI disconnects
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 14:35'
-updated_date: '2026-10-21 14:35'
+updated_date: '2026-10-21 16:50'
 labels:
   - 'tier:S'
   - cutover
@@ -17,6 +17,7 @@ references:
   - packages/engine/src/run/live-question.ts
   - packages/engine/test/hooks/
   - packages/engine/test/run/live-question.test.ts
+  - packages/daemon/src/foreground.ts
 type: feature
 ordinal: 273000
 ---
@@ -36,7 +37,7 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When the last TUI connection closes, the daemon tells the engine, and every open live question ends without a decision so its story parks with the question
-- [ ] #2 A question asked while another TUI is still connected stays live
-- [ ] #3 Tests cover the last TUI closing during a live question, a second TUI staying connected, and a reconnect after the park
+- [x] #1 When the last TUI connection closes, the daemon tells the engine, and every open live question ends without a decision so its story parks with the question
+- [x] #2 A question asked while another TUI is still connected stays live
+- [x] #3 Tests cover the last TUI closing during a live question, a second TUI staying connected, and a reconnect after the park
 <!-- AC:END -->
