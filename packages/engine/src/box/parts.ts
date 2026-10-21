@@ -927,6 +927,10 @@ export interface BoxVerifyAccess {
   run(request: Omit<BoxCommandRequest, "box">): Promise<BoxCommandResult>;
   /** Compares the box's `/work` with the tree the last part delivered. */
   delivered(): Promise<DeliveredCheck>;
+  /** The branch tip the last part left: the tree verify checks. */
+  readonly tip: string;
+  /** The branch tip now, read again (also after the held turn ended). */
+  branchTip(): Promise<string>;
 }
 
 /** The last part, and what `verify` returned when it ran. */
@@ -1105,6 +1109,8 @@ export class BoxParts {
             { ...request, box: run.box },
           ),
         delivered: () => this.#delivered(run, tip),
+        tip,
+        branchTip: () => git.run((session) => branchTip(session, run.branch)),
       });
       return { outcome, verified: { result } };
     }).catch((error: unknown): LastPartVerify<T> => {

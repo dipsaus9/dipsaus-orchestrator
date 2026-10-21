@@ -35,11 +35,12 @@ import {
   type BoxVerifyAccess,
   type DeliveredCheck,
   type LastPartVerify,
+  PART_WAITING,
   type PartOutcome,
   partPark,
   type PartRun,
 } from "../../src/box/parts";
-import type { BoxPort, BoxProcess } from "../../src/box/port";
+import { BoxError, type BoxPort, type BoxProcess } from "../../src/box/port";
 import {
   BOX_VERIFY_GRACE_SECONDS,
   BOX_VERIFY_PID_FILE,
@@ -61,7 +62,12 @@ import {
   VerifyCommit,
   verifyResults,
 } from "../../src/run";
-import { BOX_TREE_CHANGED, BOX_TREE_UNREAD, boxEndedDetail } from "../../src/run/verify-commit";
+import {
+  BOX_TIP_MOVED,
+  BOX_TREE_CHANGED,
+  BOX_TREE_UNREAD,
+  boxEndedDetail,
+} from "../../src/run/verify-commit";
 import type { StepRequest } from "../../src/sandbox/step";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
@@ -292,11 +298,17 @@ describe("one command in the box", () => {
   });
 });
 
-/** The scripts with the pid file in a temp folder, the box path swapped out. */
+/**
+ * The scripts with the pid file in a temp folder and `/proc/` in `<that folder>/proc/`, the box
+ * paths swapped out.
+ */
 function local(argv: readonly string[], pidFile: string): string[] {
   const dir = pidFile.slice(0, pidFile.lastIndexOf("/"));
   return argv.map((arg) =>
-    arg.replaceAll(BOX_VERIFY_PID_FILE, pidFile).replaceAll("/dipo/verify", dir),
+    arg
+      .replaceAll(BOX_VERIFY_PID_FILE, pidFile)
+      .replaceAll("/dipo/verify", dir)
+      .replaceAll("/proc/", `${dir}/proc/`),
   );
 }
 
@@ -321,7 +333,7 @@ describe("the wrapper and the kill script under /bin/sh", () => {
     }
   });
 
-  it("refuses a missing, malformed or init pid, and kills the recorded process group", async () => {
+  it("refuses a missing, malformed, init, zero-led or stale pid, and kills the recorded process group", async () => {
     const dir = mkdtempSync(join(TMP, "box-verify-kill-"));
     try {
       const pidFile = join(dir, "pid");
@@ -329,10 +341,15 @@ describe("the wrapper and the kill script under /bin/sh", () => {
       const run = () =>
         spawnSync(kill[0]!, kill.slice(1), { env: { PATH: "/usr/bin:/bin" } }).status;
       expect(run()).toBe(3);
-      for (const bad of ["", "1", "0", "12x", "-5"]) {
+      // `01` and `00` would reach `kill` as another number; the `/proc` entries stand in for the box's.
+      for (const bad of ["", "1", "0", "01", "00", "12x", "-5"]) {
+        mkdirSync(join(dir, "proc", bad.replace(/^-/, "")), { recursive: true });
         writeFileSync(pidFile, `${bad}\n`);
         expect(run()).toBe(3);
       }
+      // A forged or stale pid names no running process: refused, so dipo stops the box.
+      writeFileSync(pidFile, "424242\n");
+      expect(run()).toBe(3);
       rmSync(pidFile, { force: true });
       // A verify that never ends, as its own process group.
       const verify = local(boxVerifyCommand(["/bin/sleep", "60"], 120), pidFile);
@@ -347,6 +364,7 @@ describe("the wrapper and the kill script under /bin/sh", () => {
       const recorded = () =>
         /^\d+\n$/.test(spawnSync("cat", [pidFile], { encoding: "utf8" }).stdout);
       for (let i = 0; i < 250 && !recorded(); i += 1) await Bun.sleep(20);
+      mkdirSync(join(dir, "proc", String(child.pid)), { recursive: true });
       try {
         expect(run()).toBe(0);
         expect(await exit).toBe("SIGKILL");
@@ -544,6 +562,36 @@ describe("the held turn of the parts (BoxParts.verifyLast)", () => {
       expect((await w.repo.git("log", "-1", "--format=%s", BRANCH)).trim()).toBe("A late part");
     }));
 
+  it("keeps a part the door hands during a green verify queued once the end is claimed in the turn", () =>
+    inParts(async (w) => {
+      let handed: Promise<unknown> | null = null;
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      const done = await w.parts.verifyLast("run_1", "Finish", async (box) => {
+        write(w.work, { "src/late.ts": "export const late = 1;\n" });
+        handed = w.parts
+          .onPart({
+            runId: "run_1",
+            box: "dipo-run_1",
+            n: 2,
+            name: "1700000000-2.part",
+            message: "A late part",
+            at: 0,
+          })
+          .catch((error: unknown) => error);
+        await Bun.sleep(50);
+        // What VerifyCommit does on green: the run's end claimed before the turn is released.
+        w.live = false;
+        return box.tip;
+      });
+      const verified = done.verified?.result;
+      const refused: unknown = await (handed as Promise<unknown> | null);
+      expect(refused).toBeInstanceOf(BoxError);
+      expect((refused as BoxError).code).toBe(PART_WAITING);
+      // The branch is still at the verified tip, and the late file stays in the box.
+      expect(await branchTip(w)).toBe(verified!);
+      expect(verified).toBe(done.outcome.kind === "committed" ? done.outcome.commit : "");
+    }));
+
   it("runs no verify after a last part that parks, nor for a run that is not live", () =>
     inParts(async (w) => {
       write(w.work, { ".github/workflows/x.yml": "on: push\n" });
@@ -626,6 +674,12 @@ interface World {
   /** The story branch's `package.json` scripts. */
   branchScripts: Record<string, string>;
   changed: string[];
+  /** The story branch tip, as the fake parts move it. */
+  tip: string;
+  /** The branch tip when the story was marked In Review. */
+  inReviewTip: string | null;
+  queuedPart: boolean;
+  moveTip: boolean;
 }
 
 let w: World;
@@ -650,6 +704,7 @@ function fakeStoryGit(): StoryGit {
     },
     codeTreeKey: async () => "k".repeat(64),
     markInReview: async (_o, input) => {
+      w.inReviewTip = w.tip;
       w.calls.push(`in-review [${input.criteria.join(", ")}]`);
       return "a".repeat(40);
     },
@@ -662,7 +717,11 @@ function fakeStoryGit(): StoryGit {
   };
 }
 
-/** The fake held turn: the last part, then `verify` with a scripted box, as `BoxParts` does it. */
+/**
+ * The fake held turn: the last part, then `verify` with a scripted box, as `BoxParts` does it. A
+ * part the door queued during verify (`queuedPart`) is taken after the turn only while the run
+ * still goes on, as `onPart` does; `moveTip` moves the branch after the turn regardless.
+ */
 async function fakeVerifyLast<T>(
   _runId: string,
   message: string,
@@ -672,6 +731,8 @@ async function fakeVerifyLast<T>(
   if (w.outcome instanceof Error) throw w.outcome;
   const outcome = w.outcome;
   if (partPark(outcome) !== null) return { outcome, verified: null };
+  if (outcome.kind === "committed") w.tip = outcome.commit;
+  const tip = w.tip;
   const result = await verify({
     run: async (asked) => {
       w.requests.push(asked);
@@ -685,8 +746,16 @@ async function fakeVerifyLast<T>(
       w.calls.push("delivered?");
       return w.delivered;
     },
+    tip,
+    branchTip: async () => w.tip,
   });
-  w.calls.push("parts released");
+  const live = w.control.live(w.f.run);
+  w.calls.push(`parts released (live ${live})`);
+  if (w.queuedPart) {
+    if (live) w.tip = "e".repeat(40);
+    w.calls.push(live ? "queued part delivered" : "queued part stays queued");
+  }
+  if (w.moveTip) w.tip = "d".repeat(40);
   return { outcome, verified: { result } };
 }
 
@@ -708,6 +777,10 @@ beforeEach(async () => {
     delivered: "same",
     branchScripts: { verify: "bun test" },
     changed: ["src/greet.ts"],
+    tip: "b".repeat(40),
+    inReviewTip: null,
+    queuedPart: false,
+    moveTip: false,
   } as unknown as World;
   const config: OfficeConfig = { ...OFFICE_DEFAULTS, timeouts: { ...OFFICE_DEFAULTS.timeouts } };
   const finisher = new VerifyCommit({
@@ -853,7 +926,7 @@ describe("verify in the box at done", () => {
       "last part print a greeting",
       "in the box: bun run verify",
       "delivered?",
-      "parts released",
+      "parts released (live false)",
       "in-review [1]",
       "push DIPO-1/add-a-greeting",
     ]);
@@ -914,7 +987,7 @@ describe("verify in the box at done", () => {
     expect(w.calls).toEqual([
       "last part print a greeting",
       "in the box: bun run verify",
-      "parts released",
+      "parts released (live true)",
     ]);
     expect(events("work.phase").map((e) => e["phase"])).toEqual(["verify", "build"]);
     expect(verifyResults(w.f.office, w.f.run)[0]).toMatchObject({ passed: false, exitCode: 1 });
@@ -950,6 +1023,41 @@ describe("verify in the box at done", () => {
       cause: "build",
       detail: boxEndedDetail("failed", 20),
     });
+  });
+
+  it("claims the end in the held turn: a part queued during a green verify stays queued", async () => {
+    w.queuedPart = true;
+    await play();
+    expect(w.calls).toEqual([
+      "last part print a greeting",
+      "in the box: bun run verify",
+      "delivered?",
+      "parts released (live false)",
+      "queued part stays queued",
+      "in-review [1]",
+      "push DIPO-1/add-a-greeting",
+    ]);
+    // In Review is written at the verified tip, the last part's commit.
+    expect(w.inReviewTip).toBe("9".repeat(40));
+    expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
+  });
+
+  it("lets a part queued during a red verify through after it, for the worker's next turn", async () => {
+    w.queuedPart = true;
+    w.results = [FAIL];
+    await play();
+    expect(w.calls.slice(-2)).toEqual(["parts released (live true)", "queued part delivered"]);
+    expect(feedback()).toContain("Exit code: 1");
+  });
+
+  it("parks before In Review when the branch moved off the verified commit", async () => {
+    w.moveTip = true;
+    await play();
+    expect(parks()).toEqual([
+      { reason: "verify-failing", cause: "refused", detail: BOX_TIP_MOVED },
+    ]);
+    expect(w.inReviewTip).toBeNull();
+    expect(w.calls).not.toContain("in-review [1]");
   });
 
   it("does not let a green verify stand when the box changed after the last part", async () => {
