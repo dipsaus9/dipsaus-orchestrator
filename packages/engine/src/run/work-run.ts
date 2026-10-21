@@ -399,6 +399,7 @@ export class WorkRun {
           config,
           configHash,
           started,
+          box: args.box === true,
         }),
       );
       if (reason !== null) skipped.push({ ...candidate, reason });
@@ -481,6 +482,8 @@ export class WorkRun {
       readonly config: OfficeConfig;
       readonly configHash: string;
       readonly started: Started[];
+      /** `work.run`'s `box`: the developer runs in its own box (DIPO-271). */
+      readonly box: boolean;
     },
   ): Promise<SkipReason | null> {
     const handle = ctx.office;
@@ -510,6 +513,7 @@ export class WorkRun {
       config: c.config,
       taskFile: checked.taskFile,
       ...verifyOf(handle),
+      ...(c.box ? { box: true } : {}),
     };
     let failures: GateFailureFact[] | null = null;
     let outcome: ClaimOutcome;

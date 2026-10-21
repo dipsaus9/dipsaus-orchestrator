@@ -2,8 +2,15 @@
 // worker port, DIPO-39's setup, detached worker hosts and ingestion, all with the tools this
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
+//
+// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, a run started with
+// `work.run`'s `box` runs its developer in its own box (`BoxWorkers`). The box ends with its run:
+// after each exit decision the boxes of ended runs get the post-run token check and are deleted,
+// and so are those a stopped daemon left (`finishEndedBoxes`, at the recovery step). At start the
+// token check's leftover export folders are swept.
 
-import { realpathSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 import type {
   Clock,
@@ -17,6 +24,21 @@ import type {
 } from "@dipsaus-orchestrator/contract";
 import {
   type AdapterHolds,
+  AppleContainerBoxes,
+  type BoxBuildNetwork,
+  type BoxNetwork,
+  type BoxPort,
+  BoxWorkers,
+  CLAUDE_CLI_ADAPTER_ID,
+  ensurePrivateDir,
+  findRun,
+  readBaseBox,
+  startBoxWebRoute,
+  startModelProxy,
+  sweepTokenCheckLeftovers,
+  systemIsExecutable,
+  systemListenHttp,
+  workerHostsOf,
   type BacklogCli,
   capsOf,
   claudeWorkerPort,
@@ -153,6 +175,11 @@ export interface DaemonRunsOptions {
   readonly scheduling?: () => boolean;
   /** The Safe-Chain proxies' private parent; `/tmp/dipo-p` by default (DIPO-84). */
   readonly safeChainRoot?: string;
+  /**
+   * The box backend (DIPO-271); by default Apple `container` when the daemon's PATH has it, and
+   * no box workers otherwise. Tests pass a fake.
+   */
+  readonly boxes?: BoxPort | null;
 }
 
 export interface DaemonRuns {
@@ -193,6 +220,147 @@ export interface DaemonRuns {
    * by a recovery step after re-attach (`sweep("recovery")`).
    */
   readonly tempDirs: RunTempDirs;
+  /** The box workers (DIPO-271); null without a box backend. `close` at daemon stop. */
+  readonly boxes: BoxWorkers | null;
+  /**
+   * Checks and deletes the box of every run that ended (DIPO-271): after each exit decision
+   * here, and at daemon start by the recovery step. Never rejects.
+   */
+  finishEndedBoxes(): Promise<void>;
+}
+
+/** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
+export function containerOnPath(
+  pathEnv: string | undefined,
+  isExecutable: (path: string) => boolean = systemIsExecutable,
+): string | undefined {
+  return (pathEnv ?? "")
+    .split(":")
+    .filter((dir) => dir !== "" && isAbsolute(dir))
+    .map((dir) => join(dir, "container"))
+    .find((path) => isExecutable(path));
+}
+
+/** True when `host` has exited, as its row records it. */
+function hostExited(host: ReturnType<typeof workerHostsOf>[number]): boolean {
+  return host.endedAt !== null || host.exitCode !== null || host.exitSignal !== null;
+}
+
+/**
+ * Whether run `runId` ended with every worker host exited (true), still goes (false), or is
+ * unknown to every loaded office (null), for `BoxWorkers.finishEnded`.
+ */
+export function boxRunEnded(offices: DaemonRunsOptions["offices"], runId: string): boolean | null {
+  for (const office of offices.loadedOffices()) {
+    const handle = offices.get(office);
+    if (handle === undefined) continue;
+    const run = findRun(handle, runId as RunId);
+    if (run === null) continue;
+    return run.endedAt !== null && workerHostsOf(handle, runId).every(hostExited);
+  }
+  return null;
+}
+
+/**
+ * Removes the export folders a post-run token check left in `tmpRoot` (a crash, a failed
+ * removal): they may hold a leaked token (DIPO-269). Runs at daemon start; never rejects.
+ */
+export async function sweepBoxTokenChecks(
+  tmpRoot: string,
+  logger: Pick<Logger, "info">,
+): Promise<number> {
+  const removed = await sweepTokenCheckLeftovers(tmpRoot);
+  if (removed > 0) logger.info("removed token check exports a stopped daemon left", { removed });
+  return removed;
+}
+
+/** The box workers of the daemon (DIPO-271), or null without a box backend. */
+function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorkers | null {
+  const { clock, platform, env, home, uid } = options;
+  let boxes = options.boxes;
+  if (boxes === undefined) {
+    const cli = containerOnPath(env["PATH"]);
+    boxes =
+      cli === undefined
+        ? null
+        : new AppleContainerBoxes({
+            spawn: systemSpawn,
+            clock,
+            cli,
+            // The `container` client's own environment; a box never inherits it.
+            env: { PATH: env["PATH"] ?? "/usr/bin:/bin", HOME: home },
+          });
+  }
+  if (boxes === null) return null;
+  const routeRoot = join(tmpRoot, "dipo-box-routes");
+  const scratchRoot = join(tmpRoot, "dipo-box-builds");
+  let routes = 0;
+  // dipo's web route (Safe-Chain behind the web proxy) on a network's host address: the box
+  // network's for the boxes, the builder's for one image build.
+  const startRoute = async (network: Pick<BoxNetwork, "hostAddress"> | BoxBuildNetwork) => {
+    ensurePrivateDir(routeRoot);
+    routes += 1;
+    const dir = join(routeRoot, `route-${routes}`);
+    const started = await startBoxWebRoute(
+      network,
+      {
+        request: {
+          installRoot: `${home}/.safe-chain`,
+          caFile: join(dir, "ca.pem"),
+          home,
+          uid,
+          env,
+        },
+        deps: {
+          platform,
+          clock,
+          ...(options.safeChainRoot === undefined ? {} : { root: options.safeChainRoot }),
+        },
+      },
+      { clock },
+    );
+    if (!started.ok) {
+      rmSync(dir, { recursive: true, force: true });
+      return started;
+    }
+    const route = started.route;
+    return {
+      ok: true as const,
+      route: {
+        ...route,
+        stop: async () => {
+          try {
+            await route.stop();
+          } finally {
+            rmSync(dir, { recursive: true, force: true });
+          }
+        },
+      },
+    };
+  };
+  return new BoxWorkers({
+    boxes,
+    startWebRoute: startRoute,
+    startBuildRoute: startRoute,
+    startModelProxy: (network) =>
+      startModelProxy({
+        network,
+        keychain: { spawn: systemSpawn, clock, env: { PATH: "/usr/bin:/bin", HOME: home } },
+        listen: systemListenHttp,
+        log: (line) => options.logger.debug("model proxy", { line }),
+      }),
+    readBaseBox: (git) => readBaseBox(git),
+    code: { spawn: systemSpawn, clock },
+    holds: options.holds,
+    adapter: CLAUDE_CLI_ADAPTER_ID,
+    tmpRoot,
+    scratchRoot: (() => {
+      ensurePrivateDir(scratchRoot);
+      return scratchRoot;
+    })(),
+    warn: (message, fields) => options.logger.warn(message, fields),
+    info: (message, fields) => options.logger.info(message, fields),
+  });
 }
 
 /**
@@ -222,6 +390,15 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const probe = systemProcessProbe(platform);
   // Run temp directories (DIPO-102): removed once their run ended and its worker hosts exited,
   // swept after each exit and its decision, and at daemon start (`sweepTempDirs`).
+  // Box workers (DIPO-271); their token check exports a stopped daemon left go first.
+  const boxWorkers = daemonBoxWorkers(options, realDir(options.tmpRoot));
+  void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
+  const finishEndedBoxes = async (): Promise<void> => {
+    if (boxWorkers === null) return;
+    const finished = await boxWorkers.finishEnded((runId) => boxRunEnded(options.offices, runId));
+    if (finished.length > 0)
+      options.logger.info("ended box runs checked and deleted", { finished });
+  };
   const tempDirs = new RunTempDirs({
     tmpRoot: realDir(options.tmpRoot),
     database: options.database,
@@ -282,6 +459,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     detectSafeChain: (input) => detectSafeChain(input),
     safeChainProxies,
     warn: (message, fields) => options.logger.warn(message, fields),
+    ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null
@@ -371,8 +549,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
             refreshStory.refreshStory(office, key, { quiet: true }),
         }),
     release,
-    // Each exit decision may end the run after its worker exited: its temp directory goes then.
-    afterExit: sweepTempDirs,
+    // Each exit decision may end the run after its worker exited: its temp directory goes then,
+    // and a box run's box is checked and deleted (DIPO-271).
+    afterExit: () => {
+      sweepTempDirs();
+      void finishEndedBoxes();
+    },
+    ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
     // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
     ...(options.presence === undefined ? {} : { presence: options.presence }),
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
@@ -386,6 +569,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         void safeChainProxies.stop(run);
         // A run that ended before its worker exited loses its temp directory now (DIPO-102).
         sweepTempDirs();
+        void finishEndedBoxes();
       },
     },
     control: {
@@ -508,5 +692,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     places,
     safeChainProxies,
     tempDirs,
+    boxes: boxWorkers,
+    finishEndedBoxes,
   };
 }

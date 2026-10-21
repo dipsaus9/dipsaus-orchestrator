@@ -125,11 +125,12 @@ Usage:
                     check a story against the Ready gate on the office's base
                     branch without storing anything; prints "ready <ID> passed"
                     or each failure, and exits 1 when any rule fails
-  dipo run [<id>...] [--office <id>]
+  dipo run [<id>...] [--box] [--office <id>]
                     pick the first Ready story on the office's base branch (or
                     the named ones), claim it and start its run; prints each
                     started story and each skipped one with its reason, and
-                    exits 1 when none started
+                    exits 1 when none started; with --box the worker runs in
+                    the story's own box
   dipo run --dry-run [<id>...] [--office <id>]
                     show what dipo run would do without doing it: the branch and
                     worktree it would create, the full worker launch (program,

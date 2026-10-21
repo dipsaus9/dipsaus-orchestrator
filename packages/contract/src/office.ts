@@ -63,11 +63,14 @@ export const workRun = defineCommand({
   level: "office",
   // Omit `stories` and the engine picks from the Ready queue. Since minor 1 (DIPO-48): `from` is
   // the main worktree a client resolved the office from (its current directory); the daemon
-  // answers `office.unknown` when it is not the office's registered path.
+  // answers `office.unknown` when it is not the office's registered path. Since minor 1
+  // (DIPO-271): `box` runs the started story's developer in its own box (0021) instead of on the
+  // Mac; the old worker path stays the default until DIPO-280 removes it.
   args: z.object({
     stories: z.array(StoryRefValue).optional(),
     maxAgents: z.int().positive().optional(),
     from: z.string().min(1).optional(),
+    box: z.boolean().optional(),
   }),
   // Per-story problems are skips, not command errors.
   result: z.object({

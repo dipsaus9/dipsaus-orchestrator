@@ -342,6 +342,9 @@
         "from": {
           "type": "string",
           "minLength": 1
+        },
+        "box": {
+          "type": "boolean"
         }
       }
     },

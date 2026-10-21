@@ -80,6 +80,8 @@ export interface RunPorts {
   readonly resumeIngest?: (ingest: OfficeIngest) => RunIngest;
   /** DIPO-39's worktree setup of a claimed story, before its worker starts. */
   readonly setup: RunLauncherDeps["setup"];
+  /** Makes and deletes a box worker's box at the launch (DIPO-271); no box runs without it. */
+  readonly boxes?: RunLauncherDeps["boxes"];
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
     RunReattacherDeps,
@@ -409,6 +411,7 @@ function buildLauncher(
     ingest,
     ...(control === null ? {} : { control: trackerOf(ports, control) }),
     release: ports.release,
+    ...given("boxes", ports.boxes),
     // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
     ...(ports.control?.finisher === undefined
       ? {}
