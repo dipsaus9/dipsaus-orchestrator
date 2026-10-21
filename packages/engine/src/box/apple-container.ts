@@ -4,7 +4,7 @@
 // `execLive`, a long-running command, has no deadline. The JSON shapes read here are those of
 // `container` 1.6.0, the version the escape probe passed on (tools/box-probe/RESULTS.md).
 
-import { availableParallelism, totalmem } from "node:os";
+import { availableParallelism, homedir, totalmem } from "node:os";
 
 import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -65,6 +65,8 @@ export interface AppleContainerDeps {
   readonly env: Readonly<Record<string, string>>;
   /** Defaults to `systemHostResources()`. */
   readonly host?: HostResources;
+  /** The maintainer's home folder, which the package cache may not be; `os.homedir()` by default. */
+  readonly home?: string;
   /** The default deadline of a call; `BOX_CALL_TIMEOUT_MS` when absent. */
   readonly timeoutMs?: number;
 }
@@ -174,10 +176,42 @@ export function boxMemory(listed: readonly unknown[], name: string): BoxMemory |
     if (item["id"] !== name) continue;
     const used = item["memoryUsageBytes"];
     const limit = item["memoryLimitBytes"];
-    if (typeof used !== "number") return null;
+    if (typeof used !== "number") {
+      throw new BoxError(
+        "box.unreadable",
+        `container stats shows no memory use for ${name}.`,
+        false,
+        {
+          name,
+        },
+      );
+    }
     return { usedBytes: used, limitBytes: typeof limit === "number" ? limit : null };
   }
   return null;
+}
+
+/**
+ * True when a failed `container stats` says box `name` is not running. 1.6.0 leaves a stopped box
+ * out of its list and exits 0; this covers a version that fails instead. The output must name the
+ * box, so a system service that is not running (`apiserver is not running`) still fails the call.
+ */
+export function saysNotRunning(output: string, name: string): boolean {
+  return (
+    output.includes(name) &&
+    !/apiserver/i.test(output) &&
+    /\b(not running|is stopped|state:? stopped)\b/i.test(output)
+  );
+}
+
+/** The `box.failed` error of a call that exited non-zero, with `container`'s message. */
+function failed(args: readonly string[], result: CliResult): BoxError {
+  return new BoxError(
+    "box.failed",
+    `container ${args.slice(0, 2).join(" ")} failed: ${result.stderr.trim() || `exit ${result.code}`}`,
+    false,
+    { args: [...args], code: result.code, stderr: result.stderr },
+  );
 }
 
 const decoder = new TextDecoder();
@@ -275,6 +309,7 @@ export class AppleContainerBoxes implements BoxPort {
       network: spec.network,
       ...(spec.packageCache === undefined ? {} : { packageCache: spec.packageCache }),
       host: this.#deps.host ?? systemHostResources(),
+      home: this.#deps.home ?? homedir(),
     });
     await this.#runOk(args, options);
     return boxName(spec.runId);
@@ -353,7 +388,11 @@ export class AppleContainerBoxes implements BoxPort {
 
   async memory(name: string, options: BoxCallOptions = {}): Promise<BoxMemory | null> {
     const args = statsArgs(name);
-    const result = await this.#runOk(args, options);
+    const result = await this.#run(args, options);
+    if (result.code !== 0) {
+      if (saysNotRunning(`${result.stderr}\n${result.stdout}`, name)) return null;
+      throw failed(args, result);
+    }
     return boxMemory(array(args, parseJson(args, result.stdout)), name);
   }
 
@@ -416,14 +455,7 @@ export class AppleContainerBoxes implements BoxPort {
   /** Like `#run`, but a non-zero exit fails with `box.failed` and `container`'s message. */
   async #runOk(args: readonly string[], options: BoxCallOptions): Promise<CliResult> {
     const result = await this.#run(args, options);
-    if (result.code !== 0) {
-      throw new BoxError(
-        "box.failed",
-        `container ${args.slice(0, 2).join(" ")} failed: ${result.stderr.trim() || `exit ${result.code}`}`,
-        false,
-        { args: [...args], code: result.code, stderr: result.stderr },
-      );
-    }
+    if (result.code !== 0) throw failed(args, result);
     return result;
   }
 }

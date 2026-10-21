@@ -30,6 +30,7 @@ export {
   findNetwork,
   MIN_CONTAINER_VERSION,
   parseContainerVersion,
+  saysNotRunning,
   systemHostResources,
 } from "./apple-container";
 export type { AppleContainerDeps, BoxNetworkFound } from "./apple-container";

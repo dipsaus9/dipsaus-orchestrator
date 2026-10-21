@@ -1,7 +1,9 @@
 // The box interface (0021 sections 1 and 6, DIPO-265): what dipo needs from one real box per
 // story, with no box technology named. A backend (today Apple `container`, `apple-container.ts`)
 // implements it; a Linux backend can be added later behind the same interface. Every call but
-// `execLive` has a deadline and fails with `box.timedOut` when it passes.
+// `execLive` has a deadline and fails with `box.timedOut` when it passes. A deadline kills only
+// the backend's client program, not what it already set going: after `box.timedOut` the caller
+// stops or deletes the box (see `create` and `exec`).
 
 import type { ChildExit, ChildStdin, Signal } from "@dipsaus-orchestrator/contract";
 
@@ -141,7 +143,11 @@ export interface BoxPort {
   check(options?: BoxCallOptions): Promise<BoxCheck>;
   /** Prepares the host-only box network, or reuses it; refuses one that is not host-only. */
   network(options?: BoxCallOptions): Promise<BoxNetwork>;
-  /** Creates a stopped box from `spec` and returns its name, `dipo-<run id>`. */
+  /**
+   * Creates a stopped box from `spec` and returns its name, `dipo-<run id>`. On `box.timedOut`
+   * only the client was killed: a create already sent may still finish, so the caller deletes
+   * the box by its name before it tries again.
+   */
   create(spec: BoxSpec, options?: BoxCallOptions): Promise<string>;
   start(name: string, options?: BoxCallOptions): Promise<void>;
   /** Stops a box; its files are kept for the next `start`. */
@@ -152,7 +158,11 @@ export interface BoxPort {
   copyIn(name: string, from: string, to: string, options?: BoxCallOptions): Promise<void>;
   /** Copies `from` inside the box to the host path `to`. */
   copyOut(name: string, from: string, to: string, options?: BoxCallOptions): Promise<void>;
-  /** Runs a command in a running box to its end, within the deadline. */
+  /**
+   * Runs a command in a running box to its end, within the deadline. On `box.timedOut` only the
+   * client was killed: the command may still run inside the box, so the caller stops or deletes
+   * the box.
+   */
   exec(
     name: string,
     command: readonly [string, ...string[]],
@@ -164,7 +174,7 @@ export interface BoxPort {
     command: readonly [string, ...string[]],
     options?: Omit<BoxExecOptions, "timeoutMs">,
   ): BoxProcess;
-  /** The memory a box uses; null when it is not running. */
+  /** The memory a box uses; null when it is not running. Unreadable figures fail the call. */
   memory(name: string, options?: BoxCallOptions): Promise<BoxMemory | null>;
   /** dipo's own boxes, running or stopped; never another program's. */
   list(options?: BoxCallOptions): Promise<BoxInfo[]>;

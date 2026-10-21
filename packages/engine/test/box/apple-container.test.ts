@@ -75,6 +75,7 @@ function boxes(script: CliScript, deps: Partial<AppleContainerDeps> = {}) {
     clock,
     env: ENV,
     host: HOST,
+    home: "/Users/someone",
     cli: "/usr/local/bin/container",
     ...deps,
   });
@@ -285,6 +286,29 @@ describe("box lifecycle", () => {
     expect((await rejection(port.delete("probe-box"))).code).toBe("box.refused");
     expect(fake.calls).toHaveLength(0);
   });
+
+  it("refuses to create a box on any network but dipo's, whatever mode the caller claims", async () => {
+    const { port, fake } = boxes(() => ({}));
+    for (const network of [
+      { ...NETWORK, name: "default" },
+      { ...NETWORK, name: "probe-internal" },
+    ]) {
+      const error = await rejection(port.create({ runId: RUN, image: "alpine:3.20", network }));
+      expect(error.code).toBe("box.refused");
+    }
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("refuses the home folder as the package cache", async () => {
+    const { port, fake } = boxes(() => ({}));
+    for (const packageCache of ["/Users/someone", "/Users", "/"]) {
+      const error = await rejection(
+        port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK, packageCache }),
+      );
+      expect(error.code).toBe("box.refused");
+    }
+    expect(fake.calls).toHaveLength(0);
+  });
 });
 
 describe("exec", () => {
@@ -352,6 +376,27 @@ describe("memory and the list", () => {
     running = false;
     expect(await port.memory(BOX)).toBeNull();
     expect(fake.args()[0]).toEqual(["stats", "--no-stream", "--format", "json", BOX]);
+  });
+
+  it("throws box.unreadable when the box is listed without a memory figure", async () => {
+    for (const entry of [{ id: BOX }, { id: BOX, memoryUsageBytes: "7 MiB" }]) {
+      const { port } = boxes(() => ({ stdout: JSON.stringify([entry]) }));
+      expect((await rejection(port.memory(BOX))).code).toBe("box.unreadable");
+    }
+  });
+
+  it("maps a failed stats to null only when it says the box is not running", async () => {
+    const stopped = boxes(() => ({ code: 1, stderr: `Error: container ${BOX} is not running\n` }));
+    expect(await stopped.port.memory(BOX)).toBeNull();
+    for (const stderr of [
+      "Error: apiserver is not running\n",
+      `Error: notFound: "no such container: ${BOX}"\n`,
+      "Error: internalError: stats failed\n",
+      "",
+    ]) {
+      const { port } = boxes(() => ({ code: 1, stderr }));
+      expect((await rejection(port.memory(BOX))).code).toBe("box.failed");
+    }
   });
 
   it("lists only dipo's boxes: named dipo-<run id> and labelled with that run id", async () => {
