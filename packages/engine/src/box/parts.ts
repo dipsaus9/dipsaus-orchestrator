@@ -1033,6 +1033,14 @@ export class BoxParts {
     });
   }
 
+  /**
+   * Runs `fn` in the run's turn: after the parts before it, and before the next (DIPO-277: a
+   * catch-up merges the base into the branch and the box with no part taken in between).
+   */
+  inTurn<T>(runId: string, fn: () => Promise<T>): Promise<T> {
+    return this.#serial(runId, fn);
+  }
+
   /** Throws `PART_WAITING` when the run no longer goes on, so the part stays queued. */
   #assertLive(run: PartRun): void {
     if (!this.#deps.live(run.runId)) {

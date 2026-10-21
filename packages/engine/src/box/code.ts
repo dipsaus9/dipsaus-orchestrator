@@ -84,7 +84,7 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
 }
 
 /** Unpacks `archive` into `into` with the system tar, within `UNPACK_TIMEOUT_MS`. */
-async function unpack(deps: BoxCodeDeps, archive: string, into: string): Promise<void> {
+export async function unpack(deps: BoxCodeDeps, archive: string, into: string): Promise<void> {
   const child = deps.spawn({
     cmd: [deps.tar ?? SYSTEM_TAR, "-x", "-f", archive, "-C", into],
     env: { PATH: "/usr/bin:/bin" },
