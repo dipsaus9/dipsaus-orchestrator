@@ -296,6 +296,8 @@ const officeShapeV8 = {
 // Version 9 (DIPO-266): the `box` block. Versions are exact, so one description always builds the
 // same image and its tag, a hash of the description, stays meaningful.
 const ExactVersion = text().regex(/^\d+\.\d+\.\d+$/, "must be an exact version such as 1.4.2");
+/** A sha256 in lower-case hex. */
+const Sha256 = text().regex(/^[0-9a-f]{64}$/, "must be a sha256 in lower-case hex");
 const DebianRelease = text()
   .regex(/^[a-z0-9][a-z0-9.]*$/, "must be a Debian release such as trixie, bookworm or 13")
   .describe(
@@ -312,6 +314,12 @@ const BoxToolchain = z
       .regex(/^1\.\d+\.\d+$/, "must be a Yarn 1 version such as 1.22.22")
       .describe(
         "Yarn 1, from npm through Safe-Chain. A Yarn 2+ repository runs its committed yarnPath release through it.",
+      ),
+    nodeSha256: z
+      .strictObject({ arm64: Sha256, x64: Sha256 })
+      .partial()
+      .describe(
+        "The sha256 of the Node.js tarball (node-v<version>-linux-<arch>.tar.gz) per architecture. dipo pins it for its known Node versions; a Node version it does not know needs it here, or the build is refused.",
       ),
   })
   .partial()
@@ -339,8 +347,8 @@ const BoxFilePath = text()
   .refine(
     (path) =>
       !path.startsWith("/") &&
-      path.split("/").every((segment) => !["", ".", "..", ".git"].includes(segment)),
-    "must be a relative path inside the repository, without empty, ., .. or .git segments",
+      path.split("/").every((segment) => !["", ".", "..", ".git"].includes(segment.toLowerCase())),
+    "must be a relative path inside the repository, without empty, ., .. or .git segments (in any case)",
   );
 const BoxFile = z
   .strictObject({
@@ -501,8 +509,16 @@ function fileShape(shape: Record<string, z.ZodType>): Record<string, z.ZodType> 
   return result;
 }
 
-export type OfficeOverrides = DeepPartial<Omit<OfficeConfig, "version" | "privacy" | "retention">>;
-export type OfficeFileOf<V extends OfficeConfigVersion> = OfficeOverrides & { version: V };
+/**
+ * Overrides from flags on a single command. Never `box`: the box is read from the base branch
+ * only (DIPO-266), so no other source may feed a build.
+ */
+export type OfficeOverrides = DeepPartial<
+  Omit<OfficeConfig, "version" | "privacy" | "retention" | "box">
+>;
+export type OfficeFileOf<V extends OfficeConfigVersion> = DeepPartial<
+  Omit<OfficeConfig, "version" | "privacy" | "retention">
+> & { version: V };
 export type OfficeFile = OfficeFileOf<typeof OFFICE_CONFIG_VERSION>;
 export type OfficeLocalFileOf<V extends OfficeConfigVersion> = DeepPartial<
   Pick<OfficeConfig, "timeouts" | "privacy" | "retention">
@@ -695,9 +711,12 @@ export const OfficeOverridesV8 = z.strictObject(
   fileShape(officeShapeV8),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** Overrides from flags on a single command: any `office.yaml` key except `version`. */
+/**
+ * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`. The
+ * box is read from the base branch only (DIPO-266), so a flag can never feed a build.
+ */
 export const OfficeOverridesV9 = z.strictObject(
-  fileShape(officeShape),
+  fileShape(officeShapeV8),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /** The file schemas of each version, for `resolveOfficeConfig`. */

@@ -914,6 +914,23 @@
               "minLength": 1,
               "pattern": "^1\\.\\d+\\.\\d+$",
               "description": "Yarn 1, from npm through Safe-Chain. A Yarn 2+ repository runs its committed yarnPath release through it."
+            },
+            "nodeSha256": {
+              "type": "object",
+              "properties": {
+                "arm64": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "x64": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "additionalProperties": false,
+              "description": "The sha256 of the Node.js tarball (node-v<version>-linux-<arch>.tar.gz) per architecture. dipo pins it for its known Node versions; a Node version it does not know needs it here, or the build is refused."
             }
           },
           "additionalProperties": false,

@@ -1110,4 +1110,13 @@ box:
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.path).toBe("box");
   });
+
+  it("refuses box as a command flag override, so no flag can feed a build", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ office: "version: 9\n", flags: { box: { packages: ["nmap"] } } }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.file).toBe("command flags");
+    expect(error?.path).toBe("box");
+  });
 });

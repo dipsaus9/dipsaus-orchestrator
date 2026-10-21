@@ -389,6 +389,8 @@ const VERSION_9_KEY_PATHS = [
   "box.toolchain.bun",
   "box.toolchain.pnpm",
   "box.toolchain.yarn",
+  "box.toolchain.nodeSha256.arm64",
+  "box.toolchain.nodeSha256.x64",
   "box.packages",
   "box.claudeCode",
   "box.files",
@@ -444,6 +446,8 @@ describe("version 9 key paths", () => {
       "a/",
       ".git/config",
       "sub/.git/hooks/pre-commit",
+      ".GIT/config",
+      "sub/.Git/hooks/pre-commit",
       "a:b",
       "a\\b",
       "a\nb",
@@ -468,6 +472,9 @@ describe("version 9 key paths", () => {
     }
     expect(boxV9({ toolchain: { yarn: "4.5.0" } })).toBe(false);
     expect(boxV9({ toolchain: { deno: "2.0.0" } })).toBe(false);
+    expect(boxV9({ toolchain: { nodeSha256: { arm64: "a".repeat(64) } } })).toBe(true);
+    expect(boxV9({ toolchain: { nodeSha256: { arm64: "A".repeat(64) } } })).toBe(false);
+    expect(boxV9({ toolchain: { nodeSha256: { riscv64: "a".repeat(64) } } })).toBe(false);
   });
 
   it("refuse a package name that could break the build file, and git", () => {
