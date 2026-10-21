@@ -2,7 +2,7 @@
 // binary that runs daemon-side code calls it with the arguments after `daemon` (or `self-check`),
 // and it dispatches on the first one. The table below is the one place a form is added; later
 // stories add more. `hook` (DIPO-59) is reached as `dipo hook <event>`, `restore` (DIPO-76) as
-// `dipo restore <file>`.
+// `dipo restore <file>`, `login` (DIPO-269) as `dipo login box`.
 
 import { tmpdir } from "node:os";
 
@@ -10,6 +10,7 @@ import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine
 
 import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { runHookForm } from "./hook";
+import { LOGIN_USAGE, runLoginForm } from "./login";
 import { RESTORE_USAGE, runRestoreForm } from "./restore";
 import { runSafeChainGateForm } from "./safe-chain-gate";
 import { runSandboxExecForm } from "./sandbox-exec";
@@ -57,6 +58,8 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
   ["hook", { usage: null, run: runHookForm }],
   // Offline maintenance outside the contract (0006 amendment of 2026-10-12, DIPO-76).
   ["restore", { usage: RESTORE_USAGE, run: (args, io) => runRestoreForm(args, io) }],
+  // Sets the box login in the Keychain on the maintainer's terminal (DIPO-269), as `dipo login box`.
+  ["login", { usage: LOGIN_USAGE, run: (args, io) => runLoginForm(args, io) }],
   // Hidden: runs one engine step inside the bundled sandbox runtime (DIPO-37).
   ["sandbox-exec", { usage: null, run: runSandboxExecForm }],
   // Hidden: the gate of the Safe-Chain checking proxy, inside its own sandbox (DIPO-84).

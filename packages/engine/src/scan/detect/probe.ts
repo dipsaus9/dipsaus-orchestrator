@@ -7,6 +7,7 @@ import { posix } from "node:path";
 import { createRepoFiles, type RepoFiles } from "../../platform/repo-files";
 import {
   baseName,
+  BUN_VERSION_FILE,
   dirOf,
   expandWorkspaces,
   importSpecifiers,
@@ -150,6 +151,7 @@ export async function readProbe(
   const root = rootText === undefined ? null : parseManifest(rootText);
   const pnpmText = await read(PNPM_WORKSPACE);
   for (const name of RUNTIME_FILES) await read(name);
+  await read(BUN_VERSION_FILE);
 
   const lockfiles: string[] = [];
   for (const [name] of LOCKFILES) {

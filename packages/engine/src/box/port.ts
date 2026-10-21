@@ -15,6 +15,17 @@ export const BOX_LABEL = "dipo";
 export const BOX_PACKAGE_CACHE_PATH = "/dipo/package-cache";
 /** The deadline of one box call unless the call names another. */
 export const BOX_CALL_TIMEOUT_MS = 60_000;
+/**
+ * The deadline of one image build (DIPO-266): a build installs the toolchain and Claude Code over
+ * the network and takes minutes.
+ */
+export const BOX_BUILD_TIMEOUT_MS = 30 * 60_000;
+/** The repository name of every box image dipo builds; the tag is a hash of its description. */
+export const BOX_IMAGE_REPOSITORY = "dipo-box";
+/** The build file dipo writes into its own build folder; never a file from the repository. */
+export const BOX_BUILD_FILE = "Containerfile";
+/** The Safe-Chain CA bundle dipo copies into its build folder for the build's npm installs. */
+export const BOX_BUILD_CA_FILE = "safe-chain-ca.pem";
 
 /** A run id a box name may carry: what `IdSource` makes (`run_<ulid>`), and test ids. */
 const RUN_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -131,6 +142,22 @@ export interface BoxMemory {
   readonly limitBytes: number | null;
 }
 
+/**
+ * One image build (DIPO-266). `contextDir` is a folder dipo made and filled itself: the build file
+ * `BOX_BUILD_FILE` it wrote from the office's box description and the CA bundle `BOX_BUILD_CA_FILE`,
+ * nothing from the repository.
+ */
+export interface BoxImageBuild {
+  /** `dipo-box:<hash of the description>`. */
+  readonly tag: string;
+  readonly contextDir: string;
+  /**
+   * The address of dipo's proxy the build reaches the network through, `http://<host>:<port>`:
+   * registries through Safe-Chain, other hosts on the public internet only.
+   */
+  readonly proxyUrl: string;
+}
+
 /** Per-call deadline override for the lifecycle calls. */
 export interface BoxCallOptions {
   readonly timeoutMs?: number;
@@ -159,6 +186,11 @@ export interface BoxPort {
   /** Copies `from` inside the box to the host path `to`. */
   copyOut(name: string, from: string, to: string, options?: BoxCallOptions): Promise<void>;
   /**
+   * Writes the box's whole filesystem as a tar archive to the host path `to`. The backend makes
+   * it from the host, so nothing in the box can shape what it holds (the post-run token check).
+   */
+  exportFiles(name: string, to: string, options?: BoxCallOptions): Promise<void>;
+  /**
    * Runs a command in a running box to its end, within the deadline. On `box.timedOut` only the
    * client was killed: the command may still run inside the box, so the caller stops or deletes
    * the box.
@@ -178,4 +210,11 @@ export interface BoxPort {
   memory(name: string, options?: BoxCallOptions): Promise<BoxMemory | null>;
   /** dipo's own boxes, running or stopped; never another program's. */
   list(options?: BoxCallOptions): Promise<BoxInfo[]>;
+  /** True when the image `tag` exists on this machine, so a build can be skipped. */
+  hasImage(tag: string, options?: BoxCallOptions): Promise<boolean>;
+  /**
+   * Builds the image of `build`, within `BOX_BUILD_TIMEOUT_MS` unless the call names another
+   * deadline. On `box.timedOut` only the client was killed; the builder may still finish the image.
+   */
+  buildImage(build: BoxImageBuild, options?: BoxCallOptions): Promise<void>;
 }

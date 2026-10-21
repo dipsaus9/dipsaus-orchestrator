@@ -9,12 +9,15 @@ import { availableParallelism, homedir, totalmem } from "node:os";
 import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import {
+  buildArgs,
   copyInArgs,
   copyOutArgs,
   createArgs,
   deleteArgs,
   execArgs,
+  exportArgs,
   type HostResources,
+  imageInspectArgs,
   listArgs,
   networkCreateArgs,
   networkListArgs,
@@ -26,6 +29,7 @@ import {
   versionArgs,
 } from "./apple-args";
 import {
+  BOX_BUILD_TIMEOUT_MS,
   BOX_CALL_TIMEOUT_MS,
   BOX_LABEL,
   BoxError,
@@ -33,6 +37,7 @@ import {
   type BoxCheck,
   type BoxExecOptions,
   type BoxExecResult,
+  type BoxImageBuild,
   type BoxInfo,
   type BoxMemory,
   type BoxNetwork,
@@ -47,6 +52,8 @@ import {
 export const APPLE_CONTAINER_BACKEND_ID = "apple-container";
 /** The oldest `container` dipo runs boxes on: the version the escape probe passed on (0021). */
 export const MIN_CONTAINER_VERSION = "1.6.0";
+/** How many lines of a failed build's output its error keeps. */
+export const BUILD_ERROR_LINES = 40;
 
 /** The Mac's total memory and CPU count, which every box may use (0021 decision 16). */
 export function systemHostResources(): HostResources {
@@ -345,6 +352,10 @@ export class AppleContainerBoxes implements BoxPort {
     await this.#runOk(copyOutArgs(name, from, to), options);
   }
 
+  async exportFiles(name: string, to: string, options: BoxCallOptions = {}): Promise<void> {
+    await this.#runOk(exportArgs(name, to), options);
+  }
+
   async exec(
     name: string,
     command: readonly [string, ...string[]],
@@ -400,6 +411,27 @@ export class AppleContainerBoxes implements BoxPort {
     const args = listArgs();
     const result = await this.#runOk(args, options);
     return dipoBoxes(array(args, parseJson(args, result.stdout)));
+  }
+
+  async hasImage(tag: string, options: BoxCallOptions = {}): Promise<boolean> {
+    // `container image inspect` exits non-zero for an image it does not have. Any other failure
+    // reads as absent too: the build that follows then fails with `container`'s own message.
+    const result = await this.#run(imageInspectArgs(tag), options);
+    return result.code === 0;
+  }
+
+  async buildImage(build: BoxImageBuild, options: BoxCallOptions = {}): Promise<void> {
+    const args = buildArgs(build);
+    const result = await this.#run(args, { timeoutMs: options.timeoutMs ?? BOX_BUILD_TIMEOUT_MS });
+    if (result.code === 0) return;
+    // A build prints its whole progress; the error keeps the end, where the failing step is.
+    const tail = `${result.stderr}\n${result.stdout}`.trim().split("\n").slice(-BUILD_ERROR_LINES);
+    throw new BoxError(
+      "box.failed",
+      `container build of ${build.tag} failed: ${tail.join("\n") || `exit ${result.code}`}`,
+      false,
+      { args: [...args], code: result.code, tail },
+    );
   }
 
   async #findNetwork(options: BoxCallOptions): Promise<BoxNetworkFound | null> {

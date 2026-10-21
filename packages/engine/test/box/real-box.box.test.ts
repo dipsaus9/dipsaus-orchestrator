@@ -12,6 +12,15 @@
 // - whether a killed `container exec` client leaves its process running in the box;
 // - whether `container stats` on a stopped box exits non-zero.
 //
+// The image build (DIPO-266) registers only when the maintainer also names a running build proxy:
+// DIPO_TEST_BOX_PROXY (`http://<host>:<port>`, reachable from the builder on the default network)
+// and DIPO_TEST_BOX_CA (the Safe-Chain CA bundle that proxy wrote). dipo's web proxy
+// (`box/web-proxy.ts`, DIPO-268) is that proxy, started on an address the builder reaches: the
+// builder runs on the default network, not the box network. It builds the office image of a small
+// description (minutes on a cold builder), builds it again to see the image reused, and checks the
+// box it runs: Claude Code at its pinned version, with auto-update and nonessential traffic off,
+// and neither the build proxy, the build CA nor git in the image.
+//
 // A second test (DIPO-268) repeats the DIPO-264 network lines through dipo's web proxy and the
 // Safe-Chain proxy behind it, so it also needs the official Safe-Chain install (`~/.safe-chain`)
 // and the internet: no way out without the proxy (by name, and by IP address to a public address,
@@ -38,6 +47,7 @@ import { describe, expect, it } from "bun:test";
 import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { statsArgs } from "../../src/box/apple-args";
+import { boxImageTag, describeBox, ensureBoxImage } from "../../src/box/image";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { boxName, isBoxTimedOut } from "../../src/box/port";
 import {
@@ -54,6 +64,12 @@ import { systemSpawn } from "../../src/platform/process";
 const IMAGE = "docker.io/library/alpine:3.20";
 /** A first run pulls the image; later calls keep the 60 s default. */
 const PULL_TIMEOUT_MS = 300_000;
+
+/** The build proxy the image build needs; the build test registers only with both. */
+const BUILD_PROXY = process.env["DIPO_TEST_BOX_PROXY"];
+const BUILD_CA = process.env["DIPO_TEST_BOX_CA"];
+/** An image build takes minutes. */
+const BUILD_TIMEOUT_MS = 40 * 60_000;
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -235,6 +251,65 @@ if (registers) {
       },
       PULL_TIMEOUT_MS + 120_000,
     );
+
+    if (BUILD_PROXY !== undefined && BUILD_CA !== undefined) {
+      it(
+        "builds the office image once through the build proxy, and runs Claude Code from it",
+        async () => {
+          const env = cleanEnv();
+          const boxes = new AppleContainerBoxes({
+            spawn: systemSpawn,
+            clock: systemClock,
+            env: { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: env["HOME"] ?? "/" },
+          });
+          // Bun from .bun-version, as the scan detects it; the rest from dipo's defaults.
+          const { image } = describeBox(
+            { packages: ["jq"] },
+            { bun: { version: "1.4.2", evidence: ".bun-version" } },
+          );
+          await withTempDir(async (dir) => {
+            const request = {
+              boxes,
+              image,
+              proxy: { url: BUILD_PROXY, caFile: BUILD_CA },
+              scratchRoot: dir,
+            };
+            const before = performance.now();
+            const first = await ensureBoxImage(request);
+            const took = Math.round(performance.now() - before);
+            fact(`image ${first.tag} ${first.built ? "built" : "reused"} in ${took} ms`);
+            expect(first.tag).toBe(boxImageTag(image));
+            expect(await ensureBoxImage(request)).toEqual({ tag: first.tag, built: false });
+
+            const network = await boxes.network();
+            const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+            const name = boxName(runId);
+            try {
+              await boxes.create({ runId, image: first.tag, network });
+              await boxes.start(name);
+              const claude = await boxes.exec(name, ["claude", "--version"]);
+              expect(claude.code).toBe(0);
+              expect(claude.stdout).toContain(image.claudeCode);
+              const bun = await boxes.exec(name, ["bun", "--version"]);
+              expect(bun.stdout.trim()).toBe("1.4.2");
+              const printed = (await boxes.exec(name, ["env"])).stdout;
+              expect(printed).toContain("DISABLE_AUTOUPDATER=1");
+              expect(printed).toContain("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1");
+              expect(printed).not.toContain("DIPO_PROXY");
+              expect(printed).not.toContain(BUILD_PROXY);
+              // The build CA was mounted for the npm step only; it is not in the image.
+              const ca = await boxes.exec(name, ["test", "-e", "/run/dipo/safe-chain-ca.pem"]);
+              expect(ca.code).not.toBe(0);
+              const git = await boxes.exec(name, ["sh", "-c", "command -v git || echo none"]);
+              expect(git.stdout.trim()).toBe("none");
+            } finally {
+              await boxes.delete(name).catch(() => {});
+            }
+          });
+        },
+        BUILD_TIMEOUT_MS,
+      );
+    }
 
     it(
       "reaches the internet only through dipo's web proxy, and the registries only through Safe-Chain",
