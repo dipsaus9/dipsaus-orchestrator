@@ -26,6 +26,7 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import {
+  backlogConflictNotice,
   BoxCollisions,
   CATCH_UP_CAUSES,
   CATCH_UP_PART_MESSAGE,
@@ -33,6 +34,8 @@ import {
   catchUpNotice,
   COLLISION_NOTICES,
   type CollisionNotice,
+  type ConflictFile,
+  conflictSummary,
   findOverlaps,
   overlapMessage,
   overlapNotice,
@@ -108,7 +111,7 @@ describe("the texts", () => {
       base: "main",
       onto: "b".repeat(40),
       overlap: ["src/shared.ts"],
-      conflicts: [] as string[],
+      conflicts: [] as ConflictFile[],
       written: 2,
       removed: 1,
     };
@@ -116,19 +119,94 @@ describe("the texts", () => {
       `dipo merged main at ${"b".repeat(12)} into DIPO-2's branch and box: the base changed 1 file the story changed too (src/shared.ts).`,
     );
     expect(catchUpMessage(facts)).toContain("2 files written, 1 file removed");
-    const conflict = { ...facts, conflicts: ["src/shared.ts"] };
-    expect(catchUpNotice(conflict)).toContain("gave the worker a fix round");
-    expect(catchUpMessage(conflict)).toStartWith("dipo: fix round.");
+    const conflict = {
+      ...facts,
+      conflicts: [{ path: "src/shared.ts", kind: "content" as const }],
+    };
+    expect(catchUpNotice(conflict)).toBe(
+      `1 file conflicted when git merged main at ${"b".repeat(12)} into DIPO-2's branch (content: src/shared.ts). dipo committed the merge as git left it, copied it into the box, and gave the worker a fix round.`,
+    );
+    expect(catchUpMessage(conflict)).toStartWith(
+      "dipo: fix round. main changed files your story changes too, and 1 file conflicted when git merged main into your branch: content: src/shared.ts.",
+    );
+    expect(catchUpMessage(conflict)).toContain("conflict markers (<<<<<<<, =======, >>>>>>>)");
     expect(catchUpMessage(conflict)).toContain("hand a part with dipo-part");
+    // Markers are named only for a content conflict.
+    const binary = {
+      ...facts,
+      conflicts: [
+        { path: "logo.png", kind: "binary" as const },
+        { path: "src/gone.ts", kind: "deleted" as const },
+        { path: "lib", kind: "folder" as const },
+      ],
+    };
+    expect(conflictSummary(binary.conflicts)).toBe(
+      "binary: logo.png; file vs folder: lib; modify/delete: src/gone.ts",
+    );
+    expect(catchUpMessage(binary)).not.toContain("markers");
+    expect(catchUpMessage(binary)).toContain("kept your version");
+    expect(catchUpMessage(binary)).toContain("decide whether the file stays");
+    expect(catchUpMessage(binary)).toContain("a file and a folder share one name");
+  });
+
+  it("says that a backlog conflict merged no code either", () => {
+    expect(backlogConflictNotice("DIPO-2", "main", ["backlog/tasks/dipo-2 - Two.md"])).toContain(
+      "dipo merged nothing: the base's code changes were not merged into the branch or the box either",
+    );
   });
 });
 
 describe("git's output, as data", () => {
   it("reads the tree and the conflicted files of merge-tree", () => {
     expect(parseMergeTree(`${TREE}\0`)).toEqual({ tree: TREE, conflicts: [] });
-    expect(parseMergeTree(`${TREE}\0src/b.ts\0src/a.ts\0src/a.ts\0`)).toEqual({
+    const messages = [
+      TREE,
+      "src/b.ts",
+      "src/a.ts",
+      "logo.png",
+      "lib~s",
+      "gone.ts",
+      "",
+      "1",
+      "src/a.ts",
+      "Auto-merging",
+      "Auto-merging src/a.ts\n",
+      "1",
+      "src/a.ts",
+      "CONFLICT (contents)",
+      "CONFLICT (content): Merge conflict in src/a.ts\n",
+      "1",
+      "logo.png",
+      "CONFLICT (binary)",
+      "warning: Cannot merge binary files: logo.png\n",
+      "1",
+      "logo.png",
+      "CONFLICT (contents)",
+      "CONFLICT (content): Merge conflict in logo.png\n",
+      "2",
+      "lib~s",
+      "lib",
+      "CONFLICT (file/directory)",
+      "CONFLICT (file/directory): directory in the way of lib from s; moving it to lib~s instead.\n",
+      "1",
+      "lib~s",
+      "CONFLICT (modify/delete)",
+      "CONFLICT (modify/delete): lib~s deleted in main and modified in s.\n",
+      "1",
+      "gone.ts",
+      "CONFLICT (modify/delete)",
+      "CONFLICT (modify/delete): gone.ts deleted in s and modified in main.\n",
+      "",
+    ].join("\0");
+    expect(parseMergeTree(messages)).toEqual({
       tree: TREE,
-      conflicts: ["src/a.ts", "src/b.ts"],
+      conflicts: [
+        { path: "gone.ts", kind: "deleted" },
+        { path: "lib~s", kind: "folder" },
+        { path: "logo.png", kind: "binary" },
+        { path: "src/a.ts", kind: "content" },
+        { path: "src/b.ts", kind: "other" },
+      ],
     });
     expect(() => parseMergeTree("no tree here\0")).toThrow("printed no tree");
   });
@@ -188,6 +266,10 @@ interface World {
   readonly parks: { runId: string; park: PartPark }[];
   readonly copies: string[];
   failCopy: boolean;
+  /** Runs before each stream out of a box, with how many streams that box gave so far. */
+  onStream: ((box: string, n: number) => void) | null;
+  /** Runs when the merge is copied into a box, before it is. */
+  onCopy: (() => Promise<void>) | null;
 }
 
 function write(dir: string, files: Readonly<Record<string, string>>): void {
@@ -213,8 +295,12 @@ function folderBoxes(
     if (dir === undefined) throw new Error(`no box ${box}`);
     return dir;
   };
+  const streams = new Map<string, number>();
   return {
     execLive: (box) => {
+      const n = (streams.get(box) ?? 0) + 1;
+      streams.set(box, n);
+      w().onStream?.(box, n);
       const packed = spawnSync("tar", ["-C", folder(box), "-cf", "-", "."], {
         env: { PATH: "/usr/bin:/bin", COPYFILE_DISABLE: "1" },
         maxBuffer: 64 * 1024 * 1024,
@@ -251,6 +337,7 @@ function folderBoxes(
     },
     copyIn: async (box, from, to) => {
       if (w().failCopy) throw new Error("the box is gone");
+      await w().onCopy?.();
       expect(to).toBe("/work");
       expect(from).toEndWith("/.");
       w().copies.push(box);
@@ -350,6 +437,8 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     parks,
     copies: [],
     failCopy: false,
+    onStream: null,
+    onCopy: null,
   };
   return self;
 }
@@ -524,7 +613,7 @@ describe("changed files and collisions on real git", () => {
         `${tip} ${before} ${onto}`,
       );
       expect((await w.repo.git("log", "-1", "--format=%b", tip)).trim()).toContain(
-        "git could not merge 1 file cleanly; they hold its conflict markers for the worker's fix round.",
+        "1 file conflicted (content) and stay as git left them for the worker's fix round.",
       );
       const inBox = readFileSync(join(w.b.work, "src/shared.ts"), "utf8");
       expect(inBox).toContain("<<<<<<<");
@@ -587,5 +676,192 @@ describe("changed files and collisions on real git", () => {
       // A parked run is no longer in progress: the next pass does not touch it.
       await w.collisions.check();
       expect(w.parks).toHaveLength(1);
+    }));
+});
+
+/** Both stories change `src/shared.ts` in lines apart, then the first merges. */
+async function overlapAndMerge(w: World): Promise<{ before: string; onto: string }> {
+  write(w.a.work, { "src/shared.ts": lines({ 0: "ONE" }), "src/a.ts": "a\n" });
+  await handPart(w, w.a, "A changes shared");
+  write(w.b.work, { "src/shared.ts": lines({ 7: "EIGHT" }) });
+  await handPart(w, w.b, "B changes shared");
+  const before = await tipOf(w, w.b);
+  return { before, onto: await mergeFirst(w) };
+}
+
+/** Commits `files` on the base and pushes it, as a merge of something else would. */
+async function onBase(w: World, files: Readonly<Record<string, string>>): Promise<string> {
+  write(w.repo.dir, files);
+  await w.repo.commitAll("Change the base");
+  await w.repo.git("push", "--quiet", "origin", "main");
+  await w.repo.git("fetch", "--quiet", "origin");
+  return (await w.repo.git("rev-parse", "refs/remotes/origin/main")).trim();
+}
+
+describe("a catch-up's guards on real git", () => {
+  it("runs no merge driver from the config or any attributes file, and calls such a path conflicted", () =>
+    inWorld(async (w) => {
+      const { before, onto } = await overlapAndMerge(w);
+      // Set after the base merged, so only dipo's merge meets them.
+      const ran = join(w.repo.root, "driver-ran");
+      const attributes = join(w.repo.root, "attributes");
+      writeFileSync(attributes, "* merge=evil\n");
+      // The maintainer's global config, which dipo's git reads (the test's own git does not).
+      const global = join(w.repo.home, ".gitconfig");
+      await w.repo.git("config", "--file", global, "merge.evil.driver", `touch ${ran}`);
+      await w.repo.git("config", "--file", global, "core.attributesFile", attributes);
+      const seen = await w.git.run((session) =>
+        session.ok(session.repository, ["config", "--get", "merge.evil.driver"]),
+      );
+      expect(seen.trim()).toBe(`touch ${ran}`);
+      writeFileSync(join(w.repo.dir, ".git/info/attributes"), "src/shared.ts merge=evil\n");
+
+      await w.collisions.check();
+      expect(existsSync(ran)).toBe(false);
+      expect(w.parks).toEqual([]);
+      const tip = await tipOf(w, w.b);
+      expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
+        `${tip} ${before} ${onto}`,
+      );
+      // The blanked driver leaves git the story's side and a conflict to resolve.
+      expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(lines({ 7: "EIGHT" }));
+      expect(w.notices.at(-1)).toMatchObject({ code: COLLISION_NOTICES.conflict });
+      expect(w.told.at(-1)!.text).toContain("content: src/shared.ts");
+    }));
+
+  it("fails the catch-up when an export attribute drops a merged file from the archive", () =>
+    inWorld(async (w) => {
+      await onBase(w, { ".gitattributes": "src/a.ts export-ignore\n" });
+      const { before } = await overlapAndMerge(w);
+      await w.collisions.check();
+      expect(await tipOf(w, w.b)).toBe(before);
+      expect(w.parks).toEqual([
+        { runId: "run_2", park: expect.objectContaining({ cause: CATCH_UP_CAUSES.failed }) },
+      ]);
+      // Checked on the Mac before the box was touched.
+      expect(w.copies).toEqual([]);
+      expect(existsSync(join(w.b.work, "src/a.ts"))).toBe(false);
+      expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(lines({ 7: "EIGHT" }));
+    }));
+
+  it("takes the worker's edits made during the catch-up as a part and plans again once", () =>
+    inWorld(async (w) => {
+      const { before, onto } = await overlapAndMerge(w);
+      let streams = 0;
+      w.onStream = (box) => {
+        if (box !== w.b.run.box) return;
+        streams += 1;
+        // The first stream is the part before the turn; the second is the one inside it.
+        if (streams === 2) write(w.b.work, { "src/b.ts": "written during the catch-up\n" });
+      };
+      await w.collisions.check();
+      expect(w.parks).toEqual([]);
+      const tip = await tipOf(w, w.b);
+      const [, first, second] = (await w.repo.git("rev-list", "--parents", "-n", "1", tip))
+        .trim()
+        .split(" ");
+      expect(second).toBe(onto);
+      expect((await w.repo.git("log", "-1", "--format=%s", first!)).trim()).toBe(
+        CATCH_UP_PART_MESSAGE,
+      );
+      expect((await w.repo.git("rev-parse", `${first!}^`)).trim()).toBe(before);
+      expect(await w.repo.git("show", `${tip}:src/b.ts`)).toBe("written during the catch-up\n");
+      expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe(
+        "written during the catch-up\n",
+      );
+      expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(
+        lines({ 0: "ONE", 7: "EIGHT" }),
+      );
+    }));
+
+  it("parks when the worker keeps changing files during the catch-up", () =>
+    inWorld(async (w) => {
+      await overlapAndMerge(w);
+      let streams = 0;
+      w.onStream = (box) => {
+        if (box !== w.b.run.box) return;
+        streams += 1;
+        if (streams >= 2) write(w.b.work, { "src/b.ts": `edit ${streams}\n` });
+      };
+      await w.collisions.check();
+      expect(w.parks).toEqual([
+        { runId: "run_2", park: expect.objectContaining({ cause: CATCH_UP_CAUSES.failed }) },
+      ]);
+      expect(w.notices.at(-1)!.text).toContain("the worker kept changing files");
+      // Nothing of the base reached the box or the branch.
+      expect(w.copies).toEqual([]);
+      const tip = await tipOf(w, w.b);
+      expect(
+        (await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim().split(" "),
+      ).toHaveLength(2);
+      expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(lines({ 7: "EIGHT" }));
+    }));
+
+  it("tells a backlog conflict to the maintainer only, once per base commit", () =>
+    inWorld(async (w) => {
+      // The base and the branch both changed the second story's task file.
+      await onBase(w, { "backlog/tasks/dipo-2 - Two.md": "---\nid: DIPO-2\nstatus: Done\n---\n" });
+      const { before } = await overlapAndMerge(w);
+      await w.collisions.check();
+      expect(w.notices).toEqual([
+        expect.objectContaining({ code: COLLISION_NOTICES.backlogConflict }),
+      ]);
+      expect(w.notices[0]!.text).toContain("dipo merged nothing");
+      expect(w.notices[0]!.text).toContain("backlog/tasks/dipo-2 - Two.md");
+      expect(w.told).toEqual([]);
+      expect(w.parks).toEqual([]);
+      expect(await tipOf(w, w.b)).toBe(before);
+      expect(w.copies).toEqual([]);
+      await w.collisions.check();
+      expect(w.notices).toHaveLength(1);
+      // A new base commit is a new try, and told again.
+      await onBase(w, { "README.md": "# Collisions, again\n" });
+      await w.collisions.check();
+      expect(w.notices).toHaveLength(2);
+      expect(w.notices[1]!.code).toBe(COLLISION_NOTICES.backlogConflict);
+    }));
+
+  it("parks the story when the push after the merge is rejected", () =>
+    inWorld(async (w) => {
+      const { before, onto } = await overlapAndMerge(w);
+      // The remote branch gets a commit the local branch lacks.
+      const tree = (await w.repo.git("rev-parse", `${before}^{tree}`)).trim();
+      const remoteOnly = (
+        await w.repo.git("commit-tree", tree, "-p", before, "-m", "Pushed from elsewhere")
+      ).trim();
+      await w.repo.git("push", "--quiet", "origin", `${remoteOnly}:refs/heads/${w.b.run.branch}`);
+      await w.collisions.check();
+      const tip = await tipOf(w, w.b);
+      expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
+        `${tip} ${before} ${onto}`,
+      );
+      expect(await tipOf(w, w.b, "remote")).toBe(remoteOnly);
+      expect(w.parks).toEqual([
+        {
+          runId: "run_2",
+          park: expect.objectContaining({
+            reason: "conflict",
+            cause: CATCH_UP_CAUSES.pushRejected,
+          }),
+        },
+      ]);
+      expect(w.told.some((t) => t.text.includes("merged main into your branch"))).toBe(false);
+    }));
+
+  it("parks the story when its branch moves between the plan and the move", () =>
+    inWorld(async (w) => {
+      const { before } = await overlapAndMerge(w);
+      let elsewhere = "";
+      w.onCopy = async () => {
+        const tree = (await w.repo.git("rev-parse", `${before}^{tree}`)).trim();
+        elsewhere = (await w.repo.git("commit-tree", tree, "-p", before, "-m", "Moved")).trim();
+        await w.repo.git("update-ref", `refs/heads/${w.b.run.branch}`, elsewhere);
+      };
+      await w.collisions.check();
+      expect(await tipOf(w, w.b)).toBe(elsewhere);
+      expect(w.parks).toEqual([
+        { runId: "run_2", park: expect.objectContaining({ cause: CATCH_UP_CAUSES.failed }) },
+      ]);
+      expect(w.notices.at(-1)!.text).toContain(`the branch ${w.b.run.branch} moved`);
     }));
 });

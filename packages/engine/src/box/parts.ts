@@ -1041,6 +1041,21 @@ export class BoxParts {
     return this.#serial(runId, fn);
   }
 
+  /**
+   * Inside `inTurn` only (DIPO-277): whatever changed in the box since the last part becomes a part
+   * with `message` now, in the turn the caller holds already. `stopped` when the run no longer goes
+   * on. The caller parks on a hit.
+   */
+  async deliverInTurn(runId: string, message: string): Promise<PartOutcome> {
+    if (!this.#deps.live(runId)) return { kind: "stopped" };
+    const run = this.#deps.run(runId);
+    if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
+    return this.#deliver(run, message).catch((error: unknown): PartOutcome => {
+      if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
+      throw error;
+    });
+  }
+
   /** Throws `PART_WAITING` when the run no longer goes on, so the part stays queued. */
   #assertLive(run: PartRun): void {
     if (!this.#deps.live(run.runId)) {

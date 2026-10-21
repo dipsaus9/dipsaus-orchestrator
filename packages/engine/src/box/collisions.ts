@@ -10,38 +10,52 @@
 // - Overlaps. Every pass compares the changed files of the live box runs of each office with the
 //   prefix rule (0012, 0010 section 10): two paths overlap when they are equal or one is a folder
 //   above the other. A new overlap (another pair of stories, or more paths) is told to the maintainer
-//   as an `engine.notice` (the TUI and `dipo watch` show it) and to both workers as a message.
+//   as an `engine.notice` (the TUI and `dipo watch` show it) and to both workers as a message. What
+//   was told lives in memory only: after a daemon restart an overlap still in place is told once
+//   more. That is accepted; it is a notice and a message, never a change.
 // - Catching up. The second story catches up once the first has merged: when the base branch holds
 //   changes, since the story's merge base, to files the story changed too. The check is git's own
-//   merge (`git merge-tree --write-tree`, from git objects alone, no checkout, no model). Then, in
-//   the run's turn of `BoxParts` (no part is taken in between), and after whatever the box holds was
-//   delivered as a part, so the branch tip is the box's code:
+//   merge (`git merge-tree --write-tree`, from git objects alone, no checkout, no model). First the
+//   box's work is taken as a part, so the branch tip is the box's code. Then, in the run's turn of
+//   `BoxParts` (no other part is taken in between):
 //   1. dipo commits the merge from git objects (`commit-tree` with the tip and the base as parents);
-//   2. it copies the merge into the box: the paths the merge changed against the tip, outside
-//      `backlog/` (dipo's task-file commits never reach the box, `readView`), removed or written
-//      from a `git archive` of the merge, as the box got its code (`stageBoxCode`);
-//   3. only then the branch moves to the merge (`update-ref` from the tip read), and it is pushed
-//      without force;
-//   4. the maintainer gets a notice and the worker a message naming the files.
+//   2. it stages the paths the merge changed against the tip, outside `backlog/` (dipo's task-file
+//      commits never reach the box, `readView`), from a `git archive` of the merge, and checks that
+//      every staged path is there with the mode and blob of the merge: `export-ignore` or
+//      `export-subst` attributes would otherwise drop or rewrite a file, which fails the catch-up;
+//   3. it takes one more part from the box: a worker that changed files since the first part would
+//      lose them under the copy. Then dipo plans again on the new tip, once; a worker that keeps
+//      changing files parks the story;
+//   4. it removes and writes those paths in the box; only then the branch moves to the merge
+//      (`update-ref` from the tip read), and it is pushed without force;
+//   5. the maintainer gets a notice and the worker a message naming the files.
 //   The box is written before the branch moves: a box that kept the old files while the branch held
-//   the new ones would hand them back as the worker's next part and undo the merge. A box copy that
-//   fails, or a branch that moved meanwhile, parks the story (`catch-up-failed`), since box and
-//   branch may then differ.
-// - A conflict starts a fix round. When git cannot merge cleanly the merge is committed with git's
-//   conflict markers in the files it names, copied into the box the same way, and the worker is told
-//   to resolve them and hand a part. Committing the markers keeps the box and the branch on the same
-//   tree, so the worker's resolution is an ordinary part (scanned like any other); holding the base
-//   back as a second parent of the next part instead would make the base's own changes look like
-//   the worker's, and a base change to a protected file (`.github/`) would park the story. A
-//   conflict inside `backlog/` is the maintainer's: dipo leaves the branch and the box alone and
-//   tells only the maintainer, once per base commit.
+//   the new ones would hand them back as the worker's next part and undo the merge. A stage or box
+//   copy that fails, or a branch that moved meanwhile, parks the story (`catch-up-failed`), since
+//   box and branch may then differ; a rejected push parks it `push-rejected`. A few seconds stay
+//   between the last part and the box write in which a worker's edit to a merged file is lost.
+// - A conflict starts a fix round. When git cannot merge cleanly the merge is committed as git left
+//   it, copied into the box the same way, and the worker is told which files conflicted and how
+//   (content, modify/delete, binary, file vs folder, from git's own messages), and to resolve them
+//   and hand a part. Only content conflicts carry git's markers. Committing what git left keeps the
+//   box and the branch on the same tree, so the worker's resolution is an ordinary part (scanned
+//   like any other); holding the base back as a second parent of the next part instead would make
+//   the base's own changes look like the worker's, and a base change to a protected file
+//   (`.github/`) would park the story. A conflict inside `backlog/` is the maintainer's: dipo
+//   merges nothing, code included, leaves the branch and the box alone and tells only the
+//   maintainer, once per base commit.
 //
 // Every git call runs on the repository without a work tree through the office git queue, with the
 // hardened config, hooks off and filters off (`filtersOffConfig`); none runs in a folder the worker
-// writes. The box is reached only through the box interface: `exec` with argv (`rm`), never a
+// writes. The merge and the archives also run with no attributes file, no in-tree attributes
+// (`attr.tree` the empty tree) and every configured merge driver blanked (`mergeOffConfig`): no
+// driver program runs, and a path the repository's own `info/attributes` hands to one comes out as a
+// conflict. The box is reached only through the box interface: `exec` with argv (`rm`), never a
 // shell line, and `copyIn` of a folder dipo made.
 
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, readlink, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
@@ -53,6 +67,7 @@ import { type PushResult, pushBranch } from "../git/task-commit";
 import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
 import { cleanDoorText } from "./door";
 import {
+  blobId,
   type BoxParts,
   type PartPark,
   partPark,
@@ -68,12 +83,21 @@ export const COLLISION_POLL_MS = 60_000;
 export const CATCH_UP_STAGE_PREFIX = "dipo-box-catch-up-";
 /** How long one command in the box may take while the merge is copied in. */
 export const CATCH_UP_EXEC_TIMEOUT_MS = 60_000;
-/** The message of the part dipo takes from the box before it merges. */
+/** The message of the parts dipo takes from the box before it merges. */
 export const CATCH_UP_PART_MESSAGE = "Work in progress before dipo merges the new base";
+/** How often a catch-up is planned when the worker changed files during it. */
+export const CATCH_UP_ATTEMPTS = 2;
 /** How many paths a notice or message names; the rest are counted. */
 export const SHOWN_PATHS_MAX = 20;
 /** How many paths one git or box call names. */
 const PATHS_PER_CALL = 100;
+/** How much of a staged file one hash read takes. */
+const HASH_CHUNK = 1024 * 1024;
+/** The empty tree, by object format: the in-tree attributes git reads for a catch-up. */
+const EMPTY_TREE = {
+  sha1: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+  sha256: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+} as const;
 
 /** `engine.notice` codes of overlaps and catch-ups. */
 export const COLLISION_NOTICES = {
@@ -159,6 +183,96 @@ export function overlapSignature(overlap: StoryOverlap): string {
   return JSON.stringify([...runs, ...overlap.paths]);
 }
 
+// ---- conflicts -----------------------------------------------------------------------------------
+
+/** How a file conflicted, from git's own message about it. */
+export type ConflictKind = "content" | "deleted" | "binary" | "folder" | "other";
+
+/** One file git could not merge cleanly. */
+export interface ConflictFile {
+  readonly path: string;
+  readonly kind: ConflictKind;
+}
+
+/** A path named by several messages takes the first of these kinds. */
+const KIND_ORDER: readonly ConflictKind[] = ["binary", "folder", "deleted", "content", "other"];
+
+/** The name of each kind in a notice or message. */
+export const CONFLICT_KIND_TEXT: Readonly<Record<ConflictKind, string>> = {
+  content: "content",
+  deleted: "modify/delete",
+  binary: "binary",
+  folder: "file vs folder",
+  other: "other",
+};
+
+/** What the worker does about each kind. */
+const CONFLICT_KIND_HELP: Readonly<Record<ConflictKind, string>> = {
+  content:
+    "In a content conflict both sides changed the same lines: git marked them with its conflict markers (<<<<<<<, =======, >>>>>>>) where it could place them; keep both changes where they belong and remove the markers.",
+  deleted:
+    "In a modify/delete conflict one side changed a file the other deleted: git kept the changed version; decide whether the file stays.",
+  binary:
+    "In a binary conflict git could not merge the file and kept your version: bring in the base's change by hand.",
+  folder:
+    "In a file vs folder conflict a file and a folder share one name: git moved one of them to a name ending in `~` and a branch name; put each where it belongs.",
+  other: "In any other conflict check what git left in the file.",
+};
+
+/** The kind of a merge-tree message type, or null for one that names no conflict. */
+function kindOfType(type: string): ConflictKind | null {
+  if (!type.startsWith("CONFLICT")) return null;
+  if (type.includes("binary")) return "binary";
+  if (type.includes("file/directory") || type.includes("directory/file")) return "folder";
+  if (type.includes("/delete") || type.includes("delete/")) return "deleted";
+  if (type.includes("content")) return "content";
+  return "other";
+}
+
+/**
+ * Pure: the tree and the conflicted files of `git merge-tree --write-tree --name-only -z`: the
+ * tree, the conflicted paths, an empty item, then each informational message as its count of
+ * paths, the paths, its type and its text. A conflicted path no message names is `other`.
+ */
+export function parseMergeTree(output: string): {
+  readonly tree: string;
+  readonly conflicts: ConflictFile[];
+} {
+  const items = output.split("\0");
+  const tree = items[0] ?? "";
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(tree)) {
+    throw new GitError("git.failed", "git merge-tree printed no tree.");
+  }
+  let at = 1;
+  const paths = new Set<string>();
+  for (; at < items.length && items[at] !== ""; at += 1) paths.add(items[at]!);
+  at += 1;
+  const kinds = new Map<string, ConflictKind>();
+  while (at < items.length) {
+    const count = Number(items[at]);
+    if (!Number.isInteger(count) || count < 1) break;
+    const named = items.slice(at + 1, at + 1 + count);
+    const kind = kindOfType(items[at + 1 + count] ?? "");
+    at += count + 3;
+    if (kind === null) continue;
+    for (const path of named) {
+      const was = kinds.get(path);
+      if (was === undefined || KIND_ORDER.indexOf(kind) < KIND_ORDER.indexOf(was)) {
+        kinds.set(path, kind);
+      }
+    }
+  }
+  return {
+    tree,
+    conflicts: [...paths].toSorted().map((path) => ({ path, kind: kinds.get(path) ?? "other" })),
+  };
+}
+
+/** Pure: the kinds present in `conflicts`, in `KIND_ORDER`. */
+function kindsOf(conflicts: readonly ConflictFile[]): ConflictKind[] {
+  return KIND_ORDER.filter((kind) => conflicts.some((file) => file.kind === kind));
+}
+
 // ---- the texts -----------------------------------------------------------------------------------
 
 /** Pure: `paths` cleaned for a notice or message, at most `SHOWN_PATHS_MAX`, the rest counted. */
@@ -166,6 +280,16 @@ export function shownPaths(paths: readonly string[]): string {
   const shown = paths.slice(0, SHOWN_PATHS_MAX).map((path) => cleanDoorText(path).slice(0, 300));
   const rest = paths.length - shown.length;
   return rest > 0 ? `${shown.join(", ")} and ${rest} more` : shown.join(", ");
+}
+
+/** Pure: the conflicted files grouped by kind: `content: a.ts, b.ts; binary: logo.png`. */
+export function conflictSummary(conflicts: readonly ConflictFile[]): string {
+  return kindsOf(conflicts)
+    .map(
+      (kind) =>
+        `${CONFLICT_KIND_TEXT[kind]}: ${shownPaths(conflicts.filter((f) => f.kind === kind).map((f) => f.path))}`,
+    )
+    .join("; ");
 }
 
 function files(n: number): string {
@@ -190,8 +314,8 @@ export interface CatchUpFacts {
   readonly onto: string;
   /** The paths of the story that the base changed too. */
   readonly overlap: readonly string[];
-  /** The paths git could not merge cleanly; empty for a clean merge. */
-  readonly conflicts: readonly string[];
+  /** The files git could not merge cleanly; empty for a clean merge. */
+  readonly conflicts: readonly ConflictFile[];
   /** The paths written into the box and removed from it. */
   readonly written: number;
   readonly removed: number;
@@ -202,7 +326,7 @@ export function catchUpNotice(facts: CatchUpFacts): string {
   const at = `${facts.base} at ${facts.onto.slice(0, 12)}`;
   return facts.conflicts.length === 0
     ? `dipo merged ${at} into ${facts.story}'s branch and box: the base changed ${files(facts.overlap.length)} the story changed too (${shownPaths(facts.overlap)}).`
-    : `git could not merge ${at} into ${facts.story}'s branch cleanly: ${files(facts.conflicts.length)} conflict (${shownPaths(facts.conflicts)}). dipo committed the merge with git's conflict markers, copied it into the box, and gave the worker a fix round.`;
+    : `${files(facts.conflicts.length)} conflicted when git merged ${at} into ${facts.story}'s branch (${conflictSummary(facts.conflicts)}). dipo committed the merge as git left it, copied it into the box, and gave the worker a fix round.`;
 }
 
 /** Pure: the message to the worker of a caught-up story. */
@@ -211,7 +335,8 @@ export function catchUpMessage(facts: CatchUpFacts): string {
   if (facts.conflicts.length === 0) {
     return `dipo: ${facts.base} changed files your story changes too (${shownPaths(facts.overlap)}), so dipo merged ${facts.base} into your branch. ${copied} Read those files again before you change them further, and keep going.`;
   }
-  return `dipo: fix round. ${facts.base} changed files your story changes too, and git could not merge them cleanly: ${shownPaths(facts.conflicts)}. dipo committed the merge with git's conflict markers (<<<<<<<, =======, >>>>>>>) in those files. ${copied} Resolve every conflict so the code keeps both changes where they belong, remove the markers, run the tests, then hand a part with dipo-part.`;
+  const help = kindsOf(facts.conflicts).map((kind) => CONFLICT_KIND_HELP[kind]);
+  return `dipo: fix round. ${facts.base} changed files your story changes too, and ${files(facts.conflicts.length)} conflicted when git merged ${facts.base} into your branch: ${conflictSummary(facts.conflicts)}. dipo committed the merge as git left it. ${copied} ${help.join(" ")} Then run the tests and hand a part with dipo-part.`;
 }
 
 /** Pure: the maintainer's notice of a conflict in the backlog, which dipo leaves alone. */
@@ -220,7 +345,7 @@ export function backlogConflictNotice(
   base: string,
   paths: readonly string[],
 ): string {
-  return `git could not merge ${base} into ${story}'s branch cleanly, and the conflict is in the backlog (${shownPaths(paths)}), which only dipo and the maintainer write. dipo left the branch and the box as they are; ${story} continues. Resolve the task file on the base by hand.`;
+  return `git could not merge ${base} into ${story}'s branch cleanly, and the conflict is in the backlog (${shownPaths(paths)}), which only dipo and the maintainer write. dipo merged nothing: the base's code changes were not merged into the branch or the box either, and ${story} continues as it is. Resolve the task file on the base by hand; dipo tries again when the base moves.`;
 }
 
 /** Pure: the commit message of a catch-up merge. */
@@ -232,8 +357,9 @@ export function catchUpCommitMessage(
     `Catch-up of ${facts.story} with ${facts.base} at ${facts.onto.slice(0, 12)}, merged by dipo.`,
   ];
   if (facts.conflicts.length > 0) {
+    const kinds = kindsOf(facts.conflicts).map((kind) => CONFLICT_KIND_TEXT[kind]);
     body.push(
-      `git could not merge ${files(facts.conflicts.length)} cleanly; they hold its conflict markers for the worker's fix round.`,
+      `${files(facts.conflicts.length)} conflicted (${kinds.join(", ")}) and stay as git left them for the worker's fix round.`,
     );
   }
   return {
@@ -250,18 +376,6 @@ function inBacklog(path: string): boolean {
 
 function nulList(output: string): string[] {
   return output.split("\0").filter((item) => item !== "");
-}
-
-/** Pure: the tree and the conflicted paths of `git merge-tree --write-tree --name-only -z --no-messages`. */
-export function parseMergeTree(output: string): {
-  readonly tree: string;
-  readonly conflicts: string[];
-} {
-  const [tree = "", ...paths] = output.split("\0");
-  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(tree)) {
-    throw new GitError("git.failed", "git merge-tree printed no tree.");
-  }
-  return { tree, conflicts: [...new Set(paths.filter((path) => path !== ""))].toSorted() };
 }
 
 /** What a merge changes in the box: the paths to write and to remove, outside `backlog/`. */
@@ -325,6 +439,53 @@ async function namesBetween(session: GitSession, from: string, to: string): Prom
       "--",
     ]),
   ).filter((path) => !inBacklog(path));
+}
+
+async function objectFormat(session: GitSession): Promise<"sha1" | "sha256"> {
+  const shown = (
+    await session.ok(session.repository, ["rev-parse", "--show-object-format"])
+  ).trim();
+  return shown === "sha256" ? "sha256" : "sha1";
+}
+
+/** A merge driver name a `-c merge.<name>.driver=` override can name. */
+const DRIVER = /^[^=\n]+$/;
+
+/**
+ * The config of a catch-up's merge and archives: filters off (`filtersOffConfig`), no attributes
+ * file, the empty tree as the in-tree attributes (`attr.tree`), and every merge driver git's
+ * config defines blanked, so none runs. A driver name the override cannot carry refuses.
+ */
+export async function mergeOffConfig(session: GitSession): Promise<(readonly [string, string])[]> {
+  const listed = await session.step(session.repository, [
+    "config",
+    "--name-only",
+    "--get-regexp",
+    "^merge\\..*\\.driver$",
+  ]);
+  // 0 lists the drivers and 1 means none; anything else refuses, since a driver it missed would run.
+  if (listed.code !== 0 && listed.code !== 1) {
+    throw new BoxError(
+      "box.refused",
+      `git could not list its merge drivers (exit ${listed.code}), so they cannot be switched off.`,
+    );
+  }
+  const drivers = new Set<string>();
+  for (const line of listed.stdout.split("\n")) {
+    const found = /^merge\.(.+)\.driver$/.exec(line.trim());
+    if (found === null) continue;
+    const name = found[1] ?? "";
+    if (!DRIVER.test(name)) {
+      throw new BoxError("box.refused", "a git merge driver's name cannot be switched off.");
+    }
+    drivers.add(name);
+  }
+  return [
+    ...(await filtersOffConfig(session)),
+    ["core.attributesFile", "/dev/null"],
+    ["attr.tree", EMPTY_TREE[await objectFormat(session)]],
+    ...[...drivers].map((name): readonly [string, string] => [`merge.${name}.driver`, ""]),
+  ];
 }
 
 /**
@@ -396,14 +557,14 @@ export type CatchUpPlan =
       /** The merge commit, made only when asked to write. */
       readonly commit: string | null;
       readonly overlap: readonly string[];
-      readonly conflicts: readonly string[];
+      readonly conflicts: readonly ConflictFile[];
     };
 
 /**
  * The catch-up check of one story (criterion 4): does the base hold changes, since the merge base,
  * to files the story changed, and does git merge them cleanly (`git merge-tree --write-tree` from
- * objects alone)? With `write` the merge commit is made too (`commit-tree`, the tip and the base
- * as parents), but no ref moves.
+ * objects alone, `mergeOffConfig`)? With `write` the merge commit is made too (`commit-tree`, the
+ * tip and the base as parents), but no ref moves.
  */
 export async function planCatchUp(
   session: GitSession,
@@ -429,11 +590,10 @@ export async function planCatchUp(
     await namesBetween(session, mergeBase, onto),
   );
   if (overlap.length === 0) return { kind: "apart", onto };
-  const filtersOff = { config: await filtersOffConfig(session), env: BASE_CHECKOUT_ENV };
   const merged = await session.step(
     repo,
-    ["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", tip, onto],
-    filtersOff,
+    ["merge-tree", "--write-tree", "--name-only", "-z", tip, onto],
+    { config: await mergeOffConfig(session), env: BASE_CHECKOUT_ENV },
   );
   if (merged.code !== 0 && merged.code !== 1) {
     throw new GitError(
@@ -445,7 +605,7 @@ export async function planCatchUp(
   if (merged.code === 1 && conflicts.length === 0) {
     throw new GitError("git.failed", "git merge-tree reported a conflict but named no file.");
   }
-  const inTheBacklog = conflicts.filter(inBacklog);
+  const inTheBacklog = conflicts.map((file) => file.path).filter(inBacklog);
   if (inTheBacklog.length > 0) return { kind: "backlog", onto, conflicts: inTheBacklog };
   let commit: string | null = null;
   if (input.write) {
@@ -503,6 +663,67 @@ function chunks<T>(items: readonly T[]): T[][] {
   return out;
 }
 
+/** The mode and blob of each of `paths` in `commit` (`ls-tree -r -z`). */
+async function entriesAt(
+  session: GitSession,
+  commit: string,
+  paths: readonly string[],
+): Promise<Map<string, { readonly mode: string; readonly id: string }>> {
+  const entries = new Map<string, { readonly mode: string; readonly id: string }>();
+  for (const group of chunks(paths)) {
+    const listed = await session.ok(session.repository, [
+      "--literal-pathspecs",
+      "ls-tree",
+      "-r",
+      "-z",
+      commit,
+      "--",
+      ...group,
+    ]);
+    for (const line of nulList(listed)) {
+      const tab = line.indexOf("\t");
+      const [mode = "", , id = ""] = line.slice(0, tab).split(" ");
+      entries.set(line.slice(tab + 1), { mode, id });
+    }
+  }
+  return entries;
+}
+
+/** git's blob id of the file at `at` (`size` bytes), read in chunks (O_NOFOLLOW). */
+async function fileBlob(format: "sha1" | "sha256", at: string, size: number): Promise<string> {
+  const hash = createHash(format).update(`blob ${size}\0`);
+  const file = await open(at, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const buffer = new Uint8Array(HASH_CHUNK);
+    for (let done = 0; done < size;) {
+      const { bytesRead } = await file.read(buffer, 0, Math.min(HASH_CHUNK, size - done), done);
+      if (bytesRead === 0) return "";
+      hash.update(buffer.subarray(0, bytesRead));
+      done += bytesRead;
+    }
+  } finally {
+    await file.close();
+  }
+  return hash.digest("hex");
+}
+
+/** True when the staged `at` is the entry `want`: a symlink or a file of its mode and blob. */
+async function stagedAs(
+  format: "sha1" | "sha256",
+  at: string,
+  want: { readonly mode: string; readonly id: string } | undefined,
+): Promise<boolean> {
+  if (want === undefined) return false;
+  const info = await lstat(at).catch(() => null);
+  if (info === null) return false;
+  if (want.mode === "120000") {
+    return info.isSymbolicLink() && blobId(format, await readlink(at, "buffer")) === want.id;
+  }
+  if (!info.isFile()) return false;
+  if (((info.mode & 0o111) !== 0) !== (want.mode === "100755")) return false;
+  return (await fileBlob(format, at, info.size)) === want.id;
+}
+
 // ---- the service ---------------------------------------------------------------------------------
 
 type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -526,7 +747,7 @@ export interface BoxCollisionsDeps {
   /** True while the run goes on: tracked and nothing decided for it yet. */
   readonly live: (runId: string) => boolean;
   /** The delivery of parts: the box's work goes first, and the catch-up takes the run's turn. */
-  readonly parts: Pick<BoxParts, "deliverLast" | "inTurn">;
+  readonly parts: Pick<BoxParts, "deliverLast" | "deliverInTurn" | "inTurn">;
   /** Parks the run, stopping its worker; false when another decision came first. */
   readonly park: (runId: string, park: PartPark) => boolean;
   /** Sends `text` to the run's worker as its next message. */
@@ -542,10 +763,16 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The merge staged on the Mac for one box. */
+interface StagedMerge {
+  readonly dir: string;
+  remove(): Promise<void>;
+}
+
 /** Compares the changed files of the box runs in progress and lets the second catch up. */
 export class BoxCollisions {
   readonly #deps: BoxCollisionsDeps;
-  /** The overlaps told already, by `overlapSignature`. */
+  /** The overlaps told already, by `overlapSignature`; in memory only (see the file comment). */
   readonly #told = new Set<string>();
   /** The base commit a backlog conflict was told for, per run. */
   readonly #backlogTold = new Map<string, string>();
@@ -684,13 +911,15 @@ export class BoxCollisions {
     }
     // Whatever the box holds goes first, so the branch tip is the box's code when git merges.
     const before = await this.#deps.parts.deliverLast(run.runId, CATCH_UP_PART_MESSAGE);
-    const park = partPark(before);
-    if (park !== null) {
-      this.#deps.park(run.runId, park);
-      return;
-    }
-    if (before.kind === "stopped") return;
+    if (this.#parked(run, partPark(before)) || before.kind === "stopped") return;
     await this.#deps.parts.inTurn(run.runId, () => this.#catchUp(git, run));
+  }
+
+  /** Parks the run when a part asks for it; true then. */
+  #parked(run: PartRun, park: PartPark | null): boolean {
+    if (park === null) return false;
+    this.#deps.park(run.runId, park);
+    return true;
   }
 
   #tellBacklog(run: PartRun, base: string, onto: string, conflicts: readonly string[]): void {
@@ -723,44 +952,89 @@ export class BoxCollisions {
     });
   }
 
+  /** Tells the maintainer why the catch-up failed and parks the story. */
+  #fail(run: PartRun, detail: string): void {
+    this.#deps.notice(run.office, run.runId, {
+      level: "warn",
+      code: COLLISION_NOTICES.failed,
+      text: `${run.story}: ${detail}`,
+    });
+    this.#deps.park(run.runId, { reason: "conflict", cause: CATCH_UP_CAUSES.failed, detail });
+  }
+
   /** The catch-up itself, in the run's turn (see the file comment). */
   async #catchUp(git: OfficeGit, run: PartRun): Promise<void> {
-    if (!this.#deps.live(run.runId)) return;
-    const plan = await this.#plan(git, run, true);
-    if (plan === null || plan.kind === "current" || plan.kind === "apart") return;
-    if (plan.kind === "backlog") {
-      this.#tellBacklog(run, plan.base, plan.onto, plan.conflicts);
+    for (let attempt = 1; attempt <= CATCH_UP_ATTEMPTS; attempt += 1) {
+      if (!this.#deps.live(run.runId)) return;
+      const plan = await this.#plan(git, run, true);
+      if (plan === null || plan.kind === "current" || plan.kind === "apart") return;
+      if (plan.kind === "backlog") {
+        this.#tellBacklog(run, plan.base, plan.onto, plan.conflicts);
+        return;
+      }
+      const commit = plan.commit;
+      if (commit === null) return;
+      const changes = await git.run((session) => boxChangesOf(session, plan.tip, commit));
+      const copyFailed = (error: unknown): void => {
+        this.#deps.warn?.("a catch-up could not be copied into the box", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+        this.#fail(
+          run,
+          `dipo could not copy the merge of ${plan.base} into the box, so the box may hold part of it; the branch was not moved. Resume the story to try again.`,
+        );
+      };
+      let staged: StagedMerge;
+      try {
+        staged = await this.#stage(git, commit, changes);
+      } catch (error) {
+        copyFailed(error);
+        return;
+      }
+      try {
+        // The worker may have changed files since the part before the turn: one more part, now.
+        const late = await this.#deps.parts.deliverInTurn(run.runId, CATCH_UP_PART_MESSAGE);
+        if (this.#parked(run, partPark(late)) || late.kind === "stopped") return;
+        if (late.kind === "committed") {
+          if (attempt < CATCH_UP_ATTEMPTS) continue;
+          this.#fail(
+            run,
+            `the worker kept changing files while dipo merged ${plan.base} into the story, so dipo merged nothing and left the branch and the box as they are. Resume the story to try again.`,
+          );
+          return;
+        }
+        try {
+          await this.#write(run, staged.dir, changes);
+        } catch (error) {
+          copyFailed(error);
+          return;
+        }
+      } finally {
+        await staged.remove();
+      }
+      await this.#finish(git, run, { ...plan, commit }, changes);
       return;
     }
-    const commit = plan.commit;
-    if (commit === null) return;
-    const changes = await git.run((session) => boxChangesOf(session, plan.tip, commit));
-    const fail = (detail: string): void => {
-      this.#deps.notice(run.office, run.runId, {
-        level: "warn",
-        code: COLLISION_NOTICES.failed,
-        text: `${run.story}: ${detail}`,
-      });
-      this.#deps.park(run.runId, { reason: "conflict", cause: CATCH_UP_CAUSES.failed, detail });
-    };
-    try {
-      await this.#intoBox(git, run, commit, changes);
-    } catch (error) {
-      this.#deps.warn?.("a catch-up could not be copied into the box", {
-        run: run.runId,
-        reason: messageOf(error),
-      });
-      fail(
-        `dipo could not copy the merge of ${plan.base} into the box, so the box may hold part of it; the branch was not moved. Resume the story to try again.`,
-      );
-      return;
-    }
+  }
+
+  /** After the box holds the merge: the branch moved and pushed, the maintainer and worker told. */
+  async #finish(
+    git: OfficeGit,
+    run: PartRun,
+    plan: Extract<CatchUpPlan, { kind: "merge" }> & {
+      readonly base: string;
+      readonly commit: string;
+    },
+    changes: BoxChanges,
+  ): Promise<void> {
     const subject = `Merge ${plan.base} into ${run.branch}`;
     const moved = await git.run((session) =>
-      moveBranch(session, run.branch, commit, plan.tip, subject),
+      moveBranch(session, run.branch, plan.commit, plan.tip, subject),
     );
     if (!moved) {
-      fail(
+      this.#fail(
+        run,
         `the branch ${run.branch} moved while dipo merged ${plan.base} into it, after the merge was copied into the box. Check the branch and the box, then resume the story.`,
       );
       return;
@@ -779,7 +1053,7 @@ export class BoxCollisions {
     };
     this.#deps.info?.("a box run caught up with its base", {
       run: run.runId,
-      commit,
+      commit: plan.commit,
       conflicts: plan.conflicts.length,
     });
     this.#deps.notice(run.office, run.runId, {
@@ -804,13 +1078,17 @@ export class BoxCollisions {
     await this.#tell(run.runId, catchUpMessage(facts));
   }
 
-  /** Removes and writes the merge's paths in the box (see the file comment). */
-  async #intoBox(git: OfficeGit, run: PartRun, commit: string, changes: BoxChanges): Promise<void> {
+  /**
+   * Stages the merge's written paths on the Mac (`git archive`, `mergeOffConfig`, then `tar`) and
+   * checks each against the merge's mode and blob; a path missing or different throws. The box is
+   * not touched.
+   */
+  async #stage(git: OfficeGit, commit: string, changes: BoxChanges): Promise<StagedMerge> {
     const stage = await realpath(await mkdtemp(join(this.#deps.tmpRoot, CATCH_UP_STAGE_PREFIX)));
+    const remove = () => rm(stage, { recursive: true, force: true });
     try {
       const dir = join(stage, "files");
       await mkdir(dir, { mode: 0o755 });
-      // Unpacked on the Mac first, so a failed archive changes nothing in the box.
       let n = 0;
       for (const group of chunks(changes.written)) {
         n += 1;
@@ -827,30 +1105,48 @@ export class BoxCollisions {
               "--",
               ...group,
             ],
-            { config: await filtersOffConfig(session), env: BASE_CHECKOUT_ENV },
+            { config: await mergeOffConfig(session), env: BASE_CHECKOUT_ENV },
           ),
         );
         await unpack(this.#deps.code, archive, dir);
         await rm(archive, { force: true });
       }
-      for (const group of chunks(changes.removed)) {
-        const removed = await this.#deps.boxes.exec(
-          run.box,
-          ["rm", "-f", "--", ...group.map((path) => `${BOX_WORKDIR}/${path}`)],
-          { timeoutMs: CATCH_UP_EXEC_TIMEOUT_MS },
-        );
-        if (removed.code !== 0) {
+      const { format, entries } = await git.run(async (session) => ({
+        format: await objectFormat(session),
+        entries: await entriesAt(session, commit, changes.written),
+      }));
+      for (const path of changes.written) {
+        if (!(await stagedAs(format, join(dir, path), entries.get(path)))) {
           throw new BoxError(
             "box.failed",
-            `removing files in the box failed (exit ${removed.code}).`,
+            "a staged file of the merge is missing or differs from its blob (an export attribute?).",
           );
         }
       }
-      if (changes.written.length > 0) {
-        await this.#deps.boxes.copyIn(run.box, `${dir}/.`, BOX_WORKDIR);
+      return { dir, remove };
+    } catch (error) {
+      await remove();
+      throw error;
+    }
+  }
+
+  /** Removes and writes the merge's paths in the box. */
+  async #write(run: PartRun, dir: string, changes: BoxChanges): Promise<void> {
+    for (const group of chunks(changes.removed)) {
+      const removed = await this.#deps.boxes.exec(
+        run.box,
+        ["rm", "-f", "--", ...group.map((path) => `${BOX_WORKDIR}/${path}`)],
+        { timeoutMs: CATCH_UP_EXEC_TIMEOUT_MS },
+      );
+      if (removed.code !== 0) {
+        throw new BoxError(
+          "box.failed",
+          `removing files in the box failed (exit ${removed.code}).`,
+        );
       }
-    } finally {
-      await rm(stage, { recursive: true, force: true });
+    }
+    if (changes.written.length > 0) {
+      await this.#deps.boxes.copyIn(run.box, `${dir}/.`, BOX_WORKDIR);
     }
   }
 }
