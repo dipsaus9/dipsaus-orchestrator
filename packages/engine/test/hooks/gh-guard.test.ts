@@ -128,6 +128,8 @@ const REFUSED = [
   "$'gh\\0x' pr list",
   "$'gh\\x00' pr list",
   "$'gh\\c@' pr list",
+  "printf 'gh\\0 pr list' | bash",
+  "echo -e 'gh\\0 pr list' | bash",
 ];
 
 describe("ghRefusal", () => {

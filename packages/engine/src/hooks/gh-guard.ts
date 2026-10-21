@@ -147,15 +147,20 @@ function hereStrings(args: readonly string[]): string[] {
  * of its pipe runs: the words as written, with their escapes decoded (`echo -e`, a printf format),
  * and for printf decoded with each word on a line of its own (`printf '%s\n' 'gh pr list'`).
  */
+/** Printed text with its escapes decoded, as a shell reads it: bash drops a NUL from its script. */
+function printedScript(text: string): string {
+  return ansiCText(text).replaceAll("\0", "");
+}
+
 function printedTexts(words: readonly string[]): string[] | null {
   const base = basename(words[0] ?? "").toLowerCase();
   if (base === "echo") {
     const args = words.slice(1).filter((word) => !/^-[neE]+$/.test(word));
-    return [args.join(" "), ansiCText(args.join(" "))];
+    return [args.join(" "), printedScript(args.join(" "))];
   }
   if (base !== "printf") return null;
   const args = words.slice(1);
-  return [args.join(" "), ansiCText(args.join(" ")), ansiCText(args.join("\n"))];
+  return [args.join(" "), printedScript(args.join(" ")), printedScript(args.join("\n"))];
 }
 
 function ghIn(text: string, depth: number): string | null {
