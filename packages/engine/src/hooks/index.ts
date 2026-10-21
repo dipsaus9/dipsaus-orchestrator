@@ -4,7 +4,6 @@
 export {
   ABSENT,
   answerOf,
-  maintainerPresent,
   PermissionAsks,
   QUESTION_CLOSED,
   REPLY_NOT_SENT,

@@ -1,7 +1,8 @@
 // The permission wait (DIPO-59 AC #4 to #9; 0008 section 5): the live `permission-wait` recording
 // (0017) replayed through the real ingestion and the Claude CLI parser into `PermissionAsks`, on a
 // migrated state database and the manual clock, with a fake presence and a steering fake that
-// records what reaches the worker host.
+// records what reaches the worker host. The question is live only while a TUI is connected at
+// that moment (0021 section 11, DIPO-279).
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -92,8 +93,8 @@ interface World {
   readonly sent: HostOp[][];
   readonly key: StoryKey;
   config: OfficeConfig;
-  connected: boolean;
-  lastRequestAt: number | null;
+  /** Whether a TUI is connected, read when the request arrives. */
+  tui: boolean;
   ending: boolean;
   /** What the steering fake answers; ok by default. */
   refusal: { reason: string; code: string } | null;
@@ -113,17 +114,13 @@ beforeEach(async () => {
     f,
     sent,
     config: CONFIG,
-    connected: true,
-    lastRequestAt: f.t.clock.now(),
+    tui: true,
     ending: false,
     refusal: null,
     ingestor: null,
     warnings: [],
   } as unknown as World;
-  const presence: Presence = {
-    connected: () => world.connected,
-    lastRequestAt: () => world.lastRequestAt,
-  };
+  const presence: Presence = { tuiConnected: () => world.tui };
   (world as { asks: PermissionAsks }).asks = new PermissionAsks({
     clock: f.t.clock,
     ids: f.t.ids,
@@ -239,7 +236,7 @@ function outputOf(ops: readonly HostOp[] | undefined): unknown {
   return op === undefined ? undefined : op.output === "" ? "" : JSON.parse(op.output);
 }
 
-describe("permission wait with the maintainer present (AC #4, #6, #7)", () => {
+describe("permission wait with a TUI connected (AC #4, #6, #7)", () => {
   it("asks with question.asked and input-wait, stores the question, and an allow passes the call", async () => {
     const { before, after } = scenario();
     // The capture's relay received the PermissionRequest as a `ch: hook` line.
@@ -394,13 +391,31 @@ describe("work.answer on a permission question (AC #7, #9)", () => {
   });
 });
 
+describe("a TUI at the moment of the question, not an activity window (DIPO-279)", () => {
+  it("asks live while a TUI is connected, however long no command or read came", async () => {
+    w.f.t.clock.advance(60 * 60_000);
+    await ingest(scenario().before);
+    expect(w.sent).toEqual([]);
+    expect(openQuestions(w.f.office)).toHaveLength(1);
+    expect(types()).toContain("question.asked");
+  });
+
+  it("reads the TUI connection as it is when the request arrives", async () => {
+    w.tui = false;
+    w.f.t.clock.advance(1000);
+    w.tui = true;
+    await ingest(scenario().before);
+    expect(openQuestions(w.f.office)).toHaveLength(1);
+    // A TUI closing after the question was asked does not take the question back.
+    w.tui = false;
+    expect(openQuestions(w.f.office)).toHaveLength(1);
+    expect(w.sent).toEqual([]);
+  });
+});
+
 describe("no decision at once (AC #5)", () => {
   const cases: [string, () => void][] = [
-    ["no client is connected", () => (w.connected = false)],
-    [
-      "no command or read came within presentMinutes",
-      () => (w.lastRequestAt = w.f.t.clock.now() - 11 * 60_000),
-    ],
+    ["no TUI is connected (DIPO-279)", () => (w.tui = false)],
     [
       "permissions.ask is never",
       () =>
@@ -499,7 +514,7 @@ describe("the timeout against the real worker host (DIPO-59 review)", () => {
       offices: { get: () => f.office, config: () => CONFIG },
       steering,
       encode,
-      presence: { connected: () => true, lastRequestAt: () => f.t.clock.now() },
+      presence: { tuiConnected: () => true },
     });
     try {
       const engine = await connectHost(launch.socket, {

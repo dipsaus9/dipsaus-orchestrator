@@ -785,12 +785,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
       work,
-      // The maintainer is present while a client is connected and sent a command or read lately
-      // (0008 section 5, DIPO-59); the server is made below.
-      presence: {
-        connected: () => server?.presence.connected() ?? false,
-        lastRequestAt: () => server?.presence.lastRequestAt() ?? null,
-      },
+      // A question is live only while a TUI is connected at that moment (0021 section 11,
+      // DIPO-279); the server is made below.
+      presence: { tuiConnected: () => server?.presence.tuiConnected() ?? false },
       // Plan limits (DIPO-61): a warning's notice goes to the software stream, and a held run
       // resumes only while the daemon schedules work.
       notify: (notice) => software.append("engine.notice", notice),
