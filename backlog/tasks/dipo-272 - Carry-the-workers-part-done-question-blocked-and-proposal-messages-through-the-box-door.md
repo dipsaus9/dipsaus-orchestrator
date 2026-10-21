@@ -6,7 +6,7 @@ title: >-
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 18:38'
+updated_date: '2026-10-21 20:03'
 labels:
   - 'tier:M'
   - cutover
@@ -40,6 +40,12 @@ references:
   - packages/engine/test/prompts/system.test.ts
   - packages/engine/test/run/start.test.ts
   - packages/engine/test/hooks/worker-questions.test.ts
+  - packages/engine/src/prompts/task/
+  - packages/engine/src/prompts/assemble.ts
+  - packages/engine/src/prompts/contract.ts
+  - packages/engine/src/run/park.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/reattach.test.ts
 priority: high
 type: feature
 ordinal: 261000
@@ -66,3 +72,10 @@ unknowns: []
 - [x] #4 The worker contract describes the messages and drops the write-only-these-paths, no-git and no-cd rules (0014 amendment of 2026-10-21)
 - [x] #5 A question from the box goes through the live-or-park rule of DIPO-279
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- The live worker question (a blocked report's question asked live while a TUI is connected, else park) runs in run control for every developer run, so it applies to Mac runs too, not only box runs. DIPO-159 (answer before park) should build on it: kind question rows, PermissionAsks.askWorker, the held answer of a question its park took over.
+- Part messages are read from the box, checked, recorded in the run directory (door-parts.ndjson) and acknowledged, but not committed: delivering and committing them is DIPO-273, through BoxDoor's onPart. Box runs stay held until DIPO-275.
+<!-- SECTION:NOTES:END -->
