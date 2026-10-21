@@ -250,13 +250,23 @@ function hostExited(host: ReturnType<typeof workerHostsOf>[number]): boolean {
  * Whether run `runId` ended with every worker host exited (true), still goes (false), or is
  * unknown to every loaded office (null), for `BoxWorkers.finishEnded`.
  */
-export function boxRunEnded(offices: DaemonRunsOptions["offices"], runId: string): boolean | null {
+export function boxRunEnded(
+  offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
+  runId: string,
+  read: {
+    readonly run: (
+      handle: OfficeHandle,
+      runId: RunId,
+    ) => { readonly endedAt: number | null } | null;
+    readonly hosts: (handle: OfficeHandle, runId: string) => ReturnType<typeof workerHostsOf>;
+  } = { run: findRun, hosts: workerHostsOf },
+): boolean | null {
   for (const office of offices.loadedOffices()) {
     const handle = offices.get(office);
     if (handle === undefined) continue;
-    const run = findRun(handle, runId as RunId);
+    const run = read.run(handle, runId as RunId);
     if (run === null) continue;
-    return run.endedAt !== null && workerHostsOf(handle, runId).every(hostExited);
+    return run.endedAt !== null && read.hosts(handle, runId).every(hostExited);
   }
   return null;
 }

@@ -185,6 +185,9 @@ interface World {
   gate: GateResult;
   /** The verify tools check's refusal (DIPO-173); null passes. */
   verifyRefusal: string | null;
+  /** What the box workers were asked (DIPO-271), and whether making a box fails. */
+  readonly boxCalls: string[];
+  boxFails: boolean;
 }
 
 let world: World;
@@ -219,6 +222,8 @@ beforeEach(async () => {
     warnings: [] as string[],
     gate: { mode: "pickup", passed: true, failures: [] } as GateResult,
     verifyRefusal: null,
+    boxCalls: [] as string[],
+    boxFails: false,
   } as unknown as World;
 
   const git = {
@@ -300,6 +305,17 @@ beforeEach(async () => {
     },
     workspace: (_git, path) => memoryWorkspace(path),
     warn: (message, fields) => w.warnings.push(`${message}: ${String(fields["reason"])}`),
+    // Box workers (DIPO-271), scripted.
+    boxes: {
+      create: async (input) => {
+        w.boxCalls.push(`create ${input.runId} at ${input.startCommit} in ${input.runDir}`);
+        if (w.boxFails) throw new Error("the image build failed");
+        return `dipo-${input.runId}`;
+      },
+      discard: async (runId) => {
+        w.boxCalls.push(`discard ${runId}`);
+      },
+    },
   });
 
   const read = (ids: readonly string[] | null): BaseRead => ({
@@ -721,6 +737,49 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(world.setupReleases).toEqual([3]);
     const notice = entries().find((e) => e.delta["code"] === LAUNCH_NOTICES.startFailed);
     expect(String(notice?.delta["text"])).toContain("spawn failed: no such file");
+  });
+});
+
+describe("a box worker's run (DIPO-271)", () => {
+  it("makes no box for a run started without box", async () => {
+    story("TASK-1", "Ready");
+    const plain = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
+    expect(plain.started).toHaveLength(1);
+    expect(world.boxCalls).toEqual([]);
+  });
+
+  it("makes the run's box from the claim's start commit before the launch checks", async () => {
+    story("TASK-1", "Ready");
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const runId = boxed.started[0]?.run as string;
+    expect(world.boxCalls).toEqual([
+      `create ${runId} at ${"b".repeat(40)} in ${join(world.dir, "repo", ".git", "dipo", "runs", runId)}`,
+    ]);
+  });
+
+  it("rolls the claim back when the box cannot be made, with nothing left to delete", async () => {
+    story("TASK-1", "Ready");
+    world.boxFails = true;
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    expect(world.hosts).toEqual([]);
+    expect(world.setupReleases).toEqual([3]);
+    expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toEqual([]);
+  });
+
+  it("deletes the box when the launch checks refuse the run or its host does not start", async () => {
+    story("TASK-1", "Ready");
+    world.checks = { ok: false, failures: [{ check: "box", detail: "the routes did not start" }] };
+    await run({ stories: ["TASK-1"], box: true });
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+
+    world.checks = { ok: true };
+    world.hostFails = true;
+    world.boxCalls.length = 0;
+    await run({ stories: ["TASK-1"], box: true });
+    // The release after a failed host start deletes the box without waiting on it.
+    for (let i = 0; i < 10 && world.boxCalls.length < 2; i++) await Promise.resolve();
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual(["create", "discard"]);
   });
 });
 
