@@ -53,7 +53,7 @@ function flag(launch: LaunchPlan, name: string): string | undefined {
   return index === -1 ? undefined : launch.argv[index + 1];
 }
 
-describe("the reviewer's tool set (DIPO-276 AC #2)", () => {
+describe("the reviewer's tool set (DIPO-276)", () => {
   it("is Read, Glob, Grep, WebSearch and WebFetch for the reviewer role", () => {
     expect([...REVIEWER_TOOLS]).toEqual(["Read", "Glob", "Grep", "WebSearch", "WebFetch"]);
   });
@@ -134,7 +134,7 @@ describe("the reviewer's tool set (DIPO-276 AC #2)", () => {
   });
 });
 
-describe("the reviewer's working directory and copy (DIPO-276 AC #5)", () => {
+describe("the reviewer's working directory and copy (DIPO-276)", () => {
   it("runs in its empty folder and reaches the copy only as an added directory of the run settings", () => {
     const launch = plan(reviewSpec(), reviewContext());
     expect(launch.cwd).toBe(REVIEW_SESSION);

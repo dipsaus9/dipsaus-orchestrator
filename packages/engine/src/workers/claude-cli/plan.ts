@@ -428,8 +428,13 @@ function permissions(spec: WorkerSpec, paths: Paths) {
   ];
   // A reviewer is read-only (0021 section 10): its tool list has no Edit, Write or Bash, and the
   // rules deny writes on its folder and on the copy as well. It reads only the copy, outside its
-  // working directory, so the copy is an added directory of the run settings: file access only,
-  // no configuration loads from it (DIPO-276).
+  // working directory, so the copy is an added directory of the run settings (DIPO-276). That is
+  // never its project root: no project settings, hooks or MCP servers of the copy load. Claude Code
+  // can still find a few things in an added directory, so these guards keep them inert rather than
+  // the setting itself: skills and commands, by `--disable-slash-commands`; subagents, by no Agent
+  // or Task tool; plugin keys of the copy's settings, by `enabledPlugins` false for every installed
+  // plugin in the run settings and the refusal of any plugin `system/init` lists; its CLAUDE.md
+  // and rules files, by `claudeMdExcludes` and the variable that would load them never being set.
   const copy = paths.copy;
   if (spec.kind === "review" && copy !== undefined) {
     deny.push(
@@ -637,8 +642,10 @@ function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   const enabledPlugins = plugins(ctx);
   return {
     includeGitInstructions: false,
-    // No CLAUDE.md, CLAUDE.local.md or rules file of the copy is ever instructions (DIPO-276): the
-    // copy is neither the working directory nor its parent, and its files are excluded by path too.
+    // No CLAUDE.md, CLAUDE.local.md or rules file of the copy is meant to load (DIPO-276): the copy
+    // is neither the working directory nor its parent, Claude Code loads those of an added directory
+    // only with CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD (never passed), and they are excluded by
+    // path here too.
     ...(paths.copy === undefined ? {} : { claudeMdExcludes: [`${paths.copy}/**`] }),
     attribution: { commit: "", pr: "" },
     permissions: permissions(spec, paths),
