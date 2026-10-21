@@ -9,6 +9,11 @@
 // - reading runs `security find-generic-password ... -w`, which prints the token on a pipe only
 //   dipo reads.
 //
+// What the Keychain does and does not give: an item stored through /usr/bin/security lists that
+// tool as trusted, so any process of the maintainer's user can read it with `security` without a
+// prompt. The Keychain keeps the token off disk in plain text and out of the boxes; it is not a
+// barrier against the maintainer's own processes.
+//
 // The token is held in a `SecretToken`, which prints as `[box login]` in a string, JSON or log
 // line. No error message or detail carries it, and dipo never writes it to disk.
 

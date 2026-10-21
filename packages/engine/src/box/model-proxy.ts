@@ -203,7 +203,9 @@ function isHostAddress(address: string): boolean {
 
 /**
  * Refuses a listen address that is not one host address of the box network: not an IP address,
- * every interface, or loopback (where any program on the Mac could borrow the login).
+ * every interface, loopback or an IPv4-mapped form. The box network's host address is also
+ * reachable from the Mac itself, so this does not keep the Mac's own programs out; it keeps the
+ * proxy from listening wider than the box network.
  */
 export function checkListenAddress(address: string): string {
   if (!isHostAddress(address)) {

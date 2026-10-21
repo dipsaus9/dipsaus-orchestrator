@@ -1,19 +1,33 @@
 // The post-run token check (0021 section 16, line 9, DIPO-269): after a run, dipo looks for the
-// maintainer's subscription token in the box's environment and files. The token never goes into
-// the box for this; dipo takes the box's environment and an archive of its files out through the
-// box interface and compares them in memory with a `TokenMatcher` (the model proxy). The result
-// says only where the token was found, never the token, and holds the adapter when the token was
-// found or the check could not prove anything.
+// maintainer's subscription token in the box's environment and files, and holds the adapter when
+// it finds it or cannot tell. The token never goes into the box for this:
+//
+// - the files are exported by the box backend from the host (`container export`), so no program
+//   in the box shapes what is scanned; the archive is stream-scanned on the host and removed;
+// - the environment is the box's `env` and every running process's /proc environ, read through
+//   `exec`; an empty read proves nothing and fails the check.
+//
+// Comparison is in memory through a `TokenMatcher` (the model proxy). Results and hold details
+// are fixed texts plus error codes: no token, no token fragment, no text from the box.
 
 import { createReadStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { BOX_PACKAGE_CACHE_PATH, type BoxPort } from "./port";
+import type { AdapterHold, AdapterHolds, LaunchCheckFailure } from "../workers/hold";
+import { BoxError, type BoxPort } from "./port";
 import type { TokenMatcher } from "./token";
 
-/** Where the file archive is made inside the box; it is left out of itself and removed after. */
-export const TOKEN_CHECK_ARCHIVE = "/tmp/dipo-token-check.tar";
+/** The prefix of the host folder an export is scanned in; `sweepTokenCheckLeftovers` finds it. */
+export const TOKEN_CHECK_DIR_PREFIX = "dipo-token-check-";
+/** The export's file name in that folder. */
+export const TOKEN_CHECK_EXPORT_FILE = "box.tar";
+/** A tar archive is at least one 512-byte header; anything smaller is no export. */
+export const TAR_HEADER_BYTES = 512;
+/** How long the export may take; a box holds a whole toolchain. */
+export const TOKEN_CHECK_EXPORT_TIMEOUT_MS = 10 * 60_000;
+/** The launch check name of the hold this check raises. */
+export const BOX_TOKEN_CHECK = "box-token";
 
 /**
  * Prints the box's own environment and that of every process still running in it (NUL-separated
@@ -24,28 +38,6 @@ export const TOKEN_CHECK_ENV_COMMAND: readonly [string, ...string[]] = [
   "-c",
   "env; cat /proc/[0-9]*/environ 2>/dev/null; exit 0",
 ];
-
-/**
- * Archives the box's whole filesystem, uncompressed so a file's bytes stay contiguous. Left out:
- * the kernel's pseudo filesystems, the archive itself, and the office package cache, which is
- * mounted read-only from the host and so cannot carry anything from the box.
- */
-export const TOKEN_CHECK_ARCHIVE_COMMAND: readonly [string, ...string[]] = [
-  "tar",
-  "-cf",
-  TOKEN_CHECK_ARCHIVE,
-  "--exclude=./proc",
-  "--exclude=./sys",
-  "--exclude=./dev",
-  `--exclude=.${TOKEN_CHECK_ARCHIVE}`,
-  `--exclude=.${BOX_PACKAGE_CACHE_PATH}`,
-  "-C",
-  "/",
-  ".",
-];
-
-/** How long the archive may take; a box holds a whole toolchain. */
-export const TOKEN_CHECK_ARCHIVE_TIMEOUT_MS = 10 * 60_000;
 
 export type TokenFoundIn = "environment" | "files";
 
@@ -62,16 +54,27 @@ export type BoxTokenCheck =
       readonly ok: false;
       readonly code: "box.tokenCheckFailed";
       readonly hold: true;
-      /** Why the check proves nothing; the token never appears in it. */
+      /** Which step failed, as fixed text with an error code; never text from the box. */
       readonly reason: string;
     };
 
 export interface TokenCheckDeps {
-  readonly box: Pick<BoxPort, "exec" | "copyOut">;
+  readonly box: Pick<BoxPort, "exec" | "exportFiles">;
   /** What knows the token: the running model proxy. */
   readonly token: TokenMatcher;
-  /** The host folder the archive is copied into (under `DIPO_TMP` in tests); removed after. */
+  /** The host folder the export folder is made in (under `DIPO_TMP` in tests). */
   readonly tmpRoot: string;
+}
+
+/** The error code of `error`, never its message: a message may quote the box. */
+function codeOf(error: unknown): string {
+  if (error instanceof BoxError) return error.code;
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "error";
+}
+
+function failed(reason: string): BoxTokenCheck {
+  return { ok: false, code: "box.tokenCheckFailed", hold: true, reason };
 }
 
 async function scanFile(path: string, token: TokenMatcher): Promise<boolean> {
@@ -83,69 +86,150 @@ async function scanFile(path: string, token: TokenMatcher): Promise<boolean> {
   return scanner.found;
 }
 
-function failed(token: TokenMatcher, reason: string): BoxTokenCheck {
-  return { ok: false, code: "box.tokenCheckFailed", hold: true, reason: token.redact(reason) };
+/** True or false when the box's environment was read; a string says why it could not be. */
+async function environmentHasToken(deps: TokenCheckDeps, name: string): Promise<boolean | string> {
+  let environment;
+  try {
+    environment = await deps.box.exec(name, TOKEN_CHECK_ENV_COMMAND);
+  } catch (error) {
+    return `the box environment could not be read (${codeOf(error)}).`;
+  }
+  if (environment.code !== 0 || environment.stdout.length === 0) {
+    return `the box environment could not be read (exit ${environment.code}, ${environment.stdout.length} characters).`;
+  }
+  const scanner = deps.token.scanner();
+  scanner.push(new TextEncoder().encode(environment.stdout));
+  return scanner.found;
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/** Exports the box's files into `dir` and scans them; a string says why it could not. */
+async function filesHaveToken(
+  deps: TokenCheckDeps,
+  name: string,
+  dir: string,
+): Promise<boolean | string> {
+  const archive = join(dir, TOKEN_CHECK_EXPORT_FILE);
+  try {
+    await deps.box.exportFiles(name, archive, { timeoutMs: TOKEN_CHECK_EXPORT_TIMEOUT_MS });
+  } catch (error) {
+    return `the box files could not be exported (${codeOf(error)}).`;
+  }
+  let size: number;
+  try {
+    size = (await stat(archive)).size;
+  } catch (error) {
+    return `the box export is missing (${codeOf(error)}).`;
+  }
+  if (size < TAR_HEADER_BYTES) {
+    return `the box export is empty or too small to be an archive (${size} bytes).`;
+  }
+  try {
+    return await scanFile(archive, deps.token);
+  } catch (error) {
+    return `the box export could not be read (${codeOf(error)}).`;
+  }
 }
 
 /**
- * Reports whether the token occurs in box `name`'s environment or files. The box must be running.
- * Any step that fails makes the result `box.tokenCheckFailed`, which holds like a find: a check
- * that read nothing proves nothing.
+ * Reports whether the token occurs in box `name`'s environment or files. Never rejects: every
+ * failure, the temp folder and its removal included, is `box.tokenCheckFailed`, which holds like
+ * a find, since a check that read nothing proves nothing.
  */
 export async function checkBoxForToken(deps: TokenCheckDeps, name: string): Promise<BoxTokenCheck> {
-  const { box, token } = deps;
   const foundIn: TokenFoundIn[] = [];
-
-  let environment;
+  let inEnvironment: boolean | string;
   try {
-    environment = await box.exec(name, TOKEN_CHECK_ENV_COMMAND);
+    inEnvironment = await environmentHasToken(deps, name);
   } catch (error) {
-    return failed(token, `the box environment could not be read: ${messageOf(error)}`);
+    inEnvironment = `the box environment could not be checked (${codeOf(error)}).`;
   }
-  if (environment.code !== 0 || environment.stdout.length === 0) {
-    return failed(token, `the box environment could not be read (exit ${environment.code}).`);
-  }
-  const envScanner = token.scanner();
-  envScanner.push(new TextEncoder().encode(environment.stdout));
-  if (envScanner.found) foundIn.push("environment");
+  if (typeof inEnvironment === "string") return failed(inEnvironment);
+  if (inEnvironment) foundIn.push("environment");
 
-  const hostDir = await mkdtemp(join(deps.tmpRoot, "dipo-token-check-"));
+  let dir: string;
   try {
-    let archived;
-    try {
-      archived = await box.exec(name, TOKEN_CHECK_ARCHIVE_COMMAND, {
-        timeoutMs: TOKEN_CHECK_ARCHIVE_TIMEOUT_MS,
-      });
-    } catch (error) {
-      return failed(token, `the box files could not be archived: ${messageOf(error)}`);
-    }
-    if (archived.code !== 0) {
-      const said = archived.stderr.trim().split("\n")[0] ?? "";
-      return failed(
-        token,
-        `the box files could not be archived (exit ${archived.code})${said === "" ? "" : `: ${said}`}`,
-      );
-    }
-    const hostArchive = join(hostDir, "box.tar");
-    try {
-      await box.copyOut(name, TOKEN_CHECK_ARCHIVE, hostArchive, {
-        timeoutMs: TOKEN_CHECK_ARCHIVE_TIMEOUT_MS,
-      });
-      if (await scanFile(hostArchive, token)) foundIn.push("files");
-    } catch (error) {
-      return failed(token, `the box files could not be read: ${messageOf(error)}`);
-    }
-  } finally {
-    await rm(hostDir, { recursive: true, force: true });
-    // The archive in the box is the box's own business; a failure to remove it is not a finding.
-    await box.exec(name, ["rm", "-f", TOKEN_CHECK_ARCHIVE]).catch(() => undefined);
+    dir = await mkdtemp(join(deps.tmpRoot, TOKEN_CHECK_DIR_PREFIX));
+  } catch (error) {
+    return failed(`the host folder for the box export could not be made (${codeOf(error)}).`);
   }
+  let inFiles: boolean | string;
+  try {
+    inFiles = await filesHaveToken(deps, name, dir);
+  } catch (error) {
+    inFiles = `the box files could not be checked (${codeOf(error)}).`;
+  }
+  try {
+    await rm(dir, { recursive: true, force: true });
+  } catch (error) {
+    // The export may hold the token; a later start removes it with the sweep.
+    return failed(`the box export could not be removed from the host (${codeOf(error)}).`);
+  }
+  if (typeof inFiles === "string") return failed(inFiles);
+  if (inFiles) foundIn.push("files");
 
   return foundIn.length === 0
     ? { ok: true, code: "box.tokenAbsent", hold: false }
     : { ok: false, code: "box.tokenFound", hold: true, foundIn };
+}
+
+/**
+ * Removes the export folders a check left in `tmpRoot` (a crash, a failed removal); they may hold
+ * a leaked token. Never rejects; resolves to the number removed. A later start calls it.
+ */
+export async function sweepTokenCheckLeftovers(tmpRoot: string): Promise<number> {
+  let entries: string[];
+  try {
+    entries = await readdir(tmpRoot);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.startsWith(TOKEN_CHECK_DIR_PREFIX)) continue;
+    try {
+      await rm(join(tmpRoot, entry), { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      // Left for the next sweep.
+    }
+  }
+  return removed;
+}
+
+/** The launch check failure a check result holds the adapter with; null when nothing holds. */
+export function tokenCheckFailure(result: BoxTokenCheck, name: string): LaunchCheckFailure | null {
+  if (result.ok) return null;
+  if (result.code === "box.tokenFound") {
+    return {
+      check: BOX_TOKEN_CHECK,
+      detail: `the subscription token was found in the ${result.foundIn.join(" and ")} of box ${name} after its run`,
+      fix: "Treat the token as leaked: make a new one with `claude setup-token`, store it with `dipo login box`, and find how it reached the box before running again.",
+    };
+  }
+  return {
+    check: BOX_TOKEN_CHECK,
+    detail: `the check for the subscription token in box ${name} could not finish: ${result.reason}`,
+    fix: "Look at the box and the daemon log, then name the story to repeat the launch checks.",
+  };
+}
+
+export interface TokenHoldDeps extends TokenCheckDeps {
+  readonly holds: Pick<AdapterHolds, "hold">;
+  /** The adapter the box ran, for example the Claude worker's. */
+  readonly adapter: string;
+}
+
+/**
+ * The check a caller runs after a box run: it checks box `name` and, when the token was found or
+ * the check could not finish, holds `adapter` through the adapter holds (no new run starts on it
+ * in any office, and an `engine.notice` is raised). The check itself never rejects. DIPO-271 calls
+ * it at the end of each box run.
+ */
+export async function checkBoxAfterRun(
+  deps: TokenHoldDeps,
+  name: string,
+): Promise<{ readonly result: BoxTokenCheck; readonly hold: AdapterHold | null }> {
+  const result = await checkBoxForToken(deps, name);
+  const failure = tokenCheckFailure(result, name);
+  return { result, hold: failure === null ? null : deps.holds.hold(deps.adapter, [failure]) };
 }

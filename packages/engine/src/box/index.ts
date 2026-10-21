@@ -11,6 +11,7 @@ export {
   createArgs,
   deleteArgs,
   execArgs,
+  exportArgs,
   listArgs,
   networkCreateArgs,
   networkListArgs,
@@ -108,10 +109,15 @@ export type {
   TokenStoreResult,
 } from "./token";
 export {
+  BOX_TOKEN_CHECK,
+  checkBoxAfterRun,
   checkBoxForToken,
-  TOKEN_CHECK_ARCHIVE,
-  TOKEN_CHECK_ARCHIVE_COMMAND,
-  TOKEN_CHECK_ARCHIVE_TIMEOUT_MS,
+  sweepTokenCheckLeftovers,
+  TAR_HEADER_BYTES,
+  TOKEN_CHECK_DIR_PREFIX,
   TOKEN_CHECK_ENV_COMMAND,
+  TOKEN_CHECK_EXPORT_FILE,
+  TOKEN_CHECK_EXPORT_TIMEOUT_MS,
+  tokenCheckFailure,
 } from "./token-check";
-export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn } from "./token-check";
+export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn, TokenHoldDeps } from "./token-check";
