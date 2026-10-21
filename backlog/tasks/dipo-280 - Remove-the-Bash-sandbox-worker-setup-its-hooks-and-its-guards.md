@@ -4,7 +4,7 @@ title: 'Remove the Bash-sandbox worker setup, its hooks and its guards'
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:45'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 14:35'
 labels:
   - 'tier:M'
   - cutover
@@ -14,6 +14,7 @@ dependencies:
   - DIPO-275
   - DIPO-276
   - DIPO-279
+  - DIPO-284
 references:
   - packages/engine/src/workers/claude-cli/plan.ts
   - packages/engine/src/hooks/
