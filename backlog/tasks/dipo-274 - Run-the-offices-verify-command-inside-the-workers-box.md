@@ -1,10 +1,10 @@
 ---
 id: DIPO-274
 title: Run the office's verify command inside the worker's box
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 22:28'
+updated_date: '2026-10-21 23:25'
 labels:
   - 'tier:S'
   - cutover
