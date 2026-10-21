@@ -1,11 +1,16 @@
 // The model proxy (DIPO-269): the path rule, the header handling, no redirect following, the
 // listen address, the start that reads the token from a fake `security`, and the box environment.
 // The upstream is a fake fetch, or a local test server where a real fetch must show it does not
-// follow a redirect.
+// follow a redirect. That server listens on loopback TCP where the environment allows it, and on a
+// Unix socket under the test temp root always: dipo's verify step on macOS refuses loopback TCP
+// listens but allows Unix sockets there (DIPO-287).
+
+import { createServer } from "node:net";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import { guardRuns, makeTempDir, ManualClock, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   BOX_PLACEHOLDER_API_KEY,
@@ -230,11 +235,34 @@ describe("the headers", () => {
   });
 });
 
+/**
+ * True only on macOS when a TCP listen on loopback is refused: dipo's verify step there runs under
+ * Seatbelt with a closed network (DIPO-114, DIPO-287). A Linux step gets a loopback of its own, so
+ * on Linux a refused loopback listen still fails the TCP test.
+ */
+async function sandboxRefusesLoopback(): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(true));
+    probe.listen(0, "127.0.0.1", () => probe.close(() => resolve(false)));
+  });
+}
+
+const TCP_RUNS = guardRuns(
+  "SANDBOX_REFUSES_LOOPBACK",
+  "the sandbox refuses loopback TCP listens, so the redirect test runs over a Unix socket only",
+  !(await sandboxRefusesLoopback()),
+);
+
 describe("redirects", () => {
   let server: ReturnType<typeof Bun.serve> | undefined;
+  let dir: string | undefined;
   afterEach(async () => {
     await server?.stop(true);
     server = undefined;
+    if (dir !== undefined) removeTempDir(dir);
+    dir = undefined;
   });
 
   it("asks fetch not to follow them", async () => {
@@ -244,37 +272,72 @@ describe("redirects", () => {
     expect(upstream.calls[0]?.init.redirect).toBe("manual");
   });
 
-  it("returns an upstream redirect to the box and never requests its target", async () => {
-    const hits: { path: string; authorization: string | null }[] = [];
-    server = Bun.serve({
-      hostname: "localhost",
-      port: 0,
-      fetch: (request) => {
-        const path = new URL(request.url).pathname;
-        hits.push({ path, authorization: request.headers.get("authorization") });
-        if (path === "/v1/messages") {
-          return new Response(null, { status: 307, headers: { location: "/v1/oauth/steal" } });
-        }
-        if (path === "/v1/messages/count_tokens") {
-          return new Response(null, { status: 302, headers: { location: "/elsewhere" } });
-        }
-        return new Response("followed", { status: 200 });
+  /**
+   * Where the redirecting upstream is served. Over a Unix socket the handler still calls the real
+   * fetch, which decides about the redirect; only Bun's `unix` option is added to reach the socket.
+   */
+  const transports: ReadonlyArray<{
+    readonly name: string;
+    readonly runs: boolean;
+    serve(handler: (request: Request) => Response): { upstream: string; fetch?: UpstreamFetch };
+  }> = [
+    {
+      name: "loopback TCP",
+      runs: TCP_RUNS,
+      serve(handler) {
+        server = Bun.serve({ hostname: "localhost", port: 0, fetch: handler });
+        return { upstream: new URL(server.url).origin };
       },
-    });
-    const origin = new URL(server.url).origin;
-    const handle = createModelProxyHandler(TOKEN, { upstream: origin });
+    },
+    {
+      name: "a Unix socket",
+      runs: true,
+      serve(handler) {
+        dir = makeTempDir();
+        const unix = join(dir, "upstream.sock");
+        server = Bun.serve({ unix, fetch: handler });
+        return {
+          upstream: "http://localhost",
+          fetch: (url, init) => fetch(url, { ...init, unix }),
+        };
+      },
+    },
+  ];
 
-    const first = await handle(boxRequest("/v1/messages", { headers: { "x-api-key": "box" } }));
-    expect(first.status).toBe(307);
-    expect(first.headers.get("location")).toBe("/v1/oauth/steal");
-    const second = await handle(boxRequest("/v1/messages/count_tokens"));
-    expect(second.status).toBe(302);
+  for (const transport of transports) {
+    it.skipIf(!transport.runs)(
+      `returns an upstream redirect to the box and never requests its target, over ${transport.name}`,
+      async () => {
+        const hits: { path: string; authorization: string | null }[] = [];
+        const served = transport.serve((request) => {
+          const path = new URL(request.url).pathname;
+          hits.push({ path, authorization: request.headers.get("authorization") });
+          if (path === "/v1/messages") {
+            return new Response(null, { status: 307, headers: { location: "/v1/oauth/steal" } });
+          }
+          if (path === "/v1/messages/count_tokens") {
+            return new Response(null, { status: 302, headers: { location: "/elsewhere" } });
+          }
+          return new Response("followed", { status: 200 });
+        });
+        const handle = createModelProxyHandler(TOKEN, {
+          upstream: served.upstream,
+          ...(served.fetch === undefined ? {} : { fetch: served.fetch }),
+        });
 
-    expect(hits).toEqual([
-      { path: "/v1/messages", authorization: `Bearer ${TOKEN_TEXT}` },
-      { path: "/v1/messages/count_tokens", authorization: `Bearer ${TOKEN_TEXT}` },
-    ]);
-  });
+        const first = await handle(boxRequest("/v1/messages", { headers: { "x-api-key": "box" } }));
+        expect(first.status).toBe(307);
+        expect(first.headers.get("location")).toBe("/v1/oauth/steal");
+        const second = await handle(boxRequest("/v1/messages/count_tokens"));
+        expect(second.status).toBe(302);
+
+        expect(hits).toEqual([
+          { path: "/v1/messages", authorization: `Bearer ${TOKEN_TEXT}` },
+          { path: "/v1/messages/count_tokens", authorization: `Bearer ${TOKEN_TEXT}` },
+        ]);
+      },
+    );
+  }
 });
 
 describe("the listen address", () => {
