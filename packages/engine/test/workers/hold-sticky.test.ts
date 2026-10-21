@@ -111,6 +111,35 @@ describe("the sticky box-token hold", () => {
       expect(readBoxTokenHold(path, ADAPTER)?.failures[0]?.check).toBe(BOX_TOKEN_CHECK);
     }));
 
+  it("holds in memory first and keeps holding when its record cannot be written", async () => {
+    const warnings: string[] = [];
+    const holds = new AdapterHolds({
+      clock: new ManualClock(),
+      notify: () => {},
+      sticky: {
+        checks: new Set([BOX_TOKEN_CHECK]),
+        liftedBy: BOX_TOKEN_LIFTED_BY,
+        store: {
+          read: () => null,
+          write: () => {
+            throw new Error("EACCES: the state folder cannot be written");
+          },
+          clear: () => {},
+        },
+      },
+      warn: (message) => warnings.push(message),
+    });
+    expect(holds.hold(ADAPTER, [FOUND]).check).toBe(BOX_TOKEN_CHECK);
+    expect(warnings).toEqual([
+      "the sticky hold record could not be written; the hold stays in memory",
+    ]);
+    // No record does not mean "lifted" here: the launch is still refused.
+    expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+    expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(false);
+    expect(holds.liftSticky(ADAPTER)).toBe(true);
+    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+  });
+
   it("leaves other holds as they were: a passing launch check lifts them", () =>
     withTempDir(async (dir) => {
       const holds = holdsAt(join(dir, "box-token-hold.json"));

@@ -103,6 +103,8 @@ export interface AdapterHoldsOptions {
   readonly notify: (notice: HoldNotice) => void;
   /** The sticky checks (DIPO-271); none by default. */
   readonly sticky?: StickyHolds;
+  /** Logs what the holds could not do (a sticky record that could not be written). */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 /**
@@ -115,11 +117,15 @@ export class AdapterHolds {
   readonly #clock: Clock;
   readonly #notify: (notice: HoldNotice) => void;
   readonly #sticky: StickyHolds | undefined;
+  readonly #warn: AdapterHoldsOptions["warn"];
+  /** Adapters whose sticky hold has no record: a missing record must not lift it then. */
+  readonly #unrecorded = new Set<string>();
 
   constructor(options: AdapterHoldsOptions) {
     this.#clock = options.clock;
     this.#notify = options.notify;
     this.#sticky = options.sticky;
+    this.#warn = options.warn;
   }
 
   #isSticky(failure: LaunchCheckFailure): boolean {
@@ -142,14 +148,27 @@ export class AdapterHolds {
     };
   }
 
-  /** Holds `adapter` with the failures and raises the notice. Replaces an earlier hold. */
+  /**
+   * Holds `adapter` with the failures and raises the notice. Replaces an earlier hold. Fail-closed:
+   * the hold is in memory first; a sticky record that cannot be written is logged and the hold
+   * stays in memory, where a missing record does not lift it (`liftSticky` or a restart does).
+   */
   hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold {
     const hold = this.#make(adapter, failures, this.#clock.now());
+    this.#holds.set(adapter, hold);
     const sticky = failures.filter((failure) => this.#isSticky(failure));
     if (sticky.length > 0) {
-      this.#sticky?.store?.write({ adapter, failures: sticky, since: hold.since });
+      try {
+        this.#sticky?.store?.write({ adapter, failures: sticky, since: hold.since });
+        this.#unrecorded.delete(adapter);
+      } catch (error) {
+        this.#unrecorded.add(adapter);
+        this.#warn?.("the sticky hold record could not be written; the hold stays in memory", {
+          adapter,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-    this.#holds.set(adapter, hold);
     this.#notify({ level: "error", code: HOLD_NOTICE_CODE, text: holdMessage(hold) });
     return hold;
   }
@@ -181,6 +200,7 @@ export class AdapterHolds {
   liftSticky(adapter: string): boolean {
     const record = this.#sticky?.store?.read() ?? null;
     if (record !== null && record.adapter === adapter) this.#sticky?.store?.clear();
+    this.#unrecorded.delete(adapter);
     return this.#dropSticky(adapter, "The sticky hold was lifted");
   }
 
@@ -223,7 +243,7 @@ export class AdapterHolds {
     const record = store.read();
     // A Map iterates safely while an entry is replaced or deleted.
     for (const adapter of this.#holds.keys()) {
-      if (record?.adapter !== adapter) {
+      if (record?.adapter !== adapter && !this.#unrecorded.has(adapter)) {
         this.#dropSticky(adapter, "The box login was replaced");
       }
     }
