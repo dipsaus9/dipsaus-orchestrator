@@ -1,10 +1,10 @@
 ---
 id: DIPO-242
 title: Re-check the command a wrapper or a shell runs in the gh check
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-21 00:19'
+updated_date: '2026-10-21 00:30'
 labels:
   - 'tier:S'
   - cutover
@@ -46,10 +46,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In packages/engine/src/hooks/gh-guard.ts a wrapper's wrapped command is found by option parsing, as the temp guard's wrappedCommandAt and envRefusal do (shared from packages/engine/src/hooks/temp-guard.ts), and checked again in full, so `env bash -c 'gh pr list'`, `sudo sh -c 'gh pr list'`, `nice -n5 bash -c 'gh pr list'` and `env -S 'gh pr list'` are refused, and `command -v gh` and `sudo -u gh ls` are allowed
-- [ ] #2 `function` and `coproc` are skipped before the program, so `function f { gh pr list; }` and `coproc gh pr list` are refused
-- [ ] #3 A shell without -c that reads a here-string, or that reads its stdin from an earlier stage of a pipe, has that text checked as a script, so `bash <<< 'gh pr list'` and `echo gh pr list | bash` are refused
-- [ ] #4 Each case of the criteria before is a row in the refused or allowed table of packages/engine/test/hooks/gh-guard.test.ts, and every row there before keeps its result
-- [ ] #5 In packages/engine/src/hooks/temp-guard.ts simpleCommands decodes ANSI-C quoting: a `$'...'` span is a quoted span whose escapes (`\xHH`, `\NNN` octal, `\n`, `\t` and the like) are read as bash reads them, and `$"..."` is read as a double-quoted span, so `$'gh' pr merge 1`, `$'\x67h' pr list` and `$"gh" pr list` give the word gh and are refused; the temp guard shares simpleCommands, so `export $'DIPO_TMP=/x'`, `$'DIPO_TMP=/x' ls`, `env $'DIPO_TMP=/x' ls` and `unset $'DIPO_TMP'` are refused too (rows in packages/engine/test/hooks/temp-guard.test.ts), and every temp-guard row before keeps its result
-- [ ] #6 The gh check compares a program's basename with gh case-insensitively, so `GH pr merge 1` and `Gh api /user` are refused, while the allowed help forms stay allowed whatever the letter case of the program name (`GH --version` is a row in the allowed table)
+- [x] #1 In packages/engine/src/hooks/gh-guard.ts a wrapper's wrapped command is found by option parsing, as the temp guard's wrappedCommandAt and envRefusal do (shared from packages/engine/src/hooks/temp-guard.ts), and checked again in full, so `env bash -c 'gh pr list'`, `sudo sh -c 'gh pr list'`, `nice -n5 bash -c 'gh pr list'` and `env -S 'gh pr list'` are refused, and `command -v gh` and `sudo -u gh ls` are allowed
+- [x] #2 `function` and `coproc` are skipped before the program, so `function f { gh pr list; }` and `coproc gh pr list` are refused
+- [x] #3 A shell without -c that reads a here-string, or that reads its stdin from an earlier stage of a pipe, has that text checked as a script, so `bash <<< 'gh pr list'` and `echo gh pr list | bash` are refused
+- [x] #4 Each case of the criteria before is a row in the refused or allowed table of packages/engine/test/hooks/gh-guard.test.ts, and every row there before keeps its result
+- [x] #5 In packages/engine/src/hooks/temp-guard.ts simpleCommands decodes ANSI-C quoting: a `$'...'` span is a quoted span whose escapes (`\xHH`, `\NNN` octal, `\n`, `\t` and the like) are read as bash reads them, and `$"..."` is read as a double-quoted span, so `$'gh' pr merge 1`, `$'\x67h' pr list` and `$"gh" pr list` give the word gh and are refused; the temp guard shares simpleCommands, so `export $'DIPO_TMP=/x'`, `$'DIPO_TMP=/x' ls`, `env $'DIPO_TMP=/x' ls` and `unset $'DIPO_TMP'` are refused too (rows in packages/engine/test/hooks/temp-guard.test.ts), and every temp-guard row before keeps its result
+- [x] #6 The gh check compares a program's basename with gh case-insensitively, so `GH pr merge 1` and `Gh api /user` are refused, while the allowed help forms stay allowed whatever the letter case of the program name (`GH --version` is a row in the allowed table)
 <!-- AC:END -->
