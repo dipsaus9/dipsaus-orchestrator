@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
+import { GitError } from "../../src/git";
 import {
   backstopEvidence,
   type BackstopSnapshot,
@@ -37,6 +38,7 @@ import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
+import { TASK_FIELD_ERROR } from "../../src/worktree/claim";
 import { findClaim, insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 
@@ -196,6 +198,8 @@ interface World {
   pushRejected: boolean;
   /** A push failure that is not a rejection, such as a network error. */
   pushError?: string;
+  /** The story's task file holds fields dipo does not know (DIPO-270). */
+  taskFieldRefused?: boolean;
 }
 
 const TASK_FILE = "backlog/tasks/dipo-1 - Add-a-greeting.md";
@@ -205,12 +209,17 @@ function fakeStoryGit(world: () => World): StoryGit {
   return {
     snapshot: async () => world().snapshot,
     changedPaths: async () => world().changed,
-    story: async () => ({
-      taskFile: TASK_FILE,
-      title: "Add a greeting",
-      status: "In Progress",
-      criteria: [1, 2],
-    }),
+    story: async () => {
+      if (world().taskFieldRefused === true) {
+        throw new GitError(TASK_FIELD_ERROR, "dipo refuses DIPO-1's task file: unknown fields.");
+      }
+      return {
+        taskFile: TASK_FILE,
+        title: "Add a greeting",
+        status: "In Progress",
+        criteria: [1, 2],
+      };
+    },
     showAt: async () => JSON.stringify({ scripts: { verify: "bun test" } }),
     commitPaths: async (_o, _w, paths, message) => {
       world().calls.push(`commit ${message} [${paths.join(", ")}]`);
@@ -555,6 +564,15 @@ describe("verify and commit", () => {
     );
     expect(w.steps).toEqual([]);
     expect(runOutcome(w.f.office, w.f.run)?.parkReasons).toEqual(["scope-violation"]);
+  });
+
+  it("parks scope-violation, commits nothing and runs no verify when the task file holds fields dipo does not know", async () => {
+    w.taskFieldRefused = true;
+    await play();
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "task-file"]]);
+    expect(parks()[0]?.detail).toContain("unknown fields");
+    expect(w.steps).toEqual([]);
+    expect(w.calls).toEqual([]);
   });
 
   it("parks scope-violation when a turn moved HEAD, whatever the report", async () => {

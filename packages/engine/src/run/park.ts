@@ -41,7 +41,7 @@ import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/p
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { inStoryBacklog, repoPath } from "../worktree/claim";
+import { inStoryBacklog, repoPath, TASK_FIELD_ERROR } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
@@ -81,6 +81,8 @@ export const PARK_CAUSES = {
   paths: "paths",
   /** `scope-violation`: the worktree's git links changed (`git.worktreeTampered`). */
   tampered: "tampered",
+  /** `scope-violation`: the story's task file holds fields dipo does not know (0021 section 14). */
+  taskFile: "task-file",
   /** `scope-violation`: the backstop saw HEAD, branch, stash, `backlog/` or `.dipo/` change. */
   backstop: "backstop",
   /** `scope-violation`: reconcile found the worktree or branch changed by hand. */
@@ -487,6 +489,18 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       notice(
         PARK_NOTICES.notWritten,
         `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: dipo runs no git in ${run.worktree ?? "its worktree"} since its git links changed.`,
+      );
+    } else if (error instanceof GitError && error.code === TASK_FIELD_ERROR) {
+      // 0021 section 14: a task file holding fields dipo does not know never reaches the CLI.
+      detail =
+        reason === "scope-violation"
+          ? `${error.message} ${detail}`
+          : `${error.message} (dipo was parking it as ${reason}: ${detail})`;
+      reason = "scope-violation";
+      cause = PARK_CAUSES.taskFile;
+      notice(
+        PARK_NOTICES.notWritten,
+        `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: its task file holds fields dipo does not know.`,
       );
     } else {
       notice(

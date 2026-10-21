@@ -849,8 +849,65 @@ const BACKLOG_DIR = "backlog";
 /** The `GitError` code when dipo cannot make or bring back its copy of a story's backlog. */
 export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";
 
+/**
+ * The `GitError` code when the story's task file holds a front matter field dipo does not know;
+ * the operation is refused, and a story in a run parks `scope-violation`.
+ */
+export const TASK_FIELD_ERROR = "story.unknownTaskField";
+
 /** The Backlog.md configuration, relative to the repository root. */
 const BACKLOG_CONFIG = `${BACKLOG_DIR}/config.yml`;
+
+/**
+ * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
+ * other field is refused before the CLI reads it (0021 section 14).
+ */
+export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
+  "id",
+  "title",
+  "status",
+  "assignee",
+  "reporter",
+  "created_date",
+  "updated_date",
+  "due_date",
+  "labels",
+  "milestone",
+  "dependencies",
+  "references",
+  "documentation",
+  "modified_files",
+  "parent_task_id",
+  "subtasks",
+  "priority",
+  "type",
+  "project",
+  "ordinal",
+]);
+
+/**
+ * Pure: why the task file `text` may not reach the Backlog CLI, or null when it may. Its front
+ * matter must open on the first line and close, and each of its top-level lines must be a plain
+ * `name:` entry whose name is in `KNOWN_TASK_FIELDS`. Indented lines (values, list items) are
+ * left to the CLI; a top-level line of any other form is refused like a field dipo does not know.
+ */
+export function taskFieldRefusal(text: string): string | null {
+  const lines = text.split(/\r?\n/);
+  if (lines[0] !== "---") return "it does not open with a front matter block";
+  const end = lines.indexOf("---", 1);
+  if (end < 0) return "its front matter block does not close";
+  const unknown: string[] = [];
+  for (const line of lines.slice(1, end)) {
+    if (line.trim() === "" || /^\s/.test(line)) continue;
+    const name = /^([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)/.exec(line)?.[1];
+    if (name === undefined || !KNOWN_TASK_FIELDS.has(name)) {
+      unknown.push(JSON.stringify(line.slice(0, 40)));
+    }
+  }
+  return unknown.length === 0
+    ? null
+    : `its front matter holds fields dipo does not know: ${unknown.join(", ")}`;
+}
 
 /** dipo's own copy of a story's backlog, where every Backlog CLI call for the story runs. */
 export interface StoryBacklog {
@@ -866,15 +923,42 @@ function isTaskFileOf(name: string, id: string): boolean {
 }
 
 /**
+ * The commit of the office's base branch: `<remote>/<base>`, else the local `<base>` (an office
+ * without a fetched remote). Runs inside a queue item of `git`.
+ */
+async function baseCommit(git: OfficeGit, session: GitSession): Promise<string> {
+  const base = await git.resolveBaseIn(session);
+  const refs = [`refs/remotes/${git.settings.remote}/${base}`, `refs/heads/${base}`];
+  for (const ref of refs) {
+    const found = await session.step(session.repository, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `${ref}^{commit}`,
+    ]);
+    if (found.code === 0) return found.stdout.trim();
+  }
+  throw new GitError(
+    "git.baseMissing",
+    `Neither ${refs.join(" nor ")} exists, so dipo has no Backlog configuration to run the CLI with.`,
+    false,
+    { refs },
+  );
+}
+
+/**
  * Runs `fn` with dipo's own copy of the backlog of `story` (0021 section 14): a fresh folder under
  * the worktree root, outside any git repository and outside the story's worktree, holding only
- * `backlog/config.yml` and the story's task file as committed at the worktree's `HEAD`, read from
- * git objects and never from the worktree's files. No file a worker wrote, in the worktree or in
- * its `backlog/` folder, reaches the folder the CLI runs in. With `write`, the task file the CLI
- * left in the copy is then written into the worktree in place of its own, so the caller commits
- * it; the worktree's `backlog/` folders must be plain folders, and the file is replaced, never
- * written through. The folder shares the branch reads' prefix, so the claims load step sweeps one
- * a killed daemon left behind (`worktree/sweep.ts`). Runs inside a queue item of `git`.
+ * two files read from git objects, never from the worktree's files: `backlog/config.yml` from the
+ * office's base branch, so a commit on a story branch never changes how the CLI behaves, and the
+ * story's task file as committed at the worktree's `HEAD`. A task file whose front matter holds a
+ * field dipo does not know is refused with `TASK_FIELD_ERROR` before the CLI runs. No file a
+ * worker wrote, in the worktree or in its `backlog/` folder, reaches the folder the CLI runs in.
+ * With `write`, the task file the CLI left in the copy is then written into the worktree in place
+ * of its own, so the caller commits it; the worktree's `backlog/` folders must be plain folders,
+ * and the file is replaced, never written through. The folder shares the branch reads' prefix, so
+ * the claims load step sweeps one a killed daemon left behind (`worktree/sweep.ts`). Runs inside
+ * a queue item of `git`.
  */
 export async function inStoryBacklog<T>(
   git: OfficeGit,
@@ -904,8 +988,18 @@ export async function inStoryBacklog<T>(
       { story, files },
     );
   }
-  const config = await session.ok(session.repository, ["show", `${head}:${BACKLOG_CONFIG}`]);
   const committed = await session.ok(session.repository, ["show", `${head}:${taskFile}`]);
+  const refused = taskFieldRefusal(committed);
+  if (refused !== null) {
+    throw new GitError(
+      TASK_FIELD_ERROR,
+      `dipo refuses ${story}'s task file ${taskFile} at ${head}: ${refused}.`,
+      false,
+      { story, taskFile, head },
+    );
+  }
+  const base = await baseCommit(git, session);
+  const config = await session.ok(session.repository, ["show", `${base}:${BACKLOG_CONFIG}`]);
   const root = git.worktreeRoot();
   mkdirSync(root, { recursive: true });
   const cwd = mkdtempSync(join(root, BRANCH_READ_PREFIX));
