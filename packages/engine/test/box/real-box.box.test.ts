@@ -11,8 +11,24 @@
 // - what `container copy` out does with a symlink in the box that points outside the copied folder;
 // - whether a killed `container exec` client leaves its process running in the box;
 // - whether `container stats` on a stopped box exits non-zero.
+//
+// A second test (DIPO-268) repeats the DIPO-264 network lines through dipo's web proxy and the
+// Safe-Chain proxy behind it, so it also needs the official Safe-Chain install (`~/.safe-chain`)
+// and the internet: no way out without the proxy; through it the Mac's loopback, the box network,
+// the Mac's own address and IP literals are refused, plain HTTP proxying is refused, a registry
+// (also with a trailing dot) goes through Safe-Chain, the internet works, and an npm install is
+// checked by Safe-Chain.
 
-import { lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer, isIP, type Server } from "node:net";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -22,7 +38,15 @@ import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { statsArgs } from "../../src/box/apple-args";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { boxName, isBoxTimedOut } from "../../src/box/port";
+import {
+  BoxWebRoute,
+  type RunningBoxWebRoute,
+  startBoxWebRoute,
+  systemInterfaceAddresses,
+  type WebProxyEvent,
+} from "../../src/box/web-proxy";
 import { systemClock } from "../../src/platform/clock";
+import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 
 const IMAGE = "docker.io/library/alpine:3.20";
@@ -33,6 +57,21 @@ const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
   process.env["DIPO_TEST_CI"] !== "1" &&
   process.env["CI"] === undefined;
+
+/** The official Safe-Chain install the web route's Safe-Chain proxy copies its binary from. */
+const SAFE_CHAIN_INSTALL = join(homedir(), ".safe-chain");
+
+/** Listens on `host` with a free port, for the box to try to reach. */
+function listenOn(host: string): Promise<{ server: Server; port: number }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((socket) => socket.end("HTTP/1.1 200 OK\r\n\r\n"));
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      const address = server.address();
+      resolve({ server, port: typeof address === "object" && address !== null ? address.port : 0 });
+    });
+  });
+}
 
 /** A line the maintainer's run shows: one observed behaviour of `container`. */
 function fact(text: string): void {
@@ -185,6 +224,146 @@ if (registers) {
         });
       },
       PULL_TIMEOUT_MS + 120_000,
+    );
+
+    it(
+      "reaches the internet only through dipo's web proxy, and the registries only through Safe-Chain",
+      async () => {
+        expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
+        const env = cleanEnv();
+        const cliEnv = {
+          PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
+          HOME: env["HOME"] ?? "/",
+        };
+        const boxes = new AppleContainerBoxes({
+          spawn: systemSpawn,
+          clock: systemClock,
+          env: cliEnv,
+        });
+        expect(await boxes.check()).toMatchObject({ ok: true });
+        const network = await boxes.network();
+        const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+        const name = boxName(runId);
+        const events: WebProxyEvent[] = [];
+
+        await withTempDir(async (dir) => {
+          const route = new BoxWebRoute<RunningBoxWebRoute>(async () => {
+            const started = await startBoxWebRoute(
+              network,
+              {
+                request: {
+                  installRoot: SAFE_CHAIN_INSTALL,
+                  caFile: join(dir, "safe-chain", "ca.pem"),
+                  home: homedir(),
+                  uid: process.getuid?.() ?? 0,
+                  env: process.env,
+                },
+                deps: { platform: currentPlatform(), clock: systemClock, root: join(dir, "p") },
+              },
+              { clock: systemClock, onEvent: (event) => events.push(event) },
+            );
+            if (!started.ok) throw new Error(started.reason);
+            return started.route;
+          });
+          const loopback = await listenOn("127.0.0.1");
+          const onBoxNetwork = await listenOn(network.hostAddress);
+          // The Mac's own address on another network than the box network, when it has one.
+          const macAddress = systemInterfaceAddresses().find(
+            (entry) =>
+              isIP(entry.address) === 4 &&
+              !entry.address.startsWith("127.") &&
+              entry.address !== network.hostAddress,
+          )?.address;
+          try {
+            await boxes.create({ runId, image: IMAGE, network }, { timeoutMs: PULL_TIMEOUT_MS });
+            await boxes.start(name);
+
+            // Without the proxy there is no way out.
+            const direct = await boxes.exec(name, [
+              "sh",
+              "-c",
+              "wget -q -T5 -O /dev/null https://example.com && echo 'internet: yes' || echo 'internet: no'; " +
+                "wget -q -T5 -O /dev/null https://registry.npmjs.org/ && echo 'registry: yes' || echo 'registry: no'",
+            ]);
+            expect(direct.stdout).toContain("internet: no");
+            expect(direct.stdout).toContain("registry: no");
+
+            const route1 = await route.acquire(name);
+            expect(route1.host).toBe(network.hostAddress);
+            await boxes.copyIn(name, route1.caFile, "/ca.pem");
+            const proxyEnv = {
+              https_proxy: route1.url,
+              HTTPS_PROXY: route1.url,
+              NODE_EXTRA_CA_CERTS: "/ca.pem",
+            };
+            const setup = await boxes.exec(
+              name,
+              [
+                "sh",
+                "-c",
+                "sed -i 's#^http://#https://#' /etc/apk/repositories && apk add --no-cache curl nodejs npm",
+              ],
+              { env: proxyEnv, timeoutMs: PULL_TIMEOUT_MS },
+            );
+            expect(setup.code).toBe(0);
+
+            /** The proxy's CONNECT answer and the final HTTP status of one request from the box. */
+            const through = async (url: string): Promise<string> => {
+              const result = await boxes.exec(name, [
+                "sh",
+                "-c",
+                `curl -x ${route1.url} --cacert /ca.pem -sS -m 10 -o /dev/null -w '%{http_connect} %{http_code}' '${url}' || true`,
+              ]);
+              const answer = result.stdout.trim();
+              fact(`through the web proxy: ${url} -> ${answer}`);
+              return answer;
+            };
+            expect(await through(`https://127.0.0.1:${loopback.port}/`)).toStartWith("403");
+            expect(await through(`https://localhost:${loopback.port}/`)).toStartWith("403");
+            expect(await through(`https://localtest.me:${loopback.port}/`)).toStartWith("403");
+            expect(
+              await through(`https://${network.hostAddress}:${onBoxNetwork.port}/`),
+            ).toStartWith("403");
+            if (macAddress !== undefined) {
+              expect(await through(`https://${macAddress}:${loopback.port}/`)).toStartWith("403");
+            }
+            // A registry by IP literal (any literal is refused, so a documentation address will do).
+            expect(await through("https://203.0.113.10/")).toStartWith("403");
+            // Plain HTTP proxying is refused: no CONNECT, the proxy's own 405.
+            expect(await through("http://example.com/")).toBe("000 405");
+            expect(await through("https://registry.npmjs.org./")).toStartWith("200");
+            expect(await through("https://example.com/")).toBe("200 200");
+
+            const allowed = await boxes.exec(
+              name,
+              ["sh", "-c", "npm --prefix /tmp/a install is-number@7.0.0"],
+              { env: proxyEnv, timeoutMs: PULL_TIMEOUT_MS },
+            );
+            expect(allowed.code).toBe(0);
+            const blocked = await boxes.exec(
+              name,
+              ["sh", "-c", "npm --prefix /tmp/b install safe-chain-test 2>&1"],
+              { env: proxyEnv, timeoutMs: PULL_TIMEOUT_MS },
+            );
+            expect(blocked.code).not.toBe(0);
+            expect(blocked.stdout).toContain("blocked by safe-chain");
+
+            expect(events).toContainEqual({
+              kind: "registry",
+              host: "registry.npmjs.org",
+              port: 443,
+            });
+            for (const event of events) fact(`web proxy event: ${JSON.stringify(event)}`);
+          } finally {
+            await boxes.delete(name).catch(() => {});
+            await route.release(name);
+            loopback.server.close();
+            onBoxNetwork.server.close();
+          }
+          expect(route.running).toBe(false);
+        });
+      },
+      2 * PULL_TIMEOUT_MS + 120_000,
     );
   });
 }
