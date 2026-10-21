@@ -26,6 +26,39 @@ const MAX_PATTERNS_PER_FILE = 2_000;
 const MAX_PATTERNS_TOTAL = 5_000;
 /** The most `.gitignore` files read; the shallowest go first. */
 const MAX_FILES = 500;
+/** The most `**` parts one pattern holds once runs of them are merged; more ignore nothing. */
+const MAX_GLOBSTARS = 4;
+/** The deepest path matched; a deeper one passes every budget at once. */
+export const MAX_MATCH_DEPTH = 64;
+
+/** Thrown when matching passes its budget (`MatchBudget`) or a path is deeper than matched. */
+export class IgnoreBudgetExceeded extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IgnoreBudgetExceeded";
+  }
+}
+
+/**
+ * The steps matching may take: every character compared, every memoised `**` step and every
+ * `**` extension counts one, and the step past `limit` throws `IgnoreBudgetExceeded` at once.
+ */
+export class MatchBudget {
+  #steps = 0;
+
+  constructor(readonly limit: number) {}
+
+  get steps(): number {
+    return this.#steps;
+  }
+
+  take(): void {
+    this.#steps += 1;
+    if (this.#steps > this.limit) {
+      throw new IgnoreBudgetExceeded(`ignore matching passed ${this.limit} steps.`);
+    }
+  }
+}
 
 /** One `.gitignore` file: its folder (repo-relative, "" for the root) and its text. */
 export interface IgnoreFile {
@@ -55,8 +88,6 @@ interface Pattern {
   readonly dirOnly: boolean;
   /** The pattern itself when it is a plain name matched at any depth (`node_modules`), else null. */
   readonly plainName: string | null;
-  /** Its tokens plus one per part: one test costs at most this many steps per character tested. */
-  readonly cost: number;
 }
 
 interface RuleFile {
@@ -147,12 +178,17 @@ function matchesOne(token: Token, char: string): boolean {
  * True when the tokens match the whole of `text` (one path part): the greedy match with one star
  * to fall back to, at most (tokens x characters) steps.
  */
-function matchPart(pattern: readonly Token[], text: readonly string[]): boolean {
+function matchPart(
+  pattern: readonly Token[],
+  text: readonly string[],
+  budget: MatchBudget,
+): boolean {
   let p = 0;
   let t = 0;
   let star = -1;
   let resume = 0;
   while (t < text.length) {
+    budget.take();
     const token = pattern[p];
     if (token?.kind === "star") {
       star = p;
@@ -174,22 +210,30 @@ function matchPart(pattern: readonly Token[], text: readonly string[]): boolean 
 }
 
 /** True when the pattern's parts match the path's parts; `**` parts match any number of them. */
-function matchParts(parts: readonly Part[], path: readonly (readonly string[])[]): boolean {
+function matchParts(
+  parts: readonly Part[],
+  path: readonly (readonly string[])[],
+  budget: MatchBudget,
+): boolean {
   const memo = new Map<number, boolean>();
   const at = (i: number, j: number): boolean => {
     if (i === parts.length) return j === path.length;
     const key = i * (path.length + 1) + j;
     const known = memo.get(key);
     if (known !== undefined) return known;
+    budget.take();
     const part = parts[i]!;
     let result: boolean;
     if (part === "**") {
       // A trailing `/**` matches everything inside, so at least one part; elsewhere zero or more.
       const least = i === parts.length - 1 ? 1 : 0;
       result = false;
-      for (let k = j + least; k <= path.length && !result; k += 1) result = at(i + 1, k);
+      for (let k = j + least; k <= path.length && !result; k += 1) {
+        budget.take();
+        result = at(i + 1, k);
+      }
     } else {
-      result = j < path.length && matchPart(part, path[j]!) && at(i + 1, j + 1);
+      result = j < path.length && matchPart(part, path[j]!, budget) && at(i + 1, j + 1);
     }
     memo.set(key, result);
     return result;
@@ -223,27 +267,34 @@ function parseLine(raw: string): Pattern | null {
   if (line === "") return null;
   const anchored = line.includes("/");
   if (line.startsWith("/")) line = line.slice(1);
-  const parts: Part[] = line
-    .split("/")
-    .map((part) => (anchored && part === "**" ? "**" : tokens([...part])));
+  const parts: Part[] = [];
+  for (const part of line.split("/")) {
+    // A run of `**` parts matches what one does: merged, so it cannot multiply the work.
+    if (anchored && part === "**") {
+      if (parts.at(-1) !== "**") parts.push("**");
+    } else {
+      parts.push(tokens([...part]));
+    }
+  }
+  if (parts.filter((part) => part === "**").length > MAX_GLOBSTARS) return null;
   const plainName =
     !anchored && /^[A-Za-z0-9._-]+$/.test(line) && line !== "." && line !== ".." ? line : null;
-  const cost = parts.reduce((sum, part) => sum + (part === "**" ? 1 : part.length + 1), 0);
-  return { anchored, parts, negated, dirOnly, plainName, cost };
+  return { anchored, parts, negated, dirOnly, plainName };
 }
 
-function patternMatches(pattern: Pattern, rel: string): boolean {
+function patternMatches(pattern: Pattern, rel: string, budget: MatchBudget): boolean {
   const parts = rel.split("/").map((part) => [...part]);
-  if (pattern.anchored) return matchParts(pattern.parts, parts);
+  if (pattern.anchored) return matchParts(pattern.parts, parts, budget);
   const only = pattern.parts[0];
-  return only !== undefined && only !== "**" && matchPart(only, parts.at(-1) ?? []);
+  return only !== undefined && only !== "**" && matchPart(only, parts.at(-1) ?? [], budget);
 }
 
 /** The story's ignore rules, from its `.gitignore` files. */
 export class IgnoreRules {
   /** Deepest folder first, so a deeper file decides before a higher one. */
   readonly #files: readonly RuleFile[];
-  #work = 0;
+  /** The budget every match counts against; unbounded until `withBudget`. */
+  #budget = new MatchBudget(Number.POSITIVE_INFINITY);
 
   constructor(files: readonly IgnoreFile[]) {
     // The total is capped too, shallowest files first, so no set of files makes every match
@@ -266,12 +317,10 @@ export class IgnoreRules {
       .toSorted((a, b) => depth(b.dir) - depth(a.dir));
   }
 
-  /**
-   * The matching work done so far: for each pattern tested, its cost times the length of the path
-   * it was tested on, an upper bound of the steps taken. A caller bounds it with a budget.
-   */
-  get work(): number {
-    return this.#work;
+  /** Counts every later match against `budget`, which may be shared with other rules. */
+  withBudget(budget: MatchBudget): this {
+    this.#budget = budget;
+    return this;
   }
 
   /**
@@ -284,7 +333,7 @@ export class IgnoreRules {
       file.patterns.some((pattern) => {
         if (!pattern.negated) return false;
         const last = pattern.parts.at(-1);
-        return last === undefined || last === "**" || matchPart(last, chars);
+        return last === undefined || last === "**" || matchPart(last, chars, this.#budget);
       }),
     );
   }
@@ -312,8 +361,7 @@ export class IgnoreRules {
       for (let at = file.patterns.length - 1; at >= 0; at -= 1) {
         const pattern = file.patterns[at]!;
         if (pattern.dirOnly && !isDir) continue;
-        this.#work += pattern.cost * (rel.length + 1);
-        if (patternMatches(pattern, rel)) return !pattern.negated;
+        if (patternMatches(pattern, rel, this.#budget)) return !pattern.negated;
       }
     }
     return null;
@@ -321,10 +369,14 @@ export class IgnoreRules {
 
   /**
    * True when git would ignore the repo-relative `path` (a file unless `isDir`): it or a folder
-   * above it is ignored. A tracked path is never ignored; the caller checks that.
+   * above it is ignored. A tracked path is never ignored; the caller checks that. Throws
+   * `IgnoreBudgetExceeded` past the budget, or for a path deeper than `MAX_MATCH_DEPTH`.
    */
   ignored(path: string, isDir = false): boolean {
     const parts = path.split("/");
+    if (parts.length > MAX_MATCH_DEPTH) {
+      throw new IgnoreBudgetExceeded(`a path deeper than ${MAX_MATCH_DEPTH} parts is not matched.`);
+    }
     for (let end = 1; end < parts.length; end += 1) {
       if (this.#decide(parts.slice(0, end).join("/"), true) === true) return true;
     }

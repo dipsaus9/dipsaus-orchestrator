@@ -5,7 +5,13 @@ import { describe, expect, it } from "bun:test";
 
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { ignoreFileDir, IgnoreRules } from "../../src/box/ignore";
+import {
+  IgnoreBudgetExceeded,
+  ignoreFileDir,
+  IgnoreRules,
+  MAX_MATCH_DEPTH,
+  MatchBudget,
+} from "../../src/box/ignore";
 
 function rules(text: string, dir = ""): IgnoreRules {
   return new IgnoreRules([{ dir, text }]);
@@ -173,4 +179,35 @@ describe("against git check-ignore", () => {
         },
       },
     ));
+});
+
+describe("the matching budget (DIPO-273)", () => {
+  it("merges runs of ** and leaves a pattern with too many ** ignoring nothing", () => {
+    const merged = rules(`${"**/".repeat(40)}q`);
+    expect(merged.ignored(`${"d/".repeat(60)}q`)).toBe(true);
+    expect(rules("a/**/b/**/c/**/d/**/e/**/f").ignored("a/b/c/d/e/f")).toBe(false);
+    expect(rules("a/**/b/**/c/**/d/**/e").ignored("a/b/c/d/e")).toBe(true);
+  });
+
+  it("stops at once when a match passes its budget, and refuses a path deeper than it matches", () => {
+    const budget = new MatchBudget(50);
+    const r = rules(`${"*a".repeat(60)}b`).withBudget(budget);
+    expect(() => r.ignored(`src/${"a".repeat(250)}`)).toThrow(IgnoreBudgetExceeded);
+    expect(budget.steps).toBe(51);
+    expect(() => rules("x").ignored(`${"d/".repeat(MAX_MATCH_DEPTH)}x`)).toThrow(
+      IgnoreBudgetExceeded,
+    );
+  });
+
+  it("refuses a 64 KiB .gitignore of `**/**/.../q` lines against a 200-level path, fast", () => {
+    const line = `${"**/".repeat(40)}q${"/**".repeat(40)}`;
+    const text = Array.from({ length: Math.floor((64 * 1024) / (line.length + 1)) }, () => line)
+      .join("\n")
+      .slice(0, 64 * 1024);
+    const r = rules(text).withBudget(new MatchBudget(10_000_000));
+    const started = performance.now();
+    expect(() => r.ignored(`${"q/".repeat(200)}file`)).toThrow(IgnoreBudgetExceeded);
+    expect(() => r.ignored(`${"q/".repeat(60)}file`)).not.toThrow();
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
 });
