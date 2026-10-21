@@ -188,6 +188,13 @@ describe("collisions", () => {
       ],
     ],
     [
+      "two names that differ only by a long s, which folds to s",
+      [
+        { name: `${String.fromCodePoint(0x17f)}rc/a`, type: "0", data: "1" },
+        { name: "src/a", type: "0", data: "2" },
+      ],
+    ],
+    [
       "the NFC and NFD forms of one name",
       [
         { name: "café/a", type: "0", data: "1" },
@@ -517,6 +524,37 @@ describe("the shared stream helper (DIPO-273)", () => {
         "stdin end",
         "kill SIGKILL",
       ]);
+    }));
+});
+
+describe("exit codes a stream takes (DIPO-273)", () => {
+  it("takes an exit code the caller names, and refuses any other", () =>
+    withTempDir(async (dir) => {
+      const take = (code: number, okExits: readonly number[]) => {
+        const { boxes } = streamingBox(["bytes"], code);
+        const folder = join(dir, `exit-${code}-${okExits.join("")}`);
+        mkdirSync(folder);
+        return streamFromBox({
+          boxes,
+          box: "dipo-run_1",
+          command: ["tar", "-cf", "-", "."],
+          folder,
+          name: "part.tar",
+          maxBytes: 1000,
+          timeoutMs: 60_000,
+          clock: new ManualClock(),
+          code: "box.partFailed",
+          what: "the part archive",
+          stopOnFailure: false,
+          okExits,
+        });
+      };
+      expect(await take(1, [0, 1])).toContain("part.tar");
+      const error = await take(2, [0, 1]).then(
+        () => null,
+        (thrown: unknown) => thrown as BoxError,
+      );
+      expect(error?.details["reason"]).toBe("exit");
     }));
 });
 

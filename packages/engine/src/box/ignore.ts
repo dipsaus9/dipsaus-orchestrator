@@ -55,6 +55,8 @@ interface Pattern {
   readonly dirOnly: boolean;
   /** The pattern itself when it is a plain name matched at any depth (`node_modules`), else null. */
   readonly plainName: string | null;
+  /** Its tokens plus one per part: one test costs at most this many steps per character tested. */
+  readonly cost: number;
 }
 
 interface RuleFile {
@@ -226,7 +228,8 @@ function parseLine(raw: string): Pattern | null {
     .map((part) => (anchored && part === "**" ? "**" : tokens([...part])));
   const plainName =
     !anchored && /^[A-Za-z0-9._-]+$/.test(line) && line !== "." && line !== ".." ? line : null;
-  return { anchored, parts, negated, dirOnly, plainName };
+  const cost = parts.reduce((sum, part) => sum + (part === "**" ? 1 : part.length + 1), 0);
+  return { anchored, parts, negated, dirOnly, plainName, cost };
 }
 
 function patternMatches(pattern: Pattern, rel: string): boolean {
@@ -240,6 +243,7 @@ function patternMatches(pattern: Pattern, rel: string): boolean {
 export class IgnoreRules {
   /** Deepest folder first, so a deeper file decides before a higher one. */
   readonly #files: readonly RuleFile[];
+  #work = 0;
 
   constructor(files: readonly IgnoreFile[]) {
     // The total is capped too, shallowest files first, so no set of files makes every match
@@ -260,6 +264,14 @@ export class IgnoreRules {
       })
       .filter((file) => file.patterns.length > 0)
       .toSorted((a, b) => depth(b.dir) - depth(a.dir));
+  }
+
+  /**
+   * The matching work done so far: for each pattern tested, its cost times the length of the path
+   * it was tested on, an upper bound of the steps taken. A caller bounds it with a budget.
+   */
+  get work(): number {
+    return this.#work;
   }
 
   /**
@@ -300,6 +312,7 @@ export class IgnoreRules {
       for (let at = file.patterns.length - 1; at >= 0; at -= 1) {
         const pattern = file.patterns[at]!;
         if (pattern.dirOnly && !isDir) continue;
+        this.#work += pattern.cost * (rel.length + 1);
         if (patternMatches(pattern, rel)) return !pattern.negated;
       }
     }

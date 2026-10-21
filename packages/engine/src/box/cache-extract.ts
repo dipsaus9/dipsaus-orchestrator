@@ -181,9 +181,12 @@ function entryPath(raw: string): string | null {
   return path;
 }
 
-/** The key two paths share on a case- and normalisation-insensitive volume. */
+/**
+ * The key two paths share on a case- and normalisation-insensitive volume: decomposed, then upper-
+ * and lower-cased, so `ſ` meets `s` as `A` meets `a`.
+ */
 function collisionKey(path: string): string {
-  return path.normalize("NFD").toLowerCase();
+  return path.normalize("NFD").toUpperCase().toLowerCase();
 }
 
 /** The one regular file `folder` holds, with one link; refuses anything else. */
@@ -450,6 +453,8 @@ export interface BoxStream {
    * its command inside the box instead.
    */
   readonly stopOnFailure?: boolean;
+  /** The exit codes that count as a whole stream; `[0]` by default. */
+  readonly okExits?: readonly number[];
 }
 
 /** The most of the in-box command's error output a refusal keeps. */
@@ -516,7 +521,7 @@ export async function streamFromBox(stream: BoxStream): Promise<string> {
       await output.write(value);
     }
     const exit = await Promise.race([child.exited, deadline]);
-    if (exit.code !== 0) {
+    if (exit.code === null || !(stream.okExits ?? [0]).includes(exit.code)) {
       throw streamRefusal(
         stream,
         "exit",
