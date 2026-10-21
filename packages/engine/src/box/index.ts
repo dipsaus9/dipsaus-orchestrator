@@ -58,3 +58,60 @@ export type {
   BoxSpec,
   BoxState,
 } from "./port";
+export {
+  BOX_PLACEHOLDER_API_KEY,
+  boxModelEnvironment,
+  checkListenAddress,
+  createModelProxyHandler,
+  DROPPED_REQUEST_HEADERS,
+  isModelRequest,
+  MODEL_METHOD,
+  MODEL_PATHS,
+  MODEL_PROXY_MAX_BODY_BYTES,
+  MODEL_UPSTREAM,
+  OAUTH_BETA,
+  proxyUrl,
+  startModelProxy,
+  upstreamHeaders,
+  withOauthBeta,
+} from "./model-proxy";
+export type {
+  BoxModelEnvironment,
+  ListenHttp,
+  ListeningHttp,
+  ModelProxyDeps,
+  ModelProxyHandlerOptions,
+  RunningModelProxy,
+  UpstreamFetch,
+} from "./model-proxy";
+export {
+  findTokenArgs,
+  isTokenShaped,
+  readBoxToken,
+  SECURITY_CLI,
+  SECURITY_ITEM_NOT_FOUND,
+  SecretToken,
+  storeBoxToken,
+  storeTokenArgs,
+  TOKEN_KEYCHAIN_ACCOUNT,
+  TOKEN_KEYCHAIN_LABEL,
+  TOKEN_KEYCHAIN_SERVICE,
+  TOKEN_READ_TIMEOUT_MS,
+  TOKEN_REDACTED,
+} from "./token";
+export type {
+  SpawnInteractive,
+  TokenMatcher,
+  TokenReadDeps,
+  TokenScanner,
+  TokenStoreDeps,
+  TokenStoreResult,
+} from "./token";
+export {
+  checkBoxForToken,
+  TOKEN_CHECK_ARCHIVE,
+  TOKEN_CHECK_ARCHIVE_COMMAND,
+  TOKEN_CHECK_ARCHIVE_TIMEOUT_MS,
+  TOKEN_CHECK_ENV_COMMAND,
+} from "./token-check";
+export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn } from "./token-check";
