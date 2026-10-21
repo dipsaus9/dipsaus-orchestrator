@@ -19,6 +19,14 @@ const GIT_CONFIG: readonly [string, string][] = [
   ["init.defaultBranch", "main"],
 ];
 
+/** Config written into each temporary repository: the identity and no signing. */
+const REPO_CONFIG: readonly [string, string][] = [
+  ["user.name", GIT_IDENTITY.name],
+  ["user.email", GIT_IDENTITY.email],
+  ["commit.gpgsign", "false"],
+  ["tag.gpgsign", "false"],
+];
+
 /**
  * The environment for git and tools that call git: the cleaned environment (no ANTHROPIC_*,
  * CLAUDE_*, GH_*), no inherited GIT_* variables, no global or system config, `HOME` and
@@ -142,6 +150,9 @@ export async function withTempRepo<T>(
     mkdirSync(home);
     const env = isolatedEnv(home);
     await git(dir, home, "init", "--quiet", "-b", "main");
+    // The identity and no signing also in the repository's own config: a tool that gets only
+    // PATH and HOME, like the Backlog CLI (DIPO-270), commits with them too, on any machine.
+    for (const [key, value] of REPO_CONFIG) await git(dir, home, "config", key, value);
     if (options.fixture !== undefined) applyFixture(dir, options.fixture);
     const repo: TempRepo = {
       root,

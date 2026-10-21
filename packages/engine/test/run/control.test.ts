@@ -44,6 +44,7 @@ import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { Caps, HostOp, ParseState, WorkerEvent, WorkerReport } from "../../src/workers/types";
+import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
 import { insertClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
 import {
@@ -77,7 +78,7 @@ interface World {
   /** Story keys read again after a park (DIPO-56). */
   readonly refreshed: string[];
   readonly work: WorkRef;
-  writer: "ok" | "tampered" | "fails";
+  writer: "ok" | "tampered" | "taskField" | "fails";
   steer: RunSteering["send"] | null;
   ingestor: Ingestor | null;
   /** What run control logged through its `warn` dependency. */
@@ -113,6 +114,12 @@ beforeEach(async () => {
           throw new GitError(
             "git.worktreeTampered",
             `The git links of ${request.worktree} changed since dipo claimed it (${request.worktree}/.git); dipo runs no git in that worktree.`,
+          );
+        }
+        if (world.writer === "taskField") {
+          throw new GitError(
+            TASK_FIELD_ERROR,
+            `dipo refuses ${request.story}'s task file: unknown fields.`,
           );
         }
         if (world.writer === "fails") throw new Error("the Backlog CLI exited 1");
@@ -512,6 +519,20 @@ describe("a tampered worktree", () => {
       .filter((event) => event.type === "engine.notice")
       .map((event) => (event.data as { code: string }).code);
     expect(notices).toEqual(["park.notWritten"]);
+  });
+
+  it("parks scope-violation when the park is refused for task file fields dipo does not know (DIPO-270)", async () => {
+    track();
+    w.writer = "taskField";
+    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-question"] as WorkerEvent[]);
+    await w.control.idle();
+    const [park] = parks();
+    expect(park?.reason).toBe("scope-violation");
+    expect(park?.cause).toBe("task-file");
+    expect(parkedEvents()[0]?.["cause"]).toBe("task-file");
+    expect(park?.detail).toContain("unknown fields");
+    expect(park?.detail).toContain("parking it as ambiguous-spec");
+    expect(w.writes).toHaveLength(1);
   });
 
   it("still records a park whose branch write failed, with a notice", async () => {

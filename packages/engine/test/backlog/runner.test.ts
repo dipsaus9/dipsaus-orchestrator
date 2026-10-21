@@ -5,6 +5,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "../../src/backlog";
+import { BACKLOG_ENV_KEYS, backlogEnv } from "../../src/backlog/runner";
 import { readManifest, stubSpawn } from "./helpers";
 
 const RULE = "-".repeat(50);
@@ -157,6 +158,24 @@ describe("running the CLI", () => {
     ]);
     expect(out.stdout).toBe("1.53.0\n");
     expect(stub.calls).toEqual([{ cmd: ["bun", "cli.js", "--version"], cwd: "/w", env }]);
+  });
+
+  it("passes only PATH and HOME of the given environment, never its other variables (DIPO-270)", async () => {
+    const stub = stubSpawn("1.53.0\n");
+    const env = { PATH: "/bin", HOME: "/h", SHELL: "/bin/zsh", OTHER: "x", UNSET: undefined };
+    await runBacklog({ spawn: stub.spawn, env }, "/w", ["--version"]);
+    expect(stub.calls[0]?.env).toEqual({ PATH: "/bin", HOME: "/h" });
+    expect(backlogEnv(env)).toEqual({ PATH: "/bin", HOME: "/h" });
+    expect(backlogEnv({ OTHER: "x" })).toEqual({});
+  });
+
+  it("takes PATH and HOME from the process when given no environment, never inheriting it", async () => {
+    const stub = stubSpawn("1.53.0\n");
+    await runBacklog({ spawn: stub.spawn }, "/w", ["--version"]);
+    expect(stub.calls[0]?.env).toEqual(backlogEnv(process.env));
+    expect(Object.keys(stub.calls[0]?.env ?? {}).toSorted()).toEqual(
+      [...BACKLOG_ENV_KEYS].filter((key) => process.env[key] !== undefined).toSorted(),
+    );
   });
 
   it("uses `backlog` from PATH by default", async () => {

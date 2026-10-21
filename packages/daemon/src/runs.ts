@@ -81,7 +81,11 @@ import {
   type WorkTracker,
 } from "@dipsaus-orchestrator/engine";
 
-/** The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). */
+/**
+ * The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). The
+ * runner gives each call only `PATH` and `HOME` of the daemon's environment (`backlogEnv`), and a
+ * story's calls run in dipo's own copy of its backlog, never its worktree (0021 section 14).
+ */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
 }
@@ -141,7 +145,7 @@ export interface DaemonRunsOptions {
   readonly stories?: StoryIndex;
   /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
   readonly work?: WorkTracker;
-  /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
+  /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
   /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
   readonly notify?: (notice: HoldNotice) => void;
