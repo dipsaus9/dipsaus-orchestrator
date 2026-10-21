@@ -2,7 +2,8 @@
 // locked worktree at `<root>/<ID>` from `origin/<base>`, commits `<ID>: status In Progress` there
 // through the Backlog CLI, pushes the branch and records the claim. Between the worktree and the
 // claim commit the caller's `setup` runs (DIPO-39, `setup.ts`: files, port slot, install), as 0010
-// section 7 orders: setup, then the claim commit, then the push.
+// section 7 orders: setup, then the claim commit, then the push. The Backlog CLI runs in dipo's
+// own copy of the story's backlog, never in the worktree (`inStoryBacklog`, 0021 section 14).
 //
 // Order and atomicity:
 // - Before anything is created, the free space on the worktree root's filesystem is checked
@@ -32,8 +33,20 @@
 // pins it on the office git, so every later engine git call in that worktree is refused with
 // `git.worktreeTampered` once one of them changed.
 
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -49,6 +62,7 @@ import { changedLinks, readWorktreeSnapshot, worktreeTampered } from "../git/sna
 import { commitTaskFile, pushBranch, statusPaths } from "../git/task-commit";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
 import { endRunMarked } from "../run/markers";
+import { BRANCH_READ_PREFIX } from "../stories/branch-read";
 
 import {
   type ClaimRecord,
@@ -148,7 +162,7 @@ export interface ClaimDeps {
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
   readonly git: OfficeGit;
-  /** How the Backlog CLI starts; it runs inside the story worktree. */
+  /** How the Backlog CLI starts; it runs in dipo's own copy of the story's backlog. */
   readonly cli: BacklogCli;
   readonly clock: Clock;
   readonly disk: DiskProbe;
@@ -505,9 +519,9 @@ async function mergeBase(
 }
 
 /**
- * Sets the story's status to In Progress through the Backlog CLI in its worktree and commits only
- * its task file as `<ID>: status In Progress`. Returns the commit, or null when the status was
- * already In Progress.
+ * Sets the story's status to In Progress through the Backlog CLI in dipo's own copy of the
+ * story's backlog (`inStoryBacklog`), never in the worktree, and commits only its task file as
+ * `<ID>: status In Progress`. Returns the commit, or null when the status was already In Progress.
  */
 async function claimCommit(
   deps: ClaimDeps,
@@ -515,25 +529,34 @@ async function claimCommit(
   location: WorktreeLocation,
   request: ClaimRequest,
 ): Promise<string | null> {
-  const target = { cli: deps.cli, cwd: location.workTree, id: request.story };
-  const before = await viewStory(target);
-  if (before.status !== CLAIM_STATUS) {
-    await runBacklog(deps.cli, location.workTree, [
-      "task",
-      "edit",
-      request.story,
-      "--status",
-      CLAIM_STATUS,
-    ]);
-    const back = await viewStory(target);
-    if (back.status !== CLAIM_STATUS) {
-      throw new GitError(
-        "claim.statusNotWritten",
-        `The Backlog CLI left ${request.story} at ${back.status}, not ${CLAIM_STATUS}.`,
-      );
-    }
-  }
-  const taskFile = repoPath(location.workTree, before.file);
+  const taskFile = await inStoryBacklog(
+    deps.git,
+    git,
+    location,
+    request.story,
+    true,
+    async (backlog) => {
+      const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
+      const before = await viewStory(target);
+      if (before.status !== CLAIM_STATUS) {
+        await runBacklog(deps.cli, backlog.cwd, [
+          "task",
+          "edit",
+          request.story,
+          "--status",
+          CLAIM_STATUS,
+        ]);
+        const back = await viewStory(target);
+        if (back.status !== CLAIM_STATUS) {
+          throw new GitError(
+            "claim.statusNotWritten",
+            `The Backlog CLI left ${request.story} at ${back.status}, not ${CLAIM_STATUS}.`,
+          );
+        }
+      }
+      return repoPath(backlog.cwd, before.file);
+    },
+  );
   const changed = statusPaths(
     await git.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
   );
@@ -815,6 +838,134 @@ function realOr(path: string): string {
     return realpathSync(path);
   } catch {
     return path;
+  }
+}
+
+// ---- the story's backlog folder (0021 section 14) ----------------------------------------------
+
+/** The Backlog.md project directory of a checkout. */
+const BACKLOG_DIR = "backlog";
+
+/** The `GitError` code when dipo cannot make or bring back its copy of a story's backlog. */
+export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";
+
+/** The Backlog.md configuration, relative to the repository root. */
+const BACKLOG_CONFIG = `${BACKLOG_DIR}/config.yml`;
+
+/** dipo's own copy of a story's backlog, where every Backlog CLI call for the story runs. */
+export interface StoryBacklog {
+  /** The folder the CLI runs in: it holds only `backlog/config.yml` and the story's task file. */
+  readonly cwd: string;
+  /** Repo-relative path of the story's task file. */
+  readonly taskFile: string;
+}
+
+/** True when `name` is the task file of `id`: `<id> - <title>.md`, any case. */
+function isTaskFileOf(name: string, id: string): boolean {
+  return name.toLowerCase().startsWith(`${id.toLowerCase()} - `) && name.endsWith(".md");
+}
+
+/**
+ * Runs `fn` with dipo's own copy of the backlog of `story` (0021 section 14): a fresh folder under
+ * the worktree root, outside any git repository and outside the story's worktree, holding only
+ * `backlog/config.yml` and the story's task file as committed at the worktree's `HEAD`, read from
+ * git objects and never from the worktree's files. No file a worker wrote, in the worktree or in
+ * its `backlog/` folder, reaches the folder the CLI runs in. With `write`, the task file the CLI
+ * left in the copy is then written into the worktree in place of its own, so the caller commits
+ * it; the worktree's `backlog/` folders must be plain folders, and the file is replaced, never
+ * written through. The folder shares the branch reads' prefix, so the claims load step sweeps one
+ * a killed daemon left behind (`worktree/sweep.ts`). Runs inside a queue item of `git`.
+ */
+export async function inStoryBacklog<T>(
+  git: OfficeGit,
+  session: GitSession,
+  location: WorktreeLocation,
+  story: string,
+  write: boolean,
+  fn: (backlog: StoryBacklog) => Promise<T>,
+): Promise<T> {
+  const head = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+  const listed = await session.ok(session.repository, [
+    "ls-tree",
+    "-r",
+    "-z",
+    "--name-only",
+    head,
+    "--",
+    `${BACKLOG_DIR}/tasks`,
+  ]);
+  const files = listed.split("\0").filter((path) => isTaskFileOf(basename(path), story));
+  const [taskFile] = files;
+  if (taskFile === undefined || files.length > 1) {
+    throw new GitError(
+      BACKLOG_FOLDER_ERROR,
+      `${head} holds ${files.length === 0 ? "no" : "more than one"} task file for ${story} under ${BACKLOG_DIR}/tasks.`,
+      false,
+      { story, files },
+    );
+  }
+  const config = await session.ok(session.repository, ["show", `${head}:${BACKLOG_CONFIG}`]);
+  const committed = await session.ok(session.repository, ["show", `${head}:${taskFile}`]);
+  const root = git.worktreeRoot();
+  mkdirSync(root, { recursive: true });
+  const cwd = mkdtempSync(join(root, BRANCH_READ_PREFIX));
+  try {
+    for (const [path, text] of [
+      [BACKLOG_CONFIG, config],
+      [taskFile, committed],
+    ] as const) {
+      mkdirSync(dirname(join(cwd, path)), { recursive: true });
+      writeFileSync(join(cwd, path), text, { flag: "wx" });
+    }
+    const value = await fn({ cwd, taskFile });
+    if (write) {
+      const tasks = join(cwd, dirname(taskFile));
+      const left = readdirSync(tasks).filter((name) => isTaskFileOf(name, story));
+      if (left.length !== 1 || left[0] !== basename(taskFile)) {
+        throw new GitError(
+          BACKLOG_FOLDER_ERROR,
+          `The Backlog CLI left ${left.join(", ") || "no task file"} for ${story}, not ${taskFile}.`,
+          false,
+          { story, taskFile, left },
+        );
+      }
+      replaceInWorktree(location.workTree, taskFile, readFileSync(join(cwd, taskFile), "utf8"));
+    }
+    return value;
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Puts `text` at `path` (repo-relative) in `worktree` without following a link: the folders on
+ * the way must be the worktree's own plain folders, and the file is replaced by a rename, so a
+ * link or a second name of another file at `path` is replaced rather than written through.
+ */
+function replaceInWorktree(worktree: string, path: string, text: string): void {
+  const dir = dirname(join(worktree, path));
+  const expected = join(realpathSync(worktree), dirname(path));
+  let real: string | null;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    real = null;
+  }
+  if (real !== expected || !lstatSync(dir).isDirectory()) {
+    throw new GitError(
+      BACKLOG_FOLDER_ERROR,
+      `${dirname(path)} in ${worktree} is not a plain folder of the worktree, so dipo does not write ${path} there.`,
+      false,
+      { path },
+    );
+  }
+  const temporary = join(dir, `.dipo-${randomUUID()}.tmp`);
+  writeFileSync(temporary, text, { flag: "wx" });
+  try {
+    renameSync(temporary, join(dir, basename(path)));
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
   }
 }
 
