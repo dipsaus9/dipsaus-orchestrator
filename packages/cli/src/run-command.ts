@@ -1,6 +1,8 @@
-// `dipo run [ID...] [--office <id>]` (DIPO-48): sends `work.run` for the office of `--office` or of
-// the current directory, with the main worktree it resolved as `from`, and prints each started
-// story with its run and each skipped story with its reason. Exit 0 when a story started, else 1.
+// `dipo run [ID...] [--box] [--office <id>]` (DIPO-48): sends `work.run` for the office of `--office`
+// or of the current directory, with the main worktree it resolved as `from`, and prints each
+// started story with its run and each skipped story with its reason. Exit 0 when a story started,
+// else 1. `--box` (DIPO-271) runs the developer in the story's own box (0021); the dry run has no
+// box form yet, so `--box` with `--dry-run` is refused.
 //
 // `dipo run --dry-run [ID...]` (DIPO-74) sends the read `work.preview` instead and prints, in
 // sections, what `work.run` would do: the office checks that would refuse it, the skipped stories,
@@ -264,10 +266,13 @@ export async function runCommand(
   const stories: StoryRefValue[] = [];
   const rest: string[] = [];
   let preview = false;
+  let box = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
     if (arg === "--dry-run") {
       preview = true;
+    } else if (arg === "--box") {
+      box = true;
     } else if (arg === "--office") {
       rest.push(arg, ...(i + 1 < args.length ? [args[i + 1] ?? ""] : []));
       i += 1;
@@ -281,6 +286,7 @@ export async function runCommand(
   }
   const options = parseOptions(rest, false);
   if (typeof options === "string") return usage(deps, `run: ${options}`);
+  if (preview && box) return usage(deps, "run: --box has no dry run yet; drop --dry-run or --box");
   if (preview) return dryRun(deps, options.office, stories);
   return withOffice(
     deps,
@@ -296,6 +302,7 @@ export async function runCommand(
           {
             ...(stories.length === 0 ? {} : { stories }),
             ...(from === undefined ? {} : { from }),
+            ...(box ? { box: true } : {}),
           },
           { office },
         );

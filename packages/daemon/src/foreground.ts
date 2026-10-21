@@ -25,6 +25,9 @@ import {
   BacklogLane,
   BacklogPrs,
   bootoutOwnLaunchdJob,
+  boxTokenHoldPath,
+  boxTokenStickyHolds,
+  CLAUDE_CLI_ADAPTER_ID,
   ChildProcesses,
   chooseRuntimeDir,
   cliRunBase,
@@ -444,6 +447,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     retention: Retention | null;
     maintenance: MaintenanceScheduler | null;
     ingest: { close(): void } | null;
+    /** The box workers (DIPO-271): every running box is stopped at daemon stop. */
+    boxes: { close(): Promise<void> } | null;
     engineBehind: EngineBehindCache | null;
     contract: ContractServer | null;
   } = {
@@ -459,6 +464,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     retention: null,
     maintenance: null,
     ingest: null,
+    boxes: null,
     engineBehind: null,
     contract: null,
   };
@@ -749,9 +755,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Adapter holds (DIPO-43): a failed launch check holds new runs on that adapter in every
     // office, with a notice on the software stream. `work.run` refuses while its adapter is held;
     // the run launcher below runs the launch checks that set and lift a hold.
+    // The box-token hold (DIPO-271) is sticky: kept in the state directory over a restart, and
+    // lifted only when `dipo login box` replaces the token and removes its record.
     const holds = new AdapterHolds({
       clock,
       notify: (notice) => software.append("engine.notice", notice),
+      sticky: boxTokenStickyHolds(boxTokenHoldPath(stateDir), CLAUDE_CLI_ADAPTER_ID),
+      warn: (message, fields) => logger.warn(message, fields),
     });
     const runBase = cliRunBase({
       git: (office) => engineGit.forOffice(office),
@@ -769,6 +779,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       uid,
       runtimeDir: choice.path,
       tmpRoot: tmpBase,
+      stateDir,
       holds,
       engineGit,
       claims,
@@ -823,6 +834,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         });
       },
     };
+    // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
+    held.boxes = runs.boxes;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
     // story index, the run profile, office init's statuses check, the claims, the Ready gate and
     // the planning lane above.
@@ -1076,6 +1089,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         if (removed.length > 0) {
           context.logger.info("removed run temp directories of ended runs", { removed });
         }
+        // The boxes of box runs that ended while no daemon ran are checked and deleted too
+        // (DIPO-271).
+        await runs.finishEndedBoxes({ listBoxes: true });
       },
     });
     for (const step of options.recoverySteps ?? []) steps.register(step);
@@ -1173,6 +1189,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.storyPrs?.stop();
     held.mergeSlot?.stop();
     held.ingest?.close();
+    await held.boxes?.close();
     // No more debounced office summaries once the daemon stops.
     held.contract?.close();
     // A retention pass or backup still running finishes before the database closes.

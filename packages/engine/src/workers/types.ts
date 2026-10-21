@@ -82,6 +82,13 @@ export interface LaunchPlan {
   readonly stdin: readonly string[];
   /** What the host removes from each stdout line before it appends it (DIPO-105). */
   readonly lineScrub?: LineScrub;
+  /**
+   * A command that ends what the worker runs where a signal to its process cannot reach (DIPO-271:
+   * a box worker's `container stop`, since a killed `container exec` client leaves its process
+   * running in the box). The host runs it when it sends the worker SIGTERM or SIGKILL and after the
+   * worker exits, with the plan's environment; `argv[0]` is an absolute path.
+   */
+  readonly stopCommand?: readonly [string, ...string[]];
 }
 
 /**

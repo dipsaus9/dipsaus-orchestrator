@@ -15,6 +15,12 @@
 //    `work.phase build`. A host that does not start ends the run as `start-failed`.
 // 3. `preview` builds the same spec and plan for `work.preview` (the dry run), on `_base`, with
 //    placeholders for the run id and session, and writes nothing.
+//
+// A box worker's run (`RunFacts.box`, `work.run`'s `box`; DIPO-271, 0021) also makes the run's box
+// in `prepare`, after the prompts and before the worker's launch checks: the image, the box and
+// the code at the claim's start commit (`BoxWorkers.create`). The run directory then records the
+// box, so the worker port plans every developer session of the run inside it. A setup that fails
+// after the box exists, or a released claim, deletes the box again.
 
 import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
@@ -55,6 +61,7 @@ import {
   type LaunchPlan,
   type WorkerSpec,
 } from "../workers/types";
+import type { BoxWorkers } from "../box/workers";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
@@ -184,6 +191,8 @@ export interface RunLauncherDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
+  /** Makes and deletes a box worker's box (DIPO-271); without it a box run is refused. */
+  readonly boxes?: Pick<BoxWorkers, "create" | "discard">;
 }
 
 /** A `Workspace` over an engine worktree (the story worktree or `_base`). */
@@ -207,6 +216,8 @@ export interface RunFacts {
   readonly taskFile: string;
   /** The office's resolved verify (DIPO-173); the launch refuses a tool that cannot start. */
   readonly verify?: VerifyCommands;
+  /** Runs the developer in its own box (DIPO-271, `work.run`'s `box`); the Mac worker otherwise. */
+  readonly box?: boolean;
 }
 
 /** A setup that passed with a launch plan the host may start. */
@@ -396,11 +407,21 @@ export class RunLauncher {
       // Never through a link, and never another run's root with the same hash.
       removeShortTempDir(dirname(paths.shortTmpDir), facts.runId);
     };
-    const fail = (reason: string): ClaimSetupFailed => {
+    const boxes = facts.box === true ? this.#deps.boxes : undefined;
+    let boxMade = false;
+    // The box goes before the run directory that records it.
+    const discardBox = async (): Promise<void> => {
+      if (boxMade) await boxes?.discard(facts.runId);
+    };
+    const fail = async (reason: string): Promise<ClaimSetupFailed> => {
       setup.release();
+      await discardBox();
       cleanup();
       return { ok: false, reason, log: [...setup.log, `launch: ${reason}`].join("\n") };
     };
+    if (facts.box === true && boxes === undefined) {
+      return fail("this daemon runs no box workers, so the run cannot start in a box");
+    }
     let spec: WorkerSpec;
     let systemHash: string;
     let promptSources: PreparedRun["promptSources"];
@@ -441,6 +462,20 @@ export class RunLauncher {
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
+    if (boxes !== undefined) {
+      try {
+        await boxes.create({
+          office: facts.office,
+          runId: facts.runId,
+          runDir: paths.runDir,
+          git,
+          startCommit: claim.startSha,
+        });
+        boxMade = true;
+      } catch (error) {
+        return fail(`the box could not be made: ${messageOf(error)}`);
+      }
+    }
     let prepared;
     try {
       prepared = await this.#deps.worker.prepare(
@@ -478,7 +513,7 @@ export class RunLauncher {
       texts,
       release: () => {
         setup.release();
-        cleanup();
+        void discardBox().finally(cleanup);
       },
     };
   }

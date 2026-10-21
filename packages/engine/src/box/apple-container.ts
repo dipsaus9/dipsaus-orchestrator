@@ -9,7 +9,9 @@ import { availableParallelism, homedir, totalmem } from "node:os";
 import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import {
+  BUILD_NETWORK_NAME,
   buildArgs,
+  builderStartArgs,
   copyInArgs,
   copyOutArgs,
   createArgs,
@@ -34,8 +36,10 @@ import {
   BOX_CALL_TIMEOUT_MS,
   BOX_LABEL,
   BoxError,
+  type BoxBuildNetwork,
   type BoxCallOptions,
   type BoxCheck,
+  type BoxClientCommand,
   type BoxExecOptions,
   type BoxExecResult,
   type BoxImageBuild,
@@ -315,6 +319,28 @@ export class AppleContainerBoxes implements BoxPort {
     return { name: found.name, mode: "hostOnly", hostAddress: found.hostAddress };
   }
 
+  async buildNetwork(options: BoxCallOptions = {}): Promise<BoxBuildNetwork> {
+    // A builder that already runs may make `builder start` fail; what counts is the network's
+    // address, and the build proxy's listen on it, which fails when the address is not up.
+    const started = await this.#run(builderStartArgs(), options);
+    const args = networkListArgs();
+    const result = await this.#runOk(args, options);
+    const found = findNetwork(array(args, parseJson(args, result.stdout)), BUILD_NETWORK_NAME);
+    if (found === null || found.hostAddress === null) {
+      const why =
+        started.code === 0
+          ? ""
+          : `; container builder start: ${started.stderr.trim() || `exit ${started.code}`}`;
+      throw new BoxError(
+        "box.unreadable",
+        `network ${BUILD_NETWORK_NAME} has no host address for the build proxy${why}.`,
+        false,
+        { network: BUILD_NETWORK_NAME },
+      );
+    }
+    return { name: found.name, hostAddress: found.hostAddress };
+  }
+
   async create(spec: BoxSpec, options: BoxCallOptions = {}): Promise<string> {
     const input = {
       runId: spec.runId,
@@ -421,6 +447,39 @@ export class AppleContainerBoxes implements BoxPort {
       exited: child.exited,
       kill: (signal) => child.kill(signal),
     };
+  }
+
+  execLiveCommand(
+    name: string,
+    command: readonly [string, ...string[]],
+    options: Omit<BoxExecOptions, "timeoutMs"> = {},
+  ): BoxClientCommand {
+    return this.#clientCommand(
+      execArgs({
+        name,
+        command,
+        interactive: true,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        ...(options.env === undefined ? {} : { env: options.env }),
+      }),
+    );
+  }
+
+  stopCommand(name: string): BoxClientCommand {
+    return this.#clientCommand(stopArgs(name));
+  }
+
+  /** `args` as a call another program makes: the `container` program must be absolute. */
+  #clientCommand(args: readonly string[]): BoxClientCommand {
+    if (!this.#cli.startsWith("/")) {
+      throw new BoxError(
+        "box.refused",
+        `the container program must be an absolute path for another program to run it, not ${JSON.stringify(this.#cli)}.`,
+        false,
+        { cli: this.#cli },
+      );
+    }
+    return { argv: [this.#cli, ...args], env: { ...this.#deps.env } };
   }
 
   async memory(name: string, options: BoxCallOptions = {}): Promise<BoxMemory | null> {

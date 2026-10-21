@@ -268,7 +268,8 @@ function isInside(path: string, root: string): boolean {
   return path === root || path.startsWith(root === "/" ? "/" : `${root}/`);
 }
 
-function flagValue(label: string, value: string): string {
+/** A flag value that cannot be read as another flag. */
+export function flagValue(label: string, value: string): string {
   if (value.length === 0 || value.startsWith("-")) {
     throw new PlanError(
       `${label} must be a non-empty value that does not start with "-": ${value}`,
@@ -281,7 +282,8 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
-function checkSpec(spec: WorkerSpec): void {
+/** Refuses a spec this adapter cannot plan (kind, session id, turn cap, tools, task message). */
+export function checkSpec(spec: WorkerSpec): void {
   if (!PLANNED_KINDS.includes(spec.kind)) {
     throw new PlanError(
       `the ${CLAUDE_CLI_ADAPTER_ID} adapter cannot plan worker kind "${spec.kind}"; it plans ${PLANNED_KINDS.join(", ")}`,

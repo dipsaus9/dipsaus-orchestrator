@@ -7,8 +7,10 @@ export {
   BOX_KEEPALIVE,
   BOX_NETWORK_LABEL_VALUE,
   BOX_NETWORK_NAME,
+  BUILD_NETWORK_NAME,
   BUILD_PROXY_ARG,
   buildArgs,
+  builderStartArgs,
   checkedBoxName,
   copyInArgs,
   copyOutArgs,
@@ -56,8 +58,10 @@ export {
   runIdOfBox,
 } from "./port";
 export type {
+  BoxBuildNetwork,
   BoxCallOptions,
   BoxCheck,
+  BoxClientCommand,
   BoxExecOptions,
   BoxExecResult,
   BoxImageBuild,
@@ -203,3 +207,48 @@ export {
   tokenCheckFailure,
 } from "./token-check";
 export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn, TokenHoldDeps } from "./token-check";
+export { ensureImageWithBuildProxy } from "./build-proxy";
+export type { BuildProxyDeps } from "./build-proxy";
+export {
+  BOX_DIPO_DIR,
+  BOX_WORKDIR,
+  CODE_STAGE_PREFIX,
+  stageBoxCode,
+  SYSTEM_TAR,
+  UNPACK_TIMEOUT_MS,
+} from "./code";
+export type { BoxCodeDeps, BoxCodeRequest, SkippedBoxFile, StagedBoxCode } from "./code";
+export {
+  BOX_TOKEN_HOLD_FILE,
+  BOX_TOKEN_LIFTED_BY,
+  boxTokenHoldPath,
+  boxTokenStickyHolds,
+  clearBoxTokenHold,
+  readBoxTokenHold,
+  writeBoxTokenHold,
+} from "./token-hold";
+export {
+  BOX_CA_FILE,
+  BOX_FILES_STAGE_PREFIX,
+  BOX_INDEX_DIR,
+  BOX_RUN_FILE,
+  BOX_SYSTEM_FILE,
+  BoxWorkers,
+  readBoxRun,
+} from "./workers";
+export type { BoxFinish, BoxRunRecord, BoxSession, BoxWorkersDeps } from "./workers";
+export {
+  BoxWebRoute,
+  checkAddress,
+  startBoxWebProxy,
+  startBoxWebRoute,
+  systemInterfaceAddresses,
+  WEB_PROXY_LIMITS,
+} from "./web-proxy";
+export type {
+  BoxWebProxyDeps,
+  BoxWebRouteStart,
+  RunningBoxWebProxy,
+  RunningBoxWebRoute,
+  WebProxyEvent,
+} from "./web-proxy";
