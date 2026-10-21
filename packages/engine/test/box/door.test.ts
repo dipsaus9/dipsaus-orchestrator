@@ -20,6 +20,7 @@ import {
   DOOR_MAX_PARTS_PER_READ,
   DOOR_QUEUE,
   DOOR_READ_MAX_BYTES,
+  DOOR_READ_SECONDS,
   DOOR_RECORD_FILE,
   type DoorPart,
   doorAckCommand,
@@ -234,8 +235,11 @@ describe("the dipo-part command (criterion 1)", () => {
 
 describe("dipo's reader of the door (criterion 1)", () => {
   it("runs a fixed command on the exec's argv that names no file in the box, with stdin closed", () => {
-    const [shell, flag, script] = doorReadCommand();
-    expect([shell, flag]).toEqual(["/bin/sh", "-c"]);
+    const command = doorReadCommand();
+    expect(command.slice(0, 2)).toEqual(["/bin/sh", "-c"]);
+    // Where the box has `timeout`, the script runs under it inside the box.
+    expect(command[2]).toContain(`exec timeout ${DOOR_READ_SECONDS} /bin/sh -c`);
+    const script = command.at(-1) ?? "";
     expect(script).toContain(`cd '${DOOR_QUEUE}'`);
     expect(script).not.toContain(DIPO_PART_PATH);
     expect(() => doorAckCommand(["../../etc/passwd"], [])).toThrow(BoxError);
@@ -353,6 +357,22 @@ describe("the checks on every message (criterion 3)", () => {
     expect(cleanDoorText(String.fromCharCode(0xd800))).toBe(String.fromCodePoint(0xfffd));
   });
 
+  it("removes an escape with the whole astral character after it, never half of one", () => {
+    const text = cleanDoorText(`${ESC}${String.fromCodePoint(0x1f600)}after`);
+    expect(text).toBe("after");
+    expect(text.isWellFormed()).toBe(true);
+    expect(cleanDoorText(`a${ESC}`).isWellFormed()).toBe(true);
+  });
+
+  it("removes variation selectors, joiners, fillers and the other invisible characters", () => {
+    for (const point of [
+      0xe0100, 0xe01ef, 0xfe00, 0xfe0f, 0x180e, 0x00ad, 0x034f, 0x115f, 0x1160, 0x3164, 0x200c,
+      0x200d,
+    ]) {
+      expect([point, cleanDoorText(`a${String.fromCodePoint(point)}b`)]).toEqual([point, "ab"]);
+    }
+  });
+
   it("keeps ordinary text, tabs, accents and emoji, and is idempotent", () => {
     const text = "Café\tnaïve 👍🏽 日本語\nnext line";
     expect(cleanDoorText(text)).toBe(text);
@@ -400,6 +420,15 @@ describe("the checks on every message (criterion 3)", () => {
     expect(frames(`${"x".repeat(200)}\nend\n`).refused[0]?.refusal).toBe("badFrame");
     expect(frames("part 1-1.part 2\nok\n").complete).toBe(false);
     expect(frames("end\ntrailing").complete).toBe(false);
+  });
+
+  it("refuses more frames than one read takes, as a bad frame, and stops there", async () => {
+    const many = Array.from({ length: DOOR_MAX_PARTS_PER_READ + 4 }, () => "skip\n").join("");
+    const { boxes } = printingBox([encoder.encode(`${many}end\n`)]);
+    const read = await readDoor(exec(boxes));
+    expect(read.complete).toBe(false);
+    expect(read.refused).toHaveLength(DOOR_MAX_PARTS_PER_READ + 1);
+    expect(read.refused.at(-1)).toMatchObject({ name: null, refusal: "badFrame" });
   });
 
   it("cuts a read that prints more than its cap, and kills the exec client", async () => {
@@ -488,6 +517,18 @@ describe("the report kinds: story done, question, blocked and proposal (criteria
   it("refuses an unknown field without naming it, so no worker text reaches the park detail", () => {
     const read = parseWorkerReport({ ...DONE, [`${ESC}]0;x${ESC}\\run this`]: 1 });
     expect(read).toEqual({ ok: false, error: "structured_output fails the report schema" });
+  });
+
+  it("never cleans a key: one that cleaning would change is refused, also a known field's name", () => {
+    const { summary, ...rest } = DONE;
+    for (const key of [`summary${ZWSP}`, `summ${ESC}[0mary`, `summary${RLO}`]) {
+      expect(parseWorkerReport({ ...rest, [key]: summary })).toEqual({
+        ok: false,
+        error: "structured_output fails the report schema",
+      });
+    }
+    const proposal = { kind: "tool", title: "jq", outcome: "jq runs", [`why${TAG_A}`]: "x" };
+    expect(parseWorkerReport({ ...DONE, proposals: [proposal] }).ok).toBe(false);
   });
 
   it("cleans every text of the report, and refuses a required one that is empty once cleaned", () => {
@@ -592,6 +633,25 @@ describe("the door poller (criterion 1)", () => {
       expect(queued(queue)).toEqual([]);
       expect(record(dir)).toHaveLength(1);
       p.door.close();
+    }));
+
+  it("records and warns about a bad frame once while its door is open", () =>
+    withTempDir(async (dir) => {
+      const { boxes } = printingBox([encoder.encode("part 1-1.part 9\nok\nend\n")]);
+      const warnings: string[] = [];
+      const door = new BoxDoor({
+        boxes,
+        clock: new ManualClock(),
+        warn: (message) => warnings.push(message),
+      });
+      door.start("run_1", "dipo-run_1", dir);
+      await door.read("run_1");
+      await door.read("run_1");
+      expect(record(dir)).toMatchObject([
+        { kind: "refused", name: "1-1.part", refusal: "badFrame" },
+      ]);
+      expect(warnings).toEqual(["the box door refused a message"]);
+      door.close();
     }));
 
   it("numbers parts on across a restart from the record, and records each refusal", () =>

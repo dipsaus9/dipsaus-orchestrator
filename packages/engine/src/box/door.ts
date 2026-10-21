@@ -29,6 +29,12 @@
 // cap, the deadline and the strict frame format, and every message is checked and cleaned like any
 // other text from the box (`cleanDoorText`). dipo never runs a tool on the Mac on what it reads.
 //
+// A read or acknowledgement cut at its byte cap or deadline kills only the exec client on the Mac;
+// the command it started can go on running in the box. This is accepted: it runs in the worker's
+// own box, with nothing of the Mac, and the box is not stopped for it, so the worker is not ended.
+// The read script does bounded work (at most `DOOR_MAX_PARTS_PER_READ` regular files, each read up
+// to its byte cap), and where the box has `timeout` it also runs under `DOOR_READ_SECONDS` there.
+//
 // `BoxDoor` polls the queue of each box that runs a session, records each part and each refusal in
 // the run directory (`DOOR_RECORD_FILE`, on the Mac, never in the box) and hands each part to its
 // `onPart` callback. Delivering and committing the part is DIPO-273, which consumes that callback.
@@ -57,6 +63,8 @@ export const DIPO_PART_WAIT_SECONDS = 300;
 export const DOOR_POLL_MS = 5_000;
 /** The deadline of one read or acknowledgement in the box. */
 export const DOOR_EXEC_TIMEOUT_MS = 30_000;
+/** How long the read script may run inside the box, where the box has `timeout`. */
+export const DOOR_READ_SECONDS = 20;
 /** The prefix of the host folder dipo stages `dipo-part` in. */
 export const DOOR_STAGE_PREFIX = "dipo-box-door-";
 /** The run directory's record of every part and refusal the door read. */
@@ -171,9 +179,18 @@ export function doorAckScript(queue: string = DOOR_QUEUE): string {
   ].join("\n");
 }
 
-/** The command dipo runs to read the queue; it names no file in the box. */
+/**
+ * The command dipo runs to read the queue; it names no file in the box. Where the box has
+ * `timeout`, the read script runs under it for `DOOR_READ_SECONDS`, inside the box.
+ */
 export function doorReadCommand(queue: string = DOOR_QUEUE): [string, ...string[]] {
-  return ["/bin/sh", "-c", doorReadScript(queue)];
+  return [
+    "/bin/sh",
+    "-c",
+    `if command -v timeout >/dev/null 2>&1; then exec timeout ${DOOR_READ_SECONDS} /bin/sh -c "$1"; fi; exec /bin/sh -c "$1"`,
+    "dipo-door-read",
+    doorReadScript(queue),
+  ];
 }
 
 /** The command dipo runs to take or refuse the named queue files. */
@@ -203,22 +220,27 @@ export function doorAckCommand(
 /**
  * Terminal escape sequences, removed whole so no rest of one shows: CSI (also its one-byte C1
  * form), OSC up to BEL or ST, DCS, SOS, PM and APC up to ST, and any other escape with the
- * character after it. An unterminated string sequence runs to the end of the text.
+ * character after it (a whole code point, so an astral character never leaves half of itself). An
+ * unterminated string sequence runs to the end of the text.
  */
 const ESCAPE_SEQUENCES =
   // oxlint-disable-next-line no-control-regex -- control characters are what this removes
-  /\u001b\[[0-?]*[ -/]*[@-~]|\u009b[0-?]*[ -/]*[@-~]|\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)|\u009d[\s\S]*?(?:\u0007|\u009c|$)|\u001b[PX^_][\s\S]*?(?:\u001b\\|$)|[\u0090\u0098\u009e\u009f][\s\S]*?(?:\u009c|$)|\u001b[\s\S]?/g;
+  /\u001b\[[0-?]*[ -/]*[@-~]|\u009b[0-?]*[ -/]*[@-~]|\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)|\u009d[\s\S]*?(?:\u0007|\u009c|$)|\u001b[PX^_][\s\S]*?(?:\u001b\\|$)|[\u0090\u0098\u009e\u009f][\s\S]*?(?:\u009c|$)|\u001b[\s\S]?/gu;
 
 /**
  * Characters removed after the sequences: C0 controls but tab and newline, DEL, C1 controls, the
  * bidirectional marks, embeddings, overrides and isolates (U+061C, U+200E, U+200F, U+202A to
  * U+202E, U+2066 to U+2069), invisible characters that hide text (zero-width space, word joiner
- * and the invisible operators, the byte-order mark, the interlinear annotation marks) and the tag
- * characters (U+E0000 to U+E007F), which can carry hidden text.
+ * and the invisible operators, the byte-order mark, the interlinear annotation marks, the soft
+ * hyphen, the combining grapheme joiner, the Mongolian vowel separator, the Hangul fillers U+115F,
+ * U+1160 and U+3164, the zero-width joiner and non-joiner, and the variation selectors U+FE00 to
+ * U+FE0F and U+E0100 to U+E01EF) and the tag characters (U+E0000 to U+E007F), which can carry
+ * hidden text. Door messages are short status texts: a hidden-text channel matters more than an
+ * emoji sequence that falls apart.
  */
 const UNSAFE_CHARACTERS =
-  // oxlint-disable-next-line no-control-regex -- control characters are what this removes
-  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u{61c}\u{200b}\u{200e}\u{200f}\u{202a}-\u{202e}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{feff}\u{fff9}-\u{fffb}]|[\u{e0000}-\u{e007f}]/gu;
+  // oxlint-disable-next-line no-control-regex, no-misleading-character-class -- these characters are what this removes, one by one
+  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u{61c}\u{200b}\u{200e}\u{200f}\u{202a}-\u{202e}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{feff}\u{fff9}-\u{fffb}\u00ad\u{34f}\u{115f}\u{1160}\u{180e}\u{200c}\u{200d}\u{3164}\u{fe00}-\u{fe0f}]|[\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
 
 /**
  * `text` cleaned of terminal control characters and other unsafe characters, so it can be stored
@@ -231,19 +253,34 @@ export function cleanDoorText(text: string): string {
     .toWellFormed()
     .replace(/\r\n?|[\u{2028}\u{2029}]/gu, "\n")
     .replace(ESCAPE_SEQUENCES, "")
-    .replace(UNSAFE_CHARACTERS, "");
+    .replace(UNSAFE_CHARACTERS, "")
+    .toWellFormed();
 }
 
-/** Every string inside `value` (object keys and values, array items) cleaned with `cleanDoorText`. */
+/**
+ * Every string value inside `value` (object values, array items) cleaned with `cleanDoorText`.
+ * Object keys are kept as they are: `doorKeysClean` refuses a value whose keys cleaning would change.
+ */
 export function cleanDoorStrings(value: unknown): unknown {
   if (typeof value === "string") return cleanDoorText(value);
   if (Array.isArray(value)) return value.map(cleanDoorStrings);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [cleanDoorText(key), cleanDoorStrings(item)]),
+      Object.entries(value).map(([key, item]) => [key, cleanDoorStrings(item)]),
     );
   }
   return value;
+}
+
+/** True when no object key inside `value` holds anything `cleanDoorText` would change. */
+export function doorKeysClean(value: unknown): boolean {
+  if (Array.isArray(value)) return value.every(doorKeysClean);
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).every(
+      ([key, item]) => cleanDoorText(key) === key && doorKeysClean(item),
+    );
+  }
+  return true;
 }
 
 /** Why the door refused a message. */
@@ -308,12 +345,17 @@ export interface DoorRead {
 
 const NEWLINE = 0x0a;
 
-/** Pure: the frames of one read's output, checked. A frame dipo cannot read ends the parse. */
+/**
+ * Pure: the frames of one read's output, checked. A frame dipo cannot read ends the parse, and so
+ * does a frame past `DOOR_MAX_PARTS_PER_READ` frames in all (parts, skips and refusals), which the
+ * read script never prints.
+ */
 export function parseDoorRead(output: Uint8Array): DoorRead {
   const parts: DoorMessage[] = [];
   const refused: DoorRefused[] = [];
   const header = new TextDecoder();
   let at = 0;
+  let frames = 0;
   for (;;) {
     const end = output.indexOf(NEWLINE, at);
     if (end < 0 || end - at > MAX_HEADER) {
@@ -329,6 +371,15 @@ export function parseDoorRead(output: Uint8Array): DoorRead {
     const line = header.decode(output.subarray(at, end));
     at = end + 1;
     if (line === "end") return { parts, refused, complete: at === output.length };
+    frames += 1;
+    if (frames > DOOR_MAX_PARTS_PER_READ) {
+      refused.push({
+        name: null,
+        refusal: "badFrame",
+        detail: `the read printed more than ${DOOR_MAX_PARTS_PER_READ} frames`,
+      });
+      return { parts, refused, complete: false };
+    }
     if (line === "skip") {
       refused.push({
         name: null,
@@ -531,6 +582,8 @@ interface OpenDoor {
   readonly recorded: Map<string, number>;
   /** Queue file names whose `onPart` resolved. */
   readonly handled: Set<string>;
+  /** The bad frames recorded already, by name (or detail): each is recorded and warned about once. */
+  readonly badFrames: Set<string>;
   parts: number;
   timer: TimerHandle | null;
   reading: Promise<DoorRead> | null;
@@ -586,6 +639,7 @@ export class BoxDoor {
       runDir,
       recorded,
       handled: new Set(),
+      badFrames: new Set(),
       parts,
       timer: null,
       reading: null,
@@ -663,6 +717,12 @@ export class BoxDoor {
     const take: string[] = [];
     const refuse: string[] = [];
     for (const refused of read.refused) {
+      if (refused.refusal === "badFrame") {
+        // A bad frame stays in the box and comes back on every read: it is recorded once.
+        const key = refused.name ?? refused.detail;
+        if (door.badFrames.has(key)) continue;
+        door.badFrames.add(key);
+      }
       this.#record(door, { kind: "refused", at, ...refused });
       this.#deps.warn?.("the box door refused a message", {
         run: door.runId,

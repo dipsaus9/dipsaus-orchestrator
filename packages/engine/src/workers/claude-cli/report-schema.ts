@@ -11,7 +11,7 @@
 
 import { z } from "zod";
 
-import { cleanDoorStrings } from "../../box/door";
+import { cleanDoorStrings, doorKeysClean } from "../../box/door";
 import {
   REVIEW_SUMMARY_MAX,
   type JsonSchema,
@@ -205,6 +205,9 @@ export function parseWorkerReport(output: unknown): WorkerReportRead {
   }
   // The error names no field or key: an unknown key is the worker's text, and this one goes into
   // a park detail and the report feedback.
+  // Keys are never cleaned: one that holds anything cleaning would change is refused.
+  if (!doorKeysClean(output))
+    return { ok: false, error: "structured_output fails the report schema" };
   const parsed = WorkerReportSchema.safeParse(cleanDoorStrings(output));
   if (!parsed.success) return { ok: false, error: "structured_output fails the report schema" };
   return { ok: true, report: parsed.data };
