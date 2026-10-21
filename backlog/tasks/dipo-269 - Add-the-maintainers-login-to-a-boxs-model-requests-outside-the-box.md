@@ -1,10 +1,10 @@
 ---
 id: DIPO-269
 title: Add the maintainer's login to a box's model requests outside the box
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 15:08'
 labels:
   - 'tier:M'
   - cutover
@@ -16,6 +16,17 @@ references:
   - packages/engine/src/box/model-proxy.ts
   - packages/engine/src/box/token.ts
   - packages/engine/test/box/model-proxy.test.ts
+  - packages/engine/src/box/token-check.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/platform/box-host.ts
+  - packages/engine/src/index.ts
+  - packages/engine/test/box/token.test.ts
+  - packages/engine/test/box/token-check.test.ts
+  - packages/daemon/src/login.ts
+  - packages/daemon/src/login.test.ts
+  - packages/daemon/src/index.ts
+  - packages/cli/src/index.ts
+  - packages/cli/src/index.test.ts
 priority: high
 type: feature
 ordinal: 258000
@@ -36,9 +47,9 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo stores and reads the token in the macOS Keychain under a dipo entry; a dipo command lets the maintainer set or replace it
-- [ ] #2 The model proxy listens only on the box network's host address, passes only /v1/messages and /v1/messages/count_tokens, and does not follow redirects
-- [ ] #3 The box gets only a placeholder key, ANTHROPIC_BASE_URL on the model proxy and NO_PROXY for that address
-- [ ] #4 A check after a run reports whether the token occurs in the box's environment or files and holds the adapter if it does
-- [ ] #5 Unit tests cover the path rule and the header handling
+- [x] #1 dipo stores and reads the token in the macOS Keychain under a dipo entry; a dipo command lets the maintainer set or replace it
+- [x] #2 The model proxy listens only on the box network's host address, passes only /v1/messages and /v1/messages/count_tokens, and does not follow redirects
+- [x] #3 The box gets only a placeholder key, ANTHROPIC_BASE_URL on the model proxy and NO_PROXY for that address
+- [x] #4 A check after a run reports whether the token occurs in the box's environment or files and holds the adapter if it does
+- [x] #5 Unit tests cover the path rule and the header handling
 <!-- AC:END -->
