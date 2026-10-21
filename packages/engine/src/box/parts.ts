@@ -20,15 +20,21 @@
 //    got it at the start commit (dipo's own task-file commits never reach the box). Left out are
 //    paths git ignores by the delivered or the part's own `.gitignore` rules (`box/ignore.ts`), the
 //    files outside git the office config copies in (`box.files`), and anything below a submodule,
-//    unless the delivered tree tracks the path.
-// 3. The scans (0021 section 8). A protected-file check (`protectedKind`: git's own folder, the
-//    whole `backlog/` with the story's task file, `.dipo/`, `.github/`, the Claude settings and
-//    `.gitattributes`/`.gitmodules`) over every added, changed and deleted path, where any link
-//    other than an unchanged tracked symlink also counts as protected; then a secret scan of every
-//    added and changed file: secret file names (`isSecretPath`) and content patterns that the
-//    delivered version of the file did not already hold (`newSecretKinds`). A hit parks the story
-//    with a fixed text that names only the kinds found, never a path or what matched; nothing is
-//    committed or pushed, and the files stay in the box.
+//    unless the delivered tree tracks the path. The matching runs in batches with the event loop
+//    free between them, within `IGNORE_WORK_BUDGET`; a part's `.gitignore` over `IGNORE_FILE_MAX`
+//    is refused unread.
+// 3. The scans (0021 section 8). A path with a control, bidirectional or invisible character is
+//    refused. A protected-file check (`protectedKind`, folded as APFS folds names, with a
+//    look-alike fold as a second layer: git's own folder, the whole `backlog/` with the story's
+//    task file, `.dipo/`, `.github/`, the Claude settings and `.gitattributes`/`.gitmodules`) runs
+//    over every added, changed and deleted path, where any link other than an unchanged tracked
+//    symlink also counts as protected. Then the secret scan, outside the git queue: the cleaned
+//    commit subject, every added or changed path's name, and every added or changed file streamed
+//    in chunks (a file over `SCAN_FILE_MAX` refuses the part): secret file names (`isSecretPath`),
+//    content patterns and the values of the listed box files (`listedValues`) that the delivered
+//    version of the file did not already hold. A hit parks the story with a fixed text that names
+//    only the kinds found, never a path or what matched; nothing is committed or pushed, and the
+//    files stay in the box.
 // 4. The commit (0021 sections 8 and 14). dipo's own copy of the story branch is the branch in the
 //    office repository, built from git objects alone: no checkout holds the part, so no git call
 //    runs with a folder of worker-written files as its work tree or reads its `.gitattributes`,
@@ -36,28 +42,39 @@
 //    hardened config: hooks off, no fsmonitor, no system config), with its filters off: the files
 //    are stored with `hash-object -w --no-filters`, put into a temporary index in dipo's stage
 //    folder read from the tip (`read-tree`, `update-index --cacheinfo`, `rm --cached`), and
-//    committed with `commit-tree` (`rm --cached --force`: the repository's own HEAD is not the story branch); `update-ref` moves the branch only from the tip read at the
-//    start. The subject is the worker's message (`partSubject`: cleaned, one line, at most 72
-//    characters) and the body names the story and the part's number. Then the branch is pushed
-//    without force. The story's Mac worktree is not written: its HEAD follows the branch, and its
-//    files stay as dipo left them.
+//    committed with `commit-tree` (`rm --cached --force`: the repository's own HEAD is not the
+//    story branch); `update-ref` moves the branch only from the tip read at the start. A path git
+//    does not take refuses the part. GNU tar's exit 1 (a file changed while it read it) is
+//    accepted: the Mac checks every entry again. The subject is the worker's message
+//    (`partSubject`: cleaned, one line, at most 72 characters) and the body names the story and
+//    the part's number. Then the branch is pushed without force. The story's Mac worktree is not
+//    written: its HEAD follows the branch, and its files stay as dipo left them.
 //
 // Parts of one run are delivered one at a time. A part that finds the run not live (being parked,
 // stopped, or not followed) is left queued in the box (`onPart` rejects), so it is delivered when
 // the run goes on. A stream or git failure rejects too, and the door hands the part again.
 
 import { createHash } from "node:crypto";
-import { appendFileSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
+import { appendFileSync, constants } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { isSecretPath, newSecretKinds } from "../context/secrets";
+import {
+  isSecretPath,
+  newKeyKinds,
+  type SecretKeys,
+  secretKeys,
+  secretKeysOfBytes,
+  secretKeysOfFile,
+  type SecretValues,
+} from "../context/secrets";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
 import { type PushResult, pushBranch } from "../git/task-commit";
+import { yieldToEventLoop } from "../platform/clock";
 import {
   type ArchiveLink,
   type CacheArchiveLimits,
@@ -96,6 +113,27 @@ export const PART_WAITING = "box.partWaiting";
 const PART_MARKER = "delivered from its box by dipo";
 /** How many paths one git call names. */
 const PATHS_PER_CALL = 100;
+/** The largest `.gitignore` of a part; a larger one refuses the part, unread. */
+export const IGNORE_FILE_MAX = 64 * 1024;
+/**
+ * The most ignore-matching work one part may take (`IgnoreRules.work`, steps at most); past it the
+ * part is refused.
+ */
+export const IGNORE_WORK_BUDGET = 1_000_000_000;
+/** How many paths are matched between two turns of the event loop. */
+const IGNORE_BATCH = 1_000;
+/** The largest file a part may add or change: it is scanned whole, so a larger one refuses the part. */
+export const SCAN_FILE_MAX = 64 * 1024 * 1024;
+/** The largest listed box file whose values are read. */
+const LISTED_FILE_MAX = 1024 * 1024;
+/** The shortest value of a listed box file a part may not bring in. */
+export const LISTED_VALUE_MIN = 12;
+/** The longest value of a listed box file looked for. */
+const LISTED_VALUE_MAX_CHARS = 4096;
+/** The most values of the listed box files looked for. */
+const LISTED_VALUES_MAX = 5_000;
+/** How much of a file one hash read takes. */
+const HASH_CHUNK = 1024 * 1024;
 /** How often a part is taken again when the branch moved under it. */
 const MOVED_ATTEMPTS = 3;
 
@@ -153,11 +191,54 @@ export const PROTECTED_TEXT: Readonly<Record<ProtectedKind, string>> = {
 };
 
 /**
- * The protected kind of the repo-relative `path`, or null. Compared Unicode-decomposed and
- * lower-cased, as an APFS volume finds files: `.GitHub/` is `.github/` there.
+ * `text` folded as a case- and normalisation-insensitive volume compares names: decomposed, then
+ * upper- and lower-cased, so `ſ` and `K` (Kelvin) meet their ASCII letters as `.GitHub/` meets
+ * `.github/`.
+ */
+export function foldName(text: string): string {
+  return text.normalize("NFD").toUpperCase().toLowerCase();
+}
+
+/** `text` folded harder: compatibility forms (`ｂ`), combining marks dropped, then `foldName`. */
+function lookAlike(text: string): string {
+  return foldName(text.normalize("NFKD").replace(/\p{M}/gu, ""));
+}
+
+/**
+ * The protected kind of the repo-relative `path`, or null. Compared folded (`foldName`), as an
+ * APFS volume finds files; and, as a second layer, a path with characters outside ASCII is also
+ * protected when its look-alike fold (`.gitattributeſ`, `ｂacklog/`) names a protected file.
  */
 export function protectedKind(path: string): ProtectedKind | null {
-  const key = path.normalize("NFD").toLowerCase();
+  const kind = protectedOf(foldName(path));
+  if (kind !== null) return kind;
+  return /[^\p{ASCII}]/u.test(path) ? protectedOf(lookAlike(path)) : null;
+}
+
+/**
+ * Characters a part's path may not hold: C0 and C1 controls, DEL, the bidirectional marks,
+ * embeddings, overrides and isolates, and the invisible characters git's HFS check ignores.
+ */
+const UNSAFE_PATH: readonly (readonly [number, number])[] = [
+  [0x00, 0x1f],
+  [0x7f, 0x9f],
+  [0x61c, 0x61c],
+  [0x200b, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x206f],
+  [0xfeff, 0xfeff],
+];
+
+/** True when a part's path holds a control, bidirectional or invisible character. */
+export function unsafePath(path: string): boolean {
+  for (const char of path) {
+    const code = char.codePointAt(0)!;
+    if (UNSAFE_PATH.some(([low, high]) => code >= low && code <= high)) return true;
+  }
+  return false;
+}
+
+function protectedOf(key: string): ProtectedKind | null {
   const parts = key.split("/");
   if (parts.includes(".git")) return "git";
   if (parts[0] === "backlog") return "backlog";
@@ -184,6 +265,8 @@ export interface PartFile {
   readonly id: string;
   /** Its absolute path in dipo's stage folder. */
   readonly at: string;
+  /** Its size in bytes, as dipo read it. */
+  readonly size?: number;
 }
 
 /** One change of a part against the delivered tree. */
@@ -287,6 +370,25 @@ export function partArchiveCommand(excludes: readonly string[]): [string, ...str
   ];
 }
 
+/** git's id of the blob of the file at `at` (`size` bytes), read in chunks (O_NOFOLLOW). */
+async function fileBlobId(format: "sha1" | "sha256", at: string, size: number): Promise<string> {
+  const hash = createHash(format).update(`blob ${size}\0`);
+  const file = await open(at, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const buffer = new Uint8Array(HASH_CHUNK);
+    for (let done = 0; done < size;) {
+      const { bytesRead } = await file.read(buffer, 0, Math.min(HASH_CHUNK, size - done), done);
+      if (bytesRead === 0)
+        throw new BoxError(PART_FAILED, "a part file changed while dipo read it.");
+      hash.update(buffer.subarray(0, bytesRead));
+      done += bytesRead;
+    }
+  } finally {
+    await file.close();
+  }
+  return hash.digest("hex");
+}
+
 /** git's id of a blob holding `content`, in the repository's object format. */
 export function blobId(format: "sha1" | "sha256", content: Uint8Array | string): string {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
@@ -320,34 +422,113 @@ export function protectedHits(
 }
 
 /**
- * The secret scan of a part's added and changed files: a secret file name, or content patterns
- * the delivered version did not hold. `before` reads a changed file's delivered content; it is
- * asked only for a file whose new content matches a pattern.
+ * The secret scan of a part, outside the git queue: the cleaned commit subject, the name of every
+ * added or changed path (content patterns and listed values, and the secret file names), and every
+ * added or changed file, streamed in chunks (`secretKeysOfFile`). A file's key counts only when
+ * the delivered version did not hold it: `before` gives the delivered content of the changed files
+ * that hit, by blob id (null for one too big to scan, so every key counts). `tooBig` when a file is
+ * larger than `maxFileBytes`: dipo does not take a file it does not scan whole.
  */
-export async function secretHits(
-  changes: readonly PartChange[],
-  before: (id: string) => Promise<string>,
-  view: ReadonlyMap<string, TreeEntry>,
-): Promise<{ readonly kinds: string[]; readonly paths: string[] }> {
+export async function secretHits(input: {
+  readonly changes: readonly PartChange[];
+  readonly view: ReadonlyMap<string, TreeEntry>;
+  readonly before: (ids: readonly string[]) => Promise<ReadonlyMap<string, string | null>>;
+  readonly subject: string;
+  readonly literals?: SecretValues;
+  readonly maxFileBytes?: number;
+}): Promise<{ readonly kinds: string[]; readonly paths: string[] } | "tooBig"> {
   const kinds = new Set<string>();
-  const paths: string[] = [];
-  for (const change of changes) {
+  const paths = new Set<string>();
+  for (const kind of secretKeys(input.subject, input.literals).keys()) kinds.add(kind);
+  const pending: { readonly change: PartChange; readonly id: string; readonly keys: SecretKeys }[] =
+    [];
+  for (const change of input.changes) {
     if (change.kind === "deleted") continue;
-    let hit = false;
-    if (isSecretPath(change.path)) {
-      kinds.add(SECRET_NAME_KIND);
-      hit = true;
+    const named = [...secretKeys(change.path, input.literals).keys()];
+    if (isSecretPath(change.path)) named.push(SECRET_NAME_KIND);
+    for (const kind of named) kinds.add(kind);
+    if (named.length > 0) paths.add(change.path);
+    const keys = await secretKeysOfFile(
+      change.at,
+      input.maxFileBytes ?? SCAN_FILE_MAX,
+      input.literals,
+    );
+    if (keys === "tooBig") return "tooBig";
+    if (keys.size === 0) continue;
+    const old = input.view.get(change.path);
+    if (change.kind === "changed" && old !== undefined) {
+      pending.push({ change, id: old.id, keys });
+      continue;
     }
-    const content = await readFile(change.at);
-    let found = newSecretKinds(content, null);
-    const old = view.get(change.path);
-    if (found.length > 0 && change.kind === "changed" && old !== undefined) {
-      found = newSecretKinds(content, await before(old.id));
-    }
-    for (const kind of found) kinds.add(kind);
-    if (hit || found.length > 0) paths.push(change.path);
+    for (const kind of keys.keys()) kinds.add(kind);
+    paths.add(change.path);
   }
-  return { kinds: [...kinds], paths };
+  if (pending.length > 0) {
+    const olds = await input.before(pending.map((item) => item.id));
+    for (const { change, id, keys } of pending) {
+      const old = olds.get(id) ?? null;
+      const had = old === null ? null : secretKeysOfBytes(Buffer.from(old, "utf8"), input.literals);
+      const found = newKeyKinds(keys, had);
+      for (const kind of found) kinds.add(kind);
+      if (found.length > 0) paths.add(change.path);
+    }
+  }
+  return { kinds: [...kinds], paths: [...paths].toSorted() };
+}
+
+/** The kind a value from a listed box file is reported by. */
+export const LISTED_VALUE_KIND = "a value from a listed box file";
+
+/**
+ * The values of the listed box files (`box.files`) dipo reads from the office's main checkout: each
+ * word of at least `LISTED_VALUE_MIN` characters. A part that brings one into a file parks as a
+ * secret. A listed file that is missing, not a regular file, reached through a link, or larger than
+ * `LISTED_FILE_MAX` gives none.
+ */
+export async function listedValues(main: string, paths: readonly string[]): Promise<string[]> {
+  const root = await realpath(main).catch(() => null);
+  if (root === null) return [];
+  const values = new Set<string>();
+  for (const path of paths) {
+    const at = join(root, path);
+    const real = await realpath(at).catch(() => null);
+    if (real !== at) continue;
+    const info = await lstat(at).catch(() => null);
+    if (info === null || !info.isFile() || info.size > LISTED_FILE_MAX) continue;
+    for (const word of (await readFile(at, "utf8")).split(/[\s"'`=:,;()[\]{}<>]+/)) {
+      if (word.length >= LISTED_VALUE_MIN && word.length <= LISTED_VALUE_MAX_CHARS)
+        values.add(word);
+      if (values.size >= LISTED_VALUES_MAX) return [...values];
+    }
+  }
+  return [...values];
+}
+
+/**
+ * The untracked paths among `paths` that stay out of the part: listed, or ignored by any of
+ * `rules`. The matching is done in batches with the event loop free between them, and stops with
+ * `budget` once the rules' work passes `budget` (`IgnoreRules.work`).
+ */
+export async function leftOutPaths(input: {
+  readonly paths: Iterable<string>;
+  readonly view: ReadonlyMap<string, TreeEntry>;
+  readonly listed: ReadonlySet<string>;
+  readonly rules: readonly IgnoreRules[];
+  readonly budget: number;
+}): Promise<Set<string> | "budget"> {
+  const out = new Set<string>();
+  const work = () => input.rules.reduce((sum, rules) => sum + rules.work, 0);
+  let checked = 0;
+  for (const path of input.paths) {
+    if (input.view.has(path)) continue;
+    if (input.listed.has(path) || input.rules.some((rules) => rules.ignored(path))) out.add(path);
+    checked += 1;
+    if (checked % IGNORE_BATCH === 0) {
+      if (work() > input.budget) return "budget";
+      await yieldToEventLoop();
+    }
+  }
+  return work() > input.budget ? "budget" : out;
 }
 
 /** Pure: the fixed park detail of a protected-file hit; it names kinds only. */
@@ -360,8 +541,31 @@ export function secretDetail(kinds: readonly string[], files: number): string {
   return `The part the worker delivered holds what looks like a secret: ${kinds.join("; ")}, in ${files} ${files === 1 ? "file" : "files"}. dipo committed and pushed nothing, and the files stay in the box.`;
 }
 
+/** Why dipo did not take a part. */
+export type PartRefusal =
+  | "cap"
+  | "archive"
+  | "git"
+  | "path"
+  | "ignoreFile"
+  | "ignoreWork"
+  | "bigFile";
+
 /** The fixed park detail of a part dipo could not take, by why. */
-export function refusedDetail(why: "cap" | "archive" | "git", maxBytes: number): string {
+export function refusedDetail(why: PartRefusal, maxBytes: number): string {
+  const nothing = "dipo committed and pushed nothing.";
+  switch (why) {
+    case "path":
+      return `The part the worker delivered holds a path with a control, bidirectional or invisible character. ${nothing}`;
+    case "ignoreFile":
+      return `The part the worker delivered holds a .gitignore larger than ${IGNORE_FILE_MAX} bytes, which dipo does not read. ${nothing}`;
+    case "ignoreWork":
+      return `The part the worker delivered has more paths and ignore rules than dipo matches in one part. ${nothing}`;
+    case "bigFile":
+      return `The part the worker delivered adds or changes a file larger than ${SCAN_FILE_MAX} bytes, which dipo does not scan. ${nothing}`;
+    default:
+      break;
+  }
   if (why === "cap") {
     return `The part the worker delivered is larger than ${maxBytes} bytes, so dipo did not take it; files git should ignore may be missing from .gitignore. dipo committed and pushed nothing.`;
   }
@@ -388,7 +592,7 @@ async function readPartFiles(
         await walk(at, path);
       } else if (info.isFile()) {
         const mode = (info.mode & 0o111) === 0 ? "100644" : "100755";
-        files.set(path, { mode, id: blobId(format, await readFile(at)), at });
+        files.set(path, { mode, id: await fileBlobId(format, at, info.size), at, size: info.size });
       } else {
         // The extractor writes only files and folders; anything else is not dipo's.
         throw new BoxError(PART_REFUSED, "the part's stage holds an entry that is no file.");
@@ -448,9 +652,31 @@ async function readView(session: GitSession, branch: string, startSha: string): 
   for (const [path, entry] of entries) {
     const dir = ignoreFileDir(path);
     if (dir === null || entry.type !== "blob" || entry.mode === "120000") continue;
+    // A delivered one is never this large (a part refuses it); one of the base is left unread.
+    const size = Number((await session.ok(repo, ["cat-file", "-s", entry.id])).trim());
+    if (!(size <= IGNORE_FILE_MAX)) continue;
     ignores.push({ dir, text: await session.ok(repo, ["cat-file", "blob", entry.id]) });
   }
   return { tip, tipTree, format, entries, ignores };
+}
+
+/**
+ * The delivered content of the blobs `ids`, read in the git queue for the scan outside it; null for
+ * one larger than `SCAN_FILE_MAX`, so every key of the new content counts.
+ */
+async function deliveredTexts(
+  session: GitSession,
+  ids: readonly string[],
+): Promise<Map<string, string | null>> {
+  const texts = new Map<string, string | null>();
+  for (const id of new Set(ids)) {
+    const size = Number((await session.ok(session.repository, ["cat-file", "-s", id])).trim());
+    texts.set(
+      id,
+      size <= SCAN_FILE_MAX ? await session.ok(session.repository, ["cat-file", "blob", id]) : null,
+    );
+  }
+  return texts;
 }
 
 function chunks<T>(items: readonly T[]): T[][] {
@@ -671,6 +897,10 @@ export interface BoxPartsDeps {
   readonly readDoor?: (runId: string) => Promise<unknown> | null;
   readonly limits?: CacheArchiveLimits;
   readonly timeoutMs?: number;
+  /** Overrides `IGNORE_WORK_BUDGET`. */
+  readonly ignoreWorkBudget?: number;
+  /** Overrides `SCAN_FILE_MAX`. */
+  readonly scanFileMax?: number;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -800,6 +1030,8 @@ export class BoxParts {
           what: "the part archive",
           // The worker's box: a failed stream ends only the exec client (the module comment).
           stopOnFailure: false,
+          // GNU tar exits 1 when a file changed while it read it; the Mac checks every entry again.
+          okExits: [0, 1],
         });
       } catch (error) {
         if (error instanceof BoxError && error.details["reason"] === "cap") {
@@ -826,19 +1058,37 @@ export class BoxParts {
       }
       await rm(folder, { recursive: true, force: true });
       const files = await readPartFiles(dest, view.format);
+      const refused = (why: PartRefusal): PartOutcome => ({
+        kind: "refused",
+        detail: refusedDetail(why, limits.maxArchiveBytes),
+      });
       const partIgnores: IgnoreFile[] = [];
       for (const [path, file] of files) {
         const dir = ignoreFileDir(path);
-        if (dir !== null) partIgnores.push({ dir, text: await readFile(file.at, "utf8") });
+        if (dir === null) continue;
+        // Refused before it is read or split: the worker wrote it.
+        if ((file.size ?? Number.POSITIVE_INFINITY) > IGNORE_FILE_MAX) return refused("ignoreFile");
+        partIgnores.push({ dir, text: await readFile(file.at, "utf8") });
       }
       const partRules = new IgnoreRules(partIgnores);
+      const out = await leftOutPaths({
+        paths: [...files.keys(), ...links.map((link) => link.path)],
+        view: view.entries,
+        listed,
+        rules: [viewRules, partRules],
+        budget: this.#deps.ignoreWorkBudget ?? IGNORE_WORK_BUDGET,
+      });
+      if (out === "budget") return refused("ignoreWork");
       const { changes, linkHits } = comparePart({
         view: view.entries,
         files,
         links,
-        leftOut: (path) => listed.has(path) || viewRules.ignored(path) || partRules.ignored(path),
+        leftOut: (path) => out.has(path),
         linkId: (target) => blobId(view.format, target),
       });
+      if ([...changes.map((change) => change.path), ...linkHits].some(unsafePath)) {
+        return refused("path");
+      }
       const guarded = protectedHits(changes, linkHits);
       if (guarded.kinds.length > 0) {
         this.#hitRecord(run, PART_CAUSES.protectedFile, guarded.paths);
@@ -849,14 +1099,27 @@ export class BoxParts {
         };
       }
       if (changes.length === 0) return { kind: "empty" };
-      const result = await git.run(async (session) => {
-        const secrets = await secretHits(
-          changes,
-          (id) => session.ok(session.repository, ["cat-file", "blob", id]),
-          view.entries,
-        );
-        if (secrets.kinds.length > 0) return { secrets } as const;
-        const committed = await commitPart(session, {
+      // The scan runs outside the git queue; only the delivered content it needs is read in it.
+      const values = await listedValues(git.mainWorktree, [...listed]);
+      const secrets = await secretHits({
+        changes,
+        view: view.entries,
+        subject: partSubject(message, ""),
+        ...(values.length === 0 ? {} : { literals: { kind: LISTED_VALUE_KIND, values } }),
+        before: (ids) => git.run((session) => deliveredTexts(session, ids)),
+        ...(this.#deps.scanFileMax === undefined ? {} : { maxFileBytes: this.#deps.scanFileMax }),
+      });
+      if (secrets === "tooBig") return refused("bigFile");
+      if (secrets.kinds.length > 0) {
+        this.#hitRecord(run, PART_CAUSES.secret, secrets.paths);
+        return {
+          kind: "hit",
+          cause: PART_CAUSES.secret,
+          detail: secretDetail(secrets.kinds, secrets.paths.length),
+        };
+      }
+      const committed = await git.run((session) =>
+        commitPart(session, {
           branch: run.branch,
           story: run.story,
           startSha: run.startSha,
@@ -864,23 +1127,12 @@ export class BoxParts {
           changes,
           message,
           index: join(stage, "index"),
-        });
-        return { committed } as const;
-      });
-      if ("secrets" in result) {
-        this.#hitRecord(run, PART_CAUSES.secret, result.secrets.paths);
-        return {
-          kind: "hit",
-          cause: PART_CAUSES.secret,
-          detail: secretDetail(result.secrets.kinds, result.secrets.paths.length),
-        };
-      }
-      if (result.committed === null) return null;
-      if (result.committed === "refused") {
-        return { kind: "refused", detail: refusedDetail("git", limits.maxArchiveBytes) };
-      }
-      if (result.committed.commit === null) return { kind: "empty" };
-      const { commit, n } = result.committed;
+        }),
+      );
+      if (committed === null) return null;
+      if (committed === "refused") return refused("git");
+      if (committed.commit === null) return { kind: "empty" };
+      const { commit, n } = committed;
       const push = await git
         .run((session) => pushBranch(session, git.settings.remote, run.branch))
         .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));

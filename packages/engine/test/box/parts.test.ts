@@ -3,7 +3,7 @@
 // The flow on real git with a bare remote is in test/run/parts-commit.test.ts. Every secret-shaped
 // text here is built from pieces, so this file itself holds none a scan would find.
 
-import { writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -16,6 +16,9 @@ import {
   blobId,
   comparePart,
   inBoxExcludes,
+  leftOutPaths,
+  LISTED_VALUE_KIND,
+  listedValues,
   PART_SUBJECT_MAX,
   type PartChange,
   type PartFile,
@@ -30,8 +33,16 @@ import {
   secretDetail,
   secretHits,
   type TreeEntry,
+  unsafePath,
 } from "../../src/box/parts";
-import { isSecretPath, newSecretKinds, secretMatches } from "../../src/context/secrets";
+import { yieldToEventLoop } from "../../src/platform/clock";
+import {
+  isSecretPath,
+  newSecretKinds,
+  SECRET_SCAN_CHUNK,
+  secretKeysOfFile,
+  secretMatches,
+} from "../../src/context/secrets";
 
 const ESC = "\u001b";
 const PRIVATE_KEY = `-----BEGIN ${"OPENSSH"} PRIVATE ${"KEY"}-----\nb3BlbnNzaC1rZXk=\n`;
@@ -85,6 +96,30 @@ describe("the protected list", () => {
     ] as const) {
       expect([path, protectedKind(path)]).toEqual([path, kind]);
     }
+  });
+
+  it("folds case and Unicode as the volume does, and catches look-alike names", () => {
+    const longS = String.fromCodePoint(0x17f);
+    const fullwidthB = String.fromCodePoint(0xff42);
+    const combiningDot = String.fromCodePoint(0x307);
+    for (const [path, kind] of [
+      ["Backlog/tasks/x.md", "backlog"],
+      [".Dipo/office.yaml", "dipo"],
+      [".GITHUB/workflows/ci.yml", "ci"],
+      [`.gitattribute${longS}`, "gitConfig"],
+      [`.github/workflow${longS}/ci.yml`, "ci"],
+      [`${fullwidthB}acklog/config.yml`, "backlog"],
+      [`.di${combiningDot}po/office.yaml`, "dipo"],
+    ] as const) {
+      expect([path, protectedKind(path)]).toEqual([path, kind]);
+    }
+  });
+
+  it("refuses paths with control, bidirectional or invisible characters", () => {
+    for (const code of [0x0a, 0x1b, 0x7f, 0x85, 0x202e, 0x2066, 0x200b, 0x200d, 0xfeff]) {
+      expect([code, unsafePath(`src/a${String.fromCodePoint(code)}b.ts`)]).toEqual([code, true]);
+    }
+    expect(unsafePath("src/café/日本.ts")).toBe(false);
   });
 
   it("leaves ordinary paths, also ones that only look alike", () => {
@@ -158,13 +193,15 @@ describe("the secret scan", () => {
         ["test/fixture.ts", { mode: "100644", type: "blob", id: "old-fixture" }],
         ["src/a.ts", { mode: "100644", type: "blob", id: "old-a" }],
       ]);
-      const asked: string[] = [];
-      const before = async (id: string) => {
-        asked.push(id);
-        return id === "old-fixture" ? `"${ANTHROPIC_KEY}"\n` : "";
+      const asked: string[][] = [];
+      const before = async (ids: readonly string[]) => {
+        asked.push([...ids]);
+        return new Map(
+          ids.map((id) => [id, id === "old-fixture" ? `"${ANTHROPIC_KEY}"\n` : ""] as const),
+        );
       };
-      const clean = await secretHits(
-        [
+      const clean = await secretHits({
+        changes: [
           {
             path: "test/fixture.ts",
             kind: "changed",
@@ -177,11 +214,12 @@ describe("the secret scan", () => {
         ],
         before,
         view,
-      );
+        subject: "Add a fixture",
+      });
       expect(clean).toEqual({ kinds: [], paths: [] });
-      expect(asked).toEqual(["old-fixture"]);
-      const hit = await secretHits(
-        [
+      expect(asked).toEqual([["old-fixture"]]);
+      const hit = await secretHits({
+        changes: [
           {
             path: "src/a.ts",
             kind: "changed",
@@ -193,17 +231,112 @@ describe("the secret scan", () => {
         ],
         before,
         view,
-      );
-      expect(hit.kinds).toEqual(["an AWS access key", "a secret file name"]);
-      expect(hit.paths).toEqual(["src/a.ts", ".env"]);
+        subject: "Add a key",
+      });
+      if (hit === "tooBig") throw new Error("not too big");
+      expect(hit.kinds).toEqual(["a secret file name", "an AWS access key"]);
+      expect(hit.paths).toEqual([".env", "src/a.ts"]);
       const detail = secretDetail(hit.kinds, hit.paths.length);
       expect(detail).toBe(
-        "The part the worker delivered holds what looks like a secret: an AWS access key; a secret file name, in 2 files. dipo committed and pushed nothing, and the files stay in the box.",
+        "The part the worker delivered holds what looks like a secret: a secret file name; an AWS access key, in 2 files. dipo committed and pushed nothing, and the files stay in the box.",
       );
       expect(detail).not.toContain(AWS_KEY);
       expect(detail).not.toContain(".env");
     }));
+
+  it("scans the commit subject and every changed path name, and refuses a file over the cap", () =>
+    withTempDir(async (dir) => {
+      writeFileSync(join(dir, "plain"), "plain\n");
+      const plain: PartChange = {
+        path: "src/plain.ts",
+        kind: "added",
+        mode: "100644",
+        id: "1",
+        at: join(dir, "plain"),
+      };
+      const subject = await secretHits({
+        changes: [plain],
+        view: new Map(),
+        before: noDelivered,
+        subject: `Use ${GITHUB_TOKEN} for the test`,
+      });
+      expect(subject).toEqual({ kinds: ["a GitHub token"], paths: [] });
+      const named = await secretHits({
+        changes: [{ ...plain, path: `keys/${AWS_KEY}.txt` }],
+        view: new Map(),
+        before: noDelivered,
+        subject: "Add a file",
+      });
+      expect(named).toEqual({ kinds: ["an AWS access key"], paths: [`keys/${AWS_KEY}.txt`] });
+      writeFileSync(join(dir, "big"), "x".repeat(2048));
+      const big = await secretHits({
+        changes: [{ ...plain, at: join(dir, "big") }],
+        view: new Map(),
+        before: noDelivered,
+        subject: "Add a big file",
+        maxFileBytes: 1024,
+      });
+      expect(big).toBe("tooBig");
+    }));
+
+  it("finds a key across a chunk border, once", () =>
+    withTempDir(async (dir) => {
+      const at = join(dir, "long");
+      const pad = `${"x".repeat(SECRET_SCAN_CHUNK - 11)} `;
+      writeFileSync(at, `${pad}${AWS_KEY}\n${"y".repeat(100)}`);
+      const keys = await secretKeysOfFile(at, 64 * 1024 * 1024);
+      if (keys === "tooBig") throw new Error("not too big");
+      expect([...keys]).toEqual([["an AWS access key", new Set([AWS_KEY])]]);
+      expect(await secretKeysOfFile(at, 1024)).toBe("tooBig");
+    }));
+
+  it("finds a value of a listed box file brought into a file, not one it already held", () =>
+    withTempDir(async (dir) => {
+      const main = join(dir, "main");
+      mkdirSync(join(main, "config"), { recursive: true });
+      writeFileSync(
+        join(main, "config/local.json"),
+        '{ "dbPassword": "correct-horse-battery", "n": "short" }\n',
+      );
+      writeFileSync(join(main, "linked-target.json"), '{ "x": "never-read-through-a-link" }\n');
+      symlinkSync(join(main, "linked-target.json"), join(main, "linked.json"));
+      const values = await listedValues(main, ["config/local.json", "linked.json", "missing.json"]);
+      expect(values).toEqual(["correct-horse-battery"]);
+      const literals = { kind: LISTED_VALUE_KIND, values };
+      writeFileSync(join(dir, "uses"), 'const pw = "correct-horse-battery";\n');
+      const change: PartChange = {
+        path: "src/db.ts",
+        kind: "changed",
+        mode: "100644",
+        id: "new",
+        at: join(dir, "uses"),
+      };
+      const view = new Map<string, TreeEntry>([
+        ["src/db.ts", { mode: "100644", type: "blob", id: "old" }],
+      ]);
+      const brought = await secretHits({
+        changes: [change],
+        view,
+        literals,
+        subject: "Use the database",
+        before: async () => new Map([["old", "const pw = process.env.PW;\n"]]),
+      });
+      expect(brought).toEqual({ kinds: [LISTED_VALUE_KIND], paths: ["src/db.ts"] });
+      const held = await secretHits({
+        changes: [change],
+        view,
+        literals,
+        subject: "Use the database",
+        before: async () => new Map([["old", 'const pw = "correct-horse-battery";\n']]),
+      });
+      expect(held).toEqual({ kinds: [], paths: [] });
+    }));
 });
+
+/** No delivered content: the files are new. */
+async function noDelivered(): Promise<Map<string, string | null>> {
+  return new Map();
+}
 
 /** A file of the part, its id standing in for its content. */
 function file(id: string, mode: PartFile["mode"] = "100644"): PartFile {
@@ -355,5 +488,56 @@ describe("blob ids and parks", () => {
     ).toBeNull();
     expect(partPark({ kind: "empty" })).toBeNull();
     expect(partPark({ kind: "stopped" })).toBeNull();
+  });
+});
+
+describe("the ignore-matching budget", () => {
+  const rules = new IgnoreRules([{ dir: "", text: "node_modules/\n*.log\n" }]);
+
+  it("leaves out ignored and listed untracked paths, never a tracked one", async () => {
+    const view = new Map<string, TreeEntry>([
+      ["dist/kept.log", { mode: "100644", type: "blob", id: "1" }],
+    ]);
+    const out = await leftOutPaths({
+      paths: ["dist/kept.log", "a.log", "node_modules/x.js", "listed.json", "src/a.ts"],
+      view,
+      listed: new Set(["listed.json"]),
+      rules: [rules],
+      budget: 1_000_000,
+    });
+    expect(out === "budget" ? out : [...out].toSorted()).toEqual([
+      "a.log",
+      "listed.json",
+      "node_modules/x.js",
+    ]);
+  });
+
+  it("refuses past the budget, and frees the event loop between batches", async () => {
+    const hostile = new IgnoreRules([
+      { dir: "", text: Array.from({ length: 100 }, (_, i) => `*a*a*a*a*${i}b`).join("\n") },
+    ]);
+    const paths = Array.from({ length: 3_000 }, (_, i) => `deep/${"a".repeat(45)}${i}`);
+    let turns = 0;
+    const state = { ticking: true };
+    const tick = async () => {
+      while (state.ticking) {
+        turns += 1;
+        await yieldToEventLoop();
+      }
+    };
+    const ticker = tick();
+    const before = turns;
+    const out = await leftOutPaths({
+      paths,
+      view: new Map(),
+      listed: new Set(),
+      rules: [hostile],
+      budget: 100_000_000,
+    });
+    state.ticking = false;
+    await ticker;
+    expect(out).toBe("budget");
+    // The ticker ran while the paths were matched: the first batch fit the budget, the second not.
+    expect(turns).toBeGreaterThan(before);
   });
 });

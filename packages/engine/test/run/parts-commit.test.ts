@@ -169,7 +169,6 @@ function part(message: string) {
   return {
     runId: "run_1",
     box: "dipo-run_1",
-    runDir: "",
     n: 1,
     name: "1700000000-1.part",
     message,
@@ -353,6 +352,64 @@ describe("the scans park and commit nothing", () => {
       await w.parts.onPart(part("Add env"));
       expect(w.parks[0]?.detail).toContain("a secret file name");
       expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("parks on a value of a listed box file brought into a tracked file", () =>
+    inParts(async (w) => {
+      // The listed file sits in the main checkout, where dipo reads it, and in the box.
+      const value = `pg-${"pass".repeat(3)}-local`;
+      writeFileSync(join(w.repo.dir, "listed.json"), `{ "password": "${value}" }\n`);
+      writeFileSync(join(w.work, "listed.json"), `{ "password": "${value}" }\n`);
+      write(w.work, { "src/a.ts": `export const password = "${value}";\n` });
+      await w.parts.onPart(part("Hard-code the password"));
+      expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "secret"]]);
+      expect(w.parks[0]?.detail).toContain("a value from a listed box file");
+      expect(w.parks[0]?.detail).not.toContain(value);
+      expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("parks on a secret in the worker's message, which would be the commit subject", () =>
+    inParts(async (w) => {
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      await w.parts.onPart(part(`Use ${AWS_KEY} for the client`));
+      expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "secret"]]);
+      expect(w.parks[0]?.detail).not.toContain(AWS_KEY);
+      expect(await tip(w)).toBe(w.claimTip);
+    }));
+});
+
+describe("parts dipo does not take", () => {
+  it("parks part-refused on a path git does not take into a commit", () =>
+    inParts(async (w) => {
+      // `git~1` is the 8.3 short name of `.git` on NTFS: git refuses it in a tree.
+      write(w.work, { "git~1/config": "[core]\n", "src/a.ts": "export const a = 2;\n" });
+      await w.parts.onPart(part("A path git refuses"));
+      expect(w.parks).toEqual([
+        {
+          reason: "scope-violation",
+          cause: "part-refused",
+          detail:
+            "The part the worker delivered holds a path git does not take into a commit. dipo committed and pushed nothing.",
+        },
+      ]);
+      expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("parks part-refused on a path with a control or bidirectional character", () =>
+    inParts(async (w) => {
+      write(w.work, { [`src/a${String.fromCodePoint(0x202e)}st.ts`]: "x\n" });
+      await w.parts.onPart(part("A hidden name"));
+      expect(w.parks.map((p) => p.cause)).toEqual(["part-refused"]);
+      expect(w.parks[0]?.detail).toContain("control, bidirectional or invisible");
+      expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("parks part-refused on a .gitignore over 64 KiB, unread", () =>
+    inParts(async (w) => {
+      write(w.work, { "pkg/.gitignore": `${"x".repeat(70 * 1024)}\n` });
+      await w.parts.onPart(part("A huge ignore file"));
+      expect(w.parks.map((p) => p.cause)).toEqual(["part-refused"]);
+      expect(w.parks[0]?.detail).toContain(".gitignore larger than 65536 bytes");
     }));
 
   it("refuses a part over the size cap and parks it", () =>
