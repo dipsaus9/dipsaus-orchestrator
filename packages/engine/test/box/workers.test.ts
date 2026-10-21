@@ -34,7 +34,9 @@ import {
   withTempRepo,
 } from "@dipsaus-orchestrator/testkit";
 
-import { CODE_STAGE_PREFIX } from "../../src/box/code";
+import { CODE_STAGE_PREFIX, filtersOffConfig } from "../../src/box/code";
+import { BASE_CHECKOUT_CONFIG } from "../../src/git/hardened";
+import type { GitSession } from "../../src/git/office";
 import {
   boxImageTag,
   type BaseBox,
@@ -294,7 +296,38 @@ describe("the code a box gets (criterion 5)", () => {
     }));
 });
 
+/** A git session whose one step, the filter driver listing, exits `code`. */
+function listingSession(code: number, stdout = ""): GitSession {
+  return {
+    repository: { kind: "repository", commonDir: "/x/.git" },
+    step: async () => ({ code, stdout, stderr: "" }),
+    ok: async () => "",
+  } as unknown as GitSession;
+}
+
 describe("the archive of the start commit", () => {
+  it("is refused when git cannot list its filter drivers", async () => {
+    expect(await filtersOffConfig(listingSession(1))).toEqual([...BASE_CHECKOUT_CONFIG]);
+    expect(
+      await filtersOffConfig(listingSession(0, "filter.lfs.smudge\nfilter.evil.process\n")),
+    ).toEqual([
+      ...BASE_CHECKOUT_CONFIG,
+      ["filter.lfs.smudge", ""],
+      ["filter.lfs.process", ""],
+      ["filter.lfs.required", "false"],
+      ["filter.evil.smudge", ""],
+      ["filter.evil.process", ""],
+      ["filter.evil.required", "false"],
+    ]);
+    for (const code of [3, 128]) {
+      const error = (await filtersOffConfig(listingSession(code)).catch(
+        (e: unknown) => e,
+      )) as BoxError;
+      expect(error).toBeInstanceOf(BoxError);
+      expect(error.code).toBe("box.refused");
+    }
+  });
+
   it("runs no filter program a filter= attribute in the commit names", () =>
     inBoxes(async (repo, tmp) => {
       const marker = join(tmp, "filter-ran");

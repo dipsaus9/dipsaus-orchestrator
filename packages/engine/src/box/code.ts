@@ -214,6 +214,14 @@ export async function filtersOffConfig(
     "--get-regexp",
     "^filter\\..*\\.(smudge|process|required)$",
   ]);
+  // 0 lists the drivers and 1 means none; anything else (a broken config) refuses, since the
+  // drivers it could not list would run.
+  if (listed.code !== 0 && listed.code !== 1) {
+    throw new BoxError(
+      "box.refused",
+      `git could not list its filter drivers (exit ${listed.code}), so they cannot be switched off.`,
+    );
+  }
   const drivers = new Set<string>();
   for (const line of listed.stdout.split("\n")) {
     const found = /^filter\.(.+)\.(smudge|process|required)$/.exec(line.trim());
