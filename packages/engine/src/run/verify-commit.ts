@@ -55,6 +55,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
@@ -74,7 +75,6 @@ import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress } from "../views/work";
 import type { WorkerReport } from "../workers/types";
-import { TASK_FIELD_ERROR } from "../worktree/claim";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 

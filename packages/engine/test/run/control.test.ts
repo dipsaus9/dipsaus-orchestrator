@@ -44,7 +44,7 @@ import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { Caps, HostOp, ParseState, WorkerEvent, WorkerReport } from "../../src/workers/types";
-import { TASK_FIELD_ERROR } from "../../src/worktree/claim";
+import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
 import { insertClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
 import {

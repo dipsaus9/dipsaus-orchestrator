@@ -345,3 +345,60 @@ export async function runBacklog(
   }
   return { stdout, stderr };
 }
+
+/**
+ * The `GitError` code when the story's task file holds a front matter field dipo does not know;
+ * the operation is refused, and a story in a run parks `scope-violation`.
+ */
+export const TASK_FIELD_ERROR = "story.unknownTaskField";
+
+/**
+ * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
+ * other field is refused before the CLI reads it (0021 section 14).
+ */
+export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
+  "id",
+  "title",
+  "status",
+  "assignee",
+  "reporter",
+  "created_date",
+  "updated_date",
+  "due_date",
+  "labels",
+  "milestone",
+  "dependencies",
+  "references",
+  "documentation",
+  "modified_files",
+  "parent_task_id",
+  "subtasks",
+  "priority",
+  "type",
+  "project",
+  "ordinal",
+]);
+
+/**
+ * Pure: why the task file `text` may not reach the Backlog CLI, or null when it may. Its front
+ * matter must open on the first line and close, and each of its top-level lines must be a plain
+ * `name:` entry whose name is in `KNOWN_TASK_FIELDS`. Indented lines (values, list items) are
+ * left to the CLI; a top-level line of any other form is refused like a field dipo does not know.
+ */
+export function taskFieldRefusal(text: string): string | null {
+  const lines = text.split(/\r?\n/);
+  if (lines[0] !== "---") return "it does not open with a front matter block";
+  const end = lines.indexOf("---", 1);
+  if (end < 0) return "its front matter block does not close";
+  const unknown: string[] = [];
+  for (const line of lines.slice(1, end)) {
+    if (line.trim() === "" || /^\s/.test(line)) continue;
+    const name = /^([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)/.exec(line)?.[1];
+    if (name === undefined || !KNOWN_TASK_FIELDS.has(name)) {
+      unknown.push(JSON.stringify(line.slice(0, 40)));
+    }
+  }
+  return unknown.length === 0
+    ? null
+    : `its front matter holds fields dipo does not know: ${unknown.join(", ")}`;
+}

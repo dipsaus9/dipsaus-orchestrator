@@ -19,8 +19,9 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import type { BacklogCli } from "../backlog/runner";
+import { type BacklogCli, TASK_FIELD_ERROR, taskFieldRefusal } from "../backlog/runner";
 import type { GitSession, OfficeGit } from "../git/office";
+import { GitError } from "../git/runner";
 import type { ClaimRecord } from "../worktree/records";
 
 import { type BacklogStory, readStory } from "./read";
@@ -57,7 +58,8 @@ async function taskFileOn(session: GitSession, ref: string, id: string): Promise
 /**
  * Reads the story of `claim` as committed on its branch, with `basePath` (the `_base` checkout)
  * for the rest of the backlog. Must run inside a queue item of `git` (`session`); throws when the
- * branch ref or its task file is missing, or the Backlog CLI fails.
+ * branch ref or its task file is missing, when the task file holds fields dipo does not know
+ * (`TASK_FIELD_ERROR`, before the CLI runs), or when the Backlog CLI fails.
  */
 export async function readOnBranch(
   git: OfficeGit,
@@ -70,6 +72,17 @@ export async function readOnBranch(
   const ref = `refs/heads/${claim.branch}`;
   const path = await taskFileOn(session, ref, listed.id);
   const content = await session.ok(session.repository, ["show", `${ref}:${path}`]);
+  // A task file holding fields dipo does not know never reaches the CLI (0021 section 14): the
+  // read fails with the coded error, so the index lists the story as unread on its branch.
+  const refused = taskFieldRefusal(content);
+  if (refused !== null) {
+    throw new GitError(
+      TASK_FIELD_ERROR,
+      `dipo refuses ${listed.id}'s task file ${path} on ${claim.branch}: ${refused}.`,
+      false,
+      { story: listed.id, taskFile: path, branch: claim.branch },
+    );
+  }
   const root = git.worktreeRoot();
   mkdirSync(root, { recursive: true });
   const scratch = mkdtempSync(join(root, BRANCH_READ_PREFIX));

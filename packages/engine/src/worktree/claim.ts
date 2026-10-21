@@ -52,7 +52,7 @@ import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orch
 
 import { viewStory } from "../backlog/fields/write";
 import { PENDING_LANE_NOTICE, pendingLaneOp } from "../backlog/lane/journal";
-import { runBacklog, type BacklogCli } from "../backlog/runner";
+import { runBacklog, type BacklogCli, TASK_FIELD_ERROR, taskFieldRefusal } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG, type GitLocation, WORKTREE_ADD_CONFIG } from "../git/hardened";
@@ -849,65 +849,8 @@ const BACKLOG_DIR = "backlog";
 /** The `GitError` code when dipo cannot make or bring back its copy of a story's backlog. */
 export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";
 
-/**
- * The `GitError` code when the story's task file holds a front matter field dipo does not know;
- * the operation is refused, and a story in a run parks `scope-violation`.
- */
-export const TASK_FIELD_ERROR = "story.unknownTaskField";
-
 /** The Backlog.md configuration, relative to the repository root. */
 const BACKLOG_CONFIG = `${BACKLOG_DIR}/config.yml`;
-
-/**
- * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
- * other field is refused before the CLI reads it (0021 section 14).
- */
-export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
-  "id",
-  "title",
-  "status",
-  "assignee",
-  "reporter",
-  "created_date",
-  "updated_date",
-  "due_date",
-  "labels",
-  "milestone",
-  "dependencies",
-  "references",
-  "documentation",
-  "modified_files",
-  "parent_task_id",
-  "subtasks",
-  "priority",
-  "type",
-  "project",
-  "ordinal",
-]);
-
-/**
- * Pure: why the task file `text` may not reach the Backlog CLI, or null when it may. Its front
- * matter must open on the first line and close, and each of its top-level lines must be a plain
- * `name:` entry whose name is in `KNOWN_TASK_FIELDS`. Indented lines (values, list items) are
- * left to the CLI; a top-level line of any other form is refused like a field dipo does not know.
- */
-export function taskFieldRefusal(text: string): string | null {
-  const lines = text.split(/\r?\n/);
-  if (lines[0] !== "---") return "it does not open with a front matter block";
-  const end = lines.indexOf("---", 1);
-  if (end < 0) return "its front matter block does not close";
-  const unknown: string[] = [];
-  for (const line of lines.slice(1, end)) {
-    if (line.trim() === "" || /^\s/.test(line)) continue;
-    const name = /^([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)/.exec(line)?.[1];
-    if (name === undefined || !KNOWN_TASK_FIELDS.has(name)) {
-      unknown.push(JSON.stringify(line.slice(0, 40)));
-    }
-  }
-  return unknown.length === 0
-    ? null
-    : `its front matter holds fields dipo does not know: ${unknown.join(", ")}`;
-}
 
 /** dipo's own copy of a story's backlog, where every Backlog CLI call for the story runs. */
 export interface StoryBacklog {

@@ -30,7 +30,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { viewStory, writeFields } from "../backlog/fields/write";
-import { type BacklogCli, runBacklog } from "../backlog/runner";
+import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
@@ -41,7 +41,7 @@ import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/p
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { inStoryBacklog, repoPath, TASK_FIELD_ERROR } from "../worktree/claim";
+import { inStoryBacklog, repoPath } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";

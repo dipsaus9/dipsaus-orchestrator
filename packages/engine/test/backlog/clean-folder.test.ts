@@ -25,19 +25,20 @@ import type { Spawn } from "@dipsaus-orchestrator/contract";
 import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
-import { BACKLOG_ENV_KEYS, type BacklogCli } from "../../src/backlog/runner";
+import {
+  BACKLOG_ENV_KEYS,
+  type BacklogCli,
+  KNOWN_TASK_FIELDS,
+  TASK_FIELD_ERROR,
+  taskFieldRefusal,
+} from "../../src/backlog/runner";
 import { GitError } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { gitParkWriter, gitUnparkWriter } from "../../src/run/park";
 import { gitStoryOps } from "../../src/run/story-git";
 import { gitStoryPrOps } from "../../src/story-pr/git";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
-import {
-  BACKLOG_FOLDER_ERROR,
-  KNOWN_TASK_FIELDS,
-  TASK_FIELD_ERROR,
-  taskFieldRefusal,
-} from "../../src/worktree/claim";
+import { BACKLOG_FOLDER_ERROR } from "../../src/worktree/claim";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,

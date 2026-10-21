@@ -38,7 +38,7 @@ import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
-import { TASK_FIELD_ERROR } from "../../src/worktree/claim";
+import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
 import { findClaim, insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 
