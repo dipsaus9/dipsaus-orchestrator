@@ -17,10 +17,15 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import type { Signal } from "@dipsaus-orchestrator/contract";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { CACHE_ARCHIVE_LIMITS, extractCacheArchive } from "../../src/box/cache-extract";
-import { BoxError } from "../../src/box/port";
+import {
+  CACHE_ARCHIVE_LIMITS,
+  extractCacheArchive,
+  streamCacheArchive,
+} from "../../src/box/cache-extract";
+import { BoxError, type BoxPort } from "../../src/box/port";
 
 const encoder = new TextEncoder();
 
@@ -385,5 +390,130 @@ describe("what the extractor does not fully handle", () => {
         tarBytes([{ name: "a", type: "0", data: "x".repeat(600) }]).subarray(0, 700),
       );
       await refused(extractCacheArchive(folder, dest), "truncated");
+    }));
+});
+
+/** Does nothing: what `close` is before the stream starts. */
+function nothing(): void {}
+
+/** A box whose `cat` streams `chunks`, then exits with `code`; `hang` keeps it open until killed. */
+function streamingBox(chunks: readonly string[], code: number | null = 0, hang = false) {
+  const calls: string[] = [];
+  let finish!: (exit: { code: number | null; signal: Signal | null }) => void;
+  const exited = new Promise<{ code: number | null; signal: Signal | null }>((resolve) => {
+    finish = resolve;
+  });
+  let close: () => void = nothing;
+  const boxes: Pick<BoxPort, "execLive" | "stop"> = {
+    execLive: (box, command) => {
+      calls.push(`execLive ${box} ${command.join(" ")}`);
+      return {
+        stdin: { write: () => {}, end: () => {} },
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+            close = () => {
+              try {
+                controller.close();
+              } catch {
+                // Already closed.
+              }
+            };
+            if (!hang) close();
+          },
+        }),
+        stderr: new ReadableStream({ start: (controller) => controller.close() }),
+        exited,
+        kill: (signal: Signal = "SIGTERM") => {
+          calls.push(`kill ${signal}`);
+          close();
+          finish({ code: null, signal });
+        },
+      };
+    },
+    stop: async (box) => {
+      calls.push(`stop ${box}`);
+    },
+  };
+  if (!hang) finish({ code, signal: null });
+  return { boxes, calls };
+}
+
+function stream(
+  dir: string,
+  boxes: Pick<BoxPort, "execLive" | "stop">,
+  clock = new ManualClock(),
+  maxBytes = 1000,
+) {
+  const folder = join(dir, "archive");
+  mkdirSync(folder, { recursive: true });
+  return {
+    folder,
+    clock,
+    done: streamCacheArchive({
+      boxes,
+      box: "dipo-fill-1",
+      from: "/tmp/dipo-fill/cache.tar",
+      folder,
+      name: "cache.tar",
+      maxBytes,
+      timeoutMs: 60_000,
+      clock,
+    }),
+  };
+}
+
+describe("streaming the archive out of the fill box", () => {
+  it("writes the stream into the only entry of the fresh folder", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["part one, ", "part two"]);
+      const { folder, done } = stream(dir, boxes);
+      expect(await done).toBe(join(folder, "cache.tar"));
+      expect(readdirSync(folder)).toEqual(["cache.tar"]);
+      expect(readFileSync(join(folder, "cache.tar"), "utf8")).toBe("part one, part two");
+      expect(calls).toEqual(["execLive dipo-fill-1 cat /tmp/dipo-fill/cache.tar"]);
+    }));
+
+  it("cuts a stream over the cap, ends the process in the box and leaves nothing", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["x".repeat(600), "y".repeat(600)], 0, true);
+      const { folder, done } = stream(dir, boxes);
+      await refused(done, "was cut");
+      expect(readdirSync(folder)).toEqual([]);
+      expect(calls).toEqual([
+        "execLive dipo-fill-1 cat /tmp/dipo-fill/cache.tar",
+        "kill SIGKILL",
+        "stop dipo-fill-1",
+      ]);
+    }));
+
+  it("refuses a stream that fails midway and leaves nothing", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["half of it"], 1);
+      const { folder, done } = stream(dir, boxes);
+      await refused(done, "exit 1");
+      expect(readdirSync(folder)).toEqual([]);
+      expect(calls.at(-1)).toBe("stop dipo-fill-1");
+    }));
+
+  it("refuses a stream at its deadline, ends the process in the box and leaves nothing", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["some"], 0, true);
+      const { folder, clock, done } = stream(dir, boxes);
+      const refusal = refused(done, "deadline");
+      while (clock.pendingTimers === 0) await Bun.sleep(1);
+      clock.advance(60_000);
+      await refusal;
+      expect(readdirSync(folder)).toEqual([]);
+      expect(calls.slice(-2)).toEqual(["kill SIGKILL", "stop dipo-fill-1"]);
+    }));
+
+  it("refuses a folder that is not empty before anything runs", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["x"]);
+      mkdirSync(join(dir, "archive"));
+      writeFileSync(join(dir, "archive", "planted"), "");
+      await refused(stream(dir, boxes).done, "not empty");
+      expect(calls).toEqual([]);
     }));
 });

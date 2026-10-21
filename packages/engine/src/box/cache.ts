@@ -13,9 +13,10 @@
 //   off, into the manager's cache inside the box. The cache is copied out into a `.fill-*` folder
 //   on the Mac and the fill box is deleted, also on failure. Every box call has a deadline.
 // - The cache leaves the fill box as one tar archive, its size checked in the box first:
-//   `container copy` moves only that file, into a fresh folder, and `extractCacheArchive` unpacks
-//   it on the Mac, taking only files and folders (no links) within its caps. The unpacked tree is
-//   then walked with lstat (`checkCopiedTree`) as a second check.
+//   dipo streams only that file out (`cat` through `execLive`, cut at the cap) into a fresh
+//   folder, and `extractCacheArchive` unpacks it on the Mac, taking only files and folders (no
+//   links) within its caps. The unpacked tree is then walked with lstat (`checkCopiedTree`) as a
+//   second check.
 // - A fill box that could not be deleted, or a route that could not be released, is reported
 //   through `onEvent` and in the details of the fill's error.
 // - The cache shape is the manager's own, so a box installs from it as from any cache: Bun's
@@ -52,7 +53,10 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix } from "node:path";
 
+import type { Clock } from "@dipsaus-orchestrator/contract";
+
 import type { OfficeGit } from "../git/office";
+import { systemClock } from "../platform/clock";
 import { isCertificateBundle } from "../sandbox/safe-chain-proxy";
 import { LOCKFILES, PNPM_WORKSPACE, ROOT_MANIFEST } from "../scan/detect/manifest";
 import {
@@ -66,6 +70,7 @@ import {
   CACHE_ARCHIVE_LIMITS,
   type CacheArchiveLimits,
   extractCacheArchive,
+  streamCacheArchive,
 } from "./cache-extract";
 import { baseCommit, type BoxToolchain, filesAt } from "./image";
 import {
@@ -244,7 +249,7 @@ export interface FillRoute {
 /** The box calls a fill makes. */
 export type FillBoxes = Pick<
   BoxPort,
-  "network" | "create" | "start" | "delete" | "exec" | "copyIn" | "copyOut"
+  "network" | "create" | "start" | "stop" | "delete" | "exec" | "execLive" | "copyIn"
 >;
 
 /** The office image the fill box runs (`ensureBoxImage` of `readBaseBox`'s description). */
@@ -268,6 +273,8 @@ export interface PackageCacheRequest {
   readonly onEvent?: (event: PackageCacheEvent) => void;
   /** Overrides the caps of the cache archive (`CACHE_ARCHIVE_LIMITS`). */
   readonly archiveLimits?: Partial<CacheArchiveLimits>;
+  /** The clock of the copy-out deadline; the system clock by default. */
+  readonly clock?: Clock;
 }
 
 /** A filled generation, ready to mount. */
@@ -525,6 +532,7 @@ async function fillInBox(
         code: packed.code,
       });
     }
+    // The size in the box is an early hint only; the stream below is cut at the cap.
     const limit = archiveLimits(request).maxArchiveBytes;
     const sized = await boxes.exec(name, ["stat", "-c", "%s", install.archive]);
     const size = /^\d+$/.test(sized.stdout.trim()) ? Number(sized.stdout.trim()) : Number.NaN;
@@ -534,11 +542,18 @@ async function fillInBox(
     if (size > limit) {
       fillFailed(`the cache archive is ${size} bytes, more than ${limit}.`, { size, limit });
     }
-    // One file crosses to the Mac, into a fresh folder; `extractCacheArchive` checks it is a
-    // regular file before it reads it.
+    // One file crosses to the Mac, streamed into a file dipo creates in a fresh folder;
+    // `extractCacheArchive` checks it again before it reads it.
     await mkdir(join(work, ARCHIVE_FOLDER), { mode: 0o700 });
-    await boxes.copyOut(name, install.archive, join(work, ARCHIVE_FOLDER, FILL_ARCHIVE), {
+    await streamCacheArchive({
+      boxes,
+      box: name,
+      from: install.archive,
+      folder: join(work, ARCHIVE_FOLDER),
+      name: FILL_ARCHIVE,
+      maxBytes: limit,
       timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
+      clock: request.clock ?? systemClock,
     });
   } catch (error) {
     failure = { error };

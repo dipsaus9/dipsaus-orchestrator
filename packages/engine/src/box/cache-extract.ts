@@ -1,6 +1,7 @@
 // The copy-out of a filled package cache (DIPO-267). The fill box writes its cache as one tar
-// archive; `container copy` copies only that file into a fresh folder of dipo's, and dipo extracts
-// it here. The rules are kept few, so they are easy to check:
+// archive; dipo streams only that file out of the box (`streamCacheArchive`, `cat` through
+// `execLive`, cut at the size cap) into a fresh folder of its own, and extracts it here. The
+// rules are kept few, so they are easy to check:
 //
 // - The folder must hold exactly one entry, a regular file with one link (lstat), opened with
 //   O_NOFOLLOW and checked again on the open file, within `CACHE_ARCHIVE_LIMITS`.
@@ -19,10 +20,12 @@
 //   any pax record it does not know are refused: what it does not fully handle fails closed.
 
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, rm } from "node:fs/promises";
 import { join, posix } from "node:path";
 
-import { BoxError } from "./port";
+import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
+
+import { BoxError, type BoxPort } from "./port";
 
 /** The caps of one cache archive. */
 export interface CacheArchiveLimits {
@@ -320,5 +323,96 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
     if (longName !== null || pax !== null) refuse("ends inside an entry.");
   } finally {
     await input.close();
+  }
+}
+
+/** One stream of a cache archive out of a fill box. */
+export interface CacheArchiveStream {
+  readonly boxes: Pick<BoxPort, "execLive" | "stop">;
+  /** The fill box. */
+  readonly box: string;
+  /** The archive's path in the box. */
+  readonly from: string;
+  /** A fresh, empty folder dipo made; the archive is written into it under `name`. */
+  readonly folder: string;
+  readonly name: string;
+  readonly maxBytes: number;
+  readonly timeoutMs: number;
+  readonly clock: Clock;
+}
+
+/** The most of the in-box command's error output a refusal keeps. */
+const STREAM_ERROR_CHARS = 2_000;
+
+/**
+ * Streams the archive out of the fill box with `cat` through `execLive`, into a file dipo creates
+ * with O_CREAT|O_EXCL|O_NOFOLLOW in the fresh folder `folder`. It stops and refuses, with
+ * `box.cacheFillFailed`, as soon as more than `maxBytes` arrived, at the deadline, or when the
+ * command fails; then it kills the exec client and stops the box (a killed client leaves its
+ * process running in the box), and removes what it wrote. Returns the file's path.
+ */
+export async function streamCacheArchive(stream: CacheArchiveStream): Promise<string> {
+  const entries = await readdir(stream.folder);
+  if (entries.length !== 0) refuse(`folder ${stream.folder} is not empty.`);
+  const to = join(stream.folder, stream.name);
+  const output = await open(
+    to,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  );
+  const child = stream.boxes.execLive(stream.box, ["cat", stream.from]);
+  let stderr = "";
+  void (async () => {
+    const decoder = new TextDecoder();
+    for await (const chunk of child.stderr) {
+      stderr = (stderr + decoder.decode(chunk)).slice(-STREAM_ERROR_CHARS);
+    }
+  })().catch(() => {});
+  let timer: TimerHandle | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = stream.clock.setTimeout(
+      () =>
+        reject(
+          new BoxError("box.cacheFillFailed", "the cache archive stream passed its deadline."),
+        ),
+      stream.timeoutMs,
+    );
+  });
+  deadline.catch(() => {});
+  const reader = child.stdout.getReader();
+  let ok = false;
+  try {
+    let received = 0;
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+      if (done) break;
+      received += value.length;
+      if (received > stream.maxBytes) {
+        refuse(`stream passed ${stream.maxBytes} bytes and was cut.`, {
+          maxBytes: stream.maxBytes,
+        });
+      }
+      await output.write(value);
+    }
+    const exit = await Promise.race([child.exited, deadline]);
+    if (exit.code !== 0) {
+      refuse(`stream ended with exit ${exit.code ?? exit.signal}: ${stderr.trim()}`, {
+        code: exit.code,
+      });
+    }
+    ok = true;
+    return to;
+  } catch (error) {
+    if (error instanceof BoxError) throw error;
+    throw refuse(`stream failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (timer !== undefined) stream.clock.clearTimeout(timer);
+    await output.close();
+    if (!ok) {
+      child.kill("SIGKILL");
+      reader.cancel().catch(() => {});
+      await stream.boxes.stop(stream.box).catch(() => {});
+      await rm(to, { force: true });
+    }
   }
 }

@@ -8,7 +8,6 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
-  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -22,7 +21,7 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import type { OfficeId, Signal } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
@@ -48,6 +47,7 @@ import {
   BoxError,
   type BoxExecOptions,
   type BoxNetwork,
+  type BoxProcess,
   type BoxSpec,
   boxName,
 } from "../../src/box/port";
@@ -159,12 +159,12 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
       calls.push(`copyIn ${name} ${to}`);
       cpSync(from, join(boxFs, to), { recursive: true });
     },
-    copyOut: async (name, from, to) => {
-      calls.push(`copyOut ${name} ${from}`);
-      if (!existsSync(join(boxFs, from))) {
-        throw new BoxError("box.failed", `container copy: ${from} not found`);
-      }
-      cpSync(join(boxFs, from), to, { recursive: true, verbatimSymlinks: true });
+    execLive: (name, command) => {
+      calls.push(`execLive ${name} ${command.join(" ")}`);
+      return liveProcess([readFileSync(join(boxFs, command[1]!))]);
+    },
+    stop: async (name) => {
+      calls.push(`stop ${name}`);
     },
   };
   const caFile = join(dir, "ca.pem");
@@ -195,6 +195,46 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
     },
     failDelete: () => {
       failDelete = true;
+    },
+  };
+}
+
+/** A long-running box command: `chunks` on stdout, then `exit`; `hang` keeps it open until killed. */
+function liveProcess(
+  chunks: readonly Uint8Array[],
+  exit: { code: number | null; signal: Signal | null } = { code: 0, signal: null },
+  hang = false,
+): BoxProcess & { readonly kills: string[] } {
+  const kills: string[] = [];
+  let finish!: (value: { code: number | null; signal: Signal | null }) => void;
+  const exited = new Promise<{ code: number | null; signal: Signal | null }>((resolve) => {
+    finish = resolve;
+  });
+  let close!: () => void;
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      close = () => {
+        try {
+          controller.close();
+        } catch {
+          // Already closed.
+        }
+      };
+      if (!hang) close();
+    },
+  });
+  if (!hang) finish(exit);
+  return {
+    stdin: { write: () => {}, end: () => {} },
+    stdout,
+    stderr: new ReadableStream({ start: (controller) => controller.close() }),
+    exited,
+    kills,
+    kill: (signal: Signal = "SIGTERM") => {
+      kills.push(signal);
+      close();
+      finish({ code: null, signal });
     },
   };
 }
@@ -243,7 +283,7 @@ const FILL_CALLS = [
   `exec ${FILL_BOX} bun`,
   `exec ${FILL_BOX} tar`,
   `exec ${FILL_BOX} stat`,
-  `copyOut ${FILL_BOX} ${FILL_BOX_DIR}/cache.tar`,
+  `execLive ${FILL_BOX} cat ${FILL_BOX_DIR}/cache.tar`,
   `release ${FILL_BOX}`,
   `delete ${FILL_BOX}`,
 ];
@@ -582,7 +622,7 @@ describe("the archive's size", () => {
       );
       expect(error.code).toBe("box.cacheFillFailed");
       expect(error.message).toContain("more than 100");
-      expect(fill.calls.filter((call) => call.startsWith("copyOut"))).toEqual([]);
+      expect(fill.calls.filter((call) => call.startsWith("execLive"))).toEqual([]);
       expect(fill.calls.at(-1)).toBe(`delete ${FILL_BOX}`);
     }));
 });
