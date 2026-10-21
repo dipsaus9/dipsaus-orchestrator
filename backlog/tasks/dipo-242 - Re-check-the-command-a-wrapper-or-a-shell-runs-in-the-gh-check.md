@@ -1,10 +1,10 @@
 ---
 id: DIPO-242
 title: Re-check the command a wrapper or a shell runs in the gh check
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 23:29'
+updated_date: '2026-10-21 00:19'
 labels:
   - 'tier:S'
   - cutover
