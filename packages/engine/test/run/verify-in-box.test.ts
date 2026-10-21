@@ -592,6 +592,40 @@ describe("the held turn of the parts (BoxParts.verifyLast)", () => {
       expect(verified).toBe(done.outcome.kind === "committed" ? done.outcome.commit : "");
     }));
 
+  it("keeps a catch-up queued through inTurn during a green verify from moving the branch", () =>
+    inParts(async (w) => {
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      const order: string[] = [];
+      let caughtUp: Promise<PartOutcome | "not live"> | null = null;
+      const done = await w.parts.verifyLast("run_1", "Finish", async (box) => {
+        write(w.work, { "src/late.ts": "export const late = 1;\n" });
+        // A catch-up as DIPO-277 runs it: in the run's turn, live checked there first, then the
+        // box's changes as a part before git merges.
+        caughtUp = w.parts.inTurn("run_1", async () => {
+          order.push("catch-up turn");
+          if (!w.live) return "not live" as const;
+          return w.parts.deliverInTurn("run_1", "Catch up");
+        });
+        await Bun.sleep(50);
+        order.push("verify ended");
+        // What VerifyCommit does on green: the run's end claimed before the turn is released.
+        w.live = false;
+        return box.tip;
+      });
+      const result = await (caughtUp as Promise<PartOutcome | "not live"> | null);
+      expect(order).toEqual(["verify ended", "catch-up turn"]);
+      expect(result).toBe("not live");
+      // In Review is written at the verified tip: the catch-up moved nothing.
+      const verified = done.verified?.result;
+      expect(verified).toBe(done.outcome.kind === "committed" ? done.outcome.commit : "");
+      expect(await branchTip(w)).toBe(verified!);
+      // deliverInTurn itself also takes nothing once the run is not live.
+      expect(await w.parts.inTurn("run_1", () => w.parts.deliverInTurn("run_1", "Again"))).toEqual({
+        kind: "stopped",
+      });
+      expect(await branchTip(w)).toBe(verified!);
+    }));
+
   it("runs no verify after a last part that parks, nor for a run that is not live", () =>
     inParts(async (w) => {
       write(w.work, { ".github/workflows/x.yml": "on: push\n" });
