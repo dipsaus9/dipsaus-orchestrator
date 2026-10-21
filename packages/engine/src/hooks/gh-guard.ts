@@ -3,22 +3,49 @@
 // Allowed: `gh --version`, `gh help` followed by subcommand words, and `gh` followed by subcommand
 // words and then `--help` as the last argument. Every other simple command whose program is gh is
 // refused. Pure, like temp-guard: it splits the command text the same way and looks at the words.
+// A wrapper's command, a shell's script (`-c`, a here-string or its stdin) and a function body are
+// checked as commands of their own (DIPO-242).
 
-import { simpleCommands } from "./temp-guard";
+import {
+  envSplitTexts,
+  simpleCommands,
+  SUDO_LONG_VALUE_OPTIONS,
+  SUDO_VALUE_OPTIONS,
+  wrappedCommandAt,
+  XARGS_LONG_VALUE_OPTIONS,
+  XARGS_VALUE_OPTIONS,
+} from "./temp-guard";
 
 /** A subcommand word: a letter, then letters, digits or dashes, so no flag is one. */
 const SUBCOMMAND = /^[A-Za-z][A-Za-z0-9-]*$/;
-/** Words in front of the real command that do not change which program runs. */
-const PREFIX_WORDS = new Set(["command", "builtin", "exec", "time", "nohup", "nice"]);
 /** Shell keywords that open a command list: `then gh pr view` runs gh too. */
 const KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
+/** The options of a wrapper: the short and long ones that take a value, and the operands before its command. */
+interface WrapperOptions {
+  short: ReadonlySet<string>;
+  long: ReadonlySet<string>;
+  operands: number;
+}
+const NO_OPTIONS: WrapperOptions = { short: new Set(), long: new Set(), operands: 0 };
 /**
  * Programs that run another command after their options; a gh call behind one is checked. The
  * Claude CLI strips timeout and stdbuf before it matches a Bash rule, so the `Bash(gh *)` deny rule
- * this check replaces caught `timeout 10 gh ...` and `stdbuf -oL gh ...` too.
+ * this check replaces caught `timeout 10 gh ...` and `stdbuf -oL gh ...` too. env and xargs have
+ * their own checks below.
  */
-const WRAPPERS = new Set(["env", "sudo", "doas", "xargs", "timeout", "stdbuf"]);
+const WRAPPERS: ReadonlyMap<string, WrapperOptions> = new Map([
+  ["sudo", { short: SUDO_VALUE_OPTIONS, long: SUDO_LONG_VALUE_OPTIONS, operands: 0 }],
+  ["doas", { short: new Set("uC"), long: new Set(), operands: 0 }],
+  ["timeout", { short: new Set("ks"), long: new Set(["--kill-after", "--signal"]), operands: 1 }],
+  ["stdbuf", { short: new Set("ioe"), long: new Set(), operands: 0 }],
+  ["nice", { short: new Set("n"), long: new Set(["--adjustment"]), operands: 0 }],
+  ["time", { short: new Set("fo"), long: new Set(["--format", "--output"]), operands: 0 }],
+  ["exec", { short: new Set("a"), long: new Set(), operands: 0 }],
+  ["command", NO_OPTIONS],
+  ["builtin", NO_OPTIONS],
+  ["nohup", NO_OPTIONS],
+]);
 /** A redirection word (`>`, `2>`, `>out`, `>>`, `<`); with no target of its own the next word is. */
 const REDIRECTION = /^\d*(>>|>\||>|<<<|<<|<)(.*)$/;
 /** Nesting of `sh -c`, `eval`, here-doc bodies and substitutions that is followed. */
@@ -72,16 +99,52 @@ function basename(word: string): string {
   return word.slice(word.lastIndexOf("/") + 1);
 }
 
+/** True for a program named gh: the file system may be case-insensitive, so `GH` runs gh too. */
+function isGh(word: string): boolean {
+  return basename(word).toLowerCase() === "gh";
+}
+
+/** Words in front of the program: assignments, shell keywords, `{` and `!`. */
+function isPrefixWord(word: string): boolean {
+  return ASSIGNMENT.test(word) || KEYWORDS.has(word) || word === "{" || word === "!";
+}
+
+/** The text of a here-string `<<<` among a shell's arguments, else null. */
+function hereString(args: readonly string[]): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i] ?? "";
+    if (word === "<<<") return args[i + 1] ?? "";
+    if (word.startsWith("<<<")) return word.slice("<<<".length);
+  }
+  return null;
+}
+
+/**
+ * The text that `echo` or `printf` writes to its output, which a shell reading the next stage of
+ * its pipe runs. A printf format is not expanded: its own text is read as it is written.
+ */
+function printedText(words: readonly string[]): string | null {
+  const base = basename(words[0] ?? "").toLowerCase();
+  if (base === "echo")
+    return words
+      .slice(1)
+      .filter((word) => !/^-[neE]+$/.test(word))
+      .join(" ");
+  if (base === "printf") return words.slice(1).join(" ");
+  return null;
+}
+
 function ghIn(text: string, depth: number): string | null {
   if (depth > MAX_DEPTH) return null;
   const { commands, nested } = simpleCommands(text);
-  // The here-doc body each command reads: its own, else the one fed to an earlier stage of its pipe.
-  const fed = new Map<(typeof commands)[number], string | null>();
+  // The text each command writes out, which a later stage of its pipe reads as its stdin; a command
+  // that prints nothing passes on what it reads. The here-doc body a command reads comes first.
+  const written = new Map<(typeof commands)[number], string | null>();
   for (const command of commands) {
-    const piped = command.pipedFrom === null ? null : (fed.get(command.pipedFrom) ?? null);
-    const body = command.body ?? piped;
-    fed.set(command, body);
-    const hit = ghCommand(command.words, depth, body);
+    const piped = command.pipedFrom === null ? null : (written.get(command.pipedFrom) ?? null);
+    const stdin = command.body ?? piped;
+    written.set(command, printedText(command.words) ?? stdin);
+    const hit = ghCommand(command.words, depth, stdin);
     if (hit !== null) return hit;
   }
   for (const inner of nested) {
@@ -91,43 +154,49 @@ function ghIn(text: string, depth: number): string | null {
   return null;
 }
 
-function ghCommand(words: readonly string[], depth: number, body: string | null): string | null {
+/** The refusal for one simple command's words, else null; `stdin` is the text it reads, if any. */
+function ghCommand(words: readonly string[], depth: number, stdin: string | null): string | null {
   let at = 0;
-  // Prefix assignments, prefix words and keywords come before the program.
-  while (at < words.length) {
-    const word = words[at] ?? "";
-    if (
-      ASSIGNMENT.test(word) ||
-      PREFIX_WORDS.has(word) ||
-      KEYWORDS.has(word) ||
-      word === "{" ||
-      word === "!"
-    ) {
-      at++;
-    } else {
-      break;
-    }
-  }
-  const program = words[at] ?? "";
-  const base = basename(program);
+  while (at < words.length && isPrefixWord(words[at] ?? "")) at++;
+  const base = basename(words[at] ?? "").toLowerCase();
   const args = words.slice(at + 1);
   if (base === "gh") return ghHelpCall(withoutTrailingRedirections(args)) ? null : GH_REFUSAL;
-  // A wrapper runs its gh call after its own options (`env -C dir gh ...`), so the words after it
-  // are checked too; xargs appends its input to the command, so an xargs gh call is refused.
-  const wrapped = WRAPPERS.has(base) || words.slice(0, at).some((word) => PREFIX_WORDS.has(word));
-  if (wrapped) {
-    const index = words.findIndex((word, i) => i > at && basename(word) === "gh");
-    if (index !== -1) {
-      if (base === "xargs") return GH_REFUSAL;
-      return ghHelpCall(withoutTrailingRedirections(words.slice(index + 1))) ? null : GH_REFUSAL;
+  // `function f { gh ...; }` and `coproc [NAME] gh ...` run the command after the name, or after a `{`.
+  if (base === "function" || base === "coproc") {
+    return (
+      ghCommand(words.slice(at + 1), depth, stdin) ?? ghCommand(words.slice(at + 2), depth, stdin)
+    );
+  }
+  // xargs appends its input to the command, so a gh word behind it is refused whatever it is.
+  if (base === "xargs") {
+    const rest = args.slice(wrappedCommandAt(args, XARGS_VALUE_OPTIONS, XARGS_LONG_VALUE_OPTIONS));
+    return rest.some(isGh) ? GH_REFUSAL : ghCommand(rest, depth, null);
+  }
+  if (base === "env") {
+    const env = envSplitTexts(args);
+    for (const text of env.texts) {
+      const hit = ghIn(text, depth + 1);
+      if (hit !== null) return hit;
     }
+    return ghCommand(args.slice(env.at), depth, stdin);
+  }
+  const wrapper = WRAPPERS.get(base);
+  if (wrapper !== undefined) {
+    const start = wrappedCommandAt(args, wrapper.short, wrapper.long) + wrapper.operands;
+    // `command -v gh` and `command -V gh` only look the program up; they run none.
+    if (base === "command" && args.slice(0, start).some((word) => /^-[^-]*[vV]/.test(word))) {
+      return null;
+    }
+    // A wrapper runs its command after its own options (`env -C dir gh ...`), so it is checked again.
+    return ghCommand(args.slice(start), depth, stdin);
   }
   if (base === "eval") return ghIn(args.join(" "), depth + 1);
   if (SHELLS.has(base)) {
     const flag = args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
     if (flag !== -1) return ghIn(args[flag + 1] ?? "", depth + 1);
-    // Without -c a shell reads its here-doc body as a script.
-    if (body !== null) return ghIn(body, depth + 1);
+    // Without -c a shell reads its script from a here-string, else from its stdin.
+    const script = hereString(args) ?? stdin;
+    if (script !== null) return ghIn(script, depth + 1);
   }
   return null;
 }
@@ -135,7 +204,8 @@ function ghCommand(words: readonly string[], depth: number, body: string | null)
 /**
  * Pure: the refusal for a Bash command text that runs a gh call other than the help forms, else
  * null. Checks every simple command, also inside a compound command, a command substitution, a
- * `sh -c` or `eval` text and a here-doc a shell reads, and a gh call behind a wrapper such as `env`.
+ * `sh -c` or `eval` text, a here-doc, a here-string or piped text a shell reads, a function body,
+ * and a gh call behind a wrapper such as `env`, whatever the letter case of its program.
  */
 export function ghRefusal(command: string): string | null {
   return ghIn(command, 0);

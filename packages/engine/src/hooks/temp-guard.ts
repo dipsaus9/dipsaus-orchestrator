@@ -122,8 +122,13 @@ function closingParen(text: string, open: number): number {
       stack.pop();
       if (stack.length === 0) return i;
     } else if (c === "'") {
-      const end = text.indexOf("'", i + 1);
-      if (end === -1) return -1;
+      // A `$'...'` span ends at the first quote that no backslash escapes.
+      const ansi = text.charAt(i - 1) === "$";
+      let end = i + 1;
+      while (end < text.length && text.charAt(end) !== "'") {
+        end += ansi && text.charAt(end) === "\\" ? 2 : 1;
+      }
+      if (end >= text.length) return -1;
       i = end;
     } else if (c === '"' || c === "`") {
       stack.push(c);
@@ -170,6 +175,75 @@ function readHereDoc(
     at = stop + 1;
   }
   return { body: lines.join("\n"), next: text.length };
+}
+
+/** The escapes of ANSI-C quoting (`$'...'`) that stand for one character. */
+const ANSI_C_LETTERS: ReadonlyMap<string, string> = new Map([
+  ["a", "\x07"],
+  ["b", "\b"],
+  ["e", "\x1b"],
+  ["E", "\x1b"],
+  ["f", "\f"],
+  ["n", "\n"],
+  ["r", "\r"],
+  ["t", "\t"],
+  ["v", "\v"],
+  ["\\", "\\"],
+  ["'", "'"],
+  ['"', '"'],
+  ["?", "?"],
+]);
+/** The digits that follow `\x`, `\u` and `\U` in ANSI-C quoting. */
+const ANSI_C_HEX_DIGITS: ReadonlyMap<string, number> = new Map([
+  ["x", 2],
+  ["u", 4],
+  ["U", 8],
+]);
+
+/**
+ * The escape at `at` (the backslash) of an ANSI-C span, decoded as bash decodes it, and the index
+ * after it. An unknown escape keeps its backslash and letter.
+ */
+function ansiCEscape(text: string, at: number): { value: string; next: number } {
+  const letter = text.charAt(at + 1);
+  const simple = ANSI_C_LETTERS.get(letter);
+  if (simple !== undefined) return { value: simple, next: at + 2 };
+  if (letter === "c" && at + 2 < text.length) {
+    return { value: String.fromCharCode(text.charCodeAt(at + 2) & 0x1f), next: at + 3 };
+  }
+  const octal = /^[0-7]{1,3}/.exec(text.slice(at + 1, at + 4));
+  if (octal !== null) {
+    return { value: String.fromCharCode(parseInt(octal[0], 8)), next: at + 1 + octal[0].length };
+  }
+  const width = ANSI_C_HEX_DIGITS.get(letter);
+  if (width !== undefined) {
+    const digits = /^[0-9A-Fa-f]*/.exec(text.slice(at + 2, at + 2 + width))?.[0] ?? "";
+    const code = parseInt(digits, 16);
+    if (digits !== "" && code <= 0x10ffff) {
+      return { value: String.fromCodePoint(code), next: at + 2 + digits.length };
+    }
+  }
+  return { value: `\\${letter}`, next: at + 2 };
+}
+
+/**
+ * The text of an ANSI-C span `$'...'` whose body starts at `start`, with its escapes decoded, and
+ * the index of its closing quote (the text's length when none closes it). Only `\'` does not end it.
+ */
+function ansiCSpan(text: string, start: number): { value: string; end: number } {
+  let value = "";
+  let i = start;
+  while (i < text.length && text.charAt(i) !== "'") {
+    if (text.charAt(i) === "\\" && i + 1 < text.length) {
+      const escape = ansiCEscape(text, i);
+      value += escape.value;
+      i = escape.next;
+    } else {
+      value += text.charAt(i);
+      i++;
+    }
+  }
+  return { value, end: i };
 }
 
 /**
@@ -277,6 +351,16 @@ export function simpleCommands(text: string): { commands: SimpleCommand[]; neste
           word += text.charAt(i);
         }
       }
+    } else if (c === "$" && text.charAt(i + 1) === "'") {
+      // ANSI-C quoting: the span's escapes are decoded, as bash decodes them.
+      const span = ansiCSpan(text, i + 2);
+      word += span.value;
+      inWord = true;
+      quoted = true;
+      i = span.end;
+    } else if (c === "$" && text.charAt(i + 1) === '"') {
+      // Locale quoting `$"..."` is read as the double-quoted span it wraps: the `$` is dropped.
+      inWord = true;
     } else if (c === "#" && !inWord) {
       while (i < text.length && text.charAt(i) !== "\n") i++;
       // The line break is left to the loop, which ends the command and reads a here-doc body.
@@ -369,9 +453,9 @@ const ENV_SHORT_VALUE_OPTIONS: ReadonlySet<string> = new Set(["u", "C", "P", "S"
 /** `env` long options that take the next word as their value. */
 const ENV_LONG_VALUE_OPTIONS = new Set(["--chdir", "--default-path"]);
 /** `sudo` short options that take a value (-u, -g, -C, -D, -h, -p, -R, -T and -U). */
-const SUDO_VALUE_OPTIONS: ReadonlySet<string> = new Set("ugCDhpRTU");
+export const SUDO_VALUE_OPTIONS: ReadonlySet<string> = new Set("ugCDhpRTU");
 /** `sudo` long options that take the next word as their value. */
-const SUDO_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+export const SUDO_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
   "--user",
   "--group",
   "--close-from",
@@ -385,9 +469,9 @@ const SUDO_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
   "--other-user",
 ]);
 /** `xargs` short options that take a value (-I, -L, -n, -P, -s, -E, -d and -a). */
-const XARGS_VALUE_OPTIONS: ReadonlySet<string> = new Set("ILnPsEda");
+export const XARGS_VALUE_OPTIONS: ReadonlySet<string> = new Set("ILnPsEda");
 /** `xargs` long options that take the next word as their value. */
-const XARGS_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+export const XARGS_LONG_VALUE_OPTIONS: ReadonlySet<string> = new Set([
   "--arg-file",
   "--delimiter",
   "--max-args",
@@ -444,7 +528,7 @@ function envRefusal(args: readonly string[], depth: number, body: string | null)
  * a letter in `valued` takes the rest of its word or the next word as its value, and a long option
  * in `longValued` the next word.
  */
-function wrappedCommandAt(
+export function wrappedCommandAt(
   args: readonly string[],
   valued: ReadonlySet<string>,
   longValued: ReadonlySet<string>,
@@ -463,6 +547,43 @@ function wrappedCommandAt(
     at += k !== -1 && k === letters.length - 1 ? 2 : 1;
   }
   return at;
+}
+
+/**
+ * The texts of the `-S` options of an `env` call (args after `env`) and the index of the word env
+ * runs, args.length when it runs none. Options and assignments before that word are skipped as
+ * envRefusal skips them; a `-S` text is a command line env splits, so the gh check reads it as one.
+ */
+export function envSplitTexts(args: readonly string[]): { texts: string[]; at: number } {
+  const texts: string[] = [];
+  let at = 0;
+  for (; at < args.length; at++) {
+    const word = args[at] ?? "";
+    if (word === "--") {
+      at++;
+      break;
+    }
+    if (ASSIGNMENT.test(word)) continue;
+    if (word.startsWith("--")) {
+      if (word === "--split-string") {
+        texts.push(args[++at] ?? "");
+      } else if (word.startsWith("--split-string=")) {
+        texts.push(word.slice("--split-string=".length));
+      } else if (word === "--unset" || ENV_LONG_VALUE_OPTIONS.has(word)) {
+        at++;
+      }
+      continue;
+    }
+    if (!word.startsWith("-") || word === "-") break;
+    for (let k = 1; k < word.length; k++) {
+      const letter = word.charAt(k);
+      if (!ENV_SHORT_VALUE_OPTIONS.has(letter)) continue;
+      const value = k + 1 < word.length ? word.slice(k + 1) : (args[++at] ?? "");
+      if (letter === "S") texts.push(value);
+      break;
+    }
+  }
+  return { texts, at };
 }
 
 /** `read` sets the names it is given, and `-a` names an array it sets. */

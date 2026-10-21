@@ -22,6 +22,18 @@ const ALLOWED = [
   "gh pr view --help > help.txt",
   "gh api --help >help.txt",
   "timeout 10 gh --version",
+  // A lookup runs no program, and a wrapper's own options are not its command (DIPO-242).
+  "command -v gh",
+  "command -V gh",
+  "sudo -u gh ls",
+  "env bash -c 'gh --version'",
+  "nice -n5 bash -c 'gh --version'",
+  "function f { echo hi; }",
+  "coproc echo hi",
+  "bash <<< 'gh --version'",
+  "echo gh pr list | grep x",
+  "echo gh pr list | cat",
+  "GH --version",
 ];
 
 const REFUSED = [
@@ -62,6 +74,23 @@ const REFUSED = [
   "gh pr view \\> -- --help",
   'gh pr view "2>" -b --help',
   "gh pr view --help '>' -b",
+  // A wrapped shell, a wrapper's -S text and a function or coprocess run the gh call (DIPO-242).
+  "env bash -c 'gh pr list'",
+  "sudo sh -c 'gh pr list'",
+  "nice -n5 bash -c 'gh pr list'",
+  "env -S 'gh pr list'",
+  "function f { gh pr list; }",
+  "coproc gh pr list",
+  "bash <<< 'gh pr list'",
+  "echo gh pr list | bash",
+  // ANSI-C and locale quoting: the word is gh (DIPO-242).
+  "$'gh' pr merge 1",
+  "$'\\x67h' pr list",
+  '$"gh" pr list',
+  // The program's letter case does not matter on a case-insensitive file system (DIPO-242).
+  "GH pr merge 1",
+  "Gh api /user",
+  "sudo GH pr list",
 ];
 
 describe("ghRefusal", () => {
