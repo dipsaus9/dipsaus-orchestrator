@@ -4,7 +4,7 @@ title: Close the accepted risk of a box reaching services on the Mac
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 16:30'
+updated_date: '2026-10-21 17:42'
 labels:
   - box
   - cutover
@@ -16,6 +16,7 @@ dependencies:
   - DIPO-277
   - DIPO-278
   - DIPO-282
+  - DIPO-288
 references:
   - packages/engine/src/box/
   - docs/decisions/0021-worker-isolation.md

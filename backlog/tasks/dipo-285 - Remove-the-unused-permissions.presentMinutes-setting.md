@@ -1,10 +1,10 @@
 ---
 id: DIPO-285
 title: Remove the unused permissions.presentMinutes setting
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 14:35'
-updated_date: '2026-10-21 16:51'
+updated_date: '2026-10-21 17:39'
 labels:
   - 'tier:S'
   - cutover
