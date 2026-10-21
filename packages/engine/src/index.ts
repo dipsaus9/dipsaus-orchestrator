@@ -649,6 +649,7 @@ export {
   type OutputPrivacy,
 } from "./ingest/output";
 export { budgetOf, finalizeAgentUsage, readUsage, type UsageScope } from "./ingest/usage";
+export * from "./box/index";
 export * from "./keepawake/index";
 export {
   keepAwakeCommand,
