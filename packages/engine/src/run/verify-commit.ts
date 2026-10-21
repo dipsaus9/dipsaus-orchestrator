@@ -75,6 +75,7 @@ import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress } from "../views/work";
 import type { WorkerReport } from "../workers/types";
+import { type PartOutcome, partPark } from "../box/parts";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
@@ -92,6 +93,13 @@ import {
   verifyOutputEnd,
   type VerifyProfile,
 } from "./verify-records";
+
+/**
+ * The park detail of a box run at done until verify runs in the box (DIPO-274, which removes this
+ * guard): its parts are delivered, but nothing verifies them.
+ */
+export const BOX_VERIFY_NOT_BUILT =
+  "verify in the box is not built yet (DIPO-274); the parts are delivered and pushed, but dipo does not verify a box run, so the story stays out of In Review.";
 
 /** `engine.notice` codes of verify and commit. */
 export const VERIFY_NOTICES = {
@@ -352,6 +360,15 @@ export interface VerifyCommitDeps {
    * or update the story's PR. It never throws; a failure is its own notice.
    */
   readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
+  /**
+   * Box runs (DIPO-273, 0021 sections 8 and 13): a run whose developer works in a box has no
+   * backstop and no scope check; at done its undelivered changes become a last part first, and a
+   * part hit parks before verify. Without it every run takes the Mac path.
+   */
+  readonly parts?: {
+    isBoxRun(office: OfficeId, run: StoredRun): boolean;
+    deliverLast(runId: string, message: string): Promise<PartOutcome>;
+  };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -391,9 +408,11 @@ export class VerifyCommit implements RunFinisher {
     const worktree = run.worktree;
     const story = run.story;
     if (run.kind !== "story" || worktree === null || story === null) return { kind: "continue" };
+    // A box worker never reaches the story's Mac worktree, and dipo's part commits move its HEAD.
+    const box = this.#deps.parts?.isBoxRun(officeId, run) === true;
 
-    // 1. The backstop after every turn.
-    if (ctx.snapshot !== null) {
+    // 1. The backstop after every turn, for a worker on the Mac.
+    if (ctx.snapshot !== null && !box) {
       try {
         const now = await this.#deps.story.snapshot(officeId, worktree);
         const evidence = backstopEvidence(ctx.snapshot, now);
@@ -408,7 +427,24 @@ export class VerifyCommit implements RunFinisher {
     if (ctx.report?.status !== "done" || !ctx.live()) return { kind: "continue" };
     const report = ctx.report;
 
-    // 2. The scope check over every changed path.
+    // 1b. A box run's last part: what changed since the last part, before verify (0021 section 8).
+    if (box) {
+      const decided = await this.#lastPart(ctx, report);
+      if (decided !== null) return decided;
+      if (!ctx.live()) return { kind: "continue" };
+      // Verify in the box is DIPO-274: until then a box run never reaches In Review. The story's
+      // Mac worktree holds the start commit, so a verify there would not test the delivered code.
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        cause: PARK_CAUSES.refused,
+        detail: BOX_VERIFY_NOT_BUILT,
+        endKind: "verify-failing",
+      };
+    }
+
+    // 2. The scope check over every changed path, for a worker on the Mac; a box run has none
+    // (0021 section 13), only the protected-file check of its parts.
     const scope = run.scope ?? [];
     const base = this.#deps.profile(ctx.office);
     // The branch scan comes first: a workspace package the story adds pairs the root lockfile too.
@@ -425,18 +461,22 @@ export class VerifyCommit implements RunFinisher {
       if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
       throw error;
     }
-    const paths = await this.#deps.story.changedPaths(officeId, worktree);
-    const checked = checkScope({
-      paths,
-      scope,
-      taskFile: view.taskFile,
-      workspaceDirs:
-        scanned.profile === null
-          ? (base?.toolchain.workspaces.map((ws) => ws.dir) ?? [])
-          : workspaceDirsOf(base, scanned.profile),
-    });
-    if (checked.outside.length > 0) {
-      return scopePark(PARK_CAUSES.paths, scopeDetail(checked.outside, scope));
+    let code: readonly string[] = [];
+    if (!box) {
+      const paths = await this.#deps.story.changedPaths(officeId, worktree);
+      const checked = checkScope({
+        paths,
+        scope,
+        taskFile: view.taskFile,
+        workspaceDirs:
+          scanned.profile === null
+            ? (base?.toolchain.workspaces.map((ws) => ws.dir) ?? [])
+            : workspaceDirsOf(base, scanned.profile),
+      });
+      if (checked.outside.length > 0) {
+        return scopePark(PARK_CAUSES.paths, scopeDetail(checked.outside, scope));
+      }
+      code = checked.code;
     }
     if (!ctx.live()) return { kind: "continue" };
 
@@ -512,7 +552,38 @@ export class VerifyCommit implements RunFinisher {
 
     // 5. Green.
     if (!ctx.claimEnd()) return { kind: "continue" };
-    return this.#commit(ctx, { report, view, code: checked.code, loop });
+    return this.#commit(ctx, { report, view, code, loop, box });
+  }
+
+  /**
+   * A box run's last part at done (DIPO-273): queued parts, then what changed since, delivered
+   * through `parts`. A hit, a refused part or a rejected push parks; null lets verify go on. A
+   * failure parks `interrupted` with a fixed text and the error's code: its message may quote the
+   * box's output.
+   */
+  async #lastPart(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision | null> {
+    const parts = this.#deps.parts;
+    if (parts === undefined) return null;
+    let outcome: PartOutcome;
+    try {
+      outcome = await parts.deliverLast(ctx.run.runId, report.commitSubject);
+    } catch (error) {
+      this.#deps.warn?.("the last part could not be delivered", {
+        run: ctx.run.runId,
+        reason: messageOf(error),
+      });
+      const code = (error as { code?: unknown } | null)?.code;
+      return {
+        kind: "park",
+        reason: "interrupted",
+        cause: PARK_CAUSES.build,
+        detail: `dipo could not take the last part out of the box (${typeof code === "string" ? code : "error"}); nothing of it was committed.`,
+        endKind: "interrupted",
+      };
+    }
+    const park = partPark(outcome);
+    if (park === null) return null;
+    return { kind: "park", ...park, endKind: park.reason };
   }
 
   async summarize(
@@ -529,7 +600,14 @@ export class VerifyCommit implements RunFinisher {
   async #diffstat(office: OfficeId, run: StoredRun): Promise<string> {
     if (run.worktree === null || run.startSha === null) return "";
     try {
-      return await this.#deps.story.diffstat(office, run.worktree, run.startSha);
+      // A box run's changes are its part commits; its Mac worktree holds none of them.
+      const box = this.#deps.parts?.isBoxRun(office, run) === true;
+      return await this.#deps.story.diffstat(
+        office,
+        run.worktree,
+        run.startSha,
+        box && run.branch !== null ? run.branch : undefined,
+      );
     } catch (error) {
       this.#deps.warn?.("the run diffstat could not be read", {
         run: run.runId,
@@ -675,6 +753,8 @@ export class VerifyCommit implements RunFinisher {
       readonly view: { taskFile: string; title: string; criteria: readonly number[] };
       readonly code: readonly string[];
       readonly loop: number;
+      /** A box run: its code arrived in parts, so nothing is staged here. */
+      readonly box: boolean;
     },
   ): Promise<TurnDecision> {
     const { run } = ctx;
@@ -683,12 +763,14 @@ export class VerifyCommit implements RunFinisher {
     const story = run.story as string;
     const git = this.#deps.story;
     try {
-      await git.commitPaths(
-        officeId,
-        worktree,
-        input.code,
-        commitMessage(story, input.report.commitSubject, input.view.title),
-      );
+      if (!input.box) {
+        await git.commitPaths(
+          officeId,
+          worktree,
+          input.code,
+          commitMessage(story, input.report.commitSubject, input.view.title),
+        );
+      }
       const key = await git.codeTreeKey(officeId, worktree, input.view.taskFile);
       ctx.office.immediate(() => recordCodeTreeKey(ctx.office, run.runId, input.loop, key));
       const known = new Set(input.view.criteria);
@@ -723,6 +805,11 @@ export class VerifyCommit implements RunFinisher {
         endKind: "conflict",
       };
     }
+    // The dependency files the run committed (DIPO-84): a box run's from its parts on the branch.
+    const committed =
+      input.box && run.startSha !== null
+        ? await git.changedFiles(officeId, run.branch as string, run.startSha).catch(() => [])
+        : input.code;
     const diffstat = await this.#diffstat(officeId, run);
     ctx.flushOutput();
     ctx.write(() => {
@@ -755,7 +842,7 @@ export class VerifyCommit implements RunFinisher {
         },
       ];
       // Dependency files the run committed (DIPO-84), from the committed paths; no model involved.
-      const dependencies = dependencyFiles(input.code);
+      const dependencies = dependencyFiles(committed);
       if (dependencies.length > 0) {
         entries.push({
           type: "engine.notice",

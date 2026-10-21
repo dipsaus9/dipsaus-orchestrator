@@ -108,8 +108,23 @@ export type {
   PackageCacheRequest,
   PackageCacheStamp,
 } from "./cache";
-export { CACHE_ARCHIVE_LIMITS, extractCacheArchive, streamCacheArchive } from "./cache-extract";
-export type { CacheArchiveLimits, CacheArchiveStream } from "./cache-extract";
+export {
+  CACHE_ARCHIVE_LIMITS,
+  CACHE_ARCHIVE_RULES,
+  extractArchive,
+  extractCacheArchive,
+  streamCacheArchive,
+  streamFromBox,
+} from "./cache-extract";
+export type {
+  ArchiveLink,
+  ArchiveRules,
+  BoxStream,
+  BoxStreamFailure,
+  CacheArchiveLimits,
+  CacheArchiveStream,
+  ExtractedArchive,
+} from "./cache-extract";
 export {
   checkFillInput,
   isBunRegistry,
@@ -261,3 +276,39 @@ export {
   PART_MESSAGE_MAX_BYTES,
 } from "./door";
 export type { BoxDoorDeps, DoorPart, DoorRead, DoorRefusal, DoorRefused } from "./door";
+export {
+  BoxParts,
+  blobId,
+  comparePart,
+  inBoxExcludes,
+  PART_ARCHIVE_LIMITS,
+  PART_CAUSES,
+  PART_FAILED,
+  PART_RECORD_FILE,
+  PART_REFUSED,
+  PART_SUBJECT_MAX,
+  PART_WAITING,
+  partArchiveCommand,
+  partCommitMessage,
+  partPark,
+  partSubject,
+  PROTECTED_TEXT,
+  protectedDetail,
+  protectedHits,
+  protectedKind,
+  refusedDetail,
+  secretDetail,
+  secretHits,
+} from "./parts";
+export type {
+  BoxPartsDeps,
+  PartChange,
+  PartFile,
+  PartOutcome,
+  PartPark,
+  PartRun,
+  ProtectedKind,
+  TreeEntry,
+} from "./parts";
+export { ignoreFileDir, IgnoreRules } from "./ignore";
+export type { IgnoreFile } from "./ignore";

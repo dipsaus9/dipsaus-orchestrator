@@ -29,7 +29,10 @@ import {
   type BoxBuildNetwork,
   type BoxNetwork,
   type BoxPort,
+  BoxParts,
+  type BoxPartsDeps,
   BoxWorkers,
+  boxName,
   CLAUDE_CLI_ADAPTER_ID,
   ensurePrivateDir,
   findRun,
@@ -80,6 +83,7 @@ import {
   sweepSafeChainProxies,
   type IngestAdapter,
   Nudges,
+  type PartRun,
   type StoredRun,
   selfCommand,
   setupWorktree,
@@ -288,8 +292,15 @@ export async function sweepBoxTokenChecks(
   return removed;
 }
 
-/** The box workers of the daemon (DIPO-271), or null without a box backend. */
-function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorkers | null {
+/**
+ * The box workers of the daemon (DIPO-271) and the delivery of their parts (DIPO-273), or null
+ * without a box backend. `parts` gives the run facts and run control the delivery needs.
+ */
+function daemonBoxWorkers(
+  options: DaemonRunsOptions,
+  tmpRoot: string,
+  parts: Pick<BoxPartsDeps, "run" | "live" | "park">,
+): { readonly workers: BoxWorkers; readonly parts: BoxParts } | null {
   const { clock, platform, env, home, uid } = options;
   let boxes = options.boxes;
   if (boxes === undefined) {
@@ -352,7 +363,24 @@ function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorke
       },
     };
   };
-  return new BoxWorkers({
+  // Each part the door takes is delivered: taken out of the box, scanned, committed and pushed
+  // (DIPO-273). The delivery reads the door before a story done, so `workers` is bound once made.
+  let workers: BoxWorkers | null = null;
+  const delivery = new BoxParts({
+    boxes,
+    clock,
+    tmpRoot,
+    ...parts,
+    git: (office) => options.engineGit.forOffice(office),
+    listedFiles: async (git) => {
+      const base = await readBaseBox(git);
+      return base.ok ? base.description.files.map((file) => file.path) : [];
+    },
+    readDoor: (runId) => workers?.readDoor(runId) ?? null,
+    warn: (message, fields) => options.logger.warn(message, fields),
+    info: (message, fields) => options.logger.info(message, fields),
+  });
+  workers = new BoxWorkers({
     boxes,
     startWebRoute: startRoute,
     startBuildRoute: startRoute,
@@ -369,9 +397,9 @@ function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorke
     adapter: CLAUDE_CLI_ADAPTER_ID,
     tmpRoot,
     indexDir: join(options.stateDir, BOX_INDEX_DIR),
-    // The part queue of each box is read while its session runs (DIPO-272); delivering a part is
-    // DIPO-273's `onPart`.
-    door: {},
+    // The part queue of each box is read while its session runs (DIPO-272), and each part is
+    // delivered (DIPO-273).
+    door: { onPart: (part) => delivery.onPart(part) },
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
@@ -379,6 +407,7 @@ function daemonBoxWorkers(options: DaemonRunsOptions, tmpRoot: string): BoxWorke
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
+  return { workers, parts: delivery };
 }
 
 /**
@@ -409,7 +438,15 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   // Run temp directories (DIPO-102): removed once their run ended and its worker hosts exited,
   // swept after each exit and its decision, and at daemon start (`sweepTempDirs`).
   // Box workers (DIPO-271); their token check exports a stopped daemon left go first.
-  const boxWorkers = daemonBoxWorkers(options, realDir(options.tmpRoot));
+  // A part needs the run's facts and run control, both made further down (DIPO-273).
+  let runControl: RunControl | null = null;
+  let partRun: ((runId: string) => PartRun | null) | null = null;
+  const boxed = daemonBoxWorkers(options, realDir(options.tmpRoot), {
+    run: (runId) => partRun?.(runId) ?? null,
+    live: (runId) => runControl?.live(runId) === true,
+    park: (runId, park) => runControl?.parkRun(runId, park) === true,
+  });
+  const boxWorkers = boxed?.workers ?? null;
   void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
   const finishEndedBoxes = async (
     finishOptions: { readonly listBoxes?: boolean } = {},
@@ -508,6 +545,19 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     host: { home, uid, env },
     ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
+    // A box run has no backstop or scope check, and its last part goes before verify (DIPO-273).
+    ...(boxed === null
+      ? {}
+      : {
+          parts: {
+            isBoxRun: (office: OfficeId, run: StoredRun) => {
+              const paths = runPaths(office, run);
+              return paths !== null && boxed.workers.isBoxRun(paths.runDir);
+            },
+            deliverLast: (runId: string, message: string) =>
+              boxed.parts.deliverLast(runId, message),
+          },
+        }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   const started = systemHostStarter({
@@ -539,6 +589,26 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       run.worktree,
       run.runId,
     );
+  };
+  // The facts of a box run a part needs (DIPO-273), from the loaded office that knows the run.
+  partRun = (runId) => {
+    for (const office of options.offices.loadedOffices()) {
+      const handle = options.offices.get(office);
+      const run = handle === undefined ? null : findRun(handle, runId as RunId);
+      if (run === null) continue;
+      if (run.story === null || run.branch === null || run.startSha === null) return null;
+      const paths = runPaths(office, run);
+      return {
+        runId,
+        office,
+        story: run.story,
+        branch: run.branch,
+        startSha: run.startSha,
+        box: boxName(runId),
+        ...(paths === null ? {} : { runDir: paths.runDir }),
+      };
+    }
+    return null;
   };
   const capsFor = (office: OfficeId, run: StoredRun) => {
     const tier = tierOf(office, run);
@@ -702,6 +772,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   ) {
     throw new Error("the daemon's run services are not all wired");
   }
+  runControl = control;
   return {
     launcher,
     ingest,

@@ -1,23 +1,28 @@
-// The copy-out of a filled package cache (DIPO-267). The fill box writes its cache as one tar
-// archive; dipo streams only that file out of the box (`streamCacheArchive`, `cat` through
-// `execLive`, cut at the size cap) into a fresh folder of its own, and extracts it here. The
-// rules are kept few, so they are easy to check:
+// Archives out of a box (DIPO-267, DIPO-273). A box writes a tar archive, dipo streams it out of
+// the box itself (`streamFromBox`: one command through `execLive`, its stdin closed, cut at the
+// size cap) into a fresh folder of its own, and extracts it here. Two users share both: the copy-out
+// of a filled package cache (`streamCacheArchive`, `extractCacheArchive`) and the parts a box worker
+// delivers (`box/parts.ts`). Never container copy: it keeps symlinks as links, so a box could plant
+// a link to a Mac path. The rules are kept few, so they are easy to check:
 //
 // - The folder must hold exactly one entry, a regular file with one link (lstat), opened with
-//   O_NOFOLLOW and checked again on the open file, within `CACHE_ARCHIVE_LIMITS`.
-// - Only folders and regular files are taken. Every symlink and hard link is refused: Bun's
-//   install cache, npm's `_cacache` and pnpm's store hold none that a box needs. If a manager's
-//   cache ever does, the fill fails loudly with `box.cacheFillFailed` and the live run shows it.
+//   O_NOFOLLOW and checked again on the open file, within the archive's limits.
+// - Only folders and regular files are written. A symlink or hard link is never written or
+//   followed: the package cache refuses every one (Bun's install cache, npm's `_cacache` and pnpm's
+//   store hold none that a box needs; if a manager's cache ever does, the fill fails loudly with
+//   `box.cacheFillFailed` and the live run shows it), and a part records each one as data, its
+//   path and target, for the part's protected-file check.
 // - Every path is relative, with no `..`, `.` or empty part. Two entries whose paths match once
 //   Unicode-decomposed and lower-cased (as on a case- and normalisation-insensitive APFS volume)
-//   are refused, also a folder and a file, and a path below an earlier file.
+//   are refused, also a folder and a file, and a path below an earlier file or link.
 // - Files are created with O_CREAT|O_EXCL|O_NOFOLLOW (an existing path is refused), and before each
 //   write the real path of its folder must be exactly the destination's real path joined with the
 //   entry's folder.
 // - The entry count and the extracted bytes are capped. File modes keep only the execute bits.
 // - It reads ustar and GNU tar (`L` long names) and pax `x` headers, whose `path` it applies and
-//   whose `size` must match the header. Global pax headers, GNU long link names, sparse entries and
-//   any pax record it does not know are refused: what it does not fully handle fails closed.
+//   whose `size` must match the header. Global pax headers, sparse entries and any pax record it
+//   does not know are refused: what it does not fully handle fails closed. GNU long link names
+//   (`K`) and the pax `linkpath` are read only where links are recorded.
 
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rm } from "node:fs/promises";
@@ -27,9 +32,9 @@ import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { BoxError, type BoxPort } from "./port";
 
-/** The caps of one cache archive. */
+/** The caps of one archive. */
 export interface CacheArchiveLimits {
-  /** The largest archive, in the fill box and on the Mac. */
+  /** The largest archive, in the box and on the Mac. */
   readonly maxArchiveBytes: number;
   /** The most entries (headers) an archive may hold. */
   readonly maxEntries: number;
@@ -38,12 +43,47 @@ export interface CacheArchiveLimits {
 }
 
 const GIB = 1024 ** 3;
-/** dipo's caps: 8 GiB of archive, two million entries, 8 GiB unpacked. */
+/** dipo's caps of a package cache: 8 GiB of archive, two million entries, 8 GiB unpacked. */
 export const CACHE_ARCHIVE_LIMITS: CacheArchiveLimits = {
   maxArchiveBytes: 8 * GIB,
   maxEntries: 2_000_000,
   maxTotalBytes: 8 * GIB,
 };
+
+/** How one archive is extracted and how its refusals read. */
+export interface ArchiveRules {
+  readonly limits: CacheArchiveLimits;
+  /** The `BoxError` code of every refusal. */
+  readonly code: string;
+  /** What the archive is, the start of every refusal message: "the package cache archive". */
+  readonly what: string;
+  /**
+   * `refuse` (the default) refuses every link; `record` returns each symlink and hard link as
+   * data (`ArchiveLink`), never written and never followed.
+   */
+  readonly links?: "refuse" | "record";
+}
+
+/** The package cache's rules (DIPO-267). */
+export const CACHE_ARCHIVE_RULES: ArchiveRules = {
+  limits: CACHE_ARCHIVE_LIMITS,
+  code: "box.cacheFillFailed",
+  what: "the package cache archive",
+};
+
+/** A link an archive held, recorded as data: nothing is written at its path. */
+export interface ArchiveLink {
+  readonly path: string;
+  readonly kind: "symlink" | "hardlink";
+  /** The link's target as the archive names it, never resolved. */
+  readonly target: string;
+}
+
+/** What an extraction found besides the files and folders it wrote. */
+export interface ExtractedArchive {
+  /** The recorded links, in archive order; always empty when links are refused. */
+  readonly links: readonly ArchiveLink[];
+}
 
 const BLOCK = 512;
 /** How much of a file is copied at once. */
@@ -54,10 +94,19 @@ const MAX_HEADER_DATA = 64 * 1024;
 const IGNORED_PAX = new Set(["mtime", "atime", "ctime", "uid", "gid", "uname", "gname"]);
 const IGNORED_PAX_PREFIXES = ["LIBARCHIVE.xattr.", "SCHILY.xattr."];
 
-function refuse(message: string, details: Readonly<Record<string, unknown>> = {}): never {
-  throw new BoxError("box.cacheFillFailed", `the package cache archive ${message}`, false, details);
+/** A refusal inside the extraction; `extractArchive` turns it into the rules' `BoxError`. */
+class ArchiveRefusal extends Error {
+  constructor(
+    message: string,
+    readonly details: Readonly<Record<string, unknown>>,
+  ) {
+    super(message);
+  }
 }
 
+function refuse(message: string, details: Readonly<Record<string, unknown>> = {}): never {
+  throw new ArchiveRefusal(message, details);
+}
 /** A NUL-ended text field of a header. */
 function text(header: Uint8Array, start: number, length: number): string {
   const field = header.subarray(start, start + length);
@@ -132,9 +181,12 @@ function entryPath(raw: string): string | null {
   return path;
 }
 
-/** The key two paths share on a case- and normalisation-insensitive volume. */
+/**
+ * The key two paths share on a case- and normalisation-insensitive volume: decomposed, then upper-
+ * and lower-cased, so `ſ` meets `s` as `A` meets `a`.
+ */
 function collisionKey(path: string): string {
-  return path.normalize("NFD").toLowerCase();
+  return path.normalize("NFD").toUpperCase().toLowerCase();
 }
 
 /** The one regular file `folder` holds, with one link; refuses anything else. */
@@ -157,7 +209,10 @@ class Claims {
   readonly #kinds = new Map<string, "file" | "folder">();
   readonly #entries = new Set<string>();
 
-  /** Records `entry`; refuses a second entry of its key, a file/folder clash, a path below a file. */
+  /**
+   * Records `entry` (a link claims its path as a file); refuses a second entry of its key, a
+   * file/folder clash, a path below a file.
+   */
   claim(entry: string, kind: "file" | "folder"): void {
     const parts = entry.split("/");
     for (let depth = 1; depth < parts.length; depth += 1) {
@@ -186,22 +241,47 @@ async function makeFolder(realDest: string, folder: string): Promise<string> {
 
 /**
  * Extracts the one archive in the fresh folder `folder` into the existing, empty folder `dest`,
- * by the rules in the module comment. Refuses with `box.cacheFillFailed`.
+ * by the rules in the module comment and `rules`. Refuses with a `BoxError` of `rules.code`.
+ */
+export async function extractArchive(
+  folder: string,
+  dest: string,
+  rules: ArchiveRules,
+): Promise<ExtractedArchive> {
+  try {
+    return await extract(folder, dest, rules);
+  } catch (error) {
+    if (error instanceof ArchiveRefusal) {
+      throw new BoxError(rules.code, `${rules.what} ${error.message}`, false, error.details);
+    }
+    if (error instanceof BoxError) throw error;
+    throw new BoxError(
+      rules.code,
+      `${rules.what} could not be extracted: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * Extracts the one cache archive in `folder` into `dest` (DIPO-267): every link is refused, with
+ * `box.cacheFillFailed`.
  */
 export async function extractCacheArchive(
   folder: string,
   dest: string,
   limits: CacheArchiveLimits = CACHE_ARCHIVE_LIMITS,
 ): Promise<void> {
-  try {
-    await extract(folder, dest, limits);
-  } catch (error) {
-    if (error instanceof BoxError) throw error;
-    refuse(`could not be extracted: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  await extractArchive(folder, dest, { ...CACHE_ARCHIVE_RULES, limits });
 }
 
-async function extract(folder: string, dest: string, limits: CacheArchiveLimits): Promise<void> {
+async function extract(
+  folder: string,
+  dest: string,
+  rules: ArchiveRules,
+): Promise<ExtractedArchive> {
+  const { limits } = rules;
+  const record = rules.links === "record";
+  const links: ArchiveLink[] = [];
   const path = await archiveIn(folder, limits);
   const input = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -217,6 +297,7 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
     let entries = 0;
     let bytes = 0;
     let longName: string | null = null;
+    let longLink: string | null = null;
     let pax: Map<string, string> | null = null;
 
     const readData = async (size: number): Promise<Uint8Array> => {
@@ -247,6 +328,12 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
         position += padded;
         continue;
       }
+      if (type === "K" && record) {
+        if (longLink !== null) refuse("holds two long link names for one entry.");
+        longLink = text(await readData(size), 0, size);
+        position += padded;
+        continue;
+      }
       if (type === "x") {
         if (pax !== null) refuse("holds two pax headers for one entry.");
         pax = paxRecords(await readData(size));
@@ -254,6 +341,7 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
           const known =
             key === "path" ||
             key === "size" ||
+            (record && key === "linkpath") ||
             IGNORED_PAX.has(key) ||
             IGNORED_PAX_PREFIXES.some((prefix) => key.startsWith(prefix));
           if (!known) refuse(`holds the pax record ${key}, which dipo does not take.`, { key });
@@ -261,9 +349,10 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
         position += padded;
         continue;
       }
-      if (type !== "0" && type !== "\0" && type !== "5") {
+      const link = type === "1" || type === "2";
+      if (type !== "0" && type !== "\0" && type !== "5" && !(record && link)) {
         const what =
-          type === "1" || type === "2" || type === "K"
+          link || type === "K"
             ? "a link; the package cache takes no links"
             : `an entry of type ${JSON.stringify(type)} dipo does not take`;
         refuse(`holds ${what}.`, { type, name: text(header, 0, 100) });
@@ -277,10 +366,22 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
         refuse("holds a pax size that differs from its header.", { paxSize, size });
       }
       const raw = pax?.get("path") ?? longName ?? (prefix === "" ? named : `${prefix}/${named}`);
+      const target = pax?.get("linkpath") ?? longLink ?? text(header, 157, 100);
+      const strayLink = !link && (pax?.has("linkpath") === true || longLink !== null);
       longName = null;
+      longLink = null;
       pax = null;
       const entry = entryPath(raw);
 
+      if (link) {
+        // Recorded only: nothing is written at its path, and its target is never resolved.
+        if (size !== 0) refuse("holds a link with data.");
+        if (entry === null) refuse("holds a link without a name.");
+        claims.claim(entry, "file");
+        links.push({ path: entry, kind: type === "2" ? "symlink" : "hardlink", target });
+        continue;
+      }
+      if (strayLink) refuse("holds a link name on an entry that is no link.");
       if (type === "5") {
         if (size !== 0) refuse("holds a folder with data.");
         if (entry !== null) {
@@ -320,9 +421,132 @@ async function extract(folder: string, dest: string, limits: CacheArchiveLimits)
       }
       position += padded;
     }
-    if (longName !== null || pax !== null) refuse("ends inside an entry.");
+    if (longName !== null || longLink !== null || pax !== null) refuse("ends inside an entry.");
   } finally {
     await input.close();
+  }
+  return { links };
+}
+
+/** Why a stream out of a box was refused (`BoxError.details.reason`). */
+export type BoxStreamFailure = "cap" | "deadline" | "exit" | "failed";
+
+/** One stream of a file out of a box: what `command` prints on its stdout. */
+export interface BoxStream {
+  readonly boxes: Pick<BoxPort, "execLive" | "stop">;
+  readonly box: string;
+  /** The command run in the box; its stdout is the file. */
+  readonly command: readonly [string, ...string[]];
+  /** A fresh, empty folder dipo made; the file is written into it under `name`. */
+  readonly folder: string;
+  readonly name: string;
+  readonly maxBytes: number;
+  readonly timeoutMs: number;
+  readonly clock: Clock;
+  /** The `BoxError` code of a refusal. */
+  readonly code: string;
+  /** What the file is, the start of every refusal message. */
+  readonly what: string;
+  /**
+   * Stops the box when the stream fails (true by default): a killed exec client leaves its
+   * process running in the box. A part's stream (`box/parts.ts`) keeps the worker's box and bounds
+   * its command inside the box instead.
+   */
+  readonly stopOnFailure?: boolean;
+  /** The exit codes that count as a whole stream; `[0]` by default. */
+  readonly okExits?: readonly number[];
+}
+
+/** The most of the in-box command's error output a refusal keeps. */
+const STREAM_ERROR_CHARS = 2_000;
+
+function streamRefusal(
+  stream: BoxStream,
+  reason: BoxStreamFailure,
+  message: string,
+  details: Readonly<Record<string, unknown>> = {},
+): BoxError {
+  return new BoxError(stream.code, `${stream.what} ${message}`, false, { reason, ...details });
+}
+
+/**
+ * Runs `command` in the box through `execLive`, with its stdin closed at once, and writes what it
+ * prints into a file dipo creates with O_CREAT|O_EXCL|O_NOFOLLOW in the fresh folder `folder`.
+ * It refuses, with `stream.code` and the reason in `details.reason`, as soon as more than
+ * `maxBytes` arrived, at the deadline, or when the command fails; then it kills the exec client,
+ * stops the box unless `stopOnFailure` is false, and removes what it wrote. Returns the file's path.
+ */
+export async function streamFromBox(stream: BoxStream): Promise<string> {
+  const entries = await readdir(stream.folder);
+  if (entries.length !== 0) {
+    throw streamRefusal(stream, "failed", `folder ${stream.folder} is not empty.`);
+  }
+  const to = join(stream.folder, stream.name);
+  const output = await open(
+    to,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  );
+  const child = stream.boxes.execLive(stream.box, stream.command);
+  // Nothing goes in: an open stdin would keep a command that reads it waiting.
+  child.stdin.end();
+  let stderr = "";
+  void (async () => {
+    const decoder = new TextDecoder();
+    for await (const chunk of child.stderr) {
+      stderr = (stderr + decoder.decode(chunk)).slice(-STREAM_ERROR_CHARS);
+    }
+  })().catch(() => {});
+  let timer: TimerHandle | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = stream.clock.setTimeout(
+      () => reject(streamRefusal(stream, "deadline", "stream passed its deadline.")),
+      stream.timeoutMs,
+    );
+  });
+  deadline.catch(() => {});
+  const reader = child.stdout.getReader();
+  let ok = false;
+  try {
+    let received = 0;
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+      if (done) break;
+      received += value.length;
+      if (received > stream.maxBytes) {
+        throw streamRefusal(stream, "cap", `stream passed ${stream.maxBytes} bytes and was cut.`, {
+          maxBytes: stream.maxBytes,
+        });
+      }
+      await output.write(value);
+    }
+    const exit = await Promise.race([child.exited, deadline]);
+    if (exit.code === null || !(stream.okExits ?? [0]).includes(exit.code)) {
+      throw streamRefusal(
+        stream,
+        "exit",
+        `stream ended with exit ${exit.code ?? exit.signal}: ${stderr.trim()}`,
+        { code: exit.code },
+      );
+    }
+    ok = true;
+    return to;
+  } catch (error) {
+    if (error instanceof BoxError) throw error;
+    throw streamRefusal(
+      stream,
+      "failed",
+      `stream failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    if (timer !== undefined) stream.clock.clearTimeout(timer);
+    await output.close();
+    if (!ok) {
+      child.kill("SIGKILL");
+      reader.cancel().catch(() => {});
+      if (stream.stopOnFailure !== false) await stream.boxes.stop(stream.box).catch(() => {});
+      await rm(to, { force: true });
+    }
   }
 }
 
@@ -341,78 +565,21 @@ export interface CacheArchiveStream {
   readonly clock: Clock;
 }
 
-/** The most of the in-box command's error output a refusal keeps. */
-const STREAM_ERROR_CHARS = 2_000;
-
 /**
- * Streams the archive out of the fill box with `cat` through `execLive`, into a file dipo creates
- * with O_CREAT|O_EXCL|O_NOFOLLOW in the fresh folder `folder`. It stops and refuses, with
- * `box.cacheFillFailed`, as soon as more than `maxBytes` arrived, at the deadline, or when the
- * command fails; then it kills the exec client and stops the box (a killed client leaves its
- * process running in the box), and removes what it wrote. Returns the file's path.
+ * Streams the cache archive out of the fill box with `cat` (`streamFromBox`), refusing with
+ * `box.cacheFillFailed`; a failed stream stops the fill box. Returns the file's path.
  */
-export async function streamCacheArchive(stream: CacheArchiveStream): Promise<string> {
-  const entries = await readdir(stream.folder);
-  if (entries.length !== 0) refuse(`folder ${stream.folder} is not empty.`);
-  const to = join(stream.folder, stream.name);
-  const output = await open(
-    to,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-    0o600,
-  );
-  const child = stream.boxes.execLive(stream.box, ["cat", stream.from]);
-  let stderr = "";
-  void (async () => {
-    const decoder = new TextDecoder();
-    for await (const chunk of child.stderr) {
-      stderr = (stderr + decoder.decode(chunk)).slice(-STREAM_ERROR_CHARS);
-    }
-  })().catch(() => {});
-  let timer: TimerHandle | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = stream.clock.setTimeout(
-      () =>
-        reject(
-          new BoxError("box.cacheFillFailed", "the cache archive stream passed its deadline."),
-        ),
-      stream.timeoutMs,
-    );
+export function streamCacheArchive(stream: CacheArchiveStream): Promise<string> {
+  return streamFromBox({
+    boxes: stream.boxes,
+    box: stream.box,
+    command: ["cat", stream.from],
+    folder: stream.folder,
+    name: stream.name,
+    maxBytes: stream.maxBytes,
+    timeoutMs: stream.timeoutMs,
+    clock: stream.clock,
+    code: CACHE_ARCHIVE_RULES.code,
+    what: CACHE_ARCHIVE_RULES.what,
   });
-  deadline.catch(() => {});
-  const reader = child.stdout.getReader();
-  let ok = false;
-  try {
-    let received = 0;
-    for (;;) {
-      const { done, value } = await Promise.race([reader.read(), deadline]);
-      if (done) break;
-      received += value.length;
-      if (received > stream.maxBytes) {
-        refuse(`stream passed ${stream.maxBytes} bytes and was cut.`, {
-          maxBytes: stream.maxBytes,
-        });
-      }
-      await output.write(value);
-    }
-    const exit = await Promise.race([child.exited, deadline]);
-    if (exit.code !== 0) {
-      refuse(`stream ended with exit ${exit.code ?? exit.signal}: ${stderr.trim()}`, {
-        code: exit.code,
-      });
-    }
-    ok = true;
-    return to;
-  } catch (error) {
-    if (error instanceof BoxError) throw error;
-    throw refuse(`stream failed: ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    if (timer !== undefined) stream.clock.clearTimeout(timer);
-    await output.close();
-    if (!ok) {
-      child.kill("SIGKILL");
-      reader.cancel().catch(() => {});
-      await stream.boxes.stop(stream.box).catch(() => {});
-      await rm(to, { force: true });
-    }
-  }
 }
