@@ -108,8 +108,23 @@ export type {
   PackageCacheRequest,
   PackageCacheStamp,
 } from "./cache";
-export { CACHE_ARCHIVE_LIMITS, extractCacheArchive, streamCacheArchive } from "./cache-extract";
-export type { CacheArchiveLimits, CacheArchiveStream } from "./cache-extract";
+export {
+  CACHE_ARCHIVE_LIMITS,
+  CACHE_ARCHIVE_RULES,
+  extractArchive,
+  extractCacheArchive,
+  streamCacheArchive,
+  streamFromBox,
+} from "./cache-extract";
+export type {
+  ArchiveLink,
+  ArchiveRules,
+  BoxStream,
+  BoxStreamFailure,
+  CacheArchiveLimits,
+  CacheArchiveStream,
+  ExtractedArchive,
+} from "./cache-extract";
 export {
   checkFillInput,
   isBunRegistry,

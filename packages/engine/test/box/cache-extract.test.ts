@@ -21,67 +21,19 @@ import type { Signal } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  type ArchiveRules,
   CACHE_ARCHIVE_LIMITS,
+  extractArchive,
   extractCacheArchive,
   streamCacheArchive,
+  streamFromBox,
 } from "../../src/box/cache-extract";
 import { BoxError, type BoxPort } from "../../src/box/port";
+import { paxRecord, type TarEntry, tarBytes } from "./tar-bytes";
 
 const encoder = new TextEncoder();
 
-interface Entry {
-  readonly name: string;
-  /** `0` file, `5` folder, `2` symlink, `1` hard link, `L` long name, `x`/`g` pax, ... */
-  readonly type: string;
-  readonly data?: string;
-  readonly link?: string;
-  readonly mode?: number;
-  /** Writes `ustar\0` `00` with this prefix instead of GNU's magic. */
-  readonly prefix?: string;
-}
-
-function octal(value: number, length: number): string {
-  return `${value.toString(8).padStart(length - 1, "0")}\0`;
-}
-
-/** One header block and its data blocks. */
-function block(entry: Entry): Uint8Array {
-  const data = encoder.encode(entry.data ?? "");
-  const header = new Uint8Array(512);
-  const put = (text: string, at: number) => header.set(encoder.encode(text), at);
-  put(entry.name, 0);
-  put(octal(entry.mode ?? 0o644, 8), 100);
-  put(octal(0, 8), 108);
-  put(octal(0, 8), 116);
-  put(octal(data.length, 12), 124);
-  put(octal(0, 12), 136);
-  header[156] = entry.type.charCodeAt(0);
-  put(entry.link ?? "", 157);
-  if (entry.prefix === undefined) put("ustar  \0", 257);
-  else {
-    put("ustar\0", 257);
-    put("00", 263);
-    put(entry.prefix, 345);
-  }
-  put("        ", 148);
-  const sum = header.reduce((total, byte) => total + byte, 0);
-  put(`${sum.toString(8).padStart(6, "0")}\0 `, 148);
-  const padded = new Uint8Array(512 + Math.ceil(data.length / 512) * 512);
-  padded.set(header);
-  padded.set(data, 512);
-  return padded;
-}
-
-function tarBytes(entries: readonly Entry[]): Uint8Array {
-  const parts = [...entries.map(block), new Uint8Array(1024)];
-  const bytes = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
-  let at = 0;
-  for (const part of parts) {
-    bytes.set(part, at);
-    at += part.length;
-  }
-  return bytes;
-}
+type Entry = TarEntry;
 
 /** A fresh folder holding the archive of `entries`, as the copy-out leaves it. */
 function archive(dir: string, entries: readonly Entry[]): string {
@@ -89,14 +41,6 @@ function archive(dir: string, entries: readonly Entry[]): string {
   mkdirSync(folder);
   writeFileSync(join(folder, "cache.tar"), tarBytes(entries));
   return folder;
-}
-
-/** One pax record, `<length> <key>=<value>\n`, its length counting itself. */
-function record(key: string, value: string): string {
-  const body = ` ${key}=${value}\n`;
-  let length = body.length + 2;
-  if (`${length}${body}`.length !== length) length += 1;
-  return `${length}${body}`;
 }
 
 /** The destination folder, inside a parent that holds a marker the archive must not reach. */
@@ -139,7 +83,7 @@ describe("extracting a cache archive", () => {
           { name: "././@LongLink", type: "L", data: `${long}\0` },
           { name: "truncated", type: "0", data: "{}\n" },
           { name: "pkg.json", type: "0", data: "{}\n", prefix: "bun/y@2.0.0@@@1" },
-          { name: "PaxHeader", type: "x", data: record("path", "npm/_cacache/index-v5/aa/bb") },
+          { name: "PaxHeader", type: "x", data: paxRecord("path", "npm/_cacache/index-v5/aa/bb") },
           { name: "short", type: "0", data: "index\n" },
         ]),
         dest,
@@ -343,7 +287,7 @@ describe("what the extractor does not fully handle", () => {
     [
       "a global pax header",
       [
-        { name: "g", type: "g", data: record("path", "x") },
+        { name: "g", type: "g", data: paxRecord("path", "x") },
         { name: "a", type: "0", data: "x" },
       ],
       'type "g"',
@@ -351,7 +295,7 @@ describe("what the extractor does not fully handle", () => {
     [
       "a pax size that differs from its header",
       [
-        { name: "x", type: "x", data: record("size", "99") },
+        { name: "x", type: "x", data: paxRecord("size", "99") },
         { name: "a", type: "0", data: "x" },
       ],
       "pax size",
@@ -359,7 +303,7 @@ describe("what the extractor does not fully handle", () => {
     [
       "a pax record it does not know",
       [
-        { name: "x", type: "x", data: record("GNU.sparse.map", "0,1") },
+        { name: "x", type: "x", data: paxRecord("GNU.sparse.map", "0,1") },
         { name: "a", type: "0", data: "x" },
       ],
       "GNU.sparse.map",
@@ -408,7 +352,12 @@ function streamingBox(chunks: readonly string[], code: number | null = 0, hang =
     execLive: (box, command) => {
       calls.push(`execLive ${box} ${command.join(" ")}`);
       return {
-        stdin: { write: () => {}, end: () => {} },
+        stdin: {
+          write: () => {},
+          end: () => {
+            calls.push("stdin end");
+          },
+        },
         stdout: new ReadableStream<Uint8Array>({
           start(controller) {
             for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
@@ -471,7 +420,7 @@ describe("streaming the archive out of the fill box", () => {
       expect(await done).toBe(join(folder, "cache.tar"));
       expect(readdirSync(folder)).toEqual(["cache.tar"]);
       expect(readFileSync(join(folder, "cache.tar"), "utf8")).toBe("part one, part two");
-      expect(calls).toEqual(["execLive dipo-fill-1 cat /tmp/dipo-fill/cache.tar"]);
+      expect(calls).toEqual(["execLive dipo-fill-1 cat /tmp/dipo-fill/cache.tar", "stdin end"]);
     }));
 
   it("cuts a stream over the cap, ends the process in the box and leaves nothing", () =>
@@ -482,6 +431,7 @@ describe("streaming the archive out of the fill box", () => {
       expect(readdirSync(folder)).toEqual([]);
       expect(calls).toEqual([
         "execLive dipo-fill-1 cat /tmp/dipo-fill/cache.tar",
+        "stdin end",
         "kill SIGKILL",
         "stop dipo-fill-1",
       ]);
@@ -515,5 +465,127 @@ describe("streaming the archive out of the fill box", () => {
       writeFileSync(join(dir, "archive", "planted"), "");
       await refused(stream(dir, boxes).done, "not empty");
       expect(calls).toEqual([]);
+    }));
+});
+
+/** A part's stream out of the worker's box, which keeps the box when it fails. */
+function part(dir: string, boxes: Pick<BoxPort, "execLive" | "stop">) {
+  const folder = join(dir, "part");
+  mkdirSync(folder);
+  return {
+    folder,
+    done: streamFromBox({
+      boxes,
+      box: "dipo-run_1",
+      command: ["tar", "-C", "/work", "-cf", "-", "."],
+      folder,
+      name: "part.tar",
+      maxBytes: 1000,
+      timeoutMs: 60_000,
+      clock: new ManualClock(),
+      code: "box.partFailed",
+      what: "the part archive",
+      stopOnFailure: false,
+    }),
+  };
+}
+
+describe("the shared stream helper (DIPO-273)", () => {
+  it("runs the given command with its stdin closed and writes what it prints", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["tar bytes"]);
+      const { folder, done } = part(dir, boxes);
+      expect(await done).toBe(join(folder, "part.tar"));
+      expect(readFileSync(join(folder, "part.tar"), "utf8")).toBe("tar bytes");
+      expect(calls).toEqual(["execLive dipo-run_1 tar -C /work -cf - .", "stdin end"]);
+    }));
+
+  it("keeps the box when asked: a cut stream kills only the client and names its reason", () =>
+    withTempDir(async (dir) => {
+      const { boxes, calls } = streamingBox(["x".repeat(600), "y".repeat(600)], 0, true);
+      const { folder, done } = part(dir, boxes);
+      const error = await done.then(
+        () => null,
+        (thrown: unknown) => thrown as BoxError,
+      );
+      expect(error?.code).toBe("box.partFailed");
+      expect(error?.message).toContain("the part archive stream passed 1000 bytes");
+      expect(error?.details["reason"]).toBe("cap");
+      expect(readdirSync(folder)).toEqual([]);
+      expect(calls).toEqual([
+        "execLive dipo-run_1 tar -C /work -cf - .",
+        "stdin end",
+        "kill SIGKILL",
+      ]);
+    }));
+});
+
+describe("recorded links (a part, DIPO-273)", () => {
+  const rules: ArchiveRules = {
+    limits: CACHE_ARCHIVE_LIMITS,
+    code: "box.partRefused",
+    what: "the part archive",
+    links: "record",
+  };
+
+  it("returns symlinks and hard links as data, never written and never followed", () =>
+    withTempDir(async (dir) => {
+      const dest = destination(dir);
+      const long = `deep/${"d".repeat(120)}/target`;
+      const found = await extractArchive(
+        archive(dir, [
+          { name: "src/", type: "5" },
+          { name: "src/a.ts", type: "0", data: "a\n" },
+          { name: "src/home", type: "2", link: "/Users/maintainer/.ssh/id_ed25519" },
+          { name: "src/up", type: "2", link: "../../outside" },
+          { name: "hard", type: "1", link: "src/a.ts" },
+          { name: "././@LongLink", type: "K", data: `${long}\0` },
+          { name: "long", type: "2" },
+          { name: "PaxHeader", type: "x", data: paxRecord("linkpath", "pax-target") },
+          { name: "pax", type: "2" },
+        ]),
+        dest,
+        rules,
+      );
+      expect(found.links).toEqual([
+        { path: "src/home", kind: "symlink", target: "/Users/maintainer/.ssh/id_ed25519" },
+        { path: "src/up", kind: "symlink", target: "../../outside" },
+        { path: "hard", kind: "hardlink", target: "src/a.ts" },
+        { path: "long", kind: "symlink", target: long },
+        { path: "pax", kind: "symlink", target: "pax-target" },
+      ]);
+      expect(readdirSync(dest, { recursive: true }).map(String).toSorted()).toEqual([
+        "src",
+        "src/a.ts",
+      ]);
+      expect(outside(dir)).toEqual(["marker"]);
+    }));
+
+  it("refuses a path below a link, and a link with data, with the part's code", () =>
+    withTempDir(async (dir) => {
+      const dest = destination(dir);
+      const below = extractArchive(
+        archive(dir, [
+          { name: "l", type: "2", link: "/etc" },
+          { name: "l/hosts", type: "0", data: "planted\n" },
+        ]),
+        dest,
+        rules,
+      );
+      const error = await below.then(
+        () => null,
+        (thrown: unknown) => thrown as BoxError,
+      );
+      expect(error?.code).toBe("box.partRefused");
+      expect(error?.message).toContain("the part archive holds l/hosts below a file");
+      const folder = join(dir, "second");
+      mkdirSync(folder);
+      writeFileSync(join(folder, "part.tar"), tarBytes([{ name: "l", type: "2", data: "x" }]));
+      const data = await extractArchive(folder, join(dir, "parent"), rules).then(
+        () => null,
+        (thrown: unknown) => thrown as BoxError,
+      );
+      expect(data?.message).toContain("a link with data");
+      expect(outside(dir)).toEqual(["marker"]);
     }));
 });
