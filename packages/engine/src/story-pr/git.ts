@@ -60,7 +60,6 @@ export function gitStoryPrOps(deps: {
           session,
           location,
           input.story,
-          false,
           async (backlog) => {
             const shown = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id: input.story });
             return { view: shown, taskFile: repoPath(backlog.cwd, shown.file) };

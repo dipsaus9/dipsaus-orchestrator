@@ -27,10 +27,12 @@ import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
 import {
   BACKLOG_ENV_KEYS,
+  BACKLOG_FOLDER_ERROR,
   type BacklogCli,
   KNOWN_TASK_FIELDS,
   TASK_FIELD_ERROR,
   taskFieldRefusal,
+  taskFilePathRefusal,
 } from "../../src/backlog/runner";
 import { GitError } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -38,7 +40,6 @@ import { gitParkWriter, gitUnparkWriter } from "../../src/run/park";
 import { gitStoryOps } from "../../src/run/story-git";
 import { gitStoryPrOps } from "../../src/story-pr/git";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
-import { BACKLOG_FOLDER_ERROR } from "../../src/worktree/claim";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
@@ -352,46 +353,122 @@ describe("the Backlog CLI for a story runs in a folder without worker-written fi
   });
 });
 
+/** The repository's own task files, written by the Backlog CLI: the real shape. */
+const REPO_TASKS = join(import.meta.dir, "..", "..", "..", "..", "backlog", "tasks");
+
+/** A task file holding `front` as its front matter block. */
+function taskText(front: string): string {
+  return `---\n${front}\n---\n\n## Description\n\nText.\n`;
+}
+
 describe("the task file check", () => {
-  const known = [...KNOWN_TASK_FIELDS].map((name) => `${name}: x`).join("\n");
-
-  it("lets a task file through whose front matter holds only fields dipo knows", () => {
+  it("lets every task file the Backlog CLI wrote in this repository and the fixture through", () => {
+    const files = readdirSync(REPO_TASKS).filter((name) => name.endsWith(".md"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      expect([name, taskFieldRefusal(readFileSync(join(REPO_TASKS, name), "utf8"))]).toEqual([
+        name,
+        null,
+      ]);
+    }
+    for (const name of readdirSync(join(BACKLOG_FIXTURE, "backlog", "tasks"))) {
+      const text = readFileSync(join(BACKLOG_FIXTURE, "backlog", "tasks", name), "utf8");
+      expect(taskFieldRefusal(text)).toBeNull();
+    }
+    const every = [...KNOWN_TASK_FIELDS].map((name) => `${name}: x`).join("\n");
+    expect(taskFieldRefusal(taskText(every))).toBeNull();
     expect(
-      taskFieldRefusal(`---\n${known}\nlabels:\n  - a\n  - b\n\n---\n\n## Description\n`),
-    ).toBe(null);
-    for (const name of [
-      "task-1 - Add-the-CSV-export-command.md",
-      "task-3 - Export-stories-as-JSON.md",
+      taskFieldRefusal(
+        taskText("id: TASK-1\nlabels:\n  - a\n  - 'b:c'\ntitle: >-\n  Long\n  title"),
+      ),
+    ).toBeNull();
+  });
+
+  const refused: readonly (readonly [string, string])[] = [
+    ["an unknown field", taskText("id: TASK-1\nunknown_field: 1")],
+    ["a quoted unknown key", taskText('id: TASK-1\n"unknown_field": 1')],
+    ["a quoted known key", taskText('"id": TASK-1')],
+    ["an indented root", taskText("  id: TASK-1\n  unknown_field: 1")],
+    ["an indented line before any field", taskText("\n  unknown_field: 1\nid: TASK-1")],
+    ["a lone carriage return", taskText("id: TASK-1\rtitle: x\nstatus: Ready")],
+    ["a carriage return in a known line", taskText("title: x\runknown_field: 1\nid: TASK-1")],
+    ["CRLF line ends", "---\r\nid: TASK-1\r\n---\r\n"],
+    ["a byte order mark", `${String.fromCharCode(0xfeff)}${taskText("id: TASK-1")}`],
+    ["a control character", taskText("id: TASK-1\ntitle: a\u0001b")],
+    ["a line separator", taskText(`id: TASK-1${String.fromCharCode(0x2028)}unknown_field: 1`)],
+    ["a paragraph separator", taskText(`id: TASK-1${String.fromCharCode(0x2029)}unknown_field: 1`)],
+    ["an anchor", taskText("id: &a TASK-1\ntitle: x")],
+    ["an alias", taskText("id: TASK-1\nlabels:\n  - &a x\n  - *a")],
+    ["a tag", taskText("id: !!str TASK-1")],
+    ["a flow mapping", taskText("id: TASK-1\nlabels: {unknown_field: 1}")],
+    ["a duplicate key", taskText("id: TASK-1\nid: TASK-2")],
+    ["a merge key", taskText("id: TASK-1\n<<: {unknown_field: 1}")],
+    ["a complex key", taskText("id: TASK-1\n? unknown_field\n: 1")],
+    ["a second document", taskText("id: TASK-1\n...\nunknown_field: 1")],
+    ["a directive", taskText("%YAML 1.2\nid: TASK-1")],
+    ["a tab indent", taskText("id: TASK-1\nlabels:\n\t- a")],
+    ["a key without a space", taskText("id:TASK-1")],
+    ["no front matter", "id: TASK-1\n"],
+    ["an unclosed block", "---\nid: TASK-1\n"],
+    ["a block closed on another line", "---\nid: TASK-1\n----\n"],
+    ["an empty block", "---\n\n---\n"],
+  ];
+  for (const [what, text] of refused) {
+    it(`refuses ${what}`, () => {
+      expect(taskFieldRefusal(text)).not.toBeNull();
+    });
+  }
+
+  it("leaves the body after the block to the CLI", () => {
+    expect(taskFieldRefusal(`${taskText("id: TASK-1")}unknown_field: 1\n---\nx: 1\n`)).toBeNull();
+  });
+});
+
+describe("the task file path check", () => {
+  it("accepts only a plain file directly in backlog/tasks", () => {
+    expect(taskFilePathRefusal("backlog/tasks/task-1 - A story.md")).toBeNull();
+    for (const path of [
+      "backlog/tasks/sub/task-1 - A story.md",
+      "backlog/task-1 - A story.md",
+      "backlog/tasks/../tasks/task-1 - A story.md",
+      "backlog/./tasks/task-1 - A story.md",
+      "backlog/tasks/.",
+      "backlog/tasks/..",
+      "backlog/tasks/",
+      "other/tasks/task-1 - A story.md",
+      "backlog/tasks/task-1 - A\\story.md",
+      "backlog/tasks/task-1 - A\nstory.md",
     ]) {
-      expect(
-        taskFieldRefusal(readFileSync(join(BACKLOG_FIXTURE, "backlog", "tasks", name), "utf8")),
-      ).toBeNull();
+      expect([path, taskFilePathRefusal(path)]).not.toEqual([path, null]);
     }
   });
 
-  it("refuses any other field, and any top-level line that is not a plain field", () => {
-    for (const line of [
-      "unknown_field: 1",
-      '"title": x',
-      "? title",
-      "<<: x",
-      "{title: x}",
-      "- x",
-    ]) {
-      expect(taskFieldRefusal(`---\nid: TASK-1\n${line}\n---\n`)).toContain(
-        "fields dipo does not know",
+  it("refuses a story whose task file is committed below backlog/tasks", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const { cli, calls } = recordingCli(repo.env);
+      const { worktree } = claimed(await claimStory(s.deps({ cli }), s.request(s.key()))).claim;
+      mkdirSync(join(worktree, "backlog", "tasks", "nested"));
+      await git(
+        worktree,
+        repo.home,
+        "mv",
+        TASK_FILE_1,
+        `backlog/tasks/nested/${basename(TASK_FILE_1)}`,
       );
-    }
-  });
+      await git(worktree, repo.home, "commit", "--quiet", "-m", "move the task file");
 
-  it("refuses a task file without a closed front matter block", () => {
-    expect(taskFieldRefusal("id: TASK-1\n")).not.toBeNull();
-    expect(taskFieldRefusal("---\nid: TASK-1\n")).not.toBeNull();
-  });
-
-  it("leaves indented lines and the body after the block to the CLI", () => {
-    expect(taskFieldRefusal("---\nid: TASK-1\nlabels:\n  nested: x\n---\nanything: here\n")).toBe(
-      null,
-    );
+      calls.length = 0;
+      const error = await gitStoryOps({ git: () => s.git, cli })
+        .story(s.office.officeId, worktree, TASK_1)
+        .then(
+          () => null,
+          (caught: unknown) => caught,
+        );
+      expect(error).toBeInstanceOf(GitError);
+      expect((error as GitError).code).toBe(BACKLOG_FOLDER_ERROR);
+      expect(calls).toEqual([]);
+    }, FIXTURE);
   });
 });

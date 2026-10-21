@@ -19,7 +19,14 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { type BacklogCli, TASK_FIELD_ERROR, taskFieldRefusal } from "../backlog/runner";
+import {
+  BACKLOG_FOLDER_ERROR,
+  type BacklogCli,
+  isTaskFileOf,
+  TASK_FIELD_ERROR,
+  taskFieldRefusal,
+  taskFilePathRefusal,
+} from "../backlog/runner";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import type { ClaimRecord } from "../worktree/records";
@@ -32,12 +39,10 @@ const BACKLOG_DIR = "backlog";
 /** The prefix of the scratch directories under the worktree root. */
 export const BRANCH_READ_PREFIX = "_branch-read-";
 
-/** True when `name` is the task file of `id`: `<id> - <title>.md`, any case. */
-function isTaskFileOf(name: string, id: string): boolean {
-  return name.toLowerCase().startsWith(`${id.toLowerCase()} - `) && name.endsWith(".md");
-}
-
-/** The repository path of the story's task file on `ref`; throws when there is none. */
+/**
+ * The repository path of the story's task file on `ref`; throws when there is none, or with
+ * `BACKLOG_FOLDER_ERROR` when it is not a plain file directly in `backlog/tasks`.
+ */
 async function taskFileOn(session: GitSession, ref: string, id: string): Promise<string> {
   const listed = await session.ok(session.repository, [
     "ls-tree",
@@ -52,6 +57,13 @@ async function taskFileOn(session: GitSession, ref: string, id: string): Promise
   const [only] = files;
   if (only === undefined) throw new Error(`${ref} has no task file for ${id}`);
   if (files.length > 1) throw new Error(`${ref} has more than one task file for ${id}`);
+  const refused = taskFilePathRefusal(only);
+  if (refused !== null) {
+    throw new GitError(BACKLOG_FOLDER_ERROR, `${id}'s task file on ${ref}: ${refused}.`, false, {
+      story: id,
+      taskFile: only,
+    });
+  }
   return only;
 }
 

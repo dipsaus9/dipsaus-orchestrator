@@ -14,8 +14,8 @@ import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult } from "../git/runner";
-import { commitTaskFile, type PushResult, pushBranch, statusPaths } from "../git/task-commit";
-import { inStoryBacklog, repoPath } from "../worktree/claim";
+import { type PushResult, pushBranch, statusPaths } from "../git/task-commit";
+import { editInStoryBacklog, inStoryBacklog, repoPath } from "../worktree/claim";
 
 import { type BackstopSnapshot, readBackstop } from "./backstop";
 
@@ -128,7 +128,7 @@ export function gitStoryOps(deps: {
     story: (office, worktree, id) => {
       const git = gitOf(office);
       return git.run((session) =>
-        inStoryBacklog(git, session, at(git, worktree), id, false, async (backlog) => {
+        inStoryBacklog(git, session, at(git, worktree), id, async (backlog) => {
           const view = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id });
           return {
             taskFile: repoPath(backlog.cwd, view.file),
@@ -185,30 +185,32 @@ export function gitStoryOps(deps: {
       const git = gitOf(office);
       return git.run(async (session) => {
         const location = at(git, input.worktree);
-        await inStoryBacklog(git, session, location, input.story, true, async (backlog) => {
-          await runBacklog(deps.cli, backlog.cwd, [
-            "task",
-            "edit",
-            input.story,
-            ...input.criteria.flatMap((n) => ["--check-ac", String(n)]),
-            "--status",
-            IN_REVIEW_STATUS,
-          ]);
-          const back = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id: input.story });
-          if (back.status !== IN_REVIEW_STATUS) {
-            throw new GitError(
-              "verify.statusNotWritten",
-              `The Backlog CLI left ${input.story} at ${back.status}, not ${IN_REVIEW_STATUS}.`,
-            );
-          }
-        });
         // Only the task file: anything else staged stays out of this commit.
-        return commitTaskFile(
+        const edit = await editInStoryBacklog(
+          git,
           session,
           location,
-          input.taskFile,
+          input.story,
           `${input.story}: status ${IN_REVIEW_STATUS}`,
+          async (backlog) => {
+            await runBacklog(deps.cli, backlog.cwd, [
+              "task",
+              "edit",
+              input.story,
+              ...input.criteria.flatMap((n) => ["--check-ac", String(n)]),
+              "--status",
+              IN_REVIEW_STATUS,
+            ]);
+            const back = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id: input.story });
+            if (back.status !== IN_REVIEW_STATUS) {
+              throw new GitError(
+                "verify.statusNotWritten",
+                `The Backlog CLI left ${input.story} at ${back.status}, not ${IN_REVIEW_STATUS}.`,
+              );
+            }
+          },
         );
+        return edit.commit;
       });
     },
     push: (office, branch) => {

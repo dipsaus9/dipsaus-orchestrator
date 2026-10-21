@@ -17,6 +17,8 @@
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
 
+import { parseYamlDocument } from "../platform/yaml";
+
 import { hasSectionRule } from "./plain";
 
 /** How the engine starts the CLI. */
@@ -346,11 +348,42 @@ export async function runBacklog(
   return { stdout, stderr };
 }
 
+// ---- the story's task file (0021 section 14) ---------------------------------------------------
+
+/** The folder that holds the Backlog task files, relative to the repository root. */
+export const TASKS_DIR = "backlog/tasks";
+
+/** The `GitError` code when dipo cannot make its copy of a story's backlog or commit from it. */
+export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";
+
 /**
  * The `GitError` code when the story's task file holds a front matter field dipo does not know;
  * the operation is refused, and a story in a run parks `scope-violation`.
  */
 export const TASK_FIELD_ERROR = "story.unknownTaskField";
+
+/** True when `name` is the task file of `id`: `<id> - <title>.md`, any case. */
+export function isTaskFileOf(name: string, id: string): boolean {
+  return name.toLowerCase().startsWith(`${id.toLowerCase()} - `) && name.endsWith(".md");
+}
+
+/**
+ * Pure: why `path` (repo-relative, as git lists it) is not a task file path dipo accepts, or null:
+ * its folder must be exactly `backlog/tasks`, with no `.` or `..` segment and a plain file name.
+ */
+export function taskFilePathRefusal(path: string): string | null {
+  const segments = path.split("/");
+  const name = segments.at(-1) ?? "";
+  const plain =
+    segments.length === 3 &&
+    segments.slice(0, 2).join("/") === TASKS_DIR &&
+    name !== "" &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("\\") &&
+    !hasForbiddenCharacter(name, "");
+  return plain ? null : `${JSON.stringify(path)} is not a plain file directly in ${TASKS_DIR}`;
+}
 
 /**
  * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
@@ -379,26 +412,123 @@ export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
   "ordinal",
 ]);
 
+/** How Backlog.md 1.53 finds a task file's front matter block (without the carriage returns). */
+const FRONT_MATTER = /^---\n([\s\S]*?)\n---/;
+
 /**
- * Pure: why the task file `text` may not reach the Backlog CLI, or null when it may. Its front
- * matter must open on the first line and close, and each of its top-level lines must be a plain
- * `name:` entry whose name is in `KNOWN_TASK_FIELDS`. Indented lines (values, list items) are
- * left to the CLI; a top-level line of any other form is refused like a field dipo does not know.
+ * True when `text` holds a control character not in `allowed`, or a line or paragraph separator.
  */
-export function taskFieldRefusal(text: string): string | null {
-  const lines = text.split(/\r?\n/);
-  if (lines[0] !== "---") return "it does not open with a front matter block";
-  const end = lines.indexOf("---", 1);
-  if (end < 0) return "its front matter block does not close";
+function hasForbiddenCharacter(text: string, allowed: string): boolean {
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 && !allowed.includes(char)) return true;
+    if ((code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) return true;
+  }
+  return false;
+}
+
+/** A top-level field line: a plain lower-case name, a colon, then nothing or a space and a value. */
+const FIELD_LINE = /^([a-z_]+):(?:$| (.*)$)/;
+
+/**
+ * True when a value, list item or key on `line` starts with an anchor, an alias or a tag. Quoted
+ * text and text after the first token are not looked at.
+ */
+function startsWithNodeProperty(line: string): boolean {
+  let rest = line.trimStart();
+  while (rest.startsWith("- ")) rest = rest.slice(2).trimStart();
+  const keyed = /^[^\s'"[{&*!][^:]*:\s+(.*)$/.exec(rest);
+  if (keyed !== null) rest = keyed[1] ?? "";
+  return /^[&*!]/.test(rest);
+}
+
+/**
+ * The strict shape (layer one of `taskFieldRefusal`): why the text may not reach the CLI, or the
+ * front matter block and its top-level field names in order.
+ */
+function strictShape(
+  text: string,
+): { readonly refusal: string } | { readonly block: string; readonly names: readonly string[] } {
+  if (text.includes("\r")) return { refusal: "it holds a carriage return" };
+  if (text.includes("\ufeff")) return { refusal: "it holds a byte order mark" };
+  if (hasForbiddenCharacter(text, "\n\t")) {
+    return { refusal: "it holds a control character or a line or paragraph separator" };
+  }
+  const lines = text.split("\n");
+  if (lines[0] !== "---") return { refusal: "it does not open with a front matter block" };
+  const end = lines.findIndex((line, i) => i > 0 && line.startsWith("---"));
+  if (end < 0 || lines[end] !== "---") {
+    return { refusal: "its front matter block does not close on a plain `---` line" };
+  }
+  const names: string[] = [];
   const unknown: string[] = [];
+  let field: string | null = null;
   for (const line of lines.slice(1, end)) {
-    if (line.trim() === "" || /^\s/.test(line)) continue;
-    const name = /^([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)/.exec(line)?.[1];
+    if (line.trim() === "") continue;
+    if (line.startsWith("\t")) return { refusal: "its front matter indents with a tab" };
+    if (line.startsWith("...")) return { refusal: "its front matter holds a document marker" };
+    if (startsWithNodeProperty(line)) {
+      return { refusal: "its front matter holds an anchor, an alias or a tag" };
+    }
+    if (line.startsWith(" ")) {
+      if (field === null) {
+        return { refusal: "its front matter holds an indented line before any field it knows" };
+      }
+      continue;
+    }
+    const match = FIELD_LINE.exec(line);
+    const name = match?.[1];
     if (name === undefined || !KNOWN_TASK_FIELDS.has(name)) {
       unknown.push(JSON.stringify(line.slice(0, 40)));
+      field = null;
+      continue;
     }
+    if (names.includes(name)) return { refusal: `its front matter holds \`${name}\` twice` };
+    if ((match?.[2] ?? "").trimStart().startsWith("{")) {
+      return { refusal: `its front matter holds a flow mapping at \`${name}\`` };
+    }
+    names.push(name);
+    field = name;
   }
-  return unknown.length === 0
-    ? null
-    : `its front matter holds fields dipo does not know: ${unknown.join(", ")}`;
+  if (unknown.length > 0) {
+    return { refusal: `its front matter holds fields dipo does not know: ${unknown.join(", ")}` };
+  }
+  return { block: lines.slice(1, end).join("\n"), names };
+}
+
+/**
+ * Pure: why the task file `text` may not reach the Backlog CLI, or null when it may. Two layers
+ * must agree, and anything either cannot account for is refused:
+ *
+ * 1. A strict shape: no carriage return, byte order mark, control character (other than LF and
+ *    tab) or line or paragraph separator; a front matter block that opens on the first line and
+ *    closes on a plain `---` line; every top-level line a plain `name:` field in
+ *    `KNOWN_TASK_FIELDS`, each once, none holding a flow mapping; no indented line before the first
+ *    field; no document marker, anchor, alias or tag.
+ * 2. A parse: the block found the way Backlog.md finds it is parsed as YAML, and must be a plain
+ *    mapping whose keys are exactly the names the strict shape found.
+ */
+export function taskFieldRefusal(text: string): string | null {
+  const shape = strictShape(text);
+  if ("refusal" in shape) return shape.refusal;
+  const found = FRONT_MATTER.exec(text)?.[1];
+  if (found !== shape.block) {
+    return "its front matter block is not the one the Backlog CLI would read";
+  }
+  const result = parseYamlDocument(found);
+  if (!result.ok) return `its front matter does not parse: ${result.message}`;
+  const parsed = result.value;
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    (Object.getPrototypeOf(parsed) !== Object.prototype && Object.getPrototypeOf(parsed) !== null)
+  ) {
+    return "its front matter is not a plain mapping";
+  }
+  const keys = Object.keys(parsed);
+  const agree =
+    keys.length === shape.names.length &&
+    keys.every((key) => KNOWN_TASK_FIELDS.has(key) && shape.names.includes(key));
+  return agree ? null : "its front matter parses to fields other than those dipo read in it";
 }

@@ -256,7 +256,6 @@ export class StoryTeardown {
           session,
           git.worktreeLocation(claim.worktree) as WorktreeLocation,
           claim.story,
-          false,
           async (backlog) =>
             (await viewStory({ cli: this.#deps.cli, cwd: backlog.cwd, id: claim.story })).status,
         ),
