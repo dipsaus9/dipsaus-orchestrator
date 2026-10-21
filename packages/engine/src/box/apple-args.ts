@@ -1,12 +1,14 @@
 // The one argument builder of the Apple `container` backend (DIPO-265, 0021 sections 2, 3 and 5).
 // Every `container` argv dipo runs comes from here, so the rules hold in one place:
-// - a box joins only a host-only network; any other mode is refused;
+// - a box joins only dipo's host-only network, by name and mode; any other network is refused;
 // - the only mount is the office package cache, always read-only, at a fixed path in the box;
 // - never `--volume`, another `--mount`, `--ssh`, `--publish`, `--publish-socket` or
 //   `--virtualization`;
 // - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits).
 // Inputs that could be read as another option or split into another mount are refused here.
 // Pure: no I/O.
+
+import { posix } from "node:path";
 
 import {
   BOX_LABEL,
@@ -34,10 +36,15 @@ export interface HostResources {
 export interface CreateInput {
   readonly runId: string;
   readonly image: string;
-  /** Only the mode and name are read; `hostOnly` is the only mode accepted. */
+  /**
+   * Only the name and mode are read. The name must be `BOX_NETWORK_NAME`, the network dipo made
+   * host-only; the mode is the caller's claim and must be `hostOnly` as well.
+   */
   readonly network: Pick<BoxNetwork, "name"> & { readonly mode: string };
   readonly packageCache?: string;
   readonly host: HostResources;
+  /** The maintainer's home folder: the cache may be neither it nor a folder above it. */
+  readonly home: string;
 }
 
 export interface ExecInput {
@@ -85,11 +92,25 @@ export function checkedBoxName(name: string): string {
   return name;
 }
 
-/** The read-only mount of the office package cache, the only mount a box gets. */
-function cacheMount(path: string): string {
+/**
+ * The read-only mount of the office package cache, the only mount a box gets. Checked as text
+ * only: DIPO-267 will also require the path, resolved with realpath, to lie under dipo's own
+ * cache root, so a symlink cannot point the mount elsewhere.
+ */
+function cacheMount(path: string, home: string): string {
   absolutePath(path, "package cache");
   // `--mount` splits on commas and `=`; either in the path would add directives.
   if (/[,=]/.test(path)) refuse("the package cache path may not hold a comma or `=`.", { path });
+  if (path.split("/").some((segment) => segment === "." || segment === "..")) {
+    refuse("the package cache path may not hold `.` or `..` segments.", { path });
+  }
+  if (path === "/" || posix.normalize(path) !== path || path.endsWith("/")) {
+    refuse("the package cache path must be a normalised folder below `/`.", { path });
+  }
+  const homeFolder = posix.normalize(`${absolutePath(home, "home folder")}/`);
+  if (homeFolder.startsWith(`${path}/`)) {
+    refuse("the package cache may not be the home folder or a folder above it.", { path, home });
+  }
   return `type=bind,source=${path},target=${BOX_PACKAGE_CACHE_PATH},readonly`;
 }
 
@@ -146,6 +167,14 @@ export function networkCreateArgs(): string[] {
  */
 export function createArgs(input: CreateInput): string[] {
   const name = boxName(input.runId);
+  // The mode is the caller's word; only the name ties the box to the network dipo made with
+  // `--internal`. Any other network, such as `default` (NAT), is refused whatever mode it claims.
+  if (input.network.name !== BOX_NETWORK_NAME) {
+    refuse(`network ${input.network.name} is not dipo's host-only box network.`, {
+      network: input.network.name,
+      mode: input.network.mode,
+    });
+  }
   if (input.network.mode !== "hostOnly") {
     refuse(`network ${input.network.name} is ${input.network.mode}, not host-only.`, {
       network: input.network.name,
@@ -154,9 +183,6 @@ export function createArgs(input: CreateInput): string[] {
   }
   if (!IMAGE.test(input.image))
     refuse("the image is not an image reference.", { image: input.image });
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(input.network.name)) {
-    refuse("the network name is not a network name.", { network: input.network.name });
-  }
   const [entrypoint, ...keepalive] = BOX_KEEPALIVE;
   return [
     "create",
@@ -165,9 +191,11 @@ export function createArgs(input: CreateInput): string[] {
     "--label",
     `${BOX_LABEL}=${input.runId}`,
     "--network",
-    input.network.name,
+    BOX_NETWORK_NAME,
     ...resourceArgs(input.host),
-    ...(input.packageCache === undefined ? [] : ["--mount", cacheMount(input.packageCache)]),
+    ...(input.packageCache === undefined
+      ? []
+      : ["--mount", cacheMount(input.packageCache, input.home)]),
     "--entrypoint",
     entrypoint,
     input.image,
