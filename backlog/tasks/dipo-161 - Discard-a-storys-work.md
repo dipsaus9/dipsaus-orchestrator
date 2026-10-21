@@ -4,10 +4,11 @@ title: Discard a story's work
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:27'
 labels:
   - 'tier:M'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-144
@@ -66,3 +67,9 @@ test_plan:
 - [ ] #4 Discard also works on the leftovers of a story Done on the base, writing nothing to the backlog, and on a story whose PR head changed outside dipo
 - [ ] #5 work.discard is registered with its since on the waiting command path
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the story's box lives until merge, so discard and release must also tear down the box (0021 section 6).
+<!-- SECTION:NOTES:END -->

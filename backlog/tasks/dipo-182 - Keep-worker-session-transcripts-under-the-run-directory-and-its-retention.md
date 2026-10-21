@@ -4,12 +4,11 @@ title: Keep worker session transcripts under the run directory and its retention
 status: Refined
 assignee: []
 created_date: '2026-10-17 17:06'
-updated_date: '2026-10-21 09:20'
+updated_date: '2026-10-21 09:27'
 labels:
   - 'tier:S'
   - cutover
   - dropped
-  - needs-refinement
 milestone: m-1
 dependencies: []
 references:
@@ -67,4 +66,6 @@ test_plan:
 Closed (maintainer, 2026-10-18): the 2026-10-10 answer to 0008 open question 4 stays. Worker transcripts stay in ~/.claude/projects under Claude Code's retention: native resume and the DIPO-134 transcript reads depend on that place, and a per-run CLAUDE_CONFIG_DIR would risk the worker's login, plugins and settings.
 
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: transcripts come out of the box through the door (0021 section 7).
+
+Correction (2026-10-21): this story stays dropped (closed by the maintainer on 2026-10-18). Decision 0021 does not reopen it; transcripts are revisited with the box design only if needed.
 <!-- SECTION:NOTES:END -->

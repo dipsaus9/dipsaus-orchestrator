@@ -4,10 +4,11 @@ title: Release a claim when a story is Done on the base through another branch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-20 07:19'
+updated_date: '2026-10-21 09:27'
 labels:
   - 'tier:M'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-144
@@ -64,3 +65,9 @@ test_plan:
 - [ ] #5 Anything kept is one LEFTOVERS desk item with the commits not on the base, the dirty files and the action dipo discard <id>, and leftovers are never deleted automatically. An own-branch teardown that crashed after removing its worktree is now released by DIPO-216's reconcile step as done with its branch kept; this leftover handling also deletes such a branch locally and remotely when merge-tree shows it adds nothing to the base
 - [ ] #6 A test replays the DIPO-105 case: the claim is released, the worktree with uncommitted files and the branch are kept, and one leftovers item is on the desk
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the story's box lives until merge, so discard and release must also tear down the box (0021 section 6).
+<!-- SECTION:NOTES:END -->
