@@ -39,6 +39,7 @@ import {
   readBaseBox,
   startBoxWebRoute,
   startModelProxy,
+  sweepReviewFolders,
   sweepTokenCheckLeftovers,
   systemIsExecutable,
   systemListenHttp,
@@ -235,6 +236,11 @@ export interface DaemonRuns {
    * (`listBoxes`). Never rejects.
    */
   finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
+  /**
+   * Removes the folder of every reviewer session whose host no longer runs (DIPO-276), with its
+   * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
+   */
+  sweepReviewFolders(): Promise<string[]>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -277,6 +283,26 @@ export function boxRunEnded(
     return run.endedAt !== null && read.hosts(handle, runId).every(hostExited);
   }
   return null;
+}
+
+/**
+ * True when run `runId` has a worker host of `agent` that has not exited in a loaded office: a
+ * reviewer session whose read-only copy stays (DIPO-276).
+ */
+export function reviewHostRuns(
+  offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
+  runId: string,
+  agent: string,
+  hosts: (handle: OfficeHandle, runId: string) => ReturnType<typeof workerHostsOf> = workerHostsOf,
+): boolean {
+  for (const office of offices.loadedOffices()) {
+    const handle = offices.get(office);
+    if (handle === undefined) continue;
+    if (hosts(handle, runId).some((host) => host.agentId === agent && !hostExited(host))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -788,5 +814,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     tempDirs,
     boxes: boxWorkers,
     finishEndedBoxes,
+    sweepReviewFolders: () =>
+      sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
+        reviewHostRuns(options.offices, runId, agent),
+      ),
   };
 }

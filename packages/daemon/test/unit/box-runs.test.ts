@@ -23,6 +23,7 @@ import {
   containerOnPath,
   daemonRuns,
   type DaemonRunsOptions,
+  reviewHostRuns,
   sweepBoxTokenChecks,
 } from "../../src/runs";
 
@@ -31,6 +32,11 @@ function leftovers(dir: string): void {
   writeFileSync(join(dir, `${TOKEN_CHECK_DIR_PREFIX}a1`, "box.tar"), "export");
   mkdirSync(join(dir, `${TOKEN_CHECK_DIR_PREFIX}b2`));
   mkdirSync(join(dir, "dipo-run-keep"));
+}
+
+/** A worker host row of `agentId` that ended at `endedAt`, or still runs. */
+function agentHost(agentId: string, endedAt: number | null): WorkerHostRow {
+  return { endedAt, exitCode: null, exitSignal: null, agentId } as unknown as WorkerHostRow;
 }
 
 const quiet = { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} };
@@ -123,5 +129,18 @@ describe("the daemon's box workers", () => {
     expect(boxRunEnded(offices, "run_ending", read)).toBe(false);
     expect(boxRunEnded(offices, "run_done", read)).toBe(true);
     expect(boxRunEnded(offices, "run_unknown", read)).toBeNull();
+  });
+
+  it("keeps a reviewer's read-only copy only while a host of that agent still runs (DIPO-276)", () => {
+    const office = "off_1" as OfficeId;
+    const rows: Record<string, WorkerHostRow[]> = {
+      run_1: [agentHost("agt_dev", null), agentHost("agt_old", 4), agentHost("agt_live", null)],
+    };
+    const offices = { loadedOffices: () => [office], get: () => ({}) as OfficeHandle };
+    const hosts = (_handle: OfficeHandle, runId: string) => rows[runId] ?? [];
+    expect(reviewHostRuns(offices, "run_1", "agt_live", hosts)).toBe(true);
+    expect(reviewHostRuns(offices, "run_1", "agt_old", hosts)).toBe(false);
+    expect(reviewHostRuns(offices, "run_1", "agt_gone", hosts)).toBe(false);
+    expect(reviewHostRuns(offices, "run_unknown", "agt_live", hosts)).toBe(false);
   });
 });
