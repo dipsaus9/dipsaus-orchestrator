@@ -83,7 +83,13 @@ import {
 } from "./cache-extract";
 import { BOX_WORKDIR, filtersOffConfig } from "./code";
 import { cleanDoorText, type DoorPart } from "./door";
-import { ignoreFileDir, type IgnoreFile, IgnoreRules } from "./ignore";
+import {
+  IgnoreBudgetExceeded,
+  ignoreFileDir,
+  type IgnoreFile,
+  IgnoreRules,
+  MatchBudget,
+} from "./ignore";
 import { BoxError, type BoxPort } from "./port";
 
 const GIB = 1024 ** 3;
@@ -116,10 +122,10 @@ const PATHS_PER_CALL = 100;
 /** The largest `.gitignore` of a part; a larger one refuses the part, unread. */
 export const IGNORE_FILE_MAX = 64 * 1024;
 /**
- * The most ignore-matching work one part may take (`IgnoreRules.work`, steps at most); past it the
- * part is refused.
+ * The most ignore-matching steps one part may take (`MatchBudget`: characters compared and `**`
+ * steps); past it the part is refused.
  */
-export const IGNORE_WORK_BUDGET = 1_000_000_000;
+export const IGNORE_WORK_BUDGET = 200_000_000;
 /** How many paths are matched between two turns of the event loop. */
 const IGNORE_BATCH = 1_000;
 /** The largest file a part may add or change: it is scanned whole, so a larger one refuses the part. */
@@ -128,6 +134,8 @@ export const SCAN_FILE_MAX = 64 * 1024 * 1024;
 const LISTED_FILE_MAX = 1024 * 1024;
 /** The shortest value of a listed box file a part may not bring in. */
 export const LISTED_VALUE_MIN = 12;
+/** The spread (bits per character) an identifier-shaped listed value needs to be looked for. */
+const LISTED_VALUE_MIN_ENTROPY = 4;
 /** The longest value of a listed box file looked for. */
 const LISTED_VALUE_MAX_CHARS = 4096;
 /** The most values of the listed box files looked for. */
@@ -216,8 +224,10 @@ export function protectedKind(path: string): ProtectedKind | null {
 }
 
 /**
- * Characters a part's path may not hold: C0 and C1 controls, DEL, the bidirectional marks,
- * embeddings, overrides and isolates, and the invisible characters git's HFS check ignores.
+ * Characters a part's path may not hold: every control (`\p{Cc}`), format character (`\p{Cf}`:
+ * the bidirectional marks, soft hyphen, zero-width and tag characters, U+180E, U+FFF9 to U+FFFB)
+ * and line or paragraph separator (`\p{Zl}`, `\p{Zp}`), and the invisible characters git's HFS
+ * check ignores.
  */
 const UNSAFE_PATH: readonly (readonly [number, number])[] = [
   [0x00, 0x1f],
@@ -231,6 +241,7 @@ const UNSAFE_PATH: readonly (readonly [number, number])[] = [
 
 /** True when a part's path holds a control, bidirectional or invisible character. */
 export function unsafePath(path: string): boolean {
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(path)) return true;
   for (const char of path) {
     const code = char.codePointAt(0)!;
     if (UNSAFE_PATH.some(([low, high]) => code >= low && code <= high)) return true;
@@ -480,10 +491,13 @@ export async function secretHits(input: {
 export const LISTED_VALUE_KIND = "a value from a listed box file";
 
 /**
- * The values of the listed box files (`box.files`) dipo reads from the office's main checkout: each
- * word of at least `LISTED_VALUE_MIN` characters. A part that brings one into a file parks as a
- * secret. A listed file that is missing, not a regular file, reached through a link, or larger than
- * `LISTED_FILE_MAX` gives none.
+ * The values of the listed box files (`box.files`) dipo reads from the office's main checkout:
+ * the right-hand side of each dotenv-shaped `KEY=VALUE` line (`export` and quotes allowed, a
+ * trailing ` #` comment cut from an unquoted value) of at least `LISTED_VALUE_MIN` characters,
+ * never the key. A value shaped like an identifier (letters and `_` only, no digit) with little
+ * spread of characters is skipped: it is a name, not a secret. A part that brings a value into a
+ * file parks as a secret. A listed file that is missing, not a regular file, reached through a
+ * link, or larger than `LISTED_FILE_MAX` gives none.
  */
 export async function listedValues(main: string, paths: readonly string[]): Promise<string[]> {
   const root = await realpath(main).catch(() => null);
@@ -495,19 +509,57 @@ export async function listedValues(main: string, paths: readonly string[]): Prom
     if (real !== at) continue;
     const info = await lstat(at).catch(() => null);
     if (info === null || !info.isFile() || info.size > LISTED_FILE_MAX) continue;
-    for (const word of (await readFile(at, "utf8")).split(/[\s"'`=:,;()[\]{}<>]+/)) {
-      if (word.length >= LISTED_VALUE_MIN && word.length <= LISTED_VALUE_MAX_CHARS)
-        values.add(word);
+    for (const line of (await readFile(at, "utf8")).split(/\r?\n/)) {
+      const value = dotenvValue(line);
+      if (value === null || !secretLike(value)) continue;
+      values.add(value);
       if (values.size >= LISTED_VALUES_MAX) return [...values];
     }
   }
   return [...values];
 }
 
+/** The value of a dotenv `KEY=VALUE` line, unquoted, or null for any other line. */
+export function dotenvValue(line: string): string | null {
+  const found = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*(.*)$/.exec(line);
+  if (found === null) return null;
+  let value = (found[1] ?? "").trim();
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.length >= 2) {
+    const end = value.indexOf(quote, 1);
+    value = end < 0 ? value.slice(1) : value.slice(1, end);
+  } else {
+    const comment = value.search(/\s#/);
+    if (comment >= 0) value = value.slice(0, comment).trimEnd();
+  }
+  return value === "" ? null : value;
+}
+
+/** Shannon entropy of `text` in bits per character. */
+function entropy(text: string): number {
+  const counts = new Map<string, number>();
+  for (const char of text) counts.set(char, (counts.get(char) ?? 0) + 1);
+  const length = [...text].length;
+  let bits = 0;
+  for (const count of counts.values()) bits -= (count / length) * Math.log2(count / length);
+  return bits;
+}
+
+/**
+ * True for a value worth looking for: long enough, and not a plain identifier (letters and `_`
+ * only, no digit) of low spread, such as `development` or `ANTHROPIC_API_KEY`.
+ */
+export function secretLike(value: string): boolean {
+  if (value.length < LISTED_VALUE_MIN || value.length > LISTED_VALUE_MAX_CHARS) return false;
+  const identifier = /^[A-Za-z_]+$/.test(value);
+  return !identifier || entropy(value) >= LISTED_VALUE_MIN_ENTROPY;
+}
+
 /**
  * The untracked paths among `paths` that stay out of the part: listed, or ignored by any of
- * `rules`. The matching is done in batches with the event loop free between them, and stops with
- * `budget` once the rules' work passes `budget` (`IgnoreRules.work`).
+ * `rules`. Every match counts its real steps against one shared `MatchBudget` of `budget` steps,
+ * which stops it the moment it is passed, and a path deeper than `MAX_MATCH_DEPTH` stops it too:
+ * then `budget`. The matching runs in batches with the event loop free between them.
  */
 export async function leftOutPaths(input: {
   readonly paths: Iterable<string>;
@@ -517,18 +569,21 @@ export async function leftOutPaths(input: {
   readonly budget: number;
 }): Promise<Set<string> | "budget"> {
   const out = new Set<string>();
-  const work = () => input.rules.reduce((sum, rules) => sum + rules.work, 0);
+  const budget = new MatchBudget(input.budget);
+  for (const rules of input.rules) rules.withBudget(budget);
   let checked = 0;
-  for (const path of input.paths) {
-    if (input.view.has(path)) continue;
-    if (input.listed.has(path) || input.rules.some((rules) => rules.ignored(path))) out.add(path);
-    checked += 1;
-    if (checked % IGNORE_BATCH === 0) {
-      if (work() > input.budget) return "budget";
-      await yieldToEventLoop();
+  try {
+    for (const path of input.paths) {
+      if (input.view.has(path)) continue;
+      if (input.listed.has(path) || input.rules.some((rules) => rules.ignored(path))) out.add(path);
+      checked += 1;
+      if (checked % IGNORE_BATCH === 0) await yieldToEventLoop();
     }
+  } catch (error) {
+    if (error instanceof IgnoreBudgetExceeded) return "budget";
+    throw error;
   }
-  return work() > input.budget ? "budget" : out;
+  return out;
 }
 
 /** Pure: the fixed park detail of a protected-file hit; it names kinds only. */
@@ -972,7 +1027,20 @@ export class BoxParts {
       this.#deps.live(runId)
         ? this.#deliver(run, message)
         : Promise.resolve<PartOutcome>({ kind: "stopped" }),
-    );
+    ).catch((error: unknown): PartOutcome => {
+      if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
+      throw error;
+    });
+  }
+
+  /** Throws `PART_WAITING` when the run no longer goes on, so the part stays queued. */
+  #assertLive(run: PartRun): void {
+    if (!this.#deps.live(run.runId)) {
+      throw new BoxError(
+        PART_WAITING,
+        `run ${run.runId} ended while its part was taken; it stays queued.`,
+      );
+    }
   }
 
   #serial<T>(runId: string, fn: () => Promise<T>): Promise<T> {
@@ -1118,6 +1186,8 @@ export class BoxParts {
           detail: secretDetail(secrets.kinds, secrets.paths.length),
         };
       }
+      // The run may have ended while the part was scanned: the part then stays queued in the box.
+      this.#assertLive(run);
       const committed = await git.run((session) =>
         commitPart(session, {
           branch: run.branch,
@@ -1133,6 +1203,7 @@ export class BoxParts {
       if (committed === "refused") return refused("git");
       if (committed.commit === null) return { kind: "empty" };
       const { commit, n } = committed;
+      this.#assertLive(run);
       const push = await git
         .run((session) => pushBranch(session, git.settings.remote, run.branch))
         .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));

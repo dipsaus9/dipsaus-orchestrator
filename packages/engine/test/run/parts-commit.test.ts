@@ -358,14 +358,27 @@ describe("the scans park and commit nothing", () => {
     inParts(async (w) => {
       // The listed file sits in the main checkout, where dipo reads it, and in the box.
       const value = `pg-${"pass".repeat(3)}-local`;
-      writeFileSync(join(w.repo.dir, "listed.json"), `{ "password": "${value}" }\n`);
-      writeFileSync(join(w.work, "listed.json"), `{ "password": "${value}" }\n`);
+      writeFileSync(join(w.repo.dir, "listed.json"), `ANTHROPIC_API_KEY=${value}\n`);
+      writeFileSync(join(w.work, "listed.json"), `ANTHROPIC_API_KEY=${value}\n`);
       write(w.work, { "src/a.ts": `export const password = "${value}";\n` });
       await w.parts.onPart(part("Hard-code the password"));
       expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "secret"]]);
       expect(w.parks[0]?.detail).toContain("a value from a listed box file");
       expect(w.parks[0]?.detail).not.toContain(value);
       expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("commits a file that names a listed key, such as process.env.ANTHROPIC_API_KEY", () =>
+    inParts(async (w) => {
+      const value = `pg-${"pass".repeat(3)}-local`;
+      writeFileSync(join(w.repo.dir, "listed.json"), `ANTHROPIC_API_KEY=${value}\n`);
+      writeFileSync(join(w.work, "listed.json"), `ANTHROPIC_API_KEY=${value}\n`);
+      write(w.work, { "src/a.ts": "export const key = process.env.ANTHROPIC_API_KEY;\n" });
+      await w.parts.onPart(part("Read the key from the environment"));
+      expect(w.parks).toEqual([]);
+      expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toContain(
+        "process.env.ANTHROPIC_API_KEY",
+      );
     }));
 
   it("parks on a secret in the worker's message, which would be the commit subject", () =>
@@ -487,5 +500,42 @@ describe("the last part (story done)", () => {
       expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([]);
       expect(await tip(w)).toBe(w.claimTip);
       expect(readdirSync(join(w.repo.root, "tmp"))).toEqual([]);
+    }));
+});
+
+/** `live` answers true `times` times, then false: the run ends during the part. */
+function endsAfter(w: World, times: number): void {
+  let asked = 0;
+  Object.defineProperty(w, "live", { get: () => (asked += 1) <= times });
+}
+
+describe("a run that ends while its part is taken", () => {
+  it("commits nothing and leaves the part queued when the run ends during the scan", () =>
+    inParts(async (w) => {
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      // Asked before the part, in turn, then before the commit.
+      endsAfter(w, 2);
+      const error = await w.parts.onPart(part("Ends meanwhile")).then(
+        () => null,
+        (thrown: unknown) => thrown as BoxError,
+      );
+      expect(error?.code).toBe(PART_WAITING);
+      expect(await tip(w)).toBe(w.claimTip);
+      expect(w.parks).toEqual([]);
+    }));
+
+  it("pushes nothing when the run ends after the commit, and the last part reads stopped", () =>
+    inParts(async (w) => {
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      endsAfter(w, 3);
+      const error = await w.parts.onPart(part("Ends before the push")).then(
+        () => null,
+        (thrown: unknown) => thrown as BoxError,
+      );
+      expect(error?.code).toBe(PART_WAITING);
+      expect(await tip(w, "remote")).toBe(w.claimTip);
+      write(w.work, { "src/b.ts": "export const b = 1;\n" });
+      endsAfter(w, 2);
+      expect(await w.parts.deliverLast("run_1", "Done")).toEqual({ kind: "stopped" });
     }));
 });

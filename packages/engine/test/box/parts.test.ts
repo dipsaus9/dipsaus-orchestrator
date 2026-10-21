@@ -11,14 +11,16 @@ import { describe, expect, it } from "bun:test";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { ArchiveLink } from "../../src/box/cache-extract";
-import { IgnoreRules } from "../../src/box/ignore";
+import { IgnoreRules, MatchBudget } from "../../src/box/ignore";
 import {
   blobId,
   comparePart,
   inBoxExcludes,
+  dotenvValue,
   leftOutPaths,
   LISTED_VALUE_KIND,
   listedValues,
+  secretLike,
   PART_SUBJECT_MAX,
   type PartChange,
   type PartFile,
@@ -116,7 +118,10 @@ describe("the protected list", () => {
   });
 
   it("refuses paths with control, bidirectional or invisible characters", () => {
-    for (const code of [0x0a, 0x1b, 0x7f, 0x85, 0x202e, 0x2066, 0x200b, 0x200d, 0xfeff]) {
+    for (const code of [
+      0x0a, 0x1b, 0x7f, 0x85, 0x202e, 0x2066, 0x200b, 0x200d, 0xfeff, 0xad, 0x180e, 0x2028, 0x2029,
+      0xfff9, 0xfffb, 0xe0041,
+    ]) {
       expect([code, unsafePath(`src/a${String.fromCodePoint(code)}b.ts`)]).toEqual([code, true]);
     }
     expect(unsafePath("src/café/日本.ts")).toBe(false);
@@ -295,13 +300,20 @@ describe("the secret scan", () => {
       const main = join(dir, "main");
       mkdirSync(join(main, "config"), { recursive: true });
       writeFileSync(
-        join(main, "config/local.json"),
-        '{ "dbPassword": "correct-horse-battery", "n": "short" }\n',
+        join(main, "config/.env.local"),
+        [
+          "# local settings",
+          'export DB_PASSWORD="correct-horse-battery"',
+          "SERVICE=ANTHROPIC_API_KEY",
+          "SHORT=abc",
+          "TOKEN=hx7Kq2Lm9Pz4 # rotated",
+          "not a pair",
+        ].join("\n"),
       );
-      writeFileSync(join(main, "linked-target.json"), '{ "x": "never-read-through-a-link" }\n');
-      symlinkSync(join(main, "linked-target.json"), join(main, "linked.json"));
-      const values = await listedValues(main, ["config/local.json", "linked.json", "missing.json"]);
-      expect(values).toEqual(["correct-horse-battery"]);
+      writeFileSync(join(main, "linked-target.env"), "X=never-read-through-a-link\n");
+      symlinkSync(join(main, "linked-target.env"), join(main, "linked.env"));
+      const values = await listedValues(main, ["config/.env.local", "linked.env", "missing.env"]);
+      expect(values).toEqual(["correct-horse-battery", "hx7Kq2Lm9Pz4"]);
       const literals = { kind: LISTED_VALUE_KIND, values };
       writeFileSync(join(dir, "uses"), 'const pw = "correct-horse-battery";\n');
       const change: PartChange = {
@@ -517,6 +529,10 @@ describe("the ignore-matching budget", () => {
       { dir: "", text: Array.from({ length: 100 }, (_, i) => `*a*a*a*a*${i}b`).join("\n") },
     ]);
     const paths = Array.from({ length: 3_000 }, (_, i) => `deep/${"a".repeat(45)}${i}`);
+    // The real steps of the first batch, so the budget lets one batch through and stops the next.
+    const measured = new MatchBudget(Number.POSITIVE_INFINITY);
+    hostile.withBudget(measured);
+    for (const path of paths.slice(0, 1_000)) hostile.ignored(path);
     let turns = 0;
     const state = { ticking: true };
     const tick = async () => {
@@ -532,12 +548,33 @@ describe("the ignore-matching budget", () => {
       view: new Map(),
       listed: new Set(),
       rules: [hostile],
-      budget: 100_000_000,
+      budget: Math.ceil(measured.steps * 1.5),
     });
     state.ticking = false;
     await ticker;
     expect(out).toBe("budget");
     // The ticker ran while the paths were matched: the first batch fit the budget, the second not.
     expect(turns).toBeGreaterThan(before);
+  });
+});
+
+describe("the values of a listed box file", () => {
+  it("reads the value of a dotenv line, never its key", () => {
+    expect(dotenvValue("API_KEY=abc123def456")).toBe("abc123def456");
+    expect(dotenvValue("export A = 'quoted value here' # note")).toBe("quoted value here");
+    expect(dotenvValue('B="x y z"')).toBe("x y z");
+    expect(dotenvValue("C=plain-value-12 # cut here")).toBe("plain-value-12");
+    expect(dotenvValue("# DB=commented")).toBeNull();
+    expect(dotenvValue("D=")).toBeNull();
+    expect(dotenvValue('  "json": "value"')).toBeNull();
+  });
+
+  it("skips identifier-shaped words of low spread, keeps values with digits or spread", () => {
+    expect(secretLike("ANTHROPIC_API_KEY")).toBe(false);
+    expect(secretLike("development_mode")).toBe(false);
+    expect(secretLike("short")).toBe(false);
+    expect(secretLike("abcdefghijklmnopqrst")).toBe(true);
+    expect(secretLike("password1234")).toBe(true);
+    expect(secretLike("correct-horse-battery")).toBe(true);
   });
 });
