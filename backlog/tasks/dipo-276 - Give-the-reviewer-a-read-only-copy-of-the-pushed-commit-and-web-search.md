@@ -4,7 +4,7 @@ title: Give the reviewer a read-only copy of the pushed commit and web search
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 22:26'
+updated_date: '2026-10-21 22:30'
 labels:
   - 'tier:M'
   - cutover
@@ -61,7 +61,7 @@ unknowns: []
 <!-- AC:BEGIN -->
 - [x] #1 dipo checks the pushed commit out into a fresh read-only folder for each review round and removes it afterwards
 - [x] #2 The reviewer's tools are read-only on that folder plus web search; no shell, no write, no gh
-- [ ] #3 The reviewer gets what 0019 section 4 gives it plus the report evidence, never the builder's reasoning or transcript
-- [x] #4 Tests cover the tool set and the folder's lifetime
-- [x] #5 The reviewer session's working directory is outside the read-only copy, and it loads no settings, hooks or instruction files from it (0021 section 14); the copy is reachable only through the read tools, shown by a test with a copy that holds such files
+- [x] #3 Tests cover the tool set and the folder's lifetime
+- [x] #4 The reviewer session's working directory is outside the read-only copy, and it loads no settings, hooks or instruction files from it (0021 section 14); the copy is reachable only through the read tools, shown by a test with a copy that holds such files
+- [x] #5 The reviewer gets what 0019 section 4 gives it, never the builder's reasoning or transcript; the report evidence is added by DIPO-254 when it exists
 <!-- AC:END -->
