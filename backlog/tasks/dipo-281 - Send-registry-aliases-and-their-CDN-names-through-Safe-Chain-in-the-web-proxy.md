@@ -4,7 +4,7 @@ title: Send registry aliases and their CDN names through Safe-Chain in the web p
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 13:56'
+updated_date: '2026-10-21 16:05'
 labels:
   - box
   - cutover
@@ -12,6 +12,7 @@ labels:
 milestone: m-1
 dependencies:
   - DIPO-268
+  - DIPO-287
 references:
   - packages/engine/src/box/web-proxy.ts
   - packages/engine/test/box/web-proxy.test.ts
