@@ -94,6 +94,13 @@ import {
   type VerifyProfile,
 } from "./verify-records";
 
+/**
+ * The park detail of a box run at done until verify runs in the box (DIPO-274, which removes this
+ * guard): its parts are delivered, but nothing verifies them.
+ */
+export const BOX_VERIFY_NOT_BUILT =
+  "verify in the box is not built yet (DIPO-274); the parts are delivered and pushed, but dipo does not verify a box run, so the story stays out of In Review.";
+
 /** `engine.notice` codes of verify and commit. */
 export const VERIFY_NOTICES = {
   pushFailed: "verify.pushFailed",
@@ -425,6 +432,15 @@ export class VerifyCommit implements RunFinisher {
       const decided = await this.#lastPart(ctx, report);
       if (decided !== null) return decided;
       if (!ctx.live()) return { kind: "continue" };
+      // Verify in the box is DIPO-274: until then a box run never reaches In Review. The story's
+      // Mac worktree holds the start commit, so a verify there would not test the delivered code.
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        cause: PARK_CAUSES.refused,
+        detail: BOX_VERIFY_NOT_BUILT,
+        endKind: "verify-failing",
+      };
     }
 
     // 2. The scope check over every changed path, for a worker on the Mac; a box run has none

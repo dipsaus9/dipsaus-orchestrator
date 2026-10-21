@@ -34,6 +34,7 @@ import {
   verifyResults,
 } from "../../src/run";
 import type { PartOutcome } from "../../src/box/parts";
+import { BOX_VERIFY_NOT_BUILT } from "../../src/run/verify-commit";
 import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
@@ -924,33 +925,33 @@ describe("a box run at done (DIPO-273, 0021 sections 8 and 13)", () => {
     push: { pushed: true, rejected: false, error: null },
   };
 
-  it("delivers the last part first, then verifies and moves to In Review with no scope check", async () => {
-    w.box = { outcome: lastPart, committed: ["README.md", "package.json", "src/greet.ts"] };
-    // Outside the References, and the Mac worktree's HEAD moved with the part commits: no park.
+  it("delivers the last part, then parks verify-failing: verify in the box is not built yet", async () => {
+    w.box = { outcome: lastPart, committed: ["README.md", "src/greet.ts"] };
+    // Outside the References, and the Mac worktree's HEAD moved with the part commits: no scope
+    // or backstop park.
     w.changed = ["README.md", "docs/notes.md"];
     w.snapshot = { ...SNAP, head: "d".repeat(40) };
     await play();
-    expect(parks()).toEqual([]);
+    expect(parks()).toEqual([
+      { reason: "verify-failing", cause: "refused", detail: BOX_VERIFY_NOT_BUILT },
+    ]);
+    expect(BOX_VERIFY_NOT_BUILT).toContain("verify in the box is not built yet (DIPO-274)");
+    // No verify on the Mac, no In Review commit: a box run never reaches review unverified.
+    expect(w.steps).toEqual([]);
     expect(w.calls).toEqual([
       "last part print a greeting",
-      "in-review [1]",
-      "push DIPO-1/add-a-greeting",
-      `changed files ${"b".repeat(40)}..DIPO-1/add-a-greeting`,
       `diffstat ${"b".repeat(40)}..DIPO-1/add-a-greeting`,
     ]);
-    expect(w.steps.map((s) => s.script)).toEqual(["verify"]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
-    // The dependency files come from the delivered parts on the branch.
-    const notices = events("engine.notice").map((e) => e["text"]);
-    expect(notices.some((text) => String(text).includes("package.json"))).toBe(true);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("verify-failing");
+    expect(events("story.state").map((e) => e["to"])).not.toContain("In Review");
   });
 
-  it("goes on to verify when the last part had nothing new", async () => {
+  it("parks the same way when the last part had nothing new", async () => {
     w.box = { outcome: { kind: "empty" } };
     await play();
-    expect(parks()).toEqual([]);
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "refused"]]);
     expect(w.calls[0]).toBe("last part print a greeting");
-    expect(w.calls).toContain("in-review [1]");
+    expect(w.calls).not.toContain("in-review [1]");
   });
 
   it("parks scope-violation on a protected file in the last part, before verify", async () => {
