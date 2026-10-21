@@ -104,7 +104,8 @@ export type {
   PackageCacheRequest,
   PackageCacheStamp,
 } from "./cache";
-export { extractCacheArchive } from "./cache-extract";
+export { CACHE_ARCHIVE_LIMITS, extractCacheArchive } from "./cache-extract";
+export type { CacheArchiveLimits } from "./cache-extract";
 export {
   checkFillInput,
   isBunRegistry,

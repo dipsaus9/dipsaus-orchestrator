@@ -12,10 +12,10 @@
 //   Only the lockfile and the manifests are copied in; the install runs with lifecycle scripts
 //   off, into the manager's cache inside the box. The cache is copied out into a `.fill-*` folder
 //   on the Mac and the fill box is deleted, also on failure. Every box call has a deadline.
-// - The cache leaves the fill box as one tar archive: `container copy` moves only that file, and
-//   `extractCacheArchive` unpacks it on the Mac without writing through any link it holds. The
-//   unpacked tree is then walked with lstat: an absolute symlink, one that resolves outside the
-//   generation, a dangling one, or anything but a file, a folder or a link is refused.
+// - The cache leaves the fill box as one tar archive, its size checked in the box first:
+//   `container copy` moves only that file, into a fresh folder, and `extractCacheArchive` unpacks
+//   it on the Mac, taking only files and folders (no links) within its caps. The unpacked tree is
+//   then walked with lstat (`checkCopiedTree`) as a second check.
 // - A fill box that could not be deleted, or a route that could not be released, is reported
 //   through `onEvent` and in the details of the fill's error.
 // - The cache shape is the manager's own, so a box installs from it as from any cache: Bun's
@@ -62,7 +62,11 @@ import {
   isProjectPath,
   type ProjectFile,
 } from "./cache-input";
-import { extractCacheArchive } from "./cache-extract";
+import {
+  CACHE_ARCHIVE_LIMITS,
+  type CacheArchiveLimits,
+  extractCacheArchive,
+} from "./cache-extract";
 import { baseCommit, type BoxToolchain, filesAt } from "./image";
 import {
   BOX_PACKAGE_CACHE_PATH,
@@ -262,6 +266,8 @@ export interface PackageCacheRequest {
   readonly timeoutMs?: number;
   /** Reports a fill box that could not be deleted or a route that could not be released. */
   readonly onEvent?: (event: PackageCacheEvent) => void;
+  /** Overrides the caps of the cache archive (`CACHE_ARCHIVE_LIMITS`). */
+  readonly archiveLimits?: Partial<CacheArchiveLimits>;
 }
 
 /** A filled generation, ready to mount. */
@@ -448,9 +454,17 @@ function withCleanup(failure: unknown, cleanup: readonly FillCleanupFailure[]): 
   );
 }
 
+/** The fresh folder in `<work>` the archive is copied into, and nothing else. */
+const ARCHIVE_FOLDER = "archive";
+
+/** The caps of the request's cache archive: dipo's, with any the request names. */
+function archiveLimits(request: PackageCacheRequest): CacheArchiveLimits {
+  return { ...CACHE_ARCHIVE_LIMITS, ...request.archiveLimits };
+}
+
 /**
  * Runs the fill in a fill box and copies the manager's cache out as one tar archive, to
- * `<work>/FILL_ARCHIVE`; `extractCacheArchive` unpacks it on the Mac.
+ * `<work>/ARCHIVE_FOLDER/FILL_ARCHIVE`; `extractCacheArchive` unpacks it on the Mac.
  */
 async function fillInBox(
   request: PackageCacheRequest,
@@ -511,8 +525,19 @@ async function fillInBox(
         code: packed.code,
       });
     }
-    // One regular file crosses to the Mac; no link the box made is followed on the way.
-    await boxes.copyOut(name, install.archive, join(work, FILL_ARCHIVE), {
+    const limit = archiveLimits(request).maxArchiveBytes;
+    const sized = await boxes.exec(name, ["stat", "-c", "%s", install.archive]);
+    const size = /^\d+$/.test(sized.stdout.trim()) ? Number(sized.stdout.trim()) : Number.NaN;
+    if (sized.code !== 0 || !Number.isSafeInteger(size)) {
+      fillFailed("the fill box could not tell the size of its cache archive.", { ...sized });
+    }
+    if (size > limit) {
+      fillFailed(`the cache archive is ${size} bytes, more than ${limit}.`, { size, limit });
+    }
+    // One file crosses to the Mac, into a fresh folder; `extractCacheArchive` checks it is a
+    // regular file before it reads it.
+    await mkdir(join(work, ARCHIVE_FOLDER), { mode: 0o700 });
+    await boxes.copyOut(name, install.archive, join(work, ARCHIVE_FOLDER, FILL_ARCHIVE), {
       timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
     });
   } catch (error) {
@@ -552,7 +577,7 @@ async function fill(
     if (lockfile !== null) {
       const hostCache = join(cacheOut, lockfile.manager);
       await fillInBox(request, lockfile.manager, files, work);
-      await extractCacheArchive(join(work, FILL_ARCHIVE), cacheOut);
+      await extractCacheArchive(join(work, ARCHIVE_FOLDER), cacheOut, archiveLimits(request));
       if (!(await lstat(hostCache).catch(() => null))?.isDirectory()) {
         fillFailed(`${lockfile.manager} left no package cache to copy out.`, {
           manager: lockfile.manager,

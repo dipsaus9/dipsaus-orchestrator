@@ -13,6 +13,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -145,6 +146,9 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
         );
         return { code: packed.status, stdout: "", stderr: String(packed.stderr) };
       }
+      if (command[0] === "stat") {
+        return { code: 0, stdout: `${statSync(join(boxFs, command[3]!)).size}\n`, stderr: "" };
+      }
       installs.push({ command, options });
       const cacheArg = command.find((arg) => /^--(?:cache-dir|cache|store-dir)=/.test(arg));
       const result = install(join(boxFs, cacheArg!.split("=")[1]!));
@@ -238,6 +242,7 @@ const FILL_CALLS = [
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/ca.pem`,
   `exec ${FILL_BOX} bun`,
   `exec ${FILL_BOX} tar`,
+  `exec ${FILL_BOX} stat`,
   `copyOut ${FILL_BOX} ${FILL_BOX_DIR}/cache.tar`,
   `release ${FILL_BOX}`,
   `delete ${FILL_BOX}`,
@@ -549,30 +554,37 @@ const withLink = (target: string) => (cacheDir: string) => {
   return { code: 0 };
 };
 
-describe("the copied-out symlinks", () => {
-  it("keeps a relative symlink that stays in the cache", () =>
-    withTempDir(async (dir) => {
-      const fill = fakeFill(dir, withLink("package.json"));
-      const cache = await ensurePackageCache(request(dir, fill));
-      expect(filesBelow(cache.path)).toContain("bun/is-number@7.0.0@@@1/link");
-    }));
-
-  for (const [what, target, why] of [
-    ["an absolute symlink", "/etc/hosts", "absolute"],
-    // From <work>/cache/bun/<package>/ up to the temp dir, where `outside` exists.
-    ["a relative symlink out of the generation", "../../../../../outside", "outside the cache"],
-    ["a dangling symlink", "missing.json", "resolves to nothing"],
+describe("links in the filled cache", () => {
+  for (const [what, target] of [
+    ["a relative symlink that stays in the cache", "package.json"],
+    ["an absolute symlink", "/etc/hosts"],
+    ["a relative symlink out of the generation", "../../../../../outside"],
   ] as const) {
-    it(`refuses ${what}`, () =>
+    it(`refuses ${what}: the package cache takes no links`, () =>
       withTempDir(async (dir) => {
         mkdirSync(join(dir, "outside"));
         const fill = fakeFill(dir, withLink(target));
         const error = await rejection(ensurePackageCache(request(dir, fill)));
         expect(error.code).toBe("box.cacheFillFailed");
-        expect(error.message).toContain(why);
+        expect(error.message).toContain("takes no links");
         expect(readdirSync(join(dir, "package-cache"))).toEqual([]);
+        expect(readdirSync(join(dir, "outside"))).toEqual([]);
       }));
   }
+});
+
+describe("the archive's size", () => {
+  it("refuses an archive above the cap in the fill box, before it is copied out", () =>
+    withTempDir(async (dir) => {
+      const fill = fakeFill(dir);
+      const error = await rejection(
+        ensurePackageCache({ ...request(dir, fill), archiveLimits: { maxArchiveBytes: 100 } }),
+      );
+      expect(error.code).toBe("box.cacheFillFailed");
+      expect(error.message).toContain("more than 100");
+      expect(fill.calls.filter((call) => call.startsWith("copyOut"))).toEqual([]);
+      expect(fill.calls.at(-1)).toBe(`delete ${FILL_BOX}`);
+    }));
 });
 
 describe("the cache root", () => {
