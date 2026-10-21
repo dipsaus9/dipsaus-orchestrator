@@ -116,7 +116,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               },
               steering: { send: async () => ({ ok: true }) },
               encode,
-              presence: { connected: () => false, lastRequestAt: () => null },
+              presence: { tuiConnected: () => false },
               parks: {
                 resume: (office, id, request) =>
                   r.resumption?.resumePark(office, id, request) ??
@@ -368,7 +368,7 @@ async function answerAllow(r: Running, ids: IdSource, question: string): Promise
     },
     steering: { send: async () => ({ ok: true }) },
     encode,
-    presence: { connected: () => false, lastRequestAt: () => null },
+    presence: { tuiConnected: () => false },
     parks: {
       resume: (office, id, request) =>
         r.resumption?.resumePark(office, id, request) ??
