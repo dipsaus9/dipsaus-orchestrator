@@ -336,3 +336,36 @@ Checked against the open stories on 2026-10-21. Each story is re-read before it 
   - network config: https://code.claude.com/docs/en/network-config
 - Apple `container`: https://github.com/apple/container and its technical overview.
 - Git security: https://git-scm.com/docs/git#_security, https://git-scm.com/docs/git-worktree
+
+## Amendments
+
+- 2026-10-21, DIPO-264 (maintainer): section 16. **The probe gate passed** on Apple `container` 1.6.0 (macOS 26.6, Apple silicon), with one accepted risk. Commands: `tools/box-probe/probe.sh`; results: `tools/box-probe/RESULTS.md`. Every check ran as root in the box.
+  - **Results per line:**
+    1. Home folder: fails. Nothing is mounted.
+    2. The Mac: partly. dipo's socket and ports bound to `127.0.0.1` are not reachable; services that listen on all interfaces are reachable over the box network. This is the accepted risk.
+    3. Local network and router: fails.
+    4. Registry directly: fails.
+    5. Install through Safe-Chain: works, and Safe-Chain's test package is refused.
+    6. Internet through the web proxy: works.
+    7. SSH agent, host environment and `.npmrc`: none in the box.
+    8. Root switching off the network rules: fails for the internet, the local network and the registries. No rule exists yet for the Mac's own services.
+    9. The token in the box: fails, in neither the environment nor the files.
+  - **Network** (section 3):
+    - Each box joins a host-only network (`--internal`), which has no route out.
+    - The only way out is dipo's web proxy on the box network's address on the Mac. Registry tunnels (host name normalised) go to dipo's Safe-Chain proxy.
+    - Every other tunnel goes only to a public internet address. Bare IP addresses and names resolving to the Mac, to private, shared, link-local or multicast ranges, or to the box network are refused.
+    - A first version of the proxy passed any target. The probe's review found this, and every line was tested again through the fixed proxy.
+  - **Accepted risk** (maintainer):
+    - A box can reach services on the Mac that listen on all interfaces, over the box network.
+    - The maintainer's chosen fix is a firewall rule inside the box, set at box start, that the worker cannot change. Section 3 asks for rules outside the box, so that rule would be a second layer, and a rule on the Mac stays open. The fix is postponed: it could not be built in this session.
+  - **Login** (section 4):
+    - The first choice works. A model proxy on the Mac passes only model requests and adds the subscription login; the box has only a placeholder key and `NO_PROXY` for the proxy's address.
+    - After a live request, the token was in neither the box's environment nor its files.
+    - The fallback (a token inside the box) is not used.
+  - **Measured:** about 1 s to start a box with a warm image, 7 MiB for an idle box, and under 1 s to copy the code in. A stopped box keeps its files.
+  - **For the build stories:**
+    - Apple `container` sets a 1 GiB memory limit by default, so dipo must set a high one to honour decision 16.
+    - npm's Claude Code lagged the native installer, so the image needs a deliberate version.
+    - Safe-Chain checks only the known registries, and installs from elsewhere take the direct route.
+    - The proxy's address rule does not recognise a private host on a public range: one served by a VPN, a home network's global IPv6 addresses, or its own public IPv4 address reached back through the router. It also misses IPv6 forms that embed a private IPv4 address. The build proxy should also refuse the Mac's own addresses and on-link prefixes.
+    - The registry check goes by name: a registry alias, or a tunnel to another name on the same CDN, reaches the registry without Safe-Chain.
