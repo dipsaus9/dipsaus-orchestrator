@@ -66,8 +66,13 @@ export interface StoryGit {
   ): Promise<string | null>;
   /** Pushes the branch without force. */
   push(office: OfficeId, branch: string): Promise<PushResult>;
-  /** `git diff --stat <from>` of the worktree, uncommitted changes included. */
-  diffstat(office: OfficeId, worktree: string, from: string): Promise<string>;
+  /**
+   * `git diff --stat <from>` of the worktree, uncommitted changes included; with `branch` (a box
+   * run, DIPO-273) the branch tip against `from`, on the repository without a work tree.
+   */
+  diffstat(office: OfficeId, worktree: string, from: string, branch?: string): Promise<string>;
+  /** The paths that differ between `from` and the tip of `branch`, on the repository (DIPO-273). */
+  changedFiles(office: OfficeId, branch: string, from: string): Promise<string[]>;
 }
 
 type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
@@ -217,10 +222,29 @@ export function gitStoryOps(deps: {
       const git = gitOf(office);
       return git.run((session) => pushBranch(session, git.settings.remote, branch));
     },
-    diffstat: (office, worktree, from) => {
+    diffstat: (office, worktree, from, branch) => {
       const git = gitOf(office);
       return git.run(async (session) =>
-        (await session.ok(at(git, worktree), ["diff", "--stat", from])).trimEnd(),
+        (branch === undefined
+          ? await session.ok(at(git, worktree), ["diff", "--stat", from])
+          : await session.ok(session.repository, ["diff", "--stat", from, `refs/heads/${branch}`])
+        ).trimEnd(),
+      );
+    },
+    changedFiles: (office, branch, from) => {
+      const git = gitOf(office);
+      return git.run(async (session) =>
+        (
+          await session.ok(session.repository, [
+            "diff",
+            "--name-only",
+            "-z",
+            from,
+            `refs/heads/${branch}`,
+          ])
+        )
+          .split("\0")
+          .filter((path) => path !== ""),
       );
     },
   };
