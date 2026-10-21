@@ -23,6 +23,7 @@ import {
   RequestId,
   type ServerFrame,
   type StreamName,
+  TUI_CLIENT_NAME,
 } from "@dipsaus-orchestrator/contract";
 import {
   argsInvalid,
@@ -77,9 +78,6 @@ export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run", "wo
 
 /** Names any connection may use in every daemon state (0006 decision 7: `starting`). */
 const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["engine.hello", "commands.describe"]);
-
-/** The client name `dipo tui` sends in `engine.hello`: such a connection is a TUI (DIPO-279). */
-export const TUI_CLIENT_NAME = "dipo-tui";
 
 /** The frozen surface a client of another contract major may use (0005 section 11). */
 const FROZEN_READS: ReadonlySet<string> = new Set(["engine.hello", "daemon.status"]);
@@ -684,7 +682,11 @@ class Connection implements ConnectionSession {
   }
 }
 
-/** True when `engine.hello` args name the TUI as the client. */
+/**
+ * True when `engine.hello` args name the TUI as the client. Any client on the socket can claim the
+ * name; that only keeps a question live until its timeout, and holds while workers cannot reach the
+ * socket (0021).
+ */
 function isTuiHello(args: unknown): boolean {
   const client = (args as { client?: { name?: unknown } } | null)?.client;
   return client?.name === TUI_CLIENT_NAME;

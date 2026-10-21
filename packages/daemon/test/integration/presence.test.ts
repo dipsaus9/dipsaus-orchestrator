@@ -5,10 +5,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { CONTRACT_VERSION } from "@dipsaus-orchestrator/contract";
+import { CONTRACT_VERSION, TUI_CLIENT_NAME } from "@dipsaus-orchestrator/contract";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { TUI_CLIENT_NAME } from "../../src/server";
 import { settle, TestClient } from "../support/client";
 import { startHarness, type Harness } from "../support/harness";
 
