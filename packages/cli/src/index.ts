@@ -178,6 +178,10 @@ Usage:
                     replace the state database with a backup from
                     <state>/backups while the daemon is stopped; clients reset
                     and the next start reconciles every office
+  dipo login box
+                    set or replace the subscription token that boxes reach the
+                    model with: paste a token from claude setup-token at the
+                    Keychain prompt; dipo never sees it typed and never shows it
   dipo tui [--office <id>] [--no-color] [--ascii] [--inline]
                     open the full-screen client: the office of the current
                     directory (else the first registered one), with o to switch
@@ -311,6 +315,8 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "daemon" && DAEMON_FORMS.has(args[1] ?? "")) {
     return deps.runDaemon(args.slice(1));
   }
+  // The box login in the Keychain (DIPO-269): daemon-side code on this terminal, no daemon needed.
+  if (args[0] === "login") return deps.runDaemon(args);
   // Offline maintenance outside the contract (0006 amendment of 2026-10-12): daemon-side code.
   if (args[0] === "restore") {
     const [file, ...rest] = args.slice(1);

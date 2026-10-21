@@ -263,12 +263,14 @@ describe("box lifecycle", () => {
     await port.start(BOX);
     await port.copyIn(BOX, "/tmp/d265/code", "/work");
     await port.copyOut(BOX, "/work/out", "/tmp/d265/out");
+    await port.exportFiles(BOX, "/tmp/d265/box.tar");
     await port.stop(BOX);
     await port.delete(BOX);
     expect(fake.args()).toEqual([
       ["start", BOX],
       ["copy", "/tmp/d265/code", `${BOX}:/work`],
       ["copy", `${BOX}:/work/out`, "/tmp/d265/out"],
+      ["export", "--output", "/tmp/d265/box.tar", BOX],
       ["stop", BOX],
       ["delete", "--force", BOX],
     ]);
@@ -453,6 +455,7 @@ describe("deadlines", () => {
       ["delete", (port) => port.delete(BOX)],
       ["copyIn", (port) => port.copyIn(BOX, "/tmp/a", "/work")],
       ["copyOut", (port) => port.copyOut(BOX, "/work", "/tmp/a")],
+      ["exportFiles", (port) => port.exportFiles(BOX, "/tmp/a.tar")],
       ["exec", (port) => port.exec(BOX, ["true"])],
       ["memory", (port) => port.memory(BOX)],
       ["list", (port) => port.list()],
