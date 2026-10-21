@@ -114,6 +114,14 @@ describe("cli", () => {
     expect(HELP).toContain("dipo office purge [--office <id>] [--yes]");
   });
 
+  it("runs login through runDaemon as given, without a daemon (DIPO-269)", async () => {
+    const { deps, captured } = fakeDeps({ daemonCode: 2 });
+    expect(await main(["login", "box"], deps)).toBe(2);
+    expect(await main(["login"], deps)).toBe(2);
+    expect(captured.daemonCalls).toEqual([["login", "box"], ["login"]]);
+    expect(HELP).toContain("dipo login box");
+  });
+
   it("does not send other daemon subcommands to runDaemon", async () => {
     const { deps, captured } = fakeDeps();
     expect(await main(["daemon", "self-check"], deps)).toBe(2);
