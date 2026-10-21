@@ -6,7 +6,9 @@
 //
 // Every question source decides through `questionRoute`: the permission hook
 // (`hooks/permissions.ts`) today, the box's door questions (DIPO-272) later. The engine does not
-// know what a TUI is; the daemon supplies `Presence`, read once per question.
+// know what a TUI is; the daemon supplies `Presence`, read once per question. A question that is
+// live when the last TUI closes parks at once too (DIPO-284): the daemon then calls
+// `PermissionAsks.presenceChanged`, which reads `Presence` again.
 
 /** Whether the maintainer has a TUI open, as the daemon sees its connections right now. */
 export interface Presence {

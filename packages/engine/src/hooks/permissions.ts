@@ -11,6 +11,10 @@
 //   the hook gets no decision at once, so the call is denied, the worker reports blocked with the
 //   tool and action it needs, and the story parks `needs-permission` with that question
 //   (DIPO-75). With the daemon down nobody answers and the worker host itself returns no decision.
+// - When the last TUI closes while a question is live (DIPO-284), the daemon calls
+//   `presenceChanged`: every live question closes (`ended`) and its hook gets no decision at once,
+//   so its story parks with the question exactly as above. A question stays live while another
+//   TUI is still connected.
 //
 // The reply goes to the worker host as the adapter encodes the neutral `HookReply`; this module
 // never names a CLI field. A worker's exit closes its open questions (`ended`), and an office load
@@ -102,8 +106,11 @@ function messageOf(error: unknown): string {
 
 export class PermissionAsks {
   readonly #deps: PermissionAsksDeps;
-  /** Open permission questions this engine waits on, with their timeout. */
-  readonly #timers = new Map<string, ReturnType<Clock["setTimeout"]>>();
+  /** Open permission questions this engine waits on (the live ones), with their office and timeout. */
+  readonly #timers = new Map<
+    string,
+    { readonly office: OfficeId; readonly timer: ReturnType<Clock["setTimeout"]> }
+  >();
   readonly #inflight = new Set<Promise<unknown>>();
 
   constructor(deps: PermissionAsksDeps) {
@@ -139,8 +146,53 @@ export class PermissionAsks {
 
   /** Stops every timeout; open questions are closed as `expired` at the next office load. */
   close(): void {
-    for (const timer of this.#timers.values()) this.#deps.clock.clearTimeout(timer);
+    for (const { timer } of this.#timers.values()) this.#deps.clock.clearTimeout(timer);
     this.#timers.clear();
+  }
+
+  /**
+   * The daemon's TUI connections changed (0021 section 11, DIPO-284). With no TUI connected any
+   * more, every live question ends at once: it closes as `ended` and its hook gets no decision, so
+   * its story parks with the question as one asked with no TUI does. While a TUI is still
+   * connected nothing changes. A question whose close fails stays live until its timeout, with a
+   * warning.
+   */
+  presenceChanged(): void {
+    if (this.#timers.size === 0 || this.#deps.presence.tuiConnected()) return;
+    const byOffice = new Map<OfficeId, string[]>();
+    for (const [questionId, { office }] of this.#timers) {
+      const ids = byOffice.get(office) ?? [];
+      ids.push(questionId);
+      byOffice.set(office, ids);
+    }
+    for (const [officeId, ids] of byOffice) {
+      const office = this.#deps.offices.get(officeId);
+      if (office === undefined) continue;
+      let closed: StoredQuestion[];
+      try {
+        const live = ids
+          .map((id) => findQuestion(office, id))
+          .filter(
+            (question): question is StoredQuestion =>
+              question !== null &&
+              question.closedAt === null &&
+              question.hook !== null &&
+              question.parkId === null,
+          );
+        closed = this.#close(office, live, "ended");
+      } catch (error) {
+        this.#deps.warn?.("ending live permission questions after the last TUI closed failed", {
+          office: officeId,
+          questions: ids,
+          ...failureFields(error),
+        });
+        continue;
+      }
+      for (const question of closed) {
+        if (question.hook === null) continue;
+        this.#reply(office, question.runId as RunId, { hook: question.hook, decision: null });
+      }
+    }
   }
 
   /** Asks the maintainer live, or denies at once so the story parks (see the file comment). */
@@ -188,7 +240,7 @@ export class PermissionAsks {
     });
     if (appended > 0) this.#deps.onChanged?.(officeId);
     const seconds = config?.timeouts.permissionWaitSeconds ?? 300;
-    this.#arm(questionId, seconds, () => this.#timeout(officeId, questionId, seconds));
+    this.#arm(officeId, questionId, seconds, () => this.#timeout(officeId, questionId, seconds));
   }
 
   /** `work.answer { question, text, decision? }` on a permission question (0008 section 5). */
@@ -303,12 +355,12 @@ export class PermissionAsks {
   }
 
   /** Arms the timer of a question's wait; `fire` runs when it ends. */
-  #arm(questionId: string, seconds: number, fire: () => void): void {
+  #arm(office: OfficeId, questionId: string, seconds: number, fire: () => void): void {
     const timer = this.#deps.clock.setTimeout(() => {
       this.#timers.delete(questionId);
       fire();
     }, seconds * 1000);
-    this.#timers.set(questionId, timer);
+    this.#timers.set(questionId, { office, timer });
   }
 
   /**
@@ -339,7 +391,9 @@ export class PermissionAsks {
         ...failureFields(error),
       });
       // The question stays open: its timer is armed again and only the close is retried (DIPO-123).
-      this.#arm(questionId, seconds, () => this.#timeout(officeId, questionId, seconds, true));
+      this.#arm(officeId, questionId, seconds, () =>
+        this.#timeout(officeId, questionId, seconds, true),
+      );
     }
     if (retry) return;
     this.#reply(
@@ -354,21 +408,32 @@ export class PermissionAsks {
     );
   }
 
-  /** Closes `questions` as `how` in one transaction, with their entries. */
-  #close(office: OfficeHandle, questions: readonly StoredQuestion[], how: QuestionClose): void {
+  /**
+   * Closes `questions` as `how` in one transaction, with their entries, and stops their timers once
+   * it committed. Returns the questions this call closed.
+   */
+  #close(
+    office: OfficeHandle,
+    questions: readonly StoredQuestion[],
+    how: QuestionClose,
+  ): StoredQuestion[] {
     const now = this.#deps.clock.now();
+    const closed: StoredQuestion[] = [];
     const appended = office.immediate(() => {
+      closed.length = 0;
       const entries: NewEntry[] = [];
       for (const question of questions) {
-        this.#clearTimer(question.questionId);
         if (!closeQuestion(office, question.questionId, how, now)) continue;
+        closed.push(question);
         entries.push(...this.#closingEntries(office, question, now));
       }
       const ready = withWorkViews(office, entries);
       appendEntries(office, ready, { at: now });
       return ready.length;
     });
+    for (const question of questions) this.#clearTimer(question.questionId);
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
+    return closed;
   }
 
   /**
@@ -415,9 +480,9 @@ export class PermissionAsks {
   }
 
   #clearTimer(questionId: string): void {
-    const timer = this.#timers.get(questionId);
-    if (timer === undefined) return;
-    this.#deps.clock.clearTimeout(timer);
+    const live = this.#timers.get(questionId);
+    if (live === undefined) return;
+    this.#deps.clock.clearTimeout(live.timer);
     this.#timers.delete(questionId);
   }
 
