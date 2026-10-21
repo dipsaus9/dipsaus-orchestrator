@@ -1,10 +1,19 @@
 // `dipo login box` (DIPO-269) with a fake terminal spawn: it runs `security` to ask for the token
-// itself, refuses without a terminal, and reports a failed store. No Keychain is touched.
+// itself, refuses without a terminal, and reports a failed store. No Keychain is touched. Once the
+// token is stored it removes the box-token hold's record (DIPO-271); a failed store keeps it. The
+// state directory is a temp folder.
+
+import { existsSync, writeFileSync } from "node:fs";
 
 import { describe, expect, it } from "bun:test";
 
-import { SECURITY_CLI, type SpawnInteractive, storeTokenArgs } from "@dipsaus-orchestrator/engine";
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import {
+  boxTokenHoldPath,
+  SECURITY_CLI,
+  type SpawnInteractive,
+  storeTokenArgs,
+} from "@dipsaus-orchestrator/engine";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonIo } from "./io";
 import { runLoginForm } from "./login";
@@ -45,11 +54,14 @@ describe("dipo login box", () => {
   it("runs security on the terminal, with -w last, and reports the stored entry", async () => {
     const { io, out, err } = fakeIo();
     const spawn = recordingSpawn(0);
-    const code = await runLoginForm(["box"], io, {
-      spawnInteractive: spawn.spawn,
-      isTerminal: () => true,
-      home: () => "/Users/someone",
-    });
+    const code = await withTempDir((state) =>
+      runLoginForm(["box"], io, {
+        spawnInteractive: spawn.spawn,
+        isTerminal: () => true,
+        home: () => "/Users/someone",
+        stateDir: () => state,
+      }),
+    );
     expect(code).toBe(0);
     expect(spawn.calls).toEqual([
       {
@@ -63,6 +75,37 @@ describe("dipo login box", () => {
       "dipo: stored the box login in the Keychain (service dipo, account box-login).",
     ]);
   });
+
+  it("lifts the box-token hold once the token is stored, by removing its record (DIPO-271)", () =>
+    withTempDir(async (state) => {
+      const record = boxTokenHoldPath(state);
+      writeFileSync(record, JSON.stringify({ adapter: "claude-cli", failures: [], since: 0 }));
+      const { io, out } = fakeIo();
+      const code = await runLoginForm(["box"], io, {
+        spawnInteractive: recordingSpawn(0).spawn,
+        isTerminal: () => true,
+        home: () => "/Users/someone",
+        stateDir: () => state,
+      });
+      expect(code).toBe(0);
+      expect(existsSync(record)).toBe(false);
+      expect(out.at(-1)).toBe("dipo: the box-token hold is lifted; new runs may start again.");
+    }));
+
+  it("keeps the box-token hold when nothing was stored (DIPO-271)", () =>
+    withTempDir(async (state) => {
+      const record = boxTokenHoldPath(state);
+      writeFileSync(record, "{}");
+      const { io } = fakeIo();
+      const code = await runLoginForm(["box"], io, {
+        spawnInteractive: recordingSpawn(null).spawn,
+        isTerminal: () => true,
+        home: () => "/Users/someone",
+        stateDir: () => state,
+      });
+      expect(code).toBe(1);
+      expect(existsSync(record)).toBe(true);
+    }));
 
   it("refuses without a terminal and runs nothing", async () => {
     const { io, err } = fakeIo();

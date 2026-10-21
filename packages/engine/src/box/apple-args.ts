@@ -25,6 +25,8 @@ import {
 
 /** The network dipo prepares for its boxes. */
 export const BOX_NETWORK_NAME = "dipo-boxes";
+/** Apple `container`'s own network, where its image builder runs (DIPO-266, DIPO-271). */
+export const BUILD_NETWORK_NAME = "default";
 /** The value of the `dipo` label on that network. */
 export const BOX_NETWORK_LABEL_VALUE = "network";
 /** The box's main process: it only keeps the box running; work runs through `exec`. */
@@ -151,6 +153,11 @@ export function systemStatusArgs(): string[] {
 /** Every network, as JSON. */
 export function networkListArgs(): string[] {
   return ["network", "list", "--format", "json"];
+}
+
+/** Starts Apple `container`'s image builder, so its network's host address exists (DIPO-271). */
+export function builderStartArgs(): string[] {
+  return ["builder", "start"];
 }
 
 /** Creates dipo's box network: host-only (`--internal`), labelled. */

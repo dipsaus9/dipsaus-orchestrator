@@ -121,6 +121,13 @@ export interface ClaudeParseState {
    * builtin ones. Absent means `implement`, as in states stored before it existed.
    */
   readonly reportKind?: ReportKind;
+  /**
+   * True for a developer session in a box (DIPO-271): its Claude Code has only the placeholder
+   * key of `boxModelEnvironment`, which dipo's model proxy outside the box replaces, so the
+   * `system/init` key source is the placeholder's and is not refused. Never for a reviewer, which
+   * runs on the Mac with the maintainer's login. The run's adapter sets it on every line.
+   */
+  readonly placeholderKey?: boolean;
   /** Message ids already counted. */
   readonly seen: readonly string[];
   /** Live numbers since the last turn end, per model. */
@@ -683,7 +690,8 @@ function init(value: unknown, state: ClaudeParseState): Step {
 
   // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
   if (next.initRejected === null) {
-    if (msg.apiKeySource !== "none") {
+    const placeholder = next.placeholderKey === true && next.reportKind !== "review";
+    if (msg.apiKeySource !== "none" && !placeholder) {
       next = { ...next, initRejected: `apiKeySource is ${msg.apiKeySource}, not none` };
     } else if (
       next.plannedModel !== null &&

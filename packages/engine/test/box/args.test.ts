@@ -41,6 +41,8 @@ const SHAPES: Readonly<Record<string, Shape>> = {
     positionals: 1,
   },
   listArgs: { words: ["list"], flags: { "--all": 0, "--format": 1 }, positionals: 0 },
+  // DIPO-271: the builder starts before the build proxy finds its network's address.
+  builderStartArgs: { words: ["builder", "start"], flags: {}, positionals: 0 },
   createArgs: {
     words: ["create"],
     flags: {
@@ -239,6 +241,7 @@ function everyArgv(): Map<string, string[][]> {
   add("networkListArgs", builders.networkListArgs());
   add("networkCreateArgs", builders.networkCreateArgs());
   add("listArgs", builders.listArgs());
+  add("builderStartArgs", builders.builderStartArgs());
   for (const tag of TAGS) {
     add("imageInspectArgs", builders.imageInspectArgs(tag));
     for (const contextDir of CONTEXTS)

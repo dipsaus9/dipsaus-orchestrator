@@ -45,11 +45,14 @@ export class Steering {
   #stdinOpen: boolean;
   #exited = false;
   #lastSignal: Signal | null = null;
+  readonly #onSignal: ((signal: Signal) => void) | undefined;
 
-  constructor(child: ChildProcess, clock: Clock) {
+  /** `onSignal` hears each signal sent to the worker, right after it is sent (DIPO-271). */
+  constructor(child: ChildProcess, clock: Clock, onSignal?: (signal: Signal) => void) {
     this.#child = child;
     this.#clock = clock;
     this.#stdinOpen = child.stdin !== null;
+    this.#onSignal = onSignal;
   }
 
   get stdinOpen(): boolean {
@@ -100,6 +103,7 @@ export class Steering {
   #kill(signal: Signal): void {
     this.#lastSignal = signal;
     this.#child.kill(signal);
+    this.#onSignal?.(signal);
   }
 
   #write(data: string): SteerResult {

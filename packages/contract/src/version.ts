@@ -61,4 +61,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // same, still unreleased, minor.
 // DIPO-136 ships the command `office.setPrivacy` and adds the optional `privacy` of `OfficeSummary`
 // (each privacy setting with its value and source) to the same, still unreleased, minor.
+// DIPO-271 adds the optional `box` of `work.run` (run the developer in its own box, 0021) to the
+// same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

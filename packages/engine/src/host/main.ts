@@ -9,6 +9,10 @@
 // SIGTERM to the host stops its worker (stdin closed, SIGTERM, SIGKILL 20 s later) instead of
 // ending the host at once (DIPO-93): the engine stops a follow-only host this way.
 //
+// A box worker (DIPO-271) is a `container exec` client on the Mac, and a killed client leaves its
+// process running in the box. Its plan carries a stop command (`container stop <box>`), which the
+// host runs once: when it first sends the worker SIGTERM or SIGKILL, or after the worker exited.
+//
 // Hook relay (0008 section 5, DIPO-59): `dipo hook <event>` sends the payload with the `hook` op;
 // the host appends it as a `hook` line. A call with `waitMs` is held under its line's end offset
 // until the engine answers it with `hookReply`, `waitMs` passes, the worker exits, or no engine
@@ -74,6 +78,15 @@ export const OUTPUT_GRACE_MS = 5000;
  * 0008 stop sequence (SIGTERM at 10 s, SIGKILL at 30 s).
  */
 export const TERM_KILL_AFTER_MS = 20_000;
+
+/**
+ * How long the plan's stop command may take (DIPO-271: a box's `container stop`, which itself
+ * waits a few seconds before it kills what runs in the box).
+ */
+export const STOP_COMMAND_TIMEOUT_MS = 60_000;
+
+/** The most of a failed stop command's stderr the host log keeps. */
+const STOP_COMMAND_STDERR_CHARS = 500;
 
 export interface WorkerHostOptions {
   readonly runId: string;
@@ -223,6 +236,11 @@ export class WorkerHost {
   /** Set once SIGTERM to the host started stopping the worker (DIPO-93). */
   #terminating = false;
   #offTerminate: (() => void) | null = null;
+  /** The plan's stop command (DIPO-271), null without one. */
+  #stopCommand: readonly [string, ...string[]] | null = null;
+  #stopEnv: Readonly<Record<string, string>> = {};
+  /** The one run of the stop command, once it started. */
+  #stopped: Promise<void> | null = null;
   #resolveDone!: (exit: HostExitFile) => void;
   #rejectDone!: (error: unknown) => void;
 
@@ -380,7 +398,13 @@ export class WorkerHost {
       return;
     }
     this.#child = child;
-    this.#steering = new Steering(child, this.#options.clock);
+    this.#stopCommand = plan.stopCommand ?? null;
+    this.#stopEnv = plan.env;
+    // A signal reaches only the worker's process on the Mac; for a box worker the stop command
+    // ends what it runs in the box too (DIPO-271).
+    this.#steering = new Steering(child, this.#options.clock, (signal) => {
+      if (signal === "SIGTERM" || signal === "SIGKILL") void this.#stop(`worker ${signal}`);
+    });
     this.#logger.info("worker started", { workerPid: child.pid });
     for (const line of plan.stdin) {
       const result = this.#steering.apply({ write: line });
@@ -412,7 +436,64 @@ export class WorkerHost {
       });
       await Promise.allSettled([child.stdout.cancel(), child.stderr.cancel()]);
     }
+    // Nothing the worker started outlives it in its box either (DIPO-271).
+    await this.#stop("the worker exited");
     return this.#finish(exitCause(exit, this.#steering?.lastSignal ?? null));
+  }
+
+  /**
+   * Runs the plan's stop command once (DIPO-271), within `STOP_COMMAND_TIMEOUT_MS`; later calls
+   * wait for that run. Never rejects: a failure is logged, and the exit is recorded as always.
+   */
+  #stop(why: string): Promise<void> {
+    if (this.#stopCommand === null) return Promise.resolve();
+    this.#stopped ??= this.#runStop(this.#stopCommand, why);
+    return this.#stopped;
+  }
+
+  async #runStop(command: readonly [string, ...string[]], why: string): Promise<void> {
+    this.#logger.info("running the stop command", { why, program: command[0] });
+    let child: ChildProcess;
+    try {
+      child = this.#options.spawn({ cmd: command, env: this.#stopEnv, stdin: "ignore" });
+    } catch (error) {
+      this.#logger.warn("cannot run the stop command", { why, error });
+      return;
+    }
+    const { clock } = this.#options;
+    let timer: TimerHandle | null = null;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = clock.setTimeout(() => resolve("timeout"), STOP_COMMAND_TIMEOUT_MS);
+    });
+    const finished = Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]).then(([, stderr, exit]) => ({ stderr, exit }));
+    const result = await Promise.race([finished, timeout]).catch((error: unknown) => {
+      this.#logger.warn("the stop command failed", { why, error });
+      return null;
+    });
+    if (timer !== null) clock.clearTimeout(timer);
+    if (result === null) return;
+    if (result === "timeout") {
+      child.kill("SIGKILL");
+      this.#logger.warn("the stop command did not end in time; killed it", {
+        why,
+        timeoutMs: STOP_COMMAND_TIMEOUT_MS,
+      });
+      return;
+    }
+    if (result.exit.code === 0) {
+      this.#logger.info("the stop command ended", { why });
+      return;
+    }
+    this.#logger.warn("the stop command failed", {
+      why,
+      code: result.exit.code,
+      signal: result.exit.signal,
+      stderr: result.stderr.trim().slice(0, STOP_COMMAND_STDERR_CHARS),
+    });
   }
 
   async #pump(
