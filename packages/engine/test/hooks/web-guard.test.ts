@@ -394,7 +394,7 @@ describe("the WebFetch address rule (DIPO-276)", () => {
     ];
     for (const [host, why] of cases) {
       const text = await refusal(`https://${host}/x`);
-      expect(text).toContain(`names ${host}, which resolves to`);
+      expect(text).toContain(`names ${host}, whose address`);
       expect(text).toContain(why);
     }
   });
@@ -436,7 +436,7 @@ describe("the WebFetch address rule (DIPO-276)", () => {
           reply: {
             hook: 20,
             decision: "deny",
-            reason: fetchRefusalText("names loop.example, which resolves to 127.0.0.1 is loopback"),
+            reason: fetchRefusalText("names loop.example, whose address 127.0.0.1 is loopback"),
           },
         },
         { kind: "toolGate", reply: { hook: 21, decision: null } },

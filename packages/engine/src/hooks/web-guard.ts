@@ -292,8 +292,11 @@ export function refusalText(tool: string, hit: SecretHit): string {
   return `The ${what} contains a value from ${hit.file} (${hit.key}); never send env values in a web call. Remove it and try again.`;
 }
 
-/** How long a WebFetch host may take to resolve before the call is refused. */
-export const FETCH_RESOLVE_TIMEOUT_MS = 1_500;
+/**
+ * How long a WebFetch host may take to resolve before the call is refused: half the relay's
+ * 2-second gate window, so the refusal still reaches the hook after ingestion and the reply.
+ */
+export const FETCH_RESOLVE_TIMEOUT_MS = 1_000;
 
 /** What the WebFetch address check reads (file comment); the system's by default. */
 export interface FetchAddressDeps {
@@ -363,7 +366,7 @@ export async function fetchAddressRefusal(
   // Every answer must pass: a name with one refused address is refused whole.
   for (const address of answers) {
     const verdict = checkAddress(address, context);
-    if (!verdict.ok) return fetchRefusalText(`names ${host}, which resolves to ${verdict.reason}`);
+    if (!verdict.ok) return fetchRefusalText(`names ${host}, whose address ${verdict.reason}`);
   }
   return undefined;
 }
