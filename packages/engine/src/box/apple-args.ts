@@ -4,13 +4,17 @@
 // - the only mount is the office package cache, always read-only, at a fixed path in the box;
 // - never `--volume`, another `--mount`, `--ssh`, `--publish`, `--publish-socket` or
 //   `--virtualization`;
-// - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits).
+// - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits);
+// - an image build (DIPO-266) reads only the build file dipo wrote in its own folder, with the
+//   proxy address as its one build argument.
 // Inputs that could be read as another option or split into another mount are refused here.
 // Pure: no I/O.
 
 import { posix } from "node:path";
 
 import {
+  BOX_BUILD_FILE,
+  BOX_IMAGE_REPOSITORY,
   BOX_LABEL,
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
@@ -253,4 +257,66 @@ export function statsArgs(name: string): string[] {
 /** Every box, running or stopped, as JSON. */
 export function listArgs(): string[] {
   return ["list", "--all", "--format", "json"];
+}
+
+/** The value of the `dipo` label on every box image dipo builds. */
+export const BOX_IMAGE_LABEL_VALUE = "image";
+/** The build argument that carries the proxy address into the build file. */
+export const BUILD_PROXY_ARG = "DIPO_PROXY";
+/** A box image tag: dipo's repository and a sha256 of the description (DIPO-266). */
+const IMAGE_TAG = new RegExp(`^${BOX_IMAGE_REPOSITORY}:[0-9a-f]{64}$`);
+/** A proxy address without credentials or a path: `http://<host or [IPv6]>:<port>`. */
+const PROXY_URL = /^http:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):\d{1,5}$/;
+
+/** A box image tag dipo made; refuses any other image name. */
+function checkedImageTag(tag: string): string {
+  if (!IMAGE_TAG.test(tag)) refuse(`${JSON.stringify(tag)} is not a dipo box image tag.`, { tag });
+  return tag;
+}
+
+/** The inputs of one `container build`. */
+export interface BuildInput {
+  readonly tag: string;
+  /** dipo's own build folder; the build file is always `BOX_BUILD_FILE` inside it. */
+  readonly contextDir: string;
+  readonly proxyUrl: string;
+}
+
+/** Inspects one box image; exits 0 only when it exists. */
+export function imageInspectArgs(tag: string): string[] {
+  return ["image", "inspect", checkedImageTag(tag)];
+}
+
+/**
+ * Builds a box image (DIPO-266) from the build file dipo wrote in its own folder: the file is
+ * always `<contextDir>/BOX_BUILD_FILE`, never one a caller names. The proxy address is the only
+ * build argument. Never `--ssh`, `--secret`, `--output` or `--no-cache`.
+ */
+export function buildArgs(input: BuildInput): string[] {
+  const tag = checkedImageTag(input.tag);
+  const contextDir = hostPath(input.contextDir);
+  if (
+    contextDir === "/" ||
+    posix.normalize(contextDir) !== contextDir ||
+    contextDir.endsWith("/")
+  ) {
+    refuse("the build folder must be a normalised folder below `/`.", { contextDir });
+  }
+  if (!PROXY_URL.test(input.proxyUrl)) {
+    refuse("the build proxy must be http://<host>:<port>.", { proxyUrl: input.proxyUrl });
+  }
+  return [
+    "build",
+    "--file",
+    posix.join(contextDir, BOX_BUILD_FILE),
+    "--tag",
+    tag,
+    "--label",
+    `${BOX_LABEL}=${BOX_IMAGE_LABEL_VALUE}`,
+    "--build-arg",
+    `${BUILD_PROXY_ARG}=${input.proxyUrl}`,
+    "--progress",
+    "plain",
+    contextDir,
+  ];
 }
