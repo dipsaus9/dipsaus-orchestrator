@@ -31,6 +31,7 @@ import outcome from "./task/outcome.md" with { type: "text" };
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
 import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
+import scopeBox from "./task/scope-box.md" with { type: "text" };
 import scope from "./task/scope.md" with { type: "text" };
 import story from "./task/story.md" with { type: "text" };
 import testPlanNotApplicable from "./task/test-plan-not-applicable.md" with { type: "text" };
@@ -70,6 +71,8 @@ export const TASK_TEMPLATES = {
   outcome,
   criteria,
   scope,
+  // The box worker's scope section: References are a forecast (0021 section 13, DIPO-272).
+  scopeBox,
   testPlan,
   testPlanNotApplicable,
   answers,

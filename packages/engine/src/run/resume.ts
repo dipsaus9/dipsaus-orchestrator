@@ -324,7 +324,14 @@ export class RunResumer implements NextSession {
     // Its context pack and input paths are the new session's nudge sources, resumed or not.
     let handoff: { text: string; sources: NudgeSources } | { error: string };
     try {
-      handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null);
+      handoff = await this.#handoffMessage(
+        office,
+        git,
+        run,
+        config,
+        facts?.lastReport ?? null,
+        box,
+      );
     } catch (error) {
       handoff = { error: messageOf(error) };
     }
@@ -641,6 +648,8 @@ export class RunResumer implements NextSession {
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
+    /** A box worker's run: the box scope section (DIPO-272). */
+    box = false,
   ): Promise<{ text: string; sources: NudgeSources }> {
     const deps = this.#deps;
     const worktree = run.worktree ?? "";
@@ -658,6 +667,7 @@ export class RunResumer implements NextSession {
       baseSha,
       config,
       handoff,
+      ...(box ? { box: true } : {}),
       // The result stored for this base when the run started (DIPO-183); a new session runs no verify.
       baseVerify: baseVerifyFactsOf(
         office,

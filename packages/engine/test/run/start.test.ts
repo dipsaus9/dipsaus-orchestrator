@@ -775,6 +775,12 @@ describe("a box worker's run (DIPO-271)", () => {
     expect(renderSystemFile("implement-box", "developer")).not.toBe(
       renderSystemFile("implement", "developer"),
     );
+    // Its scope section is the forecast, never the write fence (0021 section 13).
+    const sent = JSON.parse(world.hosts.at(-1)?.plan.stdin[0] ?? "").message.content as string;
+    expect(sent).toContain(
+      "The paths the planner expects this story to change (a forecast, not a fence):",
+    );
+    expect(sent).not.toContain("You may write only these paths");
   });
 
   it("rolls the claim back when the box cannot be made, with nothing left to delete", async () => {

@@ -63,6 +63,8 @@ export interface TaskMessageInput {
   readonly budgets: TaskBudgets;
   /** `prompt.contractMax`; default 12,000. */
   readonly contractMax?: number;
+  /** The developer works in its own box: the scope section is a forecast (DIPO-272). */
+  readonly box?: boolean;
 }
 
 /** A step of the total-cap drop order that was applied. */
@@ -312,7 +314,11 @@ const joinSections = (sections: readonly Section[]): string =>
  */
 export function assembleTaskMessage(input: TaskMessageInput): TaskMessage {
   const { story, pack, budgets } = input;
-  const contract = assembleContract(story, input.contractMax ?? CONTRACT_MAX_DEFAULT);
+  const contract = assembleContract(
+    story,
+    input.contractMax ?? CONTRACT_MAX_DEFAULT,
+    input.box === true ? { box: true } : {},
+  );
   const stale = new Set(pack.provenance.staleFiles);
   const feedback = input.feedback ?? [];
   const handoff =

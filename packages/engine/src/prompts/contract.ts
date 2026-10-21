@@ -125,11 +125,13 @@ function answersSection(story: PromptStory): Section | undefined {
  * The story contract sections, in order, each present only under its 0014 condition: `story`,
  * `outcome`, `criteria` and `scope` always, `test_plan` for a non-spike, `answers` when an
  * unknown is resolved, `instructions` when non-empty. Throws `ContractTooLargeError` when the
- * contract is over `contractMax`.
+ * contract is over `contractMax`. With `box`, the scope section is the box worker's forecast
+ * (`scopeBox`).
  */
 export function assembleContract(
   story: PromptStory,
   contractMax: number = CONTRACT_MAX_DEFAULT,
+  options: { readonly box?: boolean } = {},
 ): readonly Section[] {
   const size = contractSize(story);
   if (size > contractMax) throw new ContractTooLargeError(size, contractMax);
@@ -150,7 +152,13 @@ export function assembleContract(
         criteria: story.criteria.map(({ index, text }) => `#${index} ${text.trim()}`).join("\n"),
       }),
     },
-    { name: "scope", text: renderTemplate(TASK_TEMPLATES.scope, { paths: bullets(story.scope) }) },
+    {
+      name: "scope",
+      // A box worker's scope is a forecast, not a fence (0021 section 13, DIPO-272).
+      text: renderTemplate(options.box === true ? TASK_TEMPLATES.scopeBox : TASK_TEMPLATES.scope, {
+        paths: bullets(story.scope),
+      }),
+    },
     testPlanSection(story),
     answersSection(story),
     story.instructions === ""

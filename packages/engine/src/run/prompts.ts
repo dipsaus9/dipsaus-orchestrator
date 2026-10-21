@@ -104,6 +104,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     pack,
     budgets: taskBudgetsFor(budgets, size),
     contractMax: config.prompt.contractMax,
+    ...(input.box === true ? { box: true } : {}),
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
     ...(input.baseVerify === undefined ? {} : { baseVerify: input.baseVerify }),
   });

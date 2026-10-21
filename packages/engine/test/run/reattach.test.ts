@@ -24,6 +24,8 @@ import { join } from "node:path";
 import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 import { readRecording } from "@dipsaus-orchestrator/testkit";
 
+import { BOX_RUN_FILE } from "../../src/box/workers";
+import { renderSystemFile } from "../../src/prompts/system";
 import { parseFieldBlock } from "../../src/backlog/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import { writeNudgeSources } from "../../src/hooks/nudges";
@@ -1793,6 +1795,28 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
       { name: "system", sha256: sha(system), bytes: Buffer.byteLength(system) },
       { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
     ]);
+  });
+});
+
+describe("the prompts of a box worker's next session (DIPO-272)", () => {
+  it("a run directory with the box record gets the box contract and the box scope section", async () => {
+    firstSession();
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, BOX_RUN_FILE), JSON.stringify({ runId: w.f.run, box: "dipo-x" }));
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
+    expect(system).toBe(renderSystemFile("implement-box", "developer"));
+    const text = sentText();
+    expect(text).toContain(
+      "The paths the planner expects this story to change (a forecast, not a fence):",
+    );
+    expect(text).not.toContain("You may write only these paths");
   });
 });
 
