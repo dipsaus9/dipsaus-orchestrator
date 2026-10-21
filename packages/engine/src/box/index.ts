@@ -14,6 +14,7 @@ export {
   createArgs,
   deleteArgs,
   execArgs,
+  exportArgs,
   imageInspectArgs,
   listArgs,
   networkCreateArgs,
@@ -92,3 +93,65 @@ export type {
   NodeArch,
   NodeSha256,
 } from "./image";
+export {
+  BOX_PLACEHOLDER_API_KEY,
+  boxModelEnvironment,
+  checkListenAddress,
+  createModelProxyHandler,
+  DROPPED_REQUEST_HEADERS,
+  isModelRequest,
+  MODEL_METHOD,
+  MODEL_PATHS,
+  MODEL_PROXY_MAX_BODY_BYTES,
+  MODEL_UPSTREAM,
+  OAUTH_BETA,
+  proxyUrl,
+  startModelProxy,
+  upstreamHeaders,
+  withOauthBeta,
+} from "./model-proxy";
+export type {
+  BoxModelEnvironment,
+  ListenHttp,
+  ListeningHttp,
+  ModelProxyDeps,
+  ModelProxyHandlerOptions,
+  RunningModelProxy,
+  UpstreamFetch,
+} from "./model-proxy";
+export {
+  findTokenArgs,
+  isTokenShaped,
+  readBoxToken,
+  SECURITY_CLI,
+  SECURITY_ITEM_NOT_FOUND,
+  SecretToken,
+  storeBoxToken,
+  storeTokenArgs,
+  TOKEN_KEYCHAIN_ACCOUNT,
+  TOKEN_KEYCHAIN_LABEL,
+  TOKEN_KEYCHAIN_SERVICE,
+  TOKEN_READ_TIMEOUT_MS,
+  TOKEN_REDACTED,
+} from "./token";
+export type {
+  SpawnInteractive,
+  TokenMatcher,
+  TokenReadDeps,
+  TokenScanner,
+  TokenStoreDeps,
+  TokenStoreResult,
+} from "./token";
+export {
+  BOX_TOKEN_CHECK,
+  checkBoxAfterRun,
+  checkBoxForToken,
+  sweepTokenCheckLeftovers,
+  TAR_HEADER_BYTES,
+  TOKEN_CHECK_DIR_PREFIX,
+  TOKEN_CHECK_ENV_COMMAND,
+  TOKEN_CHECK_EXPORT_FILE,
+  TOKEN_CHECK_EXPORT_TIMEOUT_MS,
+  tokenCheckFailure,
+} from "./token-check";
+export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn, TokenHoldDeps } from "./token-check";

@@ -15,6 +15,7 @@ import {
   createArgs,
   deleteArgs,
   execArgs,
+  exportArgs,
   type HostResources,
   imageInspectArgs,
   listArgs,
@@ -349,6 +350,10 @@ export class AppleContainerBoxes implements BoxPort {
     options: BoxCallOptions = {},
   ): Promise<void> {
     await this.#runOk(copyOutArgs(name, from, to), options);
+  }
+
+  async exportFiles(name: string, to: string, options: BoxCallOptions = {}): Promise<void> {
+    await this.#runOk(exportArgs(name, to), options);
   }
 
   async exec(

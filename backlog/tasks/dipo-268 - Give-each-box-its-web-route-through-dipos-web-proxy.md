@@ -1,10 +1,10 @@
 ---
 id: DIPO-268
 title: Give each box its web route through dipo's web proxy
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:45'
+updated_date: '2026-10-21 15:10'
 labels:
   - 'tier:M'
   - cutover
@@ -15,6 +15,7 @@ dependencies:
 references:
   - packages/engine/src/box/web-proxy.ts
   - packages/engine/test/box/web-proxy.test.ts
+  - packages/engine/test/box/real-box.box.test.ts
 priority: high
 type: feature
 ordinal: 257000
@@ -35,8 +36,8 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The web proxy listens only on the box network's host address and starts and stops with the boxes that use it
-- [ ] #2 Tunnels to the npm and PyPI registries (host name normalised) go to dipo's Safe-Chain proxy
-- [ ] #3 Other tunnels go only to public addresses: IP literals are refused, and so are names that resolve to the Mac's own addresses, its on-link prefixes, private, shared, link-local or multicast ranges, 64:ff9b::/96, 2002::/16 or the box network
-- [ ] #4 Unit tests cover the address rule and the routing; the opt-in real-box test repeats the DIPO-264 lines through the proxy
+- [x] #1 The web proxy listens only on the box network's host address and starts and stops with the boxes that use it
+- [x] #2 Tunnels to the npm and PyPI registries (host name normalised) go to dipo's Safe-Chain proxy
+- [x] #3 Other tunnels go only to public addresses: IP literals are refused, and so are names that resolve to the Mac's own addresses, its on-link prefixes, private, shared, link-local or multicast ranges, 64:ff9b::/96, 2002::/16 or the box network
+- [x] #4 Unit tests cover the address rule and the routing; the opt-in real-box test repeats the DIPO-264 lines through the proxy
 <!-- AC:END -->

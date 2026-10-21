@@ -61,6 +61,7 @@ const SHAPES: Readonly<Record<string, Shape>> = {
   statsArgs: { words: ["stats"], flags: { "--no-stream": 0, "--format": 1 }, positionals: 1 },
   copyInArgs: { words: ["copy"], flags: {}, positionals: 2 },
   copyOutArgs: { words: ["copy"], flags: {}, positionals: 2 },
+  exportArgs: { words: ["export"], flags: { "--output": 1 }, positionals: 1 },
   execArgs: {
     words: ["exec"],
     flags: { "--interactive": 0, "--workdir": 1, "--env": 1 },
@@ -250,6 +251,7 @@ function everyArgv(): Map<string, string[][]> {
     add("stopArgs", builders.stopArgs(name));
     add("deleteArgs", builders.deleteArgs(name));
     add("statsArgs", builders.statsArgs(name));
+    for (const host of HOST_PATHS) add("exportArgs", builders.exportArgs(name, host));
     for (const host of HOST_PATHS)
       for (const box of BOX_PATHS) {
         add("copyInArgs", builders.copyInArgs(name, host, box));
@@ -395,10 +397,12 @@ describe("the Apple container argument builder", () => {
       refused(() => builders.statsArgs(other));
       refused(() => execArgs({ name: other, command: ["sh"] }));
       refused(() => builders.copyInArgs(other, "/tmp/a", "/work"));
+      refused(() => builders.exportArgs(other, "/tmp/a.tar"));
     }
     for (const host of ["relative", "/tmp/a:b", "--ssh", "/tmp/a\u0000"]) {
       refused(() => builders.copyInArgs(name, host, "/work"));
       refused(() => builders.copyOutArgs(name, "/work", host));
+      refused(() => builders.exportArgs(name, host));
     }
     for (const box of ["work", "", "/work\u0007"]) {
       refused(() => builders.copyInArgs(name, "/tmp/a", box));
@@ -422,6 +426,15 @@ describe("the Apple container argument builder", () => {
       "WITH_EQ=x=y",
       NAMES[0]!,
       "env",
+    ]);
+  });
+
+  it("exports a box's filesystem to a host file only", () => {
+    expect(builders.exportArgs(NAMES[0]!, "/tmp/d269/dipo-token-check-x/box.tar")).toEqual([
+      "export",
+      "--output",
+      "/tmp/d269/dipo-token-check-x/box.tar",
+      NAMES[0]!,
     ]);
   });
 

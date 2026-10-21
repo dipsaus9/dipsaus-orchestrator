@@ -650,6 +650,7 @@ export {
 } from "./ingest/output";
 export { budgetOf, finalizeAgentUsage, readUsage, type UsageScope } from "./ingest/usage";
 export * from "./box/index";
+export { systemListenHttp, systemSpawnInteractive } from "./platform/box-host";
 export * from "./keepawake/index";
 export {
   keepAwakeCommand,

@@ -231,6 +231,14 @@ export function copyOutArgs(name: string, from: string, to: string): string[] {
 }
 
 /**
+ * Writes box `name`'s whole filesystem as a tar archive to the host path `to`. The host side
+ * makes it; no program in the box takes part.
+ */
+export function exportArgs(name: string, to: string): string[] {
+  return ["export", "--output", hostPath(to), checkedBoxName(name)];
+}
+
+/**
  * Runs a command in a box. The box name ends `container`'s options; the command follows it and
  * may not start with `-`, so it is never read as one.
  */
