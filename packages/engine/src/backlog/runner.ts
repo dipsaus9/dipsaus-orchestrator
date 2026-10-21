@@ -9,6 +9,11 @@
 // labels only with `--add-label` and `--remove-label`, never by replacing or clearing the list
 // (0010 section 3). An error is any
 // non-zero exit or a `not found` line (fact 3); it carries the command and its output.
+//
+// Every call gets a minimal, explicit environment (`backlogEnv`), never the daemon's whole one
+// (0021 section 14). The caller picks the working folder: for a story it is a folder that holds
+// only dipo's own copy of the backlog, never the worktree a worker's files land in
+// (`inStoryBacklog` in `worktree/claim.ts`).
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -19,8 +24,29 @@ export interface BacklogCli {
   readonly spawn: Spawn;
   /** The program and any leading arguments; `["backlog"]` (found on `PATH`) by default. */
   readonly command?: readonly [string, ...string[]];
-  /** The complete environment of the CLI; inherited when absent. */
-  readonly env?: Readonly<Record<string, string>>;
+  /**
+   * The environment the CLI's variables are taken from; the process's own when absent. Only
+   * `BACKLOG_ENV_KEYS` are taken (0021 section 14), so nothing else of it reaches the CLI.
+   */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * The only variables a Backlog CLI call gets (0021 section 14): `PATH` to find its runtime and
+ * `HOME` for its user settings. The daemon's other variables never reach it.
+ */
+export const BACKLOG_ENV_KEYS: readonly string[] = ["PATH", "HOME"];
+
+/** The minimal, explicit environment of a Backlog CLI call, taken from `source`. */
+export function backlogEnv(
+  source: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of BACKLOG_ENV_KEYS) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
 }
 
 export interface BacklogOutput {
@@ -293,7 +319,7 @@ export async function runBacklog(
   const command: [string, ...string[]] = [...(cli.command ?? ["backlog"]), ...args];
   let child;
   try {
-    child = cli.spawn({ cmd: command, cwd, ...(cli.env === undefined ? {} : { env: cli.env }) });
+    child = cli.spawn({ cmd: command, cwd, env: backlogEnv(cli.env ?? process.env) });
   } catch (error) {
     throw new BacklogCommandError(
       command,

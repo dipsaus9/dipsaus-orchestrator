@@ -81,7 +81,11 @@ import {
   type WorkTracker,
 } from "@dipsaus-orchestrator/engine";
 
-/** The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). */
+/**
+ * The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). The
+ * runner gives each call only `PATH` and `HOME` of the daemon's environment (`backlogEnv`), and a
+ * story's calls run in dipo's own copy of its backlog, never its worktree (0021 section 14).
+ */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
 }
