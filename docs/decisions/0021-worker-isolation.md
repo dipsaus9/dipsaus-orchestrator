@@ -369,8 +369,13 @@ Checked against the open stories on 2026-10-21. Each story is re-read before it 
     - Safe-Chain checks only the known registries, and installs from elsewhere take the direct route.
     - The proxy's address rule does not recognise a private host on a public range: one served by a VPN, a home network's global IPv6 addresses, or its own public IPv4 address reached back through the router. It also misses IPv6 forms that embed a private IPv4 address. The build proxy should also refuse the Mac's own addresses and on-link prefixes.
     - The registry check goes by name: a registry alias, or a tunnel to another name on the same CDN, reaches the registry without Safe-Chain.
-- 2026-10-21, DIPO-266 (maintainer): section 4. **The image build runs outside the box network, accepted for now.**
+- 2026-10-21, DIPO-266 (maintainer): sections 3 and 5. **The image build runs outside the box network, accepted for now.**
   - `container build` has no network option, so the image builder runs on Apple `container`'s default network, not the host-only box network.
   - No worker and no story code run during a build: only the steps dipo writes from the base branch's office config, and the install scripts of the Debian packages, Node, the package managers and Claude Code. Those scripts can reach the Mac, the local network and the registries directly; the build proxy steers the install tools by configuration, not by a wall.
-  - Workers in boxes are not affected. The build proxy runs only for the length of a build, with the box web proxy's address rules.
-  - Moving the build onto a closed network is tracked as a story.
+  - Workers in boxes are not affected. The build proxy must run only for the length of a build, with the box web proxy's address rules (DIPO-271).
+  - Moving the build onto a closed network is tracked as DIPO-286.
+- 2026-10-21, DIPO-268 (maintainer): section 3. **The accepted risk is wider than recorded.**
+  - The real-box run of dipo's web proxy showed that a box can also connect directly to a service bound to the Mac's own local-network address, not only to services that listen on all interfaces.
+  - Without the web proxy, a box still reached neither the internet, the router nor the registries; through it, the Mac, its local-network address, the box network, the router, IP literals and plain HTTP were refused.
+  - The maintainer accepts the wider risk on the same terms. DIPO-283 closes both.
+  - The box network's address exists on the Mac only while a box runs on that network, so dipo's proxies can start only after the first box of the network is running.

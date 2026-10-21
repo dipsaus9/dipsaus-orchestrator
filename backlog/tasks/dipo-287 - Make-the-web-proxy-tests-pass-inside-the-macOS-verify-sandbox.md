@@ -4,7 +4,7 @@ title: Make the web proxy tests pass inside the macOS verify sandbox
 status: Refined
 assignee: []
 created_date: '2026-10-21 16:05'
-updated_date: '2026-10-21 16:05'
+updated_date: '2026-10-21 16:26'
 labels:
   - 'tier:S'
   - cutover
@@ -13,6 +13,7 @@ milestone: m-1
 dependencies: []
 references:
   - packages/engine/test/box/web-proxy.test.ts
+  - packages/engine/src/box/web-proxy.ts
 type: bug
 ordinal: 276000
 ---

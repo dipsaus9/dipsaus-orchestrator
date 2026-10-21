@@ -4,7 +4,7 @@ title: Close the accepted risk of Mac services that listen on all interfaces
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 13:56'
+updated_date: '2026-10-21 16:26'
 labels:
   - box
   - cutover
@@ -39,7 +39,7 @@ unknowns: []
 <!-- AC:BEGIN -->
 - [ ] #1 The worker inside the box cannot undo the fix
 - [ ] #2 docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
-- [ ] #3 Line 2 of the DIPO-264 probe fails for Mac services that listen on all interfaces, except the ports the office config allows (DIPO-282)
+- [ ] #3 Line 2 of the DIPO-264 probe, and the direct line to the Mac's own local-network address in the real-box web-proxy test, fail for Mac services that listen on all interfaces or on that address, except the ports the office config allows (DIPO-282)
 <!-- AC:END -->
 
 ## Implementation Notes

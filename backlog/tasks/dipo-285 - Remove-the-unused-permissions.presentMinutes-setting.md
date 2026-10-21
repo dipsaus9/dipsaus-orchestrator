@@ -4,7 +4,7 @@ title: Remove the unused permissions.presentMinutes setting
 status: Refined
 assignee: []
 created_date: '2026-10-21 14:35'
-updated_date: '2026-10-21 14:35'
+updated_date: '2026-10-21 16:26'
 labels:
   - 'tier:S'
   - cutover
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/config/schema.ts
   - packages/engine/schema/office.schema.json
   - packages/engine/test/config/
+  - packages/engine/src/config/load.ts
 type: feature
 ordinal: 274000
 ---

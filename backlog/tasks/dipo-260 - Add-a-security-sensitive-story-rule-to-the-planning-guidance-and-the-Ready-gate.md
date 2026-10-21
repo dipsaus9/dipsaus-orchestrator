@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 16:26'
 labels:
   - 'tier:S'
   - cutover
@@ -14,6 +14,7 @@ milestone: m-1
 dependencies:
   - DIPO-251
   - DIPO-256
+  - DIPO-285
 references:
   - CLAUDE.md
   - packages/engine/src/gate/rules.ts

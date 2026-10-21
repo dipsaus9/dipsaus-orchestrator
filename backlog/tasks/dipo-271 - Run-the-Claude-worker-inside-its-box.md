@@ -4,7 +4,7 @@ title: Run the Claude worker inside its box
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 15:23'
+updated_date: '2026-10-21 16:26'
 labels:
   - 'tier:L'
   - cutover
@@ -50,4 +50,5 @@ unknowns: []
 - [ ] #7 The image build's proxy runs only for the length of a build and applies the box web proxy's address rules (0021 amendment of 2026-10-21, DIPO-266)
 - [ ] #8 A box-token hold (DIPO-269) stays until the maintainer replaces the token with dipo login box; a passing launch check alone does not lift it
 - [ ] #9 At the end of every box run dipo calls checkBoxAfterRun (DIPO-269), and at daemon start it calls sweepTokenCheckLeftovers, shown by tests
+- [ ] #10 dipo's web and model proxies for a box network start only after the first box on it is running, because the network's address exists on the Mac only then (0021 amendment of 2026-10-21, DIPO-268), shown by a test
 <!-- AC:END -->
