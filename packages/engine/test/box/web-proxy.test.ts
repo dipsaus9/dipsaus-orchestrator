@@ -365,15 +365,17 @@ function unixListen(server: Server, path: string): Promise<void> {
 /**
  * True only on macOS when a TCP listen on loopback is refused: dipo's verify step there runs under
  * Seatbelt with a closed network (DIPO-114, DIPO-287). A Linux step gets a loopback of its own, so
- * on Linux a refused loopback listen still fails the TCP tests.
+ * on Linux a refused loopback listen still fails the TCP tests. Only the sandbox's refusal (EPERM
+ * or EACCES) counts; any other listen error leaves the TCP tests on, so they fail visibly.
  */
 async function sandboxRefusesLoopback(): Promise<boolean> {
   if (process.platform !== "darwin") return false;
   const probe = createServer();
   try {
     await tcpListen(probe);
-  } catch {
-    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "EPERM" || code === "EACCES";
   }
   await new Promise<void>((resolve) => probe.close(() => resolve()));
   return false;

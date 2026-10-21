@@ -403,8 +403,9 @@ export interface BoxWebProxyDeps {
   /** The Mac's interface addresses, read for each check. */
   readonly interfaces?: () => readonly HostInterfaceAddress[];
   /**
-   * Binds the proxy's server; the default listens on TCP at `host` and `port`. Tests bind it to a
-   * Unix socket instead where a sandbox refuses TCP listens (DIPO-287); the port is then 0.
+   * Tests only: binds the proxy's server instead of the TCP listen at `host` and `port`, such as on
+   * a Unix socket where a sandbox refuses TCP listens (DIPO-287); the port is then 0. dipo never
+   * passes it.
    */
   readonly listen?: (server: Server, host: string, port: number) => Promise<void>;
   readonly onEvent?: (event: WebProxyEvent) => void;
@@ -692,6 +693,11 @@ export async function startBoxWebProxy(
   await (deps.listen ?? systemListen)(server, listenHost, options.port ?? 0);
   const address = server.address();
   const bound = typeof address === "object" && address !== null ? address : null;
+  if (deps.listen === undefined && (bound === null || bound.port === 0)) {
+    // dipo's own listen must bind a TCP port, or a box's proxy URL would name none.
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    throw new Error(`the web proxy did not bind a TCP port on ${listenHost}`);
+  }
   const host = bound?.address ?? listenHost;
   const port = bound?.port ?? 0;
   let closed: Promise<void> | null = null;
