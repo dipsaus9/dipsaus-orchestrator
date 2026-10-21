@@ -6,7 +6,7 @@ title: >-
 status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 22:21'
+updated_date: '2026-10-21 22:42'
 labels:
   - 'tier:M'
   - cutover
@@ -24,6 +24,7 @@ references:
   - packages/engine/src/run/control-endings.ts
   - packages/daemon/src/runs.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/test/unit/box-runs.test.ts
 priority: high
 type: feature
 ordinal: 266000
