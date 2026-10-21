@@ -4,7 +4,7 @@ title: Grant a worker's scope request inside its own packages by code
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:M'
   - cutover
@@ -58,3 +58,9 @@ test_plan:
 - [ ] #4 The review task message lists each granted path with its reason, and the worker contract and nudge-scope.md say, with tool-neutral wording, to report blocked with a scopeRequest when a path outside the scope is needed instead of working around it
 - [ ] #5 Tests cover each outcome of the decision, the recorded grant, the message to the session, the scope check at done, the review task message and the park on refusal
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): References are a forecast, not a write fence, so a worker needs no scope request (0021 section 13).
+<!-- SECTION:NOTES:END -->

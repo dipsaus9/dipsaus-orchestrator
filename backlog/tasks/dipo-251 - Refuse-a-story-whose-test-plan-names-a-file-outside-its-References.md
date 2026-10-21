@@ -4,10 +4,11 @@ title: Refuse a story whose test plan names a file outside its References
 status: Refined
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:S'
   - cutover
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-238
@@ -56,3 +57,9 @@ test_plan:
 - [ ] #3 Manual test plan entries are exempt, and a covered token, a check with no path token or test file name, and a story with no test plan get no R29 failure; the other rules' failures and their order are unchanged
 - [ ] #4 packages/engine/test/gate/gate.test.ts and packages/engine/test/gate/store.test.ts (the base tree list and the cache key) cover an uncovered path, the same path covered by a directory Reference, a bare test file name covered by a file Reference, covered by a directory and uncovered, a manual entry and a spike with no test plan
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: References are a forecast; R29 becomes a forecast-quality check rather than a gate (0021 section 13).
+<!-- SECTION:NOTES:END -->

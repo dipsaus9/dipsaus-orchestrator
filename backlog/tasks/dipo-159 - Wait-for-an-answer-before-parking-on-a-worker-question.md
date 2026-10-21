@@ -4,10 +4,11 @@ title: Wait for an answer before parking on a worker question
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:M'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-155
@@ -57,3 +58,9 @@ test_plan:
 - [ ] #5 dipo answer takes --text for a worker question while permission and scope questions keep allow or deny with a reason, the help text says so, and a waiting question shows on the desk with the time left
 - [ ] #6 ambiguous-spec/no-report resumes with a required note in a handoff session, and ambiguous-spec/rule-conflict with a required note, the conflict the worker named first
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: a question is live only while a TUI is connected at that moment, else the story parks (0021 section 11).
+<!-- SECTION:NOTES:END -->

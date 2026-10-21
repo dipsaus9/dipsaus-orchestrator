@@ -6,19 +6,19 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 20:25'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:M'
   - cutover
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-183
   - DIPO-228
   - DIPO-231
-  - DIPO-245
   - DIPO-250
-  - DIPO-255
   - DIPO-257
+  - DIPO-255
 references:
   - packages/engine/src/worktree/setup.ts
   - packages/engine/src/sandbox/step.ts
@@ -70,3 +70,9 @@ test_plan:
 - [ ] #4 With no Safe-Chain install, setup and the launch behave as today
 - [ ] #5 Unit tests in packages/engine/test/worktree/ and packages/engine/test/workers/launch-checks.test.ts cover the routed install, a proxy that fails to start, a failed install that stops the proxy, the launch's proxy after setup, and the case with no Safe-Chain install, with fake proxies and fake files
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: installs move into the box and the read-only cache dipo fills through Safe-Chain (0021 section 5).
+<!-- SECTION:NOTES:END -->

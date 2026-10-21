@@ -4,10 +4,11 @@ title: Check for conflicts before In Review and let the worker resolve them
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-19 21:18'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:L'
   - 'slice:m1a'
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-142
@@ -64,3 +65,9 @@ test_plan:
 - [ ] #6 A conflict found by a fetch while a story is In Review raises a notice and shows on the story detail, and is handled at the story's next In Review or merge-slot sync
 - [ ] #7 When the engine makes a clean base merge in the story worktree, it writes a carried review_verdicts row (carried from the approved head) through DIPO-146's verdict store, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: on overlap both stories continue; after the first merges, dipo brings the new main into the second story's branch and box, with a fix round when git cannot merge cleanly (0021 section 12).
+<!-- SECTION:NOTES:END -->

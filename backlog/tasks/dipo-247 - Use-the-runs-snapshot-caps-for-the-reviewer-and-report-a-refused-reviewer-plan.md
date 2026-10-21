@@ -6,10 +6,11 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 20:26'
+updated_date: '2026-10-21 09:20'
 labels:
   - 'tier:S'
   - cutover
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-183
@@ -51,3 +52,9 @@ test_plan:
 - [ ] #2 A PlanError at reviewer launch raises the run.planRefused engine.notice on the office with planRefusedText, as the worker launch does, besides returning the failed start
 - [ ] #3 packages/engine/test/run/reviews.test.ts covers the snapshot caps after a config change, the planRefused notice, a reviewer whose worker host is lost and a reviewer past its minute cap
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the reviewer has no box; its tools are read-only plus web (0021 section 10).
+<!-- SECTION:NOTES:END -->

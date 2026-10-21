@@ -3,13 +3,14 @@ id: DIPO-257
 title: >-
   Hold only the failed launch kind in one office when a launch check could not
   run, with backoff
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 21:37'
+updated_date: '2026-10-21 09:22'
 labels:
   - 'tier:M'
   - cutover
+  - needs-refinement
 milestone: m-1
 dependencies:
   - DIPO-250
@@ -63,3 +64,9 @@ test_plan:
 - [ ] #4 In Places.drain a review start that backs off is passed over and the next pending review in order starts in its place; the backed-off review starts again after its wait with no other trigger, and the drain's minute tick keeps running while any start waits for a backoff (design choice, not a maintainer decision; the maintainer may change it before a run)
 - [ ] #5 Tests in packages/engine/test/workers/launch-checks.test.ts, packages/engine/test/run/places.test.ts packages/engine/test/run/reviews.test.ts and packages/engine/test/run/work-run.test.ts cover the unsafe and the could-not-run holds, the backoff with a manual clock, the notice text, the passed-over head and the retry after the wait
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: launch-check holds become checks of the box and its probe (0021 sections 1 and 16).
+<!-- SECTION:NOTES:END -->

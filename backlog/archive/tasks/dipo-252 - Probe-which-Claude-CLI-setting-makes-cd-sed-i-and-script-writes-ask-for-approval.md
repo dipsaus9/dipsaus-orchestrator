@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-20 20:44'
+updated_date: '2026-10-21 09:21'
 labels:
   - 'tier:S'
   - cutover
@@ -41,3 +41,9 @@ unknowns: []
 - [ ] #2 The same facts file shows, with the setting that stops those prompts switched off, whether the Read and Edit tools are refused for a canary file outside the worktree and the toolchain read paths, and whether a Bash command that reads or writes that canary is refused by the OS sandbox
 - [ ] #3 When both hold, docs/decisions/0008-worker-adapter.md gains a dated section 2 note (D1, 2026-10-20) that names the setting dipo switches off and the facts it rests on; when either fails, no note is added and the facts file names what failed and the options left (explicit Read deny rules, or keeping the setting)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by decision 0021 (worker isolation, DIPO-263, 2026-10-21): the worker runs in its own box with all permissions, so which Claude CLI setting asks for approval on cd, sed -i or script writes no longer matters; the escape probe (0021 section 16) replaces this spike.
+<!-- SECTION:NOTES:END -->
