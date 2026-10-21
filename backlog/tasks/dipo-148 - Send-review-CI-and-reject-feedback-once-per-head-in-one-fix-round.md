@@ -4,7 +4,7 @@ title: 'Send review, CI and reject feedback once per head in one fix round'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 20:24'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -18,6 +18,7 @@ dependencies:
   - DIPO-239
   - DIPO-240
   - DIPO-284
+  - DIPO-289
 references:
   - packages/engine/src/run/
   - packages/engine/src/prompts/

@@ -3,10 +3,10 @@ id: DIPO-272
 title: >-
   Carry the worker's part, done, question, blocked and proposal messages through
   the box door
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 20:03'
+updated_date: '2026-10-21 20:24'
 labels:
   - 'tier:M'
   - cutover

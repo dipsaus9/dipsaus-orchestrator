@@ -1,10 +1,10 @@
 ---
 id: DIPO-271
 title: Run the Claude worker inside its box
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 17:48'
+updated_date: '2026-10-21 20:24'
 labels:
   - 'tier:L'
   - cutover

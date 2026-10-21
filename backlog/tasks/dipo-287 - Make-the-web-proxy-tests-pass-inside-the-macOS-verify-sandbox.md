@@ -1,10 +1,10 @@
 ---
 id: DIPO-287
 title: Make the web proxy tests pass inside the macOS verify sandbox
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 16:05'
-updated_date: '2026-10-21 17:50'
+updated_date: '2026-10-21 20:24'
 labels:
   - 'tier:S'
   - cutover
