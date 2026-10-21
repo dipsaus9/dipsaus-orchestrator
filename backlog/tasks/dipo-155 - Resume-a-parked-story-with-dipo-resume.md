@@ -4,7 +4,7 @@ title: Resume a parked story with dipo resume
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 20:24'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -17,6 +17,7 @@ dependencies:
   - DIPO-142
   - DIPO-144
   - DIPO-284
+  - DIPO-289
 references:
   - packages/contract/src/
   - packages/contract/schema/

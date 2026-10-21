@@ -4,7 +4,7 @@ title: 'Resume capped, conflicted and review-loop stories'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 20:24'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -18,6 +18,7 @@ dependencies:
   - DIPO-151
   - DIPO-205
   - DIPO-284
+  - DIPO-289
 references:
   - packages/engine/src/run/
   - packages/engine/src/merge-slot/
