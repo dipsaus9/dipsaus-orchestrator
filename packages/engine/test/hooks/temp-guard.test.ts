@@ -113,6 +113,22 @@ const REFUSED: Array<[string, string]> = [
   ["{ 'if' x; bash; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["{ \\if x; bash; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
   ["{ bash; 'fi'; } <<'EOF'\nexport DIPO_TMP=/x\nEOF", "DIPO_TMP"],
+  // ANSI-C quoting `$'...'` and locale quoting `$"..."` read as the word they spell (DIPO-242).
+  ["export $'DIPO_TMP=/x'", "DIPO_TMP"],
+  ["$'DIPO_TMP=/x' ls", "DIPO_TMP"],
+  ["env $'DIPO_TMP=/x' ls", "DIPO_TMP"],
+  ["unset $'DIPO_TMP'", "DIPO_TMP"],
+  ['$"TMPDIR=/x" bun test', "TMPDIR"],
+  ["$'\\x44IPO_TMP=/x' ls", "DIPO_TMP"],
+  ["$'\\110\\x4f\\x4f' ; $'\\x44IPO_TMP=/x'", "DIPO_TMP"],
+  ["echo $'it\\'s' && DIPO_TMP=/x bun test", "DIPO_TMP"],
+  ["echo \"$(echo $'\\')' ) x\" && unset TMPDIR", "TMPDIR"],
+  // `$$` and an escaped `$` open no ANSI-C span (DIPO-242 review).
+  ["echo $$'\\'; DIPO_TMP=/x bun test; echo 'x'", "DIPO_TMP"],
+  ["echo $$'\\'; export DIPO_TMP=/x; echo 'x'", "DIPO_TMP"],
+  ["echo $$'\\'; unset TMPDIR; echo 'x'", "TMPDIR"],
+  ["echo \"$(echo \\$'\\'; DIPO_TMP=/x bun test)\"", "DIPO_TMP"],
+  ["echo \"$(echo \\$'\\'; export DIPO_TMP=/x)\"", "DIPO_TMP"],
 ];
 
 const PASSED = [
@@ -176,6 +192,12 @@ const PASSED = [
   "echo \\done",
   "echo 'fi' <<'EOF'\nexport DIPO_TMP=/x\nEOF",
   "echo \\done <<'EOF'\nexport TMPDIR=/x\nEOF",
+  // ANSI-C and locale quoting spell a word that is no guarded variable, or only reads one (DIPO-242).
+  "echo $'DIPO_TMP'",
+  "export $'DIPO_TMP_ROOT=x'",
+  "echo $'it\\'s'",
+  'echo $"TMPDIR"',
+  "echo $'\\x44IPO_TMP=1' > out.txt",
 ];
 
 describe("refusedTempVariable (pure)", () => {
