@@ -630,7 +630,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     host: { home, uid, env },
     ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
-    // A box run has no backstop or scope check, and its last part goes before verify (DIPO-273).
+    // A box run has no backstop or scope check, its last part goes before verify (DIPO-273), and
+    // verify runs in its box while its parts are held (DIPO-274).
     ...(boxed === null
       ? {}
       : {
@@ -639,8 +640,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
               const paths = runPaths(office, run);
               return paths !== null && boxed.workers.isBoxRun(paths.runDir);
             },
-            deliverLast: (runId: string, message: string) =>
-              boxed.parts.deliverLast(runId, message),
+            verifyLast: (runId, message, verify) => boxed.parts.verifyLast(runId, message, verify),
           },
         }),
     warn: (message, fields) => options.logger.warn(message, fields),
