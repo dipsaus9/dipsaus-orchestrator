@@ -4,7 +4,7 @@ title: Build the box image without a route to the Mac or the local network
 status: To Do
 assignee: []
 created_date: '2026-10-21 15:23'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 16:30'
 labels:
   - box
   - cutover
@@ -30,7 +30,8 @@ Context: `container build` has no network option, so today's build runs on Apple
 ```dipo
 branch: "DIPO-286/closed-image-build"
 unknowns:
-  - "Build inside a box on the host-only network and turn it into an image, or install without lifecycle scripts and run only trusted steps"
+  - q: "Build inside a box on the host-only network and turn it into an image, or install without lifecycle scripts and run only trusted steps?"
+    status: "open"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

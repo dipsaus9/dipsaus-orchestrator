@@ -1,10 +1,10 @@
 ---
 id: DIPO-283
-title: Close the accepted risk of Mac services that listen on all interfaces
+title: Close the accepted risk of a box reaching services on the Mac
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 16:26'
+updated_date: '2026-10-21 16:30'
 labels:
   - box
   - cutover
@@ -26,7 +26,7 @@ ordinal: 272000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: a box can no longer reach services on the Mac that listen on all interfaces, with the fix the maintainer chose in the 0021 amendment of 2026-10-21, so the accepted risk is closed.
+Outcome: a box can no longer reach services on the Mac that listen on all interfaces or on the Mac's own local-network address, with the fix the maintainer chose in the 0021 amendment of 2026-10-21, so the accepted risk is closed.
 Context: Decision 0021 (worker isolation, DIPO-263) and the probe results of DIPO-264 (tools/box-probe/RESULTS.md and the 0021 amendment of 2026-10-21).
 
 ```dipo
