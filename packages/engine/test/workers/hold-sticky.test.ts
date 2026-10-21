@@ -23,6 +23,7 @@ import {
   type HoldNotice,
   holdMessage,
   type LaunchCheckFailure,
+  type StickyHoldRecord,
 } from "../../src/workers/hold";
 
 const ADAPTER = "claude-cli";
@@ -137,6 +138,45 @@ describe("the sticky box-token hold", () => {
     expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
     expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(false);
     expect(holds.liftSticky(ADAPTER)).toBe(true);
+    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+  });
+
+  it("keeps an unrecorded sticky hold under a later non-sticky hold, and records it on a later look", async () => {
+    let record: StickyHoldRecord | null = null;
+    let writable = false;
+    const holds = new AdapterHolds({
+      clock: new ManualClock(),
+      notify: () => {},
+      sticky: {
+        checks: new Set([BOX_TOKEN_CHECK]),
+        liftedBy: BOX_TOKEN_LIFTED_BY,
+        store: {
+          read: () => record,
+          write: (next) => {
+            if (!writable) throw new Error("EACCES");
+            record = next;
+          },
+          clear: () => {
+            record = null;
+          },
+        },
+      },
+    });
+    holds.hold(ADAPTER, [FOUND]);
+    expect(record).toBeNull();
+    // A later hold of another check does not replace the sticky failure ...
+    const later = holds.hold(ADAPTER, [PROBE]);
+    expect(later.failures).toEqual([FOUND, PROBE]);
+    expect(later.liftedBy).toBe(BOX_TOKEN_LIFTED_BY);
+    // ... so a passing launch check lifts only the other failure.
+    expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(false);
+    expect(holds.adapterHeld(ADAPTER)?.failures).toEqual([FOUND]);
+    // The record is written once the store takes it again, at the next look.
+    writable = true;
+    expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+    expect(record).toMatchObject({ adapter: ADAPTER, failures: [FOUND] });
+    // From then on the record decides: `dipo login box` removing it lifts the hold.
+    record = null;
     expect(holds.adapterHeld(ADAPTER)).toBeNull();
   });
 
