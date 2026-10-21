@@ -213,7 +213,7 @@ tiers:                                          # caps from 0008 section 9; budg
   M: { model: sonnet, effort: medium, budgetTokens: 800000,  maxTurns: 120, maxMinutes: 60,  loops: 5 }
   L: { model: opus,   effort: high,   budgetTokens: 2000000, maxTurns: 200, maxMinutes: 120, loops: 8 }
 worker: { adapter: claude-cli }
-permissions: { ask: when-present, presentMinutes: 10 }
+permissions: { ask: when-present }
 timeouts: { workerStallMinutes: 20, workerQuietMinutes: 3, questionWaitMinutes: 15, permissionWaitSeconds: 300 }
 scripts:
   verify: bun run verify                        # meaning from 0013
@@ -296,4 +296,4 @@ Changes to accepted ADRs, each with a dated line under its "Amendments" (maintai
 - 2026-10-12, M0 review (maintainer): the safety recording for the token check uses `gh auth token`, following the 0008 amendment of the same date (section 2 text corrected in place).
 - 2026-10-16, DIPO-135 (maintainer): section 5, "Precedence". The privacy settings are no longer all off by default: `privacy.storeCommandBodies` is on by default, and `privacy.storePrompts` is on by default from the story that builds prompt storage (0007 amendment of the same date); `privacy.keepRawEvents` stays off. They stay accepted only in `.dipo/office.local.yaml`.
 - 2026-10-18, DIPO-172 (maintainer): section 5, "Precedence". `sandbox.toolchainReadPaths` is accepted in `.dipo/office.local.yaml`, so a machine-specific toolchain directory such as `~/.nvm/versions/node` stays out of the committed file (maintainer decision 2026-10-17, option A). Unlike other lists it does not replace: its entries are added to the committed list, or to the default when `office.yaml` sets none, each path once. Any other `sandbox.*` key in the local file stays a validation error. It is office configuration version 4, with an identity migration from version 3. A run is refused when an auth key sits in a `.npmrc` at the root of a read path or in the `etc/npmrc` of a node install found under one (a node version directory, nvm's `versions/node/<v>`, or the prefix of a `bin` on the worker's PATH); npm tokens belong in `~/.npmrc`. Deeper version-manager layouts such as asdf, fnm and Volta are not searched.
-- 2026-10-21, DIPO-285: section 5, the sample configuration. `permissions.presentMinutes` is retired in office config version 10 (0008 amendment of the same date); the sample's `permissions` line keeps only `ask`.
+- 2026-10-21, DIPO-285: section 5, the sample configuration. `permissions.presentMinutes` is retired in office config version 10 (0008 amendment of the same date); the sample's `permissions` line keeps only `ask` (corrected in place).

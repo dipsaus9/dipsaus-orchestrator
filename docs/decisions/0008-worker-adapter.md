@@ -265,7 +265,7 @@ tiers:            # .dipo/office.yaml (shell from 0017); defaults, tuned after M
   M: { model: sonnet, effort: medium, budgetTokens: 800000,  maxTurns: 120, maxMinutes: 60,  loops: 5 }
   L: { model: opus,   effort: high,   budgetTokens: 2000000, maxTurns: 200, maxMinutes: 120, loops: 8 }
 worker: { adapter: claude-cli }
-permissions: { ask: when-present, presentMinutes: 10 }
+permissions: { ask: when-present }
 timeouts: { workerStallMinutes: 20, workerQuietMinutes: 3, questionWaitMinutes: 15, permissionWaitSeconds: 300 }
 ```
 
@@ -398,4 +398,4 @@ Changes to accepted ADRs, each with a dated line under its "Amendments":
 - 2026-10-20, DIPO-256 (maintainer): section 9. The tier default caps are raised: S from 60 turns and 30 minutes to 90 and 45, M from 120 and 60 to 200 and 90, L from 200 and 120 to 300 and 180; token budgets are unchanged. Reason: in the M1 runs S used 26 turns on average with two runs capped at 64 and 65, M 65 on average with a maximum of 185, L 134 on average with a maximum of 173, and no run hit its token budget.
 - 2026-10-20, DIPO-257 (maintainer): sections 2 and 7, the adapter hold. A launch check that proves the sandbox unsafe holds the adapter in every office. A launch check that could not run holds only that launch kind (worker or reviewer) in that office, is checked again with backoff, and its notice names the probe and the fix.
 - 2026-10-21, DIPO-263 (maintainer, decision 0021): the worker adapter runs the whole worker (the `claude` program, its tools and its copy of the code) in one real box per story, an Apple `container` VM behind a box interface (0021 sections 1 to 7). The Bash sandbox settings, permission rules, the PermissionRequest relay, allow-once answers, the Bash hook and the self-test approval probe go; the credential check becomes part of the escape probe (0021 section 16). The sentence that an allow-once answer cannot lift a sandbox block, and the sentence that a value cannot leave the machine except through the model API, no longer hold and are replaced by 0021.
-- 2026-10-21, DIPO-285 (decision 0021 section 11, after DIPO-279): section 5, "Maintainer present". The presence window is gone: a question is live only while a TUI is connected at that moment, and the story parks at once when the last TUI closes (DIPO-284). Office config version 10 retires `permissions.presentMinutes`; an older file that sets it loads with a warning that names the key.
+- 2026-10-21, DIPO-285 (decision 0021 section 11, after DIPO-279): section 5, "Maintainer present". The presence window is gone: a question is live only while a TUI is connected at that moment, and the story parks at once when the last TUI closes (DIPO-284). Office config version 10 retires `permissions.presentMinutes`; an older file that sets it loads with a warning that names the key. The section 9 sample drops it (corrected in place).

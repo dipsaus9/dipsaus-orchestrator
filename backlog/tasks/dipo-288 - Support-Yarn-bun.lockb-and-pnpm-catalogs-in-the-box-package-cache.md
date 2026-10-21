@@ -4,7 +4,7 @@ title: 'Support Yarn, bun.lockb and pnpm catalogs in the box package cache'
 status: To Do
 assignee: []
 created_date: '2026-10-21 17:40'
-updated_date: '2026-10-21 17:40'
+updated_date: '2026-10-21 17:42'
 labels:
   - box
   - needs-refinement
@@ -28,7 +28,11 @@ Context: DIPO-267 refuses these with box.cacheUnsupported, so such an office get
 
 ```dipo
 branch: "DIPO-288/more-cache-formats"
-unknowns: []
+unknowns:
+  - q: "How does dipo read the binary bun.lockb and Yarn's lockfile formats so the input checks of DIPO-267 still hold?"
+    status: "open"
+  - q: "How are pnpm catalog entries checked, given they name versions outside the lockfile's packages?"
+    status: "open"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
