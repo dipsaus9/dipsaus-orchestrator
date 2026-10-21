@@ -1,5 +1,6 @@
 // One real box per story (0021 sections 1 to 6, DIPO-265): the box interface and its Apple
-// `container` backend, and the box image built from the office config (DIPO-266).
+// `container` backend, the box image built from the office config (DIPO-266), and the office
+// package cache (DIPO-267).
 
 export {
   BOX_IMAGE_LABEL_VALUE,
@@ -73,6 +74,53 @@ export type {
   BoxSpec,
   BoxState,
 } from "./port";
+export {
+  boxCacheInstall,
+  CACHE_LOCKFILES,
+  checkCopiedTree,
+  createBoxWithPackageCache,
+  ensurePackageCache,
+  FILL_ARCHIVE,
+  FILL_BOX_DIR,
+  FILL_BOX_RUN_PREFIX,
+  fillInstall,
+  lockfileHash,
+  managerVersion,
+  PACKAGE_CACHE_COPY_TIMEOUT_MS,
+  PACKAGE_CACHE_FILL_TIMEOUT_MS,
+  PACKAGE_CACHE_FORMAT,
+  PACKAGE_CACHE_MAX_MANIFESTS,
+  PACKAGE_CACHE_STAMP,
+  packageCacheKey,
+  readBaseLockfile,
+  resolvePackageCacheMount,
+} from "./cache";
+export type {
+  BoxCacheInstall,
+  BoxWithCacheRequest,
+  FillBoxes,
+  FillCleanupFailure,
+  FillInstall,
+  FillRoute,
+  PackageCache,
+  PackageCacheEvent,
+  PackageCacheImage,
+  PackageCacheRequest,
+  PackageCacheStamp,
+} from "./cache";
+export { CACHE_ARCHIVE_LIMITS, extractCacheArchive, streamCacheArchive } from "./cache-extract";
+export type { CacheArchiveLimits, CacheArchiveStream } from "./cache-extract";
+export {
+  checkFillInput,
+  isBunRegistry,
+  isPnpmVersion,
+  isProjectGlob,
+  isProjectPath,
+  isRegistrySpec,
+  isRegistryTarball,
+  withoutTrailingCommas,
+} from "./cache-input";
+export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 export {
   BOX_DEFAULTS,
   boxBuildFile,

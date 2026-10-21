@@ -100,8 +100,8 @@ export function checkedBoxName(name: string): string {
 
 /**
  * The read-only mount of the office package cache, the only mount a box gets. Checked as text
- * only: DIPO-267 will also require the path, resolved with realpath, to lie under dipo's own
- * cache root, so a symlink cannot point the mount elsewhere.
+ * here; the backend first resolves the path with realpath and requires it under dipo's own cache
+ * root (`resolvePackageCacheMount`, DIPO-267), so a symlink cannot point the mount elsewhere.
  */
 function cacheMount(path: string, home: string): string {
   absolutePath(path, "package cache");
