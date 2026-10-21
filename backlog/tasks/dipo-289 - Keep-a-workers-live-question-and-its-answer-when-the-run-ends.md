@@ -4,7 +4,7 @@ title: Keep a worker's live question and its answer when the run ends
 status: Refined
 assignee: []
 created_date: '2026-10-21 20:24'
-updated_date: '2026-10-21 20:24'
+updated_date: '2026-10-21 20:26'
 labels:
   - 'tier:S'
   - cutover
@@ -12,7 +12,11 @@ milestone: m-1
 dependencies: []
 references:
   - packages/engine/src/hooks/permissions.ts
+  - packages/engine/src/hooks/questions.ts
   - packages/engine/src/run/park.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/control.ts
+  - packages/engine/src/run/live-question.ts
   - packages/engine/test/hooks/
 type: bug
 ordinal: 278000
