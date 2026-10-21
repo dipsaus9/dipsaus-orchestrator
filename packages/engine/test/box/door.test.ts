@@ -594,6 +594,7 @@ describe("the door poller (criterion 1)", () => {
         {
           runId: "run_1",
           box: "dipo-run_1",
+          runDir: dir,
           n: 1,
           name: "1700000000-1.part",
           message: "Add the reader",

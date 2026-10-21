@@ -83,6 +83,12 @@ export const PARK_CAUSES = {
   tampered: "tampered",
   /** `scope-violation`: the story's task file holds fields dipo does not know (0021 section 14). */
   taskFile: "task-file",
+  /** `scope-violation`: a box part changes a protected file or holds a link (0021 section 8). */
+  protectedFile: "protected-file",
+  /** `scope-violation`: a box part holds what looks like a secret (0021 section 8). */
+  secret: "secret",
+  /** `scope-violation`: a box part dipo could not take out of the box (too big, a hostile archive). */
+  partRefused: "part-refused",
   /** `scope-violation`: the backstop saw HEAD, branch, stash, `backlog/` or `.dipo/` change. */
   backstop: "backstop",
   /** `scope-violation`: reconcile found the worktree or branch changed by hand. */

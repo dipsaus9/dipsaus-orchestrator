@@ -477,6 +477,25 @@ export class RunControl implements RunEnder {
   }
 
   /**
+   * Parks a tracked run while its worker works, outside any turn (DIPO-273: a box part's scan hit
+   * or rejected push): the stop sequence is sent, as for `work.stop`, and the story parks with
+   * `reason`, `cause` and `detail`. False when another decision came first.
+   */
+  parkRun(
+    runId: string,
+    park: { readonly reason: ParkReason; readonly cause: string; readonly detail: string },
+  ): boolean {
+    return this.begin(runId, {
+      intent: "park",
+      ops: this.#deps.encode({ kind: "stop" }),
+      reason: park.reason,
+      cause: park.cause,
+      detail: park.detail,
+      endKind: park.reason,
+    });
+  }
+
+  /**
    * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
