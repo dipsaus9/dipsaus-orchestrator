@@ -27,8 +27,8 @@ import {
   OFFICE_DEFAULTS,
   OFFICE_FILE_SCHEMAS,
   OFFICE_LOCAL_FILE_SCHEMAS,
-  OfficeConfigV8,
-  OfficeOverridesV8,
+  OfficeConfigV9,
+  OfficeOverridesV9,
   type OfficeConfig,
   type OfficeConfigVersion,
 } from "./schema";
@@ -76,6 +76,7 @@ const KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = {
   "story.maintainerStepPhrases": 6,
   storyPr: 7,
   "worker.web": 8,
+  box: 9,
 };
 
 // The same for `office.local.yaml`: version 4 lets it set `sandbox.toolchainReadPaths` (DIPO-172).
@@ -262,7 +263,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   }
 
   if (sources.flags !== undefined) {
-    const checked = validate(FLAGS_SOURCE, OfficeOverridesV8, sources.flags);
+    const checked = validate(FLAGS_SOURCE, OfficeOverridesV9, sources.flags);
     if (checked.ok) layers.push(over(checked.value));
     else errors.push(...checked.errors);
   }
@@ -270,7 +271,7 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   if (errors.length > 0) return { ok: false, errors };
 
   const merged = layers.reduce<unknown>((base, layer) => layer(base), OFFICE_DEFAULTS);
-  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV8, merged);
+  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV9, merged);
   if (!effective.ok) return { ok: false, errors: effective.errors };
   const config = effective.value as OfficeConfig;
   return { ok: true, config, configHash: configHash(config), localOverrideKeys: localKeys };

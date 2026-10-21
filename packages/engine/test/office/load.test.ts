@@ -65,7 +65,7 @@ describe("lazy office loading", () => {
           path: repo.dir,
           commonDir: join(repo.dir, ".git"),
         });
-        expect(seen[0]?.config?.version).toBe(8);
+        expect(seen[0]?.config?.version).toBe(9);
       },
       { fixture: BACKLOG_FIXTURE },
     );

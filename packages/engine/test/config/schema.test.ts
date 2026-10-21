@@ -12,6 +12,7 @@ import {
   OfficeConfigV6,
   OfficeConfigV7,
   OfficeConfigV8,
+  OfficeConfigV9,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -20,6 +21,7 @@ import {
   OfficeFileV6,
   OfficeFileV7,
   OfficeFileV8,
+  OfficeFileV9,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -28,6 +30,7 @@ import {
   OfficeLocalFileV6,
   OfficeLocalFileV7,
   OfficeLocalFileV8,
+  OfficeLocalFileV9,
   privacyOptIns,
   schemaKeyPaths,
 } from "../../src/config";
@@ -356,7 +359,6 @@ function officeFileV8(body: object): boolean {
 
 describe("version 8 key paths", () => {
   it("are the version 7 paths plus worker.web, which office.local.yaml does not take", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(8);
     expect(schemaKeyPaths(OfficeConfigV8)).toEqual(VERSION_8_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV8)).toEqual(
       VERSION_8_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -378,69 +380,192 @@ describe("version 8 key paths", () => {
   });
 });
 
+// Version 9 (DIPO-266): the box block. office.local.yaml does not take it: dipo reads the box from
+// the base branch only.
+const VERSION_9_KEY_PATHS = [
+  ...VERSION_8_KEY_PATHS,
+  "box.debian",
+  "box.toolchain.node",
+  "box.toolchain.bun",
+  "box.toolchain.pnpm",
+  "box.toolchain.yarn",
+  "box.packages",
+  "box.claudeCode",
+  "box.files",
+];
+
+/** Whether `.dipo/office.yaml` version 9 accepts `box` as given. */
+function boxV9(box: object): boolean {
+  return OfficeFileV9.safeParse({ version: 9, box }).success;
+}
+
+describe("version 9 key paths", () => {
+  it("are the version 8 paths plus the box block, which office.local.yaml does not take", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(9);
+    expect(schemaKeyPaths(OfficeConfigV9)).toEqual(VERSION_9_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV9)).toEqual(
+      VERSION_9_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV9)).toEqual(
+      VERSION_9_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+    expect(OfficeLocalFileV9.safeParse({ version: 9, box: {} }).success).toBe(false);
+  });
+
+  it("accept a full box block, and any part of it", () => {
+    expect(
+      boxV9({
+        debian: "trixie",
+        toolchain: { node: "24.22.1", bun: "1.4.2", pnpm: "12.14.0", yarn: "1.22.22" },
+        packages: ["jq", "libssl-dev=3.5.1-1", "g++"],
+        claudeCode: "2.1.303",
+        files: [{ path: "config/dev.env.example", noRealSecrets: true }],
+      }),
+    ).toBe(true);
+    expect(boxV9({})).toBe(true);
+    expect(boxV9({ toolchain: { bun: "1.4.2" } })).toBe(true);
+    expect(boxV9({ debian: "13" })).toBe(true);
+  });
+
+  it("refuse a file outside git that is not marked as holding no real secrets", () => {
+    expect(boxV9({ files: [{ path: ".env.local" }] })).toBe(false);
+    expect(boxV9({ files: [{ path: ".env.local", noRealSecrets: false }] })).toBe(false);
+    expect(boxV9({ files: [{ path: ".env.local", noRealSecrets: "yes" }] })).toBe(false);
+    expect(boxV9({ files: [".env.local"] })).toBe(false);
+  });
+
+  it("refuse a file path that leaves the repository or names git's folder", () => {
+    for (const path of [
+      "/etc/passwd",
+      "../secrets.env",
+      "a/../../b",
+      "./a",
+      "a//b",
+      "a/",
+      ".git/config",
+      "sub/.git/hooks/pre-commit",
+      "a:b",
+      "a\\b",
+      "a\nb",
+      "",
+    ]) {
+      expect(boxV9({ files: [{ path, noRealSecrets: true }] })).toBe(false);
+    }
+    expect(
+      boxV9({
+        files: [
+          { path: "a.env", noRealSecrets: true },
+          { path: "a.env", noRealSecrets: true },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("refuse versions that are not exact, Yarn 2+, and unknown tools", () => {
+    for (const version of ["1.4", "^1.4.2", "latest", "v1.4.2", "1.4.2-canary"]) {
+      expect(boxV9({ toolchain: { bun: version } })).toBe(false);
+      expect(boxV9({ claudeCode: version })).toBe(false);
+    }
+    expect(boxV9({ toolchain: { yarn: "4.5.0" } })).toBe(false);
+    expect(boxV9({ toolchain: { deno: "2.0.0" } })).toBe(false);
+  });
+
+  it("refuse a package name that could break the build file, and git", () => {
+    for (const name of ["jq; curl evil", "-y", "Jq", "a b", "$(id)", "git", "git=1:2.47.2-0.1"]) {
+      expect(boxV9({ packages: [name] })).toBe(false);
+    }
+    expect(boxV9({ packages: ["jq", "jq"] })).toBe(false);
+    expect(boxV9({ packages: ["git-lfs"] })).toBe(true);
+  });
+
+  it("refuse a Debian release that is not a release name, and unknown box keys", () => {
+    for (const debian of ["trixie-slim:latest", "Trixie", "../x", "a b", ""]) {
+      expect(boxV9({ debian })).toBe(false);
+    }
+    expect(boxV9({ image: "alpine" })).toBe(false);
+    expect(boxV9({ buildFile: "Containerfile" })).toBe(false);
+  });
+
+  it("keep version 8 without box", () => {
+    expect(OfficeFileV8.safeParse({ version: 8, box: {} }).success).toBe(false);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 8 as the identity", () => {
+  it("migrates version 1 to 9 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 8 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 9 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 8 as the identity", () => {
+  it("migrates version 2 to 9 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 8 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 9 });
   });
 
-  it("migrates version 3 to 8 as the identity", () => {
+  it("migrates version 3 to 9 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 8 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 9 });
   });
 
-  it("migrates version 4 to 8 as the identity", () => {
+  it("migrates version 4 to 9 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 8 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 9 });
   });
 
-  it("migrates version 5 to 8 as the identity", () => {
+  it("migrates version 5 to 9 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 8 });
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 9 });
   });
 
-  it("migrates version 6 to 8 as the identity", () => {
+  it("migrates version 6 to 9 as the identity", () => {
     const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 8 });
+    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 9 });
   });
 
-  it("migrates version 7 to 8 as the identity", () => {
+  it("migrates version 7 to 9 as the identity", () => {
     const v7 = { version: 7, storyPr: { open: false } };
-    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 8 });
+    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 9 });
   });
 
-  it("leaves a version 8 document as it is", () => {
+  it("migrates version 8 to 9 as the identity", () => {
     const v8 = { version: 8, worker: { web: false } };
-    expect(migrateOfficeDocument(8, v8)).toEqual(v8);
+    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 9 });
   });
 
-  it("turns the version 1 defaults into the version 8 defaults but worker.plugins, worker.web, mergeSlot, review, the step phrases and storyPr", () => {
+  it("leaves a version 9 document as it is", () => {
+    const v9 = { version: 9, box: { debian: "trixie" } };
+    expect(migrateOfficeDocument(9, v9)).toEqual(v9);
+  });
+
+  it("turns the version 1 defaults into the version 9 defaults but worker.plugins, worker.web, mergeSlot, review, the step phrases, storyPr and box", () => {
     const { plugins: _plugins, web: _web, ...worker } = OFFICE_DEFAULTS.worker;
     const { maintainerStepPhrases: _phrases, ...story } = OFFICE_DEFAULTS.story;
-    const { mergeSlot: _mergeSlot, review: _review, storyPr: _storyPr, ...rest } = OFFICE_DEFAULTS;
+    const {
+      mergeSlot: _mergeSlot,
+      review: _review,
+      storyPr: _storyPr,
+      box: _box,
+      ...rest
+    } = OFFICE_DEFAULTS;
     const v1 = OfficeConfigV1.parse({ ...rest, story, version: 1, worker });
     expect(
-      OfficeConfigV8.parse({
+      OfficeConfigV9.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
         review: OFFICE_DEFAULTS.review,
         story: OFFICE_DEFAULTS.story,
         storyPr: OFFICE_DEFAULTS.storyPr,
+        box: OFFICE_DEFAULTS.box,
       }),
     ).toEqual(OFFICE_DEFAULTS);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 8 configuration", () => {
-    expect(OfficeConfigV8.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 9 configuration", () => {
+    expect(OfficeConfigV9.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 
   it("open the story PR (0019 section 3)", () => {
