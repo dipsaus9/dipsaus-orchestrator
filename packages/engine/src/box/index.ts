@@ -312,3 +312,14 @@ export type {
 } from "./parts";
 export { ignoreFileDir, IgnoreRules } from "./ignore";
 export type { IgnoreFile } from "./ignore";
+export {
+  BoxCollisions,
+  CATCH_UP_CAUSES,
+  COLLISION_NOTICES,
+  COLLISION_POLL_MS,
+  findOverlaps,
+  overlappingPaths,
+  pathsOverlap,
+  storyChangedFiles,
+} from "./collisions";
+export type { BoxCollisionsDeps, CollisionNotice, StoryChanges, StoryOverlap } from "./collisions";
