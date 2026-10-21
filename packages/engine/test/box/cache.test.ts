@@ -3,6 +3,7 @@
 // box, the copied-out symlinks, the cache root rule, the realpath rule, the read-only attachment,
 // the start install in the box, and the lockfile read from the base branch's git objects.
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -97,8 +98,8 @@ type InstallResult = { code: number; stdout?: string; stderr?: string } | BoxErr
 
 /**
  * A fake box port for fill boxes: a host folder stands for the box's files. `copyIn` and
- * `copyOut` copy into and out of it (keeping symlinks as links, as `container copy` does), and
- * the install writes into the cache folder it names, through `install`.
+ * `copyOut` copy into and out of it, the install writes into the cache folder it names, through
+ * `install`, and the host's tar packs that folder into the archive that is copied out.
  */
 function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = writePackage) {
   const boxFs = join(dir, "box-fs");
@@ -106,6 +107,7 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
   const specs: BoxSpec[] = [];
   const installs: { command: readonly string[]; options: BoxExecOptions | undefined }[] = [];
   let failCreate: BoxError | null = null;
+  let failDelete = false;
   const boxes: FillBoxes = {
     network: async () => {
       calls.push("network");
@@ -125,12 +127,23 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
     },
     delete: async (name) => {
       calls.push(`delete ${name}`);
+      if (failDelete) throw new BoxError("box.failed", "container delete failed");
     },
     exec: async (name, command, options) => {
       calls.push(`exec ${name} ${command[0]}`);
       if (command[0] === "mkdir") {
         mkdirSync(join(boxFs, command[2]!), { recursive: true });
         return { code: 0, stdout: "", stderr: "" };
+      }
+      if (command[0] === "tar") {
+        // The host's tar packs the box's cache folder, as GNU tar does in the fill box.
+        const [, , , from, , archive, folder] = command;
+        const packed = spawnSync(
+          "tar",
+          ["-C", join(boxFs, from!), "-cf", join(boxFs, archive!), folder!],
+          { env: { PATH: "/usr/bin:/bin", COPYFILE_DISABLE: "1" } },
+        );
+        return { code: packed.status, stdout: "", stderr: String(packed.stderr) };
       }
       installs.push({ command, options });
       const cacheArg = command.find((arg) => /^--(?:cache-dir|cache|store-dir)=/.test(arg));
@@ -175,6 +188,9 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
     },
     failAcquire: () => {
       failAcquire = true;
+    },
+    failDelete: () => {
+      failDelete = true;
     },
   };
 }
@@ -221,7 +237,8 @@ const FILL_CALLS = [
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/project`,
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/ca.pem`,
   `exec ${FILL_BOX} bun`,
-  `copyOut ${FILL_BOX} ${FILL_BOX_DIR}/cache/bun`,
+  `exec ${FILL_BOX} tar`,
+  `copyOut ${FILL_BOX} ${FILL_BOX_DIR}/cache.tar`,
   `release ${FILL_BOX}`,
   `delete ${FILL_BOX}`,
 ];
@@ -353,6 +370,7 @@ describe("the fill box", () => {
       await ensurePackageCache(request(dir, fill));
       expect(filesBelow(join(fill.boxFs, FILL_BOX_DIR))).toEqual([
         "ca.pem",
+        "cache.tar",
         "cache/bun/is-number@7.0.0@@@1/package.json",
         "project/bun.lock",
         "project/package.json",
@@ -423,13 +441,49 @@ describe("a failed fill", () => {
       expect(fill.calls).toEqual(["network", `create ${FILL_BOX}`, `delete ${FILL_BOX}`]);
     }));
 
-  it("refuses when the route does not start, and deletes the fill box", () =>
+  it("makes a fill box it could not delete visible, in the error and as an event", () =>
+    withTempDir(async (dir) => {
+      const events: unknown[] = [];
+      const failing = fakeFill(dir, () => ({ code: 1 }));
+      failing.failDelete();
+      const error = await rejection(
+        ensurePackageCache({ ...request(dir, failing), onEvent: (event) => events.push(event) }),
+      );
+      expect(error.code).toBe("box.cacheFillFailed");
+      expect(error.details["cleanup"]).toEqual([
+        { step: "boxDelete", reason: "container delete failed" },
+      ]);
+      expect(events).toEqual([
+        {
+          kind: "fillCleanupFailed",
+          box: FILL_BOX,
+          step: "boxDelete",
+          reason: "container delete failed",
+        },
+      ]);
+
+      // A fill that worked keeps its cache; the left box is still reported.
+      const working = fakeFill(dir);
+      working.failDelete();
+      const cache = await ensurePackageCache({
+        ...request(dir, working),
+        onEvent: (event) => events.push(event),
+      });
+      expect(cache.filled).toBe(true);
+      expect(events).toHaveLength(2);
+    }));
+
+  it("refuses when the route does not start, releases what acquire took, and deletes the fill box", () =>
     withTempDir(async (dir) => {
       const fill = fakeFill(dir);
       fill.failAcquire();
       const error = await rejection(ensurePackageCache(request(dir, fill)));
       expect(error.code).toBe("box.cacheFillFailed");
-      expect(fill.calls.at(-1)).toBe(`delete ${FILL_BOX}`);
+      expect(fill.calls.slice(-3)).toEqual([
+        `acquire ${FILL_BOX}`,
+        `release ${FILL_BOX}`,
+        `delete ${FILL_BOX}`,
+      ]);
       expect(fill.installs).toEqual([]);
     }));
 

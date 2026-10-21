@@ -76,6 +76,7 @@ export {
   checkCopiedTree,
   createBoxWithPackageCache,
   ensurePackageCache,
+  FILL_ARCHIVE,
   FILL_BOX_DIR,
   FILL_BOX_RUN_PREFIX,
   fillInstall,
@@ -94,19 +95,25 @@ export type {
   BoxCacheInstall,
   BoxWithCacheRequest,
   FillBoxes,
+  FillCleanupFailure,
   FillInstall,
   FillRoute,
   PackageCache,
+  PackageCacheEvent,
   PackageCacheImage,
   PackageCacheRequest,
   PackageCacheStamp,
 } from "./cache";
+export { extractCacheArchive } from "./cache-extract";
 export {
   checkFillInput,
+  isBunRegistry,
+  isPnpmVersion,
   isProjectGlob,
   isProjectPath,
   isRegistrySpec,
   isRegistryTarball,
+  withoutTrailingCommas,
 } from "./cache-input";
 export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 export {

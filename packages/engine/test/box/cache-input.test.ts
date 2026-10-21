@@ -287,3 +287,144 @@ describe("pnpm", () => {
     refused(base("pnpm", lock("importers:\n  ../outside: {}\n")));
   });
 });
+
+const lockWith = (extra: Record<string, unknown>) =>
+  JSON.stringify({ lockfileVersion: 1, workspaces: { "": {} }, packages: {}, ...extra });
+const legacy = (dependencies: Record<string, unknown>) =>
+  JSON.stringify({ lockfileVersion: 2, packages: { "": {} }, dependencies });
+
+describe("where a package is fetched from", () => {
+  it("refuses a bun.lock entry whose registry field names any other host (the review's probe)", () => {
+    for (const registry of [
+      "https://npm.evil.example/",
+      "http://registry.npmjs.org/",
+      "https://registry.npmjs.org:8443/",
+      "https://user:secret@registry.npmjs.org/",
+      "https://registry.npmjs.org/?x=1",
+      "https://registry.npmjs.org/#x",
+      "registry.npmjs.org",
+      7,
+    ]) {
+      refused(base("bun", bunLock({ "is-number": ["is-number@7.0.0", registry, {}, "sha512-x"] })));
+    }
+  });
+
+  it("passes a bun.lock registry field that is empty or an npm registry Safe-Chain checks", () => {
+    for (const registry of ["", "https://registry.npmjs.org/", "https://registry.yarnpkg.com/"]) {
+      checkFillInput(
+        base("bun", bunLock({ "is-number": ["is-number@7.0.0", registry, {}, "sha512-x"] })),
+      );
+    }
+  });
+
+  it("refuses a bun.lock package that is not at an exact version, or whose own dependencies are not registry specs", () => {
+    refused(base("bun", bunLock({ x: ["x@^1.0.0", "", {}, "sha512-x"] })));
+    refused(
+      base(
+        "bun",
+        bunLock({
+          x: ["x@1.0.0", "", { dependencies: { y: "https://example.com/y.tgz" } }, "sha512-x"],
+        }),
+      ),
+    );
+  });
+
+  it("refuses non-registry specs in bun.lock overrides and catalogs, and fields dipo does not check", () => {
+    refused(base("bun", lockWith({ overrides: { x: "github:owner/repo" } })));
+    refused(base("bun", lockWith({ catalog: { x: "https://example.com/x.tgz" } })));
+    refused(base("bun", lockWith({ catalogs: { tools: { x: "git+ssh://git@example.com/x" } } })));
+    refused(base("bun", lockWith({ registry: "https://npm.evil.example/" })));
+    checkFillInput(base("bun", lockWith({ overrides: { x: "1.0.0" }, catalog: { y: "^2.0.0" } })));
+  });
+
+  it("refuses package-lock.json fields dipo does not check, versions that are not exact, and the legacy tree's sources", () => {
+    refused(
+      base(
+        "npm",
+        JSON.stringify({ lockfileVersion: 3, packages: {}, registry: "https://npm.evil.example/" }),
+      ),
+    );
+    refused(base("npm", npmLock({ "node_modules/x": { version: "https://example.com/x.tgz" } })));
+    refused(
+      base(
+        "npm",
+        legacy({ x: { version: "1.0.0", resolved: "https://npm.evil.example/x/-/x-1.0.0.tgz" } }),
+      ),
+    );
+    refused(base("npm", legacy({ x: { version: "git+ssh://git@example.com/x.git#abc" } })));
+    refused(base("npm", legacy({ x: { version: "file:../outside" } })));
+    refused(base("npm", legacy({ x: { version: "1.0.0", requires: { y: "github:owner/repo" } } })));
+    refused(
+      base(
+        "npm",
+        legacy({
+          x: { version: "1.0.0", dependencies: { y: { version: "https://example.com/y.tgz" } } },
+        }),
+      ),
+    );
+    checkFillInput(
+      base(
+        "npm",
+        legacy({
+          x: { version: "1.0.0", resolved: TARBALL, requires: { y: "^1.0.0" } },
+          a: { version: "file:packages/a" },
+          z: { version: "npm:is-number@7.0.0" },
+        }),
+      ),
+    );
+  });
+
+  it("refuses pnpm lockfiles before version 9, unknown fields, and packages or versions that are not registry packages", () => {
+    refused(base("pnpm", "lockfileVersion: '6.0'\n"));
+    refused(base("pnpm", lock("registry: https://npm.evil.example/\n")));
+    refused(
+      base(
+        "pnpm",
+        lock(
+          "packages:\n  'x@https://example.com/x.tgz':\n    resolution: { integrity: sha512-x }\n",
+        ),
+      ),
+    );
+    refused(
+      base(
+        "pnpm",
+        lock("snapshots:\n  x@1.0.0:\n    dependencies:\n      y: https://example.com/y.tgz\n"),
+      ),
+    );
+    refused(
+      base(
+        "pnpm",
+        lock(
+          "importers:\n  .:\n    dependencies:\n      x: { specifier: ^1.0.0, version: 'github.com/owner/repo/abc' }\n",
+        ),
+      ),
+    );
+    refused(
+      base(
+        "pnpm",
+        lock("catalogs:\n  default:\n    x: { specifier: 'github:owner/repo', version: 1.0.0 }\n"),
+      ),
+    );
+    checkFillInput(
+      base(
+        "pnpm",
+        lock(
+          [
+            "catalogs:",
+            "  default:",
+            "    x: { specifier: ^1.0.0, version: 1.0.0 }",
+            "packages:",
+            "  '@scope/x@1.0.0':",
+            "    resolution: { integrity: sha512-x }",
+            "snapshots:",
+            "  '@scope/x@1.0.0(peer@2.0.0)':",
+            "    dependencies:",
+            "      y: 1.2.3",
+            "      z: string-width@4.2.3",
+            "",
+          ].join("\n"),
+        ),
+      ),
+    );
+  });
+});

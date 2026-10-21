@@ -5,6 +5,10 @@
 //
 // - a dependency that is not a registry package: git (`git+ssh:`, `github:`, an `owner/repo`
 //   shorthand), an http(s) tarball URL, `file:` or `link:`, in a manifest or in the lockfile;
+// - a lockfile that names any host but an npm registry Safe-Chain checks: `bun.lock`'s registry
+//   field, npm's `resolved` (also in the legacy tree) and pnpm's `resolution.tarball` are the
+//   fields that name one; a top-level lockfile field dipo does not know is refused, and the other
+//   entry fields (integrity, engines, platforms, bins) name no source;
 // - a workspace glob or a workspace path that is absolute or holds `..`;
 // - for pnpm, any `pnpm-workspace.yaml` key other than `packages` (such as `configDependencies`
 //   or `pnpmfile`, which run code). The fill gets a workspace file dipo writes from `packages`.
@@ -101,22 +105,55 @@ export function isRegistrySpec(spec: string): boolean {
   return !NON_REGISTRY.test(value) && !SHORTHAND.test(value);
 }
 
-/** A registry tarball: https on an npm registry Safe-Chain checks, at its `/-/` path. */
-export function isRegistryTarball(url: string): boolean {
+/**
+ * An https URL on an npm registry Safe-Chain checks, with no port, credentials, query or
+ * fragment; null otherwise.
+ */
+function registryUrl(url: string): URL | null {
+  if (url.includes("?") || url.includes("#")) return null;
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return false;
+    return null;
   }
-  return (
-    parsed.protocol === "https:" &&
+  return parsed.protocol === "https:" &&
     parsed.port === "" &&
     parsed.username === "" &&
     parsed.password === "" &&
-    (SAFE_CHAIN_NPM_HOSTS as readonly string[]).includes(parsed.hostname) &&
-    parsed.pathname.includes("/-/") &&
-    parsed.pathname.endsWith(".tgz")
+    (SAFE_CHAIN_NPM_HOSTS as readonly string[]).includes(parsed.hostname)
+    ? parsed
+    : null;
+}
+
+/** A registry tarball: https on an npm registry Safe-Chain checks, at its `/-/` path. */
+export function isRegistryTarball(url: string): boolean {
+  const parsed = registryUrl(url);
+  return parsed !== null && parsed.pathname.includes("/-/") && parsed.pathname.endsWith(".tgz");
+}
+
+/**
+ * The registry of a `bun.lock` package entry (its second field): empty for the default registry,
+ * or the base URL of an npm registry Safe-Chain checks.
+ */
+export function isBunRegistry(value: unknown): boolean {
+  return value === "" || (typeof value === "string" && registryUrl(value) !== null);
+}
+
+/** An exact version, as a lockfile records a registry package. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?$/;
+
+/**
+ * A version as pnpm records a registry package: exact, with an optional peer suffix in brackets,
+ * or as `name@version` for an alias.
+ */
+export function isPnpmVersion(value: string): boolean {
+  const bare = value.replace(/\(.*\)$/, "");
+  const at = bare.lastIndexOf("@");
+  const version = at > 0 ? bare.slice(at + 1) : bare;
+  return (
+    EXACT_VERSION.test(version) &&
+    (at <= 0 || /^(?:@[^@/\s]+\/)?[^@/\s:]+$/.test(bare.slice(0, at)))
   );
 }
 
@@ -211,6 +248,38 @@ function specOf(ident: string): string {
   return at < 0 ? "" : ident.slice(at + 1);
 }
 
+/** Refuses a top-level key of `name` that is not in `known`: no field outside them is read. */
+function checkKeys(
+  name: string,
+  value: Readonly<Record<string, unknown>>,
+  known: readonly string[],
+) {
+  for (const key of Object.keys(value)) {
+    if (!known.includes(key)) {
+      refuse(`${name} has the field ${key}, which dipo does not check.`, { lockfile: name, key });
+    }
+  }
+}
+
+/** The `bun.lock` fields dipo knows; none of them but the ones checked names a source. */
+const BUN_LOCK_KEYS = [
+  "lockfileVersion",
+  "configVersion",
+  "workspaces",
+  "packages",
+  "overrides",
+  "catalog",
+  "catalogs",
+  "trustedDependencies",
+  "patchedDependencies",
+];
+
+/**
+ * `bun.lock`: every workspace in the project with registry specs, and every package either a
+ * workspace package or a registry package at an exact version whose registry field is empty (the
+ * default registry) or an npm registry Safe-Chain checks, with registry specs for its own
+ * dependencies. Overrides and catalogs hold registry specs only.
+ */
 function checkBunLock(text: string): void {
   let lock: Readonly<Record<string, unknown>>;
   try {
@@ -218,6 +287,7 @@ function checkBunLock(text: string): void {
   } catch {
     refuse("bun.lock is not readable.");
   }
+  checkKeys("bun.lock", lock, BUN_LOCK_KEYS);
   for (const [path, workspace] of Object.entries(record(lock["workspaces"]))) {
     if (path !== "" && !isProjectPath(path)) {
       refuse(`bun.lock names the workspace ${JSON.stringify(path)} outside the project.`, { path });
@@ -228,13 +298,84 @@ function checkBunLock(text: string): void {
       }
     }
   }
+  for (const map of ["overrides", "catalog", "catalogs"]) checkOverrides("bun.lock", lock[map]);
   for (const [key, entry] of Object.entries(record(lock["packages"]))) {
-    const ident = Array.isArray(entry) ? entry[0] : undefined;
+    const fields: readonly unknown[] = Array.isArray(entry) ? entry : [];
+    const ident = fields[0];
     if (typeof ident !== "string") refuse(`bun.lock entry ${key} is not readable.`, { key });
-    checkSpec("bun.lock", key, specOf(ident));
+    const spec = specOf(ident);
+    if (spec.startsWith("workspace:")) {
+      checkSpec("bun.lock", key, spec);
+      continue;
+    }
+    if (!EXACT_VERSION.test(spec)) {
+      refuse(`bun.lock resolves ${key} to ${spec}, not a registry package.`, { key, spec });
+    }
+    if (!isBunRegistry(fields[1])) {
+      refuse(
+        `bun.lock fetches ${key} from ${String(fields[1])}, not a registry Safe-Chain checks.`,
+        {
+          key,
+          registry: fields[1],
+        },
+      );
+    }
+    for (const map of DEPENDENCY_MAPS) {
+      for (const [name, dependency] of Object.entries(record(record(fields[2])[map]))) {
+        checkSpec("bun.lock", name, dependency);
+      }
+    }
   }
 }
 
+/** The `package-lock.json` fields dipo knows. */
+const NPM_LOCK_KEYS = [
+  "name",
+  "version",
+  "lockfileVersion",
+  "requires",
+  "packages",
+  "dependencies",
+];
+
+/** A `resolved` field: absent, or a registry tarball. */
+function checkResolved(key: string, resolved: unknown): void {
+  if (resolved !== undefined && (typeof resolved !== "string" || !isRegistryTarball(resolved))) {
+    refuse(`package-lock.json resolves ${key} to ${String(resolved)}, not a registry tarball.`, {
+      key,
+      resolved,
+    });
+  }
+}
+
+/** The legacy `dependencies` tree of a version 2 lockfile, which npm 7 and later do not read. */
+function checkNpmLegacy(deps: unknown): void {
+  for (const [name, value] of Object.entries(record(deps))) {
+    const entry = record(value);
+    checkResolved(name, entry["resolved"]);
+    const version = entry["version"];
+    if (typeof version === "string") {
+      const local = version.startsWith("file:") && isProjectPath(version.slice("file:".length));
+      const alias = version.startsWith("npm:") && EXACT_VERSION.test(specOf(version.slice(4)));
+      if (!local && !alias && !EXACT_VERSION.test(version)) {
+        refuse(`package-lock.json resolves ${name} to ${version}, not a registry package.`, {
+          name,
+          version,
+        });
+      }
+    }
+    for (const [dependency, spec] of Object.entries(record(entry["requires"]))) {
+      checkSpec("package-lock.json", dependency, spec);
+    }
+    checkNpmLegacy(entry["dependencies"]);
+  }
+}
+
+/**
+ * `package-lock.json` (version 2 or 3): every package path in the project, every link to a path
+ * in the project, every other package at an exact version from a registry tarball on an npm
+ * registry Safe-Chain checks, and registry specs for its dependencies.
+ */
 function checkNpmLock(text: string): void {
   let lock: Readonly<Record<string, unknown>>;
   try {
@@ -246,6 +387,7 @@ function checkNpmLock(text: string): void {
   if (typeof version !== "number" || version < 2) {
     refuse("package-lock.json must be lockfileVersion 2 or 3.", { lockfileVersion: version });
   }
+  checkKeys("package-lock.json", lock, NPM_LOCK_KEYS);
   for (const [key, value] of Object.entries(record(lock["packages"]))) {
     if (key !== "" && !isProjectPath(key)) {
       refuse(`package-lock.json names ${JSON.stringify(key)} outside the project.`, { key });
@@ -258,19 +400,27 @@ function checkNpmLock(text: string): void {
       }
       continue;
     }
-    if (resolved !== undefined && (typeof resolved !== "string" || !isRegistryTarball(resolved))) {
-      refuse(`package-lock.json resolves ${key} to ${String(resolved)}, not a registry tarball.`, {
-        key,
-        resolved,
-      });
+    checkResolved(key, resolved);
+    const packageVersion = entry["version"];
+    if (
+      packageVersion !== undefined &&
+      (typeof packageVersion !== "string" || !EXACT_VERSION.test(packageVersion))
+    ) {
+      refuse(
+        `package-lock.json records ${key} at ${String(packageVersion)}, not an exact version.`,
+        {
+          key,
+          version: packageVersion,
+        },
+      );
     }
-    if (typeof entry["version"] === "string") checkSpec("package-lock.json", key, entry["version"]);
     for (const map of DEPENDENCY_MAPS) {
       for (const [name, spec] of Object.entries(record(entry[map]))) {
         checkSpec("package-lock.json", name, spec);
       }
     }
   }
+  checkNpmLegacy(lock["dependencies"]);
 }
 
 function parseYaml(name: string, text: string): Readonly<Record<string, unknown>> {
@@ -281,9 +431,6 @@ function parseYaml(name: string, text: string): Readonly<Record<string, unknown>
 
 /** A pnpm `link:` target from importer `importer`, which must stay in the project. */
 function checkPnpmLink(importer: string, version: string): void {
-  if (version.startsWith("file:"))
-    refuse(`pnpm-lock.yaml installs ${version} from a folder.`, { version });
-  if (!version.startsWith("link:")) return;
   const target = version.slice("link:".length);
   const joined = posix.normalize(posix.join(importer === "." ? "" : importer, target));
   if (
@@ -296,8 +443,47 @@ function checkPnpmLink(importer: string, version: string): void {
   }
 }
 
+/** A version pnpm resolved a dependency to: a link in the project, or a registry version. */
+function checkPnpmVersion(importer: string, name: string, version: unknown): void {
+  if (typeof version !== "string") return;
+  if (version.startsWith("link:")) checkPnpmLink(importer, version);
+  else if (!isPnpmVersion(version)) {
+    refuse(`pnpm-lock.yaml resolves ${name} to ${version}, not a registry package.`, {
+      name,
+      version,
+    });
+  }
+}
+
+/** The `pnpm-lock.yaml` fields dipo knows. */
+const PNPM_LOCK_KEYS = [
+  "lockfileVersion",
+  "settings",
+  "importers",
+  "packages",
+  "snapshots",
+  "overrides",
+  "catalogs",
+  "patchedDependencies",
+  "pnpmfileChecksum",
+  "packageExtensionsChecksum",
+  "ignoredOptionalDependencies",
+  "time",
+];
+
+/**
+ * `pnpm-lock.yaml` (version 9): every importer in the project with registry specifiers and
+ * versions or links in the project; every package and snapshot keyed by `name@version`; every
+ * package resolved by its integrity alone (pnpm then fetches it from the default registry, as no
+ * `.npmrc` reaches the fill) or by a registry tarball on an npm registry Safe-Chain checks.
+ */
 function checkPnpmLock(text: string): void {
   const lock = parseYaml("pnpm-lock.yaml", text);
+  const version = lock["lockfileVersion"];
+  if (String(version).split(".")[0] !== "9") {
+    refuse("pnpm-lock.yaml must be lockfileVersion 9.", { lockfileVersion: version });
+  }
+  checkKeys("pnpm-lock.yaml", lock, PNPM_LOCK_KEYS);
   for (const [importer, value] of Object.entries(record(lock["importers"]))) {
     if (importer !== "." && !isProjectPath(importer)) {
       refuse(`pnpm-lock.yaml names the importer ${JSON.stringify(importer)} outside the project.`, {
@@ -306,9 +492,28 @@ function checkPnpmLock(text: string): void {
     }
     for (const map of ["dependencies", "devDependencies", "optionalDependencies"]) {
       for (const [name, dependency] of Object.entries(record(record(value)[map]))) {
-        const { specifier, version } = record(dependency);
+        const { specifier, version: resolved } = record(dependency);
         checkSpec("pnpm-lock.yaml", name, specifier);
-        if (typeof version === "string") checkPnpmLink(importer, version);
+        checkPnpmVersion(importer, name, resolved);
+      }
+    }
+  }
+  checkOverrides("pnpm-lock.yaml", lock["overrides"]);
+  for (const catalog of Object.values(record(lock["catalogs"]))) {
+    for (const [name, entry] of Object.entries(record(catalog))) {
+      checkSpec("pnpm-lock.yaml", name, record(entry)["specifier"]);
+      checkPnpmVersion(".", name, record(entry)["version"]);
+    }
+  }
+  for (const section of ["packages", "snapshots"]) {
+    for (const [key, value] of Object.entries(record(lock[section]))) {
+      if (!isPnpmVersion(key)) {
+        refuse(`pnpm-lock.yaml lists ${key}, not a registry package.`, { key });
+      }
+      for (const map of ["dependencies", "optionalDependencies"]) {
+        for (const [name, resolved] of Object.entries(record(record(value)[map]))) {
+          checkPnpmVersion(".", name, resolved);
+        }
       }
     }
   }

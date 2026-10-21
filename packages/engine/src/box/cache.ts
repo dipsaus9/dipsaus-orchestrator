@@ -12,9 +12,12 @@
 //   Only the lockfile and the manifests are copied in; the install runs with lifecycle scripts
 //   off, into the manager's cache inside the box. The cache is copied out into a `.fill-*` folder
 //   on the Mac and the fill box is deleted, also on failure. Every box call has a deadline.
-// - `container copy` keeps symlinks as links, so the copied tree is walked with lstat before it is
-//   used: an absolute symlink, one that resolves outside the generation, a dangling one, or
-//   anything but a file, a folder or a link is refused.
+// - The cache leaves the fill box as one tar archive: `container copy` moves only that file, and
+//   `extractCacheArchive` unpacks it on the Mac without writing through any link it holds. The
+//   unpacked tree is then walked with lstat: an absolute symlink, one that resolves outside the
+//   generation, a dangling one, or anything but a file, a folder or a link is refused.
+// - A fill box that could not be deleted, or a route that could not be released, is reported
+//   through `onEvent` and in the details of the fill's error.
 // - The cache shape is the manager's own, so a box installs from it as from any cache: Bun's
 //   install cache (`BUN_INSTALL_CACHE_DIR`), npm's cache (`_cacache`) and pnpm's store. Each lies in
 //   a folder named after its manager inside one generation folder, the folder a box mounts
@@ -59,6 +62,7 @@ import {
   isProjectPath,
   type ProjectFile,
 } from "./cache-input";
+import { extractCacheArchive } from "./cache-extract";
 import { baseCommit, type BoxToolchain, filesAt } from "./image";
 import {
   BOX_PACKAGE_CACHE_PATH,
@@ -88,6 +92,8 @@ export const PACKAGE_CACHE_FILL_TIMEOUT_MS = 20 * 60_000;
 export const PACKAGE_CACHE_COPY_TIMEOUT_MS = 10 * 60_000;
 /** The most `package.json` files a fill copies from the base commit. */
 export const PACKAGE_CACHE_MAX_MANIFESTS = 2_000;
+/** The tar archive the fill box packs its cache into, in the box and in the `.fill-*` folder. */
+export const FILL_ARCHIVE = "cache.tar";
 /** Where the fill works inside the fill box. */
 export const FILL_BOX_DIR = "/tmp/dipo-fill";
 /** The fill box's run id prefix: its box is `dipo-fill-<id>`. */
@@ -254,6 +260,8 @@ export interface PackageCacheRequest {
   readonly fillId?: () => string;
   /** The install's deadline; `PACKAGE_CACHE_FILL_TIMEOUT_MS` by default. */
   readonly timeoutMs?: number;
+  /** Reports a fill box that could not be deleted or a route that could not be released. */
+  readonly onEvent?: (event: PackageCacheEvent) => void;
 }
 
 /** A filled generation, ready to mount. */
@@ -271,14 +279,27 @@ export interface PackageCache {
 export interface FillInstall {
   readonly command: readonly [string, ...string[]];
   readonly env: Readonly<Record<string, string>>;
-  /** The cache folder in the fill box that is copied out. */
+  /** The cache folder in the fill box. */
   readonly cacheDir: string;
+  /** The tar archive of that folder in the fill box, the one file copied out. */
+  readonly archive: string;
+  /** Packs the cache folder into `archive`; hard links are stored as files. */
+  readonly pack: readonly [string, ...string[]];
 }
 
 /** The fill install of `manager`, through the web route at `proxyUrl`. */
 export function fillInstall(manager: CacheManager, proxyUrl: string): FillInstall {
   const cacheDir = `${FILL_BOX_DIR}/cache/${manager}`;
   const caFile = `${FILL_BOX_DIR}/ca.pem`;
+  const archive = `${FILL_BOX_DIR}/${FILL_ARCHIVE}`;
+  const packing = {
+    cacheDir,
+    archive,
+    pack: ["tar", "--hard-dereference", "-C", `${FILL_BOX_DIR}/cache`, "-cf", archive, manager] as [
+      string,
+      ...string[],
+    ],
+  };
   const env = {
     https_proxy: proxyUrl,
     HTTPS_PROXY: proxyUrl,
@@ -301,7 +322,7 @@ export function fillInstall(manager: CacheManager, proxyUrl: string): FillInstal
           `--cafile=${caFile}`,
         ],
         env,
-        cacheDir,
+        ...packing,
       };
     case "npm":
       return {
@@ -314,11 +335,11 @@ export function fillInstall(manager: CacheManager, proxyUrl: string): FillInstal
           `--cache=${cacheDir}`,
         ],
         env,
-        cacheDir,
+        ...packing,
       };
     case "pnpm":
       // `pnpm fetch` reads only the lockfile and runs no scripts.
-      return { command: ["pnpm", "fetch", `--store-dir=${cacheDir}`], env, cacheDir };
+      return { command: ["pnpm", "fetch", `--store-dir=${cacheDir}`], env, ...packing };
   }
 }
 
@@ -397,13 +418,45 @@ export async function checkCopiedTree(base: string): Promise<void> {
   await walk(realBase);
 }
 
-/** Runs the fill in a fill box and copies the manager's cache out to `hostCache`. */
+/** A clean-up step of a fill box that failed: the box may be left, or the route held. */
+export interface FillCleanupFailure {
+  readonly step: "routeRelease" | "boxDelete";
+  readonly reason: string;
+}
+
+/** What a fill reports besides its result. */
+export type PackageCacheEvent = {
+  readonly kind: "fillCleanupFailed";
+  /** The fill box, `dipo-fill-<id>`; after a failed `boxDelete` it may still exist. */
+  readonly box: string;
+} & FillCleanupFailure;
+
+/** `failure` with the failed clean-up steps in its details, so a left fill box is visible. */
+function withCleanup(failure: unknown, cleanup: readonly FillCleanupFailure[]): unknown {
+  if (cleanup.length === 0) return failure;
+  if (failure instanceof BoxError) {
+    return new BoxError(failure.code, failure.message, failure.retryable, {
+      ...failure.details,
+      cleanup,
+    });
+  }
+  return new BoxError(
+    "box.cacheFillFailed",
+    `the package cache could not be filled: ${messageOf(failure)}`,
+    false,
+    { cleanup },
+  );
+}
+
+/**
+ * Runs the fill in a fill box and copies the manager's cache out as one tar archive, to
+ * `<work>/FILL_ARCHIVE`; `extractCacheArchive` unpacks it on the Mac.
+ */
 async function fillInBox(
   request: PackageCacheRequest,
   manager: CacheManager,
   files: readonly ProjectFile[],
   work: string,
-  hostCache: string,
 ): Promise<void> {
   const { boxes } = request;
   const project = join(work, "project");
@@ -416,14 +469,16 @@ async function fillInBox(
   const id = request.fillId?.() ?? randomUUID().replaceAll("-", "").slice(0, 16);
   const name = boxName(`${FILL_BOX_RUN_PREFIX}${id}`);
   const network = await boxes.network();
-  let routed = false;
+  let routing = false;
+  let failure: { readonly error: unknown } | null = null;
   try {
     // No package cache is mounted into the fill box.
     await boxes.create({ runId: `${FILL_BOX_RUN_PREFIX}${id}`, image: request.image.tag, network });
     await boxes.start(name);
     // The route listens on the box network's host address, which exists only while a box runs.
+    // It is released whatever `acquire` did, so a reference it took before failing is dropped.
+    routing = true;
     const route = await request.route.acquire(name);
-    routed = true;
     const ca = await readFile(route.caFile, "utf8").catch(() => "");
     if (!isCertificateBundle(ca)) {
       fillFailed("the web route's CA bundle is not PEM certificates.", { caFile: route.caFile });
@@ -447,13 +502,33 @@ async function fillInBox(
         { manager, code: result.code, output },
       );
     }
-    await boxes.copyOut(name, install.cacheDir, hostCache, {
+    const packed = await boxes.exec(name, install.pack, {
       timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
     });
-  } finally {
-    if (routed) await request.route.release(name).catch(() => {});
-    await boxes.delete(name).catch(() => {});
+    if (packed.code !== 0) {
+      fillFailed(`the fill box could not pack its ${manager} cache: ${packed.stderr.trim()}`, {
+        manager,
+        code: packed.code,
+      });
+    }
+    // One regular file crosses to the Mac; no link the box made is followed on the way.
+    await boxes.copyOut(name, install.archive, join(work, FILL_ARCHIVE), {
+      timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
+    });
+  } catch (error) {
+    failure = { error };
   }
+  const cleanup: FillCleanupFailure[] = [];
+  if (routing) {
+    await request.route
+      .release(name)
+      .catch((error: unknown) => cleanup.push({ step: "routeRelease", reason: messageOf(error) }));
+  }
+  await boxes
+    .delete(name)
+    .catch((error: unknown) => cleanup.push({ step: "boxDelete", reason: messageOf(error) }));
+  for (const step of cleanup) request.onEvent?.({ kind: "fillCleanupFailed", box: name, ...step });
+  if (failure !== null) throw withCleanup(failure.error, cleanup);
 }
 
 /** Fills generation `key` in a temporary folder and renames it into place. */
@@ -476,7 +551,8 @@ async function fill(
     await mkdir(cacheOut, { mode: 0o755 });
     if (lockfile !== null) {
       const hostCache = join(cacheOut, lockfile.manager);
-      await fillInBox(request, lockfile.manager, files, work, hostCache);
+      await fillInBox(request, lockfile.manager, files, work);
+      await extractCacheArchive(join(work, FILL_ARCHIVE), cacheOut);
       if (!(await lstat(hostCache).catch(() => null))?.isDirectory()) {
         fillFailed(`${lockfile.manager} left no package cache to copy out.`, {
           manager: lockfile.manager,
