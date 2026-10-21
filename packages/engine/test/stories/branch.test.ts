@@ -7,6 +7,10 @@
 
 import { describe, expect, it } from "bun:test";
 
+import { readFileSync, writeFileSync } from "node:fs";
+
+import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
+import { GitError } from "../../src/git";
 import { releaseClaim } from "../../src/worktree/records";
 import { snapshot } from "../../src/views/feature";
 import { storyView } from "../../src/views/story";
@@ -101,5 +105,38 @@ describe("the base status of a claimed story (DIPO-216)", () => {
     withReconcileOffice({}, async (o) => {
       const pass = await o.index.indexStories(o.officeId);
       expect(pass.baseStatus.size).toBe(0);
+    }));
+});
+
+describe("a branch task file holding fields dipo does not know (DIPO-270)", () => {
+  it("is never read with the CLI: the pass keeps the base view and lists it unread, a refresh fails with the coded error", () =>
+    withReconcileOffice({}, async (o) => {
+      const key = keyOf(o.office, "TASK-1");
+      const claimed = await claim(o, o.office, "TASK-1", key, {
+        task: { id: "TASK-1", status: "In Progress" },
+      });
+      const path = editWorktree(claimed, { id: "TASK-1", status: "In Progress" });
+      writeFileSync(
+        path,
+        readFileSync(path, "utf8").replace("\n---\n", "\nunknown_field: 1\n---\n"),
+      );
+      for (const args of [
+        ["git", "add", "--", path],
+        ["git", "commit", "--quiet", "--no-verify", "-m", "add a field"],
+      ] as const) {
+        expect((await o.repo.run(args, claimed.worktree)).exitCode).toBe(0);
+      }
+
+      const pass = await o.index.indexStories(o.officeId);
+      expect(pass.read.find((story) => story.story === "TASK-1")?.status).toBe("Ready");
+      expect(pass.branchUnread.map((unread) => unread.story)).toEqual(["TASK-1"]);
+      expect(pass.branchUnread[0]?.reason).toContain("fields dipo does not know");
+
+      const error = await o.index.refreshStory(o.officeId, key).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(GitError);
+      expect((error as GitError).code).toBe(TASK_FIELD_ERROR);
     }));
 });

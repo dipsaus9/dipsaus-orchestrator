@@ -122,7 +122,7 @@ export function fakeBacklog(tables: Tables): { spawn: Spawn; calls: SpawnOptions
     if (!cwd.endsWith("/_base")) {
       const file = id === undefined ? undefined : taskFileIn(cwd, id);
       if (verb !== "view" || file === undefined) return child("", `Task ${id ?? ""} not found.`, 1);
-      return child(viewText(JSON.parse(readFileSync(file, "utf8")) as FakeTask));
+      return child(viewText(readFakeTask(readFileSync(file, "utf8"))));
     }
     const table = tables.get(BASE);
     if (table === undefined) return child("", `no table for ${cwd}`, 1);
@@ -141,12 +141,24 @@ function taskFileIn(dir: string, id: string): string | undefined {
   return name === undefined ? undefined : join(tasks, name);
 }
 
-/** Writes `task` over its task file in the worktree, as JSON the fake CLI reads. */
+/**
+ * A fake task file: a front matter block holding only the id, as a real task file opens, then the
+ * task as JSON, which the fake CLI reads.
+ */
+function fakeTaskFile(task: FakeTask): string {
+  return `---\nid: ${task.id}\n---\n${JSON.stringify(task)}`;
+}
+
+function readFakeTask(text: string): FakeTask {
+  return JSON.parse(text.slice(text.indexOf("\n---\n") + 5)) as FakeTask;
+}
+
+/** Writes `task` over its task file in the worktree, in the fake task file format. */
 export function editWorktree(claimed: Pick<ClaimRecord, "worktree">, task: FakeTask): string {
   const path =
     taskFileIn(claimed.worktree, task.id) ??
     join(claimed.worktree, "backlog", "tasks", `${task.id.toLowerCase()} - Story.md`);
-  writeFileSync(path, JSON.stringify(task));
+  writeFileSync(path, fakeTaskFile(task));
   return path;
 }
 

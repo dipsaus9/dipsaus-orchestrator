@@ -1,10 +1,10 @@
 ---
 id: DIPO-268
 title: Give each box its web route through dipo's web proxy
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 15:10'
+updated_date: '2026-10-21 15:52'
 labels:
   - 'tier:M'
   - cutover

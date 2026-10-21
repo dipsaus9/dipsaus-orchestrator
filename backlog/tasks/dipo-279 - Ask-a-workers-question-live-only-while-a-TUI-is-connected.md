@@ -1,10 +1,10 @@
 ---
 id: DIPO-279
 title: Ask a worker's question live only while a TUI is connected
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:45'
-updated_date: '2026-10-21 14:19'
+updated_date: '2026-10-21 14:35'
 labels:
   - 'tier:S'
   - cutover

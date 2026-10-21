@@ -1,8 +1,9 @@
 // Parking a story (DIPO-50; 0012 F16 and the transition In Progress or In Review to Parked, 0010
 // sections 2 and 3, 0005 section 5, 0007 section 4, 0008 section 2).
 //
-// `parkStory` writes the park on the story branch first, through a `ParkWriter`: in the story
-// worktree, inside the office's git queue, the Backlog CLI writes the F16 `park` block
+// `parkStory` writes the park on the story branch first, through a `ParkWriter`: in dipo's own
+// copy of the story's backlog (`editInStoryBacklog`, 0021 section 14; never in the story worktree),
+// inside the office's git queue, the Backlog CLI writes the F16 `park` block
 // (`{reason, from, note}`) through the single field write path and sets status `Parked`; only the
 // task file is committed, as `<ID>: status Parked`, and the branch is pushed without force. Then,
 // in one transaction, it records the park in `parks` (reason, cause, the lifecycle it left, detail,
@@ -29,18 +30,18 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { viewStory, writeFields } from "../backlog/fields/write";
-import { type BacklogCli, runBacklog } from "../backlog/runner";
+import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
-import { commitTaskFile, pushBranch } from "../git/task-commit";
+import { pushBranch } from "../git/task-commit";
 import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/park-questions";
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { repoPath } from "../worktree/claim";
+import { editInStoryBacklog } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
@@ -80,6 +81,8 @@ export const PARK_CAUSES = {
   paths: "paths",
   /** `scope-violation`: the worktree's git links changed (`git.worktreeTampered`). */
   tampered: "tampered",
+  /** `scope-violation`: the story's task file holds fields dipo does not know (0021 section 14). */
+  taskFile: "task-file",
   /** `scope-violation`: the backstop saw HEAD, branch, stash, `backlog/` or `.dipo/` change. */
   backstop: "backstop",
   /** `scope-violation`: reconcile found the worktree or branch changed by hand. */
@@ -161,38 +164,42 @@ export function gitParkWriter(deps: {
         // A pinned worktree whose links changed throws `git.worktreeTampered` here, before any
         // CLI or git call runs in it.
         const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
-        const target = { cli: deps.cli, cwd: location.workTree, id: request.story };
-        const before = await viewStory(target);
-        const from: Lifecycle = before.status === "In Review" ? "In Review" : "In Progress";
         const lastGoodCommit = (
           await session.ok(location, ["rev-parse", "--verify", "HEAD"])
         ).trim();
-        await writeFields(target, (fields) => ({
-          ...fields,
-          park: { reason: request.reason, from, note: request.note },
-        }));
-        if (before.status !== PARKED_STATUS) {
-          await runBacklog(deps.cli, location.workTree, [
-            "task",
-            "edit",
-            request.story,
-            "--status",
-            PARKED_STATUS,
-          ]);
-        }
-        const back = await viewStory(target);
-        if (back.status !== PARKED_STATUS) {
-          throw new GitError(
-            "park.statusNotWritten",
-            `The Backlog CLI left ${request.story} at ${back.status}, not ${PARKED_STATUS}.`,
-          );
-        }
         // Only the task file: anything else staged stays out of the park commit.
-        const commit = await commitTaskFile(
+        const { value: from, commit } = await editInStoryBacklog(
+          git,
           session,
           location,
-          repoPath(location.workTree, before.file),
+          request.story,
           `${request.story}: status ${PARKED_STATUS}`,
+          async (backlog) => {
+            const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
+            const before = await viewStory(target);
+            const left: Lifecycle = before.status === "In Review" ? "In Review" : "In Progress";
+            await writeFields(target, (fields) => ({
+              ...fields,
+              park: { reason: request.reason, from: left, note: request.note },
+            }));
+            if (before.status !== PARKED_STATUS) {
+              await runBacklog(deps.cli, backlog.cwd, [
+                "task",
+                "edit",
+                request.story,
+                "--status",
+                PARKED_STATUS,
+              ]);
+            }
+            const back = await viewStory(target);
+            if (back.status !== PARKED_STATUS) {
+              throw new GitError(
+                "park.statusNotWritten",
+                `The Backlog CLI left ${request.story} at ${back.status}, not ${PARKED_STATUS}.`,
+              );
+            }
+            return left;
+          },
         );
         const pushed = await pushBranch(session, git.settings.remote, request.branch);
         return { commit, lastGoodCommit, from, pushed: pushed.pushed, pushError: pushed.error };
@@ -224,9 +231,10 @@ export interface UnparkWriter {
 }
 
 /**
- * The park lifted on the story branch with the Backlog CLI and the office git (DIPO-75): in the
- * story worktree the F16 `park` block is removed through the single field write path and the
- * status set back to the park's `from`; only the task file is committed, as `<ID>: status <to>`,
+ * The park lifted on the story branch with the Backlog CLI and the office git (DIPO-75): in dipo's
+ * own copy of the story's backlog (`editInStoryBacklog`), never the worktree, the F16 `park` block is
+ * removed through the single field write path and the status set back to the park's `from`; only
+ * the task file is committed, as `<ID>: status <to>`,
  * and the branch is pushed without force. A tampered worktree throws `git.worktreeTampered`.
  */
 export function gitUnparkWriter(deps: {
@@ -239,34 +247,37 @@ export function gitUnparkWriter(deps: {
       if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
       return git.run(async (session) => {
         const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
-        const target = { cli: deps.cli, cwd: location.workTree, id: request.story };
-        const before = await viewStory(target);
-        await writeFields(target, (fields) => {
-          const { park: _park, ...rest } = fields;
-          return rest;
-        });
-        if (before.status !== request.to) {
-          await runBacklog(deps.cli, location.workTree, [
-            "task",
-            "edit",
-            request.story,
-            "--status",
-            request.to,
-          ]);
-        }
-        const back = await viewStory(target);
-        if (back.status !== request.to) {
-          throw new GitError(
-            "park.statusNotWritten",
-            `The Backlog CLI left ${request.story} at ${back.status}, not ${request.to}.`,
-          );
-        }
         // Only the task file: anything else staged stays out of the commit.
-        const commit = await commitTaskFile(
+        const { commit } = await editInStoryBacklog(
+          git,
           session,
           location,
-          repoPath(location.workTree, before.file),
+          request.story,
           `${request.story}: status ${request.to}`,
+          async (backlog) => {
+            const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
+            const before = await viewStory(target);
+            await writeFields(target, (fields) => {
+              const { park: _park, ...rest } = fields;
+              return rest;
+            });
+            if (before.status !== request.to) {
+              await runBacklog(deps.cli, backlog.cwd, [
+                "task",
+                "edit",
+                request.story,
+                "--status",
+                request.to,
+              ]);
+            }
+            const back = await viewStory(target);
+            if (back.status !== request.to) {
+              throw new GitError(
+                "park.statusNotWritten",
+                `The Backlog CLI left ${request.story} at ${back.status}, not ${request.to}.`,
+              );
+            }
+          },
         );
         const pushed = await pushBranch(session, git.settings.remote, request.branch);
         return { commit, pushed: pushed.pushed, pushError: pushed.error };
@@ -465,6 +476,18 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       notice(
         PARK_NOTICES.notWritten,
         `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: dipo runs no git in ${run.worktree ?? "its worktree"} since its git links changed.`,
+      );
+    } else if (error instanceof GitError && error.code === TASK_FIELD_ERROR) {
+      // 0021 section 14: a task file holding fields dipo does not know never reaches the CLI.
+      detail =
+        reason === "scope-violation"
+          ? `${error.message} ${detail}`
+          : `${error.message} (dipo was parking it as ${reason}: ${detail})`;
+      reason = "scope-violation";
+      cause = PARK_CAUSES.taskFile;
+      notice(
+        PARK_NOTICES.notWritten,
+        `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: its task file holds fields dipo does not know.`,
       );
     } else {
       notice(

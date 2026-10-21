@@ -4,7 +4,7 @@ title: Check for conflicts before In Review and let the worker resolve them
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 09:20'
+updated_date: '2026-10-21 16:26'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -13,6 +13,7 @@ milestone: m-1
 dependencies:
   - DIPO-142
   - DIPO-148
+  - DIPO-284
 references:
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/src/run/story-git.ts

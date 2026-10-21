@@ -9,8 +9,15 @@
 // labels only with `--add-label` and `--remove-label`, never by replacing or clearing the list
 // (0010 section 3). An error is any
 // non-zero exit or a `not found` line (fact 3); it carries the command and its output.
+//
+// Every call gets a minimal, explicit environment (`backlogEnv`), never the daemon's whole one
+// (0021 section 14). The caller picks the working folder: for a story it is a folder that holds
+// only dipo's own copy of the backlog, never the worktree a worker's files land in
+// (`inStoryBacklog` in `worktree/claim.ts`).
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
+
+import { parseYamlDocument } from "../platform/yaml";
 
 import { hasSectionRule } from "./plain";
 
@@ -19,8 +26,29 @@ export interface BacklogCli {
   readonly spawn: Spawn;
   /** The program and any leading arguments; `["backlog"]` (found on `PATH`) by default. */
   readonly command?: readonly [string, ...string[]];
-  /** The complete environment of the CLI; inherited when absent. */
-  readonly env?: Readonly<Record<string, string>>;
+  /**
+   * The environment the CLI's variables are taken from; the process's own when absent. Only
+   * `BACKLOG_ENV_KEYS` are taken (0021 section 14), so nothing else of it reaches the CLI.
+   */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * The only variables a Backlog CLI call gets (0021 section 14): `PATH` to find its runtime and
+ * `HOME` for its user settings. The daemon's other variables never reach it.
+ */
+export const BACKLOG_ENV_KEYS: readonly string[] = ["PATH", "HOME"];
+
+/** The minimal, explicit environment of a Backlog CLI call, taken from `source`. */
+export function backlogEnv(
+  source: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of BACKLOG_ENV_KEYS) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
 }
 
 export interface BacklogOutput {
@@ -293,7 +321,7 @@ export async function runBacklog(
   const command: [string, ...string[]] = [...(cli.command ?? ["backlog"]), ...args];
   let child;
   try {
-    child = cli.spawn({ cmd: command, cwd, ...(cli.env === undefined ? {} : { env: cli.env }) });
+    child = cli.spawn({ cmd: command, cwd, env: backlogEnv(cli.env ?? process.env) });
   } catch (error) {
     throw new BacklogCommandError(
       command,
@@ -318,4 +346,189 @@ export async function runBacklog(
     throw new BacklogCommandError(command, exit.code, stdout, stderr, "reported `not found`");
   }
   return { stdout, stderr };
+}
+
+// ---- the story's task file (0021 section 14) ---------------------------------------------------
+
+/** The folder that holds the Backlog task files, relative to the repository root. */
+export const TASKS_DIR = "backlog/tasks";
+
+/** The `GitError` code when dipo cannot make its copy of a story's backlog or commit from it. */
+export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";
+
+/**
+ * The `GitError` code when the story's task file holds a front matter field dipo does not know;
+ * the operation is refused, and a story in a run parks `scope-violation`.
+ */
+export const TASK_FIELD_ERROR = "story.unknownTaskField";
+
+/** True when `name` is the task file of `id`: `<id> - <title>.md`, any case. */
+export function isTaskFileOf(name: string, id: string): boolean {
+  return name.toLowerCase().startsWith(`${id.toLowerCase()} - `) && name.endsWith(".md");
+}
+
+/**
+ * Pure: why `path` (repo-relative, as git lists it) is not a task file path dipo accepts, or null:
+ * its folder must be exactly `backlog/tasks`, with no `.` or `..` segment and a plain file name.
+ */
+export function taskFilePathRefusal(path: string): string | null {
+  const segments = path.split("/");
+  const name = segments.at(-1) ?? "";
+  const plain =
+    segments.length === 3 &&
+    segments.slice(0, 2).join("/") === TASKS_DIR &&
+    name !== "" &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("\\") &&
+    !hasForbiddenCharacter(name, "");
+  return plain ? null : `${JSON.stringify(path)} is not a plain file directly in ${TASKS_DIR}`;
+}
+
+/**
+ * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
+ * other field is refused before the CLI reads it (0021 section 14).
+ */
+export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
+  "id",
+  "title",
+  "status",
+  "assignee",
+  "reporter",
+  "created_date",
+  "updated_date",
+  "due_date",
+  "labels",
+  "milestone",
+  "dependencies",
+  "references",
+  "documentation",
+  "modified_files",
+  "parent_task_id",
+  "subtasks",
+  "priority",
+  "type",
+  "project",
+  "ordinal",
+]);
+
+/** How Backlog.md 1.53 finds a task file's front matter block (without the carriage returns). */
+const FRONT_MATTER = /^---\n([\s\S]*?)\n---/;
+
+/**
+ * True when `text` holds a control character not in `allowed`, or a line or paragraph separator.
+ */
+function hasForbiddenCharacter(text: string, allowed: string): boolean {
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 && !allowed.includes(char)) return true;
+    if ((code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) return true;
+  }
+  return false;
+}
+
+/** A top-level field line: a plain lower-case name, a colon, then nothing or a space and a value. */
+const FIELD_LINE = /^([a-z_]+):(?:$| (.*)$)/;
+
+/**
+ * True when a value, list item or key on `line` starts with an anchor, an alias or a tag. Quoted
+ * text and text after the first token are not looked at.
+ */
+function startsWithNodeProperty(line: string): boolean {
+  let rest = line.trimStart();
+  while (rest.startsWith("- ")) rest = rest.slice(2).trimStart();
+  const keyed = /^[^\s'"[{&*!][^:]*:\s+(.*)$/.exec(rest);
+  if (keyed !== null) rest = keyed[1] ?? "";
+  return /^[&*!]/.test(rest);
+}
+
+/**
+ * The strict shape (layer one of `taskFieldRefusal`): why the text may not reach the CLI, or the
+ * front matter block and its top-level field names in order.
+ */
+function strictShape(
+  text: string,
+): { readonly refusal: string } | { readonly block: string; readonly names: readonly string[] } {
+  if (text.includes("\r")) return { refusal: "it holds a carriage return" };
+  if (text.includes("\ufeff")) return { refusal: "it holds a byte order mark" };
+  if (hasForbiddenCharacter(text, "\n\t")) {
+    return { refusal: "it holds a control character or a line or paragraph separator" };
+  }
+  const lines = text.split("\n");
+  if (lines[0] !== "---") return { refusal: "it does not open with a front matter block" };
+  const end = lines.findIndex((line, i) => i > 0 && line.startsWith("---"));
+  if (end < 0 || lines[end] !== "---") {
+    return { refusal: "its front matter block does not close on a plain `---` line" };
+  }
+  const names: string[] = [];
+  const unknown: string[] = [];
+  let field: string | null = null;
+  for (const line of lines.slice(1, end)) {
+    if (line.trim() === "") continue;
+    if (line.startsWith("\t")) return { refusal: "its front matter indents with a tab" };
+    if (line.startsWith("...")) return { refusal: "its front matter holds a document marker" };
+    if (startsWithNodeProperty(line)) {
+      return { refusal: "its front matter holds an anchor, an alias or a tag" };
+    }
+    if (line.startsWith(" ")) {
+      if (field === null) {
+        return { refusal: "its front matter holds an indented line before any field it knows" };
+      }
+      continue;
+    }
+    const match = FIELD_LINE.exec(line);
+    const name = match?.[1];
+    if (name === undefined || !KNOWN_TASK_FIELDS.has(name)) {
+      unknown.push(JSON.stringify(line.slice(0, 40)));
+      field = null;
+      continue;
+    }
+    if (names.includes(name)) return { refusal: `its front matter holds \`${name}\` twice` };
+    if ((match?.[2] ?? "").trimStart().startsWith("{")) {
+      return { refusal: `its front matter holds a flow mapping at \`${name}\`` };
+    }
+    names.push(name);
+    field = name;
+  }
+  if (unknown.length > 0) {
+    return { refusal: `its front matter holds fields dipo does not know: ${unknown.join(", ")}` };
+  }
+  return { block: lines.slice(1, end).join("\n"), names };
+}
+
+/**
+ * Pure: why the task file `text` may not reach the Backlog CLI, or null when it may. Two layers
+ * must agree, and anything either cannot account for is refused:
+ *
+ * 1. A strict shape: no carriage return, byte order mark, control character (other than LF and
+ *    tab) or line or paragraph separator; a front matter block that opens on the first line and
+ *    closes on a plain `---` line; every top-level line a plain `name:` field in
+ *    `KNOWN_TASK_FIELDS`, each once, none holding a flow mapping; no indented line before the first
+ *    field; no document marker, anchor, alias or tag.
+ * 2. A parse: the block found the way Backlog.md finds it is parsed as YAML, and must be a plain
+ *    mapping whose keys are exactly the names the strict shape found.
+ */
+export function taskFieldRefusal(text: string): string | null {
+  const shape = strictShape(text);
+  if ("refusal" in shape) return shape.refusal;
+  const found = FRONT_MATTER.exec(text)?.[1];
+  if (found !== shape.block) {
+    return "its front matter block is not the one the Backlog CLI would read";
+  }
+  const result = parseYamlDocument(found);
+  if (!result.ok) return `its front matter does not parse: ${result.message}`;
+  const parsed = result.value;
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    (Object.getPrototypeOf(parsed) !== Object.prototype && Object.getPrototypeOf(parsed) !== null)
+  ) {
+    return "its front matter is not a plain mapping";
+  }
+  const keys = Object.keys(parsed);
+  const agree =
+    keys.length === shape.names.length &&
+    keys.every((key) => KNOWN_TASK_FIELDS.has(key) && shape.names.includes(key));
+  return agree ? null : "its front matter parses to fields other than those dipo read in it";
 }

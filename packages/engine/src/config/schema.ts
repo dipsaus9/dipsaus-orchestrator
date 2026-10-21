@@ -27,13 +27,17 @@
 // real secrets. Every key is optional: what the block leaves out is detected from the repository
 // (`box/image.ts`). dipo reads the block from the base branch only, so a story cannot change it.
 // `office.local.yaml` gains no key.
+// Version 10 (DIPO-285) retires `permissions.presentMinutes`: nothing reads it since DIPO-279
+// replaced the presence window with a check for a connected TUI (0021 section 11). An older file
+// that still sets it loads; the migration drops the key and the load warns (`RETIRED_KEYS`).
+// `office.local.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 9;
+export const OFFICE_CONFIG_VERSION = 10;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -389,9 +393,18 @@ const BoxSection = z
   );
 
 // Version 9: the office keys of version 8 plus `box` (DIPO-266).
-const officeShape = {
+const officeShapeV9 = {
   ...officeShapeV8,
   box: BoxSection,
+};
+
+// Version 10 (DIPO-285): `permissions` without `presentMinutes`.
+const PermissionsV10 = z.strictObject({ ask: officeShapeV1.permissions.shape.ask });
+
+// Version 10: the office keys of version 9 without `permissions.presentMinutes` (DIPO-285).
+const officeShape = {
+  ...officeShapeV9,
+  permissions: PermissionsV10,
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -466,19 +479,28 @@ export const OfficeConfigV8 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
+/** The effective configuration of an office, version 9 (kept to read version 9 files). */
+export const OfficeConfigV9 = z.strictObject({
+  version: z.literal(9),
+  ...officeShapeV9,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
 /**
  * The effective configuration of an office: every key set, after defaults and overrides. The
  * `box` block is the one exception: its keys stay optional, and what it leaves out is detected
  * from the repository (`box/image.ts`).
  */
-export const OfficeConfigV9 = z.strictObject({
+export const OfficeConfigV10 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV9>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV10>;
 /** The `box` block of an office (version 9, DIPO-266), as committed: every key optional. */
 export type OfficeBoxSection = OfficeConfig["box"];
 
@@ -598,6 +620,12 @@ export const OfficeFileV8 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 9: version 8 plus `box` (DIPO-266). */
 export const OfficeFileV9 = z.strictObject({
+  version: z.literal(9),
+  ...fileShape(officeShapeV9),
+}) as unknown as z.ZodType<OfficeFileOf<9>>;
+
+/** `.dipo/office.yaml`, version 10: version 9 without `permissions.presentMinutes` (DIPO-285). */
+export const OfficeFileV10 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -667,6 +695,12 @@ export const OfficeLocalFileV8 = z.strictObject({
  * box is read from the base branch, never from a machine-local file.
  */
 export const OfficeLocalFileV9 = z.strictObject({
+  version: z.literal(9),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<9>>;
+
+/** `.dipo/office.local.yaml`, version 10: the same keys as version 9 (DIPO-285 adds none here). */
+export const OfficeLocalFileV10 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -712,11 +746,19 @@ export const OfficeOverridesV8 = z.strictObject(
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /**
- * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`. The
- * box is read from the base branch only (DIPO-266), so a flag can never feed a build.
+ * Overrides from flags on a single command, version 9 keys: any `office.yaml` key except `version`
+ * and `box`. The box is read from the base branch only (DIPO-266), so a flag can never feed a build.
  */
 export const OfficeOverridesV9 = z.strictObject(
   fileShape(officeShapeV8),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/**
+ * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`, so
+ * without `permissions.presentMinutes` too (DIPO-285).
+ */
+export const OfficeOverridesV10 = z.strictObject(
+  fileShape({ ...officeShapeV8, permissions: PermissionsV10 }),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /** The file schemas of each version, for `resolveOfficeConfig`. */
@@ -730,6 +772,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   7: OfficeFileV7,
   8: OfficeFileV8,
   9: OfficeFileV9,
+  10: OfficeFileV10,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -741,7 +784,52 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   7: OfficeLocalFileV7,
   8: OfficeLocalFileV8,
   9: OfficeLocalFileV9,
+  10: OfficeLocalFileV10,
 };
+
+/** A key that a version retires: nothing reads it any more, and that version's files refuse it. */
+export interface RetiredKey {
+  /** The key path, such as `permissions.presentMinutes`. */
+  readonly path: string;
+  /** The first version without the key. */
+  readonly version: OfficeConfigVersion;
+  /** Why the key is gone, for the warning and the error. */
+  readonly reason: string;
+}
+
+/**
+ * Keys a version retires (DIPO-285). A file of an older version may still set one: the migration
+ * drops it, and the load warns with its path (`resolveOfficeConfig`).
+ */
+export const RETIRED_KEYS: readonly RetiredKey[] = [
+  {
+    path: "permissions.presentMinutes",
+    version: 10,
+    reason:
+      "nothing reads it since DIPO-279: a worker's question is asked live only while a TUI is connected (0021 section 11)",
+  },
+];
+
+// The document without the key at `path` (dot-separated), copying each mapping on the way down.
+function withoutKey(
+  document: Record<string, unknown>,
+  path: readonly string[],
+): Record<string, unknown> {
+  const [head, ...rest] = path;
+  if (head === undefined || !(head in document)) return document;
+  const { [head]: value, ...others } = document;
+  if (rest.length === 0) return others;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return document;
+  return { ...others, [head]: withoutKey(value as Record<string, unknown>, rest) };
+}
+
+// Drops the keys that `version` retires.
+function withoutRetired(document: Record<string, unknown>, version: OfficeConfigVersion) {
+  return RETIRED_KEYS.filter((key) => key.version === version).reduce(
+    (current, key) => withoutKey(current, key.path.split(".")),
+    document,
+  );
+}
 
 /**
  * Pure: an office file's document of `version` migrated in memory to the newest version, one
@@ -754,6 +842,8 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
  * default. Version 6 to 7 is the identity too: `storyPr.open` takes its default, true (DIPO-210).
  * Version 7 to 8 is the identity too: `worker.web` takes its default, true (DIPO-164).
  * Version 8 to 9 is the identity too: without `box` the whole box is detected (DIPO-266).
+ * Version 9 to 10 drops `permissions.presentMinutes`, which nothing reads (DIPO-285, `RETIRED_KEYS`);
+ * the load warns about it.
  * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -769,6 +859,7 @@ export function migrateOfficeDocument(
   if (current.version === 6) current = { ...current, version: 7 };
   if (current.version === 7) current = { ...current, version: 8 };
   if (current.version === 8) current = { ...current, version: 9 };
+  if (current.version === 9) current = { ...withoutRetired(current, 10), version: 10 };
   return current;
 }
 
@@ -845,7 +936,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     maxMinutes: 30,
     budgetTokens: 200_000,
   },
-  permissions: { ask: "when-present", presentMinutes: 10 },
+  // 0008 section 5; whether the maintainer is present is a connected TUI (DIPO-279).
+  permissions: { ask: "when-present" },
   // 0008, 0009 and 0013 section 1.
   timeouts: {
     workerStallMinutes: 20,
