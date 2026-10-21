@@ -1,10 +1,10 @@
 ---
 id: DIPO-270
 title: Run the Backlog CLI only in a folder that holds no worker-written files
-status: Refined
+status: In Review
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 13:44'
+updated_date: '2026-10-21 14:25'
 labels:
   - 'tier:M'
   - cutover
@@ -39,8 +39,8 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Status, criteria and park edits of a story's task file run in a folder that holds only dipo's own copy of the backlog, never the worktree a worker's files land in
-- [ ] #2 Every Backlog CLI call gets a minimal, explicit environment instead of the daemon's
-- [ ] #3 A test shows that files a worker could deliver into the story's worktree do not reach the folder or the environment a Backlog CLI call uses
-- [ ] #4 The claim, In Review, park and lane paths all use this route
+- [x] #1 Status, criteria and park edits of a story's task file run in a folder that holds only dipo's own copy of the backlog, never the worktree a worker's files land in
+- [x] #2 Every Backlog CLI call gets a minimal, explicit environment instead of the daemon's
+- [x] #3 A test shows that files a worker could deliver into the story's worktree do not reach the folder or the environment a Backlog CLI call uses
+- [x] #4 The claim, In Review, park and lane paths all use this route
 <!-- AC:END -->
