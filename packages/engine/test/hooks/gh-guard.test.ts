@@ -22,6 +22,23 @@ const ALLOWED = [
   "gh pr view --help > help.txt",
   "gh api --help >help.txt",
   "timeout 10 gh --version",
+  // A lookup runs no program, and a wrapper's own options are not its command (DIPO-242).
+  "command -v gh",
+  "command -V gh",
+  "sudo -u gh ls",
+  "env bash -c 'gh --version'",
+  "nice -n5 bash -c 'gh --version'",
+  "function f { echo hi; }",
+  "coproc echo hi",
+  "bash <<< 'gh --version'",
+  "echo gh pr list | grep x",
+  "echo gh pr list | cat",
+  "GH --version",
+  // The backstop passes over a gh word taken as a known option's value, and printed text with no
+  // gh call is no script (DIPO-242 review).
+  "sudo -u gh -g gh ls",
+  "echo gh --version | bash",
+  "printf '%s\\n' 'gh --version' | bash",
 ];
 
 const REFUSED = [
@@ -62,6 +79,57 @@ const REFUSED = [
   "gh pr view \\> -- --help",
   'gh pr view "2>" -b --help',
   "gh pr view --help '>' -b",
+  // A wrapped shell, a wrapper's -S text and a function or coprocess run the gh call (DIPO-242).
+  "env bash -c 'gh pr list'",
+  "sudo sh -c 'gh pr list'",
+  "nice -n5 bash -c 'gh pr list'",
+  "env -S 'gh pr list'",
+  "function f { gh pr list; }",
+  "coproc gh pr list",
+  "bash <<< 'gh pr list'",
+  "echo gh pr list | bash",
+  // ANSI-C and locale quoting: the word is gh (DIPO-242).
+  "$'gh' pr merge 1",
+  "$'\\x67h' pr list",
+  '$"gh" pr list',
+  // The program's letter case does not matter on a case-insensitive file system (DIPO-242).
+  "GH pr merge 1",
+  "Gh api /user",
+  "sudo GH pr list",
+  // An option the tables do not know hides no gh word after it, as before DIPO-242 (DIPO-242 review).
+  "doas -a style gh pr list",
+  "sudo -r role gh pr list",
+  "sudo -t type gh pr list",
+  "stdbuf --output L gh pr list",
+  "env -a name gh pr list",
+  // The -c script may follow other options, and printed text is read with its escapes decoded.
+  "bash -c -- 'gh pr list'",
+  "bash -c -x 'gh pr list'",
+  "printf '%s\\n' 'gh pr list' | bash",
+  "echo -e 'x\\ngh pr list' | bash",
+  "bash 0<<< 'gh pr list'",
+  "mksh -c 'gh pr list'",
+  "busybox sh -c 'gh pr list'",
+  "setsid gh pr list",
+  // Nesting deeper than is followed is refused when it holds a gh word.
+  "eval eval eval eval eval eval 'gh pr list'",
+  // `$$` and an escaped `$` open no ANSI-C span, every stdin text a shell may read is checked,
+  // and an ANSI-C string ends at a NUL (DIPO-242 review).
+  "echo $$'\\'; gh pr list; echo 'x'",
+  "x=$$'\\'; gh pr list; y='z'",
+  "echo \"$(echo \\$'\\'; gh pr list)\"",
+  "echo \"$(echo $$'\\'; gh pr list)\"",
+  "bash <<< 'echo hi' <<EOF\ngh pr list\nEOF",
+  "bash -s -- '<<<' <<EOF\ngh pr list\nEOF",
+  "cat <<EOF | bash -s '<<<'\ngh pr list\nEOF",
+  "bash <<< 'echo hi' <<< 'gh pr list'",
+  'cat <<EOF | echo "$(cat)" | bash\ngh pr list\nEOF',
+  'cat <<EOF | printf "$(cat)" | bash\ngh pr list\nEOF',
+  "$'gh\\0x' pr list",
+  "$'gh\\x00' pr list",
+  "$'gh\\c@' pr list",
+  "printf 'gh\\0 pr list' | bash",
+  "echo -e 'gh\\0 pr list' | bash",
 ];
 
 describe("ghRefusal", () => {
