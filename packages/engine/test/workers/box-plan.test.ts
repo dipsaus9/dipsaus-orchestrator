@@ -1,0 +1,321 @@
+// The box worker's launch (DIPO-271, criteria 1 and 2): the worker host starts claude inside the
+// story's box as a long-running `container exec`, with the stream-json input and output it reads
+// from a Mac worker; inside the box claude runs with all permissions, and none of the Mac worker's
+// sandbox settings, hooks or permission relay is planned. A run is a box run when its run
+// directory records a box; a reviewer of that run stays on the Mac. The box's placeholder key is
+// accepted at `system/init`, only for the box's developer.
+
+import { describe, expect, it } from "bun:test";
+
+import { ManualClock } from "@dipsaus-orchestrator/testkit";
+
+import { OFFICE_DEFAULTS } from "../../src/config";
+import type { BoxSession } from "../../src/box/workers";
+import { BOX_PLACEHOLDER_API_KEY } from "../../src/box/model-proxy";
+import { BoxError } from "../../src/box/port";
+import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
+import {
+  type ClaudeBoxWorkers,
+  claudeCliAdapter,
+  claudeWorkerPort,
+} from "../../src/workers/claude-cli/adapter";
+import { BOX_CLAUDE, BOX_CLAUDE_ENV, planInBox } from "../../src/workers/claude-cli/box-plan";
+import { userMessageLine } from "../../src/workers/claude-cli/encode";
+import { initialState } from "../../src/workers/claude-cli/interpret";
+import { AdapterHolds, type StickyHoldStore } from "../../src/workers/hold";
+import type { RunLaunchPaths } from "../../src/workers/port";
+import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
+import { FAKE_CLIENT_ENV, FAKE_CONTAINER, FakeBoxes } from "../box/fake-boxes";
+import {
+  context,
+  HOME,
+  MAIN,
+  RUN_DIR,
+  SHORT_TMP_DIR,
+  spec,
+  TMP_DIR,
+  WORKDIR,
+} from "./launch-fixtures";
+
+const BOX = "dipo-run-0001";
+const ROUTES = {
+  ANTHROPIC_API_KEY: BOX_PLACEHOLDER_API_KEY,
+  ANTHROPIC_BASE_URL: "http://192.0.2.10:4000",
+  NO_PROXY: "192.0.2.10",
+  HTTPS_PROXY: "http://192.0.2.10:3128",
+  HTTP_PROXY: "http://192.0.2.10:3128",
+  NODE_EXTRA_CA_CERTS: "/dipo/safe-chain-ca.pem",
+};
+const PATHS: RunLaunchPaths = {
+  workdir: WORKDIR,
+  mainCheckout: MAIN,
+  runDir: RUN_DIR,
+  hostSocket: `${RUN_DIR}/host.sock`,
+  tmpDir: TMP_DIR,
+  shortTmpDir: SHORT_TMP_DIR,
+};
+
+function session(): BoxSession {
+  const boxes = new FakeBoxes();
+  return {
+    box: BOX,
+    workdir: "/work",
+    env: ROUTES,
+    systemFile: "/dipo/system.md",
+    exec: (command, env) => boxes.execLiveCommand(BOX, command, { cwd: "/work", env }),
+    stop: boxes.stopCommand(BOX),
+  };
+}
+
+/** The `--env` values of a `container exec` argv, as the box gets them. */
+function boxEnv(argv: readonly string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== "--env") continue;
+    const [key, ...value] = (argv[i + 1] ?? "").split("=");
+    env[key ?? ""] = value.join("=");
+  }
+  return env;
+}
+
+/** The argv after the box name: what runs inside the box. */
+function inBox(argv: readonly string[]): string[] {
+  return argv.slice(argv.indexOf(BOX) + 1);
+}
+
+describe("the box worker's plan (criteria 1 and 2)", () => {
+  it("runs claude in the box as a long-running exec with the stream-json input and output", () => {
+    const plan = planInBox(spec(), session(), RUN_DIR);
+    expect(plan.argv.slice(0, 5)).toEqual([
+      FAKE_CONTAINER,
+      "exec",
+      "--interactive",
+      "--workdir",
+      "/work",
+    ]);
+    expect(inBox(plan.argv)).toEqual([
+      BOX_CLAUDE,
+      "-p",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--session-id",
+      spec().session.id,
+      "--model",
+      "sonnet",
+      "--effort",
+      "medium",
+      "--max-turns",
+      "120",
+      "--permission-mode",
+      "bypassPermissions",
+      "--tools",
+      "Read,Edit,Write,Glob,Grep,Bash",
+      "--strict-mcp-config",
+      "--append-system-prompt-file",
+      "/dipo/system.md",
+      "--exclude-dynamic-system-prompt-sections",
+      "--disable-slash-commands",
+      "--json-schema",
+      JSON.stringify(spec().reportSchema),
+    ]);
+    // The task is the first stream-json user message, on stdin, as for a Mac worker.
+    expect(plan.stdin).toEqual([userMessageLine(spec().taskMessage)]);
+    // A resumed session resumes in the box.
+    const resumed = planInBox(
+      spec({ session: { id: spec().session.id, resume: true } }),
+      session(),
+      RUN_DIR,
+    );
+    expect(inBox(resumed.argv)).toContain("--resume");
+  });
+
+  it("plans no sandbox settings, hooks, permission relay or dipo socket for the box", () => {
+    const plan = planInBox(spec({ hookRelay: true }), session(), RUN_DIR);
+    const text = JSON.stringify(plan);
+    expect(plan.files).toEqual([]);
+    for (const flag of [
+      "--settings",
+      "--setting-sources",
+      "--permission-prompts",
+      "--mcp-config",
+    ]) {
+      expect(plan.argv).not.toContain(flag);
+    }
+    expect(text).not.toContain("DIPO_HOST_SOCKET");
+    expect(text).not.toContain("host.sock");
+    expect(text).not.toContain(" hook ");
+    // Nothing of the Mac's home reaches the box's argv; the host's cwd is the run directory.
+    expect(JSON.stringify(plan.argv)).not.toContain(HOME);
+    // The box gets exactly the routes' variables and what claude needs; the client on the Mac
+    // only the backend's client environment.
+    expect(boxEnv(plan.argv)).toEqual({ ...ROUTES, ...BOX_CLAUDE_ENV });
+    expect(plan.env).toEqual(FAKE_CLIENT_ENV);
+    expect(plan.cwd).toBe(RUN_DIR);
+    // The host stops the box, since a killed exec client leaves claude running in it.
+    expect(plan.stopCommand).toEqual([FAKE_CONTAINER, "stop", BOX]);
+  });
+
+  it("plans only a developer session in a box", () => {
+    expect(() => planInBox(spec({ kind: "review" }), session(), RUN_DIR)).toThrow(PlanError);
+  });
+});
+
+const clock = new ManualClock();
+const neverSpawn = () => {
+  throw new Error("no Mac launch check may run for a box worker");
+};
+
+function port(boxes: ClaudeBoxWorkers, holds: AdapterHolds) {
+  return claudeWorkerPort({
+    claudePath: `${HOME}/.local/bin/claude`,
+    home: HOME,
+    env: { PATH: "/usr/bin:/bin", HOME },
+    dipoCommand: ["/opt/dipo/bin/dipo"],
+    spawn: neverSpawn,
+    clock,
+    holds,
+    platform: "darwin",
+    runStep: async () => {
+      throw new Error("no step may run in this test");
+    },
+    uid: 501,
+    pluginFiles: { read: () => undefined, dirs: () => [] },
+    boxes,
+  });
+}
+
+describe("the Claude worker port with box workers", () => {
+  it("prepares a box run's developer session in its box, with none of the Mac launch checks", async () => {
+    const asked: unknown[] = [];
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const prepared = await port(
+      {
+        isBoxRun: (runDir) => runDir === RUN_DIR,
+        session: async (input) => {
+          asked.push(input);
+          return session();
+        },
+      },
+      holds,
+    ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(asked).toEqual([
+      { runId: "run-0001", runDir: RUN_DIR, systemFile: `${RUN_DIR}/system.md` },
+    ]);
+    expect(inBox(prepared.plan.argv)[0]).toBe(BOX_CLAUDE);
+    expect(prepared.plan.lineScrub).toBeDefined();
+  });
+
+  it("refuses a box run's launch while the sticky box-token hold stands, before the box is used", async () => {
+    let record: ReturnType<StickyHoldStore["read"]> = null;
+    const holds = new AdapterHolds({
+      clock,
+      notify: () => {},
+      sticky: {
+        checks: new Set([BOX_TOKEN_CHECK]),
+        liftedBy: "Replace the box login with `dipo login box`.",
+        store: {
+          read: () => record,
+          write: (next) => {
+            record = next;
+          },
+          clear: () => {
+            record = null;
+          },
+        },
+      },
+    });
+    holds.hold("claude-cli", [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
+    let used = false;
+    const prepared = await port(
+      {
+        isBoxRun: () => true,
+        session: async () => {
+          used = true;
+          return session();
+        },
+      },
+      holds,
+    ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    expect(prepared).toMatchObject({
+      ok: false,
+      outcome: "startFailed",
+      hold: { check: BOX_TOKEN_CHECK },
+    });
+    expect(used).toBe(false);
+  });
+
+  it("holds the adapter when the box cannot be made ready, and refuses a run whose box is gone as a plan", async () => {
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const broken = await port(
+      {
+        isBoxRun: () => true,
+        session: async () => {
+          throw new BoxError("box.failed", "container system is not running");
+        },
+      },
+      holds,
+    ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    expect(broken).toMatchObject({ ok: false, hold: { check: "box" } });
+    expect(holds.adapterHeld("claude-cli")?.detail).toContain("container system is not running");
+
+    const gone = port(
+      {
+        isBoxRun: () => true,
+        session: async () => {
+          throw new BoxError("box.gone", "the box was deleted when the run ended");
+        },
+      },
+      new AdapterHolds({ clock, notify: () => {} }),
+    ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    expect(await gone.catch((error: unknown) => error)).toBeInstanceOf(PlanError);
+  });
+});
+
+function init(apiKeySource: string): HostLine {
+  return {
+    t: 1,
+    ch: "stdout",
+    data: `${JSON.stringify({
+      type: "system",
+      subtype: "init",
+      session_id: "s",
+      model: "claude-sonnet-5",
+      claude_code_version: "2.1.303",
+      cwd: "/work",
+      permissionMode: "bypassPermissions",
+      tools: ["Bash", "Read"],
+      apiKeySource,
+      mcp_servers: [],
+      slash_commands: [],
+      skills: [],
+      plugins: [],
+    })}\n`,
+  };
+}
+const initDeps = {
+  spawn: () => {
+    throw new Error("unused");
+  },
+  clock: new ManualClock(),
+};
+
+/** True when the init line with the placeholder key's source is rejected. */
+function rejected(boxWorker: boolean, reportKind: "implement" | "review"): boolean {
+  const adapter = claudeCliAdapter(context(), initDeps, { boxWorker });
+  const state = initialState({ reportKind }) as unknown as ParseState;
+  const events = adapter.interpret(init("ANTHROPIC_API_KEY"), state).events;
+  return events.some((event) => event.t === "initRejected");
+}
+
+describe("the box's placeholder key at system/init", () => {
+  it("is accepted for the box's developer, and refused on the Mac and for a reviewer", () => {
+    expect(rejected(true, "implement")).toBe(false);
+    expect(rejected(false, "implement")).toBe(true);
+    expect(rejected(true, "review")).toBe(true);
+  });
+});
