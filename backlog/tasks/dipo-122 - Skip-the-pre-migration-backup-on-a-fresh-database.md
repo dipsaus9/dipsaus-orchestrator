@@ -1,10 +1,10 @@
 ---
 id: DIPO-122
 title: Skip the pre-migration backup on a fresh database
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-16 11:53'
-updated_date: '2026-10-22 13:41'
+updated_date: '2026-10-22 13:56'
 labels:
   - 'tier:S'
 milestone: m-1
