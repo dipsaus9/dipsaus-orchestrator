@@ -1,10 +1,10 @@
 ---
 id: DIPO-293
 title: Tell the box worker that the box has no git program
-status: In Review
+status: To Do
 assignee: []
 created_date: '2026-10-22 08:30'
-updated_date: '2026-10-22 08:52'
+updated_date: '2026-10-22 08:32'
 labels:
   - 'tier:S'
   - box
@@ -14,7 +14,6 @@ dependencies: []
 references:
   - packages/engine/src/prompts/contract/implement-box.md
   - packages/engine/test/prompts/system.test.ts
-  - packages/engine/test/prompts/golden/system-implement-box-developer.md
 priority: high
 type: bug
 ordinal: 282000
@@ -35,7 +34,7 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 implement-box.md says the box has no git program and that one cannot be installed, and that tests or commands that need git fail in the box for that reason, not because of the worker's change
-- [x] #2 It tells the worker not to install missing system tools, to name such failures in its report, and to put a tool the box lacks in proposals
-- [x] #3 A prompt test pins the new text
+- [ ] #1 implement-box.md says the box has no git program and that one cannot be installed, and that tests or commands that need git fail in the box for that reason, not because of the worker's change
+- [ ] #2 It tells the worker not to install missing system tools, to name such failures in its report, and to put a tool the box lacks in proposals
+- [ ] #3 A prompt test pins the new text
 <!-- AC:END -->
