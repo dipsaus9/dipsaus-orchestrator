@@ -1,9 +1,9 @@
 // The one wiring of the run services (DIPO-129): ingestion with the permission wait and the
 // nudges, run control, worker outcomes, the resumer, the plan-limit schedule, the office's session
-// places (DIPO-142) with the pending reviews and their starter (DIPO-219), the launcher and
-// re-attach, built from injected ports. The daemon and the engine's run tests both build them
-// here, so a test exercises the wiring the daemon runs. What differs between them is only which
-// ports are injected.
+// places (DIPO-142) with the pending reviews and their starter (DIPO-219), the fix rounds and
+// their starter (DIPO-148), the launcher and re-attach, built from injected ports. The daemon and
+// the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
+// What differs between them is only which ports are injected.
 
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
@@ -22,6 +22,7 @@ import { PlanLimits, type PlanLimitsDeps } from "./plan-limit";
 import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
 import { gitReviewOps, ReviewLauncher } from "./review-launch";
+import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
 import { afterRunExits } from "./temp-dirs";
@@ -75,6 +76,13 @@ export interface RunPorts {
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
   /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
   readonly places?: Pick<PlacesDeps, "reviewModel" | "pending">;
+  /**
+   * Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-147): a fix round waits
+   * for its checks (DIPO-148). Without it no CI is waited for.
+   */
+  readonly ci?: FixRoundsDeps["ci"];
+  /** Whether a run's developer works in a box (DIPO-271): its fix round starts a new session. */
+  readonly boxRun?: FixRoundsDeps["boxRun"];
   /** Replaces run control as the resumer's and the launcher's tracker (a test's caps override). */
   readonly tracker?: (control: RunControl) => NonNullable<RunLauncherDeps["control"]>;
   /** Replaces ingestion as the resumer's (a test recording each start). */
@@ -106,6 +114,11 @@ export interface ComposedRuns {
   readonly places: Places | null;
   /** The review rounds (DIPO-219): pending reviews, their starter and the reviewer's outcomes. */
   readonly reviews: Reviews | null;
+  /**
+   * The fix rounds (DIPO-148): review and CI feedback on a pushed head back to its worker, once per
+   * head; `consider` is to be called when the CI of a head stops being pending.
+   */
+  readonly fixRounds: FixRounds | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
 }
@@ -249,6 +262,7 @@ interface Outcomes {
   readonly planLimits: PlanLimits | null;
   readonly places: Places;
   readonly reviews: Reviews;
+  readonly fixRounds: FixRounds;
 }
 
 /**
@@ -314,7 +328,23 @@ function buildOutcomes(
           ...given("scheduling", ports.scheduling),
           ...given("warn", ports.warn),
         });
-  const reviews = buildReviews(ports, control, ingest, planLimits);
+  // A fix round continues the developer's session through worker outcomes (DIPO-148).
+  const fixRounds = new FixRounds({
+    clock: ports.clock,
+    offices: ports.offices,
+    story: baseStoryFacts(ports.base),
+    ...given("ci", ports.ci),
+    sessions: outcomes.parts.sessions,
+    view: (officeId, office, run) => outcomes.parts.support.viewOf(officeId, office, run),
+    ...given("unpark", outcomePorts.unpark),
+    ...given("boxRun", ports.boxRun),
+    places: () => late.places ?? undefined,
+    guard: outcomes.parts.support.guard,
+    ...given("refreshStory", ports.refreshStory),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+  const reviews = buildReviews(ports, control, ingest, planLimits, fixRounds);
   // The places pause by the plan-limit holds, start a queued resume through the resumption and a
   // pending review through the review rounds (0019 section 12).
   const places = new Places({
@@ -329,12 +359,13 @@ function buildOutcomes(
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),
       review: (office, run, start) => reviews.start(office, run, start),
+      fix: (office, run, start) => fixRounds.start(office, run, start),
     },
     ...given("scheduling", ports.scheduling),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
-  return { resumer, outcomes, resumption, planLimits, places, reviews };
+  return { resumer, outcomes, resumption, planLimits, places, reviews, fixRounds };
 }
 
 /** The review rounds with the real reviewer launcher on the run ports (DIPO-219). */
@@ -343,6 +374,7 @@ function buildReviews(
   control: RunControl,
   ingest: OfficeIngest,
   planLimits: PlanLimits | null,
+  fixRounds: FixRounds,
 ): Reviews {
   const sessions = new ReviewLauncher({
     clock: ports.clock,
@@ -376,6 +408,10 @@ function buildReviews(
     adapter: ports.worker.id,
     ...given("holds", ports.outcomes?.holds),
     waits: () => planLimits ?? undefined,
+    // Once the reviewer exited after its verdict, the head's fix round may decide (DIPO-148).
+    onReviewed: (office, runId, agent) => {
+      void fixRounds.consider(office, runId, { exited: agent });
+    },
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
@@ -490,6 +526,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     planLimits: late.planLimits,
     places: late.places,
     reviews: built?.reviews ?? null,
+    fixRounds: built?.fixRounds ?? null,
     launcher,
     reattacher,
   };

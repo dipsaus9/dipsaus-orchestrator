@@ -471,6 +471,52 @@ describe("the CI watch of the PR poll", () => {
   });
 });
 
+describe("the CI state a fix round waits for (DIPO-148)", () => {
+  it("tells each listener once when a head's CI stops being pending: green, stuck, then red", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        const told: string[] = [];
+        w.prs.onCiFinal((office, run) => told.push(`${office}/${run}`));
+        await w.prs.sync(id, w.run);
+        expect(w.prs.ciState(id, w.run)).toBeNull();
+        w.host.required = [report("ci-ok", "pending")];
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+        expect(told).toEqual([]);
+        w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "green", head: HEAD_A });
+        await w.prs.retry(id);
+        expect(told).toEqual([`${id}/${w.run}`]);
+
+        // A new head: pending, then stuck past the wait cap, then red.
+        await pushHead(w, HEAD_B);
+        w.host.required = [report("ci-ok", "pending")];
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_B });
+        w.t.clock.advance(w.config.mergeSlot.checksWaitMinutes * 60_000);
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "stuck", head: HEAD_B });
+        expect(told).toHaveLength(2);
+        redHead(w);
+        w.t.clock.advance(10 * 60_000);
+        await w.prs.retry(id);
+        const red = w.prs.ciState(id, w.run);
+        expect(red).toMatchObject({ kind: "red", head: HEAD_B });
+        expect(red?.kind === "red" ? red.items.map((item) => item.check) : []).toEqual([
+          "ci-ok",
+          "verify",
+        ]);
+        expect(told).toHaveLength(3);
+        await w.prs.retry(id);
+        expect(told).toHaveLength(3);
+      },
+      { ciCap: 5 },
+    );
+  });
+});
+
 describe("the CI watch after a restart and a failing park", () => {
   it("rebuilds the items of a recorded red head, reading each log once, with no second step", async () => {
     await inWorld(

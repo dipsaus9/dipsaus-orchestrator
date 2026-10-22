@@ -91,6 +91,25 @@ export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./p
 export { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
 export type { RoundKind } from "./rounds";
 export {
+  feedbackItems,
+  feedbackOfIntent,
+  markFeedbackSent,
+  nextFixRound,
+  planFeedback,
+  sameFailureAgain,
+  storeFeedbackItems,
+} from "./feedback-items";
+export type { PlannedItem, StoredFeedbackItem } from "./feedback-items";
+export {
+  FIX_NOTICES,
+  FIX_ROUND_TAG,
+  FixRounds,
+  fixRoundQueued,
+  lastReviewVerdict,
+  pendingFixRound,
+} from "./fix-rounds";
+export type { FixRoundsDeps, FixSessions } from "./fix-rounds";
+export {
   beginReviewRound,
   failedReviewRounds,
   openReviewRound,
@@ -113,6 +132,7 @@ export {
   reviewFolder,
   ReviewLauncher,
   reviewerSettings,
+  snapshotReviewCaps,
   sweepReviewFolders,
 } from "./review-launch";
 export type {

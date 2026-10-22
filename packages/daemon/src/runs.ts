@@ -67,6 +67,7 @@ import {
   type EngineGit,
   type HoldNotice,
   gitInputChanges,
+  type CiHeadState,
   type Logger,
   OfficeIngest,
   type OfficeHandle,
@@ -178,8 +179,15 @@ export interface DaemonRunsOptions {
   readonly cli: BacklogCli;
   /** True when the engine implements a command; a park offers only those (DIPO-50). */
   readonly implemented: (name: CommandName) => boolean;
-  /** The story PR, opened or updated right after each In Review push (DIPO-144). */
-  readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
+  /**
+   * The story PR, opened or updated right after each In Review push (DIPO-144), with the CI of its
+   * pushed head, which a fix round waits for and carries (DIPO-147, DIPO-148).
+   */
+  readonly storyPr?: {
+    sync(office: OfficeId, runId: RunId): Promise<void>;
+    ciState?(office: OfficeId, runId: RunId): CiHeadState | null;
+    onCiFinal?(listener: (office: OfficeId, runId: RunId) => void): void;
+  };
   /** The planning lane's resume of an on-hold park, for `work.resume` (DIPO-160). */
   readonly holdResumer?: () => HoldResumer | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
@@ -843,6 +851,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       void finishEndedBoxes();
     },
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
+    // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148); a box
+    // run's developer gets a new session in its box (0021 section 6).
+    ...(options.storyPr?.ciState === undefined
+      ? {}
+      : {
+          ci: (office: OfficeId, runId: RunId) => options.storyPr?.ciState?.(office, runId) ?? null,
+        }),
+    boxRun: isBoxRun,
     // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
     ...(options.presence === undefined ? {} : { presence: options.presence }),
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
@@ -967,6 +983,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     throw new Error("the daemon's run services are not all wired");
   }
   runControl = control;
+  // Each head whose CI stops being pending may start its fix round (DIPO-148).
+  const fixRounds = composed.fixRounds;
+  options.storyPr?.onCiFinal?.((office, runId) => {
+    void fixRounds?.consider(office, runId);
+  });
   collisions = boxCollisions(options, boxed, control, partRun);
   collisions?.start();
   return {
