@@ -189,7 +189,7 @@ describe("dipo run", () => {
     expect(ctx.out).toEqual(["skipped DIPO-7: the office already runs a story"]);
   });
 
-  it("runs the developer in its own box with --box, and refuses --box with --dry-run (DIPO-271)", async () => {
+  it("still sends --box, which changes nothing now, and ignores it in a dry run (DIPO-271, DIPO-240)", async () => {
     const ctx = fake(() => result([{ story: "DIPO-7", key: KEY, run: RUN }]), IN_OFFICE);
     expect(await main(["run", "DIPO-7", "--box"], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([
@@ -199,10 +199,27 @@ describe("dipo run", () => {
         office: OFFICE,
       },
     ]);
-    const dry = fake(() => result([]), IN_OFFICE);
-    expect(await main(["run", "--dry-run", "--box"], dry.deps)).toBe(2);
-    expect(dry.sent).toEqual([]);
-    expect(dry.err.join("\n")).toContain("--box has no dry run yet");
+    const dry = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [],
+          story: { story: "DIPO-7", key: KEY },
+          skipped: [],
+          launch: LAUNCH,
+          problem: null,
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run", "--box", "DIPO-7"], dry.deps)).toBe(0);
+    expect(dry.sent).toEqual([
+      { name: "work.preview", args: { office: OFFICE, stories: ["DIPO-7"] }, office: undefined },
+    ]);
+    expect(dry.err).toEqual([]);
   });
 
   it("explains a plan-limit skip in words, not as a full office (DIPO-92)", async () => {

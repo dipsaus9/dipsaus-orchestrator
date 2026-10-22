@@ -129,12 +129,12 @@ Usage:
                     pick the first Ready story on the office's base branch (or
                     the named ones), claim it and start its run; prints each
                     started story and each skipped one with its reason, and
-                    exits 1 when none started; with --box the worker runs in
-                    the story's own box
+                    exits 1 when none started; the worker always runs in the
+                    story's own box (--box is accepted and changes nothing)
   dipo run --dry-run [<id>...] [--office <id>]
                     show what dipo run would do without doing it: the branch and
                     worktree it would create, the full worker launch (program,
-                    arguments, model, effort, caps, sandbox settings, variable
+                    arguments, model, effort, caps, run settings, variable
                     names) and the system file and task message the worker
                     would get; claims, creates and starts nothing
   dipo stop <id> [--note <text>] [--office <id>] [--yes]

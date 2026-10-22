@@ -1,13 +1,14 @@
 // `dipo run [ID...] [--box] [--office <id>]` (DIPO-48): sends `work.run` for the office of `--office`
 // or of the current directory, with the main worktree it resolved as `from`, and prints each
 // started story with its run and each skipped story with its reason. Exit 0 when a story started,
-// else 1. `--box` (DIPO-271) runs the developer in the story's own box (0021); the dry run has no
-// box form yet, so `--box` with `--dry-run` is refused.
+// else 1. Every run is a box run (DIPO-240, 0021): the developer always runs in the story's own box.
+// `--box` (DIPO-271) is still accepted and sent, so scripts that pass it keep working, and changes
+// nothing; with `--dry-run` it is ignored, since the dry run shows the box launch anyway.
 //
 // `dipo run --dry-run [ID...]` (DIPO-74) sends the read `work.preview` instead and prints, in
 // sections, what `work.run` would do: the office checks that would refuse it, the skipped stories,
 // the branch and worktree it would create, the full worker launch (program, arguments, model,
-// effort, caps, run settings with the sandbox, environment variable names only) and the system file
+// effort, caps, run settings, environment variable names only) and the system file
 // and task message the worker would get. It claims, creates and starts nothing. Exit 0 when it shows
 // a launch, else 1.
 
@@ -286,7 +287,6 @@ export async function runCommand(
   }
   const options = parseOptions(rest, false);
   if (typeof options === "string") return usage(deps, `run: ${options}`);
-  if (preview && box) return usage(deps, "run: --box has no dry run yet; drop --dry-run or --box");
   if (preview) return dryRun(deps, options.office, stories);
   return withOffice(
     deps,
