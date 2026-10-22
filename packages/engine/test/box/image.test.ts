@@ -457,6 +457,7 @@ function builderJson(state: string): string {
  * so a test sees whether dipo ran it.
  */
 function builderWorld(status: CliReply, buildCode = 0) {
+  const clock = new ManualClock();
   const fake = fakeContainer((args) => {
     const call = args.join(" ");
     if (args[0] === "image") return { code: 1, stderr: "image not found" };
@@ -471,10 +472,10 @@ function builderWorld(status: CliReply, buildCode = 0) {
   });
   const boxes = new AppleContainerBoxes({
     spawn: fake.spawn,
-    clock: new ManualClock(),
+    clock,
     env: { PATH: "/usr/bin" },
   });
-  return { fake, boxes };
+  return { fake, boxes, clock };
 }
 
 /** A build route on the builder's network that writes its CA bundle into `dir`. */
@@ -556,6 +557,26 @@ describe("the image builder after a build (DIPO-298)", () => {
           "build",
         ]);
       }
+    }));
+
+  it("builds and stops the builder when the status call times out", () =>
+    withTempDir(async (dir) => {
+      const { fake, boxes, clock } = builderWorld({ hang: true });
+      const building = ensureImageWithBuildProxy(
+        { boxes, startRoute: buildRoute(dir), scratchRoot: dir },
+        IMAGE,
+      );
+      for (let i = 0; i < 50 && fake.calls.length < 2; i += 1) await Bun.sleep(5);
+      expect(fake.args()[1]).toEqual(["builder", "status", "--format", "json"]);
+      clock.advance(BOX_CALL_TIMEOUT_MS);
+      expect(await building).toEqual({ tag: boxImageTag(IMAGE), built: true });
+      expect(fake.children[1]?.signals).toEqual(["SIGKILL"]);
+      expect(builderCalls(fake)).toEqual([
+        "builder status --format json",
+        "builder start",
+        "build",
+        "builder stop",
+      ]);
     }));
 
   it("touches no builder when the image already exists", () =>

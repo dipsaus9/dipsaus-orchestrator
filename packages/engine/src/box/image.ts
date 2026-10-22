@@ -380,8 +380,9 @@ let builderStopping: Promise<void> = Promise.resolve();
  * build proxy, `ensureBoxImage`), and stops the builder again after them when it did not run
  * before (DIPO-298): the builder keeps two CPUs and 2 GB while it runs. It is stopped whether the
  * build passed or failed; a builder that already ran is left running. Builds at the same time
- * share one lease, so the builder is stopped only after the last of them. A failed stop does not
- * change the build's result: the image is built or its build failed either way.
+ * share one lease, so the builder is stopped only after the last of them. A status read that fails
+ * or times out counts as a builder that was not running, and a failed stop does not change the
+ * build's result: neither ever fails a build.
  */
 export async function withImageBuilder<T>(
   boxes: Pick<BoxPort, "builderRunning" | "stopBuilder">,
@@ -393,7 +394,14 @@ export async function withImageBuilder<T>(
     const stopped = builderStopping;
     lease = {
       users: 0,
-      stopAfter: stopped.then(() => boxes.builderRunning(options)).then((running) => !running),
+      // A status call that fails, even one killed at its deadline, reads as not running: it never
+      // fails a build, and the builder is stopped after it.
+      stopAfter: stopped
+        .then(() => boxes.builderRunning(options))
+        .then(
+          (running) => !running,
+          () => true,
+        ),
     };
     builderLease = lease;
   }
