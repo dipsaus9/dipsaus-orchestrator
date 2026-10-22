@@ -4,7 +4,7 @@ title: Write worker notes and context packs for the handoff
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:32'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -18,6 +18,8 @@ dependencies:
   - DIPO-290
   - DIPO-291
   - DIPO-292
+  - DIPO-293
+  - DIPO-294
 references:
   - packages/engine/src/run/
   - packages/engine/src/prompts/

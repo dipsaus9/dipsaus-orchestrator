@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:32'
 labels:
   - 'tier:M'
   - cutover
@@ -15,6 +15,8 @@ dependencies:
   - DIPO-255
   - DIPO-285
   - DIPO-291
+  - DIPO-293
+  - DIPO-294
 references:
   - packages/engine/src/config/schema.ts
   - packages/engine/test/config/

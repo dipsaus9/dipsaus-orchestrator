@@ -4,13 +4,14 @@ title: Refuse done and the PR while a catch-up's conflict markers remain
 status: Refined
 assignee: []
 created_date: '2026-10-21 23:03'
-updated_date: '2026-10-21 23:03'
+updated_date: '2026-10-22 08:32'
 labels:
   - 'tier:S'
   - box
   - cutover
 milestone: m-1
-dependencies: []
+dependencies:
+  - DIPO-294
 references:
   - packages/engine/src/box/collisions.ts
   - packages/engine/src/run/verify-commit.ts

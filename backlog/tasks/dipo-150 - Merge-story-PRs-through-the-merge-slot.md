@@ -4,7 +4,7 @@ title: Merge story PRs through the merge slot
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:33'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -19,6 +19,8 @@ dependencies:
   - DIPO-290
   - DIPO-291
   - DIPO-292
+  - DIPO-294
+  - DIPO-295
 references:
   - packages/engine/src/merge-slot/
   - packages/engine/src/db/migrations/

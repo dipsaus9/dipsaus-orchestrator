@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:33'
 labels:
   - 'tier:M'
   - cutover
@@ -15,6 +15,9 @@ dependencies:
   - DIPO-257
   - DIPO-291
   - DIPO-276
+  - DIPO-293
+  - DIPO-294
+  - DIPO-296
 references:
   - packages/engine/src/workers/types.ts
   - packages/engine/src/workers/claude-cli/report-schema.ts
