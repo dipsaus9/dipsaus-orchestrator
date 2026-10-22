@@ -319,6 +319,12 @@ export interface FillInstall {
   readonly cacheDir: string;
   /** The tar archive of that folder in the fill box, the one file copied out. */
   readonly archive: string;
+  /**
+   * Deletes every symlink in the cache folder before the pack. Bun keeps each package as a folder
+   * `<name>@<version>@@@1` and adds a `<name>/<version>@@@1` alias link to it; the cache takes no
+   * links (`checkCopiedTree`), so the aliases stay behind in the fill box.
+   */
+  readonly prune: readonly [string, ...string[]];
   /** Packs the cache folder into `archive`; hard links are stored as files. */
   readonly pack: readonly [string, ...string[]];
 }
@@ -331,6 +337,7 @@ export function fillInstall(manager: CacheManager, proxyUrl: string): FillInstal
   const packing = {
     cacheDir,
     archive,
+    prune: ["find", cacheDir, "-type", "l", "-delete"] as [string, ...string[]],
     pack: ["tar", "--hard-dereference", "-C", `${FILL_BOX_DIR}/cache`, "-cf", archive, manager] as [
       string,
       ...string[],
@@ -542,6 +549,16 @@ async function fillInBox(
         `${manager} could not fill the package cache in the fill box (exit ${result.code}): ${output}`,
         { manager, code: result.code, output },
       );
+    }
+    const pruned = await boxes.exec(name, install.prune, {
+      timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
+    });
+    if (pruned.code !== 0) {
+      fillFailed(`the fill box could not drop the links of its ${manager} cache.`, {
+        manager,
+        code: pruned.code,
+        step: "prune",
+      });
     }
     const packed = await boxes.exec(name, install.pack, {
       timeoutMs: PACKAGE_CACHE_COPY_TIMEOUT_MS,
@@ -883,6 +900,9 @@ export function cacheSkipReason(error: unknown): string {
     case "box.cacheFillFailed":
       if (step === "pack" && typeof manager === "string" && typeof code === "number") {
         return `the fill box could not pack its ${shortText(manager)} cache (exit ${code})`;
+      }
+      if (step === "prune" && typeof manager === "string" && typeof code === "number") {
+        return `the fill box could not drop the links of its ${shortText(manager)} cache (exit ${code})`;
       }
       if (typeof manager === "string" && typeof code === "number") {
         return `${shortText(manager)} exited ${code} in the fill box`;

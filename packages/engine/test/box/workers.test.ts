@@ -1075,6 +1075,9 @@ function fillScripts(
         case "mkdir":
           mkdirSync(at(box, command[2]!), { recursive: true });
           return { code: 0, stdout: "", stderr: "" };
+        case "find":
+          // The prune before the pack; this fake install leaves no links.
+          return { code: 0, stdout: "", stderr: "" };
         case "tar": {
           const [, , , from, , archive, folder] = command;
           const packed = spawnSync(
