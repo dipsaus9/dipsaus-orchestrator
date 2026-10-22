@@ -1,13 +1,19 @@
 // The reviewer's tools and run settings (0021 sections 10 and 14, DIPO-276): read-only on dipo's
 // copy of the pushed commit plus web search and fetch; no shell, no write, no gh. The copy is an
 // added directory of the run settings, never the working directory, so no project settings, hooks
-// or CLAUDE.md load from it.
+// or CLAUDE.md load from it. Its web fetches tunnel through its own listener of dipo's web proxy
+// (DIPO-292): HTTPS_PROXY and HTTP_PROXY name it, NO_PROXY only the model API.
 
 import { describe, expect, it } from "bun:test";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { REVIEWER_TOOLS } from "../../src/run/launch";
-import { EMPTY_MCP_CONFIG_FILE, plan, SETTINGS_FILE } from "../../src/workers/claude-cli/plan";
+import {
+  EMPTY_MCP_CONFIG_FILE,
+  MODEL_API_HOST,
+  plan,
+  SETTINGS_FILE,
+} from "../../src/workers/claude-cli/plan";
 import { REVIEW_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { PlanError } from "../../src/workers/types";
 import type { LaunchPlan } from "../../src/workers/types";
@@ -17,6 +23,7 @@ import {
   REVIEW_COPY,
   REVIEW_FOLDER,
   REVIEW_SESSION,
+  REVIEW_WEB_PROXY,
   reviewContext,
   reviewSpec,
   RUN_DIR,
@@ -131,6 +138,72 @@ describe("the reviewer's tool set (DIPO-276)", () => {
     expect(flag(launch, "--mcp-config")).toBe(`${RUN_DIR}/${EMPTY_MCP_CONFIG_FILE}`);
     expect(launch.argv).toContain("--disable-slash-commands");
     expect(settingsOf(launch).enabledPlugins).toEqual({ "warp@claude-code-warp": false });
+  });
+});
+
+/** The proxy variables of a plan's environment, in either case. */
+function proxyVariables(launch: LaunchPlan): Record<string, string> {
+  return Object.fromEntries(Object.entries(launch.env).filter(([name]) => /_proxy$/i.test(name)));
+}
+
+describe("the reviewer's web proxy (DIPO-292)", () => {
+  it("names the session's web proxy in HTTPS_PROXY and HTTP_PROXY, and only the model API in NO_PROXY", () => {
+    const launch = plan(reviewSpec(), reviewContext());
+    expect(MODEL_API_HOST).toBe("api.anthropic.com");
+    expect(proxyVariables(launch)).toEqual({
+      HTTPS_PROXY: REVIEW_WEB_PROXY,
+      HTTP_PROXY: REVIEW_WEB_PROXY,
+      NO_PROXY: MODEL_API_HOST,
+    });
+  });
+
+  it("drops every other proxy variable an office passes as a tool variable", () => {
+    const names = ["https_proxy", "http_proxy", "no_proxy", "all_proxy", "ALL_PROXY", "NO_PROXY"];
+    const env = {
+      PATH: "/usr/bin:/bin",
+      HOME,
+      ...Object.fromEntries(names.map((name) => [name, "*"])),
+    };
+    const launch = plan(reviewSpec(), reviewContext({ env, toolVariables: names }));
+    expect(proxyVariables(launch)).toEqual({
+      HTTPS_PROXY: REVIEW_WEB_PROXY,
+      HTTP_PROXY: REVIEW_WEB_PROXY,
+      NO_PROXY: MODEL_API_HOST,
+    });
+  });
+
+  it("refuses a review with a web tool and no web proxy, and one with a proxy that is not a loopback port", () => {
+    const { webProxy: _dropped, ...without } = reviewSpec();
+    expect(() => plan(without, reviewContext())).toThrow(/needs dipo's web proxy/);
+    for (const webProxy of [
+      "http://example.com:1",
+      "https://127.0.0.1:1",
+      "http://127.0.0.1",
+      "http://127.0.0.1:0",
+      "http://127.0.0.1:65536",
+      "http://127.0.0.1:1/path",
+      "http://user@127.0.0.1:1",
+      "http://192.0.2.10:1",
+    ]) {
+      expect(() => plan(reviewSpec({ webProxy }), reviewContext())).toThrow(/loopback port/);
+    }
+    // A review without a web tool needs none.
+    const readOnly = reviewSpec({ tools: { allow: ["Read", "Glob", "Grep"], deny: [] } });
+    const { webProxy: _none, ...noWeb } = readOnly;
+    expect(proxyVariables(plan(noWeb, reviewContext()))).toEqual({});
+  });
+
+  it("keeps the web guard's check as the first layer next to the proxy", () => {
+    const launch = plan(reviewSpec(), reviewContext());
+    expect(settingsOf(launch).hooks?.["PreToolUse"]?.[0]?.matcher).toBe("WebFetch|WebSearch");
+    expect(launch.env["HTTPS_PROXY"]).toBe(REVIEW_WEB_PROXY);
+  });
+
+  it("gives a worker no web proxy of its own and refuses one in its spec", () => {
+    expect(proxyVariables(plan(spec(), reviewContext()))).toEqual({});
+    expect(() => plan(spec({ webProxy: REVIEW_WEB_PROXY }), reviewContext())).toThrow(
+      /only a review session/,
+    );
   });
 });
 

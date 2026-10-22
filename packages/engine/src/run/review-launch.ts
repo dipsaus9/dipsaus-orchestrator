@@ -32,6 +32,18 @@
 // The folder goes when the session's start fails, when its exit or lost host is decided
 // (`finish`), and at daemon start for every folder whose reviewer host no longer runs
 // (`sweepReviewFolders`).
+//
+// The reviewer fetches from the Mac, so each session gets a web proxy listener of its own
+// (DIPO-292, `startReviewWebProxy`): the box web proxy's address rule, on the loopback interface
+// only, on a port the system picks, refusing the box network by the host address the web guard
+// reads (`boxHostAddress`). The session's HTTPS_PROXY and HTTP_PROXY name it and its
+// NO_PROXY names only the model API (`plan`), so every web fetch, and each redirect it follows,
+// is checked at connect time on the address actually used. The web guard's check of the URL before
+// the fetch stays as the first layer. The listener starts before the launch checks and stops with
+// the folder: when the start fails and when the session's exit or lost host is decided (a crash
+// or a stop included). A listener that cannot start fails the review start: no reviewer runs
+// without it. It lives in the daemon, so a daemon that stops takes it along; a reviewer host that
+// outlives the daemon then reaches no web at all.
 
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, readdir, realpath, rm, unlink } from "node:fs/promises";
@@ -50,6 +62,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { type BoxCodeDeps, stageBoxCode } from "../box/code";
+import { startReviewWebProxy } from "../box/web-proxy";
 import { BOX_RUN_FILE } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
@@ -59,6 +72,7 @@ import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
+import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES } from "../hooks/web-guard";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
@@ -436,7 +450,10 @@ export type ReviewSessionOutcome =
 /** Starts a reviewer session (the real one is `ReviewLauncher`). */
 export interface ReviewSessions {
   start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome>;
-  /** Removes what the session of `agent` read, once its exit or lost host is decided. */
+  /**
+   * Removes what the session of `agent` read and stops its web proxy (DIPO-292), once its exit or
+   * lost host is decided.
+   */
   finish?(office: OfficeId, runId: string, agent: string): Promise<void>;
   /** The head the session of `agent` was given and reviews, while its copy exists; else null. */
   reviewedCommit?(office: OfficeId, runId: string, agent: string): Promise<string | null>;
@@ -461,6 +478,17 @@ export interface ReviewLauncherDeps {
   readonly ingest: RunIngest;
   /** Run control: the session is tracked before its ingestion starts. */
   readonly control: { track(office: OfficeId, run: TrackedRun): void };
+  /**
+   * Starts the web proxy listener of one reviewer session (DIPO-292); `startReviewWebProxy` on the
+   * loopback interface by default. The launcher stops it when the session ends.
+   */
+  readonly webProxy?: () => Promise<ReviewWebProxy>;
+  /**
+   * The box network's host address for the default listener's address rule, when a box network
+   * exists: the source the web guard reads (`FetchAddressDeps.boxHostAddress`), its system one by
+   * default.
+   */
+  readonly boxHostAddress?: FetchAddressDeps["boxHostAddress"];
   /** The backstop snapshot of the worktree before the review; without it no backstop runs. */
   readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   readonly onChanged?: (office: OfficeId) => void;
@@ -489,12 +517,35 @@ export function reviewerSettings(
   };
 }
 
+/** A reviewer session's web proxy listener (DIPO-292): its URL, and how to stop it. */
+export interface ReviewWebProxy {
+  readonly url: string;
+  stop(): Promise<void>;
+}
+
 /** The real `ReviewSessions`. */
 export class ReviewLauncher implements ReviewSessions {
   readonly #deps: ReviewLauncherDeps;
+  /** The web proxy of each session that started and has not finished, by run and agent. */
+  readonly #proxies = new Map<string, ReviewWebProxy>();
 
   constructor(deps: ReviewLauncherDeps) {
     this.#deps = deps;
+  }
+
+  /** Stops the web proxy of the session of `agent`; nothing when it has none. Never rejects. */
+  async #stopProxy(runId: string, agent: string): Promise<void> {
+    const key = `${runId}/${agent}`;
+    const proxy = this.#proxies.get(key);
+    if (proxy === undefined) return;
+    this.#proxies.delete(key);
+    await proxy.stop().catch((error: unknown) => {
+      this.#deps.warn?.("a reviewer's web proxy could not be stopped", {
+        run: runId,
+        agent,
+        reason: messageOf(error),
+      });
+    });
   }
 
   async start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome> {
@@ -544,19 +595,42 @@ export class ReviewLauncher implements ReviewSessions {
         ...(error instanceof ReviewCopyMismatchError ? { copyMismatch: true as const } : {}),
       };
     }
+    // The session's own web proxy (DIPO-292): no reviewer runs without it.
+    let proxy: ReviewWebProxy;
+    try {
+      const boxHostAddress = deps.boxHostAddress ?? SYSTEM_FETCH_ADDRESSES.boxHostAddress;
+      proxy = await (
+        deps.webProxy ?? (() => startReviewWebProxy({ clock: deps.clock }, { boxHostAddress }))
+      )();
+    } catch (error) {
+      await removeReviewFolder(copy.root).catch(() => undefined);
+      return {
+        kind: "failed",
+        reason: `the reviewer's web proxy did not start, and a reviewer never fetches without it: ${messageOf(error)}`,
+      };
+    }
+    this.#proxies.set(`${run.runId}/${agent}`, proxy);
     let outcome: ReviewSessionOutcome;
     try {
-      outcome = await this.#launch(request, agent, copy);
+      outcome = await this.#launch(request, agent, copy, proxy.url);
     } catch (error) {
+      await this.#stopProxy(run.runId, agent);
       await removeReviewFolder(copy.root).catch(() => undefined);
       throw error;
     }
-    if (outcome.kind !== "started") await removeReviewFolder(copy.root).catch(() => undefined);
+    if (outcome.kind !== "started") {
+      await this.#stopProxy(run.runId, agent);
+      await removeReviewFolder(copy.root).catch(() => undefined);
+    }
     return outcome;
   }
 
-  /** Removes the folder of the session of `agent`: its copy and its working directory. */
+  /**
+   * Stops the web proxy of the session of `agent` and removes its folder: its copy and its working
+   * directory.
+   */
   async finish(_office: OfficeId, runId: string, agent: string): Promise<void> {
+    await this.#stopProxy(runId, agent);
     await removeReviewFolder(reviewFolder(await realpath(this.#deps.tmpRoot), runId, agent));
   }
 
@@ -575,6 +649,7 @@ export class ReviewLauncher implements ReviewSessions {
     request: ReviewSessionRequest,
     agent: AgentId,
     copy: ReviewCopy,
+    webProxy: string,
   ): Promise<ReviewSessionOutcome> {
     const deps = this.#deps;
     const { run } = request;
@@ -620,6 +695,7 @@ export class ReviewLauncher implements ReviewSessions {
         caps,
       ),
       readOnlyDir: copy.copy,
+      webProxy,
     };
     try {
       ensurePrivateDir(paths.runDir);
