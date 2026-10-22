@@ -344,48 +344,19 @@ export type {
   OfficeOverrides,
 } from "./config";
 export {
-  DENY_ALL_SETTINGS,
   evaluateProbe,
   expandHome,
   KILL_GRACE_MS,
-  linuxLiteralPath,
   MIN_BWRAP_VERSION,
-  OUTPUT_LIMIT_BYTES,
   parseBwrapVersion,
   refusalPathFor,
-  runSandboxedStep,
   SANDBOX_REFUSED_EXIT_CODE,
   SANDBOX_REFUSED_MARKER,
-  EXTRA_SECRET_HOME_PATHS,
-  isRuntimeOptionName,
-  SECRET_HOME_PATHS,
-  STEP_ENV_ALLOWLIST,
-  stepEnv,
-  translatePolicy,
   trustViolations,
   writableRoots,
 } from "./sandbox";
-export type {
-  CapturedOutput,
-  ProbeResult,
-  SandboxFacts,
-  SandboxHost,
-  SandboxRun,
-  SandboxTools,
-  SrtSettings,
-  StepDeps,
-  StepPolicyKind,
-  StepRequest,
-  StepResult,
-  TranslatedPolicy,
-} from "./sandbox";
-export {
-  dipoCommand,
-  probeSandbox,
-  sandboxExecArgv,
-  STEP_TEMP_PREFIX,
-  systemSandboxHost,
-} from "./platform/sandbox";
+export type { ProbeResult, SandboxFacts, SandboxTools, SrtSettings } from "./sandbox";
+export { dipoCommand, probeSandbox, sandboxExecArgv } from "./platform/sandbox";
 export { runSandboxExec } from "./platform/sandbox-exec";
 export { runSafeChainGate, type SafeChainGateOptions } from "./platform/safe-chain-gate";
 export {

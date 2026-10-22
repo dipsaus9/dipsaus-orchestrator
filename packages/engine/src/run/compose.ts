@@ -275,7 +275,6 @@ function buildOutcomes(
     story: baseStoryFacts(ports.base),
     runtimeDir: ports.runtimeDir,
     tmpRoot: ports.tmpRoot,
-    ...given("tempOwner", ports.tempOwner),
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
@@ -419,7 +418,6 @@ function buildLauncher(
       ids.length === 0 ? [] : (await ports.base.read(office, ids)).views,
     runtimeDir: ports.runtimeDir,
     tmpRoot: ports.tmpRoot,
-    ...given("tempOwner", ports.tempOwner),
     hosts: ports.hosts,
     ingest,
     ...(control === null ? {} : { control: trackerOf(ports, control) }),
@@ -427,10 +425,6 @@ function buildLauncher(
     ...given("boxes", ports.boxes),
     // A run's box gets the install of the office's current run profile (DIPO-294).
     profile: profileOf(ports),
-    // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
-    ...(ports.control?.finisher === undefined
-      ? {}
-      : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
     ...given("warn", ports.warn),
   });
 }

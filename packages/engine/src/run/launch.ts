@@ -83,14 +83,7 @@ import { withWorkViews } from "../views/work";
 import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
-import { storeBackstopSnapshot } from "./records";
-import {
-  prepareRunTempDirs,
-  removeShortTempDir,
-  runTempDir,
-  SHORT_TEMP_PREFIX,
-  shortTempDir,
-} from "./temp-dirs";
+import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
@@ -194,11 +187,6 @@ export interface RunLauncherDeps {
   readonly runtimeDir: string;
   /** Where each run's sandbox temp directory is made. */
   readonly tmpRoot: string;
-  /**
-   * The owner written into each new run temp directory (`RunTempDirs.owner`, DIPO-102), so the
-   * daemon-start sweep tells its own directories from another daemon's; none by default.
-   */
-  readonly tempOwner?: () => string | undefined;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /**
@@ -217,11 +205,6 @@ export interface RunLauncherDeps {
       },
     ): void;
   };
-  /**
-   * Takes the backstop snapshot of a story worktree (DIPO-49), before its worker starts; without
-   * it no backstop runs after the turns.
-   */
-  readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   /** Ends a live claim whose worker did not start: worktree removed, branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
   /** Logs what the launcher could not do (the daemon's logger); nothing by default. */
@@ -444,9 +427,6 @@ export class RunLauncher {
     const paths = this.#paths(git, claim.worktree, facts.runId);
     const cleanup = (): void => {
       rmSync(paths.runDir, { recursive: true, force: true });
-      rmSync(paths.tmpDir, { recursive: true, force: true });
-      // Never through a link, and never another run's root with the same hash.
-      removeShortTempDir(dirname(paths.shortTmpDir), facts.runId);
     };
     const boxes = this.#deps.boxes;
     const lifetime =
@@ -491,8 +471,9 @@ export class RunLauncher {
         // A box worker reads the box contract (DIPO-272).
         ...(boxes === undefined ? {} : { box: true }),
       });
+      // No run temp directory in the shared temp folder: the developer's temp files live in its box
+      // (DIPO-240, 0021 section 2); a reviewer's are made with its own session (`review-launch.ts`).
       ensurePrivateDir(paths.runDir);
-      prepareRunTempDirs(paths, facts.runId, this.#deps.tempOwner?.());
       spec = this.#spec(
         { ...facts, web: facts.config.worker.web },
         paths,
@@ -598,24 +579,8 @@ export class RunLauncher {
   ): Promise<StartOutcome> {
     const { facts, prepared, claim, work } = run;
     const handle = ctx.office;
-    // The backstop's run-start snapshot, before the worker can change anything (DIPO-49).
-    let snapshot: BackstopSnapshot | null = null;
-    if (this.#deps.snapshot !== undefined) {
-      try {
-        snapshot = await this.#deps.snapshot(facts.office, claim.worktree);
-      } catch (error) {
-        this.#deps.warn?.("the backstop snapshot could not be taken; no backstop runs", {
-          run: facts.runId,
-          story: claim.story,
-          reason: messageOf(error),
-        });
-      }
-    }
-    // Stored with the run, so a re-attach after a restart restores it (DIPO-93).
-    if (snapshot !== null) {
-      const taken = snapshot;
-      handle.immediate(() => storeBackstopSnapshot(handle, facts.runId, taken));
-    }
+    // No backstop snapshot: the developer works in its box, never in the story's Mac worktree, and
+    // each part is scanned instead (DIPO-240, 0021 section 8).
     let host: LaunchedHost;
     try {
       host = await this.#deps.hosts.start(handle, {
@@ -657,7 +622,7 @@ export class RunLauncher {
       work,
       caps: capsOf(facts.caps),
       startedAt: ctx.clock.now(),
-      snapshot,
+      snapshot: null,
     });
     const adapter = this.#deps.worker.adapter(prepared.paths, facts.config);
     this.#deps.ingest.start(handle, host, {

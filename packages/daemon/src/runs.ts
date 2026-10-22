@@ -91,7 +91,6 @@ import {
   RunReattacher,
   runCaps,
   runLaunchPaths,
-  runSandboxedStep,
   runWorkerSpec,
   sweepSafeChainProxies,
   type IngestAdapter,
@@ -111,13 +110,11 @@ import {
   signalProcess,
   startTierOf,
   systemProcessProbe,
-  systemSandboxHost,
   storyHoldsWork,
   systemSpawn,
   type currentPlatform,
   VerifyCommit,
   Watchdog,
-  type WorkTracker,
 } from "@dipsaus-orchestrator/engine";
 
 /**
@@ -184,8 +181,6 @@ export interface DaemonRunsOptions {
   readonly holdResumer?: () => HoldResumer | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
-  /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
-  readonly work?: WorkTracker;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
   /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
@@ -620,8 +615,6 @@ export const BOX_PASS_TICK_MS = 60_000;
 /** The run launcher `work.run` starts workers with. */
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
-  const runStep = (request: Parameters<typeof runSandboxedStep>[1]) =>
-    runSandboxedStep({ clock, platform, host: systemSandboxHost(platform) }, request);
   // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
   // entry ingestion or the watchdog appends reaches subscribers at once.
   const watchdog = new Watchdog({
@@ -727,11 +720,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     run.tier === null
       ? undefined
       : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
-  const gitOf = (office: OfficeId) => {
-    const git = options.engineGit.forOffice(office);
-    if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
-    return git;
-  };
   const storyGit = gitStoryOps({
     git: (office) => options.engineGit.forOffice(office),
     cli: options.cli,
@@ -742,16 +730,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     const paths = boxed === null ? null : runPaths(office, run);
     return paths !== null && boxed !== null && boxed.workers.isBoxRun(paths.runDir);
   };
-  // Verify and commit at In Review and the backstop after every turn (DIPO-49).
+  // In Review at a box run's done (DIPO-49, DIPO-273): no verify, backstop or scope check of dipo's.
   const finisher = new VerifyCommit({
     clock,
     story: storyGit,
-    mainCheckout: (office) => gitOf(office).mainWorktree,
-    runStep,
-    config: (office) => options.offices.config(office),
     profile: (office) => currentProfile(office)?.profile ?? null,
-    host: { home, uid, env },
-    ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
     // A box run has no backstop, scope check or verify of dipo's (DIPO-273, DIPO-299): its last
     // part is taken at done and its end claimed while its parts are held; CI is its verify.

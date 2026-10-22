@@ -40,8 +40,6 @@ import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
   backstopSnapshotOf,
-  type BackstopSnapshot,
-  endRun,
   findRun,
   type HostStarter,
   LAUNCH_NOTICES,
@@ -51,7 +49,7 @@ import {
   START_FAILED_END,
   WorkRun,
 } from "../../src/run";
-import { readShortTempRun, shortTempDir } from "../../src/run/temp-dirs";
+import { shortTempDir } from "../../src/run/temp-dirs";
 import { recordWorkerHost, type LaunchedHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import {
@@ -59,19 +57,15 @@ import {
   claudeLaunchContext,
   claudeSessionFacts,
 } from "../../src/workers/claude-cli/adapter";
-import { encode, userMessageLine } from "../../src/workers/claude-cli/encode";
+import { encode } from "../../src/workers/claude-cli/encode";
+import { standInPlan } from "./stand-in-plan";
 import { type ClaudeParseState, initialState } from "../../src/workers/claude-cli/interpret";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
-import {
-  type LaunchPlan,
-  type ParseState,
-  PlanError,
-  type WorkerSpec,
-} from "../../src/workers/types";
+import { type LaunchPlan, type ParseState } from "../../src/workers/types";
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
@@ -83,12 +77,6 @@ import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
 const CLAUDE = "/opt/claude/bin/claude";
-const BACKSTOP: BackstopSnapshot = {
-  head: "a".repeat(40),
-  branch: "refs/heads/TASK-1/add-a-greeting",
-  stash: "",
-  backlogStatus: "",
-};
 const HOME = "/home/maintainer";
 const BLOCK = (id: string) =>
   ["```dipo", `branch: "${id}/add-a-greeting"`, "unknowns: []", "```"].join("\n");
@@ -128,46 +116,6 @@ function memoryWorkspace(root: string): Workspace {
       const text = files[path];
       return text === undefined ? undefined : new TextEncoder().encode(text);
     },
-  };
-}
-
-/**
- * The launch plan these tests start hosts with: the flags and paths of a worker session, so the
- * tests read model, effort, caps, tools, session, system file, environment and task message. A
- * worktree path with a rule character is refused as the Claude plan of a reviewer refuses it.
- */
-function standInPlan(spec: WorkerSpec, paths: RunLaunchPaths): LaunchPlan {
-  const odd = [...spec.workdir].find((char) => "()[]{}*?!\\".includes(char));
-  if (odd !== undefined) {
-    throw new PlanError(
-      `workdir holds a character with a meaning in permission rules: ${spec.workdir}`,
-      {
-        path: spec.workdir,
-        character: odd,
-      },
-    );
-  }
-  return {
-    argv: [
-      CLAUDE,
-      "-p",
-      spec.session.resume ? "--resume" : "--session-id",
-      spec.session.id,
-      "--model",
-      spec.model,
-      "--effort",
-      spec.effort,
-      "--max-turns",
-      String(spec.caps.maxTurns),
-      "--tools",
-      spec.tools.allow.join(","),
-      "--append-system-prompt-file",
-      spec.systemFile,
-    ],
-    env: { PATH: "/usr/bin:/bin", DIPO_RUN: spec.run, DIPO_TMP: paths.shortTmpDir },
-    cwd: spec.workdir,
-    files: [],
-    stdin: [userMessageLine(spec.taskMessage)],
   };
 }
 
@@ -338,10 +286,10 @@ beforeEach(async () => {
     // these tests launch without box workers (DIPO-240).
     adapter: (paths, config) => ({
       ...claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
-      plan: (spec) => standInPlan(spec, paths),
+      plan: (spec) => standInPlan(spec, paths, CLAUDE),
     }),
     prepare: async (spec, paths) => {
-      const plan = standInPlan(spec, paths);
+      const plan = standInPlan(spec, paths, CLAUDE);
       const gate = await gateLaunch("claude-cli", holds, async () => w.checks);
       return gate.ok ? { ok: true, plan } : gate;
     },
@@ -387,8 +335,6 @@ beforeEach(async () => {
     dependencies: async () => [],
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
-    // The backstop's run-start snapshot (DIPO-49), stored with the run (DIPO-93).
-    snapshot: async () => BACKSTOP,
     hosts,
     ingest: { start: (_office, _host, target) => w.ingested.push(target) },
     release: async (_office, claim, reason) => {
@@ -630,10 +576,11 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(readFileSync(systemFile, "utf8")).toContain("developer");
     expect(host?.plan.stdin[0]).toContain("TASK-1");
     expect(host?.plan.env["GH_TOKEN"]).toBeUndefined();
-    // The short temp root (DIPO-118) is made before the plan, names its run and is DIPO_TMP.
+    // No run temp directory or short temp root is made on the Mac: the developer's temp files live
+    // in its box (DIPO-240).
     const shortTmp = shortTempDir(join(world.dir, "tmp"), runId);
-    expect(host?.plan.env["DIPO_TMP"]).toBe(shortTmp);
-    expect(readShortTempRun(shortTmp)).toBe(runId);
+    expect(existsSync(shortTmp)).toBe(false);
+    expect(existsSync(join(world.dir, "tmp"))).toBe(false);
 
     // The run row has the slot setup took; ingestion runs with the tier's budget.
     expect(findRun(world.office, runId)).toMatchObject({ slot: 3, model: caps.model, tier: "M" });
@@ -760,18 +707,10 @@ describe("work.run starts the worker of a claimed run", () => {
     }
   });
 
-  it("stores the backstop snapshot with the run before the host starts (DIPO-93 AC #4)", async () => {
+  it("takes no backstop snapshot: the developer never works in the Mac worktree (DIPO-240)", async () => {
     story("TASK-1", "Ready");
-    let atStart = null as BackstopSnapshot | null;
-    world.onHostStart = (runId) => {
-      atStart = backstopSnapshotOf(world.office, runId);
-    };
     const result = resultOf<RunResult>(await run());
     const runId = result.started[0]?.run as RunId;
-    expect(atStart).toEqual(BACKSTOP);
-    expect(backstopSnapshotOf(world.office, runId)).toEqual(BACKSTOP);
-    // The run's end clears it: the engine's own commit at the end moves what it compares.
-    world.office.immediate(() => endRun(world.office, runId, world.t.clock.now(), "done"));
     expect(backstopSnapshotOf(world.office, runId)).toBeNull();
   });
 
@@ -793,8 +732,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(existsSync(join(world.dir, "repo", ".git", "dipo", "runs"))).toBe(true);
     const runs = join(world.dir, "repo", ".git", "dipo", "runs");
     expect(readdirSync(runs)).toEqual([]);
-    // Both run temp directories went with the rollback (DIPO-118).
-    expect(readdirSync(join(world.dir, "tmp"))).toEqual([]);
+    // No run temp directory was made to begin with (DIPO-240).
+    expect(existsSync(join(world.dir, "tmp"))).toBe(false);
   });
 
   it("repeats the launch checks on a run that names its story while the adapter is held, and lifts the hold", async () => {

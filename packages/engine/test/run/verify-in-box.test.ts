@@ -57,7 +57,6 @@ import {
   boxCommand,
   runBoxCommand,
 } from "../../src/box/verify";
-import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import {
@@ -72,8 +71,7 @@ import {
   VerifyCommit,
   verifyResults,
 } from "../../src/run";
-import { BOX_TIP_MOVED } from "../../src/run/verify-commit";
-import type { StepRequest } from "../../src/sandbox/step";
+import { BOX_TIP_MOVED, NO_BOX_AT_DONE } from "../../src/run/verify-commit";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -656,8 +654,6 @@ interface World {
   readonly work: WorkRef;
   readonly sent: HostOp[][];
   readonly calls: string[];
-  readonly steps: StepRequest[];
-  readonly scans: string[];
   base: RunProfile | null;
   /** True: a box run. */
   box: boolean;
@@ -694,10 +690,6 @@ function fakeStoryGit(): StoryGit {
       JSON.stringify({
         scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
       }),
-    commitPaths: async (_o, _w, paths, message) => {
-      w.calls.push(`commit ${message} [${paths.join(", ")}]`);
-      return "f".repeat(40);
-    },
     codeTreeKey: async () => "k".repeat(64),
     markInReview: async (_o, input) => {
       w.inReviewTip = w.tip;
@@ -763,8 +755,6 @@ beforeEach(async () => {
     f,
     sent: [],
     calls: [],
-    steps: [],
-    scans: [],
     base: profileOf({ verify: "bun test" }),
     box: true,
     outcome: LAST_PART,
@@ -777,22 +767,10 @@ beforeEach(async () => {
     queuedPart: false,
     moveTip: false,
   } as unknown as World;
-  const config: OfficeConfig = { ...OFFICE_DEFAULTS, timeouts: { ...OFFICE_DEFAULTS.timeouts } };
   const finisher = new VerifyCommit({
     clock: f.t.clock,
     story: fakeStoryGit(),
-    mainCheckout: () => join(dir, "main"),
-    runStep: async (step) => {
-      w.steps.push(step);
-      return { outcome: "startFailed", reason: "the Mac step is not run here" };
-    },
-    config: () => config,
     profile: () => w.base,
-    scanWorktree: async (scanned) => {
-      w.scans.push(scanned);
-      return profileOf({ verify: "true" });
-    },
-    host: { home: dir, uid: 501, env: { PATH: "/usr/bin:/bin" } },
     storyPr: {
       sync: async (_office, runId: RunId) => {
         w.calls.push(`story PR sync ${runId === w.f.run ? "run" : runId}`);
@@ -924,8 +902,6 @@ function parks(): { reason: string; cause: string | null; detail: string }[] {
 
 /** What a box run's done must never do: a verify of dipo's, in the box or on the Mac. */
 function expectNoVerify(): void {
-  expect(w.steps).toEqual([]);
-  expect(w.scans).toEqual([]);
   expect(verifyResults(w.f.office, w.f.run)).toEqual([]);
   expect(events("work.phase").map((e) => e["phase"])).not.toContain("verify");
   expect(events("work.output").filter((e) => e["source"] === "verify")).toEqual([]);
@@ -1144,21 +1120,14 @@ describe("the last part at done (DIPO-273)", () => {
     ]);
   });
 
-  it("keeps the scope check and the Mac verify for a worker on the Mac", async () => {
+  it("parks a run without a box at done, with no scope check and no verify of dipo's (DIPO-240)", async () => {
     w.box = false;
     w.changed = ["src/greet.ts", "README.md"];
     await play();
-    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "paths"]]);
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["interrupted", "build", NO_BOX_AT_DONE],
+    ]);
     expect(w.calls).toEqual([]);
-  });
-});
-
-describe("the Mac path keeps its verify", () => {
-  it("runs verify in the sandboxed step at done, never the box's finishLast", async () => {
-    w.box = false;
-    await play();
-    expect(w.steps.map((step) => step.kind)).toEqual(["verify"]);
-    expect(w.calls.some((call) => call.startsWith("last part"))).toBe(false);
-    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "refused"]]);
+    expectNoVerify();
   });
 });
