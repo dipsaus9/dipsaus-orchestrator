@@ -307,13 +307,22 @@ export async function removeWorktree(
       return {
         ok: false,
         why: `the worktree ${path} is locked by someone else (${lock === "" ? "no reason given" : lock})`,
-        files: await dirtyFiles(deps, git, path),
+        files: await dirtyFiles(deps, git, claim),
       };
     }
     // Recorded before the first step that removes anything, so a crash after it is resumable.
     mark(deps.clock.now());
     if (lock === ours) await git.ok(git.repository, ["worktree", "unlock", path]);
-    const removed = await git.step(git.repository, ["worktree", "remove", path]);
+    // Changes that only reflect the branch moving (DIPO-302) are not work; git would refuse them.
+    const moved =
+      (await statusFiles(deps, git, path)).length > 0 &&
+      (await filesAtBranchMove(deps, git, claim));
+    const removed = await git.step(git.repository, [
+      "worktree",
+      "remove",
+      ...(moved ? ["--force"] : []),
+      path,
+    ]);
     if (removed.code !== 0) {
       if (lock === ours) {
         await git.step(git.repository, ["worktree", "lock", "--reason", ours, path]);
@@ -322,7 +331,7 @@ export async function removeWorktree(
       return {
         ok: false,
         why: `git refused to remove the worktree ${path} (${removed.stderr.trim() || `exit ${removed.code}`})`,
-        files: await dirtyFiles(deps, git, path),
+        files: await dirtyFiles(deps, git, claim),
       };
     }
     deps.git.unpinWorktree(path);
@@ -393,8 +402,21 @@ async function removeAll(
   return { ok: true, remoteProblem: pushed.stderr.trim() || `exit ${pushed.code}` };
 }
 
-/** The files `git status` lists in the worktree; empty when it cannot be read. */
+/**
+ * The files `git status` lists in the claim's worktree, or none when they only reflect the branch
+ * moving (see `filesAtBranchMove`); empty when it cannot be read.
+ */
 export async function dirtyFiles(
+  deps: Pick<TeardownDeps, "git">,
+  git: GitSession,
+  claim: Pick<ClaimRecord, "branch" | "startSha" | "worktree">,
+): Promise<string[]> {
+  const status = await statusFiles(deps, git, claim.worktree);
+  return status.length === 0 || (await filesAtBranchMove(deps, git, claim)) ? [] : status;
+}
+
+/** The files `git status` lists in the worktree at `path`; empty when it cannot be read. */
+async function statusFiles(
   deps: Pick<TeardownDeps, "git">,
   git: GitSession,
   path: string,
@@ -406,6 +428,33 @@ export async function dirtyFiles(
     );
   } catch {
     return [];
+  }
+}
+
+/**
+ * Whether the claim's worktree holds the start commit's files or the branch tip's, with no
+ * untracked file (DIPO-302). A box run moves the branch with `update-ref` for each part and leaves
+ * the worktree at the start commit, so `git status` lists the parts reversed as staged changes
+ * while the files hold nothing new. Such a worktree is clean. False when it cannot be read.
+ */
+export async function filesAtBranchMove(
+  deps: Pick<TeardownDeps, "git">,
+  git: GitSession,
+  claim: Pick<ClaimRecord, "branch" | "startSha" | "worktree">,
+): Promise<boolean> {
+  try {
+    const location = deps.git.worktreeLocation(claim.worktree);
+    const untracked = await git.ok(location, ["ls-files", "--others", "--exclude-standard", "-z"]);
+    if (untracked !== "") return false;
+    const tip = await revParse(git, `refs/heads/${claim.branch}`);
+    for (const commit of [claim.startSha, tip]) {
+      if (commit === null) continue;
+      const changed = await git.ok(location, ["diff", "--name-only", "-z", commit]);
+      if (changed === "") return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
