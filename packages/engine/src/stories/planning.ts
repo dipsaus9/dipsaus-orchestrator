@@ -20,8 +20,10 @@
 //   open journal entry is reused, a closed PR and a released claim are not touched again.
 // - `story.losses { story }` (DIPO-228): what `deleteBranch` loses, read before the typed id: the
 //   commits not on the base of the claim's branch (or the kept branches without a claim) and the
-//   files of the claim's worktree. A drop without a live claim and with `deleteBranch` deletes the
-//   kept branches of the story and reclaims their rows; a failure after the PR closed says so.
+//   files of the claim's worktree; without a claim, the files of the worktrees a story Done
+//   elsewhere kept as leftovers (DIPO-161), which `work.discard` lists too. A drop without a live
+//   claim and with `deleteBranch` deletes the kept branches of the story and reclaims their rows; a
+//   failure after the PR closed says so.
 
 import {
   type CommandName,
@@ -61,15 +63,17 @@ import type {
 } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
-import { type CodeHost, CodeHostError, repoOfRemoteUrl } from "../platform/host";
+import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
 import { parkActions, openPark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
-import { deleteKeptBranches, dirtyFilesOf, releaseForDrop } from "../worktree/release";
+import { deleteKeptBranches, dirtyFilesOf, releaseForDrop, repoOfPrUrl } from "../worktree/release";
+import { openLeftovers } from "../worktree/done-elsewhere";
 import {
+  findClaim,
   liveClaimOf,
   openReleasedBranches,
   type ClaimRecord,
@@ -147,7 +151,8 @@ export class StoryPlanning {
   /**
    * `story.losses` (DIPO-228): what `story.drop` with `deleteBranch` loses. The commits of the live
    * claim's branch, else of the open released branches, that are not on the base as last fetched,
-   * and the uncommitted and untracked files of the claim's worktree. Reads git only.
+   * and the uncommitted and untracked files of the claim's worktree, else of the worktrees a story
+   * Done elsewhere kept as leftovers (DIPO-161). Reads git only.
    */
   async losses(ctx: ReadContext, args: LossesArgs): Promise<LossesResult> {
     const office = ctx.office;
@@ -161,7 +166,13 @@ export class StoryPlanning {
       claim === null
         ? openReleasedBranches(office, key).map((release) => release.branch)
         : [claim.branch];
-    if (branches.length === 0) return { story, key, commits: [], files: [] };
+    const trees =
+      claim === null
+        ? openLeftovers(office, key)
+            .map((row) => findClaim(office, row.runId))
+            .filter((tree): tree is ClaimRecord => tree !== null)
+        : [claim];
+    if (branches.length === 0 && trees.length === 0) return { story, key, commits: [], files: [] };
     const git = this.#deps.git(office.officeId);
     if (git === undefined) throw new Error(`The office ${office.officeId} has no git attached.`);
     const commits = await git.run(async (session) => {
@@ -190,7 +201,12 @@ export class StoryPlanning {
       }
       return [...found.values()];
     });
-    const files = claim === null ? [] : await dirtyFilesOf({ git }, claim);
+    const files: string[] = [];
+    for (const tree of trees) {
+      for (const file of await dirtyFilesOf({ git }, tree)) {
+        if (!files.includes(file)) files.push(file);
+      }
+    }
     return { story, key, commits, files };
   }
 
@@ -719,12 +735,4 @@ function activeDependents(office: OfficeHandle, identity: StoryIdentity): string
     })
     .map((row) => row.story_id)
     .toSorted();
-}
-
-/** The `[HOST/]OWNER/REPO` of a PR URL (`https://github.com/o/r/pull/7`), or null. */
-function repoOfPrUrl(url: string): string | null {
-  const at = url.lastIndexOf("/pull/");
-  return at <= 0 || !/^\/pull\/\d+\/?$/.test(url.slice(at))
-    ? null
-    : repoOfRemoteUrl(url.slice(0, at));
 }

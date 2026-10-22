@@ -115,6 +115,19 @@ describe("commands.describe", () => {
     expect(hold).not.toHaveProperty("irreversibleWhen");
   });
 
+  it("lists work.discard since minor 1 with confirm and irreversible (DIPO-161)", () => {
+    const entry = describeContract().commands.find((command) => command.name === "work.discard");
+    expect(entry).toMatchObject({
+      name: "work.discard",
+      since: 1,
+      level: "office",
+      confirm: true,
+      irreversible: true,
+      args: { type: "object", required: ["story", "note"] },
+    });
+    expect(entry).not.toHaveProperty("irreversibleWhen");
+  });
+
   it("leaves provisional definitions out", () => {
     const provisional = contractCommands.find((definition) => definition.provisional === true);
     if (provisional === undefined) throw new Error("no provisional command left to check");

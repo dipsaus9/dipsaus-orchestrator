@@ -172,7 +172,12 @@ export const workStop = defineCommand({
   since: 0,
 });
 
-// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined.
+// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined
+// (0020 section 8). Since minor 1 (DIPO-161), on the waiting command path. Clients list what is
+// lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
+// Done on the base through another branch, with no backlog write. Errors: `story.prMerged`,
+// `story.notDiscardable`, `story.prNotClosed`, and the retryable `run.hostAlive` while a worker
+// host of the run still runs. A remote branch whose tip dipo did not push is kept with a notice.
 export const workDiscard = defineCommand({
   name: "work.discard",
   level: "office",
@@ -180,7 +185,7 @@ export const workDiscard = defineCommand({
   result: StoryResult,
   confirm: true,
   irreversible: true,
-  provisional: true,
+  since: 1,
 });
 
 // Parks a Refined or Ready story with reason `on-hold` through the planning lane (0020 section 8).

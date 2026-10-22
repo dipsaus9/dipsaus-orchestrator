@@ -335,6 +335,16 @@ export {
   StoryPlanning,
 } from "../stories/planning";
 export type { StoryPlanningDeps } from "../stories/planning";
+// `work.discard` (DIPO-161): a story's work thrown away through the backlog lane.
+export {
+  DISCARD_NOTICES,
+  DISCARDABLE_STATUSES,
+  discardOp,
+  NOT_DISCARDABLE,
+  PR_MERGED,
+  StoryDiscard,
+} from "../stories/discard";
+export type { DiscardStop, StoryDiscardDeps } from "../stories/discard";
 export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module with a per-reason policy table (DIPO-138).
 export {
