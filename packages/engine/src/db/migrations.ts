@@ -179,10 +179,15 @@ function backupPath(dbPath: string, version: number, ms: number): string {
   return candidate;
 }
 
-/** Whether the database holds a table other than SQLite's own. */
+/**
+ * Whether the database holds a table other than SQLite's own. SQLite reserves the literal
+ * `sqlite_` prefix; LIKE would also skip names such as `sqliteXdata` (`_` matches any character).
+ */
 function holdsUserTables(db: SqlRunner): boolean {
   return (
-    db.get("select 1 from sqlite_schema where type = 'table' and name not like 'sqlite_%'") !== null
+    db.get(
+      "select 1 from sqlite_schema where type = 'table' and substr(name, 1, 7) <> 'sqlite_'",
+    ) !== null
   );
 }
 

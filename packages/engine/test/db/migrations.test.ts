@@ -131,6 +131,29 @@ describe("migrate", () => {
       }
     }));
 
+  for (const table of ["sqliteXdata", "SQLiteData"]) {
+    it(`backs up a version 0 database whose only table is ${table}, not an internal name (DIPO-122)`, () =>
+      withTempDir(async (dir) => {
+        const legacy = await openSqlite({
+          stateDir: join(dir, "state"),
+          logger: memoryLogger(),
+          readMounts: localMounts,
+        });
+        try {
+          legacy.exec(`create table "${table}" (note text) strict`);
+        } finally {
+          legacy.close();
+        }
+
+        const clock = new ManualClock();
+        const state = await openStateDatabase(options(dir, BASE, clock));
+        state.close();
+        const name = `pre-v1-${backupStamp(clock.now())}.db`;
+        expect(state.migration.backup).toBe(join(dir, "state", "backups", name));
+        expect(backups(dir)).toEqual([name]);
+      }));
+  }
+
   it("applies steps in order, records each one and backs up first", () =>
     withTempDir(async (dir) => {
       const clock = new ManualClock();
