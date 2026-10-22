@@ -4,32 +4,28 @@ title: 'Refuse a malformed change-log entry when it is written, not on every rep
 status: Refined
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies:
   - DIPO-284
   - DIPO-285
-  - DIPO-286
+  - DIPO-281
   - DIPO-288
-  - DIPO-289
+  - DIPO-159
   - DIPO-290
-  - DIPO-291
+  - DIPO-149
   - DIPO-292
   - DIPO-293
   - DIPO-294
   - DIPO-295
-  - DIPO-297
   - DIPO-296
   - DIPO-298
   - DIPO-301
   - DIPO-302
   - DIPO-303
-  - DIPO-304
-  - DIPO-305
-  - DIPO-306
-  - DIPO-307
+  - DIPO-152
 references:
   - packages/engine/test/changelog
   - packages/daemon/src/server.ts

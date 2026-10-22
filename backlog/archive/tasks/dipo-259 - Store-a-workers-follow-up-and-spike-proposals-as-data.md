@@ -4,7 +4,7 @@ title: Store a worker's follow-up and spike proposals as data
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -64,3 +64,9 @@ test_plan:
 - [ ] #4 The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, to put follow-ups and spike ideas in proposals instead of notes or extra work, and its golden is updated
 - [ ] #5 Tests cover the schema caps, storing from a done and a blocked report, the dedupe and the migration
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-186 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -14,7 +14,6 @@ milestone: m-1
 dependencies:
   - DIPO-255
   - DIPO-285
-  - DIPO-291
   - DIPO-293
   - DIPO-294
   - DIPO-299
@@ -63,3 +62,9 @@ test_plan:
 - [ ] #3 The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, that at about 80% of any cap the worker stops new work, finishes what it started and reports done, or blocked with what is left; its golden is updated
 - [ ] #4 Tests cover the new defaults, the budget line in each message kind and the contract text
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+<!-- SECTION:NOTES:END -->

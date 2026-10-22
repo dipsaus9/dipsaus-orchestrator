@@ -4,7 +4,7 @@ title: Top up a budget-exceeded story
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -21,7 +21,6 @@ dependencies:
   - DIPO-291
   - DIPO-292
   - DIPO-294
-  - DIPO-305
 references:
   - packages/contract/src/
   - packages/contract/schema/
@@ -71,3 +70,9 @@ test_plan:
 - [ ] #5 The CLI --max-turns backstop of the resumed session gets the remaining turns of the raised cap
 - [ ] #6 A top-up resume of a budget-exceeded park that a reopened round hit before any worker session (DIPO-205) sends that round's undelivered feedback first, read from the run's feedback_items rows that no delivered intent carried, then feedback/topup.md
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-155 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

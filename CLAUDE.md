@@ -23,7 +23,7 @@ Release (0016 rules 3, 4 and 7; `docs/release.md`): `.github/workflows/release.y
 Repository settings the maintainer applies by hand on `main` (0016 rule 2):
 
 - Required status checks: `ci-ok` and `pr-title` (app GitHub Actions).
-- `strict` on (require branches to be up to date before merging).
+- `strict` off (since 2026-10-22, 0016 amendment): a PR is brought up to date with `main` only on a conflict.
 - Squash merge commit title `PR_TITLE`, squash merge commit message `BLANK`.
 
 ## Prerequisites

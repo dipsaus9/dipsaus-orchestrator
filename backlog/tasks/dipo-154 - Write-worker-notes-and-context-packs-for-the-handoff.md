@@ -1,10 +1,12 @@
 ---
 id: DIPO-154
-title: Write worker notes and context packs for the handoff
+title: >-
+  Write handoff notes, context packs and the structured summary on park, resume
+  and close
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -14,20 +16,24 @@ dependencies:
   - DIPO-138
   - DIPO-148
   - DIPO-284
-  - DIPO-289
   - DIPO-290
-  - DIPO-291
+  - DIPO-149
   - DIPO-292
   - DIPO-293
   - DIPO-294
   - DIPO-299
-  - DIPO-305
+  - DIPO-152
+  - DIPO-164
+  - DIPO-150
 references:
-  - packages/engine/src/run/
-  - packages/engine/src/prompts/
+  - packages/engine/src/backlog/fields/
   - packages/engine/src/context/pack.ts
-  - packages/engine/test/run/
+  - packages/engine/src/merge-slot/
+  - packages/engine/src/prompts/
+  - packages/engine/src/run/
+  - packages/engine/src/run/park.ts
   - packages/engine/test/prompts/
+  - packages/engine/test/run/
 priority: high
 type: feature
 ordinal: 143000
@@ -36,12 +42,14 @@ ordinal: 143000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: every turn's notes and every session's context pack are stored, and a handoff carries the newest notes and the run's open feedback, so a new session after a park starts from where the last one stopped.
+Outcome: every turn's notes and every session's context pack are stored, a handoff carries the newest notes and the run's open feedback, and the task file carries a code-built summary in its implementation notes on park and resume and in its final summary on close, so a new session starts where the last one stopped and git holds the highlights of every story's runs.
 
 Context: implements ADR 0020 section 6 (the handoff a new session gets). Today recordWorkerNotes (prompts/notes.ts) and recordContextPack (context/pack.ts) have no production caller and RunResumer passes openFeedback: [] (0020 fact 6).
 
+From DIPO-167: implements ADR 0020 section 13 (the structured summary on park and close, which 0001 asks for), written with Backlog's native implementation notes and final summary, filled from stored facts.
+
 ```dipo
-branch: "DIPO-154/store-worker-notes-and-context-packs"
+branch: "DIPO-154/handoff-and-summary"
 unknowns: []
 test_plan:
   entries:
@@ -51,6 +59,10 @@ test_plan:
       check: "(unit) the handoff lists open feedback items from feedback_items and leaves out items answered by a later green verify"
     - kind: "automated"
       check: "(unit) a task message build records a context pack with the head SHA and blob ids"
+    - kind: "automated"
+      check: "(unit) a park writes the notes block with each listed field from stored facts"
+    - kind: "automated"
+      check: "(unit) a resume appends one line and the close-out sets the final summary"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -60,10 +72,18 @@ test_plan:
 - [ ] #2 The launcher and the resumer call recordContextPack whenever they build a task message, with the head SHA and the blob ids of the scope and input files
 - [ ] #3 A handoff's feedback lists the run's feedback items not yet answered by a later green verify or approval, read with their text from feedback_items, plus the resume note
 - [ ] #4 A test parks a run mid-turn after an earlier turn reported notes and shows the handoff carries those notes
+- [ ] #5 (from DIPO-167) On park, the task-file commit that writes F16 also appends one implementation-notes block with date, reason and cause, a one-line detail, run id, criteria met of total, loops of cap, review rounds and failed rounds, budget used of limit per cap, last good commit and the number of uncommitted files
+- [ ] #6 (from DIPO-167) On resume one line is appended with the date, resumed, the grants and the first line of the note
+- [ ] #7 (from DIPO-167) The merge slot's close-out commit sets the final summary with criteria met, loops, review rounds, budget used of limit, runs and resumes, each park in one line, grants, web calls and proposals filed
+- [ ] #8 (from DIPO-167) Every value comes from stored facts through the backlog CLI, and no written line is a line of 50 dashes
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: with the box kept until merge, handoff notes matter less (0021 section 6).
+
+2026-10-22: combined from DIPO-167 (maintainer, M1 speed-up)
+
+2026-10-22: dropped the dependencies on DIPO-159 (which now holds DIPO-289), DIPO-155 (a dependency of DIPO-167) and DIPO-166 (a dependency of DIPO-167) to break a dependency cycle left by the M1 combine; those stories now come after this one.
 <!-- SECTION:NOTES:END -->

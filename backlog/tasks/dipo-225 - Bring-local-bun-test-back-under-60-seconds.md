@@ -4,7 +4,7 @@ title: Bring local bun test back under 60 seconds
 status: To Do
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -14,23 +14,20 @@ dependencies:
   - DIPO-285
   - DIPO-287
   - DIPO-288
-  - DIPO-289
+  - DIPO-159
   - DIPO-290
-  - DIPO-291
+  - DIPO-149
   - DIPO-292
   - DIPO-293
   - DIPO-294
   - DIPO-295
-  - DIPO-297
   - DIPO-296
   - DIPO-298
   - DIPO-299
   - DIPO-301
   - DIPO-302
   - DIPO-303
-  - DIPO-304
-  - DIPO-305
-  - DIPO-306
+  - DIPO-152
 references:
   - packages/engine/test/
   - packages/daemon/test/

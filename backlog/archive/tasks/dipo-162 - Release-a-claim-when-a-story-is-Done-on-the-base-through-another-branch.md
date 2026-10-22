@@ -4,7 +4,7 @@ title: Release a claim when a story is Done on the base through another branch
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -20,7 +20,6 @@ dependencies:
   - DIPO-294
   - DIPO-295
   - DIPO-302
-  - DIPO-307
 references:
   - packages/engine/src/worktree/
   - packages/engine/src/reconcile/
@@ -75,4 +74,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the story's box lives until merge, so discard and release must also tear down the box (0021 section 6).
+
+2026-10-22: combined into DIPO-161 (maintainer, M1 speed-up)
 <!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: Stop reading the box door once the run's box has ended
 status: To Do
 assignee: []
 created_date: '2026-10-22 08:30'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - box
@@ -41,3 +41,9 @@ unknowns: []
 - [ ] #2 A door read that fails while the box runs is still logged and handled as before
 - [ ] #3 A test with a fake box backend covers both
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-296 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

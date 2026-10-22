@@ -4,7 +4,7 @@ title: Log the deletion of ended box runs once
 status: To Do
 assignee: []
 created_date: '2026-10-22 14:26'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - box
@@ -13,7 +13,6 @@ milestone: m-1
 dependencies:
   - DIPO-295
   - DIPO-296
-  - DIPO-297
 references:
   - packages/daemon/src/runs.ts
   - packages/engine/src/box/workers.ts
@@ -40,3 +39,9 @@ unknowns: []
 - [ ] #1 The finish of ended box runs runs once per run, or logs once
 - [ ] #2 A test shows one line per deleted run
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-296 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

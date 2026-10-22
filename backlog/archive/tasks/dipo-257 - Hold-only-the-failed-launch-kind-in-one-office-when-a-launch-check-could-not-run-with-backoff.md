@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 11:35'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -70,4 +70,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: launch-check holds become checks of the box and its probe (0021 sections 1 and 16).
+
+2026-10-22: combined into DIPO-240 (maintainer, M1 speed-up)
 <!-- SECTION:NOTES:END -->

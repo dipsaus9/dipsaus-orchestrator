@@ -4,7 +4,7 @@ title: Report and clear a park record on a story that is not Parked
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-20 14:00'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -53,3 +53,9 @@ test_plan:
 - [ ] #3 The merge slot's close-out commit (DIPO-150, packages/engine/src/merge-slot/) removes the F16 block through the single field write path in the same commit that sets Done, and a test shows a task file that held F16 at close-out has no park key after it
 - [ ] #4 A test replays the DIPO-129 case: a Done story with an ambiguous-spec F16 block gets the notice and no parks row, while a Parked story with F16 and no row is still recorded as a park by hand
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-155 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

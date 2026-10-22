@@ -4,14 +4,13 @@ title: Show the box worker's done report to the maintainer and in the story PR
 status: To Do
 assignee: []
 created_date: '2026-10-22 14:26'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - box
   - cutover
 milestone: m-1
-dependencies:
-  - DIPO-297
+dependencies: []
 references:
   - packages/engine/src/box/door.ts
   - packages/engine/src/story-pr/body.ts
@@ -42,3 +41,9 @@ unknowns: []
 - [ ] #3 The story PR body gets a section with them, built by code, marked as the worker's words
 - [ ] #4 Tests cover storage, the cap and the PR section
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-152 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

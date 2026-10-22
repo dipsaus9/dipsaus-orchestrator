@@ -4,7 +4,7 @@ title: Refuse done and the PR while a catch-up's conflict markers remain
 status: Refined
 assignee: []
 created_date: '2026-10-21 23:03'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - box
@@ -42,3 +42,9 @@ unknowns: []
 - [ ] #3 The PR is not opened while such a line remains
 - [ ] #4 Tests cover a resolved and an unresolved conflict
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-149 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

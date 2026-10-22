@@ -6,14 +6,13 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-22 14:26'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - box
   - cutover
 milestone: m-1
-dependencies:
-  - DIPO-305
+dependencies: []
 references:
   - packages/engine/src/story-pr/body.ts
   - packages/engine/test/story-pr/title-body.test.ts
@@ -41,3 +40,9 @@ unknowns: []
 - [ ] #2 Until the merge slot merges story PRs, the merge line says the maintainer merges
 - [ ] #3 Tests cover both lines
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-152 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

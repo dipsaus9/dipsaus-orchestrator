@@ -4,7 +4,7 @@ title: Name the command that frees a port slot
 status: Refined
 assignee: []
 created_date: '2026-10-17 23:25'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -50,3 +50,9 @@ test_plan:
 - [ ] #1 The slots refusal of work.preview and work.run (packages/engine/src/run/work-run.ts) says, after its list of holders, that dipo discard <id> frees a story's slot; a test in packages/engine/test/run/work-run.test.ts checks the text
 - [ ] #2 The port slot setup failure in setupWorktree (packages/engine/src/worktree/setup.ts) says the same after its list of holders; a test in packages/engine/test/worktree/setup.test.ts checks the text
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-120 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->
