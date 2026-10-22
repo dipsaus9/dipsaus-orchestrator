@@ -60,7 +60,7 @@ export function dirtyFilesOf(
 ): Promise<string[]> {
   return deps.git.run(async (git) => {
     if (deps.git.adminDirOf(claim.worktree) === null) return [];
-    return dirtyFiles(deps, git, claim.worktree);
+    return dirtyFiles(deps, git, claim);
   });
 }
 

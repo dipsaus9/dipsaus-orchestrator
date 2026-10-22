@@ -29,7 +29,9 @@ import {
   TEARDOWN_STEP,
   tearDown,
 } from "../../src/worktree";
+import { dirtyFilesOf, releaseForDrop } from "../../src/worktree/release";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
+import { removeWorktree } from "../../src/worktree/teardown";
 import { notices } from "../backlog/lane/helpers";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
@@ -438,6 +440,8 @@ describe("tearing down", () => {
           };
         }
         if (args[0] === "status") return { stdout: " M src/a.ts\0?? notes.txt\0" };
+        // The files differ from the start commit and the branch tip, so they are work.
+        if (args.join(" ").startsWith("diff --name-only -z ")) return { stdout: "src/a.ts\0" };
         return undefined;
       };
       const teardown = teardownOf(world);
@@ -693,4 +697,101 @@ describe("worktree lock reasons", () => {
     expect(lockInList(list, "/c")).toBeNull();
     expect(lockInList(list, "/d")).toBeNull();
   });
+});
+
+/**
+ * A box run's worktree (DIPO-302): its branch moved by `update-ref` for each part, so `git status`
+ * lists the parts reversed as staged changes. `files` says what the worktree's files equal: the
+ * start commit, the branch tip or neither. `untracked` is a porcelain line of an untracked file, or
+ * "". Like git, a worktree with changes is refused a removal without `--force`.
+ */
+function boxWorktree(world: World, files: "start" | "tip" | "neither", untracked = ""): void {
+  world.answer = (args) => {
+    const line = args.join(" ");
+    if (args[0] === "status") return { stdout: `M  src/a.ts\0${untracked}` };
+    if (line === "ls-files --others --exclude-standard -z") {
+      return { stdout: untracked.replace("?? ", "") };
+    }
+    if (line.startsWith("diff --name-only -z ")) {
+      const commit = args[args.length - 1];
+      const matches =
+        (commit === START && files === "start") || (commit === TIP && files === "tip");
+      return { stdout: matches ? "" : "src/a.ts\0" };
+    }
+    if (args[0] === "worktree" && args[1] === "remove" && !args.includes("--force")) {
+      return { code: 128, stderr: `fatal: '${world.worktree}' contains changes, use --force` };
+    }
+    return undefined;
+  };
+}
+
+/** The deps `releaseForDrop` takes, from a test world. */
+function dropDeps(world: World) {
+  return {
+    officeId: world.office.officeId as OfficeId,
+    office: world.office,
+    git: world.git,
+    clock: world.t.clock,
+  };
+}
+
+describe("box run worktrees (DIPO-302)", () => {
+  it("drops a box run whose worktree still holds the start commit, with no dirty files", () =>
+    withWorld(async (world) => {
+      boxWorktree(world, "start");
+      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([]);
+      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
+      expect(outcome).toEqual({ ok: true, remoteProblem: null });
+      expect(world.steps).toContain(`worktree remove --force ${world.worktree}`);
+      expect(world.claim().releasedAt).not.toBeNull();
+    }));
+
+  it("treats a worktree that holds the branch tip as clean", () =>
+    withWorld(async (world) => {
+      boxWorktree(world, "tip");
+      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([]);
+      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
+      expect(outcome).toEqual({ ok: true, remoteProblem: null });
+    }));
+
+  it("releases a teardown's worktree the same way when its files match the start commit", () =>
+    withWorld(async (world) => {
+      boxWorktree(world, "start");
+      const outcome = await world.git.run((git) =>
+        removeWorktree(
+          { office: world.office, git: world.git, clock: world.t.clock },
+          git,
+          world.claim(),
+        ),
+      );
+      expect(outcome).toEqual({ ok: true });
+      expect(world.steps).toContain(`worktree remove --force ${world.worktree}`);
+      expect(existsSync(world.worktree)).toBe(false);
+    }));
+
+  it("still refuses a worktree with an untracked file, even when its tracked files match", () =>
+    withWorld(async (world) => {
+      boxWorktree(world, "start", "?? notes.txt\0");
+      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([
+        "src/a.ts",
+        "notes.txt",
+      ]);
+      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
+      expect(outcome).toMatchObject({ ok: false, files: ["src/a.ts", "notes.txt"] });
+      expect(world.steps.some((s) => s.startsWith("worktree remove --force"))).toBe(false);
+      expect(world.claim().releasedAt).toBeNull();
+    }));
+
+  it("still refuses a worktree whose files match neither the start commit nor the branch tip", () =>
+    withWorld(async (world) => {
+      boxWorktree(world, "neither", "?? notes.txt\0");
+      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([
+        "src/a.ts",
+        "notes.txt",
+      ]);
+      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
+      expect(outcome).toMatchObject({ ok: false, files: ["src/a.ts", "notes.txt"] });
+      expect(world.steps.some((s) => s.startsWith("worktree remove --force"))).toBe(false);
+      expect(world.claim().releasedAt).toBeNull();
+    }));
 });

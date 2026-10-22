@@ -1,10 +1,10 @@
 ---
 id: DIPO-302
 title: Keep a box run's Mac worktree from blocking a drop
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 17:40'
+updated_date: '2026-10-22 18:25'
 labels:
   - 'tier:S'
   - box
@@ -15,6 +15,7 @@ references:
   - packages/engine/src/stories/planning.ts
   - packages/engine/src/worktree/teardown.ts
   - packages/engine/test/worktree/
+  - packages/engine/src/worktree/release.ts
 priority: medium
 type: bug
 ordinal: 291000
@@ -45,7 +46,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 For a box run, drop and the other releases treat a worktree whose files equal the start commit, or the branch tip, as clean, or a box run keeps no Mac worktree
-- [ ] #2 A worktree with files that match neither is still refused, as today
-- [ ] #3 Tests cover both
+- [x] #1 For a box run, drop and the other releases treat a worktree whose files equal the start commit, or the branch tip, as clean, or a box run keeps no Mac worktree
+- [x] #2 A worktree with files that match neither is still refused, as today
+- [x] #3 Tests cover both
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: Done by dipo's box run run_01M5JCWT79BB9Z1AFFRTCRMPBY (PR #347), reviewed and approved by dipo's reviewer. The worker ran the tests, tsc, lint and format in its box. The run went without the package cache: the cache input check refused this repository's tilde range (fixed in #349 under DIPO-275).
+<!-- SECTION:NOTES:END -->
