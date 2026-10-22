@@ -153,6 +153,22 @@ describe("box worker system file", () => {
     }
   });
 
+  // DIPO-293: the first box run read "no git repository" as "no repository" and tried to
+  // install git; the contract now names the missing program and what to do about it.
+  it("says the box has no git program, that git-based failures are not the worker's, and what to do", () => {
+    const text = box();
+    expect(text).toContain("The box has no git program, and none can be installed.");
+    expect(text).toContain(
+      "Tests and commands that need git fail in the box for that reason, not because of your change.",
+    );
+    expect(text).toContain("Do not install missing system tools.");
+    expect(text).toContain(
+      "Name such failures in your report, and put a tool the box lacks in `proposals`.",
+    );
+    // The Mac worker has git; the line belongs to the box contract only.
+    expect(renderSystemFile("implement", "developer")).not.toContain("no git program");
+  });
+
   it("drops the write-only-these-paths, no-git and no-cd rules, and the Mac sandbox's rules", () => {
     const text = box();
     expect(text).toContain("It is a forecast, not a fence");
