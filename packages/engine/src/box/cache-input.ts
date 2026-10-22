@@ -55,9 +55,12 @@ const DEPENDENCY_MAPS = [
 /** Manifest fields whose string values, at any depth, are package specs. */
 const OVERRIDE_MAPS = ["overrides", "resolutions"] as const;
 
-/** Specs that do not come from a registry. */
+/**
+ * Specs that do not come from a registry. A leading `~` is a home folder path only before a
+ * slash or alone; `~1.2.3` is a tilde version range.
+ */
 const NON_REGISTRY =
-  /^(?:git(?:\+[a-z]+)?:|git@|github:|gitlab:|bitbucket:|gist:|https?:|file:|link:|portal:|patch:|[./~\\])/i;
+  /^(?:git(?:\+[a-z]+)?:|git@|github:|gitlab:|bitbucket:|gist:|https?:|file:|link:|portal:|patch:|[./\\]|~(?:[/\\]|$))/i;
 /** `owner/repo` (GitHub) without a protocol. */
 const SHORTHAND = /^[^@:\s/]+\/\S+$/;
 
